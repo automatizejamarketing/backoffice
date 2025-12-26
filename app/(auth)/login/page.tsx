@@ -2,8 +2,7 @@ import { auth } from "@/app/(auth)/auth";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./login-form";
 import Image from "next/image";
-import logoLight from "@/public/logo/3.png";
-import logoDark from "@/public/logo/9.png";
+import logo from "@/public/logo/3.png";
 
 export default async function LoginPage({
   searchParams,
@@ -19,37 +18,28 @@ export default async function LoginPage({
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
+    <div className="flex min-h-screen items-center justify-center bg-zinc-50">
       <div className="w-full max-w-md space-y-8 p-8">
         <div className="flex flex-col items-center gap-6">
-          {/* Logo for light mode */}
+          {/* Logo */}
           <Image
             alt="AutomatizeJá"
-            src={logoLight}
+            src={logo}
             height={40}
             priority
-            className="block dark:hidden"
-          />
-          {/* Logo for dark mode */}
-          <Image
-            alt="AutomatizeJá"
-            src={logoDark}
-            height={40}
-            priority
-            className="hidden dark:block"
           />
           <div className="text-center">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
               Backoffice
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-zinc-600">
               Entre para acessar o painel administrativo
             </p>
           </div>
         </div>
 
         {params.error === "unauthorized" && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-center text-sm text-destructive">
+          <div className="rounded-md border border-red-200 bg-red-50 p-4 text-center text-sm text-red-700">
             Seu email não está autorizado para acessar esta aplicação.
           </div>
         )}
