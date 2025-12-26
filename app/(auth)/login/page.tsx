@@ -2,6 +2,7 @@ import { auth } from "@/app/(auth)/auth";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./login-form";
 import Image from "next/image";
+import logo from "@/public/logo/3.png";
 
 export default async function LoginPage({
   searchParams,
@@ -21,11 +22,9 @@ export default async function LoginPage({
       <div className="w-full max-w-md space-y-8 p-8">
         <div className="flex flex-col items-center gap-6">
           {/* Logo */}
-          {/* biome-ignore lint/a11y/useAltText: Alt text provided */}
           <Image
             alt="AutomatizeJá"
-            src="/logo/3.png"
-            width={232}
+            src={logo}
             height={40}
             priority
           />
