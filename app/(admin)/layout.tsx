@@ -3,6 +3,7 @@ import { auth } from "@/app/(auth)/auth";
 import { redirect } from "next/navigation";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarToggle } from "@/components/sidebar-toggle";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
 export default async function AdminLayout({
@@ -22,8 +23,9 @@ export default async function AdminLayout({
     <SidebarProvider defaultOpen={!isCollapsed}>
       <AppSidebar user={session.user} />
       <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b px-4">
           <SidebarToggle />
+          <ThemeToggle />
         </header>
         <div className="flex flex-1 flex-col gap-4 p-4 pt-6 md:p-8">
           {children}

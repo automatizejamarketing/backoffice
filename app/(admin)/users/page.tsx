@@ -21,45 +21,45 @@ export default async function UsersPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900">Usuários</h1>
-        <p className="text-sm text-zinc-500">
+        <h1 className="text-2xl font-bold text-foreground">Usuários</h1>
+        <p className="text-sm text-muted-foreground">
           Todos os usuários cadastrados e suas estatísticas de uso
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
         <table className="w-full">
-          <thead className="border-b border-zinc-200 bg-zinc-50">
+          <thead className="border-b border-border bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Usuário
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Empresa
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Chats
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Posts
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Requisições IA
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Tokens
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Custo
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200">
+          <tbody className="divide-y divide-border">
             {users.length === 0 ? (
               <tr>
                 <td
                   colSpan={7}
-                  className="px-4 py-8 text-center text-sm text-zinc-500"
+                  className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   Nenhum usuário encontrado
                 </td>
@@ -68,7 +68,7 @@ export default async function UsersPage() {
               users.map((user) => (
                 <tr
                   key={user.id}
-                  className="transition-colors hover:bg-zinc-50"
+                  className="transition-colors hover:bg-muted/50"
                 >
                   <td className="px-4 py-3">
                     <Link
@@ -82,11 +82,11 @@ export default async function UsersPage() {
                           className="h-8 w-8 rounded-full"
                         />
                       ) : (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 text-sm font-medium text-zinc-600">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
                           {user.email.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <span className="text-sm font-medium text-zinc-900 hover:underline">
+                      <span className="text-sm font-medium text-foreground hover:underline">
                         {user.email}
                       </span>
                     </Link>
@@ -94,7 +94,7 @@ export default async function UsersPage() {
                   <td className="px-4 py-3">
                     {user.companyName ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-zinc-700">
+                        <span className="text-sm text-foreground/80">
                           {user.companyName}
                         </span>
                         {user.onboardingCompleted && (
@@ -104,22 +104,22 @@ export default async function UsersPage() {
                         )}
                       </div>
                     ) : (
-                      <span className="text-sm text-zinc-400">—</span>
+                      <span className="text-sm text-muted-foreground/60">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right text-sm text-zinc-700">
+                  <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.chatCount)}
                   </td>
-                  <td className="px-4 py-3 text-right text-sm text-zinc-700">
+                  <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.postCount)}
                   </td>
-                  <td className="px-4 py-3 text-right text-sm text-zinc-700">
+                  <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.requestCount)}
                   </td>
-                  <td className="px-4 py-3 text-right text-sm text-zinc-700">
+                  <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.totalTokens)}
                   </td>
-                  <td className="px-4 py-3 text-right text-sm font-medium text-zinc-900">
+                  <td className="px-4 py-3 text-right text-sm font-medium text-foreground">
                     {formatCurrency(user.totalCost)}
                   </td>
                 </tr>
