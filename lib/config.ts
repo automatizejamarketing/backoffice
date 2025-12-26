@@ -1,7 +1,8 @@
 // Admin email allowlist - only these emails can access the backoffice
 export const ADMIN_EMAILS = [
   "joaopedrocorrea14@gmail.com",
-  "joaopedro@layback.trade"
+  "joaopedro@layback.trade",
+  "educacaoleg@gmail.com"
   // Add more admin emails here
 ] as const;
 
