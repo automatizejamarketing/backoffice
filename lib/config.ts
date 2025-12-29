@@ -2,7 +2,9 @@
 export const ADMIN_EMAILS = [
   "joaopedrocorrea14@gmail.com",
   "joaopedro@layback.trade",
-  "educacaoleg@gmail.com"
+  "educacaoleg@gmail.com",
+  "gustavoomarcelinoo@gmail.com",
+  "gustavo@layback.trade"
   // Add more admin emails here
 ] as const;
 
