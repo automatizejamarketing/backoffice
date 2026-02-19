@@ -9,6 +9,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -147,4 +148,30 @@ export const aiUsageLog = pgTable("ai_usage_logs", {
 });
 
 export type AiUsageLog = InferSelectModel<typeof aiUsageLog>;
+
+// Meta Business Account table for storing Facebook user connections (for Marketing API)
+export const metaBusinessAccount = pgTable(
+  "meta_business_accounts",
+  {
+    id: text("id").primaryKey().notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    facebookUserId: text("facebook_user_id").notNull(),
+    name: text("name"),
+    pictureUrl: text("picture_url"),
+    accessToken: text("access_token").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at"),
+  },
+  (table) => ({
+    uniqueUserFacebookAccount: unique(
+      "meta_business_accounts_user_id_facebook_user_id_unique"
+    ).on(table.userId, table.facebookUserId),
+  })
+);
+
+export type MetaBusinessAccount = InferSelectModel<typeof metaBusinessAccount>;
 

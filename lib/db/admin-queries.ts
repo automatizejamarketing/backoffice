@@ -1,6 +1,14 @@
-import { count, desc, eq, gte, sql, sum } from "drizzle-orm";
+import { count, desc, eq, gte, ilike, sql, sum } from "drizzle-orm";
 import { db } from "./index";
-import { aiUsageLog, chat, company, post, user, userCompany } from "./schema";
+import {
+  aiUsageLog,
+  chat,
+  company,
+  metaBusinessAccount,
+  post,
+  user,
+  userCompany,
+} from "./schema";
 
 // Get all users with their usage summary
 export async function getAllUsersWithUsage() {
@@ -194,5 +202,24 @@ export async function getDashboardStats() {
     totalPosts: postCount?.count ?? 0,
     completedOnboarding: completedOnboarding?.count ?? 0,
   };
+}
+
+// Search users by email
+export async function searchUsersByEmail(query: string) {
+  return db
+    .select()
+    .from(user)
+    .where(ilike(user.email, `%${query}%`))
+    .limit(10);
+}
+
+// Get user's Meta Business Account
+export async function getUserMetaBusinessAccount(userId: string) {
+  const [account] = await db
+    .select()
+    .from(metaBusinessAccount)
+    .where(eq(metaBusinessAccount.userId, userId))
+    .limit(1);
+  return account ?? null;
 }
 

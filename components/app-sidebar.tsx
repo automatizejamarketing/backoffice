@@ -1,6 +1,12 @@
 "use client";
 
-import { ChevronUp, LayoutDashboard, LogOut, Users } from "lucide-react";
+import {
+  ChevronUp,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  Users,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/(auth)/actions";
@@ -40,6 +46,7 @@ export function AppSidebar({ user }: { user: User }) {
 
   const isDashboard = pathname === "/";
   const isUsersSection = pathname?.startsWith("/users");
+  const isMarketingSection = pathname?.startsWith("/marketing");
 
   const navItems = [
     {
@@ -53,6 +60,12 @@ export function AppSidebar({ user }: { user: User }) {
       label: "Usuários",
       icon: Users,
       isActive: isUsersSection,
+    },
+    {
+      href: "/marketing",
+      label: "Marketing",
+      icon: Megaphone,
+      isActive: isMarketingSection,
     },
   ];
 
