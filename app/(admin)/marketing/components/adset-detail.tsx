@@ -153,7 +153,7 @@ export function AdSetDetail({
   }, [isOpen, fetchInsights]);
 
   return (
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()} modal={false}>
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
         className="w-full sm:max-w-[75vw] overflow-y-auto p-0"

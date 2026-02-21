@@ -159,20 +159,10 @@ export function CampaignDetail({
 
   return (
     <>
-      <Sheet
-        open={isOpen}
-        onOpenChange={(open) => !open && onClose()}
-        modal={false}
-      >
+      <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <SheetContent
           side="right"
           className="w-full sm:max-w-[75vw] overflow-y-auto p-0"
-          onPointerDownOutside={(e) => {
-            if (isAdSetDetailOpen) e.preventDefault();
-          }}
-          onFocusOutside={(e) => {
-            if (isAdSetDetailOpen) e.preventDefault();
-          }}
         >
           <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-4 py-3 sm:px-6 sm:py-4">
             <div className="flex items-center justify-between gap-4">
