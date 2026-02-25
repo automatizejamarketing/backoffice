@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { AdSet } from "@/lib/meta-business/types";
 import { formatCurrency } from "../utils/formatters";
+import {
+  AudienceMultiSelect,
+  type AudienceOption,
+} from "./audience-multi-select";
 
 type AdSetEditDialogProps = {
   adSet: AdSet;
@@ -40,8 +44,13 @@ export function AdSetEditDialog({
   const usesCBO = !adSet.dailyBudget;
   const currentAgeMin = adSet.targeting?.age_min ?? 18;
   const currentAgeMax = adSet.targeting?.age_max ?? 65;
-  const currentCountries = adSet.targeting?.geo_locations?.countries ?? [];
   const currentGenders = adSet.targeting?.genders ?? [];
+  const currentCustomAudiences: AudienceOption[] = (
+    adSet.targeting?.custom_audiences ?? []
+  ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
+  const currentExcludedAudiences: AudienceOption[] = (
+    adSet.targeting?.excluded_custom_audiences ?? []
+  ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
 
   const getGenderValue = (genders: number[]) => {
     if (genders.length === 0) return "all";
@@ -55,11 +64,41 @@ export function AdSetEditDialog({
   );
   const [ageMin, setAgeMin] = useState<string>(currentAgeMin.toString());
   const [ageMax, setAgeMax] = useState<string>(currentAgeMax.toString());
-  const [countries, setCountries] = useState<string>(currentCountries.join(", "));
   const [gender, setGender] = useState<string>(getGenderValue(currentGenders));
+  const [includedAudiences, setIncludedAudiences] =
+    useState<AudienceOption[]>(currentCustomAudiences);
+  const [excludedAudiences, setExcludedAudiences] =
+    useState<AudienceOption[]>(currentExcludedAudiences);
+  const [availableAudiences, setAvailableAudiences] = useState<
+    AudienceOption[]
+  >([]);
+  const [isLoadingAudiences, setIsLoadingAudiences] = useState(false);
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchAudiences = useCallback(async () => {
+    setIsLoadingAudiences(true);
+    try {
+      const response = await fetch(
+        `/api/meta-marketing/${accountId}/audiences?userId=${userId}`,
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableAudiences(data.audiences);
+      }
+    } catch {
+      // Silently fail - audiences list is optional
+    } finally {
+      setIsLoadingAudiences(false);
+    }
+  }, [accountId, userId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchAudiences();
+    }
+  }, [isOpen, fetchAudiences]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,10 +112,6 @@ export function AdSetEditDialog({
     const budgetValue = Number.parseFloat(dailyBudget);
     const ageMinValue = Number.parseInt(ageMin);
     const ageMaxValue = Number.parseInt(ageMax);
-    const countriesArray = countries
-      .split(",")
-      .map((c) => c.trim().toUpperCase())
-      .filter((c) => c.length > 0);
 
     const hasBudgetChange =
       !usesCBO && !Number.isNaN(budgetValue) && budgetValue !== currentBudgetBRL;
@@ -84,17 +119,38 @@ export function AdSetEditDialog({
       !Number.isNaN(ageMinValue) && ageMinValue !== currentAgeMin;
     const hasAgeMaxChange =
       !Number.isNaN(ageMaxValue) && ageMaxValue !== currentAgeMax;
-    const hasCountriesChange =
-      countriesArray.length > 0 &&
-      JSON.stringify(countriesArray) !== JSON.stringify(currentCountries);
 
     const gendersArray =
       gender === "male" ? [1] : gender === "female" ? [2] : [];
     const hasGenderChange =
       JSON.stringify(gendersArray) !== JSON.stringify(currentGenders);
 
+    const currentIncludedIds = currentCustomAudiences
+      .map((a) => a.id)
+      .sort()
+      .join(",");
+    const newIncludedIds = includedAudiences
+      .map((a) => a.id)
+      .sort()
+      .join(",");
+    const hasIncludedAudienceChange = currentIncludedIds !== newIncludedIds;
+
+    const currentExcludedIds = currentExcludedAudiences
+      .map((a) => a.id)
+      .sort()
+      .join(",");
+    const newExcludedIds = excludedAudiences
+      .map((a) => a.id)
+      .sort()
+      .join(",");
+    const hasExcludedAudienceChange = currentExcludedIds !== newExcludedIds;
+
     const hasTargetingChange =
-      hasAgeMinChange || hasAgeMaxChange || hasCountriesChange || hasGenderChange;
+      hasAgeMinChange ||
+      hasAgeMaxChange ||
+      hasGenderChange ||
+      hasIncludedAudienceChange ||
+      hasExcludedAudienceChange;
 
     if (!hasBudgetChange && !hasTargetingChange) {
       setError("Nenhuma alteração foi feita");
@@ -140,8 +196,17 @@ export function AdSetEditDialog({
           ...(hasAgeMinChange && { age_min: ageMinValue }),
           ...(hasAgeMaxChange && { age_max: ageMaxValue }),
           ...(hasGenderChange && { genders: gendersArray }),
-          ...(hasCountriesChange && {
-            geo_locations: { countries: countriesArray },
+          ...(hasIncludedAudienceChange && {
+            custom_audiences: includedAudiences.map((a) => ({
+              id: a.id,
+              name: a.name,
+            })),
+          }),
+          ...(hasExcludedAudienceChange && {
+            excluded_custom_audiences: excludedAudiences.map((a) => ({
+              id: a.id,
+              name: a.name,
+            })),
           }),
         };
       }
@@ -178,8 +243,9 @@ export function AdSetEditDialog({
       setDailyBudget(currentBudgetBRL.toFixed(2));
       setAgeMin(currentAgeMin.toString());
       setAgeMax(currentAgeMax.toString());
-      setCountries(currentCountries.join(", "));
       setGender(getGenderValue(currentGenders));
+      setIncludedAudiences(currentCustomAudiences);
+      setExcludedAudiences(currentExcludedAudiences);
       setNote("");
       setError(null);
       onClose();
@@ -188,7 +254,7 @@ export function AdSetEditDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar Conjunto de Anúncios</DialogTitle>
           <DialogDescription>
@@ -286,20 +352,29 @@ export function AdSetEditDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="countries">
-                Países (códigos ISO separados por vírgula)
-              </Label>
-              <Input
-                id="countries"
-                type="text"
-                value={countries}
-                onChange={(e) => setCountries(e.target.value)}
-                placeholder="Ex: BR, US, PT"
+              <Label>Incluir Públicos</Label>
+              <AudienceMultiSelect
+                label="Selecionar públicos para incluir..."
+                placeholder="Buscar público..."
+                audiences={availableAudiences}
+                selected={includedAudiences}
+                onChange={setIncludedAudiences}
                 disabled={isSubmitting}
+                isLoading={isLoadingAudiences}
               />
-              <p className="text-xs text-muted-foreground">
-                Atual: {currentCountries.length > 0 ? currentCountries.join(", ") : "Não definido"}
-              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Excluir Públicos</Label>
+              <AudienceMultiSelect
+                label="Selecionar públicos para excluir..."
+                placeholder="Buscar público..."
+                audiences={availableAudiences}
+                selected={excludedAudiences}
+                onChange={setExcludedAudiences}
+                disabled={isSubmitting}
+                isLoading={isLoadingAudiences}
+              />
             </div>
 
             <div className="space-y-2">

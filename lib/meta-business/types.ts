@@ -265,6 +265,11 @@ export type Campaign = {
 /**
  * Ad Set targeting configuration from Meta Graph API.
  */
+export type AudienceRef = {
+  id: string;
+  name?: string;
+};
+
 export type AdSetTargeting = {
   age_min?: number;
   age_max?: number;
@@ -275,6 +280,8 @@ export type AdSetTargeting = {
   };
   genders?: number[];
   locales?: number[];
+  custom_audiences?: AudienceRef[];
+  excluded_custom_audiences?: AudienceRef[];
   flexible_spec?: Array<Record<string, unknown>>;
   exclusions?: Record<string, unknown>;
   [key: string]: unknown;

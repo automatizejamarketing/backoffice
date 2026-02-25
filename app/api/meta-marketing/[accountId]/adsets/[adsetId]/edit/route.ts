@@ -4,7 +4,11 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
-import type { AdSetTargeting, GraphApiAdSet } from "@/lib/meta-business/types";
+import type {
+  AdSetTargeting,
+  AudienceRef,
+  GraphApiAdSet,
+} from "@/lib/meta-business/types";
 
 type EditAdSetRequestBody = {
   userId: string;
@@ -18,6 +22,8 @@ type EditAdSetRequestBody = {
     geo_locations?: {
       countries?: string[];
     };
+    custom_audiences?: AudienceRef[];
+    excluded_custom_audiences?: AudienceRef[];
   };
   note: string;
 };
@@ -89,8 +95,8 @@ export async function PATCH(
       (targeting.age_min !== undefined ||
         targeting.age_max !== undefined ||
         targeting.genders !== undefined ||
-        (targeting.geo_locations?.countries &&
-          targeting.geo_locations.countries.length > 0));
+        targeting.custom_audiences !== undefined ||
+        targeting.excluded_custom_audiences !== undefined);
 
     if (!hasBudgetChange && !hasTargetingChange) {
       return NextResponse.json(
@@ -158,65 +164,87 @@ export async function PATCH(
     let newTargeting: AdSetTargeting | undefined;
     if (hasTargetingChange) {
       // Build targeting with only the essential fields that Meta accepts for updates
-      // We need to preserve geo_locations from previous targeting if not provided
+      // Always preserve geo_locations from previous targeting (location editing is not allowed)
       const prevGeoLocations = previousTargeting?.geo_locations;
-      const newGeoLocations = targeting.geo_locations?.countries?.length
-        ? { countries: targeting.geo_locations.countries }
-        : prevGeoLocations
-          ? {
-              countries: prevGeoLocations.countries,
-              cities: prevGeoLocations.cities,
-              regions: prevGeoLocations.regions,
-            }
-          : undefined;
-
-      if (
-        !newGeoLocations ||
-        (!newGeoLocations.countries?.length &&
-          !newGeoLocations.cities?.length &&
-          !newGeoLocations.regions?.length)
+      
+      if (!prevGeoLocations ||
+          (!prevGeoLocations.countries?.length &&
+            !prevGeoLocations.cities?.length &&
+            !prevGeoLocations.regions?.length)
       ) {
         return NextResponse.json(
           {
             error: "Missing geo_locations",
             message:
-              "geo_locations is required when updating targeting. The ad set must have at least one country, city, or region defined.",
+              "O conjunto de anúncios não possui localização geográfica configurada. A localização não pode ser alterada através desta interface.",
             solution:
-              "Include geo_locations.countries in the targeting object or ensure the ad set already has geographic targeting configured.",
+              "Configure a localização geográfica diretamente na Meta ou entre em contato com o suporte.",
           },
           { status: 400 },
         );
       }
+      
+      const newGeoLocations = prevGeoLocations;
 
       const newGenders =
         targeting.genders !== undefined
           ? targeting.genders
           : previousTargeting?.genders;
 
-      // Build a clean targeting object with only the fields Meta accepts
+      const newCustomAudiences =
+        targeting.custom_audiences !== undefined
+          ? targeting.custom_audiences
+          : previousTargeting?.custom_audiences;
+
+      const newExcludedAudiences =
+        targeting.excluded_custom_audiences !== undefined
+          ? targeting.excluded_custom_audiences
+          : previousTargeting?.excluded_custom_audiences;
+
+      // newTargeting stores full audience refs (with names) for the audit log
       newTargeting = {
         geo_locations: newGeoLocations,
         age_min: targeting.age_min ?? previousTargeting?.age_min ?? 18,
         age_max: targeting.age_max ?? previousTargeting?.age_max ?? 65,
         ...(newGenders?.length && { genders: newGenders }),
+        ...(newCustomAudiences?.length && {
+          custom_audiences: newCustomAudiences,
+        }),
+        ...(newExcludedAudiences?.length && {
+          excluded_custom_audiences: newExcludedAudiences,
+        }),
+      };
+
+      // metaTargeting sends only audience IDs to Meta (required format)
+      const metaTargeting: AdSetTargeting = {
+        ...newTargeting,
+        ...(newCustomAudiences?.length && {
+          custom_audiences: newCustomAudiences.map((a) => ({ id: a.id })),
+        }),
+        ...(newExcludedAudiences?.length && {
+          excluded_custom_audiences: newExcludedAudiences.map((a) => ({
+            id: a.id,
+          })),
+        }),
       };
 
       // Clean up geo_locations - remove undefined/empty arrays
-      if (newTargeting.geo_locations) {
-        const cleanGeo: typeof newTargeting.geo_locations = {};
-        if (newTargeting.geo_locations.countries?.length) {
-          cleanGeo.countries = newTargeting.geo_locations.countries;
+      if (metaTargeting.geo_locations) {
+        const cleanGeo: typeof metaTargeting.geo_locations = {};
+        if (metaTargeting.geo_locations.countries?.length) {
+          cleanGeo.countries = metaTargeting.geo_locations.countries;
         }
-        if (newTargeting.geo_locations.cities?.length) {
-          cleanGeo.cities = newTargeting.geo_locations.cities;
+        if (metaTargeting.geo_locations.cities?.length) {
+          cleanGeo.cities = metaTargeting.geo_locations.cities;
         }
-        if (newTargeting.geo_locations.regions?.length) {
-          cleanGeo.regions = newTargeting.geo_locations.regions;
+        if (metaTargeting.geo_locations.regions?.length) {
+          cleanGeo.regions = metaTargeting.geo_locations.regions;
         }
+        metaTargeting.geo_locations = cleanGeo;
         newTargeting.geo_locations = cleanGeo;
       }
 
-      updateParams.targeting = JSON.stringify(newTargeting);
+      updateParams.targeting = JSON.stringify(metaTargeting);
       changes.targeting = {
         previous: previousTargeting,
         new: newTargeting,

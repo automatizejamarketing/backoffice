@@ -99,6 +99,37 @@ function formatTargetingChange(
     changes.push(`Países: ${prevStr} → ${newStr}`);
   }
 
+  type AudienceRef = { id: string; name?: string };
+
+  const formatAudienceList = (audiences: AudienceRef[]) =>
+    audiences.length > 0
+      ? audiences.map((a) => a.name ?? a.id).join(", ")
+      : "Nenhum";
+
+  const prevIncluded = (previous?.custom_audiences as AudienceRef[]) ?? [];
+  const newIncluded = (newValue?.custom_audiences as AudienceRef[]) ?? [];
+  const prevIncludedIds = prevIncluded.map((a) => a.id).sort().join(",");
+  const newIncludedIds = newIncluded.map((a) => a.id).sort().join(",");
+
+  if (prevIncludedIds !== newIncludedIds) {
+    changes.push(
+      `Públicos incluídos: ${formatAudienceList(prevIncluded)} → ${formatAudienceList(newIncluded)}`,
+    );
+  }
+
+  const prevExcluded =
+    (previous?.excluded_custom_audiences as AudienceRef[]) ?? [];
+  const newExcluded =
+    (newValue?.excluded_custom_audiences as AudienceRef[]) ?? [];
+  const prevExcludedIds = prevExcluded.map((a) => a.id).sort().join(",");
+  const newExcludedIds = newExcluded.map((a) => a.id).sort().join(",");
+
+  if (prevExcludedIds !== newExcludedIds) {
+    changes.push(
+      `Públicos excluídos: ${formatAudienceList(prevExcluded)} → ${formatAudienceList(newExcluded)}`,
+    );
+  }
+
   return changes;
 }
 

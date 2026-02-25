@@ -157,6 +157,7 @@ export function AdSetDetail({
   }, [isOpen, fetchInsights]);
 
   return (
+  <>
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="right"
@@ -369,18 +370,19 @@ export function AdSetDetail({
             />
           </section>
         </div>
-
-        <AdSetEditDialog
-          adSet={adSet}
-          accountId={accountId}
-          userId={userId}
-          isOpen={isEditOpen}
-          onClose={() => setIsEditOpen(false)}
-          onSuccess={() => {
-            setHistoryRefreshTrigger((prev) => prev + 1);
-          }}
-        />
       </SheetContent>
     </Sheet>
+
+    <AdSetEditDialog
+      adSet={adSet}
+      accountId={accountId}
+      userId={userId}
+      isOpen={isEditOpen}
+      onClose={() => setIsEditOpen(false)}
+      onSuccess={() => {
+        setHistoryRefreshTrigger((prev) => prev + 1);
+      }}
+    />
+  </>
   );
 }
