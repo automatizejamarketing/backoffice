@@ -175,3 +175,39 @@ export const metaBusinessAccount = pgTable(
 
 export type MetaBusinessAccount = InferSelectModel<typeof metaBusinessAccount>;
 
+// AdSet targeting type for audit logs
+export type AdSetTargetingData = {
+  age_min?: number;
+  age_max?: number;
+  geo_locations?: {
+    countries?: string[];
+    cities?: Array<{ key: string; name?: string }>;
+  };
+  [key: string]: unknown;
+};
+
+// AdSet Edit Logs - tracking manual changes made by backoffice admins
+export const adsetEditLog = pgTable("adset_edit_logs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  backofficeUserId: uuid("backoffice_user_id")
+    .notNull()
+    .references(() => user.id),
+  targetUserId: uuid("target_user_id")
+    .notNull()
+    .references(() => user.id),
+  adsetId: text("adset_id").notNull(),
+  accountId: text("account_id").notNull(),
+  campaignId: text("campaign_id"),
+  adsetName: text("adset_name"),
+  previousDailyBudget: numeric("previous_daily_budget"),
+  newDailyBudget: numeric("new_daily_budget"),
+  previousTargeting: jsonb("previous_targeting").$type<AdSetTargetingData>(),
+  newTargeting: jsonb("new_targeting").$type<AdSetTargetingData>(),
+  note: text("note").notNull(),
+  appliedToMeta: boolean("applied_to_meta").notNull().default(false),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AdsetEditLog = InferSelectModel<typeof adsetEditLog>;
+

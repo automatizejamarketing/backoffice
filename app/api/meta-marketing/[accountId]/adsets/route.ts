@@ -65,6 +65,7 @@ function buildAdSetFields(): string {
     "optimization_goal",
     "billing_event",
     "bid_amount",
+    "targeting",
     insightsFields,
   ].join(",");
 }

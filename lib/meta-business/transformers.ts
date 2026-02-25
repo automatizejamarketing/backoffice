@@ -107,6 +107,7 @@ export function transformAdSet(adSet: GraphApiAdSet): AdSet {
     optimizationGoal: adSet.optimization_goal,
     billingEvent: adSet.billing_event,
     bidAmount: adSet.bid_amount,
+    targeting: adSet.targeting,
     insights: transformInsights(adSet.insights),
   };
 }

@@ -263,6 +263,24 @@ export type Campaign = {
 // ================================
 
 /**
+ * Ad Set targeting configuration from Meta Graph API.
+ */
+export type AdSetTargeting = {
+  age_min?: number;
+  age_max?: number;
+  geo_locations?: {
+    countries?: string[];
+    cities?: Array<{ key: string; name?: string; region?: string }>;
+    regions?: Array<{ key: string; name?: string }>;
+  };
+  genders?: number[];
+  locales?: number[];
+  flexible_spec?: Array<Record<string, unknown>>;
+  exclusions?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+/**
  * Graph API ad set response (snake_case).
  */
 export type GraphApiAdSet = {
@@ -281,6 +299,7 @@ export type GraphApiAdSet = {
   optimization_goal?: string;
   billing_event?: string;
   bid_amount?: string;
+  targeting?: AdSetTargeting;
   insights?: {
     data: GraphApiInsights[];
   };
@@ -309,6 +328,7 @@ export type AdSet = {
   optimizationGoal?: string;
   billingEvent?: string;
   bidAmount?: string;
+  targeting?: AdSetTargeting;
   insights?: InsightsMetrics;
 };
 

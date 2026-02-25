@@ -1,6 +1,7 @@
 import { count, desc, eq, gte, ilike, sql, sum } from "drizzle-orm";
 import { db } from "./index";
 import {
+  adsetEditLog,
   aiUsageLog,
   chat,
   company,
@@ -8,6 +9,7 @@ import {
   post,
   user,
   userCompany,
+  type AdSetTargetingData,
 } from "./schema";
 
 // Get all users with their usage summary
@@ -221,5 +223,97 @@ export async function getUserMetaBusinessAccount(userId: string) {
     .where(eq(metaBusinessAccount.userId, userId))
     .limit(1);
   return account ?? null;
+}
+
+// ================================
+// AdSet Edit Log Functions
+// ================================
+
+export type CreateAdSetEditLogData = {
+  backofficeUserId: string;
+  targetUserId: string;
+  adsetId: string;
+  accountId: string;
+  campaignId?: string;
+  adsetName?: string;
+  previousDailyBudget?: string;
+  newDailyBudget?: string;
+  previousTargeting?: AdSetTargetingData;
+  newTargeting?: AdSetTargetingData;
+  note: string;
+  appliedToMeta: boolean;
+  errorMessage?: string;
+};
+
+export async function createAdSetEditLog(data: CreateAdSetEditLogData) {
+  const [log] = await db
+    .insert(adsetEditLog)
+    .values({
+      backofficeUserId: data.backofficeUserId,
+      targetUserId: data.targetUserId,
+      adsetId: data.adsetId,
+      accountId: data.accountId,
+      campaignId: data.campaignId,
+      adsetName: data.adsetName,
+      previousDailyBudget: data.previousDailyBudget,
+      newDailyBudget: data.newDailyBudget,
+      previousTargeting: data.previousTargeting,
+      newTargeting: data.newTargeting,
+      note: data.note,
+      appliedToMeta: data.appliedToMeta,
+      errorMessage: data.errorMessage,
+    })
+    .returning();
+
+  return log;
+}
+
+export type AdSetEditLogWithAdmin = {
+  id: string;
+  backofficeUserId: string;
+  backofficeUserEmail: string;
+  targetUserId: string;
+  adsetId: string;
+  accountId: string;
+  campaignId: string | null;
+  adsetName: string | null;
+  previousDailyBudget: string | null;
+  newDailyBudget: string | null;
+  previousTargeting: AdSetTargetingData | null;
+  newTargeting: AdSetTargetingData | null;
+  note: string;
+  appliedToMeta: boolean;
+  errorMessage: string | null;
+  createdAt: Date;
+};
+
+export async function getAdSetEditLogs(
+  adsetId: string
+): Promise<AdSetEditLogWithAdmin[]> {
+  const logs = await db
+    .select({
+      id: adsetEditLog.id,
+      backofficeUserId: adsetEditLog.backofficeUserId,
+      backofficeUserEmail: user.email,
+      targetUserId: adsetEditLog.targetUserId,
+      adsetId: adsetEditLog.adsetId,
+      accountId: adsetEditLog.accountId,
+      campaignId: adsetEditLog.campaignId,
+      adsetName: adsetEditLog.adsetName,
+      previousDailyBudget: adsetEditLog.previousDailyBudget,
+      newDailyBudget: adsetEditLog.newDailyBudget,
+      previousTargeting: adsetEditLog.previousTargeting,
+      newTargeting: adsetEditLog.newTargeting,
+      note: adsetEditLog.note,
+      appliedToMeta: adsetEditLog.appliedToMeta,
+      errorMessage: adsetEditLog.errorMessage,
+      createdAt: adsetEditLog.createdAt,
+    })
+    .from(adsetEditLog)
+    .innerJoin(user, eq(adsetEditLog.backofficeUserId, user.id))
+    .where(eq(adsetEditLog.adsetId, adsetId))
+    .orderBy(desc(adsetEditLog.createdAt));
+
+  return logs;
 }
 

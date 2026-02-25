@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, X, Info } from "lucide-react";
+import { ArrowLeft, X, Info, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,6 +36,8 @@ import { InsightsChart } from "./insights-chart";
 import { TimeIncrementSelector } from "./time-increment-selector";
 import { AdsTable } from "./ads-table";
 import { DateFilter } from "./date-filter";
+import { AdSetEditDialog } from "./adset-edit-dialog";
+import { AdSetEditHistory } from "./adset-edit-history";
 import {
   getStatusBadgeVariant,
   formatDate,
@@ -72,6 +74,8 @@ export function AdSetDetail({
     adSet.insights
   );
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
   const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
   const [selectedMetric, setSelectedMetric] = useState<
@@ -185,14 +189,25 @@ export function AdSetDetail({
                 </div>
               </div>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              className="shrink-0 hidden sm:flex"
-            >
-              <X className="size-4" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditOpen(true)}
+                className="shrink-0"
+              >
+                <Pencil className="size-4 mr-2" />
+                Editar
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onClose}
+                className="shrink-0 hidden sm:flex"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
           </div>
         </SheetHeader>
 
@@ -342,7 +357,29 @@ export function AdSetDetail({
             </h3>
             <AdsTable accountId={accountId} userId={userId} adSetId={adSet.id} />
           </section>
+
+          <section>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">
+              Histórico de Alterações
+            </h3>
+            <AdSetEditHistory
+              adsetId={adSet.id}
+              accountId={accountId}
+              refreshTrigger={historyRefreshTrigger}
+            />
+          </section>
         </div>
+
+        <AdSetEditDialog
+          adSet={adSet}
+          accountId={accountId}
+          userId={userId}
+          isOpen={isEditOpen}
+          onClose={() => setIsEditOpen(false)}
+          onSuccess={() => {
+            setHistoryRefreshTrigger((prev) => prev + 1);
+          }}
+        />
       </SheetContent>
     </Sheet>
   );
