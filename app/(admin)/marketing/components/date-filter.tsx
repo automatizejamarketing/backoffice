@@ -65,7 +65,7 @@ export function DateFilter({
     >
       <SelectTrigger className="w-[180px] sm:w-[200px]">
         <CalendarIcon className="size-4 mr-2 text-muted-foreground" />
-        <SelectValue>{displayValue}</SelectValue>
+        <SelectValue placeholder="Selecione um período" />
       </SelectTrigger>
       <SelectContent>
         {Object.values(DatePreset).map((preset) => (

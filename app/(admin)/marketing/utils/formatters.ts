@@ -123,6 +123,8 @@ export function getStatusBadgeVariant(
     case "ACTIVE":
       return "default";
     case "PAUSED":
+    case "CAMPAIGN_PAUSED":
+    case "ADSET_PAUSED":
     case "PENDING_REVIEW":
     case "PENDING":
     case "IN_PROCESS":

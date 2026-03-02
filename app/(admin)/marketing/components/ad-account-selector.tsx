@@ -46,33 +46,35 @@ export function AdAccountSelector({
         }
       }}
     >
-      <SelectTrigger className="w-[180px] sm:w-[240px]">
-        <SelectValue>
-          {selectedAccount ? (
-            <div className="flex items-center gap-2">
-              <Avatar className="size-5">
-                <AvatarFallback className="text-xs">
-                  {getInitial(selectedAccount.name)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="truncate text-sm">{selectedAccount.name}</span>
-            </div>
-          ) : (
-            <span className="text-muted-foreground">Selecione uma conta</span>
-          )}
-        </SelectValue>
+      <SelectTrigger className="w-full min-w-[200px] max-w-[400px] sm:min-w-[280px]">
+        {selectedAccount ? (
+          // <div className="flex items-center gap-2 flex-1 min-w-0">
+          //   {/* Rounded badge with initial (not circular) */}
+          //   <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted text-xs font-medium text-foreground">
+          //     {getInitial(selectedAccount.name)}
+          //   </div>
+          //   <span className="truncate text-sm min-w-0">
+          //     {selectedAccount.name}
+          //   </span>
+          // </div>
+          <></>
+        ) : (
+          <span className="text-muted-foreground">Selecione uma conta</span>
+        )}
+        <SelectValue className="sr-only" />
       </SelectTrigger>
       <SelectContent>
         {accounts.map((account) => (
           <SelectItem key={account.id} value={account.accountId}>
-            <div className="flex items-center gap-2">
-              <Avatar className="size-5">
+            <div className="flex items-center gap-2 w-full">
+              {/* Circular avatar for dropdown items */}
+              <Avatar className="size-5 shrink-0">
                 <AvatarFallback className="text-xs">
                   {getInitial(account.name)}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex flex-col">
-                <span className="text-sm">{account.name}</span>
+              <div className="flex flex-col min-w-0 flex-1">
+                <span className="text-sm truncate">{account.name}</span>
                 <span className="text-xs text-muted-foreground">
                   ID: {account.accountId}
                 </span>

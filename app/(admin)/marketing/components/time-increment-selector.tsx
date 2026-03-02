@@ -34,7 +34,7 @@ export function TimeIncrementSelector({
       disabled={disabled}
     >
       <SelectTrigger className="w-[120px]">
-        <SelectValue>{INCREMENT_LABELS[value]}</SelectValue>
+        <SelectValue placeholder="Selecione" />
       </SelectTrigger>
       <SelectContent>
         {(Object.keys(INCREMENT_LABELS) as TimeIncrement[]).map((increment) => (

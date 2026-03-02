@@ -331,9 +331,7 @@ export function AdSetDetail({
                   }
                 >
                   <SelectTrigger className="w-full sm:w-[140px]">
-                    <SelectValue>
-                      {metricOptions.find((o) => o.value === selectedMetric)?.label}
-                    </SelectValue>
+                    <SelectValue placeholder="Selecione uma métrica" />
                   </SelectTrigger>
                   <SelectContent>
                     {metricOptions.map((option) => (

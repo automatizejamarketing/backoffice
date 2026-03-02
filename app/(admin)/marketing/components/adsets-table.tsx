@@ -83,7 +83,7 @@ export function AdSetsTable({
         const activeData: GetAdSetsResponse = await activeResponse.json();
 
         const pausedParams = new URLSearchParams(baseParams);
-        pausedParams.set("effectiveStatus", "PAUSED");
+        pausedParams.set("effectiveStatus", "PAUSED,CAMPAIGN_PAUSED");
 
         const pausedResponse = await fetch(
           `/api/meta-marketing/${accountId}/adsets?${pausedParams}`
