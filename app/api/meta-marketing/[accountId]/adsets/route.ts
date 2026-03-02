@@ -225,6 +225,8 @@ export type PostAdSetRequestBody = {
   creative?: {
     instagramMediaId: string;
   };
+  /** URL for SALES campaigns (required when creative is provided for OUTCOME_SALES) */
+  url?: string;
 };
 
 export type PostAdSetResponse = {
@@ -310,6 +312,154 @@ function getOptimizationConfig(objective?: string): OptimizationConfig {
   }
 }
 
+/**
+ * Get the privacy policy URL from environment variable or use default
+ */
+function getPrivacyPolicyUrl(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl) {
+    return `${appUrl}/lgpd`;
+  }
+  return "https://www.automatizemarketing.com/lgpd";
+}
+
+/**
+ * Get the website URL (without /lgpd path)
+ */
+function getWebsiteUrl(): string {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  return appUrl ?? "https://www.automatizemarketing.com";
+}
+
+type CreateLeadFormResponse = { id: string };
+
+/**
+ * Create a lead form on the Facebook Page
+ * The form collects: Full Name, Email, Phone
+ * Locale: PT_BR (Portuguese Brazil)
+ */
+async function createLeadForm(params: {
+  pageId: string;
+  accessToken: string;
+  name: string;
+}): Promise<CreateLeadFormResponse> {
+  const { pageId, accessToken, name } = params;
+
+  const privacyPolicyUrl = getPrivacyPolicyUrl();
+  const websiteUrl = getWebsiteUrl();
+
+  const questions = [
+    { type: "FULL_NAME", key: "full_name" },
+    { type: "EMAIL", key: "email" },
+    { type: "PHONE", key: "phone" },
+  ];
+
+  const thankYouPage = {
+    title: "Obrigado pelo seu interesse!",
+    body: "Recebemos suas informações e entraremos em contato em breve.",
+    button_type: "VIEW_WEBSITE",
+    button_text: "Visitar site",
+    website_url: websiteUrl,
+  };
+
+  const privacyPolicy = {
+    url: privacyPolicyUrl,
+    link_text: "Política de Privacidade",
+  };
+
+  const formData = new URLSearchParams({
+    name,
+    questions: JSON.stringify(questions),
+    privacy_policy: JSON.stringify(privacyPolicy),
+    thank_you_page: JSON.stringify(thankYouPage),
+    locale: "PT_BR",
+    block_display_for_non_targeted_viewer: "true",
+  });
+
+  const response = await metaApiCall<CreateLeadFormResponse>({
+    domain: "FACEBOOK",
+    method: "POST",
+    path: `${pageId}/leadgen_forms`,
+    params: "",
+    body: formData,
+    accessToken,
+  });
+
+  return response;
+}
+
+/**
+ * Delete a Meta ad object (used for rollback)
+ */
+async function deleteMetaObject(
+  objectId: string,
+  accessToken: string,
+): Promise<boolean> {
+  try {
+    await metaApiCall<{ success: boolean }>({
+      domain: "FACEBOOK",
+      method: "DELETE",
+      path: objectId,
+      params: "",
+      accessToken,
+    });
+    return true;
+  } catch {
+    console.error(`[deleteMetaObject] Failed to delete ${objectId}`);
+    return false;
+  }
+}
+
+type CallToAction = {
+  type: string;
+  value: Record<string, string>;
+};
+
+/**
+ * Build the call_to_action object based on campaign objective
+ * Returns undefined for objectives that don't require a CTA
+ */
+function buildCallToAction(params: {
+  campaignObjective?: string;
+  url?: string;
+  instagramProfileUrl?: string;
+  leadFormId?: string;
+}): CallToAction | undefined {
+  const { campaignObjective, url, instagramProfileUrl, leadFormId } = params;
+
+  switch (campaignObjective) {
+    case CampaignObjective.OUTCOME_SALES:
+    case CampaignObjective.CONVERSIONS:
+      if (!url) return undefined;
+      return {
+        type: "ORDER_NOW",
+        value: { link: url },
+      };
+
+    case CampaignObjective.OUTCOME_TRAFFIC:
+    case CampaignObjective.LINK_CLICKS:
+      if (!instagramProfileUrl) return undefined;
+      return {
+        type: "LEARN_MORE",
+        value: { link: instagramProfileUrl },
+      };
+
+    case CampaignObjective.OUTCOME_LEADS:
+    case CampaignObjective.LEAD_GENERATION:
+      if (!leadFormId) return undefined;
+      return {
+        type: "SIGN_UP",
+        value: {
+          lead_gen_form_id: leadFormId,
+          link: getWebsiteUrl(),
+        },
+      };
+
+    default:
+      return undefined;
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
@@ -337,6 +487,7 @@ export async function POST(
       dailyBudget,
       targeting,
       creative,
+      url,
     } = body;
 
     if (!userId) {
@@ -378,6 +529,36 @@ export async function POST(
           error: "Invalid dailyBudget",
           message: "Daily budget must be at least R$ 1,00",
           solution: "Provide a valid daily budget",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Validate URL for SALES campaigns when creative is provided
+    const isSalesCampaign =
+      campaignObjective === CampaignObjective.OUTCOME_SALES ||
+      campaignObjective === CampaignObjective.CONVERSIONS;
+
+    if (isSalesCampaign && creative?.instagramMediaId && !url) {
+      return NextResponse.json(
+        {
+          error: "Missing URL",
+          message:
+            "Campanhas de vendas requerem uma URL de destino para o anúncio.",
+          solution:
+            "Forneça a URL do produto ou página de destino para o anúncio.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Validate URL format if provided
+    if (url && !url.startsWith("https://")) {
+      return NextResponse.json(
+        {
+          error: "Invalid URL",
+          message: "A URL deve começar com https://",
+          solution: "Forneça uma URL válida começando com https://",
         },
         { status: 400 },
       );
@@ -559,13 +740,43 @@ export async function POST(
     const adsetId = createdAdSet.id;
     let adId: string | undefined;
     let adCreativeId: string | undefined;
+    let leadFormId: string | undefined;
 
     // Create ad + creative if Instagram post provided
     if (creative?.instagramMediaId && pageWithIg?.instagram_business_account) {
       const pageId = pageWithIg.id;
       const igAccountId = pageWithIg.instagram_business_account.id;
+      const igUsername = pageWithIg.instagram_business_account.username;
+
+      // Build Instagram profile URL for TRAFFIC campaigns
+      const instagramProfileUrl = igUsername
+        ? `https://www.instagram.com/${igUsername}`
+        : undefined;
+
+      // Check if this is a LEADS campaign
+      const isLeadsCampaign =
+        campaignObjective === CampaignObjective.OUTCOME_LEADS ||
+        campaignObjective === CampaignObjective.LEAD_GENERATION;
 
       try {
+        // For LEADS campaigns, create a lead form first
+        if (isLeadsCampaign) {
+          const leadForm = await createLeadForm({
+            pageId,
+            accessToken,
+            name: `${adsetName.trim()} - Formulário`,
+          });
+          leadFormId = leadForm.id;
+        }
+
+        // Build call_to_action based on campaign objective
+        const callToAction = buildCallToAction({
+          campaignObjective,
+          url,
+          instagramProfileUrl,
+          leadFormId,
+        });
+
         // Create ad creative from Instagram post
         const creativeParams = new URLSearchParams({
           name: `${adsetName.trim()} - Creative`,
@@ -574,6 +785,11 @@ export async function POST(
           instagram_user_id: igAccountId,
           contextual_multi_ads: JSON.stringify({ enroll_status: "OPT_OUT" }),
         });
+
+        // Add call_to_action if applicable for this campaign objective
+        if (callToAction) {
+          creativeParams.set("call_to_action", JSON.stringify(callToAction));
+        }
 
         const createdCreative = await metaApiCall<CreateAdCreativeApiResponse>({
           domain: "FACEBOOK",
@@ -605,6 +821,14 @@ export async function POST(
 
         adId = createdAd.id;
       } catch (creativeError) {
+        // Rollback: delete lead form if it was created
+        if (leadFormId) {
+          console.log(
+            `[POST /adsets] Rolling back lead form ${leadFormId}...`,
+          );
+          await deleteMetaObject(leadFormId, accessToken);
+        }
+
         // Return the adset even if creative/ad creation fails
         console.error(
           "[POST /adsets] Failed to create creative/ad:",

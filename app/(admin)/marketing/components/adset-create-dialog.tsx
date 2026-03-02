@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ImageIcon, Loader2, X } from "lucide-react";
+import Image from "next/image";
+import { ImageIcon, Info, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AudienceMultiSelect,
   type AudienceOption,
@@ -21,6 +23,10 @@ import {
   InstagramPostPicker,
   type InstagramMediaItem,
 } from "./instagram-post-picker";
+
+const SALES_OBJECTIVES = ["OUTCOME_SALES", "CONVERSIONS"];
+const LEADS_OBJECTIVES = ["OUTCOME_LEADS", "LEAD_GENERATION"];
+const TRAFFIC_OBJECTIVES = ["OUTCOME_TRAFFIC", "LINK_CLICKS"];
 
 type AdSetCreateDialogProps = {
   campaignId: string;
@@ -64,6 +70,13 @@ export function AdSetCreateDialog({
   const [isMediaPickerOpen, setIsMediaPickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [url, setUrl] = useState("");
+
+  const isSalesCampaign = SALES_OBJECTIVES.includes(campaignObjective ?? "");
+  const isLeadsCampaign = LEADS_OBJECTIVES.includes(campaignObjective ?? "");
+  const isTrafficCampaign = TRAFFIC_OBJECTIVES.includes(
+    campaignObjective ?? "",
+  );
 
   const fetchAudiences = useCallback(async () => {
     setIsLoadingAudiences(true);
@@ -98,6 +111,7 @@ export function AdSetCreateDialog({
     setExcludedAudiences([]);
     setSelectedPost(null);
     setError(null);
+    setUrl("");
   };
 
   const handleClose = () => {
@@ -140,11 +154,24 @@ export function AdSetCreateDialog({
       return;
     }
 
+    // Validate URL for SALES campaigns when a post is selected
+    if (isSalesCampaign && selectedPost && !url.trim()) {
+      setError(
+        "Campanhas de vendas requerem uma URL de destino para o anúncio",
+      );
+      return;
+    }
+
+    // Validate URL format if provided
+    if (url.trim() && !url.trim().startsWith("https://")) {
+      setError("A URL deve começar com https://");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      const genders =
-        gender === "male" ? [1] : gender === "female" ? [2] : [];
+      const genders = gender === "male" ? [1] : gender === "female" ? [2] : [];
 
       const body = {
         userId,
@@ -172,16 +199,14 @@ export function AdSetCreateDialog({
         ...(selectedPost && {
           creative: { instagramMediaId: selectedPost.id },
         }),
+        ...(url.trim() && { url: url.trim() }),
       };
 
-      const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
+      const response = await fetch(`/api/meta-marketing/${accountId}/adsets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
       const data = await response.json();
 
@@ -253,7 +278,8 @@ export function AdSetCreateDialog({
             {/* Daily budget */}
             <div className="space-y-2">
               <Label htmlFor="dailyBudget">
-                Orçamento Diário (R$) <span className="text-destructive">*</span>
+                Orçamento Diário (R$){" "}
+                <span className="text-destructive">*</span>
               </Label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
@@ -352,6 +378,49 @@ export function AdSetCreateDialog({
               />
             </div>
 
+            {/* URL field for SALES campaigns */}
+            {isSalesCampaign && (
+              <div className="space-y-2">
+                <Label htmlFor="url">
+                  URL de Destino{" "}
+                  {selectedPost && <span className="text-destructive">*</span>}
+                </Label>
+                <Input
+                  id="url"
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://www.exemplo.com/produto"
+                  disabled={isSubmitting}
+                />
+                <p className="text-xs text-muted-foreground">
+                  URL do produto ou página de destino para o botão &quot;Pedir
+                  agora&quot;.
+                </p>
+              </div>
+            )}
+
+            {/* Info banners for campaign objectives */}
+            {isLeadsCampaign && selectedPost && (
+              <Alert>
+                <Info className="size-4" />
+                <AlertDescription>
+                  Um formulário de captação de leads será criado automaticamente
+                  com campos de Nome, E-mail e Telefone.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {isTrafficCampaign && selectedPost && (
+              <Alert>
+                <Info className="size-4" />
+                <AlertDescription>
+                  O anúncio terá um botão &quot;Saiba mais&quot; que direcionará
+                  para o perfil do Instagram.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Creative */}
             <div className="space-y-2">
               <Label>Criativo (Post do Instagram)</Label>
@@ -366,9 +435,11 @@ export function AdSetCreateDialog({
                           muted
                         />
                       ) : (
-                        <img
+                        <Image
                           src={previewUrl}
                           alt="Post selecionado"
+                          width={112}
+                          height={112}
                           className="w-full h-full object-cover"
                         />
                       )}
@@ -394,10 +465,13 @@ export function AdSetCreateDialog({
                   className="w-full sm:w-auto"
                 >
                   <ImageIcon className="size-4 mr-2" />
-                  {selectedPost ? "Trocar post" : "Selecionar post do Instagram"}
+                  {selectedPost
+                    ? "Trocar post"
+                    : "Selecionar post do Instagram"}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Opcional. Se selecionado, um anúncio será criado automaticamente.
+                  Opcional. Se selecionado, um anúncio será criado
+                  automaticamente.
                 </p>
               </div>
             </div>
