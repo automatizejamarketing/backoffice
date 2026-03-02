@@ -1,12 +1,21 @@
-import { count, desc, eq, gte, ilike, sql, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   adsetEditLog,
+  aiGeneratedText,
   aiUsageLog,
+  backofficeGeneratedPost,
   chat,
   company,
+  foodServicePostCriativo,
+  foodServicePostDoPrato,
+  foodServiceStoryTurbo,
+  generatedImage,
+  generatedImageVersion,
+  genericGeneratePost,
   metaBusinessAccount,
   post,
+  referenceImage,
   user,
   userCompany,
   type AdSetTargetingData,
@@ -96,17 +105,17 @@ export async function getUserWithDetailedUsage(userId: string) {
     .orderBy(desc(aiUsageLog.createdAt))
     .limit(50);
 
-  // Get usage breakdown by action
+  // Get usage breakdown by model (used as "action" breakdown since action column doesn't exist)
   const usageByAction = await db
     .select({
-      action: aiUsageLog.action,
+      action: aiUsageLog.modelId,
       totalCost: sql<string>`SUM(${aiUsageLog.cost})`,
       totalTokens: sql<number>`SUM(${aiUsageLog.totalTokens})`,
       requestCount: count(),
     })
     .from(aiUsageLog)
     .where(eq(aiUsageLog.userId, userId))
-    .groupBy(aiUsageLog.action);
+    .groupBy(aiUsageLog.modelId);
 
   // Get usage breakdown by model
   const usageByModel = await db
@@ -223,6 +232,513 @@ export async function getUserMetaBusinessAccount(userId: string) {
     .where(eq(metaBusinessAccount.userId, userId))
     .limit(1);
   return account ?? null;
+}
+
+// ================================
+// Users with Posts (based on ai_generated_images)
+// ================================
+
+export async function getUsersWithPosts(options?: {
+  email?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const page = options?.page ?? 1;
+  const limit = options?.limit ?? 20;
+  const offset = (page - 1) * limit;
+
+  const conditions = [
+    isNull(generatedImage.deletedAt),
+    isNull(generatedImageVersion.parentVersionId),
+  ];
+  if (options?.email) {
+    conditions.push(ilike(user.email, `%${options.email}%`));
+  }
+
+  const rows = await db
+    .select({
+      id: user.id,
+      email: user.email,
+      imageUrl: user.image_url,
+      postCount: count(generatedImage.id),
+      latestPostAt: sql<Date>`MAX(${generatedImage.createdAt})`,
+    })
+    .from(user)
+    .innerJoin(generatedImage, eq(user.id, generatedImage.userId))
+    .innerJoin(
+      generatedImageVersion,
+      eq(generatedImage.id, generatedImageVersion.generatedImageId),
+    )
+    .where(and(...conditions))
+    .groupBy(user.id, user.email, user.image_url)
+    .orderBy(desc(sql`MAX(${generatedImage.createdAt})`))
+    .limit(limit)
+    .offset(offset);
+
+  const [totalResult] = await db
+    .select({ count: sql<number>`COUNT(DISTINCT ${user.id})` })
+    .from(user)
+    .innerJoin(generatedImage, eq(user.id, generatedImage.userId))
+    .innerJoin(
+      generatedImageVersion,
+      eq(generatedImage.id, generatedImageVersion.generatedImageId),
+    )
+    .where(and(...conditions));
+
+  const usersWithCompany = await Promise.all(
+    rows.map(async (row) => {
+      const [companyInfo] = await db
+        .select({ companyName: company.name })
+        .from(userCompany)
+        .leftJoin(company, eq(userCompany.companyId, company.id))
+        .where(eq(userCompany.userId, row.id))
+        .limit(1);
+
+      return {
+        ...row,
+        companyName: companyInfo?.companyName ?? null,
+      };
+    })
+  );
+
+  return { users: usersWithCompany, total: totalResult?.count ?? 0, page, limit };
+}
+
+// ================================
+// Generated Image Query Functions (user posts)
+// ================================
+
+export async function getAllUserGeneratedImages(options?: {
+  userId?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const page = options?.page ?? 1;
+  const limit = options?.limit ?? 20;
+  const offset = (page - 1) * limit;
+
+  const conditions = [
+    isNull(generatedImage.deletedAt),
+    isNull(generatedImageVersion.parentVersionId),
+  ];
+  if (options?.userId) conditions.push(eq(generatedImage.userId, options.userId));
+  if (options?.status) conditions.push(eq(generatedImage.status, options.status));
+  if (options?.search) {
+    const term = `%${options.search}%`;
+    conditions.push(ilike(generatedImage.prompt, term));
+  }
+
+  const images = await db
+    .select({
+      id: generatedImage.id,
+      userId: generatedImage.userId,
+      userEmail: user.email,
+      userImage: user.image_url,
+      prompt: generatedImage.prompt,
+      aspectRatio: generatedImage.aspectRatio,
+      width: generatedImage.width,
+      height: generatedImage.height,
+      imageUrl: generatedImage.publicImageUrl,
+      status: generatedImage.status,
+      createdAt: generatedImage.createdAt,
+      updatedAt: generatedImage.updatedAt,
+    })
+    .from(generatedImageVersion)
+    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(user, eq(generatedImage.userId, user.id))
+    .where(and(...conditions))
+    .orderBy(desc(generatedImage.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const [totalResult] = await db
+    .select({ count: count() })
+    .from(generatedImageVersion)
+    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .where(and(...conditions));
+
+  if (images.length === 0) {
+    return { posts: [], total: 0, page, limit };
+  }
+
+  const rootIds = images.map((img) => img.id);
+  const latestVersions = await db
+    .select({
+      sourceId: generatedImageVersion.sourceAiGeneratedImageId,
+      imageUrl: generatedImage.publicImageUrl,
+    })
+    .from(generatedImageVersion)
+    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .where(
+      and(
+        inArray(generatedImageVersion.sourceAiGeneratedImageId, rootIds),
+        isNull(generatedImage.deletedAt),
+      )
+    )
+    .orderBy(desc(generatedImageVersion.versionNumber));
+
+  const latestImageMap = new Map<string, string | null>();
+  for (const v of latestVersions) {
+    if (!latestImageMap.has(v.sourceId)) {
+      latestImageMap.set(v.sourceId, v.imageUrl);
+    }
+  }
+
+  const captionRows = await db
+    .select({
+      imageId: genericGeneratePost.postImageId,
+      caption: aiGeneratedText.text,
+    })
+    .from(genericGeneratePost)
+    .leftJoin(aiGeneratedText, eq(genericGeneratePost.captionTextId, aiGeneratedText.id))
+    .where(
+      and(
+        inArray(genericGeneratePost.postImageId, rootIds),
+        isNull(genericGeneratePost.deletedAt),
+      )
+    );
+
+  const captionMap = new Map<string, string | null>();
+  for (const c of captionRows) {
+    captionMap.set(c.imageId, c.caption);
+  }
+
+  const posts = images.map((img) => ({
+    ...img,
+    currentImageUrl: latestImageMap.get(img.id) ?? img.imageUrl,
+    caption: captionMap.get(img.id) ?? null,
+  }));
+
+  return { posts, total: totalResult?.count ?? 0, page, limit };
+}
+
+export type GeneratedImageDetails = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  userImage: string | null;
+  companyName: string | null;
+  prompt: string;
+  aspectRatio: string;
+  width: number;
+  height: number;
+  imageUrl: string | null;
+  currentImageUrl: string | null;
+  status: string;
+  caption: string | null;
+  referenceImages: { id: string; imageUrl: string }[];
+  createdAt: Date;
+};
+
+export async function getGeneratedImageDetails(
+  imageId: string
+): Promise<GeneratedImageDetails | null> {
+  const [found] = await db
+    .select({
+      id: generatedImage.id,
+      userId: generatedImage.userId,
+      userEmail: user.email,
+      userImage: user.image_url,
+      prompt: generatedImage.prompt,
+      aspectRatio: generatedImage.aspectRatio,
+      width: generatedImage.width,
+      height: generatedImage.height,
+      imageUrl: generatedImage.publicImageUrl,
+      status: generatedImage.status,
+      createdAt: generatedImage.createdAt,
+    })
+    .from(generatedImage)
+    .innerJoin(user, eq(generatedImage.userId, user.id))
+    .where(eq(generatedImage.id, imageId));
+
+  if (!found) return null;
+
+  const [companyInfo] = await db
+    .select({ companyName: company.name })
+    .from(userCompany)
+    .leftJoin(company, eq(userCompany.companyId, company.id))
+    .where(eq(userCompany.userId, found.userId))
+    .limit(1);
+
+  const [latestVersion] = await db
+    .select({ imageUrl: generatedImage.publicImageUrl })
+    .from(generatedImageVersion)
+    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .where(
+      and(
+        eq(generatedImageVersion.sourceAiGeneratedImageId, imageId),
+        isNull(generatedImage.deletedAt),
+      )
+    )
+    .orderBy(desc(generatedImageVersion.versionNumber))
+    .limit(1);
+
+  const refs = await db
+    .select({ id: referenceImage.id, imageUrl: referenceImage.imageUrl })
+    .from(referenceImage)
+    .where(eq(referenceImage.aiGeneratedImageId, imageId));
+
+  let caption: string | null = null;
+  const [genericPost] = await db
+    .select({ captionTextId: genericGeneratePost.captionTextId })
+    .from(genericGeneratePost)
+    .where(
+      and(
+        eq(genericGeneratePost.postImageId, imageId),
+        isNull(genericGeneratePost.deletedAt),
+      )
+    )
+    .limit(1);
+
+  if (genericPost?.captionTextId) {
+    const [ct] = await db
+      .select()
+      .from(aiGeneratedText)
+      .where(eq(aiGeneratedText.id, genericPost.captionTextId));
+    caption = ct?.text ?? null;
+  }
+
+  return {
+    ...found,
+    companyName: companyInfo?.companyName ?? null,
+    currentImageUrl: latestVersion?.imageUrl ?? found.imageUrl,
+    caption,
+    referenceImages: refs,
+  };
+}
+
+export async function getBackofficeGeneratedPosts(options?: {
+  page?: number;
+  limit?: number;
+}) {
+  const page = options?.page ?? 1;
+  const limit = options?.limit ?? 20;
+  const offset = (page - 1) * limit;
+
+  const adminUser = user;
+
+  const posts = await db
+    .select({
+      id: backofficeGeneratedPost.id,
+      backofficeUserId: backofficeGeneratedPost.backofficeUserId,
+      backofficeUserEmail: sql<string>`(SELECT email FROM users WHERE id = ${backofficeGeneratedPost.backofficeUserId})`,
+      targetUserId: backofficeGeneratedPost.targetUserId,
+      targetUserEmail: sql<string>`(SELECT email FROM users WHERE id = ${backofficeGeneratedPost.targetUserId})`,
+      sourceUserGeneratedImageId: backofficeGeneratedPost.sourceUserGeneratedImageId,
+      sourceBackofficePostId: backofficeGeneratedPost.sourceBackofficePostId,
+      prompt: backofficeGeneratedPost.prompt,
+      referenceImageUrls: backofficeGeneratedPost.referenceImageUrls,
+      aspectRatio: backofficeGeneratedPost.aspectRatio,
+      status: backofficeGeneratedPost.status,
+      notes: backofficeGeneratedPost.notes,
+      createdAt: backofficeGeneratedPost.createdAt,
+      generatedImageUrl: generatedImage.publicImageUrl,
+      captionText: aiGeneratedText.text,
+    })
+    .from(backofficeGeneratedPost)
+    .leftJoin(
+      generatedImage,
+      eq(backofficeGeneratedPost.generatedImageId, generatedImage.id)
+    )
+    .leftJoin(
+      aiGeneratedText,
+      eq(backofficeGeneratedPost.captionTextId, aiGeneratedText.id)
+    )
+    .where(isNull(backofficeGeneratedPost.deletedAt))
+    .orderBy(desc(backofficeGeneratedPost.createdAt))
+    .limit(limit)
+    .offset(offset);
+
+  const [totalResult] = await db
+    .select({ count: count() })
+    .from(backofficeGeneratedPost)
+    .where(isNull(backofficeGeneratedPost.deletedAt));
+
+  return { posts, total: totalResult?.count ?? 0, page, limit };
+}
+
+export async function getBackofficePostDetails(postId: string) {
+  const [bp] = await db
+    .select()
+    .from(backofficeGeneratedPost)
+    .where(eq(backofficeGeneratedPost.id, postId));
+
+  if (!bp) return null;
+
+  const [admin] = await db
+    .select()
+    .from(user)
+    .where(eq(user.id, bp.backofficeUserId));
+  const [target] = await db
+    .select()
+    .from(user)
+    .where(eq(user.id, bp.targetUserId));
+
+  let imageUrl: string | null = null;
+  let imagePrompt: string | null = null;
+  if (bp.generatedImageId) {
+    const [gi] = await db
+      .select()
+      .from(generatedImage)
+      .where(eq(generatedImage.id, bp.generatedImageId));
+    imageUrl = gi?.publicImageUrl ?? gi?.image ?? null;
+    imagePrompt = gi?.prompt ?? null;
+  }
+
+  let captionText: string | null = null;
+  if (bp.captionTextId) {
+    const [ct] = await db
+      .select()
+      .from(aiGeneratedText)
+      .where(eq(aiGeneratedText.id, bp.captionTextId));
+    captionText = ct?.text ?? null;
+  }
+
+  let sourcePost: GeneratedImageDetails | null = null;
+  if (bp.sourceUserGeneratedImageId) {
+    sourcePost = await getGeneratedImageDetails(bp.sourceUserGeneratedImageId);
+  }
+
+  return {
+    ...bp,
+    backofficeUserEmail: admin?.email ?? null,
+    targetUserEmail: target?.email ?? null,
+    generatedImageUrl: imageUrl,
+    generatedImagePrompt: imagePrompt,
+    captionText,
+    sourcePost,
+  };
+}
+
+export async function createBackofficeGeneratedPost(data: {
+  backofficeUserId: string;
+  targetUserId: string;
+  sourceUserGeneratedImageId?: string;
+  sourceBackofficePostId?: string;
+  prompt: string;
+  generatedImageId?: string;
+  captionTextId?: string;
+  referenceImageUrls?: string[];
+  aspectRatio?: string;
+  status?: string;
+  notes?: string;
+}) {
+  const [record] = await db
+    .insert(backofficeGeneratedPost)
+    .values({
+      backofficeUserId: data.backofficeUserId,
+      targetUserId: data.targetUserId,
+      sourceUserGeneratedImageId: data.sourceUserGeneratedImageId,
+      sourceBackofficePostId: data.sourceBackofficePostId,
+      prompt: data.prompt,
+      generatedImageId: data.generatedImageId,
+      captionTextId: data.captionTextId,
+      referenceImageUrls: data.referenceImageUrls ?? [],
+      aspectRatio: data.aspectRatio ?? "1:1",
+      status: data.status ?? "generating",
+      notes: data.notes,
+    })
+    .returning();
+  return record;
+}
+
+export async function updateBackofficeGeneratedPost(
+  id: string,
+  data: Partial<{
+    generatedImageId: string;
+    captionTextId: string;
+    status: string;
+    notes: string;
+  }>
+) {
+  const [updated] = await db
+    .update(backofficeGeneratedPost)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(backofficeGeneratedPost.id, id))
+    .returning();
+  return updated;
+}
+
+export async function getPostPerformanceStats(userId?: string) {
+  const imgConditions = userId
+    ? and(
+        isNull(generatedImage.deletedAt),
+        eq(generatedImage.userId, userId),
+        isNull(generatedImageVersion.parentVersionId),
+      )
+    : and(
+        isNull(generatedImage.deletedAt),
+        isNull(generatedImageVersion.parentVersionId),
+      );
+
+  const [totalPosts] = await db
+    .select({ count: count() })
+    .from(generatedImageVersion)
+    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .where(imgConditions);
+
+  const postsByType = await db
+    .select({
+      postType: generatedImage.aspectRatio,
+      count: count(),
+    })
+    .from(generatedImageVersion)
+    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .where(imgConditions)
+    .groupBy(generatedImage.aspectRatio);
+
+  const usageConditions = userId ? eq(aiUsageLog.userId, userId) : undefined;
+
+  const [aiCostTotal] = await db
+    .select({
+      totalCost: sql<string>`COALESCE(SUM(${aiUsageLog.cost}), 0)`,
+      totalTokens: sql<number>`COALESCE(SUM(${aiUsageLog.totalTokens}), 0)`,
+      avgDuration: sql<number>`COALESCE(AVG(${aiUsageLog.durationMs}), 0)`,
+      totalRequests: count(),
+    })
+    .from(aiUsageLog)
+    .where(usageConditions);
+
+  const [backofficePostCount] = await db
+    .select({ count: count() })
+    .from(backofficeGeneratedPost)
+    .where(isNull(backofficeGeneratedPost.deletedAt));
+
+  const costByUser = await db
+    .select({
+      userId: aiUsageLog.userId,
+      email: user.email,
+      totalCost: sql<string>`SUM(${aiUsageLog.cost})`,
+      totalTokens: sql<number>`SUM(${aiUsageLog.totalTokens})`,
+      requestCount: count(),
+    })
+    .from(aiUsageLog)
+    .innerJoin(user, eq(aiUsageLog.userId, user.id))
+    .groupBy(aiUsageLog.userId, user.email)
+    .orderBy(sql`SUM(${aiUsageLog.cost}) DESC`)
+    .limit(10);
+
+  return {
+    totalPosts: totalPosts?.count ?? 0,
+    postsByType: postsByType.map((p) => ({
+      type: p.postType ?? "1:1",
+      count: p.count,
+    })),
+    totalAiCost: Number.parseFloat(aiCostTotal?.totalCost ?? "0"),
+    totalAiTokens: aiCostTotal?.totalTokens ?? 0,
+    avgGenerationDuration: Math.round(aiCostTotal?.avgDuration ?? 0),
+    totalAiRequests: aiCostTotal?.totalRequests ?? 0,
+    backofficePostCount: backofficePostCount?.count ?? 0,
+    topUsersByCost: costByUser.map((u) => ({
+      userId: u.userId,
+      email: u.email,
+      totalCost: Number.parseFloat(u.totalCost ?? "0"),
+      totalTokens: u.totalTokens,
+      requestCount: u.requestCount,
+    })),
+  };
 }
 
 // ================================

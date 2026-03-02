@@ -37,6 +37,8 @@ type AdSetsTableProps = {
   userId: string;
   campaignId?: string;
   onAdSetClick: (adSet: AdSet) => void;
+  /** Increment this value to trigger a refresh */
+  refreshKey?: number;
 };
 
 export function AdSetsTable({
@@ -44,6 +46,7 @@ export function AdSetsTable({
   userId,
   campaignId,
   onAdSetClick,
+  refreshKey,
 }: AdSetsTableProps) {
   const [adSets, setAdSets] = useState<AdSet[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -127,7 +130,7 @@ export function AdSetsTable({
 
   useEffect(() => {
     fetchAdSets();
-  }, [fetchAdSets]);
+  }, [fetchAdSets, refreshKey]);
 
   const handleToggleStatus = async (adSet: AdSet, event: React.MouseEvent) => {
     event.stopPropagation();

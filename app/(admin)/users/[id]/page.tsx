@@ -1,27 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getUserWithDetailedUsage } from "@/lib/db/admin-queries";
+import { getUserWithDetailedUsage, getAllUserGeneratedImages } from "@/lib/db/admin-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-/**
- * Translate action slugs to Portuguese
- */
-function getActionTranslation(action: string): string {
-  const translations: Record<string, string> = {
-    chat: "Chat",
-    generate_image: "Geração de imagens",
-    edit_image: "Edição de imagens",
-    extract_text: "Extração de texto",
-    generate_caption: "Geração de legendas",
-    replace_text: "Substituição de texto",
-    generate_title: "Geração de títulos",
-    generate_script: "Geração de roteiros",
-    generate_central_tesis: "Geração de tese central",
-    generate_headlines: "Geração de headlines",
-    generate_narratives: "Geração de narrativas",
+function formatModelName(modelId: string): string {
+  const labels: Record<string, string> = {
+    "google/gemini-3-pro-image": "Gemini 3 Pro Image",
+    "google/gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
+    "google/gemini-2.0-flash": "Gemini 2.0 Flash",
   };
-  return translations[action] || action.replace(/_/g, " ");
+  return labels[modelId] || modelId.split("/").pop()?.replace(/-/g, " ") || modelId;
 }
 
 export default async function UserDetailPage({
@@ -30,7 +19,10 @@ export default async function UserDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await getUserWithDetailedUsage(id);
+  const [user, userPostsResult] = await Promise.all([
+    getUserWithDetailedUsage(id),
+    getAllUserGeneratedImages({ userId: id, page: 1, limit: 20 }),
+  ]);
 
   if (!user) {
     notFound();
@@ -147,32 +139,32 @@ export default async function UserDetailPage({
 
       {/* Breakdown de uso */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* Por Ação */}
+        {/* Por Modelo (agrupado) */}
         <Card>
           <CardHeader>
-            <CardTitle>Uso por Ação</CardTitle>
+            <CardTitle>Uso por Modelo</CardTitle>
           </CardHeader>
           <CardContent>
             {user.usageByAction.length === 0 ? (
               <p className="text-sm text-muted-foreground">Sem dados de uso</p>
             ) : (
               <div className="space-y-3">
-                {user.usageByAction.map((action) => (
+                {user.usageByAction.map((entry) => (
                   <div
-                    key={action.action}
+                    key={entry.action}
                     className="flex items-center justify-between"
                   >
                     <div>
                       <p className="text-sm font-medium text-foreground">
-                        {getActionTranslation(action.action)}
+                        {formatModelName(entry.action)}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {formatNumber(action.requestCount)} requisições •{" "}
-                        {formatNumber(action.totalTokens)} tokens
+                        {formatNumber(entry.requestCount)} requisições •{" "}
+                        {formatNumber(entry.totalTokens)} tokens
                       </p>
                     </div>
                     <span className="text-sm font-medium text-foreground">
-                      {formatCurrency(action.totalCost)}
+                      {formatCurrency(entry.totalCost)}
                     </span>
                   </div>
                 ))}
@@ -216,6 +208,56 @@ export default async function UserDetailPage({
         </Card>
       </div>
 
+      {/* Posts do usuário */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Posts do Usuário</CardTitle>
+          <Link
+            href={`/posts/user/${id}`}
+            className="inline-flex h-6 items-center justify-center rounded-md border border-border px-2 text-xs font-medium hover:bg-input/50 transition-all"
+          >
+            Ver todos
+          </Link>
+        </CardHeader>
+        <CardContent>
+          {userPostsResult.posts.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum post criado</p>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {userPostsResult.posts.slice(0, 8).map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/posts/${p.id}`}
+                  className="group overflow-hidden rounded-md border transition-colors hover:border-primary"
+                >
+                  <div className="aspect-square bg-muted">
+                    {(p.currentImageUrl || p.imageUrl) ? (
+                      <img
+                        src={p.currentImageUrl || p.imageUrl || ""}
+                        alt="Post"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                        Sem imagem
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <p className="truncate text-xs font-medium">
+                      {p.prompt.slice(0, 50) || "Sem prompt"}
+                    </p>
+                    <Badge variant="outline" className="text-[10px]">
+                      {p.aspectRatio}
+                    </Badge>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Logs de uso recentes */}
       <Card>
         <CardHeader>
@@ -233,10 +275,10 @@ export default async function UserDetailPage({
                       Data
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Ação
+                      Modelo
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
-                      Modelo
+                      Provedor
                     </th>
                     <th className="px-3 py-2 text-right text-xs font-medium uppercase text-muted-foreground">
                       Tokens
@@ -253,10 +295,10 @@ export default async function UserDetailPage({
                         {formatDate(log.createdAt)}
                       </td>
                       <td className="px-3 py-2 text-sm text-foreground">
-                        {getActionTranslation(log.action)}
+                        {formatModelName(log.modelId)}
                       </td>
                       <td className="px-3 py-2 text-sm text-foreground/80">
-                        {log.modelId}
+                        {log.provider}
                       </td>
                       <td className="px-3 py-2 text-right text-sm text-foreground/80">
                         {formatNumber(log.totalTokens)}

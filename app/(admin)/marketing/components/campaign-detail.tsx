@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,6 +36,7 @@ import {
 } from "../utils/formatters";
 import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-increment-to-days";
 import { AdSetDetail } from "./adset-detail";
+import { AdSetCreateDialog } from "./adset-create-dialog";
 
 type CampaignDetailProps = {
   campaign: Campaign;
@@ -87,6 +88,8 @@ export function CampaignDetail({
 
   const [selectedAdSet, setSelectedAdSet] = useState<AdSet | null>(null);
   const [isAdSetDetailOpen, setIsAdSetDetailOpen] = useState(false);
+  const [isCreateAdSetOpen, setIsCreateAdSetOpen] = useState(false);
+  const [adSetsRefreshKey, setAdSetsRefreshKey] = useState(0);
 
   const fetchInsights = useCallback(async () => {
     if (!campaign.id || !accountId) return;
@@ -155,6 +158,10 @@ export function CampaignDetail({
   const handleCloseAdSetDetail = () => {
     setIsAdSetDetailOpen(false);
     setSelectedAdSet(null);
+  };
+
+  const handleCreateAdSetSuccess = () => {
+    setAdSetsRefreshKey((prev) => prev + 1);
   };
 
   return (
@@ -280,14 +287,26 @@ export function CampaignDetail({
             </section>
 
             <section>
-              <h3 className="text-sm font-medium text-muted-foreground mb-3">
-                Conjuntos de Anúncios
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Conjuntos de Anúncios
+                </h3>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsCreateAdSetOpen(true)}
+                  className="gap-1.5"
+                >
+                  <Plus className="size-3.5" />
+                  Novo Conjunto
+                </Button>
+              </div>
               <AdSetsTable
                 accountId={accountId}
                 userId={userId}
                 campaignId={campaign.id}
                 onAdSetClick={handleAdSetClick}
+                refreshKey={adSetsRefreshKey}
               />
             </section>
           </div>
@@ -303,6 +322,17 @@ export function CampaignDetail({
           onClose={handleCloseAdSetDetail}
         />
       )}
+
+      <AdSetCreateDialog
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+        campaignObjective={campaign.objective}
+        accountId={accountId}
+        userId={userId}
+        isOpen={isCreateAdSetOpen}
+        onClose={() => setIsCreateAdSetOpen(false)}
+        onSuccess={handleCreateAdSetSuccess}
+      />
     </>
   );
 }

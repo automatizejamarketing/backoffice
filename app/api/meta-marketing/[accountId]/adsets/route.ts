@@ -5,6 +5,7 @@ import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
   AdSetStatus,
+  CampaignObjective,
   type AdSet,
   type GraphApiAdSet,
   type GraphPaging,
@@ -183,6 +184,469 @@ export async function GET(
         solution: errorReturn.reason.solution,
       },
       { status: errorReturn.statusCode }
+    );
+  }
+}
+
+// ================================
+// POST – Create new adset (+ ad if creative provided)
+// ================================
+
+type GraphApiPage = {
+  id: string;
+  name?: string;
+  instagram_business_account?: { id: string; username?: string };
+};
+
+type GraphApiPagesResponse = {
+  data: GraphApiPage[];
+};
+
+type GraphApiPixel = { id: string; name?: string };
+type GraphApiPixelsResponse = { data: GraphApiPixel[] };
+
+type CreateAdSetApiResponse = { id: string };
+type CreateAdCreativeApiResponse = { id: string };
+type CreateAdApiResponse = { id: string };
+
+export type PostAdSetRequestBody = {
+  userId: string;
+  campaignId: string;
+  campaignObjective?: string;
+  adsetName: string;
+  dailyBudget: number;
+  targeting: {
+    age_min: number;
+    age_max: number;
+    genders?: number[];
+    custom_audiences?: { id: string; name?: string }[];
+    excluded_custom_audiences?: { id: string; name?: string }[];
+  };
+  creative?: {
+    instagramMediaId: string;
+  };
+};
+
+export type PostAdSetResponse = {
+  success: boolean;
+  adsetId: string;
+  adsetName: string;
+  adId?: string;
+  adCreativeId?: string;
+};
+
+type PromotedObjectType =
+  | "page"            // { page_id } — LEADS, ENGAGEMENT, AWARENESS, default
+  | "instagram_traffic" // { page_id, instagram_profile_id } — TRAFFIC
+  | "pixel_conversion"; // { pixel_id, custom_event_type } — SALES
+
+type OptimizationConfig = {
+  optimizationGoal: string;
+  billingEvent: string;
+  destinationType?: string;
+  promotedObjectType: PromotedObjectType;
+  instagramOnlyPlacements?: boolean;
+};
+
+function getOptimizationConfig(objective?: string): OptimizationConfig {
+  switch (objective) {
+    case CampaignObjective.OUTCOME_LEADS:
+    case CampaignObjective.LEAD_GENERATION:
+      return {
+        optimizationGoal: "LEAD_GENERATION",
+        billingEvent: "IMPRESSIONS",
+        destinationType: "ON_AD",
+        promotedObjectType: "page",
+      };
+    case CampaignObjective.OUTCOME_TRAFFIC:
+    case CampaignObjective.LINK_CLICKS:
+      // VISIT_INSTAGRAM_PROFILE requires:
+      //   destination_type: INSTAGRAM_PROFILE
+      //   promoted_object: { page_id, instagram_profile_id }
+      //   Instagram-only placements
+      return {
+        optimizationGoal: "VISIT_INSTAGRAM_PROFILE",
+        billingEvent: "IMPRESSIONS",
+        destinationType: "INSTAGRAM_PROFILE",
+        promotedObjectType: "instagram_traffic",
+        instagramOnlyPlacements: true,
+      };
+    case CampaignObjective.OUTCOME_ENGAGEMENT:
+    case CampaignObjective.POST_ENGAGEMENT:
+      return {
+        optimizationGoal: "POST_ENGAGEMENT",
+        billingEvent: "IMPRESSIONS",
+        promotedObjectType: "page",
+      };
+    case CampaignObjective.OUTCOME_AWARENESS:
+    case CampaignObjective.BRAND_AWARENESS:
+    case CampaignObjective.REACH:
+      return {
+        optimizationGoal: "REACH",
+        billingEvent: "IMPRESSIONS",
+        promotedObjectType: "page",
+      };
+    case CampaignObjective.OUTCOME_SALES:
+    case CampaignObjective.CONVERSIONS:
+      // OFFSITE_CONVERSIONS requires:
+      //   promoted_object: { pixel_id, custom_event_type: "PURCHASE" }
+      return {
+        optimizationGoal: "OFFSITE_CONVERSIONS",
+        billingEvent: "IMPRESSIONS",
+        promotedObjectType: "pixel_conversion",
+      };
+    case CampaignObjective.VIDEO_VIEWS:
+      return {
+        optimizationGoal: "THRUPLAY",
+        billingEvent: "IMPRESSIONS",
+        promotedObjectType: "page",
+      };
+    default:
+      return {
+        optimizationGoal: "REACH",
+        billingEvent: "IMPRESSIONS",
+        promotedObjectType: "page",
+      };
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ accountId: string }> },
+): Promise<NextResponse<PostAdSetResponse | AdSetsErrorResponse>> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        {
+          error: "Not authenticated",
+          message: "You must be logged in to access this resource",
+          solution: "Please log in and try again",
+        },
+        { status: 401 },
+      );
+    }
+
+    const { accountId } = await params;
+    const body: PostAdSetRequestBody = await request.json();
+    const {
+      userId,
+      campaignId,
+      campaignObjective,
+      adsetName,
+      dailyBudget,
+      targeting,
+      creative,
+    } = body;
+
+    if (!userId) {
+      return NextResponse.json(
+        {
+          error: "Missing userId",
+          message: "userId is required in the request body",
+          solution: "Provide userId to identify which user's token to use",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!campaignId) {
+      return NextResponse.json(
+        {
+          error: "Missing campaignId",
+          message: "campaignId is required",
+          solution: "Provide the campaign ID for the new adset",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!adsetName?.trim()) {
+      return NextResponse.json(
+        {
+          error: "Missing adsetName",
+          message: "adsetName is required",
+          solution: "Provide a name for the new adset",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (!dailyBudget || dailyBudget < 1) {
+      return NextResponse.json(
+        {
+          error: "Invalid dailyBudget",
+          message: "Daily budget must be at least R$ 1,00",
+          solution: "Provide a valid daily budget",
+        },
+        { status: 400 },
+      );
+    }
+
+    const tokenResult = await getUserAccessTokenByUserId(userId);
+
+    if (!tokenResult.success) {
+      return NextResponse.json(
+        {
+          error: tokenResult.error.error,
+          message: tokenResult.error.message,
+          solution: tokenResult.error.solution,
+        },
+        { status: tokenResult.error.statusCode },
+      );
+    }
+
+    const { accessToken } = tokenResult;
+
+    const formattedAccountId = accountId.startsWith("act_")
+      ? accountId
+      : `act_${accountId}`;
+
+    const {
+      optimizationGoal,
+      billingEvent,
+      destinationType,
+      promotedObjectType,
+      instagramOnlyPlacements,
+    } = getOptimizationConfig(campaignObjective);
+
+    // Fetch connected Facebook Page (needed for promoted_object and creative).
+    const pagesResponse = await metaApiCall<GraphApiPagesResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: "me/accounts",
+      params: "fields=id,name,instagram_business_account{id,username}",
+      accessToken,
+    });
+
+    const pageWithIg = pagesResponse.data.find(
+      (p) => p.instagram_business_account?.id,
+    );
+    const connectedPage = pageWithIg ?? pagesResponse.data[0];
+
+    if (!connectedPage) {
+      return NextResponse.json(
+        {
+          error: "No Facebook Page found",
+          message:
+            "Nenhuma Página do Facebook encontrada para esta conta Meta. A Página é necessária para criar o conjunto de anúncios.",
+          solution:
+            "Conecte uma Página do Facebook à conta Meta do usuário e tente novamente.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // Build promoted_object based on campaign objective:
+    // - LEADS/ENGAGEMENT/AWARENESS/default → { page_id }
+    // - TRAFFIC (VISIT_INSTAGRAM_PROFILE)  → { page_id, instagram_profile_id }
+    // - SALES (OFFSITE_CONVERSIONS)        → { pixel_id, custom_event_type }
+    let promotedObject: Record<string, string>;
+
+    if (promotedObjectType === "instagram_traffic") {
+      const igAccountId = pageWithIg?.instagram_business_account?.id;
+      if (!igAccountId) {
+        return NextResponse.json(
+          {
+            error: "No Instagram Business Account",
+            message:
+              "Esta campanha de tráfego requer uma conta de Instagram Business conectada à Página do Facebook.",
+            solution:
+              "Conecte uma conta de Instagram Business a uma Página do Facebook e tente novamente.",
+          },
+          { status: 400 },
+        );
+      }
+      promotedObject = {
+        page_id: connectedPage.id,
+        instagram_profile_id: igAccountId,
+      };
+    } else if (promotedObjectType === "pixel_conversion") {
+      // Fetch the first available pixel for this ad account
+      const pixelsResponse = await metaApiCall<GraphApiPixelsResponse>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: `${formattedAccountId}/adspixels`,
+        params: "fields=id,name&limit=1",
+        accessToken,
+      });
+
+      const pixel = pixelsResponse.data[0];
+      if (!pixel) {
+        return NextResponse.json(
+          {
+            error: "No Meta Pixel found",
+            message:
+              "Esta campanha de vendas requer um Pixel Meta configurado na conta de anúncios.",
+            solution:
+              "Crie ou conecte um Pixel Meta à conta de anúncios e tente novamente.",
+          },
+          { status: 400 },
+        );
+      }
+      promotedObject = {
+        pixel_id: pixel.id,
+        custom_event_type: "PURCHASE",
+      };
+    } else {
+      promotedObject = { page_id: connectedPage.id };
+    }
+
+    // Build targeting – always use Brazil as geo.
+    // OUTCOME_TRAFFIC (VISIT_INSTAGRAM_PROFILE) uses Instagram-only placements.
+    const metaTargeting: Record<string, unknown> = {
+      geo_locations: { countries: ["BR"] },
+      age_min: targeting.age_min ?? 18,
+      age_max: targeting.age_max ?? 65,
+      ...(instagramOnlyPlacements
+        ? {
+            publisher_platforms: ["instagram"],
+            instagram_positions: ["stream", "story", "reels"],
+          }
+        : {
+            publisher_platforms: ["facebook", "instagram"],
+            facebook_positions: ["feed", "story", "facebook_reels"],
+            instagram_positions: ["stream", "story", "reels"],
+          }),
+      targeting_automation: { advantage_audience: 0 },
+      targeting_relaxation_types: { custom_audience: 0 },
+    };
+
+    if (targeting.genders && targeting.genders.length > 0) {
+      metaTargeting.genders = targeting.genders;
+    }
+
+    if (targeting.custom_audiences && targeting.custom_audiences.length > 0) {
+      metaTargeting.custom_audiences = targeting.custom_audiences.map((a) => ({
+        id: a.id,
+      }));
+    }
+
+    if (
+      targeting.excluded_custom_audiences &&
+      targeting.excluded_custom_audiences.length > 0
+    ) {
+      metaTargeting.excluded_custom_audiences =
+        targeting.excluded_custom_audiences.map((a) => ({ id: a.id }));
+    }
+
+    // Build adset create params
+    const adsetParams = new URLSearchParams({
+      name: adsetName.trim(),
+      campaign_id: campaignId,
+      daily_budget: Math.round(dailyBudget * 100).toString(),
+      billing_event: billingEvent,
+      optimization_goal: optimizationGoal,
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
+      targeting: JSON.stringify(metaTargeting),
+      promoted_object: JSON.stringify(promotedObject),
+      status: "ACTIVE",
+    });
+
+    if (destinationType) {
+      adsetParams.set("destination_type", destinationType);
+    }
+
+    const createdAdSet = await metaApiCall<CreateAdSetApiResponse>({
+      domain: "FACEBOOK",
+      method: "POST",
+      path: `${formattedAccountId}/adsets`,
+      params: "",
+      body: adsetParams,
+      accessToken,
+    });
+
+    const adsetId = createdAdSet.id;
+    let adId: string | undefined;
+    let adCreativeId: string | undefined;
+
+    // Create ad + creative if Instagram post provided
+    if (creative?.instagramMediaId && pageWithIg?.instagram_business_account) {
+      const pageId = pageWithIg.id;
+      const igAccountId = pageWithIg.instagram_business_account.id;
+
+      try {
+        // Create ad creative from Instagram post
+        const creativeParams = new URLSearchParams({
+          name: `${adsetName.trim()} - Creative`,
+          source_instagram_media_id: creative.instagramMediaId,
+          object_id: pageId,
+          instagram_user_id: igAccountId,
+          contextual_multi_ads: JSON.stringify({ enroll_status: "OPT_OUT" }),
+        });
+
+        const createdCreative = await metaApiCall<CreateAdCreativeApiResponse>({
+          domain: "FACEBOOK",
+          method: "POST",
+          path: `${formattedAccountId}/adcreatives`,
+          params: "",
+          body: creativeParams,
+          accessToken,
+        });
+
+        adCreativeId = createdCreative.id;
+
+        // Create ad
+        const adParams = new URLSearchParams({
+          name: `${adsetName.trim()} - Ad`,
+          adset_id: adsetId,
+          creative: JSON.stringify({ creative_id: adCreativeId }),
+          status: "ACTIVE",
+        });
+
+        const createdAd = await metaApiCall<CreateAdApiResponse>({
+          domain: "FACEBOOK",
+          method: "POST",
+          path: `${formattedAccountId}/ads`,
+          params: "",
+          body: adParams,
+          accessToken,
+        });
+
+        adId = createdAd.id;
+      } catch (creativeError) {
+        // Return the adset even if creative/ad creation fails
+        console.error(
+          "[POST /adsets] Failed to create creative/ad:",
+          creativeError,
+        );
+        const creativeErrorReturn = errorToGraphErrorReturn(creativeError);
+        return NextResponse.json(
+          {
+            success: false,
+            adsetId,
+            adsetName: adsetName.trim(),
+            error: creativeErrorReturn.reason.title,
+            message: `Conjunto de anúncios criado, mas o anúncio falhou: ${creativeErrorReturn.reason.message}`,
+            solution:
+              "O conjunto foi criado com sucesso. Adicione o anúncio manualmente pelo Meta Ads Manager.",
+          } as PostAdSetResponse & AdSetsErrorResponse,
+          { status: 207 },
+        );
+      }
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        adsetId,
+        adsetName: adsetName.trim(),
+        adId,
+        adCreativeId,
+      },
+      { status: 201 },
+    );
+  } catch (error) {
+    const errorReturn = errorToGraphErrorReturn(error);
+    console.error("[POST /adsets] Error:", errorReturn);
+
+    return NextResponse.json(
+      {
+        error: errorReturn.reason.title,
+        message: errorReturn.reason.message,
+        solution: errorReturn.reason.solution,
+      },
+      { status: errorReturn.statusCode },
     );
   }
 }

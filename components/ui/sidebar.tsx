@@ -273,7 +273,6 @@ const SidebarTrigger = React.forwardRef<
         onClick?.(event);
         toggleSidebar();
       }}
-      ref={ref}
       size="icon"
       variant="ghost"
       {...props}

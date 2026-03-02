@@ -2,6 +2,7 @@
 
 import {
   ChevronUp,
+  Image,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -46,6 +47,7 @@ export function AppSidebar({ user }: { user: User }) {
 
   const isDashboard = pathname === "/";
   const isUsersSection = pathname?.startsWith("/users");
+  const isPostsSection = pathname?.startsWith("/posts");
   const isMarketingSection = pathname?.startsWith("/marketing");
 
   const navItems = [
@@ -60,6 +62,12 @@ export function AppSidebar({ user }: { user: User }) {
       label: "Usuários",
       icon: Users,
       isActive: isUsersSection,
+    },
+    {
+      href: "/posts",
+      label: "Conteúdo",
+      icon: Image,
+      isActive: isPostsSection,
     },
     {
       href: "/marketing",
@@ -111,7 +119,7 @@ export function AppSidebar({ user }: { user: User }) {
                   <SidebarMenuButton
                     asChild
                     className={cn(
-                      item.isActive && "bg-primary/10 text-primary"
+                      item.isActive && "bg-primary/10 text-primary",
                     )}
                   >
                     <Link href={item.href} onClick={() => setOpenMobile(false)}>
@@ -177,4 +185,3 @@ export function AppSidebar({ user }: { user: User }) {
     </Sidebar>
   );
 }
-

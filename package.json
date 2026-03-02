@@ -12,12 +12,15 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^3.0.57",
     "@base-ui/react": "^1.0.0",
     "@hugeicons/core-free-icons": "^3.1.0",
     "@hugeicons/react": "^1.1.4",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
+    "@vercel/blob": "^2.3.0",
+    "ai": "^6.0.103",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
