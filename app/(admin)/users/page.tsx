@@ -2,6 +2,11 @@ import Link from "next/link";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
 import { Badge } from "@/components/ui/badge";
 
+// Force dynamic rendering to prevent build timeouts on Vercel
+// This page queries all users with usage stats, which can be slow
+export const dynamic = "force-dynamic";
+
+
 export default async function UsersPage() {
   const users = await getAllUsersWithUsage();
 
