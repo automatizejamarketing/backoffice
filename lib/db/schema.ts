@@ -19,12 +19,65 @@ import type { Layer, PostStatus } from "../types";
 
 export const user = pgTable("users", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
-  email: varchar("email", { length: 64 }).notNull(),
+  email: varchar("email", { length: 64 }).notNull().unique(),
+  name: varchar("name", { length: 100 }),
+  password: text("password"),
+  authProvider: varchar("auth_provider", { length: 20 })
+    .notNull()
+    .default("google"),
+  emailVerified: timestamp("email_verified"),
   image_url: text("image_url"),
   locale: varchar("locale", { length: 10 }),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  expirationDate: timestamp("expiration_date"),
+  credits: integer("credits").notNull().default(0),
 });
 
 export type User = InferSelectModel<typeof user>;
+
+export const verificationToken = pgTable("verification_tokens", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  type: varchar("type", { length: 30 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type VerificationToken = InferSelectModel<typeof verificationToken>;
+
+export const creditTransaction = pgTable("credit_transactions", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id),
+  amount: integer("amount").notNull(),
+  type: varchar("type", { length: 50 }).notNull(),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type CreditTransaction = InferSelectModel<typeof creditTransaction>;
+
+export const backofficeAuditLog = pgTable("backoffice_audit_logs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  adminEmail: varchar("admin_email", { length: 100 }).notNull(),
+  targetUserId: uuid("target_user_id")
+    .notNull()
+    .references(() => user.id),
+  action: varchar("action", { length: 50 }).notNull(),
+  fieldName: varchar("field_name", { length: 50 }).notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type BackofficeAuditLog = InferSelectModel<typeof backofficeAuditLog>;
 
 export const chat = pgTable("chats", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -298,7 +351,7 @@ export const scheduledPost = pgTable(
     // For uploaded/external images, use mediaUrl (fallback)
     mediaUrl: text("media_url"),
     mediaType: varchar("media_type", { length: 32 }),
-    caption: text("caption").notNull(),
+    caption: text("caption"),
     locationId: text("location_id"),
     userTagsJson: text("user_tags_json"),
     scheduledAt: timestamp("scheduled_at").notNull(),
@@ -327,7 +380,9 @@ export type FoodPostStyle =
   | "upgrade_estudio"
   | "com_cenario"
   | "criativo_viral"
-  | "estilo_premium";
+  | "estilo_premium"
+  | "close_foodporn"
+  | "minimalista_premium";
 
 // Story Turbo specific types
 export type StoryStyle =
@@ -400,6 +455,8 @@ export const post = pgTable("posts", {
       "com_cenario",
       "criativo_viral",
       "estilo_premium",
+      "close_foodporn",
+      "minimalista_premium",
     ],
   }).$type<FoodPostStyle>(),
 
@@ -714,6 +771,8 @@ export const foodServicePostDoPrato = pgTable("food_service_post_do_prato", {
       "com_cenario",
       "criativo_viral",
       "estilo_premium",
+      "close_foodporn",
+      "minimalista_premium",
     ],
   }).$type<FoodPostStyle>(),
   captionObjective: text("caption_objective").$type<CaptionObjective>(),
@@ -771,7 +830,8 @@ export type FoodServicePostCriativo = InferSelectModel<
   typeof foodServicePostCriativo
 >;
 
-export const foodServiceStoryTurbo = pgTable("food_service_story_turbo", {
+// Food Service Flyer (template-based marketing images)
+export const foodServiceFlyer = pgTable("food_service_flyer", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
@@ -779,29 +839,18 @@ export const foodServiceStoryTurbo = pgTable("food_service_story_turbo", {
   aiGeneratedImageId: uuid("ai_generated_image_id")
     .notNull()
     .references(() => generatedImage.id),
-  productName: varchar("product_name", { length: 255 }).notNull(),
-  storyStyle: varchar("story_style", {
-    enum: [
-      "close_foodporn",
-      "cenario_pro",
-      "minimalista_premium",
-      "criativo_viral",
-    ],
-  }).$type<StoryStyle>(),
-  textObjective: varchar("text_objective", {
-    enum: ["venda_direta", "interacao", "lifestyle", "curiosidade"],
-  }).$type<TextObjective>(),
-  textGenerationId: uuid("text_generation_id").references(
-    () => aiGeneratedText.id
-  ),
+  templateCategory: varchar("template_category", { length: 128 }).notNull(),
+  templateName: varchar("template_name", { length: 255 }).notNull(),
+  productName: varchar("product_name", { length: 255 }),
+  userPrompt: text("user_prompt"),
+  aspectRatio: varchar("aspect_ratio", { length: 16 }),
+  captionTextId: uuid("caption_text_id").references(() => aiGeneratedText.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),
 });
 
-export type FoodServiceStoryTurbo = InferSelectModel<
-  typeof foodServiceStoryTurbo
->;
+export type FoodServiceFlyer = InferSelectModel<typeof foodServiceFlyer>;
 
 // =============================================
 // Backoffice Generated Posts
@@ -835,3 +884,240 @@ export const backofficeGeneratedPost = pgTable("backoffice_generated_posts", {
 export type BackofficeGeneratedPost = InferSelectModel<
   typeof backofficeGeneratedPost
 >;
+
+// =============================================
+// Stripe Subscription Management
+// =============================================
+
+// Plan type enum - compound: {period}_{tier}
+export const PLAN_TYPE_VALUES = [
+  "monthly_starter", "monthly_pro", "monthly_premium",
+  "quarterly_starter", "quarterly_pro", "quarterly_premium",
+  "semiannual_starter", "semiannual_pro", "semiannual_premium",
+  "annual_starter", "annual_pro", "annual_premium",
+] as const;
+
+export type PlanType = (typeof PLAN_TYPE_VALUES)[number];
+
+// Subscription status enum (mirrors Stripe)
+export type SubscriptionStatus =
+  | "active"
+  | "past_due"
+  | "canceled"
+  | "unpaid"
+  | "incomplete"
+  | "incomplete_expired"
+  | "trialing";
+
+// Subscriptions table - tracks Stripe subscription records
+export const subscription = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    stripeSubscriptionId: varchar("stripe_subscription_id", {
+      length: 255,
+    }).notNull(),
+    stripePriceId: varchar("stripe_price_id", { length: 255 }).notNull(),
+    planType: varchar("plan_type", {
+      enum: [...PLAN_TYPE_VALUES],
+    })
+      .$type<PlanType>()
+      .notNull(),
+    status: varchar("status", {
+      enum: [
+        "active",
+        "past_due",
+        "canceled",
+        "unpaid",
+        "incomplete",
+        "incomplete_expired",
+        "trialing",
+      ],
+    })
+      .$type<SubscriptionStatus>()
+      .notNull(),
+    currentPeriodStart: timestamp("current_period_start"),
+    currentPeriodEnd: timestamp("current_period_end"),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: timestamp("canceled_at"),
+    endedAt: timestamp("ended_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueStripeSubscriptionId: unique(
+      "subscriptions_stripe_subscription_id_unique"
+    ).on(table.stripeSubscriptionId),
+  })
+);
+
+export type Subscription = InferSelectModel<typeof subscription>;
+
+// Pending plan changes - stores scheduled plan changes
+export type PlanChangeType = "upgrade" | "downgrade" | "plan_change";
+export type PendingPlanChangeStatus = "pending" | "applied" | "canceled";
+
+export const pendingPlanChange = pgTable("pending_plan_changes", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id),
+  subscriptionId: uuid("subscription_id")
+    .notNull()
+    .references(() => subscription.id),
+  currentPlanType: varchar("current_plan_type", {
+    enum: [...PLAN_TYPE_VALUES],
+  })
+    .$type<PlanType>()
+    .notNull(),
+  newPlanType: varchar("new_plan_type", {
+    enum: [...PLAN_TYPE_VALUES],
+  })
+    .$type<PlanType>()
+    .notNull(),
+  newStripePriceId: varchar("new_stripe_price_id", { length: 255 }).notNull(),
+  changeType: varchar("change_type", {
+    enum: ["upgrade", "downgrade", "plan_change"],
+  })
+    .$type<PlanChangeType>()
+    .notNull(),
+  effectiveDate: timestamp("effective_date").notNull(),
+  status: varchar("status", {
+    enum: ["pending", "applied", "canceled"],
+  })
+    .$type<PendingPlanChangeStatus>()
+    .notNull()
+    .default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type PendingPlanChange = InferSelectModel<typeof pendingPlanChange>;
+
+// Payments table - payment history records
+export type PaymentStatus = "succeeded" | "failed" | "pending" | "refunded";
+
+export const payment = pgTable(
+  "payments",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    subscriptionId: uuid("subscription_id").references(() => subscription.id),
+    stripeInvoiceId: varchar("stripe_invoice_id", { length: 255 }),
+    stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
+    stripeChargeId: varchar("stripe_charge_id", { length: 255 }),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 10 }).notNull(),
+    status: varchar("status", {
+      enum: ["succeeded", "failed", "pending", "refunded"],
+    })
+      .$type<PaymentStatus>()
+      .notNull(),
+    planType: varchar("plan_type", {
+      enum: [...PLAN_TYPE_VALUES],
+    })
+      .$type<PlanType>()
+      .notNull(),
+    description: text("description"),
+    failureReason: text("failure_reason"),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueStripeInvoiceId: unique("payments_stripe_invoice_id_unique").on(
+      table.stripeInvoiceId
+    ),
+  })
+);
+
+export type Payment = InferSelectModel<typeof payment>;
+
+// Subscription events - audit log
+export type SubscriptionEventType =
+  | "subscribed"
+  | "renewed"
+  | "upgraded"
+  | "downgraded"
+  | "plan_changed"
+  | "canceled"
+  | "reactivated"
+  | "expired"
+  | "payment_failed"
+  | "payment_recovered";
+
+export const subscriptionEvent = pgTable("subscription_events", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id),
+  subscriptionId: uuid("subscription_id").references(() => subscription.id),
+  eventType: varchar("event_type", {
+    enum: [
+      "subscribed",
+      "renewed",
+      "upgraded",
+      "downgraded",
+      "plan_changed",
+      "canceled",
+      "reactivated",
+      "expired",
+      "payment_failed",
+      "payment_recovered",
+    ],
+  })
+    .$type<SubscriptionEventType>()
+    .notNull(),
+  fromPlan: varchar("from_plan", {
+    enum: [...PLAN_TYPE_VALUES],
+  }).$type<PlanType>(),
+  toPlan: varchar("to_plan", {
+    enum: [...PLAN_TYPE_VALUES],
+  }).$type<PlanType>(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type SubscriptionEvent = InferSelectModel<typeof subscriptionEvent>;
+
+// Processed webhook events - for idempotency
+export const processedWebhookEvent = pgTable(
+  "processed_webhook_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    stripeEventId: varchar("stripe_event_id", { length: 255 }).notNull(),
+    eventType: varchar("event_type", { length: 128 }).notNull(),
+    processedAt: timestamp("processed_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueStripeEventId: unique(
+      "processed_webhook_events_stripe_event_id_unique"
+    ).on(table.stripeEventId),
+  })
+);
+
+export type ProcessedWebhookEvent = InferSelectModel<
+  typeof processedWebhookEvent
+>;
+
+// Plan price configs - allows price changes without redeployment
+export const planPriceConfig = pgTable("plan_price_configs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  planType: varchar("plan_type", {
+    enum: [...PLAN_TYPE_VALUES],
+  })
+    .$type<PlanType>()
+    .notNull(),
+  stripePriceId: varchar("stripe_price_id", { length: 255 }).notNull(),
+  amount: integer("amount").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type PlanPriceConfig = InferSelectModel<typeof planPriceConfig>;

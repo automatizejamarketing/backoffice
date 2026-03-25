@@ -154,15 +154,17 @@ const AlertDialogCancel = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Cancel>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Cancel> &
     Pick<React.ComponentProps<typeof Button>, "variant" | "size">
->(({ className, variant = "outline", size = "default", ...props }, ref) => (
-  <AlertDialogPrimitive.Cancel
-    ref={ref}
-    asChild
-    className={cn(className)}
-    data-slot="alert-dialog-cancel"
-    {...props}
-  >
-    <Button variant={variant} size={size} />
+>(({ className, variant = "outline", size = "default", children, ...props }, ref) => (
+  <AlertDialogPrimitive.Cancel asChild {...props}>
+    <Button
+      ref={ref}
+      variant={variant}
+      size={size}
+      className={cn(className)}
+      data-slot="alert-dialog-cancel"
+    >
+      {children}
+    </Button>
   </AlertDialogPrimitive.Cancel>
 ))
 AlertDialogCancel.displayName = AlertDialogPrimitive.Cancel.displayName

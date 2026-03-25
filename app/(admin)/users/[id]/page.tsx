@@ -1,8 +1,37 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getUserWithDetailedUsage, getAllUserGeneratedImages } from "@/lib/db/admin-queries";
+import {
+  getUserWithDetailedUsage,
+  getAllUserGeneratedImages,
+  getUserAuditLogs,
+} from "@/lib/db/admin-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ExpirationDateControl } from "@/components/expiration-date-control";
+import { CreditsControl } from "@/components/credits-control";
+
+const FIELD_LABELS: Record<string, string> = {
+  expiration_date: "Data de expiração",
+  credits: "Créditos",
+};
+
+function formatAuditCellValue(
+  fieldName: string,
+  value: string | null,
+  formatDateFull: (d: Date) => string,
+): string {
+  if (value === null || value === "") return "—";
+  if (fieldName === "expiration_date") {
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) {
+      return formatDateFull(d);
+    }
+  }
+  if (fieldName === "credits") {
+    return new Intl.NumberFormat("pt-BR").format(Number.parseInt(value, 10));
+  }
+  return value;
+}
 
 function formatModelName(modelId: string): string {
   const labels: Record<string, string> = {
@@ -19,9 +48,10 @@ export default async function UserDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [user, userPostsResult] = await Promise.all([
+  const [user, userPostsResult, auditLogs] = await Promise.all([
     getUserWithDetailedUsage(id),
     getAllUserGeneratedImages({ userId: id, page: 1, limit: 20 }),
+    getUserAuditLogs(id),
   ]);
 
   if (!user) {
@@ -83,6 +113,11 @@ export default async function UserDetailPage({
             )}
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ExpirationDateControl userId={id} expirationDate={user.expirationDate} />
+        <CreditsControl userId={id} credits={user.credits} />
       </div>
 
       {/* Cards de resumo */}
@@ -253,6 +288,73 @@ export default async function UserDetailPage({
                   </div>
                 </Link>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Histórico de alterações (backoffice) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Histórico de Alterações</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {auditLogs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma alteração registrada pelo backoffice
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b border-border">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                      Data
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                      Admin
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                      Campo
+                    </th>
+                    <th className="px-3 py-2 text-left text-xs font-medium uppercase text-muted-foreground">
+                      Antes → Depois
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {auditLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
+                        {formatDate(log.createdAt)}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-foreground">
+                        {log.adminEmail}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-foreground">
+                        {FIELD_LABELS[log.fieldName] ?? log.fieldName}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-foreground/90">
+                        <span className="text-muted-foreground">
+                          {formatAuditCellValue(
+                            log.fieldName,
+                            log.oldValue,
+                            formatDate,
+                          )}
+                        </span>
+                        {" → "}
+                        <span className="font-medium">
+                          {formatAuditCellValue(
+                            log.fieldName,
+                            log.newValue,
+                            formatDate,
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>

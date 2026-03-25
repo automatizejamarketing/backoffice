@@ -1,5 +1,5 @@
 import type { LanguageModelUsage } from "ai";
+import type { UsageData } from "tokenlens/helpers";
 
-// Simplified AppUsage type for backoffice (without tokenlens dependency)
-// Server-merged usage: base usage + optional modelId
-export type AppUsage = LanguageModelUsage & { modelId?: string };
+// Server-merged usage: base usage + TokenLens summary + optional modelId
+export type AppUsage = LanguageModelUsage & UsageData & { modelId?: string };

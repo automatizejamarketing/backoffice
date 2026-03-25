@@ -4,12 +4,10 @@ import {
   adsetEditLog,
   aiGeneratedText,
   aiUsageLog,
+  backofficeAuditLog,
   backofficeGeneratedPost,
   chat,
   company,
-  foodServicePostCriativo,
-  foodServicePostDoPrato,
-  foodServiceStoryTurbo,
   generatedImage,
   generatedImageVersion,
   genericGeneratePost,
@@ -168,6 +166,47 @@ export async function getUserWithDetailedUsage(userId: string) {
     companyName: companyInfo?.companyName ?? null,
     onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
   };
+}
+
+function getPostgresErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  const seen = new Set<object>();
+  for (let i = 0; i < 6 && current; i++) {
+    if (typeof current !== "object" || current === null) break;
+    if (seen.has(current)) break;
+    seen.add(current);
+    if (
+      "code" in current &&
+      typeof (current as { code: unknown }).code === "string"
+    ) {
+      return (current as { code: string }).code;
+    }
+    if ("cause" in current) {
+      current = (current as { cause: unknown }).cause;
+      continue;
+    }
+    break;
+  }
+  return undefined;
+}
+
+export async function getUserAuditLogs(userId: string, limit = 50) {
+  try {
+    return await db
+      .select()
+      .from(backofficeAuditLog)
+      .where(eq(backofficeAuditLog.targetUserId, userId))
+      .orderBy(desc(backofficeAuditLog.createdAt))
+      .limit(limit);
+  } catch (error) {
+    if (getPostgresErrorCode(error) === "42P01") {
+      console.warn(
+        "[getUserAuditLogs] Table backoffice_audit_logs is missing. Apply migrations: npm run db:push (or run lib/db/migrations/0001_backoffice_audit_logs.sql)."
+      );
+      return [];
+    }
+    throw error;
+  }
 }
 
 // Get dashboard overview stats
