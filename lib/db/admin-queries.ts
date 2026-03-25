@@ -785,7 +785,7 @@ export async function getPostPerformanceStats(userId?: string) {
 // ================================
 
 export type CreateAdSetEditLogData = {
-  backofficeUserId: string;
+  backofficeUserEmail: string;
   targetUserId: string;
   adsetId: string;
   accountId: string;
@@ -804,7 +804,7 @@ export async function createAdSetEditLog(data: CreateAdSetEditLogData) {
   const [log] = await db
     .insert(adsetEditLog)
     .values({
-      backofficeUserId: data.backofficeUserId,
+      backofficeUserEmail: data.backofficeUserEmail,
       targetUserId: data.targetUserId,
       adsetId: data.adsetId,
       accountId: data.accountId,
@@ -825,7 +825,6 @@ export async function createAdSetEditLog(data: CreateAdSetEditLogData) {
 
 export type AdSetEditLogWithAdmin = {
   id: string;
-  backofficeUserId: string;
   backofficeUserEmail: string;
   targetUserId: string;
   adsetId: string;
@@ -848,8 +847,7 @@ export async function getAdSetEditLogs(
   const logs = await db
     .select({
       id: adsetEditLog.id,
-      backofficeUserId: adsetEditLog.backofficeUserId,
-      backofficeUserEmail: user.email,
+      backofficeUserEmail: adsetEditLog.backofficeUserEmail,
       targetUserId: adsetEditLog.targetUserId,
       adsetId: adsetEditLog.adsetId,
       accountId: adsetEditLog.accountId,
@@ -865,7 +863,6 @@ export async function getAdSetEditLogs(
       createdAt: adsetEditLog.createdAt,
     })
     .from(adsetEditLog)
-    .innerJoin(user, eq(adsetEditLog.backofficeUserId, user.id))
     .where(eq(adsetEditLog.adsetId, adsetId))
     .orderBy(desc(adsetEditLog.createdAt));
 

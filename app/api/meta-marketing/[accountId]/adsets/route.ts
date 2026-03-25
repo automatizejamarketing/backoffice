@@ -174,6 +174,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("Error fetching adsets:", errorReturn);
 
@@ -404,7 +405,8 @@ async function deleteMetaObject(
       accessToken,
     });
     return true;
-  } catch {
+  } catch (error) {
+    console.log("TODELETE - ", error);
     console.error(`[deleteMetaObject] Failed to delete ${objectId}`);
     return false;
   }
@@ -821,6 +823,7 @@ export async function POST(
 
         adId = createdAd.id;
       } catch (creativeError) {
+        console.log("TODELETE - ", creativeError);
         // Rollback: delete lead form if it was created
         if (leadFormId) {
           console.log(
@@ -861,6 +864,7 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("[POST /adsets] Error:", errorReturn);
 
@@ -941,7 +945,8 @@ export async function PATCH(
       domain: "FACEBOOK",
       method: "POST",
       path: `${adsetId}`,
-      params: updateParams.toString(),
+      params: "",
+      body: updateParams,
       accessToken,
     });
 
@@ -956,6 +961,7 @@ export async function PATCH(
       { status: 200 }
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("Error updating adset:", errorReturn);
 

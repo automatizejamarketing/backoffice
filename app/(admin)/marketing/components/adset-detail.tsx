@@ -26,9 +26,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  AdSet,
-  InsightsMetrics,
-  TimeIncrement,
+  type AdSet,
+  type InsightsMetrics,
+  type TimeIncrement,
   DatePreset,
 } from "@/lib/meta-business/types";
 import { InsightsCards } from "./insights-cards";
@@ -63,19 +63,24 @@ type GetAdSetInsightsResponse = {
 };
 
 export function AdSetDetail({
-  adSet,
+  adSet: adSetProp,
   accountId,
   userId,
   isOpen,
   onClose,
 }: AdSetDetailProps) {
+  const [adSet, setAdSet] = useState<AdSet>(adSetProp);
   const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
   const [totalInsights, setTotalInsights] = useState<InsightsMetrics | undefined>(
-    adSet.insights
+    adSetProp.insights
   );
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
+
+  useEffect(() => {
+    setAdSet(adSetProp);
+  }, [adSetProp]);
 
   const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
   const [selectedMetric, setSelectedMetric] = useState<
@@ -155,6 +160,33 @@ export function AdSetDetail({
       fetchInsights();
     }
   }, [isOpen, fetchInsights]);
+
+  const refetchAdSet = useCallback(async () => {
+    try {
+      const statuses =
+        "ACTIVE,PAUSED,CAMPAIGN_PAUSED,ADSET_PAUSED,PENDING_REVIEW," +
+        "DISAPPROVED,PREAPPROVED,WITH_ISSUES,IN_PROCESS";
+      const params = new URLSearchParams({
+        userId,
+        effectiveStatus: statuses,
+        limit: "100",
+      });
+      if (adSet.campaignId) {
+        params.set("campaignId", adSet.campaignId);
+      }
+      const res = await fetch(
+        `/api/meta-marketing/${accountId}/adsets?${params}`,
+      );
+      if (!res.ok) return;
+      const data: { data?: AdSet[] } = await res.json();
+      const match = data.data?.find((a) => a.id === adSet.id);
+      if (match) {
+        setAdSet(match);
+      }
+    } catch {
+      // best-effort; the edit already succeeded
+    }
+  }, [accountId, adSet.id, adSet.campaignId, userId]);
 
   return (
   <>
@@ -379,6 +411,7 @@ export function AdSetDetail({
       onClose={() => setIsEditOpen(false)}
       onSuccess={() => {
         setHistoryRefreshTrigger((prev) => prev + 1);
+        refetchAdSet();
       }}
     />
   </>

@@ -30,6 +30,27 @@ type AdSetEditDialogProps = {
   onSuccess: () => void;
 };
 
+/** Meta may return 1/2 as numbers or strings; normalize for comparisons. */
+function normalizeGenderCodes(
+  genders: readonly unknown[] | undefined,
+): number[] {
+  if (!genders?.length) return [];
+  const out: number[] = [];
+  for (const g of genders) {
+    const n = typeof g === "string" ? Number.parseInt(g, 10) : Number(g);
+    if (n === 1 || n === 2) out.push(n);
+  }
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+function getGenderValue(genders: readonly unknown[] | undefined): string {
+  const g = normalizeGenderCodes(genders);
+  if (g.length === 0) return "all";
+  if (g.length === 1 && g[0] === 1) return "male";
+  if (g.length === 1 && g[0] === 2) return "female";
+  return "all";
+}
+
 export function AdSetEditDialog({
   adSet,
   accountId,
@@ -44,7 +65,9 @@ export function AdSetEditDialog({
   const usesCBO = !adSet.dailyBudget;
   const currentAgeMin = adSet.targeting?.age_min ?? 18;
   const currentAgeMax = adSet.targeting?.age_max ?? 65;
-  const currentGenders = adSet.targeting?.genders ?? [];
+  const currentGendersNormalized = normalizeGenderCodes(
+    adSet.targeting?.genders,
+  );
   const currentCustomAudiences: AudienceOption[] = (
     adSet.targeting?.custom_audiences ?? []
   ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
@@ -52,19 +75,14 @@ export function AdSetEditDialog({
     adSet.targeting?.excluded_custom_audiences ?? []
   ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
 
-  const getGenderValue = (genders: number[]) => {
-    if (genders.length === 0) return "all";
-    if (genders.length === 1 && genders[0] === 1) return "male";
-    if (genders.length === 1 && genders[0] === 2) return "female";
-    return "all";
-  };
-
   const [dailyBudget, setDailyBudget] = useState<string>(
     currentBudgetBRL.toFixed(2)
   );
   const [ageMin, setAgeMin] = useState<string>(currentAgeMin.toString());
   const [ageMax, setAgeMax] = useState<string>(currentAgeMax.toString());
-  const [gender, setGender] = useState<string>(getGenderValue(currentGenders));
+  const [gender, setGender] = useState<string>(() =>
+    getGenderValue(adSet.targeting?.genders),
+  );
   const [includedAudiences, setIncludedAudiences] =
     useState<AudienceOption[]>(currentCustomAudiences);
   const [excludedAudiences, setExcludedAudiences] =
@@ -100,6 +118,34 @@ export function AdSetEditDialog({
     }
   }, [isOpen, fetchAudiences]);
 
+  // Reset form when the dialog opens or when switching to another ad set.
+  // Without this, React keeps stale state from a previous ad set, so the user
+  // can align the UI with the API and submit with "Nenhuma alteração foi feita".
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const budget = adSet.dailyBudget
+      ? Number.parseInt(adSet.dailyBudget) / 100
+      : 0;
+    const min = adSet.targeting?.age_min ?? 18;
+    const max = adSet.targeting?.age_max ?? 65;
+    const included: AudienceOption[] = (
+      adSet.targeting?.custom_audiences ?? []
+    ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
+    const excluded: AudienceOption[] = (
+      adSet.targeting?.excluded_custom_audiences ?? []
+    ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
+
+    setDailyBudget(budget.toFixed(2));
+    setAgeMin(min.toString());
+    setAgeMax(max.toString());
+    setGender(getGenderValue(adSet.targeting?.genders));
+    setIncludedAudiences(included);
+    setExcludedAudiences(excluded);
+    setNote("");
+    setError(null);
+  }, [isOpen, adSet.id]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -122,8 +168,10 @@ export function AdSetEditDialog({
 
     const gendersArray =
       gender === "male" ? [1] : gender === "female" ? [2] : [];
+    const desiredGendersNormalized = normalizeGenderCodes(gendersArray);
     const hasGenderChange =
-      JSON.stringify(gendersArray) !== JSON.stringify(currentGenders);
+      JSON.stringify(desiredGendersNormalized) !==
+      JSON.stringify(currentGendersNormalized);
 
     const currentIncludedIds = currentCustomAudiences
       .map((a) => a.id)
@@ -195,7 +243,7 @@ export function AdSetEditDialog({
         body.targeting = {
           ...(hasAgeMinChange && { age_min: ageMinValue }),
           ...(hasAgeMaxChange && { age_max: ageMaxValue }),
-          ...(hasGenderChange && { genders: gendersArray }),
+          ...(hasGenderChange && { genders: desiredGendersNormalized }),
           ...(hasIncludedAudienceChange && {
             custom_audiences: includedAudiences.map((a) => ({
               id: a.id,
@@ -243,7 +291,7 @@ export function AdSetEditDialog({
       setDailyBudget(currentBudgetBRL.toFixed(2));
       setAgeMin(currentAgeMin.toString());
       setAgeMax(currentAgeMax.toString());
-      setGender(getGenderValue(currentGenders));
+      setGender(getGenderValue(adSet.targeting?.genders));
       setIncludedAudiences(currentCustomAudiences);
       setExcludedAudiences(currentExcludedAudiences);
       setNote("");
@@ -341,11 +389,14 @@ export function AdSetEditDialog({
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                Atual: {currentGenders.length === 0
+                Atual:{" "}
+                {currentGendersNormalized.length === 0
                   ? "Todos"
-                  : currentGenders.includes(1) && currentGenders.length === 1
+                  : currentGendersNormalized.length === 1 &&
+                      currentGendersNormalized[0] === 1
                     ? "Masculino"
-                    : currentGenders.includes(2) && currentGenders.length === 1
+                    : currentGendersNormalized.length === 1 &&
+                        currentGendersNormalized[0] === 2
                       ? "Feminino"
                       : "Todos"}
               </p>

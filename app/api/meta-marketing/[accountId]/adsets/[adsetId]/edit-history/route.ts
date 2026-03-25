@@ -43,6 +43,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     console.error("Error fetching edit history:", error);
 
     return NextResponse.json(

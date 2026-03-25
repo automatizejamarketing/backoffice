@@ -126,6 +126,70 @@ export const genericError: MappedError = {
  * Chave: `${code}_${subcode}` ou `${code}` quando subcode não é específico.
  */
 const errorMap: Record<string, MappedError> = {
+  "1": {
+    httpStatusCode: 500,
+    title: "Erro desconhecido da API",
+    message:
+      "A API retornou um erro desconhecido. Pode ser temporário ou um bug.",
+    solution: "Tente novamente em alguns instantes.",
+    isTransient: true,
+  },
+  "2": {
+    httpStatusCode: 503,
+    title: "Serviço temporariamente indisponível",
+    message: "O serviço da Meta está temporariamente indisponível.",
+    solution: "Aguarde alguns minutos e tente novamente.",
+    isTransient: true,
+  },
+  "4": {
+    httpStatusCode: 429,
+    title: "Limite de chamadas da API",
+    message:
+      "Muitas chamadas à API em pouco tempo. A Meta aplicou limite de taxa.",
+    solution:
+      "Reduza a frequência das requisições e aguarde antes de tentar de novo.",
+    isTransient: true,
+  },
+  "17": {
+    httpStatusCode: 429,
+    title: "Limite do usuário excedido",
+    message: "O usuário excedeu o limite de chamadas permitido.",
+    solution: "Aguarde e tente novamente mais tarde.",
+    isTransient: true,
+  },
+  "32": {
+    httpStatusCode: 429,
+    title: "Limite de taxa",
+    message: "Limite de taxa da API atingido.",
+    solution: "Implemente backoff e tente novamente.",
+    isTransient: true,
+  },
+  "100": {
+    httpStatusCode: 400,
+    title: "Parâmetro inválido",
+    message:
+      "Um ou mais parâmetros da requisição são inválidos para a Marketing API.",
+    solution:
+      "Verifique os IDs, campos e formato dos dados conforme a documentação da Meta.",
+    isTransient: false,
+  },
+  "368": {
+    httpStatusCode: 403,
+    title: "Conta temporariamente bloqueada",
+    message:
+      "A conta está temporariamente impedida de realizar esta ação por políticas da Meta.",
+    solution: "Revise as políticas de anúncios e o status da conta na Meta.",
+    isTransient: false,
+  },
+  "2635": {
+    httpStatusCode: 400,
+    title: "Segmentação do conjunto de anúncios inválida",
+    message:
+      "A segmentação (targeting) do conjunto de anúncios não é válida ou não é permitida.",
+    solution:
+      "Ajuste idade, localização, públicos e demais campos de segmentação.",
+    isTransient: false,
+  },
   "102": {
     httpStatusCode: 401,
     title: "Sessão da API",
@@ -191,17 +255,16 @@ export function errorToGraphErrorReturn(error: unknown): GraphErrorReturn {
     return error.errorReturn;
   }
 
-  // For non-GraphApiError, create a generic error return
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  // Never expose raw DB/SQL messages or stack details to API clients
+  console.error("[errorToGraphErrorReturn] Non-Graph error:", error);
 
   return {
     statusCode: 500,
     reason: {
       httpStatusCode: 500,
-      title: "Internal server error",
-      message: errorMessage,
-      solution:
-        "Tente novamente. Se o problema persistir, entre em contato com o suporte.",
+      title: "Erro interno",
+      message: genericError.message,
+      solution: genericError.solution,
       isTransient: true,
     },
   };

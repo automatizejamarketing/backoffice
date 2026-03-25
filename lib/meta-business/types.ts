@@ -277,6 +277,8 @@ export type AdSetTargeting = {
     countries?: string[];
     cities?: Array<{ key: string; name?: string; region?: string }>;
     regions?: Array<{ key: string; name?: string }>;
+    /** e.g. home, recent, travel_in — Meta location targeting behavior */
+    location_types?: string[];
   };
   genders?: number[];
   locales?: number[];

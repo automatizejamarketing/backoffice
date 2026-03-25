@@ -222,6 +222,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
 
     console.error("Error fetching campaigns:", errorReturn);
@@ -324,7 +325,8 @@ export async function PATCH(
       domain: "FACEBOOK",
       method: "POST",
       path: `${campaignId}`,
-      params: updateParams.toString(),
+      params: "",
+      body: updateParams,
       accessToken,
     });
 
@@ -339,6 +341,7 @@ export async function PATCH(
       { status: 200 }
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
 
     console.error("Error updating campaign:", errorReturn);

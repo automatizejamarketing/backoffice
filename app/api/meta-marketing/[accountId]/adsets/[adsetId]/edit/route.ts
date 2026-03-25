@@ -31,6 +31,9 @@ type EditAdSetRequestBody = {
 type EditAdSetResponse = {
   success: boolean;
   logId?: string;
+  /** True when Meta applied but DB audit log insert failed */
+  auditLogFailed?: boolean;
+  auditLogError?: string;
   changes?: {
     dailyBudget?: { previous: string | null; new: string };
     targeting?: { previous: AdSetTargeting | null; new: AdSetTargeting };
@@ -60,7 +63,18 @@ export async function PATCH(
       );
     }
 
-    const backofficeUserId = session.user.id;
+    const backofficeUserEmail = session.user.email?.trim();
+    if (!backofficeUserEmail) {
+      return NextResponse.json(
+        {
+          error: "Missing admin email",
+          message: "Sua sessão não possui email. Faça login novamente.",
+          solution: "Encerre a sessão e entre novamente com Google.",
+        },
+        { status: 400 },
+      );
+    }
+
     const { accountId, adsetId } = await params;
 
     const body: EditAdSetRequestBody = await request.json();
@@ -163,14 +177,13 @@ export async function PATCH(
 
     let newTargeting: AdSetTargeting | undefined;
     if (hasTargetingChange) {
-      // Build targeting with only the essential fields that Meta accepts for updates
-      // Always preserve geo_locations from previous targeting (location editing is not allowed)
       const prevGeoLocations = previousTargeting?.geo_locations;
-      
-      if (!prevGeoLocations ||
-          (!prevGeoLocations.countries?.length &&
-            !prevGeoLocations.cities?.length &&
-            !prevGeoLocations.regions?.length)
+
+      if (
+        !prevGeoLocations ||
+        (!prevGeoLocations.countries?.length &&
+          !prevGeoLocations.cities?.length &&
+          !prevGeoLocations.regions?.length)
       ) {
         return NextResponse.json(
           {
@@ -183,7 +196,7 @@ export async function PATCH(
           { status: 400 },
         );
       }
-      
+
       const newGeoLocations = prevGeoLocations;
 
       const newGenders =
@@ -201,7 +214,10 @@ export async function PATCH(
           ? targeting.excluded_custom_audiences
           : previousTargeting?.excluded_custom_audiences;
 
-      // newTargeting stores full audience refs (with names) for the audit log
+      const prevRelaxation = previousTargeting?.targeting_relaxation_types as
+        | Record<string, unknown>
+        | undefined;
+
       newTargeting = {
         geo_locations: newGeoLocations,
         age_min: targeting.age_min ?? previousTargeting?.age_min ?? 18,
@@ -213,9 +229,9 @@ export async function PATCH(
         ...(newExcludedAudiences?.length && {
           excluded_custom_audiences: newExcludedAudiences,
         }),
+        ...(prevRelaxation && { targeting_relaxation_types: prevRelaxation }),
       };
 
-      // metaTargeting sends only audience IDs to Meta (required format)
       const metaTargeting: AdSetTargeting = {
         ...newTargeting,
         ...(newCustomAudiences?.length && {
@@ -228,18 +244,14 @@ export async function PATCH(
         }),
       };
 
-      // Clean up geo_locations - remove undefined/empty arrays
       if (metaTargeting.geo_locations) {
+        const src = metaTargeting.geo_locations;
         const cleanGeo: typeof metaTargeting.geo_locations = {};
-        if (metaTargeting.geo_locations.countries?.length) {
-          cleanGeo.countries = metaTargeting.geo_locations.countries;
-        }
-        if (metaTargeting.geo_locations.cities?.length) {
-          cleanGeo.cities = metaTargeting.geo_locations.cities;
-        }
-        if (metaTargeting.geo_locations.regions?.length) {
-          cleanGeo.regions = metaTargeting.geo_locations.regions;
-        }
+        if (src.countries?.length) cleanGeo.countries = src.countries;
+        if (src.cities?.length) cleanGeo.cities = src.cities;
+        if (src.regions?.length) cleanGeo.regions = src.regions;
+        if (src.location_types?.length)
+          cleanGeo.location_types = src.location_types;
         metaTargeting.geo_locations = cleanGeo;
         newTargeting.geo_locations = cleanGeo;
       }
@@ -249,7 +261,6 @@ export async function PATCH(
         previous: previousTargeting,
         new: newTargeting,
       };
-
     }
 
     let appliedToMeta = false;
@@ -270,23 +281,35 @@ export async function PATCH(
       errorMessage = `${errorReturn.reason.title}: ${errorReturn.reason.message}`;
     }
 
-    const log = await createAdSetEditLog({
-      backofficeUserId,
-      targetUserId: userId,
-      adsetId,
-      accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
-      campaignId: campaignId ?? currentAdSet.campaign_id,
-      adsetName: adsetName ?? currentAdSet.name,
-      previousDailyBudget: previousDailyBudget ?? undefined,
-      newDailyBudget: hasBudgetChange
-        ? Math.round(dailyBudget * 100).toString()
-        : undefined,
-      previousTargeting: previousTargeting ?? undefined,
-      newTargeting: newTargeting,
-      note: note.trim(),
-      appliedToMeta,
-      errorMessage,
-    });
+    let logId: string | undefined;
+    let auditLogFailed = false;
+    let auditLogError: string | undefined;
+
+    try {
+      const log = await createAdSetEditLog({
+        backofficeUserEmail,
+        targetUserId: userId,
+        adsetId,
+        accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+        campaignId: campaignId ?? currentAdSet.campaign_id,
+        adsetName: adsetName ?? currentAdSet.name,
+        previousDailyBudget: previousDailyBudget ?? undefined,
+        newDailyBudget: hasBudgetChange
+          ? Math.round(dailyBudget * 100).toString()
+          : undefined,
+        previousTargeting: previousTargeting ?? undefined,
+        newTargeting: newTargeting,
+        note: note.trim(),
+        appliedToMeta,
+        errorMessage,
+      });
+      logId = log.id;
+    } catch (dbErr) {
+      console.error("[PATCH adset edit] Failed to write adset_edit_logs:", dbErr);
+      auditLogFailed = true;
+      auditLogError =
+        dbErr instanceof Error ? dbErr.message : "Falha ao registrar auditoria";
+    }
 
     if (!appliedToMeta) {
       return NextResponse.json(
@@ -302,7 +325,11 @@ export async function PATCH(
     return NextResponse.json(
       {
         success: true,
-        logId: log.id,
+        logId,
+        ...(auditLogFailed && {
+          auditLogFailed: true,
+          auditLogError,
+        }),
         changes,
       },
       { status: 200 },

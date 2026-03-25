@@ -15,6 +15,13 @@
       "when": 1774453476697,
       "tag": "0001_backoffice_audit_logs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774500000000,
+      "tag": "0002_adset_edit_logs_backoffice_email",
+      "breakpoints": true
     }
   ]
 }

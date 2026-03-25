@@ -299,23 +299,28 @@ export const metaBusinessAccount = pgTable(
 
 export type MetaBusinessAccount = InferSelectModel<typeof metaBusinessAccount>;
 
-// AdSet targeting type for audit logs
+// AdSet targeting type for audit logs (subset + index for Meta targeting JSON)
 export type AdSetTargetingData = {
   age_min?: number;
   age_max?: number;
+  genders?: number[];
   geo_locations?: {
     countries?: string[];
     cities?: Array<{ key: string; name?: string }>;
+    regions?: Array<{ key: string; name?: string }>;
+    location_types?: string[];
   };
+  custom_audiences?: Array<{ id: string; name?: string }>;
+  excluded_custom_audiences?: Array<{ id: string; name?: string }>;
+  targeting_relaxation_types?: Record<string, unknown>;
   [key: string]: unknown;
 };
 
 // AdSet Edit Logs - tracking manual changes made by backoffice admins
+// backoffice_user_email: Google OAuth admins are not in users table; store email like backoffice_audit_logs
 export const adsetEditLog = pgTable("adset_edit_logs", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
-  backofficeUserId: uuid("backoffice_user_id")
-    .notNull()
-    .references(() => user.id),
+  backofficeUserEmail: varchar("backoffice_user_email", { length: 100 }).notNull(),
   targetUserId: uuid("target_user_id")
     .notNull()
     .references(() => user.id),

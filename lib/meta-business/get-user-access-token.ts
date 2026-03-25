@@ -43,6 +43,23 @@ export async function getUserAccessTokenByUserId(
       };
     }
 
+    if (metaAccount.tokenExpiresAt) {
+      const expiresAt = new Date(metaAccount.tokenExpiresAt);
+      if (expiresAt.getTime() <= Date.now()) {
+        return {
+          success: false,
+          error: {
+            error: "Token expired",
+            message:
+              "O token de acesso do Meta expirou. É necessário reconectar a conta.",
+            solution:
+              "Peça ao usuário para reconectar a conta Meta no aplicativo.",
+            statusCode: 401,
+          },
+        };
+      }
+    }
+
     return {
       success: true,
       accessToken: metaAccount.accessToken,
@@ -55,11 +72,8 @@ export async function getUserAccessTokenByUserId(
       success: false,
       error: {
         error: "Internal server error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "An unexpected error occurred while retrieving access token",
-        solution: "Please try again later",
+        message: "Erro ao obter o token de acesso. Tente novamente.",
+        solution: "Tente novamente mais tarde.",
         statusCode: 500,
       },
     };

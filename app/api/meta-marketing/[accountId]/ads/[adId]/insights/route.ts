@@ -180,6 +180,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
+    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("Error fetching ad insights:", errorReturn);
 
