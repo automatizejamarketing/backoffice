@@ -4,7 +4,10 @@ export const ADMIN_EMAILS = [
   "joaopedro@layback.trade",
   "educacaoleg@gmail.com",
   "gustavoomarcelinoo@gmail.com",
-  "gustavo@layback.trade"
+  "gustavo@layback.trade",
+  "lucashaddadm@gmail.com",
+  "lshm7979@gmail.com",
+  "lucashaddad@infinitegrowth.com.br",
   // Add more admin emails here
 ] as const;
 
@@ -12,4 +15,3 @@ export function isAdminEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   return ADMIN_EMAILS.includes(email as (typeof ADMIN_EMAILS)[number]);
 }
-
