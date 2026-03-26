@@ -223,10 +223,15 @@ export type PostAdSetRequestBody = {
     custom_audiences?: { id: string; name?: string }[];
     excluded_custom_audiences?: { id: string; name?: string }[];
   };
+  /** @deprecated Use `creatives` instead */
   creative?: {
     instagramMediaId: string;
   };
-  /** URL for SALES campaigns (required when creative is provided for OUTCOME_SALES) */
+  /** Array of Instagram media to create as ads (1-5 items) */
+  creatives?: Array<{
+    instagramMediaId: string;
+  }>;
+  /** URL for SALES campaigns (required when creatives are provided for OUTCOME_SALES) */
   url?: string;
 };
 
@@ -234,8 +239,12 @@ export type PostAdSetResponse = {
   success: boolean;
   adsetId: string;
   adsetName: string;
+  /** @deprecated Use `ads` instead */
   adId?: string;
+  /** @deprecated Use `adCreatives` instead */
   adCreativeId?: string;
+  ads?: Array<{ id: string; creativeId: string }>;
+  adCreatives?: Array<{ id: string }>;
 };
 
 type PromotedObjectType =
@@ -489,8 +498,16 @@ export async function POST(
       dailyBudget,
       targeting,
       creative,
+      creatives: rawCreatives,
       url,
     } = body;
+
+    const creatives =
+      rawCreatives && rawCreatives.length > 0
+        ? rawCreatives
+        : creative
+          ? [creative]
+          : [];
 
     if (!userId) {
       return NextResponse.json(
@@ -536,12 +553,22 @@ export async function POST(
       );
     }
 
-    // Validate URL for SALES campaigns when creative is provided
+    if (creatives.length > 5) {
+      return NextResponse.json(
+        {
+          error: "Too many creatives",
+          message: "No máximo 5 criativos por conjunto de anúncios.",
+          solution: "Selecione até 5 posts do Instagram.",
+        },
+        { status: 400 },
+      );
+    }
+
     const isSalesCampaign =
       campaignObjective === CampaignObjective.OUTCOME_SALES ||
       campaignObjective === CampaignObjective.CONVERSIONS;
 
-    if (isSalesCampaign && creative?.instagramMediaId && !url) {
+    if (isSalesCampaign && creatives.length > 0 && !url) {
       return NextResponse.json(
         {
           error: "Missing URL",
@@ -740,28 +767,24 @@ export async function POST(
     });
 
     const adsetId = createdAdSet.id;
-    let adId: string | undefined;
-    let adCreativeId: string | undefined;
+    const createdAds: Array<{ id: string; creativeId: string }> = [];
+    const createdAdCreatives: Array<{ id: string }> = [];
     let leadFormId: string | undefined;
 
-    // Create ad + creative if Instagram post provided
-    if (creative?.instagramMediaId && pageWithIg?.instagram_business_account) {
+    if (creatives.length > 0 && pageWithIg?.instagram_business_account) {
       const pageId = pageWithIg.id;
       const igAccountId = pageWithIg.instagram_business_account.id;
       const igUsername = pageWithIg.instagram_business_account.username;
 
-      // Build Instagram profile URL for TRAFFIC campaigns
       const instagramProfileUrl = igUsername
         ? `https://www.instagram.com/${igUsername}`
         : undefined;
 
-      // Check if this is a LEADS campaign
       const isLeadsCampaign =
         campaignObjective === CampaignObjective.OUTCOME_LEADS ||
         campaignObjective === CampaignObjective.LEAD_GENERATION;
 
       try {
-        // For LEADS campaigns, create a lead form first
         if (isLeadsCampaign) {
           const leadForm = await createLeadForm({
             pageId,
@@ -771,7 +794,6 @@ export async function POST(
           leadFormId = leadForm.id;
         }
 
-        // Build call_to_action based on campaign objective
         const callToAction = buildCallToAction({
           campaignObjective,
           url,
@@ -779,52 +801,56 @@ export async function POST(
           leadFormId,
         });
 
-        // Create ad creative from Instagram post
-        const creativeParams = new URLSearchParams({
-          name: `${adsetName.trim()} - Creative`,
-          source_instagram_media_id: creative.instagramMediaId,
-          object_id: pageId,
-          instagram_user_id: igAccountId,
-          contextual_multi_ads: JSON.stringify({ enroll_status: "OPT_OUT" }),
-        });
+        for (let i = 0; i < creatives.length; i++) {
+          const source = creatives[i];
+          const suffix = creatives.length > 1 ? ` ${i + 1}` : "";
 
-        // Add call_to_action if applicable for this campaign objective
-        if (callToAction) {
-          creativeParams.set("call_to_action", JSON.stringify(callToAction));
+          const creativeParams = new URLSearchParams({
+            name: `${adsetName.trim()} - Creative${suffix}`,
+            source_instagram_media_id: source.instagramMediaId,
+            object_id: pageId,
+            instagram_user_id: igAccountId,
+            contextual_multi_ads: JSON.stringify({ enroll_status: "OPT_OUT" }),
+          });
+
+          if (callToAction) {
+            creativeParams.set(
+              "call_to_action",
+              JSON.stringify(callToAction),
+            );
+          }
+
+          const createdCreative =
+            await metaApiCall<CreateAdCreativeApiResponse>({
+              domain: "FACEBOOK",
+              method: "POST",
+              path: `${formattedAccountId}/adcreatives`,
+              params: "",
+              body: creativeParams,
+              accessToken,
+            });
+
+          createdAdCreatives.push({ id: createdCreative.id });
+
+          const adParams = new URLSearchParams({
+            name: `${adsetName.trim()} - Ad${suffix}`,
+            adset_id: adsetId,
+            creative: JSON.stringify({ creative_id: createdCreative.id }),
+            status: "ACTIVE",
+          });
+
+          const createdAd = await metaApiCall<CreateAdApiResponse>({
+            domain: "FACEBOOK",
+            method: "POST",
+            path: `${formattedAccountId}/ads`,
+            params: "",
+            body: adParams,
+            accessToken,
+          });
+
+          createdAds.push({ id: createdAd.id, creativeId: createdCreative.id });
         }
-
-        const createdCreative = await metaApiCall<CreateAdCreativeApiResponse>({
-          domain: "FACEBOOK",
-          method: "POST",
-          path: `${formattedAccountId}/adcreatives`,
-          params: "",
-          body: creativeParams,
-          accessToken,
-        });
-
-        adCreativeId = createdCreative.id;
-
-        // Create ad
-        const adParams = new URLSearchParams({
-          name: `${adsetName.trim()} - Ad`,
-          adset_id: adsetId,
-          creative: JSON.stringify({ creative_id: adCreativeId }),
-          status: "ACTIVE",
-        });
-
-        const createdAd = await metaApiCall<CreateAdApiResponse>({
-          domain: "FACEBOOK",
-          method: "POST",
-          path: `${formattedAccountId}/ads`,
-          params: "",
-          body: adParams,
-          accessToken,
-        });
-
-        adId = createdAd.id;
       } catch (creativeError) {
-        console.log("TODELETE - ", creativeError);
-        // Rollback: delete lead form if it was created
         if (leadFormId) {
           console.log(
             `[POST /adsets] Rolling back lead form ${leadFormId}...`,
@@ -832,21 +858,32 @@ export async function POST(
           await deleteMetaObject(leadFormId, accessToken);
         }
 
-        // Return the adset even if creative/ad creation fails
         console.error(
           "[POST /adsets] Failed to create creative/ad:",
           creativeError,
         );
         const creativeErrorReturn = errorToGraphErrorReturn(creativeError);
+
+        const successCount = createdAds.length;
+        const failedCount = creatives.length - successCount;
+        const message =
+          successCount > 0
+            ? `Conjunto criado com ${successCount} anúncio(s). ${failedCount} anúncio(s) falharam: ${creativeErrorReturn.reason.message}`
+            : `Conjunto de anúncios criado, mas os anúncios falharam: ${creativeErrorReturn.reason.message}`;
+
         return NextResponse.json(
           {
             success: false,
             adsetId,
             adsetName: adsetName.trim(),
+            ads: createdAds,
+            adCreatives: createdAdCreatives,
+            adId: createdAds[0]?.id,
+            adCreativeId: createdAdCreatives[0]?.id,
             error: creativeErrorReturn.reason.title,
-            message: `Conjunto de anúncios criado, mas o anúncio falhou: ${creativeErrorReturn.reason.message}`,
+            message,
             solution:
-              "O conjunto foi criado com sucesso. Adicione o anúncio manualmente pelo Meta Ads Manager.",
+              "O conjunto foi criado com sucesso. Adicione os anúncios faltantes manualmente pelo Meta Ads Manager.",
           } as PostAdSetResponse & AdSetsErrorResponse,
           { status: 207 },
         );
@@ -858,8 +895,10 @@ export async function POST(
         success: true,
         adsetId,
         adsetName: adsetName.trim(),
-        adId,
-        adCreativeId,
+        ads: createdAds,
+        adCreatives: createdAdCreatives,
+        adId: createdAds[0]?.id,
+        adCreativeId: createdAdCreatives[0]?.id,
       },
       { status: 201 },
     );

@@ -24,6 +24,8 @@ import {
   type InstagramMediaItem,
 } from "./instagram-post-picker";
 
+const MAX_MEDIA_ITEMS = 5;
+
 const SALES_OBJECTIVES = ["OUTCOME_SALES", "CONVERSIONS"];
 const LEADS_OBJECTIVES = ["OUTCOME_LEADS", "LEAD_GENERATION"];
 const TRAFFIC_OBJECTIVES = ["OUTCOME_TRAFFIC", "LINK_CLICKS"];
@@ -64,9 +66,7 @@ export function AdSetCreateDialog({
     AudienceOption[]
   >([]);
   const [isLoadingAudiences, setIsLoadingAudiences] = useState(false);
-  const [selectedPost, setSelectedPost] = useState<InstagramMediaItem | null>(
-    null,
-  );
+  const [selectedPosts, setSelectedPosts] = useState<InstagramMediaItem[]>([]);
   const [isMediaPickerOpen, setIsMediaPickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +77,8 @@ export function AdSetCreateDialog({
   const isTrafficCampaign = TRAFFIC_OBJECTIVES.includes(
     campaignObjective ?? "",
   );
+
+  const hasPosts = selectedPosts.length > 0;
 
   const fetchAudiences = useCallback(async () => {
     setIsLoadingAudiences(true);
@@ -109,7 +111,7 @@ export function AdSetCreateDialog({
     setGender("all");
     setIncludedAudiences([]);
     setExcludedAudiences([]);
-    setSelectedPost(null);
+    setSelectedPosts([]);
     setError(null);
     setUrl("");
   };
@@ -119,6 +121,10 @@ export function AdSetCreateDialog({
       resetForm();
       onClose();
     }
+  };
+
+  const removePost = (postId: string) => {
+    setSelectedPosts((prev) => prev.filter((p) => p.id !== postId));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -154,15 +160,13 @@ export function AdSetCreateDialog({
       return;
     }
 
-    // Validate URL for SALES campaigns when a post is selected
-    if (isSalesCampaign && selectedPost && !url.trim()) {
+    if (isSalesCampaign && hasPosts && !url.trim()) {
       setError(
         "Campanhas de vendas requerem uma URL de destino para o anúncio",
       );
       return;
     }
 
-    // Validate URL format if provided
     if (url.trim() && !url.trim().startsWith("https://")) {
       setError("A URL deve começar com https://");
       return;
@@ -173,7 +177,7 @@ export function AdSetCreateDialog({
     try {
       const genders = gender === "male" ? [1] : gender === "female" ? [2] : [];
 
-      const body = {
+      const body: Record<string, unknown> = {
         userId,
         campaignId,
         campaignObjective,
@@ -196,11 +200,17 @@ export function AdSetCreateDialog({
             })),
           }),
         },
-        ...(selectedPost && {
-          creative: { instagramMediaId: selectedPost.id },
-        }),
-        ...(url.trim() && { url: url.trim() }),
       };
+
+      if (hasPosts) {
+        body.creatives = selectedPosts.map((p) => ({
+          instagramMediaId: p.id,
+        }));
+      }
+
+      if (url.trim()) {
+        body.url = url.trim();
+      }
 
       const response = await fetch(`/api/meta-marketing/${accountId}/adsets`, {
         method: "POST",
@@ -215,10 +225,9 @@ export function AdSetCreateDialog({
       }
 
       if (response.status === 207) {
-        // Adset created but ad failed
         setError(
           data.message ??
-            "Conjunto criado, mas o anúncio não pôde ser adicionado automaticamente.",
+            "Conjunto criado, mas algum anúncio não pôde ser adicionado automaticamente.",
         );
         onSuccess();
         return;
@@ -238,15 +247,6 @@ export function AdSetCreateDialog({
     }
   };
 
-  const isVideo =
-    selectedPost?.media_type === "VIDEO" ||
-    selectedPost?.media_type === "REELS";
-  const previewUrl = selectedPost
-    ? isVideo
-      ? (selectedPost.media_url ?? null)
-      : (selectedPost.thumbnail_url ?? selectedPost.media_url ?? null)
-    : null;
-
   return (
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
@@ -261,7 +261,6 @@ export function AdSetCreateDialog({
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Adset name */}
             <div className="space-y-2">
               <Label htmlFor="adsetName">
                 Nome do Conjunto <span className="text-destructive">*</span>
@@ -275,7 +274,6 @@ export function AdSetCreateDialog({
               />
             </div>
 
-            {/* Daily budget */}
             <div className="space-y-2">
               <Label htmlFor="dailyBudget">
                 Orçamento Diário (R$){" "}
@@ -299,7 +297,6 @@ export function AdSetCreateDialog({
               </div>
             </div>
 
-            {/* Age range */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ageMin">Idade Mínima</Label>
@@ -327,7 +324,6 @@ export function AdSetCreateDialog({
               </div>
             </div>
 
-            {/* Gender */}
             <div className="space-y-2">
               <Label>Gênero</Label>
               <div className="flex gap-2">
@@ -353,7 +349,6 @@ export function AdSetCreateDialog({
               </div>
             </div>
 
-            {/* Audiences */}
             <div className="space-y-2">
               <Label>Incluir Públicos</Label>
               <AudienceMultiSelect
@@ -378,12 +373,11 @@ export function AdSetCreateDialog({
               />
             </div>
 
-            {/* URL field for SALES campaigns */}
             {isSalesCampaign && (
               <div className="space-y-2">
                 <Label htmlFor="url">
                   URL de Destino{" "}
-                  {selectedPost && <span className="text-destructive">*</span>}
+                  {hasPosts && <span className="text-destructive">*</span>}
                 </Label>
                 <Input
                   id="url"
@@ -400,8 +394,7 @@ export function AdSetCreateDialog({
               </div>
             )}
 
-            {/* Info banners for campaign objectives */}
-            {isLeadsCampaign && selectedPost && (
+            {isLeadsCampaign && hasPosts && (
               <Alert>
                 <Info className="size-4" />
                 <AlertDescription>
@@ -411,52 +404,80 @@ export function AdSetCreateDialog({
               </Alert>
             )}
 
-            {isTrafficCampaign && selectedPost && (
+            {isTrafficCampaign && hasPosts && (
               <Alert>
                 <Info className="size-4" />
                 <AlertDescription>
-                  O anúncio terá um botão &quot;Saiba mais&quot; que direcionará
-                  para o perfil do Instagram.
+                  Os anúncios terão um botão &quot;Saiba mais&quot; que
+                  direcionará para o perfil do Instagram.
                 </AlertDescription>
               </Alert>
             )}
 
-            {/* Creative */}
+            {/* Criativos (Posts do Instagram) */}
             <div className="space-y-2">
-              <Label>Criativo (Post do Instagram)</Label>
-              <div className="flex flex-col gap-2">
-                {previewUrl && (
-                  <div className="relative group inline-block">
-                    <div className="relative w-28 h-28 rounded-lg overflow-hidden border border-border bg-muted">
-                      {isVideo ? (
-                        <video
-                          src={previewUrl}
-                          className="w-full h-full object-cover"
-                          muted
-                        />
-                      ) : (
-                        <Image
-                          src={previewUrl}
-                          alt="Post selecionado"
-                          width={112}
-                          height={112}
-                          className="w-full h-full object-cover"
-                        />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedPost(null)}
-                        disabled={isSubmitting}
-                        className="absolute top-1 right-1 rounded-full bg-destructive p-0.5 text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Post selecionado
-                    </p>
-                  </div>
-                )}
+              <Label>
+                Criativos (Posts do Instagram){" "}
+                <span className="text-xs text-muted-foreground font-normal">
+                  {selectedPosts.length}/{MAX_MEDIA_ITEMS}
+                </span>
+              </Label>
+
+              {selectedPosts.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedPosts.map((post, index) => {
+                    const isVideo =
+                      post.media_type === "VIDEO" ||
+                      post.media_type === "REELS";
+                    const previewUrl = isVideo
+                      ? (post.media_url ?? null)
+                      : (post.thumbnail_url ?? post.media_url ?? null);
+
+                    return (
+                      <div key={post.id} className="relative group">
+                        <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-border bg-muted">
+                          {previewUrl ? (
+                            isVideo ? (
+                              <video
+                                src={previewUrl}
+                                className="w-full h-full object-cover"
+                                muted
+                              />
+                            ) : (
+                              <Image
+                                src={previewUrl}
+                                alt={post.caption ?? "Post selecionado"}
+                                width={80}
+                                height={80}
+                                className="w-full h-full object-cover"
+                              />
+                            )
+                          ) : (
+                            <div className="flex w-full h-full items-center justify-center">
+                              <ImageIcon className="size-5 text-muted-foreground" />
+                            </div>
+                          )}
+
+                          <div className="absolute left-1 top-1 flex size-4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-foreground shadow">
+                            {index + 1}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => removePost(post.id)}
+                            disabled={isSubmitting}
+                            className="absolute top-1 right-1 rounded-full bg-destructive p-0.5 text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-1.5">
                 <Button
                   type="button"
                   variant="outline"
@@ -465,13 +486,13 @@ export function AdSetCreateDialog({
                   className="w-full sm:w-auto"
                 >
                   <ImageIcon className="size-4 mr-2" />
-                  {selectedPost
-                    ? "Trocar post"
-                    : "Selecionar post do Instagram"}
+                  {hasPosts
+                    ? "Alterar seleção"
+                    : "Selecionar posts do Instagram"}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  Opcional. Se selecionado, um anúncio será criado
-                  automaticamente.
+                  Opcional. Selecione até {MAX_MEDIA_ITEMS} posts. Um anúncio
+                  será criado para cada post selecionado.
                 </p>
               </div>
             </div>
@@ -509,37 +530,37 @@ export function AdSetCreateDialog({
       >
         <DialogContent className="sm:max-w-[640px] max-h-[85vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-0">
-            <DialogTitle>Selecionar Post do Instagram</DialogTitle>
+            <DialogTitle>Selecionar Posts do Instagram</DialogTitle>
             <DialogDescription>
-              Escolha um post para usar como criativo do anúncio
+              Escolha até {MAX_MEDIA_ITEMS} posts para usar como criativos dos
+              anúncios
             </DialogDescription>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto px-6 pb-6 pt-4">
             <InstagramPostPicker
               accountId={accountId}
               userId={userId}
-              selectedPost={selectedPost}
-              onSelect={(post) => {
-                setSelectedPost(post);
-                if (post) {
-                  setIsMediaPickerOpen(false);
-                }
-              }}
+              maxSelection={MAX_MEDIA_ITEMS}
+              selectedPosts={selectedPosts}
+              onSelectionChange={setSelectedPosts}
             />
           </div>
-          <div className="flex justify-end gap-2 px-6 pb-6">
-            <Button
-              variant="outline"
-              onClick={() => setIsMediaPickerOpen(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              onClick={() => setIsMediaPickerOpen(false)}
-              disabled={!selectedPost}
-            >
-              Confirmar seleção
-            </Button>
+          <div className="flex items-center justify-between gap-2 px-6 pb-6">
+            <p className="text-sm text-muted-foreground">
+              {selectedPosts.length} de {MAX_MEDIA_ITEMS} selecionado
+              {selectedPosts.length !== 1 ? "s" : ""}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setIsMediaPickerOpen(false)}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={() => setIsMediaPickerOpen(false)}>
+                Confirmar seleção
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

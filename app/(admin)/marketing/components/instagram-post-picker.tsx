@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { Check, Heart, ImageIcon, Loader2, MessageCircle, Play } from "lucide-react";
+import {
+  Check,
+  Heart,
+  ImageIcon,
+  Loader2,
+  MessageCircle,
+  Play,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +27,10 @@ export type InstagramMediaItem = {
 type InstagramPostPickerProps = {
   accountId: string;
   userId: string;
-  selectedPost: InstagramMediaItem | null;
-  onSelect: (post: InstagramMediaItem | null) => void;
+  /** Maximum number of posts that can be selected */
+  maxSelection: number;
+  selectedPosts: InstagramMediaItem[];
+  onSelectionChange: (posts: InstagramMediaItem[]) => void;
 };
 
 function formatCount(num: number): string {
@@ -33,8 +42,9 @@ function formatCount(num: number): string {
 export function InstagramPostPicker({
   accountId,
   userId,
-  selectedPost,
-  onSelect,
+  maxSelection,
+  selectedPosts,
+  onSelectionChange,
 }: InstagramPostPickerProps) {
   const [media, setMedia] = useState<InstagramMediaItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
@@ -101,6 +111,21 @@ export function InstagramPostPicker({
     fetchMedia();
   }, [fetchMedia]);
 
+  const handlePostSelect = (item: InstagramMediaItem) => {
+    const isCurrentlySelected = selectedPosts.some((p) => p.id === item.id);
+
+    if (isCurrentlySelected) {
+      onSelectionChange(selectedPosts.filter((p) => p.id !== item.id));
+    } else if (selectedPosts.length < maxSelection) {
+      onSelectionChange([...selectedPosts, item]);
+    } else {
+      const next = [...selectedPosts];
+      next.shift();
+      next.push(item);
+      onSelectionChange(next);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-48 items-center justify-center">
@@ -134,11 +159,23 @@ export function InstagramPostPicker({
     );
   }
 
+  const atMax = selectedPosts.length >= maxSelection;
+
   return (
     <div className="flex flex-col gap-4">
+      {atMax && (
+        <p className="text-center text-xs text-amber-600 dark:text-amber-400">
+          Máximo de {maxSelection} posts selecionados. Desmarque um para
+          selecionar outro.
+        </p>
+      )}
+
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {media.map((item) => {
-          const isSelected = selectedPost?.id === item.id;
+          const selectionIndex = selectedPosts.findIndex(
+            (p) => p.id === item.id,
+          );
+          const isSelected = selectionIndex !== -1;
           const isVideo =
             item.media_type === "VIDEO" || item.media_type === "REELS";
           const imageUrl = item.thumbnail_url ?? item.media_url;
@@ -147,7 +184,7 @@ export function InstagramPostPicker({
             <button
               key={item.id}
               type="button"
-              onClick={() => onSelect(isSelected ? null : item)}
+              onClick={() => handlePostSelect(item)}
               className={cn(
                 "group relative aspect-square overflow-hidden rounded-md border-2 transition-all",
                 isSelected
@@ -167,14 +204,18 @@ export function InstagramPostPicker({
                 </div>
               )}
 
-              {/* Selection indicator */}
               {isSelected && (
                 <div className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-primary shadow">
-                  <Check className="size-3 text-primary-foreground" />
+                  {selectedPosts.length > 1 ? (
+                    <span className="text-[10px] font-bold text-primary-foreground">
+                      {selectionIndex + 1}
+                    </span>
+                  ) : (
+                    <Check className="size-3 text-primary-foreground" />
+                  )}
                 </div>
               )}
 
-              {/* Video indicator */}
               {isVideo && (
                 <div
                   className={cn(
@@ -186,7 +227,6 @@ export function InstagramPostPicker({
                 </div>
               )}
 
-              {/* Hover overlay */}
               <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
                 <div className="flex items-center gap-3 text-white text-xs">
                   {item.like_count !== undefined && (
