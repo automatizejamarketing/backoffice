@@ -19,12 +19,19 @@ import {
   formatChartDate,
   formatCurrency,
   formatNumber,
+  formatPercentage,
+  formatRoas,
 } from "../utils/formatters";
+import {
+  CAMPAIGN_METRIC_DEFINITIONS,
+  getMetricRawValue,
+  type CampaignMetricId,
+} from "../utils/campaign-metrics";
 
 type InsightsChartProps = {
   data: InsightsMetrics[];
   isLoading?: boolean;
-  metric?: "spend" | "impressions" | "clicks" | "cpc" | "cpm";
+  metric?: CampaignMetricId;
 };
 
 const metricColors: Record<string, string> = {
@@ -32,40 +39,28 @@ const metricColors: Record<string, string> = {
   impressions: "#3b82f6",
   clicks: "#8b5cf6",
   cpc: "#06b6d4",
-  cpm: "#ec4899",
-};
-
-const METRIC_LABELS: Record<string, string> = {
-  spend: "Gasto",
-  impressions: "Impressões",
-  clicks: "Cliques",
-  cpc: "CPC",
-  cpm: "CPM",
+  ctr: "#ec4899",
+  cpm: "#f59e0b",
+  purchaseRoas: "#10b981",
+  purchaseCost: "#06b6d4",
+  purchaseValue: "#f59e0b",
+  purchaseCount: "#8b5cf6",
+  linkClicks: "#8b5cf6",
+  landingPageViews: "#3b82f6",
+  leadCost: "#06b6d4",
+  leadCount: "#f97316",
 };
 
 function getChartConfig(): ChartConfig {
-  return {
-    spend: {
-      label: "Gasto",
-      color: metricColors.spend,
-    },
-    impressions: {
-      label: "Impressões",
-      color: metricColors.impressions,
-    },
-    clicks: {
-      label: "Cliques",
-      color: metricColors.clicks,
-    },
-    cpc: {
-      label: "CPC",
-      color: metricColors.cpc,
-    },
-    cpm: {
-      label: "CPM",
-      color: metricColors.cpm,
-    },
-  };
+  return Object.fromEntries(
+    Object.values(CAMPAIGN_METRIC_DEFINITIONS).map((metric) => [
+      metric.id,
+      {
+        label: getMetricLabel(metric.labelKey),
+        color: metricColors[metric.id],
+      },
+    ]),
+  );
 }
 
 function getMetricColor(metric: string): string {
@@ -96,21 +91,37 @@ export function InsightsChart({
     );
   }
 
-  const chartData = data.map((item) => ({
-    date: formatChartDate(item.dateStart),
-    rawDate: item.dateStart,
-    spend: parseFloat(item.spend ?? "0"),
-    impressions: parseInt(item.impressions ?? "0"),
-    clicks: parseInt(item.clicks ?? "0"),
-    cpc: parseFloat(item.cpc ?? "0"),
-    cpm: parseFloat(item.cpm ?? "0"),
-  }));
+  const metricIds = Object.keys(CAMPAIGN_METRIC_DEFINITIONS) as CampaignMetricId[];
+
+  const chartData = data.map((item) => {
+    const metricValues = Object.fromEntries(
+      metricIds.map((metricId) => [
+        metricId,
+        Number.parseFloat(getMetricRawValue(item, metricId) ?? "0"),
+      ]),
+    );
+
+    return {
+      date: formatChartDate(item.dateStart),
+      rawDate: item.dateStart,
+      ...metricValues,
+    };
+  });
 
   const formatValue = (value: number) => {
-    if (metric === "spend" || metric === "cpc" || metric === "cpm") {
-      return formatCurrency(value);
+    const metricDefinition = CAMPAIGN_METRIC_DEFINITIONS[metric];
+
+    switch (metricDefinition.format) {
+      case "currency":
+        return formatCurrency(value);
+      case "percentage":
+        return formatPercentage(value);
+      case "roas":
+        return formatRoas(value);
+      case "number":
+      default:
+        return formatNumber(value);
     }
-    return formatNumber(value);
   };
 
   return (
@@ -137,11 +148,22 @@ export function InsightsChart({
             fontSize={11}
             tickMargin={8}
             tickFormatter={(value) => {
-              if (metric === "spend" || metric === "cpc" || metric === "cpm") {
+              const metricDefinition = CAMPAIGN_METRIC_DEFINITIONS[metric];
+
+              if (metricDefinition.format === "currency") {
                 return `R$${
                   value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value
                 }`;
               }
+
+              if (metricDefinition.format === "roas") {
+                return `${value.toFixed(1)}x`;
+              }
+
+              if (metricDefinition.format === "percentage") {
+                return `${value.toFixed(0)}%`;
+              }
+
               return value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value;
             }}
           />
@@ -150,10 +172,11 @@ export function InsightsChart({
               <ChartTooltipContent
                 formatter={(value, name) => {
                   const formattedValue = formatValue(value as number);
+                  const metricLabel = chartConfig[name as string]?.label;
                   return (
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-muted-foreground">
-                        {METRIC_LABELS[name as string] ?? name}
+                        {typeof metricLabel === "string" ? metricLabel : String(name)}
                       </span>
                       <span className="font-medium">{formattedValue}</span>
                     </div>
@@ -180,4 +203,26 @@ export function InsightsChart({
       </ResponsiveContainer>
     </ChartContainer>
   );
+}
+
+function getMetricLabel(labelKey: string): string {
+  const labels: Record<string, string> = {
+    spend: "Gasto",
+    impressions: "Impressões",
+    clicks: "Cliques",
+    reach: "Alcance",
+    cpc: "CPC",
+    ctr: "CTR",
+    cpm: "CPM",
+    roas: "ROAS",
+    cpa: "CPA",
+    purchaseValue: "Valor de compra",
+    numberOfPurchases: "Compras",
+    linkClicks: "Cliques no link",
+    landingPageViews: "Views da página",
+    cpl: "CPL",
+    numberOfLeads: "Leads",
+  };
+
+  return labels[labelKey] ?? labelKey;
 }

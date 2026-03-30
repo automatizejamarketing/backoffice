@@ -316,6 +316,15 @@ export type AdSetTargetingData = {
   [key: string]: unknown;
 };
 
+export type CampaignBudgetModeData = "ABO" | "CBO";
+
+export type CampaignAdSetBudgetChangeData = {
+  adsetId: string;
+  adsetName?: string;
+  previousDailyBudget?: string | null;
+  newDailyBudget: string;
+};
+
 // AdSet Edit Logs - tracking manual changes made by backoffice admins
 // backoffice_user_email: Google OAuth admins are not in users table; store email like backoffice_audit_logs
 export const adsetEditLog = pgTable("adset_edit_logs", {
@@ -339,6 +348,33 @@ export const adsetEditLog = pgTable("adset_edit_logs", {
 });
 
 export type AdsetEditLog = InferSelectModel<typeof adsetEditLog>;
+
+export const campaignEditLog = pgTable("campaign_edit_logs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  backofficeUserEmail: varchar("backoffice_user_email", { length: 100 }).notNull(),
+  targetUserId: uuid("target_user_id")
+    .notNull()
+    .references(() => user.id),
+  campaignId: text("campaign_id").notNull(),
+  accountId: text("account_id").notNull(),
+  campaignName: text("campaign_name"),
+  previousBudgetMode: varchar("previous_budget_mode", { length: 16 })
+    .$type<CampaignBudgetModeData>()
+    .notNull(),
+  newBudgetMode: varchar("new_budget_mode", { length: 16 })
+    .$type<CampaignBudgetModeData>()
+    .notNull(),
+  previousDailyBudget: numeric("previous_daily_budget"),
+  newDailyBudget: numeric("new_daily_budget"),
+  adsetBudgetChanges:
+    jsonb("adset_budget_changes").$type<CampaignAdSetBudgetChangeData[]>(),
+  note: text("note").notNull(),
+  appliedToMeta: boolean("applied_to_meta").notNull().default(false),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type CampaignEditLog = InferSelectModel<typeof campaignEditLog>;
 
 // Scheduled posts for Instagram publishing
 export const scheduledPost = pgTable(

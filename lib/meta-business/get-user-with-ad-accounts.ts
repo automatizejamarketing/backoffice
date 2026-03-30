@@ -53,7 +53,21 @@ export type FacebookUserWithAdAccountsResponse = FacebookUserBasicInfo & {
   };
 };
 
-// User basic info fields to request
+/**
+ * Error response from Facebook Graph API
+ */
+export type FacebookGraphApiError = {
+  error: {
+    message: string;
+    type: string;
+    code: number;
+    error_subcode?: number;
+    error_user_title?: string;
+    error_user_msg?: string;
+    fbtrace_id: string;
+  };
+};
+
 const USER_FIELDS = [
   "id",
   "first_name",
@@ -65,7 +79,6 @@ const USER_FIELDS = [
   "short_name",
 ] as const;
 
-// Ad account basic info fields to request
 const AD_ACCOUNT_FIELDS = [
   "id",
   "account_id",
@@ -77,30 +90,84 @@ const AD_ACCOUNT_FIELDS = [
   "business{id}",
 ] as const;
 
-/**
- * Get user basic info and ad accounts in a single Graph API request
- */
-export async function getUserWithAdAccounts(
-  accessToken: string
-): Promise<FacebookUserWithAdAccountsResponse> {
-  const adAccountsExpansion = `adaccounts{${AD_ACCOUNT_FIELDS.join(",")}}`;
-  const fields = [...USER_FIELDS, adAccountsExpansion].join(",");
+const AD_ACCOUNTS_PAGE_LIMIT = "100";
 
-  const params = new URLSearchParams({
-    fields,
-    access_token: accessToken,
-  });
-
-  const url = `${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`;
-
+async function fetchGraphJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   const data = await response.json();
 
   if (!response.ok || data.error) {
-    throw new Error(
-      data.error?.message ?? "Failed to get user with ad accounts"
-    );
+    const errorData = data as FacebookGraphApiError;
+    console.error("Error fetching Facebook Graph data:", errorData);
+    throw new Error(errorData.error?.message ?? "Failed to fetch Graph data");
   }
 
-  return data as FacebookUserWithAdAccountsResponse;
+  return data as T;
+}
+
+async function getFacebookUserProfile(
+  accessToken: string,
+): Promise<FacebookUserBasicInfo> {
+  const params = new URLSearchParams({
+    fields: USER_FIELDS.join(","),
+    access_token: accessToken,
+  });
+
+  return fetchGraphJson<FacebookUserBasicInfo>(
+    `${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`,
+  );
+}
+
+async function getAdAccounts(
+  accessToken: string,
+): Promise<FacebookUserWithAdAccountsResponse["adaccounts"]> {
+  const params = new URLSearchParams({
+    fields: AD_ACCOUNT_FIELDS.join(","),
+    limit: AD_ACCOUNTS_PAGE_LIMIT,
+    access_token: accessToken,
+  });
+  const visitedUrls = new Set<string>();
+  const allAccounts: FacebookAdAccountBasicInfo[] = [];
+  let nextUrl =
+    `${graphFacebookBaseUrl}/${graphApiVersion}/me/adaccounts?${params.toString()}`;
+  let lastPage: FacebookUserWithAdAccountsResponse["adaccounts"];
+
+  while (nextUrl) {
+    if (visitedUrls.has(nextUrl)) {
+      console.warn("Detected repeated pagination URL while fetching ad accounts");
+      break;
+    }
+
+    visitedUrls.add(nextUrl);
+
+    const page = await fetchGraphJson<
+      NonNullable<FacebookUserWithAdAccountsResponse["adaccounts"]>
+    >(nextUrl);
+
+    lastPage = page;
+    allAccounts.push(...page.data);
+    nextUrl = page.paging?.next ?? "";
+  }
+
+  return {
+    data: allAccounts,
+    paging: lastPage?.paging,
+  };
+}
+
+/**
+ * Get user basic info and all accessible ad accounts.
+ */
+export async function getUserWithAdAccounts(
+  accessToken: string
+): Promise<FacebookUserWithAdAccountsResponse> {
+  const [userProfile, adAccounts] = await Promise.all([
+    getFacebookUserProfile(accessToken),
+    getAdAccounts(accessToken),
+  ]);
+
+  return {
+    ...userProfile,
+    adaccounts: adAccounts,
+  };
 }

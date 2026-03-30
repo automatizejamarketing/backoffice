@@ -26,12 +26,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useIsMobile } from "@/hooks/use-mobile";
-import type { InsightsMetrics } from "@/lib/meta-business/types";
+import type {
+  CampaignObjective,
+  InsightsMetrics,
+} from "@/lib/meta-business/types";
 import {
   formatCurrency,
   formatNumber,
   formatPercentage,
+  formatRoas,
 } from "../utils/formatters";
+import {
+  getCampaignMetricsForObjective,
+  getMetricRawValue,
+  type CampaignMetricDefinition,
+  type CampaignMetricId,
+} from "../utils/campaign-metrics";
 
 type MetricInfo = {
   fullTitle: string;
@@ -73,71 +83,93 @@ const METRIC_INFO: Record<string, MetricInfo> = {
 type InsightsCardsProps = {
   insights?: InsightsMetrics;
   isLoading?: boolean;
+  objective?: CampaignObjective;
 };
+
+const METRIC_ICON_MAP: Record<CampaignMetricId, typeof DollarSign> = {
+  spend: DollarSign,
+  impressions: Eye,
+  clicks: MousePointerClick,
+  reach: Users,
+  cpc: TrendingUp,
+  ctr: MousePointerClick,
+  cpm: DollarSign,
+  purchaseRoas: TrendingUp,
+  purchaseCost: DollarSign,
+  purchaseValue: DollarSign,
+  purchaseCount: MousePointerClick,
+  linkClicks: MousePointerClick,
+  landingPageViews: Eye,
+  leadCost: DollarSign,
+  leadCount: Users,
+};
+
+const METRIC_COLOR_MAP: Record<CampaignMetricId, string> = {
+  spend: "text-emerald-500",
+  impressions: "text-blue-500",
+  clicks: "text-violet-500",
+  reach: "text-orange-500",
+  cpc: "text-cyan-500",
+  ctr: "text-pink-500",
+  cpm: "text-amber-500",
+  purchaseRoas: "text-emerald-500",
+  purchaseCost: "text-cyan-500",
+  purchaseValue: "text-amber-500",
+  purchaseCount: "text-violet-500",
+  linkClicks: "text-violet-500",
+  landingPageViews: "text-blue-500",
+  leadCost: "text-cyan-500",
+  leadCount: "text-orange-500",
+};
+
+function formatMetricValue(
+  metric: CampaignMetricDefinition,
+  insights?: InsightsMetrics,
+): string {
+  const rawValue = getMetricRawValue(insights, metric.id);
+
+  switch (metric.format) {
+    case "currency":
+      return formatCurrency(rawValue);
+    case "percentage":
+      return formatPercentage(rawValue);
+    case "roas":
+      return formatRoas(rawValue);
+    case "number":
+    default:
+      return formatNumber(rawValue);
+  }
+}
 
 export function InsightsCards({
   insights,
   isLoading = false,
+  objective,
 }: InsightsCardsProps) {
   if (isLoading) {
     return <InsightsCardsSkeleton />;
   }
 
-  const metrics: {
-    label: string;
-    value: string;
-    icon: typeof DollarSign;
-    color: string;
-    info?: MetricInfo;
-  }[] = [
-    {
-      label: "Gasto Total",
-      value: formatCurrency(insights?.spend),
-      icon: DollarSign,
-      color: "text-emerald-500",
-    },
-    {
-      label: "Impressões",
-      value: formatNumber(insights?.impressions),
-      icon: Eye,
-      color: "text-blue-500",
-      info: METRIC_INFO.impressions,
-    },
-    {
-      label: "Cliques",
-      value: formatNumber(insights?.clicks),
-      icon: MousePointerClick,
-      color: "text-violet-500",
-    },
-    {
-      label: "Alcance",
-      value: formatNumber(insights?.reach),
-      icon: Users,
-      color: "text-orange-500",
-      info: METRIC_INFO.reach,
-    },
-    {
-      label: "CPC",
-      value: formatCurrency(insights?.cpc),
-      icon: TrendingUp,
-      color: "text-cyan-500",
-      info: METRIC_INFO.CPC,
-    },
-    {
-      label: "CTR",
-      value: formatPercentage(insights?.ctr),
-      icon: MousePointerClick,
-      color: "text-pink-500",
-      info: METRIC_INFO.CTR,
-    },
-    {
-      label: "CPM",
-      value: formatCurrency(insights?.cpm),
-      icon: DollarSign,
-      color: "text-amber-500",
-      info: METRIC_INFO.CPM,
-    },
-  ];
+  const metrics = getCampaignMetricsForObjective(objective, "detailCards").map(
+    (metric) => ({
+      label: getMetricLabel(metric.labelKey),
+      value: formatMetricValue(metric, insights),
+      icon: METRIC_ICON_MAP[metric.id],
+      color: METRIC_COLOR_MAP[metric.id],
+      info:
+        metric.id === "impressions"
+          ? METRIC_INFO.impressions
+          : metric.id === "reach"
+            ? METRIC_INFO.reach
+            : metric.id === "cpc"
+              ? METRIC_INFO.CPC
+              : metric.id === "ctr"
+                ? METRIC_INFO.CTR
+                : metric.id === "cpm"
+                  ? METRIC_INFO.CPM
+                  : undefined,
+    }),
+  );
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
@@ -165,6 +197,28 @@ export function InsightsCards({
       ))}
     </div>
   );
+}
+
+function getMetricLabel(labelKey: string): string {
+  const labels: Record<string, string> = {
+    spend: "Gasto",
+    impressions: "Impressões",
+    clicks: "Cliques",
+    reach: "Alcance",
+    cpc: "CPC",
+    ctr: "CTR",
+    cpm: "CPM",
+    roas: "ROAS",
+    cpa: "CPA",
+    purchaseValue: "Valor de compra",
+    numberOfPurchases: "Compras",
+    linkClicks: "Cliques no link",
+    landingPageViews: "Views da página",
+    cpl: "CPL",
+    numberOfLeads: "Leads",
+  };
+
+  return labels[labelKey] ?? labelKey;
 }
 
 function MetricInfoButton({

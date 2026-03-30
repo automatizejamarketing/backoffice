@@ -71,6 +71,25 @@ export function formatPercentage(
 }
 
 /**
+ * Format a ROAS value.
+ */
+export function formatRoas(
+  value: string | number | null | undefined
+): string {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+
+  const numValue = typeof value === "string" ? parseFloat(value) : value;
+
+  if (isNaN(numValue)) {
+    return "-";
+  }
+
+  return `${numValue.toFixed(2)}x`;
+}
+
+/**
  * Format a date string to locale format
  */
 export function formatDate(dateString: string | null | undefined): string {

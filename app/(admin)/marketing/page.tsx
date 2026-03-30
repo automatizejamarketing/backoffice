@@ -44,6 +44,7 @@ export default function MarketingPage() {
   const [isLoadingAdAccounts, setIsLoadingAdAccounts] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isCampaignDetailOpen, setIsCampaignDetailOpen] = useState(false);
+  const [campaignsRefreshKey, setCampaignsRefreshKey] = useState(0);
 
   const debouncedSearchQuery = useDebounce(searchQuery, 400);
 
@@ -186,6 +187,11 @@ export default function MarketingPage() {
   const handleCloseCampaignDetail = () => {
     setIsCampaignDetailOpen(false);
     setSelectedCampaign(null);
+  };
+
+  const handleCampaignUpdated = (campaign: Campaign) => {
+    setSelectedCampaign(campaign);
+    setCampaignsRefreshKey((prev) => prev + 1);
   };
 
 
@@ -401,6 +407,7 @@ export default function MarketingPage() {
               accountId={selectedAccountId}
               userId={selectedUser.id}
               onCampaignClick={handleCampaignClick}
+              refreshKey={campaignsRefreshKey}
             />
           </CardContent>
         </Card>
@@ -414,6 +421,7 @@ export default function MarketingPage() {
           userId={selectedUser.id}
           isOpen={isCampaignDetailOpen}
           onClose={handleCloseCampaignDetail}
+          onCampaignUpdated={handleCampaignUpdated}
         />
       )}
     </div>

@@ -8,6 +8,7 @@ import type {
   AdSetTargeting,
   AudienceRef,
   GraphApiAdSet,
+  GraphApiCampaign,
 } from "@/lib/meta-business/types";
 
 type EditAdSetRequestBody = {
@@ -148,7 +149,17 @@ export async function PATCH(
 
     const previousDailyBudget = currentAdSet.daily_budget ?? null;
     const previousTargeting = currentAdSet.targeting ?? null;
-    const usesCBO = previousDailyBudget === null;
+    const currentCampaign = await metaApiCall<GraphApiCampaign>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: currentAdSet.campaign_id ?? campaignId ?? "",
+      params: "fields=id,daily_budget,lifetime_budget",
+      accessToken,
+    });
+    const usesCBO =
+      !!currentCampaign.daily_budget ||
+      !!currentCampaign.lifetime_budget ||
+      previousDailyBudget === null;
 
     const updateParams: Record<string, string> = {};
     const changes: EditAdSetResponse["changes"] = {};

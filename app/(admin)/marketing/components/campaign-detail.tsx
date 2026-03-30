@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { ArrowLeft, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,11 +32,17 @@ import { DateFilter } from "./date-filter";
 import {
   getStatusBadgeVariant,
   formatDate,
+  formatCurrency,
   translateStatus,
 } from "../utils/formatters";
 import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-increment-to-days";
 import { AdSetDetail } from "./adset-detail";
 import { AdSetCreateDialog } from "./adset-create-dialog";
+import { CampaignEditDialog } from "./campaign-edit-dialog";
+import {
+  getCampaignMetricsForObjective,
+  type CampaignMetricId,
+} from "../utils/campaign-metrics";
 
 type CampaignDetailProps = {
   campaign: Campaign;
@@ -44,6 +50,7 @@ type CampaignDetailProps = {
   userId: string;
   isOpen: boolean;
   onClose: () => void;
+  onCampaignUpdated?: (campaign: Campaign) => void;
 };
 
 type GetCampaignInsightsResponse = {
@@ -53,30 +60,38 @@ type GetCampaignInsightsResponse = {
 };
 
 export function CampaignDetail({
-  campaign,
+  campaign: campaignProp,
   accountId,
   userId,
   isOpen,
   onClose,
+  onCampaignUpdated,
 }: CampaignDetailProps) {
+  const [campaign, setCampaign] = useState<Campaign>(campaignProp);
   const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
   const [totalInsights, setTotalInsights] = useState<
     InsightsMetrics | undefined
-  >(campaign.insights);
+  >(campaignProp.insights);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
 
   const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
-  const [selectedMetric, setSelectedMetric] = useState<
-    "spend" | "impressions" | "clicks" | "cpc" | "cpm"
-  >("spend");
+  const chartMetrics = useMemo(
+    () => getCampaignMetricsForObjective(campaign.objective, "chart"),
+    [campaign.objective],
+  );
+  const [selectedMetric, setSelectedMetric] = useState<CampaignMetricId>(
+    chartMetrics[0]?.id ?? "spend",
+  );
 
-  const metricOptions = [
-    { value: "spend" as const, label: "Gasto" },
-    { value: "impressions" as const, label: "Impressões" },
-    { value: "clicks" as const, label: "Cliques" },
-    { value: "cpc" as const, label: "CPC" },
-    { value: "cpm" as const, label: "CPM" },
-  ] as const;
+  const metricOptions = useMemo(
+    () =>
+      chartMetrics.map((metric) => ({
+        value: metric.id,
+        label: getMetricLabel(metric.labelKey),
+      })),
+    [chartMetrics],
+  );
 
   const [datePreset, setDatePreset] = useState<DatePreset | null>(
     DatePreset.LAST_30D,
@@ -90,6 +105,28 @@ export function CampaignDetail({
   const [isAdSetDetailOpen, setIsAdSetDetailOpen] = useState(false);
   const [isCreateAdSetOpen, setIsCreateAdSetOpen] = useState(false);
   const [adSetsRefreshKey, setAdSetsRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setCampaign(campaignProp);
+    setTotalInsights(campaignProp.insights);
+  }, [campaignProp]);
+
+  const refetchCampaign = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/meta-marketing/${accountId}/campaigns/${campaign.id}?userId=${userId}`,
+      );
+      if (!response.ok) return;
+
+      const data: { campaign?: Campaign } = await response.json();
+      if (data.campaign) {
+        setCampaign(data.campaign);
+        onCampaignUpdated?.(data.campaign);
+      }
+    } catch {
+      // best-effort refresh; the previous response already succeeded
+    }
+  }, [accountId, campaign.id, onCampaignUpdated, userId]);
 
   const fetchInsights = useCallback(async () => {
     if (!campaign.id || !accountId) return;
@@ -150,6 +187,10 @@ export function CampaignDetail({
     }
   }, [isOpen, fetchInsights]);
 
+  useEffect(() => {
+    setSelectedMetric(chartMetrics[0]?.id ?? "spend");
+  }, [chartMetrics]);
+
   const handleAdSetClick = (adSet: AdSet) => {
     setSelectedAdSet(adSet);
     setIsAdSetDetailOpen(true);
@@ -162,6 +203,13 @@ export function CampaignDetail({
 
   const handleCreateAdSetSuccess = () => {
     setAdSetsRefreshKey((prev) => prev + 1);
+  };
+
+  const handleCampaignEditSuccess = (updatedCampaign: Campaign) => {
+    setCampaign(updatedCampaign);
+    onCampaignUpdated?.(updatedCampaign);
+    setAdSetsRefreshKey((prev) => prev + 1);
+    void refetchCampaign();
   };
 
   return (
@@ -202,18 +250,74 @@ export function CampaignDetail({
                   </div>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-                className="shrink-0 hidden sm:flex"
-              >
-                <X className="size-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsEditOpen(true)}
+                  className="shrink-0"
+                >
+                  <Pencil className="size-4 mr-2" />
+                  Editar Campanha
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="shrink-0 hidden sm:flex"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
             </div>
           </SheetHeader>
 
           <div className="px-4 py-4 sm:px-6 sm:py-6 space-y-6">
+            <section className="rounded-lg border border-border bg-muted/30 p-4">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-muted-foreground">
+                    Configuração de Orçamento
+                  </h3>
+                  <p className="text-sm font-semibold">
+                    {campaign.budgetMode === "CBO"
+                      ? "CBO (Campaign Budget Optimization)"
+                      : "ABO (Ad Set Budget Optimization)"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {campaign.budgetMode === "CBO"
+                      ? "O orçamento é controlado no nível da campanha."
+                      : "O orçamento é controlado no nível dos conjuntos de anúncios."}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <span className="text-xs text-muted-foreground">
+                      Orçamento diário da campanha
+                    </span>
+                    <p className="font-medium">
+                      {campaign.dailyBudget
+                        ? formatCurrency(Number.parseInt(campaign.dailyBudget, 10) / 100)
+                        : "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">
+                      Orçamento vitalício
+                    </span>
+                    <p className="font-medium">
+                      {campaign.lifetimeBudget
+                        ? formatCurrency(
+                            Number.parseInt(campaign.lifetimeBudget, 10) / 100,
+                          )
+                        : "-"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
             <section>
               <div className="flex items-center justify-between gap-3 mb-3">
                 <h3 className="text-sm font-medium text-muted-foreground">
@@ -241,6 +345,7 @@ export function CampaignDetail({
               <InsightsCards
                 insights={totalInsights}
                 isLoading={isLoadingInsights}
+                objective={campaign.objective}
               />
             </section>
 
@@ -328,6 +433,37 @@ export function CampaignDetail({
         onClose={() => setIsCreateAdSetOpen(false)}
         onSuccess={handleCreateAdSetSuccess}
       />
+
+      <CampaignEditDialog
+        campaign={campaign}
+        accountId={accountId}
+        userId={userId}
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        onSuccess={handleCampaignEditSuccess}
+      />
     </>
   );
+}
+
+function getMetricLabel(labelKey: string): string {
+  const labels: Record<string, string> = {
+    spend: "Gasto",
+    impressions: "Impressões",
+    clicks: "Cliques",
+    reach: "Alcance",
+    cpc: "CPC",
+    ctr: "CTR",
+    cpm: "CPM",
+    roas: "ROAS",
+    cpa: "CPA",
+    purchaseValue: "Valor de compra",
+    numberOfPurchases: "Compras",
+    linkClicks: "Cliques no link",
+    landingPageViews: "Views da página",
+    cpl: "CPL",
+    numberOfLeads: "Leads",
+  };
+
+  return labels[labelKey] ?? labelKey;
 }

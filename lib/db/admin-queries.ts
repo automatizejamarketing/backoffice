@@ -6,6 +6,7 @@ import {
   aiUsageLog,
   backofficeAuditLog,
   backofficeGeneratedPost,
+  campaignEditLog,
   chat,
   company,
   generatedImage,
@@ -16,6 +17,8 @@ import {
   referenceImage,
   user,
   userCompany,
+  type CampaignAdSetBudgetChangeData,
+  type CampaignBudgetModeData,
   type AdSetTargetingData,
 } from "./schema";
 
@@ -873,5 +876,48 @@ export async function getAdSetEditLogs(
     .orderBy(desc(adsetEditLog.createdAt));
 
   return logs;
+}
+
+// ================================
+// Campaign Edit Log Functions
+// ================================
+
+export type CreateCampaignEditLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  campaignId: string;
+  accountId: string;
+  campaignName?: string;
+  previousBudgetMode: CampaignBudgetModeData;
+  newBudgetMode: CampaignBudgetModeData;
+  previousDailyBudget?: string | null;
+  newDailyBudget?: string;
+  adsetBudgetChanges?: CampaignAdSetBudgetChangeData[];
+  note: string;
+  appliedToMeta: boolean;
+  errorMessage?: string;
+};
+
+export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
+  const [log] = await db
+    .insert(campaignEditLog)
+    .values({
+      backofficeUserEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      campaignId: data.campaignId,
+      accountId: data.accountId,
+      campaignName: data.campaignName,
+      previousBudgetMode: data.previousBudgetMode,
+      newBudgetMode: data.newBudgetMode,
+      previousDailyBudget: data.previousDailyBudget,
+      newDailyBudget: data.newDailyBudget,
+      adsetBudgetChanges: data.adsetBudgetChanges,
+      note: data.note,
+      appliedToMeta: data.appliedToMeta,
+      errorMessage: data.errorMessage,
+    })
+    .returning();
+
+  return log;
 }
 

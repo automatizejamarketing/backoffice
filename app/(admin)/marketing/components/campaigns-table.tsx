@@ -19,7 +19,16 @@ import {
   type Campaign,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
-import { formatCurrency, formatNumber } from "../utils/formatters";
+import {
+  formatCurrency,
+  formatNumber,
+  formatPercentage,
+} from "../utils/formatters";
+import {
+  getCampaignMetricsForCampaign,
+  getMetricRawValue,
+  type CampaignMetricDefinition,
+} from "../utils/campaign-metrics";
 import { DeliveryStatus } from "./delivery-status";
 
 type GetCampaignsResponse = {
@@ -31,12 +40,42 @@ type CampaignsTableProps = {
   accountId: string;
   userId: string; // Required: identifies which user's token to use
   onCampaignClick: (campaign: Campaign) => void;
+  refreshKey?: number;
 };
+
+function formatRoas(value: string | undefined): string {
+  if (!value) return "-";
+
+  const numValue = Number.parseFloat(value);
+  if (Number.isNaN(numValue)) return "-";
+
+  return `${numValue.toFixed(2)}x`;
+}
+
+function formatMetricValue(
+  metric: CampaignMetricDefinition,
+  campaign: Campaign,
+): string {
+  const rawValue = getMetricRawValue(campaign.insights, metric.id);
+
+  switch (metric.format) {
+    case "currency":
+      return formatCurrency(rawValue);
+    case "percentage":
+      return formatPercentage(rawValue);
+    case "roas":
+      return formatRoas(rawValue);
+    case "number":
+    default:
+      return formatNumber(rawValue);
+  }
+}
 
 export function CampaignsTable({
   accountId,
   userId,
   onCampaignClick,
+  refreshKey,
 }: CampaignsTableProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -119,7 +158,7 @@ export function CampaignsTable({
 
   useEffect(() => {
     fetchCampaigns();
-  }, [fetchCampaigns]);
+  }, [fetchCampaigns, refreshKey]);
 
   const handleToggleStatus = async (
     campaign: Campaign,
@@ -270,30 +309,16 @@ export function CampaignsTable({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-              <div>
-                <span className="block text-foreground font-medium">
-                  {formatCurrency(campaign.insights?.spend)}
-                </span>
-                <span>Gasto</span>
-              </div>
-              <div>
-                <span className="block text-foreground font-medium">
-                  {formatNumber(campaign.insights?.impressions)}
-                </span>
-                <span>Impressões</span>
-              </div>
-              <div>
-                <span className="block text-foreground font-medium">
-                  {formatNumber(campaign.insights?.clicks)}
-                </span>
-                <span>Cliques</span>
-              </div>
-              <div>
-                <span className="block text-foreground font-medium">
-                  {formatCurrency(campaign.insights?.cpc)}
-                </span>
-                <span>CPC</span>
-              </div>
+              {getCampaignMetricsForCampaign(campaign, "mobileList").map(
+                (metric) => (
+                  <div key={metric.id}>
+                    <span className="block text-foreground font-medium">
+                      {formatMetricValue(metric, campaign)}
+                    </span>
+                    <span>{getMetricLabel(metric.labelKey)}</span>
+                  </div>
+                ),
+              )}
             </div>
           </button>
         ))}
@@ -308,11 +333,7 @@ export function CampaignsTable({
                 <TableHead className="w-[60px]">Ativo</TableHead>
                 <TableHead className="min-w-[200px]">Campanha</TableHead>
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-                <TableHead className="w-[120px] text-right">Gasto</TableHead>
-                <TableHead className="w-[120px] text-right">Impressões</TableHead>
-                <TableHead className="w-[100px] text-right">Cliques</TableHead>
-                <TableHead className="w-[100px] text-right">CPC</TableHead>
-                <TableHead className="w-[100px] text-right">CPM</TableHead>
+                <TableHead className="min-w-[420px]">Métricas principais</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -329,19 +350,14 @@ export function CampaignsTable({
                         <Skeleton className="h-4 w-24" />
                       </TableCell>
                       <TableCell>
-                        <Skeleton className="h-4 w-16 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-16 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-12 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-12 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-12 ml-auto" />
+                        <div className="grid grid-cols-5 gap-3">
+                          {Array.from({ length: 5 }).map((_, j) => (
+                            <div key={j}>
+                              <Skeleton className="h-4 w-12 mb-1" />
+                              <Skeleton className="h-3 w-16" />
+                            </div>
+                          ))}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -380,20 +396,21 @@ export function CampaignsTable({
                           }
                         />
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(campaign.insights?.spend)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatNumber(campaign.insights?.impressions)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatNumber(campaign.insights?.clicks)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(campaign.insights?.cpc)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(campaign.insights?.cpm)}
+                      <TableCell>
+                        <div className="grid grid-cols-5 gap-3">
+                          {getCampaignMetricsForCampaign(campaign, "desktopList").map(
+                            (metric) => (
+                              <div key={metric.id} className="min-w-0">
+                                <div className="tabular-nums text-sm font-medium">
+                                  {formatMetricValue(metric, campaign)}
+                                </div>
+                                <div className="truncate text-[11px] text-muted-foreground">
+                                  {getMetricLabel(metric.labelKey)}
+                                </div>
+                              </div>
+                            ),
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -463,11 +480,7 @@ function CampaignsTableSkeleton() {
               <TableHead className="w-[60px]">Ativo</TableHead>
               <TableHead className="min-w-[200px]">Campanha</TableHead>
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-              <TableHead className="w-[120px] text-right">Gasto</TableHead>
-              <TableHead className="w-[120px] text-right">Impressões</TableHead>
-              <TableHead className="w-[100px] text-right">Cliques</TableHead>
-              <TableHead className="w-[100px] text-right">CPC</TableHead>
-              <TableHead className="w-[100px] text-right">CPM</TableHead>
+              <TableHead className="min-w-[420px]">Métricas principais</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -483,19 +496,14 @@ function CampaignsTableSkeleton() {
                   <Skeleton className="h-4 w-24" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-4 w-16 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-16 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-12 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-12 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-12 ml-auto" />
+                  <div className="grid grid-cols-5 gap-3">
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <div key={j}>
+                        <Skeleton className="h-4 w-12 mb-1" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                    ))}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
@@ -504,4 +512,26 @@ function CampaignsTableSkeleton() {
       </div>
     </div>
   );
+}
+
+function getMetricLabel(labelKey: string): string {
+  const labels: Record<string, string> = {
+    spend: "Gasto",
+    impressions: "Impressões",
+    clicks: "Cliques",
+    reach: "Alcance",
+    cpc: "CPC",
+    ctr: "CTR",
+    cpm: "CPM",
+    roas: "ROAS",
+    cpa: "CPA",
+    purchaseValue: "Valor de compra",
+    numberOfPurchases: "Compras",
+    linkClicks: "Cliques no link",
+    landingPageViews: "Views da página",
+    cpl: "CPL",
+    numberOfLeads: "Leads",
+  };
+
+  return labels[labelKey] ?? labelKey;
 }

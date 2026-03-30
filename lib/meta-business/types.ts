@@ -121,6 +121,8 @@ export enum EffectiveStatus {
   WITH_ISSUES = "WITH_ISSUES",
 }
 
+export type CampaignBudgetMode = "ABO" | "CBO";
+
 // ================================
 // Pagination Types
 // ================================
@@ -187,6 +189,18 @@ export type GraphApiInsights = {
     action_type: string;
     value: string;
   }>;
+  action_values?: Array<{
+    action_type: string;
+    value: string;
+  }>;
+  purchase_roas?: Array<{
+    action_type: string;
+    value: string;
+  }>;
+  website_purchase_roas?: Array<{
+    action_type: string;
+    value: string;
+  }>;
   date_start?: string;
   date_stop?: string;
 };
@@ -206,6 +220,15 @@ export type InsightsMetrics = {
   frequency?: string;
   conversions?: string;
   costPerConversion?: string;
+  purchaseCount?: string;
+  purchaseCost?: string;
+  purchaseValue?: string;
+  purchaseRoas?: string;
+  websitePurchaseRoas?: string;
+  linkClicks?: string;
+  landingPageViews?: string;
+  leadCount?: string;
+  leadCost?: string;
   dateStart?: string;
   dateStop?: string;
 };
@@ -226,6 +249,7 @@ export type GraphApiCampaign = {
   daily_budget?: string;
   lifetime_budget?: string;
   budget_remaining?: string;
+  is_adset_budget_sharing_enabled?: boolean;
   start_time?: string;
   stop_time?: string;
   created_time?: string;
@@ -251,11 +275,27 @@ export type Campaign = {
   dailyBudget?: string;
   lifetimeBudget?: string;
   budgetRemaining?: string;
+  budgetMode: CampaignBudgetMode;
+  usesCampaignBudget: boolean;
+  isAdsetBudgetSharingEnabled?: boolean;
   startTime?: string;
   stopTime?: string;
   createdTime?: string;
   updatedTime?: string;
   insights?: InsightsMetrics;
+};
+
+export type CampaignAdSetBudgetInput = {
+  adsetId: string;
+  adsetName?: string;
+  dailyBudget: number;
+};
+
+export type CampaignAdSetBudgetChange = {
+  adsetId: string;
+  adsetName?: string;
+  previousDailyBudget?: string | null;
+  newDailyBudget: string;
 };
 
 // ================================
