@@ -263,12 +263,18 @@ export async function searchUsersByEmail(query: string) {
     .limit(10);
 }
 
-// Get user's Meta Business Account
+// Get user's Meta Business Account (most recently updated, non-deleted)
 export async function getUserMetaBusinessAccount(userId: string) {
   const [account] = await db
     .select()
     .from(metaBusinessAccount)
-    .where(eq(metaBusinessAccount.userId, userId))
+    .where(
+      and(
+        eq(metaBusinessAccount.userId, userId),
+        isNull(metaBusinessAccount.deletedAt),
+      ),
+    )
+    .orderBy(desc(metaBusinessAccount.updatedAt))
     .limit(1);
   return account ?? null;
 }

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -20,12 +19,8 @@ import {
   type Ad,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
-import {
-  formatCurrency,
-  formatNumber,
-  getStatusBadgeVariant,
-  translateStatus,
-} from "../utils/formatters";
+import { formatCurrency, formatNumber } from "../utils/formatters";
+import { DeliveryStatus } from "./delivery-status";
 
 type GetAdsResponse = {
   data?: Ad[];
@@ -232,12 +227,11 @@ export function AdsTable({
                         )}
                       </div>
                     )}
-                    <Badge
-                      variant={getStatusBadgeVariant(ad.effectiveStatus)}
-                      className="text-xs shrink-0"
-                    >
-                      {translateStatus(ad.effectiveStatus ?? ad.status)}
-                    </Badge>
+                    <DeliveryStatus
+                      status={ad.effectiveStatus ?? ad.status}
+                      size="xs"
+                      className="shrink-0"
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
@@ -269,7 +263,7 @@ export function AdsTable({
                 <TableHead className="w-[60px]">Ativo</TableHead>
                 <TableHead className="w-[60px]">Preview</TableHead>
                 <TableHead className="min-w-[150px]">Anúncio</TableHead>
-                <TableHead className="w-[90px]">Status</TableHead>
+                <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="w-[100px] text-right">Gasto</TableHead>
                 <TableHead className="w-[100px] text-right">Impressões</TableHead>
                 <TableHead className="w-[80px] text-right">Cliques</TableHead>
@@ -290,7 +284,7 @@ export function AdsTable({
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                       <TableCell>
-                        <Skeleton className="h-5 w-14" />
+                        <Skeleton className="h-4 w-24" />
                       </TableCell>
                       <TableCell>
                         <Skeleton className="h-4 w-14 ml-auto" />
@@ -338,12 +332,9 @@ export function AdsTable({
                         <span className="line-clamp-1">{ad.name}</span>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={getStatusBadgeVariant(ad.effectiveStatus)}
-                          className="text-xs"
-                        >
-                          {translateStatus(ad.effectiveStatus ?? ad.status)}
-                        </Badge>
+                        <DeliveryStatus
+                          status={ad.effectiveStatus ?? ad.status ?? null}
+                        />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(ad.insights?.spend)}
@@ -442,7 +433,7 @@ function AdsTableSkeleton() {
               <div className="flex-1">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-5 w-14" />
+                  <Skeleton className="h-4 w-24" />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {Array.from({ length: 2 }).map((_, j) => (
@@ -465,7 +456,7 @@ function AdsTableSkeleton() {
               <TableHead className="w-[60px]">Ativo</TableHead>
               <TableHead className="w-[60px]">Preview</TableHead>
               <TableHead className="min-w-[150px]">Anúncio</TableHead>
-              <TableHead className="w-[90px]">Status</TableHead>
+              <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
               <TableHead className="w-[100px] text-right">Gasto</TableHead>
               <TableHead className="w-[100px] text-right">Impressões</TableHead>
               <TableHead className="w-[80px] text-right">Cliques</TableHead>
@@ -485,7 +476,7 @@ function AdsTableSkeleton() {
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-5 w-14" />
+                  <Skeleton className="h-4 w-24" />
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-4 w-14 ml-auto" />

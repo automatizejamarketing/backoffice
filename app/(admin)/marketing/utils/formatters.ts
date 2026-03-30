@@ -164,6 +164,48 @@ export function translateStatus(status: string | null | undefined): string {
   return statusMap[status.toUpperCase()] ?? status;
 }
 
+export type DeliveryStatus = "active" | "pending" | "inactive";
+
+/**
+ * Map Meta effective status to the simplified delivery status used in the UI.
+ */
+export function getDeliveryStatus(
+  status: string | null | undefined
+): DeliveryStatus {
+  if (!status) {
+    return "inactive";
+  }
+
+  const normalizedStatus = status.toUpperCase();
+
+  switch (normalizedStatus) {
+    case "ACTIVE":
+      return "active";
+    case "PENDING_REVIEW":
+    case "IN_PROCESS":
+    case "PREAPPROVED":
+    case "PENDING_BILLING_INFO":
+      return "pending";
+    default:
+      return "inactive";
+  }
+}
+
+/**
+ * Dot color class for the simplified delivery status.
+ */
+export function getDeliveryDotColor(status: DeliveryStatus): string {
+  switch (status) {
+    case "active":
+      return "bg-emerald-500";
+    case "pending":
+      return "bg-amber-500";
+    case "inactive":
+    default:
+      return "bg-muted-foreground/60";
+  }
+}
+
 /**
  * Get Portuguese label for optimization goal
  */

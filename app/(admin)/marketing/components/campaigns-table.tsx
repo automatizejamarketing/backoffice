@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -20,12 +19,8 @@ import {
   type Campaign,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
-import {
-  formatCurrency,
-  formatNumber,
-  getStatusBadgeVariant,
-  translateStatus,
-} from "../utils/formatters";
+import { formatCurrency, formatNumber } from "../utils/formatters";
+import { DeliveryStatus } from "./delivery-status";
 
 type GetCampaignsResponse = {
   data?: Campaign[];
@@ -268,9 +263,10 @@ export function CampaignsTable({
                     )}
                   </div>
                 )}
-                <Badge variant={getStatusBadgeVariant(campaign.effectiveStatus)}>
-                  {translateStatus(campaign.effectiveStatus ?? campaign.status)}
-                </Badge>
+                <DeliveryStatus
+                  status={campaign.effectiveStatus ?? campaign.status}
+                  size="xs"
+                />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
@@ -311,7 +307,7 @@ export function CampaignsTable({
               <TableRow>
                 <TableHead className="w-[60px]">Ativo</TableHead>
                 <TableHead className="min-w-[200px]">Campanha</TableHead>
-                <TableHead className="w-[100px]">Status</TableHead>
+                <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="w-[120px] text-right">Gasto</TableHead>
                 <TableHead className="w-[120px] text-right">Impressões</TableHead>
                 <TableHead className="w-[100px] text-right">Cliques</TableHead>
@@ -330,7 +326,7 @@ export function CampaignsTable({
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                       <TableCell>
-                        <Skeleton className="h-5 w-16" />
+                        <Skeleton className="h-4 w-24" />
                       </TableCell>
                       <TableCell>
                         <Skeleton className="h-4 w-16 ml-auto" />
@@ -378,15 +374,11 @@ export function CampaignsTable({
                         <span className="line-clamp-1">{campaign.name}</span>
                       </TableCell>
                       <TableCell>
-                        <Badge
-                          variant={getStatusBadgeVariant(
-                            campaign.effectiveStatus
-                          )}
-                        >
-                          {translateStatus(
-                            campaign.effectiveStatus ?? campaign.status ?? "N/A"
-                          )}
-                        </Badge>
+                        <DeliveryStatus
+                          status={
+                            campaign.effectiveStatus ?? campaign.status ?? null
+                          }
+                        />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(campaign.insights?.spend)}
@@ -448,7 +440,7 @@ function CampaignsTableSkeleton() {
               <Skeleton className="h-4 w-3/4" />
               <div className="flex items-center gap-2">
                 <Skeleton className="h-6 w-11" />
-                <Skeleton className="h-5 w-16" />
+                <Skeleton className="h-4 w-24" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -470,7 +462,7 @@ function CampaignsTableSkeleton() {
             <TableRow>
               <TableHead className="w-[60px]">Ativo</TableHead>
               <TableHead className="min-w-[200px]">Campanha</TableHead>
-              <TableHead className="w-[100px]">Status</TableHead>
+              <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
               <TableHead className="w-[120px] text-right">Gasto</TableHead>
               <TableHead className="w-[120px] text-right">Impressões</TableHead>
               <TableHead className="w-[100px] text-right">Cliques</TableHead>
@@ -488,7 +480,7 @@ function CampaignsTableSkeleton() {
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-4 w-24" />
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-4 w-16 ml-auto" />
