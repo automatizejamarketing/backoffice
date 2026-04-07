@@ -315,8 +315,13 @@ export type AdSetTargeting = {
   age_max?: number;
   geo_locations?: {
     countries?: string[];
+    country_groups?: string[];
     cities?: Array<{ key: string; name?: string; region?: string }>;
     regions?: Array<{ key: string; name?: string }>;
+    zips?: Array<Record<string, unknown>>;
+    geo_markets?: Array<Record<string, unknown>>;
+    electoral_districts?: Array<Record<string, unknown>>;
+    custom_locations?: Array<Record<string, unknown>>;
     /** e.g. home, recent, travel_in — Meta location targeting behavior */
     location_types?: string[];
   };
