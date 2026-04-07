@@ -31,6 +31,7 @@ export const user = pgTable("users", {
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   expirationDate: timestamp("expiration_date"),
   credits: integer("credits").notNull().default(0),
+  referredByAffiliateId: uuid("referred_by_affiliate_id"),
 });
 
 export type User = InferSelectModel<typeof user>;
@@ -1162,3 +1163,82 @@ export const planPriceConfig = pgTable("plan_price_configs", {
 });
 
 export type PlanPriceConfig = InferSelectModel<typeof planPriceConfig>;
+
+// =============================================
+// Affiliate System
+// =============================================
+
+export type AffiliateStatus = "pending" | "approved" | "rejected";
+
+export const affiliate = pgTable("affiliates", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id)
+    .unique(),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  status: varchar("status", {
+    enum: ["pending", "approved", "rejected"],
+  })
+    .$type<AffiliateStatus>()
+    .notNull()
+    .default("pending"),
+  stripeCouponId: varchar("stripe_coupon_id", { length: 255 }),
+  stripePromotionCodeId: varchar("stripe_promotion_code_id", { length: 255 }),
+  commissionRate: integer("commission_rate").notNull().default(10),
+  approvedBy: varchar("approved_by", { length: 100 }),
+  approvedAt: timestamp("approved_at"),
+  rejectedBy: varchar("rejected_by", { length: 100 }),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type Affiliate = InferSelectModel<typeof affiliate>;
+
+export const affiliateClick = pgTable("affiliate_clicks", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  affiliateId: uuid("affiliate_id")
+    .notNull()
+    .references(() => affiliate.id),
+  ipHash: varchar("ip_hash", { length: 64 }),
+  userAgent: text("user_agent"),
+  referrerUrl: text("referrer_url"),
+  landingUrl: text("landing_url"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AffiliateClick = InferSelectModel<typeof affiliateClick>;
+
+export type AffiliateConversionStatus =
+  | "pending"
+  | "approved"
+  | "paid"
+  | "rejected";
+
+export const affiliateConversion = pgTable("affiliate_conversions", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  affiliateId: uuid("affiliate_id")
+    .notNull()
+    .references(() => affiliate.id),
+  convertedUserId: uuid("converted_user_id")
+    .notNull()
+    .references(() => user.id),
+  subscriptionId: uuid("subscription_id").references(() => subscription.id),
+  stripeInvoiceId: varchar("stripe_invoice_id", { length: 255 }),
+  amount: integer("amount").notNull(),
+  commissionAmount: integer("commission_amount").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull().default("brl"),
+  status: varchar("status", {
+    enum: ["pending", "approved", "paid", "rejected"],
+  })
+    .$type<AffiliateConversionStatus>()
+    .notNull()
+    .default("pending"),
+  approvedAt: timestamp("approved_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;

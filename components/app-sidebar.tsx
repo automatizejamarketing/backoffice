@@ -2,6 +2,7 @@
 
 import {
   ChevronUp,
+  Handshake,
   Image,
   LayoutDashboard,
   LogOut,
@@ -49,6 +50,7 @@ export function AppSidebar({ user }: { user: User }) {
   const isUsersSection = pathname?.startsWith("/users");
   const isPostsSection = pathname?.startsWith("/posts");
   const isMarketingSection = pathname?.startsWith("/marketing");
+  const isAffiliatesSection = pathname?.startsWith("/affiliates");
 
   const navItems = [
     {
@@ -74,6 +76,12 @@ export function AppSidebar({ user }: { user: User }) {
       label: "Marketing",
       icon: Megaphone,
       isActive: isMarketingSection,
+    },
+    {
+      href: "/affiliates",
+      label: "Afiliados",
+      icon: Handshake,
+      isActive: isAffiliatesSection,
     },
   ];
 
