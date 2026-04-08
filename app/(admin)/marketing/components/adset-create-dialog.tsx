@@ -23,6 +23,12 @@ import {
   InstagramPostPicker,
   type InstagramMediaItem,
 } from "./instagram-post-picker";
+import { LocationTargetingSection } from "./location-targeting-section";
+import {
+  DEFAULT_BRAZIL_LOCATION,
+  buildGeoLocationsPayload,
+  type SelectedGeoLocation,
+} from "@/lib/meta-business/geo-targeting-types";
 
 const MAX_MEDIA_ITEMS = 5;
 
@@ -71,6 +77,7 @@ export function AdSetCreateDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
+  const [selectedLocations, setSelectedLocations] = useState<SelectedGeoLocation[]>([DEFAULT_BRAZIL_LOCATION]);
 
   const isSalesCampaign = SALES_OBJECTIVES.includes(campaignObjective ?? "");
   const isLeadsCampaign = LEADS_OBJECTIVES.includes(campaignObjective ?? "");
@@ -114,6 +121,7 @@ export function AdSetCreateDialog({
     setSelectedPosts([]);
     setError(null);
     setUrl("");
+    setSelectedLocations([DEFAULT_BRAZIL_LOCATION]);
   };
 
   const handleClose = () => {
@@ -210,6 +218,11 @@ export function AdSetCreateDialog({
 
       if (url.trim()) {
         body.url = url.trim();
+      }
+
+      const geoLocations = buildGeoLocationsPayload(selectedLocations);
+      if (geoLocations) {
+        body.geoLocations = geoLocations;
       }
 
       const response = await fetch(`/api/meta-marketing/${accountId}/adsets`, {
@@ -372,6 +385,14 @@ export function AdSetCreateDialog({
                 isLoading={isLoadingAudiences}
               />
             </div>
+
+            <LocationTargetingSection
+              accountId={accountId}
+              userId={userId}
+              selectedLocations={selectedLocations}
+              onLocationsChange={setSelectedLocations}
+              disabled={isSubmitting}
+            />
 
             {isSalesCampaign && (
               <div className="space-y-2">

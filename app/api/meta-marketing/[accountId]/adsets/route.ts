@@ -12,6 +12,7 @@ import {
   type PaginationInfo,
 } from "@/lib/meta-business/types";
 import { transformAdSet, transformPaging } from "@/lib/meta-business/transformers";
+import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
 
 type GraphApiAdSetsResponse = {
   data: GraphApiAdSet[];
@@ -233,6 +234,8 @@ export type PostAdSetRequestBody = {
   }>;
   /** URL for SALES campaigns (required when creatives are provided for OUTCOME_SALES) */
   url?: string;
+  /** Optional geo targeting payload (defaults to Brazil if not provided) */
+  geoLocations?: GeoLocationsPayload;
 };
 
 export type PostAdSetResponse = {
@@ -500,6 +503,7 @@ export async function POST(
       creative,
       creatives: rawCreatives,
       url,
+      geoLocations,
     } = body;
 
     const creatives =
@@ -705,7 +709,7 @@ export async function POST(
     // Build targeting – always use Brazil as geo.
     // OUTCOME_TRAFFIC (VISIT_INSTAGRAM_PROFILE) uses Instagram-only placements.
     const metaTargeting: Record<string, unknown> = {
-      geo_locations: { countries: ["BR"] },
+      geo_locations: geoLocations ?? { countries: ["BR"] },
       age_min: targeting.age_min ?? 18,
       age_max: targeting.age_max ?? 65,
       ...(instagramOnlyPlacements

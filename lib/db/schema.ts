@@ -36,6 +36,22 @@ export const user = pgTable("users", {
 
 export type User = InferSelectModel<typeof user>;
 
+export const blobUpload = pgTable("blob_uploads", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => user.id),
+  blobUrl: text("blob_url").notNull(),
+  pathname: text("pathname"),
+  contentType: text("content_type"),
+  source: varchar("source", { length: 50 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+});
+
+export type BlobUpload = InferSelectModel<typeof blobUpload>;
+
 export const verificationToken = pgTable("verification_tokens", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   userId: uuid("user_id")

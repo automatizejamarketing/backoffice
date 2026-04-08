@@ -14,12 +14,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { AdSet } from "@/lib/meta-business/types";
+import type { AdSet, AdSetTargeting } from "@/lib/meta-business/types";
 import { formatCurrency } from "../utils/formatters";
 import {
   AudienceMultiSelect,
   type AudienceOption,
 } from "./audience-multi-select";
+import { LocationTargetingSection } from "./location-targeting-section";
+import {
+  DEFAULT_BRAZIL_LOCATION,
+  buildGeoLocationsPayload,
+  type SelectedGeoLocation,
+} from "@/lib/meta-business/geo-targeting-types";
 
 type AdSetEditDialogProps = {
   adSet: AdSet;
@@ -41,6 +47,31 @@ function normalizeGenderCodes(
     if (n === 1 || n === 2) out.push(n);
   }
   return [...new Set(out)].sort((a, b) => a - b);
+}
+
+function geoLocationsToSelectedLocations(
+  geo: AdSetTargeting["geo_locations"] | undefined,
+): SelectedGeoLocation[] {
+  if (!geo) return [DEFAULT_BRAZIL_LOCATION];
+
+  const locations: SelectedGeoLocation[] = [];
+
+  for (const code of geo.countries ?? []) {
+    locations.push({ key: code, name: code, type: "country", country_code: code });
+  }
+  for (const region of geo.regions ?? []) {
+    locations.push({ key: region.key, name: region.name ?? region.key, type: "region" });
+  }
+  for (const city of geo.cities ?? []) {
+    locations.push({
+      key: city.key,
+      name: city.name ?? city.key,
+      type: "city",
+      region: city.region,
+    });
+  }
+
+  return locations.length > 0 ? locations : [DEFAULT_BRAZIL_LOCATION];
 }
 
 function getGenderValue(genders: readonly unknown[] | undefined): string {
@@ -91,6 +122,9 @@ export function AdSetEditDialog({
     AudienceOption[]
   >([]);
   const [isLoadingAudiences, setIsLoadingAudiences] = useState(false);
+  const [selectedLocations, setSelectedLocations] = useState<SelectedGeoLocation[]>(
+    () => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
+  );
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +176,7 @@ export function AdSetEditDialog({
     setGender(getGenderValue(adSet.targeting?.genders));
     setIncludedAudiences(included);
     setExcludedAudiences(excluded);
+    setSelectedLocations(geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
     setNote("");
     setError(null);
   }, [isOpen, adSet.id]);
@@ -193,12 +228,20 @@ export function AdSetEditDialog({
       .join(",");
     const hasExcludedAudienceChange = currentExcludedIds !== newExcludedIds;
 
+    const geoLocationsPayload = buildGeoLocationsPayload(selectedLocations);
+    const hasGeoLocationChange =
+      JSON.stringify(geoLocationsPayload) !==
+      JSON.stringify(buildGeoLocationsPayload(
+        geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
+      ));
+
     const hasTargetingChange =
       hasAgeMinChange ||
       hasAgeMaxChange ||
       hasGenderChange ||
       hasIncludedAudienceChange ||
-      hasExcludedAudienceChange;
+      hasExcludedAudienceChange ||
+      hasGeoLocationChange;
 
     if (!hasBudgetChange && !hasTargetingChange) {
       setError("Nenhuma alteração foi feita");
@@ -256,6 +299,9 @@ export function AdSetEditDialog({
               name: a.name,
             })),
           }),
+          ...(hasGeoLocationChange && geoLocationsPayload && {
+            geo_locations: geoLocationsPayload,
+          }),
         };
       }
 
@@ -294,6 +340,7 @@ export function AdSetEditDialog({
       setGender(getGenderValue(adSet.targeting?.genders));
       setIncludedAudiences(currentCustomAudiences);
       setExcludedAudiences(currentExcludedAudiences);
+      setSelectedLocations(geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
       setNote("");
       setError(null);
       onClose();
@@ -427,6 +474,14 @@ export function AdSetEditDialog({
                 isLoading={isLoadingAudiences}
               />
             </div>
+
+            <LocationTargetingSection
+              accountId={accountId}
+              userId={userId}
+              selectedLocations={selectedLocations}
+              onLocationsChange={setSelectedLocations}
+              disabled={isSubmitting}
+            />
 
             <div className="space-y-2">
               <Label htmlFor="note">

@@ -10,6 +10,7 @@ import type {
   GraphApiAdSet,
   GraphApiCampaign,
 } from "@/lib/meta-business/types";
+import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
 
 type EditAdSetRequestBody = {
   userId: string;
@@ -20,9 +21,7 @@ type EditAdSetRequestBody = {
     age_min?: number;
     age_max?: number;
     genders?: number[];
-    geo_locations?: {
-      countries?: string[];
-    };
+    geo_locations?: GeoLocationsPayload;
     custom_audiences?: AudienceRef[];
     excluded_custom_audiences?: AudienceRef[];
   };
@@ -110,6 +109,7 @@ export async function PATCH(
       (targeting.age_min !== undefined ||
         targeting.age_max !== undefined ||
         targeting.genders !== undefined ||
+        targeting.geo_locations !== undefined ||
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined);
 
@@ -189,12 +189,14 @@ export async function PATCH(
     let newTargeting: AdSetTargeting | undefined;
     if (hasTargetingChange) {
       const prevGeoLocations = previousTargeting?.geo_locations;
+      const requestGeoLocations = targeting.geo_locations;
 
       if (
-        !prevGeoLocations ||
-        (!prevGeoLocations.countries?.length &&
-          !prevGeoLocations.cities?.length &&
-          !prevGeoLocations.regions?.length)
+        !requestGeoLocations &&
+        (!prevGeoLocations ||
+          (!prevGeoLocations.countries?.length &&
+            !prevGeoLocations.cities?.length &&
+            !prevGeoLocations.regions?.length))
       ) {
         return NextResponse.json(
           {
@@ -208,7 +210,7 @@ export async function PATCH(
         );
       }
 
-      const newGeoLocations = prevGeoLocations;
+      const newGeoLocations = requestGeoLocations ?? prevGeoLocations;
 
       const newGenders =
         targeting.genders !== undefined
