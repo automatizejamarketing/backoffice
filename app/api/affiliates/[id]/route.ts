@@ -4,6 +4,7 @@ import {
   getAffiliateById,
   getAffiliateMetrics,
   getAffiliateConversions,
+  getAffiliateActionLogs,
 } from "@/lib/affiliate/queries";
 
 export async function GET(
@@ -25,12 +26,13 @@ export async function GET(
       );
     }
 
-    const [metrics, conversions] = await Promise.all([
+    const [metrics, conversions, actionLogs] = await Promise.all([
       getAffiliateMetrics(id),
       getAffiliateConversions(id),
+      getAffiliateActionLogs(id),
     ]);
 
-    return NextResponse.json({ affiliate: aff, metrics, conversions });
+    return NextResponse.json({ affiliate: aff, metrics, conversions, actionLogs });
   } catch (error) {
     console.error("Error fetching affiliate:", error);
     return NextResponse.json(

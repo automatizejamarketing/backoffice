@@ -2,10 +2,12 @@ import { and, count, desc, eq, sum } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   affiliate,
+  affiliateActionLog,
   affiliateClick,
   affiliateConversion,
   user,
   type Affiliate,
+  type AffiliateActionType,
   type AffiliateConversion,
   type AffiliateConversionStatus,
 } from "@/lib/db/schema";
@@ -69,6 +71,8 @@ export async function getAffiliateById(affiliateId: string) {
       rejectedBy: affiliate.rejectedBy,
       rejectedAt: affiliate.rejectedAt,
       rejectionReason: affiliate.rejectionReason,
+      blockedBy: affiliate.blockedBy,
+      blockedAt: affiliate.blockedAt,
       createdAt: affiliate.createdAt,
       updatedAt: affiliate.updatedAt,
       user: {
@@ -234,4 +238,72 @@ export function generateAffiliateCode(name: string): string {
     .toUpperCase();
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `${prefix || "AFF"}_${suffix}`;
+}
+
+export async function updateAffiliateCode(
+  affiliateId: string,
+  newCode: string,
+) {
+  await db
+    .update(affiliate)
+    .set({ code: newCode, updatedAt: new Date() })
+    .where(eq(affiliate.id, affiliateId));
+}
+
+export async function blockAffiliate(
+  affiliateId: string,
+  adminEmail: string,
+) {
+  await db
+    .update(affiliate)
+    .set({
+      status: "blocked",
+      blockedBy: adminEmail,
+      blockedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(affiliate.id, affiliateId));
+}
+
+export async function reactivateAffiliate(
+  affiliateId: string,
+  adminEmail: string,
+) {
+  await db
+    .update(affiliate)
+    .set({
+      status: "approved",
+      blockedBy: null,
+      blockedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(affiliate.id, affiliateId));
+}
+
+export async function createAffiliateActionLog(
+  affiliateId: string,
+  adminEmail: string,
+  action: AffiliateActionType,
+  details?: Record<string, unknown>,
+) {
+  await db.insert(affiliateActionLog).values({
+    affiliateId,
+    adminEmail,
+    action,
+    details: details ?? null,
+  });
+}
+
+export async function getAffiliateActionLogs(affiliateId: string) {
+  return db
+    .select({
+      id: affiliateActionLog.id,
+      adminEmail: affiliateActionLog.adminEmail,
+      action: affiliateActionLog.action,
+      details: affiliateActionLog.details,
+      createdAt: affiliateActionLog.createdAt,
+    })
+    .from(affiliateActionLog)
+    .where(eq(affiliateActionLog.affiliateId, affiliateId))
+    .orderBy(desc(affiliateActionLog.createdAt));
 }

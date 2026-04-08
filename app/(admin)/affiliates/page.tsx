@@ -40,9 +40,10 @@ import {
   Loader2,
   CheckCircle,
   XCircle,
-  Clock,
   Plus,
   Eye,
+  Ban,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,6 +69,7 @@ const STATUS_BADGE: Record<string, { variant: "default" | "secondary" | "destruc
   pending: { variant: "outline", label: "Pendente" },
   approved: { variant: "default", label: "Aprovado" },
   rejected: { variant: "destructive", label: "Rejeitado" },
+  blocked: { variant: "secondary", label: "Bloqueado" },
 };
 
 export default function AffiliatesPage() {
@@ -76,10 +78,20 @@ export default function AffiliatesPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Approve dialog
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<AffiliateRow | null>(null);
+  const [approveCode, setApproveCode] = useState("");
+
   // Reject dialog
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+
+  // Block dialog
+  const [blockDialogOpen, setBlockDialogOpen] = useState(false);
+  const [blockTarget, setBlockTarget] = useState<string | null>(null);
+  const [blockReason, setBlockReason] = useState("");
 
   // Create dialog
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -109,16 +121,23 @@ export default function AffiliatesPage() {
     fetchAffiliates();
   }, [fetchAffiliates]);
 
-  const handleApprove = async (affiliateId: string) => {
-    setActionLoading(affiliateId);
+  const handleApprove = async () => {
+    if (!approveTarget) return;
+    setActionLoading(approveTarget.id);
     try {
       const res = await fetch("/api/affiliates/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ affiliateId }),
+        body: JSON.stringify({
+          affiliateId: approveTarget.id,
+          code: approveCode || undefined,
+        }),
       });
       if (res.ok) {
         toast.success("Afiliado aprovado com sucesso!");
+        setApproveDialogOpen(false);
+        setApproveTarget(null);
+        setApproveCode("");
         fetchAffiliates();
       } else {
         const err = await res.json();
@@ -154,6 +173,56 @@ export default function AffiliatesPage() {
       }
     } catch {
       toast.error("Erro ao rejeitar afiliado");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleBlock = async () => {
+    if (!blockTarget) return;
+    setActionLoading(blockTarget);
+    try {
+      const res = await fetch("/api/affiliates/block", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          affiliateId: blockTarget,
+          reason: blockReason,
+        }),
+      });
+      if (res.ok) {
+        toast.success("Afiliado bloqueado");
+        setBlockDialogOpen(false);
+        setBlockReason("");
+        fetchAffiliates();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Erro ao bloquear");
+      }
+    } catch {
+      toast.error("Erro ao bloquear afiliado");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReactivate = async (affiliateId: string) => {
+    setActionLoading(affiliateId);
+    try {
+      const res = await fetch("/api/affiliates/reactivate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ affiliateId }),
+      });
+      if (res.ok) {
+        toast.success("Afiliado reativado com sucesso!");
+        fetchAffiliates();
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Erro ao reativar");
+      }
+    } catch {
+      toast.error("Erro ao reativar afiliado");
     } finally {
       setActionLoading(null);
     }
@@ -237,6 +306,7 @@ export default function AffiliatesPage() {
               <SelectItem value="pending">Pendentes</SelectItem>
               <SelectItem value="approved">Aprovados</SelectItem>
               <SelectItem value="rejected">Rejeitados</SelectItem>
+              <SelectItem value="blocked">Bloqueados</SelectItem>
             </SelectContent>
           </Select>
         </CardHeader>
@@ -302,7 +372,11 @@ export default function AffiliatesPage() {
                                 size="icon"
                                 className="text-green-600 hover:text-green-700"
                                 disabled={actionLoading === aff.id}
-                                onClick={() => handleApprove(aff.id)}
+                                onClick={() => {
+                                  setApproveTarget(aff);
+                                  setApproveCode(aff.code);
+                                  setApproveDialogOpen(true);
+                                }}
                               >
                                 {actionLoading === aff.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -323,6 +397,35 @@ export default function AffiliatesPage() {
                               </Button>
                             </>
                           )}
+                          {aff.status === "approved" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-orange-600 hover:text-orange-700"
+                              disabled={actionLoading === aff.id}
+                              onClick={() => {
+                                setBlockTarget(aff.id);
+                                setBlockDialogOpen(true);
+                              }}
+                            >
+                              <Ban className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {aff.status === "blocked" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-green-600 hover:text-green-700"
+                              disabled={actionLoading === aff.id}
+                              onClick={() => handleReactivate(aff.id)}
+                            >
+                              {actionLoading === aff.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <RefreshCw className="h-4 w-4" />
+                              )}
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -333,6 +436,53 @@ export default function AffiliatesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Approve Dialog */}
+      <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Aprovar Afiliação</DialogTitle>
+            <DialogDescription>
+              Revise e edite o código promocional antes de aprovar. Este código
+              será criado como promotion code no Stripe.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Código Promocional</Label>
+              <Input
+                value={approveCode}
+                onChange={(e) => setApproveCode(e.target.value)}
+                placeholder="Código do cupom..."
+              />
+              <p className="text-xs text-muted-foreground">
+                O código será convertido para maiúsculas automaticamente no
+                Stripe.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setApproveDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleApprove}
+              disabled={
+                !approveCode.trim() ||
+                actionLoading === approveTarget?.id
+              }
+            >
+              {actionLoading === approveTarget?.id ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Aprovar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
@@ -364,6 +514,42 @@ export default function AffiliatesPage() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               Rejeitar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Block Dialog */}
+      <Dialog open={blockDialogOpen} onOpenChange={setBlockDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bloquear Afiliação</DialogTitle>
+            <DialogDescription>
+              O promotion code será desativado no Stripe. Informe o motivo
+              (opcional).
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Motivo do bloqueio..."
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+          />
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBlockDialogOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBlock}
+              disabled={actionLoading === blockTarget}
+            >
+              {actionLoading === blockTarget ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Bloquear
             </Button>
           </DialogFooter>
         </DialogContent>

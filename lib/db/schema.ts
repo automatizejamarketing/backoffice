@@ -1184,7 +1184,7 @@ export type PlanPriceConfig = InferSelectModel<typeof planPriceConfig>;
 // Affiliate System
 // =============================================
 
-export type AffiliateStatus = "pending" | "approved" | "rejected";
+export type AffiliateStatus = "pending" | "approved" | "rejected" | "blocked";
 
 export const affiliate = pgTable("affiliates", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -1194,7 +1194,7 @@ export const affiliate = pgTable("affiliates", {
     .unique(),
   code: varchar("code", { length: 50 }).notNull().unique(),
   status: varchar("status", {
-    enum: ["pending", "approved", "rejected"],
+    enum: ["pending", "approved", "rejected", "blocked"],
   })
     .$type<AffiliateStatus>()
     .notNull()
@@ -1207,11 +1207,37 @@ export const affiliate = pgTable("affiliates", {
   rejectedBy: varchar("rejected_by", { length: 100 }),
   rejectedAt: timestamp("rejected_at"),
   rejectionReason: text("rejection_reason"),
+  blockedBy: varchar("blocked_by", { length: 100 }),
+  blockedAt: timestamp("blocked_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export type Affiliate = InferSelectModel<typeof affiliate>;
+
+export type AffiliateActionType =
+  | "approved"
+  | "rejected"
+  | "blocked"
+  | "reactivated"
+  | "code_edited";
+
+export const affiliateActionLog = pgTable("affiliate_action_logs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  affiliateId: uuid("affiliate_id")
+    .notNull()
+    .references(() => affiliate.id),
+  adminEmail: varchar("admin_email", { length: 100 }).notNull(),
+  action: varchar("action", {
+    enum: ["approved", "rejected", "blocked", "reactivated", "code_edited"],
+  })
+    .$type<AffiliateActionType>()
+    .notNull(),
+  details: jsonb("details").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AffiliateActionLog = InferSelectModel<typeof affiliateActionLog>;
 
 export const affiliateClick = pgTable("affiliate_clicks", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
