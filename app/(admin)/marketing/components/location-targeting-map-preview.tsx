@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { GripVertical, MapPin } from "lucide-react";
 import L from "leaflet";
-import { useTranslations } from "next-intl";
+import { useLocationTargetingT } from "../utils/location-targeting-messages";
 import { Circle, MapContainer, Marker, TileLayer, useMap } from "react-leaflet";
 
 import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-types";
@@ -100,7 +100,7 @@ export function LocationTargetingMapPreview({
   pinSource = "meta",
   onLocationDrag,
 }: LocationTargetingMapPreviewProps) {
-  const t = useTranslations("marketing.newCampaign.locationTargeting");
+  const t = useLocationTargetingT();
   const center = useMemo<[number, number]>(
     () => [location.latitude, location.longitude],
     [location.latitude, location.longitude],

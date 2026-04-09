@@ -274,10 +274,18 @@ export function CampaignsTable({
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-3">
         {campaigns.map((campaign) => (
-          <button
+          <div
             key={campaign.id}
+            role="button"
+            tabIndex={0}
             onClick={() => onCampaignClick(campaign)}
-            className="w-full text-left rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/50"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onCampaignClick(campaign);
+              }
+            }}
+            className="w-full text-left rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/50 cursor-pointer"
           >
             <div className="flex items-start justify-between gap-2 mb-2">
               <span className="font-medium text-sm line-clamp-2">
@@ -320,7 +328,7 @@ export function CampaignsTable({
                 ),
               )}
             </div>
-          </button>
+          </div>
         ))}
       </div>
 

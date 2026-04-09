@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { locationTargetingMessages, useLocationTargetingT } from "../utils/location-targeting-messages";
 import {
   ChevronDown,
   ChevronUp,
@@ -73,7 +73,7 @@ type LocationTargetingSectionProps = {
   maxRadiusKm?: number;
 };
 
-type LocationTargetingTranslator = ReturnType<typeof useTranslations>;
+type LocationTargetingTranslator = ReturnType<typeof useLocationTargetingT>;
 const LOCATION_RESULT_ORDER: GeoLocationType[] = [
   "place",
   "custom_location",
@@ -217,8 +217,8 @@ export function LocationTargetingSection({
   minRadiusKm = MIN_RADIUS_KM,
   maxRadiusKm = MAX_RADIUS_KM,
 }: LocationTargetingSectionProps) {
-  const locale = useLocale();
-  const t = useTranslations("marketing.newCampaign.locationTargeting");
+  const locale = "pt-BR";
+  const t = useLocationTargetingT();
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
