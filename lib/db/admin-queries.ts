@@ -15,6 +15,7 @@ import {
   metaBusinessAccount,
   post,
   referenceImage,
+  subscription,
   user,
   userCompany,
   type CampaignAdSetBudgetChangeData,
@@ -143,6 +144,19 @@ export async function getUserWithDetailedUsage(userId: string) {
     .where(eq(userCompany.userId, userId))
     .limit(1);
 
+  // Get active subscription
+  const [activeSubscription] = await db
+    .select()
+    .from(subscription)
+    .where(
+      and(
+        eq(subscription.userId, userId),
+        inArray(subscription.status, ["active", "trialing", "past_due"]),
+      ),
+    )
+    .orderBy(desc(subscription.createdAt))
+    .limit(1);
+
   // Calculate totals
   const totalCost = recentUsage.reduce(
     (sum, log) => sum + Number.parseFloat(log.cost),
@@ -168,6 +182,7 @@ export async function getUserWithDetailedUsage(userId: string) {
     })),
     companyName: companyInfo?.companyName ?? null,
     onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
+    activeSubscription: activeSubscription ?? null,
   };
 }
 
