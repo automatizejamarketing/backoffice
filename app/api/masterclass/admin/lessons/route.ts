@@ -52,8 +52,9 @@ export async function POST(request: Request) {
     !body.title?.trim() ||
     !body.videoProvider ||
     !body.videoAssetId?.trim() ||
+    typeof position !== "number" ||
     !Number.isFinite(position) ||
-    (position ?? 0) <= 0
+    position <= 0
   ) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
   }
