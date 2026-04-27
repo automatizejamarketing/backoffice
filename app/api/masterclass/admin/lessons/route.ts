@@ -46,13 +46,14 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as CreateLessonBody;
+  const position = body.position;
   if (
     !body.courseId ||
     !body.title?.trim() ||
     !body.videoProvider ||
     !body.videoAssetId?.trim() ||
-    !Number.isFinite(body.position) ||
-    (body.position ?? 0) <= 0
+    !Number.isFinite(position) ||
+    (position ?? 0) <= 0
   ) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
   }
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
       slug: body.slug,
       videoProvider: body.videoProvider,
       videoAssetId: body.videoAssetId,
-      position: body.position,
+      position,
       published: body.published ?? true,
     });
     return NextResponse.json(created, { status: 201 });
