@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
 import { Badge } from "@/components/ui/badge";
+import { formatBrazilianPhone, whatsappLink } from "@/lib/phone";
 
 // Force dynamic rendering to prevent build timeouts on Vercel
 // This page queries all users with usage stats, which can be slow
@@ -42,6 +43,9 @@ export default async function UsersPage() {
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Empresa
               </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                WhatsApp
+              </th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Chats
               </th>
@@ -63,7 +67,7 @@ export default async function UsersPage() {
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   Nenhum usuário encontrado
@@ -108,6 +112,31 @@ export default async function UsersPage() {
                           </Badge>
                         )}
                       </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground/60">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.phone ? (
+                      (() => {
+                        const href = whatsappLink(user.phone);
+                        const formatted = formatBrazilianPhone(user.phone);
+                        return href ? (
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-foreground/80 hover:text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {formatted}
+                          </a>
+                        ) : (
+                          <span className="text-sm text-foreground/80">
+                            {formatted}
+                          </span>
+                        );
+                      })()
                     ) : (
                       <span className="text-sm text-muted-foreground/60">—</span>
                     )}

@@ -28,6 +28,9 @@ export const user = pgTable("users", {
   emailVerified: timestamp("email_verified"),
   image_url: text("image_url"),
   locale: varchar("locale", { length: 10 }),
+  // Brazilian phone in digits-only canonical form (10 or 11 chars, no country
+  // code prefix — all users are BR). Optional. Collected on credentials sign-up.
+  phone: varchar("phone", { length: 16 }),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   expirationDate: timestamp("expiration_date"),
   credits: integer("credits").notNull().default(0),
@@ -1002,6 +1005,12 @@ export const subscription = pgTable(
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
     canceledAt: timestamp("canceled_at"),
     endedAt: timestamp("ended_at"),
+    // End of the current commitment cycle (months×N from start). Drives
+    // deferred cancellation and post-commitment auto-renewal. NULL only for
+    // legacy rows pre-migration; populated by checkout flow for new subs.
+    commitmentEndDate: timestamp("commitment_end_date"),
+    // How many months the user committed to in the current cycle (1, 3, 6, 12).
+    commitmentMonths: integer("commitment_months").notNull().default(1),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

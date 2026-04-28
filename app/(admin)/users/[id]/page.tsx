@@ -11,6 +11,7 @@ import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { CreditsControl } from "@/components/credits-control";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import type { SubscriptionStatus } from "@/lib/db/schema";
+import { formatBrazilianPhone, whatsappLink } from "@/lib/phone";
 
 const FIELD_LABELS: Record<string, string> = {
   expiration_date: "Data de expiração",
@@ -159,6 +160,27 @@ export default async function UserDetailPage({
               <Badge variant="default">Integrado</Badge>
             )}
           </div>
+          {user.phone ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              WhatsApp:{" "}
+              {(() => {
+                const href = whatsappLink(user.phone);
+                const formatted = formatBrazilianPhone(user.phone);
+                return href ? (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    {formatted}
+                  </a>
+                ) : (
+                  <span>{formatted}</span>
+                );
+              })()}
+            </p>
+          ) : null}
         </div>
       </div>
 
