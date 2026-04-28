@@ -127,7 +127,6 @@ export default async function UsersPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-foreground/80 hover:text-primary hover:underline"
-                            onClick={(e) => e.stopPropagation()}
                           >
                             {formatted}
                           </a>
