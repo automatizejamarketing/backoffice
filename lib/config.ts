@@ -3,6 +3,7 @@ export const ADMIN_EMAILS = [
   "joaopedrocorrea14@gmail.com",
   "joaopedro@layback.trade",
   "educacaoleg@gmail.com",
+  "thethousandkids@gmail.com",
   "gustavoomarcelinoo@gmail.com",
   "gustavo@layback.trade",
   "lucashaddadm@gmail.com",
