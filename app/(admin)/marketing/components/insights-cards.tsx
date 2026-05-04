@@ -172,13 +172,18 @@ export function InsightsCards({
   );
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
       {metrics.map((metric) => (
-        <Card key={metric.label} className="bg-card">
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <metric.icon className={`size-4 shrink-0 ${metric.color}`} />
-              <span className="text-xs text-muted-foreground truncate">
+        <Card key={metric.label} className="bg-card border-border/60">
+          <CardContent className="p-3 sm:p-3.5">
+            <div className="flex size-6 items-center justify-center rounded-md bg-muted mb-2.5">
+              <metric.icon className={`size-3 shrink-0 ${metric.color}`} />
+            </div>
+            <p className="text-base sm:text-lg font-bold tabular-nums leading-none mb-1.5">
+              {metric.value}
+            </p>
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground truncate leading-none">
                 {metric.label}
               </span>
               {metric.info && (
@@ -189,9 +194,6 @@ export function InsightsCards({
                 />
               )}
             </div>
-            <p className="text-lg sm:text-xl font-semibold tabular-nums">
-              {metric.value}
-            </p>
           </CardContent>
         </Card>
       ))}
@@ -293,15 +295,13 @@ function MetricInfoButton({
 
 function InsightsCardsSkeleton() {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
       {Array.from({ length: 7 }).map((_, i) => (
-        <Card key={i} className="bg-card">
-          <CardContent className="p-3 sm:p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Skeleton className="size-4 rounded" />
-              <Skeleton className="h-3 w-12" />
-            </div>
-            <Skeleton className="h-6 w-16 mt-1" />
+        <Card key={i} className="bg-card border-border/60">
+          <CardContent className="p-3 sm:p-3.5">
+            <Skeleton className="size-6 rounded-md mb-2.5" />
+            <Skeleton className="h-5 w-14 mb-1.5" />
+            <Skeleton className="h-2.5 w-10" />
           </CardContent>
         </Card>
       ))}

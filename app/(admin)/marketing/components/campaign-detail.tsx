@@ -219,24 +219,25 @@ export function CampaignDetail({
           side="right"
           className="w-full sm:max-w-[75vw] overflow-y-auto p-0"
         >
-          <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-4 py-3 sm:px-6 sm:py-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
+          <SheetHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/60 px-4 py-3 sm:px-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={onClose}
-                  className="shrink-0 sm:hidden"
+                  className="shrink-0 sm:hidden size-8"
                 >
                   <ArrowLeft className="size-4" />
                 </Button>
                 <div className="min-w-0">
-                  <SheetTitle className="line-clamp-1 text-left">
+                  <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
                     {campaign.name ?? "Detalhes da Campanha"}
                   </SheetTitle>
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-0.5">
                     <Badge
                       variant={getStatusBadgeVariant(campaign.effectiveStatus)}
+                      className="text-[10px] py-0 h-4"
                     >
                       {translateStatus(
                         campaign.effectiveStatus ?? campaign.status,
@@ -255,16 +256,16 @@ export function CampaignDetail({
                   variant="outline"
                   size="sm"
                   onClick={() => setIsEditOpen(true)}
-                  className="shrink-0"
+                  className="shrink-0 h-8 text-xs"
                 >
-                  <Pencil className="size-4 mr-2" />
+                  <Pencil className="size-3.5 mr-1.5" />
                   Editar Campanha
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={onClose}
-                  className="shrink-0 hidden sm:flex"
+                  className="shrink-0 hidden sm:flex size-8 text-muted-foreground"
                 >
                   <X className="size-4" />
                 </Button>
@@ -272,13 +273,13 @@ export function CampaignDetail({
             </div>
           </SheetHeader>
 
-          <div className="px-4 py-4 sm:px-6 sm:py-6 space-y-6">
-            <section className="rounded-lg border border-border bg-muted/30 p-4">
+          <div className="px-4 py-5 sm:px-6 sm:py-6 space-y-6">
+            <section className="rounded-xl border border-border/60 bg-muted/30 p-4">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
-                  <h3 className="text-sm font-medium text-muted-foreground">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
                     Configuração de Orçamento
-                  </h3>
+                  </p>
                   <p className="text-sm font-semibold">
                     {campaign.budgetMode === "CBO"
                       ? "CBO (Campaign Budget Optimization)"
@@ -293,20 +294,20 @@ export function CampaignDetail({
 
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                       Orçamento diário da campanha
                     </span>
-                    <p className="font-medium">
+                    <p className="font-semibold text-sm mt-0.5 tabular-nums">
                       {campaign.dailyBudget
                         ? formatCurrency(Number.parseInt(campaign.dailyBudget, 10) / 100)
                         : "-"}
                     </p>
                   </div>
                   <div>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                       Orçamento vitalício
                     </span>
-                    <p className="font-medium">
+                    <p className="font-semibold text-sm mt-0.5 tabular-nums">
                       {campaign.lifetimeBudget
                         ? formatCurrency(
                             Number.parseInt(campaign.lifetimeBudget, 10) / 100,
@@ -319,10 +320,10 @@ export function CampaignDetail({
             </section>
 
             <section>
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <h3 className="text-sm font-medium text-muted-foreground">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Período
-                </h3>
+                </p>
                 <DateFilter
                   datePreset={datePreset}
                   onDatePresetChange={(preset) => {
@@ -339,9 +340,9 @@ export function CampaignDetail({
             </section>
 
             <section>
-              <h3 className="text-sm font-medium text-muted-foreground mb-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
                 Métricas Totais
-              </h3>
+              </p>
               <InsightsCards
                 insights={totalInsights}
                 isLoading={isLoadingInsights}
@@ -351,10 +352,10 @@ export function CampaignDetail({
 
             <section>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                <h3 className="text-sm font-medium text-muted-foreground">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Desempenho ao Longo do Tempo
-                </h3>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                </p>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
                   <TimeIncrementSelector
                     value={timeIncrement}
                     onChange={setTimeIncrement}
@@ -366,7 +367,7 @@ export function CampaignDetail({
                       setSelectedMetric(v as typeof selectedMetric)
                     }
                   >
-                    <SelectTrigger className="w-full sm:w-[140px]">
+                    <SelectTrigger className="w-full sm:w-[130px] h-8 text-xs">
                       <SelectValue placeholder="Selecione uma métrica" />
                     </SelectTrigger>
                     <SelectContent>
@@ -388,14 +389,14 @@ export function CampaignDetail({
 
             <section>
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-medium text-muted-foreground">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Conjuntos de Anúncios
-                </h3>
+                </p>
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => setIsCreateAdSetOpen(true)}
-                  className="gap-1.5"
+                  className="gap-1.5 h-8 text-xs"
                 >
                   <Plus className="size-3.5" />
                   Novo Conjunto

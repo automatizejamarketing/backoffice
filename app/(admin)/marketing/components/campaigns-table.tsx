@@ -248,11 +248,11 @@ export function CampaignsTable({
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-10 text-center">
-        <p className="text-destructive">{error}</p>
+      <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+        <p className="text-sm text-destructive">{error}</p>
         <Button
           variant="outline"
-          className="mt-4"
+          size="sm"
           onClick={() => fetchCampaigns(currentCursor)}
         >
           Tentar novamente
@@ -263,16 +263,16 @@ export function CampaignsTable({
 
   if (campaigns.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-10 text-center">
-        <p className="text-muted-foreground">Nenhuma campanha encontrada</p>
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <p className="text-sm text-muted-foreground">Nenhuma campanha encontrada</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Mobile Cards View */}
-      <div className="block sm:hidden space-y-3">
+      <div className="block sm:hidden space-y-2">
         {campaigns.map((campaign) => (
           <div
             key={campaign.id}
@@ -285,27 +285,28 @@ export function CampaignsTable({
                 onCampaignClick(campaign);
               }
             }}
-            className="w-full text-left rounded-lg border border-border bg-card p-4 transition-colors hover:bg-accent/50 cursor-pointer"
+            className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <span className="font-medium text-sm line-clamp-2">
+            <div className="flex items-start justify-between gap-2 mb-3">
+              <span className="font-medium text-sm line-clamp-2 flex-1">
                 {campaign.name}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {canToggle(campaign) && (
                   <div
                     onClick={(e) => handleToggleStatus(campaign, e)}
                     className="relative"
                   >
                     {togglingCampaignId === campaign.id ? (
-                      <div className="w-11 h-6 flex items-center justify-center">
-                        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                      <div className="w-9 h-5 flex items-center justify-center">
+                        <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
                       </div>
                     ) : (
                       <Switch
                         checked={isActive(campaign)}
                         disabled={togglingCampaignId !== null}
                         aria-label="Alternar status"
+                        className="scale-90"
                       />
                     )}
                   </div>
@@ -316,14 +317,16 @@ export function CampaignsTable({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               {getCampaignMetricsForCampaign(campaign, "mobileList").map(
                 (metric) => (
                   <div key={metric.id}>
-                    <span className="block text-foreground font-medium">
+                    <span className="block text-xs font-semibold tabular-nums">
                       {formatMetricValue(metric, campaign)}
                     </span>
-                    <span>{getMetricLabel(metric.labelKey)}</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {getMetricLabel(metric.labelKey)}
+                    </span>
                   </div>
                 ),
               )}
@@ -333,30 +336,24 @@ export function CampaignsTable({
       </div>
 
       {/* Desktop Table View */}
-      <div className="hidden sm:block rounded-lg border border-border overflow-hidden">
+      <div className="hidden sm:block rounded-xl border border-border/60 overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead className="w-[60px]">Ativo</TableHead>
-                <TableHead className="min-w-[200px]">Campanha</TableHead>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead className="w-[60px] text-xs">Ativo</TableHead>
+                <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-                <TableHead className="min-w-[420px]">Métricas principais</TableHead>
+                <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      <TableCell>
-                        <Skeleton className="h-6 w-11" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-full" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-24" />
-                      </TableCell>
+                      <TableCell><Skeleton className="h-5 w-9" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                      <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell>
                         <div className="grid grid-cols-5 gap-3">
                           {Array.from({ length: 5 }).map((_, j) => (
@@ -372,14 +369,14 @@ export function CampaignsTable({
                 : campaigns.map((campaign) => (
                     <TableRow
                       key={campaign.id}
-                      className="cursor-pointer hover:bg-accent/50"
+                      className="cursor-pointer hover:bg-accent/40"
                       onClick={() => onCampaignClick(campaign)}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {canToggle(campaign) ? (
                           togglingCampaignId === campaign.id ? (
-                            <div className="w-11 h-6 flex items-center justify-center">
-                              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                            <div className="w-9 h-5 flex items-center justify-center">
+                              <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
                             </div>
                           ) : (
                             <Switch
@@ -388,13 +385,14 @@ export function CampaignsTable({
                               onClick={(e) => handleToggleStatus(campaign, e)}
                               disabled={togglingCampaignId !== null}
                               aria-label="Alternar status"
+                              className="scale-90"
                             />
                           )
                         ) : (
-                          <div className="w-11 h-6" />
+                          <div className="w-9 h-5" />
                         )}
                       </TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium text-sm">
                         <span className="line-clamp-1">{campaign.name}</span>
                       </TableCell>
                       <TableCell>
@@ -429,24 +427,26 @@ export function CampaignsTable({
 
       {/* Pagination */}
       {pagination && (pagination.hasNextPage || pagination.hasPreviousPage) && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-1.5">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={handlePreviousPage}
             disabled={!pagination.hasPreviousPage || isLoading}
+            className="h-8 px-3 text-xs gap-1"
           >
-            <ChevronLeft className="size-4 mr-1" />
+            <ChevronLeft className="size-3.5" />
             Anterior
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={handleNextPage}
             disabled={!pagination.hasNextPage || isLoading}
+            className="h-8 px-3 text-xs gap-1"
           >
             Próxima
-            <ChevronRight className="size-4 ml-1" />
+            <ChevronRight className="size-3.5" />
           </Button>
         </div>
       )}
@@ -456,23 +456,23 @@ export function CampaignsTable({
 
 function CampaignsTableSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Mobile Skeleton */}
-      <div className="block sm:hidden space-y-3">
+      <div className="block sm:hidden space-y-2">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-border bg-card p-4">
-            <div className="flex items-start justify-between gap-2 mb-2">
+          <div key={i} className="rounded-xl border border-border/60 bg-card p-4">
+            <div className="flex items-start justify-between gap-2 mb-3">
               <Skeleton className="h-4 w-3/4" />
               <div className="flex items-center gap-2">
-                <Skeleton className="h-6 w-11" />
-                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-5 w-9" />
+                <Skeleton className="h-4 w-14" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               {Array.from({ length: 4 }).map((_, j) => (
                 <div key={j}>
-                  <Skeleton className="h-4 w-16 mb-1" />
-                  <Skeleton className="h-3 w-12" />
+                  <Skeleton className="h-3.5 w-14 mb-1" />
+                  <Skeleton className="h-2.5 w-10" />
                 </div>
               ))}
             </div>
@@ -481,28 +481,22 @@ function CampaignsTableSkeleton() {
       </div>
 
       {/* Desktop Skeleton */}
-      <div className="hidden sm:block rounded-lg border border-border overflow-hidden">
+      <div className="hidden sm:block rounded-xl border border-border/60 overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead className="w-[60px]">Ativo</TableHead>
-              <TableHead className="min-w-[200px]">Campanha</TableHead>
+            <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableHead className="w-[60px] text-xs">Ativo</TableHead>
+              <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-              <TableHead className="min-w-[420px]">Métricas principais</TableHead>
+              <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {Array.from({ length: 5 }).map((_, i) => (
               <TableRow key={i}>
-                <TableCell>
-                  <Skeleton className="h-6 w-11" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-full" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-24" />
-                </TableCell>
+                <TableCell><Skeleton className="h-5 w-9" /></TableCell>
+                <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                 <TableCell>
                   <div className="grid grid-cols-5 gap-3">
                     {Array.from({ length: 5 }).map((_, j) => (
