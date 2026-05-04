@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { MessageCircle } from "lucide-react";
 import {
   getUserWithDetailedUsage,
   getAllUserGeneratedImages,
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { CreditsControl } from "@/components/credits-control";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
+import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 
 const FIELD_LABELS: Record<string, string> = {
   expiration_date: "Data de expiração",
@@ -105,13 +107,35 @@ export default async function UserDetailPage({
         )}
         <div>
           <h1 className="text-2xl font-bold text-foreground">{user.email}</h1>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             {user.companyName && (
               <Badge variant="secondary">{user.companyName}</Badge>
             )}
             {user.onboardingCompleted && (
               <Badge variant="default">Integrado</Badge>
             )}
+            {(() => {
+              const phoneFormatted = formatBrazilianPhone(user.phone);
+              const whatsappUrl = getWhatsAppUrl(user.phone);
+              if (!phoneFormatted) return null;
+              return whatsappUrl ? (
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
+                  aria-label={`Abrir conversa no WhatsApp com ${phoneFormatted}`}
+                >
+                  <MessageCircle className="size-4 text-emerald-600" />
+                  {phoneFormatted}
+                </a>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-sm text-foreground/80">
+                  <MessageCircle className="size-4 text-muted-foreground" />
+                  {phoneFormatted}
+                </span>
+              );
+            })()}
           </div>
         </div>
       </div>

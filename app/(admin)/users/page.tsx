@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { MessageCircle } from "lucide-react";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
 import { Badge } from "@/components/ui/badge";
 import {
   formatPlanLabel,
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
+import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 
 // Force dynamic rendering to prevent build timeouts on Vercel
 // This page queries all users with usage stats, which can be slow
@@ -47,6 +49,9 @@ export default async function UsersPage() {
                 Empresa
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Telefone
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Plano
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -73,7 +78,7 @@ export default async function UsersPage() {
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={10}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   Nenhum usuário encontrado
@@ -88,6 +93,8 @@ export default async function UsersPage() {
                   sub?.cancelAtPeriodEnd ?? false,
                   sub?.currentPeriodEnd ?? null,
                 );
+                const phoneFormatted = formatBrazilianPhone(user.phone);
+                const whatsappUrl = getWhatsAppUrl(user.phone);
                 return (
                 <tr
                   key={user.id}
@@ -126,6 +133,28 @@ export default async function UsersPage() {
                           </Badge>
                         )}
                       </div>
+                    ) : (
+                      <span className="text-sm text-muted-foreground/60">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {phoneFormatted ? (
+                      whatsappUrl ? (
+                        <a
+                          href={whatsappUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
+                          aria-label={`Abrir conversa no WhatsApp com ${phoneFormatted}`}
+                        >
+                          <MessageCircle className="size-3.5 text-emerald-600" />
+                          {phoneFormatted}
+                        </a>
+                      ) : (
+                        <span className="text-sm text-foreground/80">
+                          {phoneFormatted}
+                        </span>
+                      )
                     ) : (
                       <span className="text-sm text-muted-foreground/60">—</span>
                     )}
