@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { CreditsControl } from "@/components/credits-control";
+import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 
 const FIELD_LABELS: Record<string, string> = {
   expiration_date: "Data de expiração",
@@ -119,6 +120,13 @@ export default async function UserDetailPage({
         <ExpirationDateControl userId={id} expirationDate={user.expirationDate} />
         <CreditsControl userId={id} credits={user.credits} />
       </div>
+
+      <SubscriptionSummaryCard
+        userId={id}
+        subscription={user.activeSubscription}
+        pendingPlanChange={user.activePendingPlanChange}
+        expirationDate={user.expirationDate}
+      />
 
       {/* Cards de resumo */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

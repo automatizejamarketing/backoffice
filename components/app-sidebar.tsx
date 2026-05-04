@@ -2,6 +2,7 @@
 
 import {
   ChevronUp,
+  CreditCard,
   Handshake,
   GraduationCap,
   Image,
@@ -49,6 +50,7 @@ export function AppSidebar({ user }: { user: User }) {
 
   const isDashboard = pathname === "/";
   const isUsersSection = pathname?.startsWith("/users");
+  const isSubscriptionsSection = pathname?.startsWith("/subscriptions");
   const isPostsSection = pathname?.startsWith("/posts");
   const isMarketingSection = pathname?.startsWith("/marketing");
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
@@ -66,6 +68,12 @@ export function AppSidebar({ user }: { user: User }) {
       label: "Usuários",
       icon: Users,
       isActive: isUsersSection,
+    },
+    {
+      href: "/subscriptions",
+      label: "Assinaturas",
+      icon: CreditCard,
+      isActive: isSubscriptionsSection,
     },
     {
       href: "/posts",

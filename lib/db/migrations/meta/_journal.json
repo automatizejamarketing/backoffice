@@ -57,6 +57,13 @@
       "when": 1776189600000,
       "tag": "0007_masterclass_courses_lessons",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777909623832,
+      "tag": "0008_reflective_supernaut",
+      "breakpoints": true
     }
   ]
 }

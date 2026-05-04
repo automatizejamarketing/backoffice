@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  PLAN_TYPE_VALUES,
   subscription,
   user,
   type PlanType,
@@ -9,6 +10,22 @@ import {
 } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { auth } from "@/app/(auth)/auth";
+
+const BILLING_PERIODS = [
+  "monthly",
+  "quarterly",
+  "semiannual",
+  "annual",
+] as const;
+type BillingPeriod = (typeof BILLING_PERIODS)[number];
+
+function isBillingPeriod(value: string): value is BillingPeriod {
+  return (BILLING_PERIODS as readonly string[]).includes(value);
+}
+
+function isPlanType(value: string): value is PlanType {
+  return (PLAN_TYPE_VALUES as readonly string[]).includes(value);
+}
 
 export async function GET(request: Request) {
   try {
@@ -21,14 +38,20 @@ export async function GET(request: Request) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
     const offset = parseInt(searchParams.get("offset") || "0");
     const status = searchParams.get("status") as SubscriptionStatus | null;
-    const planType = searchParams.get("planType") as PlanType | null;
+    const planTypeRaw = searchParams.get("planType");
 
     const conditions = [];
     if (status) {
       conditions.push(eq(subscription.status, status));
     }
-    if (planType) {
-      conditions.push(eq(subscription.planType, planType));
+    if (planTypeRaw) {
+      // Accept either an exact PlanType (e.g. "monthly_starter") or a
+      // billing period prefix (e.g. "monthly" matches all tiers in that period).
+      if (isPlanType(planTypeRaw)) {
+        conditions.push(eq(subscription.planType, planTypeRaw));
+      } else if (isBillingPeriod(planTypeRaw)) {
+        conditions.push(like(subscription.planType, `${planTypeRaw}_%`));
+      }
     }
 
     const query = db
