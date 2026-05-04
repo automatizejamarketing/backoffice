@@ -195,23 +195,26 @@ export function AdSetDetail({
         side="right"
         className="w-full sm:max-w-[75vw] overflow-y-auto p-0"
       >
-        <SheetHeader className="sticky top-0 z-10 bg-background border-b border-border px-4 py-3 sm:px-6 sm:py-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 min-w-0">
+        <SheetHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/60 px-4 py-3 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={onClose}
-                className="shrink-0 sm:hidden"
+                className="shrink-0 sm:hidden size-8"
               >
                 <ArrowLeft className="size-4" />
               </Button>
               <div className="min-w-0">
-                <SheetTitle className="line-clamp-1 text-left">
+                <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
                   {adSet.name ?? "Detalhes do Conjunto de Anúncios"}
                 </SheetTitle>
-                <div className="flex flex-wrap items-center gap-2 mt-1">
-                  <Badge variant={getStatusBadgeVariant(adSet.effectiveStatus)}>
+                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                  <Badge
+                    variant={getStatusBadgeVariant(adSet.effectiveStatus)}
+                    className="text-[10px] py-0 h-4"
+                  >
                     {translateStatus(adSet.effectiveStatus ?? adSet.status)}
                   </Badge>
                   {adSet.startTime && (
@@ -227,16 +230,16 @@ export function AdSetDetail({
                 variant="outline"
                 size="sm"
                 onClick={() => setIsEditOpen(true)}
-                className="shrink-0"
+                className="shrink-0 h-8 text-xs"
               >
-                <Pencil className="size-4 mr-2" />
+                <Pencil className="size-3.5 mr-1.5" />
                 Editar
               </Button>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={onClose}
-                className="shrink-0 hidden sm:flex"
+                className="shrink-0 hidden sm:flex size-8 text-muted-foreground"
               >
                 <X className="size-4" />
               </Button>
@@ -244,46 +247,46 @@ export function AdSetDetail({
           </div>
         </SheetHeader>
 
-        <div className="px-4 py-4 sm:px-6 sm:py-6 space-y-6">
+        <div className="px-4 py-5 sm:px-6 sm:py-6 space-y-6">
           {(adSet.dailyBudget || adSet.lifetimeBudget) && (
-            <section className="flex flex-wrap gap-4 p-3 bg-muted/50 rounded-lg justify-between">
+            <section className="flex flex-wrap gap-4 p-3.5 bg-muted/30 rounded-xl border border-border/40 justify-between">
               {adSet.dailyBudget && (
                 <div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Orçamento Diário
                   </span>
-                  <p className="font-medium">
+                  <p className="font-semibold text-sm mt-0.5 tabular-nums">
                     {formatCurrency(parseInt(adSet.dailyBudget) / 100)}
                   </p>
                 </div>
               )}
               {adSet.lifetimeBudget && (
                 <div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Orçamento Total
                   </span>
-                  <p className="font-medium">
+                  <p className="font-semibold text-sm mt-0.5 tabular-nums">
                     {formatCurrency(parseInt(adSet.lifetimeBudget) / 100)}
                   </p>
                 </div>
               )}
               {adSet.budgetRemaining && (
                 <div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Orçamento Restante
                   </span>
-                  <p className="font-medium">
+                  <p className="font-semibold text-sm mt-0.5 tabular-nums">
                     {formatCurrency(parseInt(adSet.budgetRemaining) / 100)}
                   </p>
                 </div>
               )}
               {adSet.optimizationGoal && (
                 <div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Objetivo de Otimização
                   </span>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-sm">
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="font-semibold text-sm">
                       {getOptimizationGoalLabel(adSet.optimizationGoal)}
                     </p>
                     <Dialog>
@@ -316,10 +319,10 @@ export function AdSetDetail({
           )}
 
           <section>
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 className="text-sm font-medium text-muted-foreground">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Período
-              </h3>
+              </p>
               <DateFilter
                 datePreset={datePreset}
                 onDatePresetChange={(preset) => {
@@ -336,9 +339,9 @@ export function AdSetDetail({
           </section>
 
           <section>
-            <h3 className="text-sm font-medium text-muted-foreground mb-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
               Métricas Totais
-            </h3>
+            </p>
             <InsightsCards
               insights={totalInsights}
               isLoading={isLoadingInsights}
@@ -347,10 +350,10 @@ export function AdSetDetail({
 
           <section>
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-              <h3 className="text-sm font-medium text-muted-foreground">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Desempenho ao Longo do Tempo
-              </h3>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              </p>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
                 <TimeIncrementSelector
                   value={timeIncrement}
                   onChange={setTimeIncrement}
@@ -362,7 +365,7 @@ export function AdSetDetail({
                     setSelectedMetric(v as typeof selectedMetric)
                   }
                 >
-                  <SelectTrigger className="w-full sm:w-[140px]">
+                  <SelectTrigger className="w-full sm:w-[130px] h-8 text-xs">
                     <SelectValue placeholder="Selecione uma métrica" />
                   </SelectTrigger>
                   <SelectContent>
@@ -383,16 +386,16 @@ export function AdSetDetail({
           </section>
 
           <section>
-            <h3 className="text-sm font-medium text-muted-foreground mb-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
               Anúncios
-            </h3>
+            </p>
             <AdsTable accountId={accountId} userId={userId} adSetId={adSet.id} />
           </section>
 
           <section>
-            <h3 className="text-sm font-medium text-muted-foreground mb-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
               Histórico de Alterações
-            </h3>
+            </p>
             <AdSetEditHistory
               adsetId={adSet.id}
               accountId={accountId}

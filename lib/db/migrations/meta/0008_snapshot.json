@@ -1,6 +1,6 @@
 {
-  "id": "4b9acf2f-b0b4-4cfd-a0f6-1349eaf750ac",
-  "prevId": "03b04dac-fe5e-4208-afcc-c9dd62907139",
+  "id": "ed206c10-6116-4e8f-9ff1-0b5f1c93a03b",
+  "prevId": "85b5208e-6ce0-4c8c-970e-fe5a829449fa",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2372,6 +2372,180 @@
           "columns": [
             "user_id",
             "account_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.masterclass_courses": {
+      "name": "masterclass_courses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "published": {
+          "name": "published",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "masterclass_courses_slug_unique": {
+          "name": "masterclass_courses_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.masterclass_lessons": {
+      "name": "masterclass_lessons",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "course_id": {
+          "name": "course_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "video_provider": {
+          "name": "video_provider",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'youtube'"
+        },
+        "video_asset_id": {
+          "name": "video_asset_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "published": {
+          "name": "published",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "masterclass_lessons_course_id_masterclass_courses_id_fk": {
+          "name": "masterclass_lessons_course_id_masterclass_courses_id_fk",
+          "tableFrom": "masterclass_lessons",
+          "tableTo": "masterclass_courses",
+          "columnsFrom": [
+            "course_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "masterclass_lessons_course_position_unique": {
+          "name": "masterclass_lessons_course_position_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "course_id",
+            "position"
+          ]
+        },
+        "masterclass_lessons_course_slug_unique": {
+          "name": "masterclass_lessons_course_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "course_id",
+            "slug"
           ]
         }
       },

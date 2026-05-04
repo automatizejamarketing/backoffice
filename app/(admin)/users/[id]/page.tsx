@@ -9,9 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { CreditsControl } from "@/components/credits-control";
-import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
-import type { SubscriptionStatus } from "@/lib/db/schema";
-import { formatBrazilianPhone, whatsappLink } from "@/lib/phone";
+import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 
 const FIELD_LABELS: Record<string, string> = {
   expiration_date: "Data de expiração",
@@ -36,58 +34,13 @@ function formatAuditCellValue(
   return value;
 }
 
-const SUBSCRIPTION_STATUS_MAP: Record<
-  SubscriptionStatus,
-  { label: string; className: string }
-> = {
-  active: {
-    label: "Ativo",
-    className: "bg-green-500/15 text-green-700 border-green-600/20",
-  },
-  trialing: {
-    label: "Periodo de teste",
-    className: "bg-blue-500/15 text-blue-700 border-blue-600/20",
-  },
-  past_due: {
-    label: "Pagamento pendente",
-    className: "bg-yellow-500/15 text-yellow-700 border-yellow-600/20",
-  },
-  canceled: {
-    label: "Cancelado",
-    className: "bg-red-500/15 text-red-700 border-red-600/20",
-  },
-  unpaid: {
-    label: "Não pago",
-    className: "bg-red-500/15 text-red-700 border-red-600/20",
-  },
-  incomplete: {
-    label: "Incompleto",
-    className: "bg-yellow-500/15 text-yellow-700 border-yellow-600/20",
-  },
-  incomplete_expired: {
-    label: "Expirado",
-    className: "bg-red-500/15 text-red-700 border-red-600/20",
-  },
-};
-
-function SubscriptionBadge({ status }: { status: SubscriptionStatus }) {
-  const config = SUBSCRIPTION_STATUS_MAP[status];
-  return (
-    <Badge variant="outline" className={config.className}>
-      {config.label}
-    </Badge>
-  );
-}
-
 function formatModelName(modelId: string): string {
   const labels: Record<string, string> = {
     "google/gemini-3-pro-image": "Gemini 3 Pro Image",
     "google/gemini-2.5-flash-lite": "Gemini 2.5 Flash Lite",
     "google/gemini-2.0-flash": "Gemini 2.0 Flash",
   };
-  return (
-    labels[modelId] || modelId.split("/").pop()?.replace(/-/g, " ") || modelId
-  );
+  return labels[modelId] || modelId.split("/").pop()?.replace(/-/g, " ") || modelId;
 }
 
 export default async function UserDetailPage({
@@ -160,88 +113,20 @@ export default async function UserDetailPage({
               <Badge variant="default">Integrado</Badge>
             )}
           </div>
-          {user.phone ? (
-            <p className="mt-1 text-sm text-muted-foreground">
-              WhatsApp:{" "}
-              {(() => {
-                const href = whatsappLink(user.phone);
-                const formatted = formatBrazilianPhone(user.phone);
-                return href ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    {formatted}
-                  </a>
-                ) : (
-                  <span>{formatted}</span>
-                );
-              })()}
-            </p>
-          ) : null}
         </div>
       </div>
 
-      {/* Assinatura Stripe */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Assinatura Stripe</CardTitle>
-          <Link
-            href={`/subscriptions/${id}`}
-            className="inline-flex h-6 items-center justify-center rounded-md border border-border px-2 text-xs font-medium hover:bg-input/50 transition-all"
-          >
-            Ver detalhes
-          </Link>
-        </CardHeader>
-        <CardContent>
-          {user.activeSubscription ? (
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-              <div>
-                <p className="text-xs text-muted-foreground">Plano</p>
-                <p className="text-sm font-medium text-foreground">
-                  {PLAN_DEFINITIONS[user.activeSubscription.planType].name}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Status</p>
-                <SubscriptionBadge status={user.activeSubscription.status} />
-              </div>
-              {user.activeSubscription.currentPeriodEnd && (
-                <div>
-                  <p className="text-xs text-muted-foreground">
-                    Próxima renovação
-                  </p>
-                  <p className="text-sm text-foreground">
-                    {formatDate(user.activeSubscription.currentPeriodEnd)}
-                  </p>
-                </div>
-              )}
-              {user.activeSubscription.cancelAtPeriodEnd && (
-                <Badge
-                  variant="outline"
-                  className="text-yellow-600 border-yellow-600/40"
-                >
-                  Cancela ao fim do período
-                </Badge>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">Sem assinatura</Badge>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid gap-6 lg:grid-cols-2">
-        <ExpirationDateControl
-          userId={id}
-          expirationDate={user.expirationDate}
-        />
+        <ExpirationDateControl userId={id} expirationDate={user.expirationDate} />
         <CreditsControl userId={id} credits={user.credits} />
       </div>
+
+      <SubscriptionSummaryCard
+        userId={id}
+        subscription={user.activeSubscription}
+        pendingPlanChange={user.activePendingPlanChange}
+        expirationDate={user.expirationDate}
+      />
 
       {/* Cards de resumo */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -389,7 +274,7 @@ export default async function UserDetailPage({
                   className="group overflow-hidden rounded-md border transition-colors hover:border-primary"
                 >
                   <div className="aspect-square bg-muted">
-                    {p.currentImageUrl || p.imageUrl ? (
+                    {(p.currentImageUrl || p.imageUrl) ? (
                       <img
                         src={p.currentImageUrl || p.imageUrl || ""}
                         alt="Post"

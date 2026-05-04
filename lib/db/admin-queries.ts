@@ -13,15 +13,34 @@ import {
   generatedImageVersion,
   genericGeneratePost,
   metaBusinessAccount,
+  payment,
+  pendingPlanChange,
   post,
   referenceImage,
   subscription,
+  subscriptionEvent,
   user,
   userCompany,
   type CampaignAdSetBudgetChangeData,
   type CampaignBudgetModeData,
   type AdSetTargetingData,
+  type Payment,
+  type PendingPlanChange,
+  type Subscription,
+  type SubscriptionEvent,
+  type User,
 } from "./schema";
+import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+
+export type ActiveSubscriptionSummary = Pick<
+  Subscription,
+  | "id"
+  | "planType"
+  | "status"
+  | "currentPeriodEnd"
+  | "cancelAtPeriodEnd"
+  | "stripeSubscriptionId"
+> | null;
 
 // Get all users with their usage summary
 export async function getAllUsersWithUsage() {
@@ -63,6 +82,31 @@ export async function getAllUsersWithUsage() {
         .where(eq(userCompany.userId, u.id))
         .limit(1);
 
+      // Pick active-ish subscription (active > trialing > past_due > ...)
+      const subRows = await db
+        .select({
+          id: subscription.id,
+          planType: subscription.planType,
+          status: subscription.status,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          stripeSubscriptionId: subscription.stripeSubscriptionId,
+          createdAt: subscription.createdAt,
+        })
+        .from(subscription)
+        .where(eq(subscription.userId, u.id));
+      const activeSub = pickActiveSubscription(subRows);
+      const activeSubscription: ActiveSubscriptionSummary = activeSub
+        ? {
+            id: activeSub.id,
+            planType: activeSub.planType,
+            status: activeSub.status,
+            currentPeriodEnd: activeSub.currentPeriodEnd,
+            cancelAtPeriodEnd: activeSub.cancelAtPeriodEnd,
+            stripeSubscriptionId: activeSub.stripeSubscriptionId,
+          }
+        : null;
+
       return {
         ...u,
         chatCount: chatCount?.count ?? 0,
@@ -72,6 +116,7 @@ export async function getAllUsersWithUsage() {
         requestCount: usageSummary?.requestCount ?? 0,
         companyName: companyInfo?.companyName ?? null,
         onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
+        activeSubscription,
       };
     })
   );
@@ -144,18 +189,30 @@ export async function getUserWithDetailedUsage(userId: string) {
     .where(eq(userCompany.userId, userId))
     .limit(1);
 
-  // Get active subscription
-  const [activeSubscription] = await db
+  // Pick active-ish subscription (active > trialing > past_due > ...)
+  const subRows = await db
     .select()
     .from(subscription)
-    .where(
-      and(
-        eq(subscription.userId, userId),
-        inArray(subscription.status, ["active", "trialing", "past_due"]),
-      ),
-    )
-    .orderBy(desc(subscription.createdAt))
-    .limit(1);
+    .where(eq(subscription.userId, userId));
+  const activeSubscription: Subscription | null =
+    pickActiveSubscription(subRows);
+
+  // Most recent pending plan change for this user (if any)
+  let activePendingPlanChange: PendingPlanChange | null = null;
+  if (activeSubscription) {
+    const [pp] = await db
+      .select()
+      .from(pendingPlanChange)
+      .where(
+        and(
+          eq(pendingPlanChange.userId, userId),
+          eq(pendingPlanChange.status, "pending"),
+        ),
+      )
+      .orderBy(desc(pendingPlanChange.createdAt))
+      .limit(1);
+    activePendingPlanChange = pp ?? null;
+  }
 
   // Calculate totals
   const totalCost = recentUsage.reduce(
@@ -182,7 +239,74 @@ export async function getUserWithDetailedUsage(userId: string) {
     })),
     companyName: companyInfo?.companyName ?? null,
     onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
-    activeSubscription: activeSubscription ?? null,
+    activeSubscription,
+    activePendingPlanChange,
+  };
+}
+
+export interface UserSubscriptionDetails {
+  user: User;
+  activeSubscription: Subscription | null;
+  pendingPlanChange: PendingPlanChange | null;
+  subscriptionHistory: Subscription[];
+  payments: Payment[];
+  events: SubscriptionEvent[];
+}
+
+/**
+ * Loads everything needed to render the admin subscription detail page for a
+ * user: full user row, the most relevant subscription (active > trialing >
+ * past_due > ...), the latest pending plan change, the full subscription
+ * history, and the most recent 50 payments and events.
+ */
+export async function getUserSubscriptionDetails(
+  userId: string,
+): Promise<UserSubscriptionDetails | null> {
+  const [foundUser] = await db
+    .select()
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (!foundUser) return null;
+
+  const [subscriptions, payments, events, pendingChanges] = await Promise.all([
+    db
+      .select()
+      .from(subscription)
+      .where(eq(subscription.userId, userId))
+      .orderBy(desc(subscription.createdAt)),
+    db
+      .select()
+      .from(payment)
+      .where(eq(payment.userId, userId))
+      .orderBy(desc(payment.createdAt))
+      .limit(50),
+    db
+      .select()
+      .from(subscriptionEvent)
+      .where(eq(subscriptionEvent.userId, userId))
+      .orderBy(desc(subscriptionEvent.createdAt))
+      .limit(50),
+    db
+      .select()
+      .from(pendingPlanChange)
+      .where(
+        and(
+          eq(pendingPlanChange.userId, userId),
+          eq(pendingPlanChange.status, "pending"),
+        ),
+      )
+      .orderBy(desc(pendingPlanChange.createdAt))
+      .limit(1),
+  ]);
+
+  return {
+    user: foundUser,
+    activeSubscription: pickActiveSubscription(subscriptions),
+    pendingPlanChange: pendingChanges[0] ?? null,
+    subscriptionHistory: subscriptions,
+    payments,
+    events,
   };
 }
 

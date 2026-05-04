@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { auth } from "@/app/(auth)/auth";
+import { isAdminSession } from "@/lib/auth/admin";
 import { redirect } from "next/navigation";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarToggle } from "@/components/sidebar-toggle";
@@ -15,6 +16,10 @@ export default async function AdminLayout({
 
   if (!session?.user) {
     redirect("/login");
+  }
+
+  if (!isAdminSession(session)) {
+    redirect("/login?error=unauthorized");
   }
 
   const isCollapsed = cookieStore.get("sidebar_state")?.value !== "true";

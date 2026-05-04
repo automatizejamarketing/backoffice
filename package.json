@@ -36,7 +36,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.562.0",
     "next": "16.1.1",
-    "next-auth": "5.0.0-beta.25",
+    "next-auth": "5.0.0-beta.31",
     "next-intl": "^4.9.0",
     "next-themes": "^0.4.6",
     "postgres": "^3.4.7",

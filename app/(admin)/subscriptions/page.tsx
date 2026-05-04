@@ -44,6 +44,7 @@ interface SubscriptionData {
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   active: { label: "Ativa", variant: "default" },
+  trialing: { label: "Em trial", variant: "secondary" },
   past_due: { label: "Pagamento pendente", variant: "destructive" },
   canceled: { label: "Cancelada", variant: "secondary" },
   unpaid: { label: "Não paga", variant: "destructive" },
@@ -122,9 +123,14 @@ export default function SubscriptionsPage() {
               <SelectContent>
                 <SelectItem value="all">Todos os status</SelectItem>
                 <SelectItem value="active">Ativa</SelectItem>
+                <SelectItem value="trialing">Em trial</SelectItem>
                 <SelectItem value="past_due">Pagamento pendente</SelectItem>
                 <SelectItem value="canceled">Cancelada</SelectItem>
                 <SelectItem value="unpaid">Não paga</SelectItem>
+                <SelectItem value="incomplete">Incompleta</SelectItem>
+                <SelectItem value="incomplete_expired">
+                  Incompleta expirada
+                </SelectItem>
               </SelectContent>
             </Select>
             <Select value={planFilter} onValueChange={setPlanFilter}>
@@ -135,6 +141,7 @@ export default function SubscriptionsPage() {
                 <SelectItem value="all">Todos os planos</SelectItem>
                 <SelectItem value="monthly">Mensal</SelectItem>
                 <SelectItem value="quarterly">Trimestral</SelectItem>
+                <SelectItem value="semiannual">Semestral</SelectItem>
                 <SelectItem value="annual">Anual</SelectItem>
               </SelectContent>
             </Select>

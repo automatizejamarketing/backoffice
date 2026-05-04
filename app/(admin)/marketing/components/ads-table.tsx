@@ -199,7 +199,7 @@ export function AdsTable({
           <button
             key={ad.id}
             onClick={() => onAdClick?.(ad)}
-            className="w-full text-left rounded-lg border border-border bg-card p-3 transition-colors hover:bg-accent/50"
+            className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex gap-3">
               <AdThumbnail ad={ad} size="sm" />
@@ -215,14 +215,15 @@ export function AdsTable({
                         className="relative"
                       >
                         {togglingAdId === ad.id ? (
-                          <div className="w-11 h-6 flex items-center justify-center">
-                            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                          <div className="w-9 h-5 flex items-center justify-center">
+                            <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
                           </div>
                         ) : (
                           <Switch
                             checked={isActive(ad)}
                             disabled={togglingAdId !== null}
                             aria-label="Alternar status"
+                            className="scale-90"
                           />
                         )}
                       </div>
@@ -234,18 +235,18 @@ export function AdsTable({
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                   <div>
-                    <span className="block text-foreground font-medium">
+                    <span className="block text-xs font-semibold tabular-nums">
                       {formatCurrency(ad.insights?.spend)}
                     </span>
-                    <span>Gasto</span>
+                    <span className="text-[10px] text-muted-foreground">Gasto</span>
                   </div>
                   <div>
-                    <span className="block text-foreground font-medium">
+                    <span className="block text-xs font-semibold tabular-nums">
                       {formatNumber(ad.insights?.clicks)}
                     </span>
-                    <span>Cliques</span>
+                    <span className="text-[10px] text-muted-foreground">Cliques</span>
                   </div>
                 </div>
               </div>
@@ -255,19 +256,19 @@ export function AdsTable({
       </div>
 
       {/* Desktop Table View */}
-      <div className="hidden sm:block rounded-lg border border-border overflow-hidden">
+      <div className="hidden sm:block rounded-xl border border-border/60 overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead className="w-[60px]">Ativo</TableHead>
-                <TableHead className="w-[60px]">Preview</TableHead>
-                <TableHead className="min-w-[150px]">Anúncio</TableHead>
+              <TableRow className="bg-muted/30 hover:bg-muted/30">
+                <TableHead className="w-[60px] text-xs">Ativo</TableHead>
+                <TableHead className="w-[60px] text-xs">Preview</TableHead>
+                <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-                <TableHead className="w-[100px] text-right">Gasto</TableHead>
-                <TableHead className="w-[100px] text-right">Impressões</TableHead>
-                <TableHead className="w-[80px] text-right">Cliques</TableHead>
-                <TableHead className="w-[80px] text-right">CPC</TableHead>
+                <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
+                <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
+                <TableHead className="w-[80px] text-right text-xs">Cliques</TableHead>
+                <TableHead className="w-[80px] text-right text-xs">CPC</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -275,7 +276,7 @@ export function AdsTable({
                 ? Array.from({ length: 3 }).map((_, i) => (
                     <TableRow key={i}>
                       <TableCell>
-                        <Skeleton className="h-6 w-11" />
+                        <Skeleton className="h-5 w-9" />
                       </TableCell>
                       <TableCell>
                         <Skeleton className="h-10 w-10 rounded" />
@@ -284,7 +285,7 @@ export function AdsTable({
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                       <TableCell>
-                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
                       </TableCell>
                       <TableCell>
                         <Skeleton className="h-4 w-14 ml-auto" />
@@ -303,14 +304,14 @@ export function AdsTable({
                 : ads.map((ad) => (
                     <TableRow
                       key={ad.id}
-                      className="cursor-pointer hover:bg-accent/50"
+                      className="cursor-pointer hover:bg-accent/40"
                       onClick={() => onAdClick?.(ad)}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         {canToggle(ad) ? (
                           togglingAdId === ad.id ? (
-                            <div className="w-11 h-6 flex items-center justify-center">
-                              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                            <div className="w-9 h-5 flex items-center justify-center">
+                              <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
                             </div>
                           ) : (
                             <Switch
@@ -319,16 +320,17 @@ export function AdsTable({
                               onClick={(e) => handleToggleStatus(ad, e)}
                               disabled={togglingAdId !== null}
                               aria-label="Alternar status"
+                              className="scale-90"
                             />
                           )
                         ) : (
-                          <div className="w-11 h-6" />
+                          <div className="w-9 h-5" />
                         )}
                       </TableCell>
                       <TableCell>
                         <AdThumbnail ad={ad} size="sm" />
                       </TableCell>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium text-sm">
                         <span className="line-clamp-1">{ad.name}</span>
                       </TableCell>
                       <TableCell>
@@ -357,24 +359,26 @@ export function AdsTable({
 
       {/* Pagination */}
       {pagination && (pagination.hasNextPage || pagination.hasPreviousPage) && (
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-1.5">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={handlePreviousPage}
             disabled={!pagination.hasPreviousPage || isLoading}
+            className="h-8 px-3 text-xs gap-1"
           >
-            <ChevronLeft className="size-4 mr-1" />
+            <ChevronLeft className="size-3.5" />
             Anterior
           </Button>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={handleNextPage}
             disabled={!pagination.hasNextPage || isLoading}
+            className="h-8 px-3 text-xs gap-1"
           >
             Próxima
-            <ChevronRight className="size-4 ml-1" />
+            <ChevronRight className="size-3.5" />
           </Button>
         </div>
       )}
@@ -427,19 +431,19 @@ function AdsTableSkeleton() {
     <div className="space-y-3">
       <div className="block sm:hidden space-y-2">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-border bg-card p-3">
+          <div key={i} className="rounded-xl border border-border/60 bg-card p-4">
             <div className="flex gap-3">
               <Skeleton className="size-10 rounded shrink-0" />
               <div className="flex-1">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-14" />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
                   {Array.from({ length: 2 }).map((_, j) => (
                     <div key={j}>
-                      <Skeleton className="h-4 w-14 mb-1" />
-                      <Skeleton className="h-3 w-10" />
+                      <Skeleton className="h-3.5 w-14 mb-1" />
+                      <Skeleton className="h-2.5 w-10" />
                     </div>
                   ))}
                 </div>
@@ -449,25 +453,25 @@ function AdsTableSkeleton() {
         ))}
       </div>
 
-      <div className="hidden sm:block rounded-lg border border-border overflow-hidden">
+      <div className="hidden sm:block rounded-xl border border-border/60 overflow-hidden">
         <Table>
           <TableHeader>
-            <TableRow>
-              <TableHead className="w-[60px]">Ativo</TableHead>
-              <TableHead className="w-[60px]">Preview</TableHead>
-              <TableHead className="min-w-[150px]">Anúncio</TableHead>
+            <TableRow className="bg-muted/30 hover:bg-muted/30">
+              <TableHead className="w-[60px] text-xs">Ativo</TableHead>
+              <TableHead className="w-[60px] text-xs">Preview</TableHead>
+              <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-              <TableHead className="w-[100px] text-right">Gasto</TableHead>
-              <TableHead className="w-[100px] text-right">Impressões</TableHead>
-              <TableHead className="w-[80px] text-right">Cliques</TableHead>
-              <TableHead className="w-[80px] text-right">CPC</TableHead>
+              <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
+              <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
+              <TableHead className="w-[80px] text-right text-xs">Cliques</TableHead>
+              <TableHead className="w-[80px] text-right text-xs">CPC</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {Array.from({ length: 3 }).map((_, i) => (
               <TableRow key={i}>
                 <TableCell>
-                  <Skeleton className="h-6 w-11" />
+                  <Skeleton className="h-5 w-9" />
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-10 w-10 rounded" />
@@ -476,7 +480,7 @@ function AdsTableSkeleton() {
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-20" />
                 </TableCell>
                 <TableCell>
                   <Skeleton className="h-4 w-14 ml-auto" />

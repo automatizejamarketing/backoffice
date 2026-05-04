@@ -2,7 +2,9 @@
 
 import {
   ChevronUp,
+  CreditCard,
   Handshake,
+  GraduationCap,
   Image,
   LayoutDashboard,
   LogOut,
@@ -48,9 +50,11 @@ export function AppSidebar({ user }: { user: User }) {
 
   const isDashboard = pathname === "/";
   const isUsersSection = pathname?.startsWith("/users");
+  const isSubscriptionsSection = pathname?.startsWith("/subscriptions");
   const isPostsSection = pathname?.startsWith("/posts");
   const isMarketingSection = pathname?.startsWith("/marketing");
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
+  const isMasterclassSection = pathname?.startsWith("/masterclass");
 
   const navItems = [
     {
@@ -64,6 +68,12 @@ export function AppSidebar({ user }: { user: User }) {
       label: "Usuários",
       icon: Users,
       isActive: isUsersSection,
+    },
+    {
+      href: "/subscriptions",
+      label: "Assinaturas",
+      icon: CreditCard,
+      isActive: isSubscriptionsSection,
     },
     {
       href: "/posts",
@@ -82,6 +92,12 @@ export function AppSidebar({ user }: { user: User }) {
       label: "Afiliados",
       icon: Handshake,
       isActive: isAffiliatesSection,
+    },
+    {
+      href: "/masterclass",
+      label: "Masterclass",
+      icon: GraduationCap,
+      isActive: isMasterclassSection,
     },
   ];
 

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
 import { Badge } from "@/components/ui/badge";
-import { formatBrazilianPhone, whatsappLink } from "@/lib/phone";
+import {
+  formatPlanLabel,
+  getStatusBadgeProps,
+} from "@/lib/subscriptions/derive";
 
 // Force dynamic rendering to prevent build timeouts on Vercel
 // This page queries all users with usage stats, which can be slow
@@ -44,7 +47,10 @@ export default async function UsersPage() {
                 Empresa
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                WhatsApp
+                Plano
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Status
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Chats
@@ -67,14 +73,22 @@ export default async function UsersPage() {
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   Nenhum usuário encontrado
                 </td>
               </tr>
             ) : (
-              users.map((user) => (
+              users.map((user) => {
+                const sub = user.activeSubscription;
+                const badge = getStatusBadgeProps(
+                  sub?.status ?? null,
+                  user.expirationDate,
+                  sub?.cancelAtPeriodEnd ?? false,
+                  sub?.currentPeriodEnd ?? null,
+                );
+                return (
                 <tr
                   key={user.id}
                   className="transition-colors hover:bg-muted/50"
@@ -117,28 +131,28 @@ export default async function UsersPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {user.phone ? (
-                      (() => {
-                        const href = whatsappLink(user.phone);
-                        const formatted = formatBrazilianPhone(user.phone);
-                        return href ? (
-                          <a
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-foreground/80 hover:text-primary hover:underline"
-                          >
-                            {formatted}
-                          </a>
-                        ) : (
-                          <span className="text-sm text-foreground/80">
-                            {formatted}
-                          </span>
-                        );
-                      })()
+                    {sub ? (
+                      <Link
+                        href={`/subscriptions/${user.id}`}
+                        className="text-sm text-foreground/80 hover:underline"
+                      >
+                        {formatPlanLabel(sub.planType)}
+                      </Link>
                     ) : (
                       <span className="text-sm text-muted-foreground/60">—</span>
                     )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-0.5">
+                      <Badge variant={badge.variant} className="text-xs w-fit">
+                        {badge.label}
+                      </Badge>
+                      {badge.hint && (
+                        <span className="text-[11px] text-muted-foreground">
+                          {badge.hint}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.chatCount)}
@@ -156,7 +170,8 @@ export default async function UsersPage() {
                     {formatCurrency(user.totalCost)}
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>

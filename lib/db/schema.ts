@@ -55,6 +55,48 @@ export const blobUpload = pgTable("blob_uploads", {
 
 export type BlobUpload = InferSelectModel<typeof blobUpload>;
 
+export const masterclassCourse = pgTable("masterclass_courses", {
+  id: text("id").primaryKey().notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  slug: text("slug").notNull().unique(),
+  published: boolean("published").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type MasterclassCourse = InferSelectModel<typeof masterclassCourse>;
+
+export const masterclassLesson = pgTable(
+  "masterclass_lessons",
+  {
+    id: text("id").primaryKey().notNull(),
+    courseId: text("course_id")
+      .notNull()
+      .references(() => masterclassCourse.id),
+    title: text("title").notNull(),
+    slug: text("slug").notNull(),
+    videoProvider: varchar("video_provider", { length: 20 }).notNull().default("youtube"),
+    videoAssetId: text("video_asset_id").notNull(),
+    position: integer("position").notNull(),
+    published: boolean("published").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueCoursePosition: unique("masterclass_lessons_course_position_unique").on(
+      table.courseId,
+      table.position,
+    ),
+    uniqueCourseSlug: unique("masterclass_lessons_course_slug_unique").on(
+      table.courseId,
+      table.slug,
+    ),
+  }),
+);
+
+export type MasterclassLesson = InferSelectModel<typeof masterclassLesson>;
+
 export const verificationToken = pgTable("verification_tokens", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   userId: uuid("user_id")
