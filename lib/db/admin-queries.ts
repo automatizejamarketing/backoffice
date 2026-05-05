@@ -526,6 +526,83 @@ export async function getUserMetaBusinessAccount(userId: string) {
 }
 
 // ================================
+// Users with a connected Meta Business Account (Marketing)
+// ================================
+
+export type UserWithMetaBusinessAccount = {
+  id: string;
+  email: string;
+  image_url: string | null;
+  metaAccountName: string | null;
+  metaUpdatedAt: string;
+};
+
+export type GetUsersWithMetaBusinessAccountResult = {
+  users: UserWithMetaBusinessAccount[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+// Returns one row per user that has at least one non-deleted meta_business_accounts
+// row. When a user has multiple connected accounts, the most-recently-updated one is
+// shown (matching getUserMetaBusinessAccount's semantics).
+export async function getUsersWithMetaBusinessAccount(options?: {
+  email?: string;
+  page?: number;
+  limit?: number;
+}): Promise<GetUsersWithMetaBusinessAccountResult> {
+  const page = Math.max(1, Math.trunc(options?.page ?? 1));
+  const limit = Math.max(1, Math.trunc(options?.limit ?? 20));
+  const offset = (page - 1) * limit;
+
+  const conditions = [isNull(metaBusinessAccount.deletedAt)];
+  if (options?.email) {
+    conditions.push(ilike(user.email, `%${options.email}%`));
+  }
+
+  const rows = await db
+    .select({
+      id: user.id,
+      email: user.email,
+      image_url: user.image_url,
+      metaAccountName: sql<
+        string | null
+      >`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+      metaUpdatedAt: sql<string>`MAX(${metaBusinessAccount.updatedAt})`,
+    })
+    .from(user)
+    .innerJoin(metaBusinessAccount, eq(metaBusinessAccount.userId, user.id))
+    .where(and(...conditions))
+    .groupBy(user.id, user.email, user.image_url)
+    .orderBy(desc(sql`MAX(${metaBusinessAccount.updatedAt})`))
+    .limit(limit)
+    .offset(offset);
+
+  const [totalResult] = await db
+    .select({ count: sql<number>`COUNT(DISTINCT ${user.id})` })
+    .from(user)
+    .innerJoin(metaBusinessAccount, eq(metaBusinessAccount.userId, user.id))
+    .where(and(...conditions));
+
+  return {
+    users: rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      image_url: row.image_url,
+      metaAccountName: row.metaAccountName,
+      metaUpdatedAt:
+        row.metaUpdatedAt instanceof Date
+          ? row.metaUpdatedAt.toISOString()
+          : String(row.metaUpdatedAt),
+    })),
+    total: Number(totalResult?.count ?? 0),
+    page,
+    limit,
+  };
+}
+
+// ================================
 // Users with Posts (based on ai_generated_images)
 // ================================
 

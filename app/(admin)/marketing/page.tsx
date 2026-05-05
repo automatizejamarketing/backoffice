@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useDebounce } from "@/hooks/use-debounce";
 import { AdAccountSelector } from "./components/ad-account-selector";
 import { CampaignsTable } from "./components/campaigns-table";
 import { CampaignDetail } from "./components/campaign-detail";
+import { MarketingUsersPicker } from "./components/marketing-users-picker";
 import type { Campaign } from "@/lib/meta-business/types";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
 
@@ -33,11 +32,8 @@ type MetaBusinessAccount = {
 } | null;
 
 export default function MarketingPage() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [metaAccount, setMetaAccount] = useState<MetaBusinessAccount>(null);
-  const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMeta, setIsLoadingMeta] = useState(false);
   const [adAccounts, setAdAccounts] = useState<FacebookAdAccountBasicInfo[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -45,47 +41,6 @@ export default function MarketingPage() {
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [isCampaignDetailOpen, setIsCampaignDetailOpen] = useState(false);
   const [campaignsRefreshKey, setCampaignsRefreshKey] = useState(0);
-
-  const debouncedSearchQuery = useDebounce(searchQuery, 400);
-
-  // Search users when debounced query changes
-  useEffect(() => {
-    if (debouncedSearchQuery.length >= 3) {
-      let cancelled = false;
-      // Use setTimeout to avoid synchronous setState in effect
-      const timeoutId = setTimeout(() => {
-        setIsSearching(true);
-      }, 0);
-      fetch(`/api/users/search?q=${encodeURIComponent(debouncedSearchQuery)}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (!cancelled) {
-            setSearchResults(data);
-            setIsSearching(false);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setSearchResults([]);
-            setIsSearching(false);
-          }
-        });
-      return () => {
-        cancelled = true;
-        clearTimeout(timeoutId);
-      };
-    } else {
-      // Only clear search results, not the selected user
-      // The selected user should persist even when search is cleared
-      // Use setTimeout to avoid synchronous setState in effect
-      const timeoutId = setTimeout(() => {
-        setSearchResults([]);
-      }, 0);
-      return () => {
-        clearTimeout(timeoutId);
-      };
-    }
-  }, [debouncedSearchQuery]);
 
   // Fetch meta account when user is selected
   useEffect(() => {
@@ -164,8 +119,6 @@ export default function MarketingPage() {
 
   const handleUserSelect = (user: User) => {
     setSelectedUser(user);
-    setSearchQuery("");
-    setSearchResults([]);
   };
 
   const handleClearSelection = () => {
@@ -175,8 +128,6 @@ export default function MarketingPage() {
     setSelectedAccountId(null);
     setSelectedCampaign(null);
     setIsCampaignDetailOpen(false);
-    setSearchQuery("");
-    setSearchResults([]);
   };
 
   const handleCampaignClick = (campaign: Campaign) => {
@@ -200,85 +151,21 @@ export default function MarketingPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Marketing</h1>
         <p className="text-sm text-muted-foreground">
-          Busque usuários e verifique a conexão com contas de marketing do
-          Facebook
+          Selecione um usuário com conta de marketing do Facebook conectada
+          para visualizar suas campanhas
         </p>
       </div>
 
-      {/* Search Section - Only show when no user is selected */}
+      {/* Users List - Only show when no user is selected */}
       {!selectedUser && (
         <Card>
           <CardHeader>
-            <CardTitle>Buscar Usuário</CardTitle>
+            <CardTitle>Usuários com Conta de Marketing Conectada</CardTitle>
           </CardHeader>
           <CardContent>
-          <div className="space-y-4">
-            <Input
-              type="text"
-              placeholder="Digite o email do usuário (mínimo 3 caracteres)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-
-            {searchQuery.length > 0 && searchQuery.length < 3 && (
-              <p className="text-sm text-muted-foreground">
-                Digite pelo menos 3 caracteres para buscar
-              </p>
-            )}
-
-            {isSearching && (
-              <p className="text-sm text-muted-foreground">Buscando...</p>
-            )}
-
-            {!isSearching &&
-              searchResults.length > 0 &&
-              searchQuery.length >= 3 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">
-                    Resultados:
-                  </p>
-                  <div className="space-y-1">
-                    {searchResults.map((user) => (
-                      <button
-                        key={user.id}
-                        onClick={() => handleUserSelect(user)}
-                        className="w-full rounded-md border border-border bg-card p-3 text-left transition-colors hover:bg-muted/50"
-                      >
-                        <div className="flex items-center gap-3">
-                          {user.image_url ? (
-                            <Image
-                              src={user.image_url}
-                              alt={user.email}
-                              width={32}
-                              height={32}
-                              className="h-8 w-8 rounded-full"
-                            />
-                          ) : (
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-sm font-medium text-muted-foreground">
-                              {user.email.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          <span className="text-sm font-medium text-foreground">
-                            {user.email}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            {!isSearching &&
-              searchResults.length === 0 &&
-              searchQuery.length >= 3 &&
-              debouncedSearchQuery.length >= 3 && (
-                <p className="text-sm text-muted-foreground">
-                  Nenhum usuário encontrado
-                </p>
-              )}
-          </div>
-        </CardContent>
-      </Card>
+            <MarketingUsersPicker onSelectUser={handleUserSelect} />
+          </CardContent>
+        </Card>
       )}
 
       {/* Selected User Details */}
