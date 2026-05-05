@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { MessageCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   formatPlanLabel,
   getStatusBadgeProps,
@@ -12,9 +13,25 @@ import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 // This page queries all users with usage stats, which can be slow
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 50;
 
-export default async function UsersPage() {
-  const users = await getAllUsersWithUsage();
+export default async function UsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  const sp = await searchParams;
+  const requestedPage = Number.parseInt(sp.page ?? "1", 10);
+  const page =
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const { users, total, pageSize } = await getAllUsersWithUsage({
+    page,
+    pageSize: PAGE_SIZE,
+  });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const hasPrevious = currentPage > 1;
+  const hasNext = currentPage < totalPages;
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -204,6 +221,61 @@ export default async function UsersPage() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">
+          Página {currentPage} de {totalPages} · {formatNumber(total)} usuários
+          no total
+        </p>
+        <div className="flex items-center gap-1.5">
+          {hasPrevious ? (
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-8 px-3 text-xs gap-1"
+            >
+              <Link href={`/users?page=${currentPage - 1}`}>
+                <ChevronLeft className="size-3.5" />
+                Anterior
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled
+              className="h-8 px-3 text-xs gap-1"
+            >
+              <ChevronLeft className="size-3.5" />
+              Anterior
+            </Button>
+          )}
+          {hasNext ? (
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-8 px-3 text-xs gap-1"
+            >
+              <Link href={`/users?page=${currentPage + 1}`}>
+                Próxima
+                <ChevronRight className="size-3.5" />
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled
+              className="h-8 px-3 text-xs gap-1"
+            >
+              Próxima
+              <ChevronRight className="size-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
