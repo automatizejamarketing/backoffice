@@ -42,49 +42,101 @@ export type ActiveSubscriptionSummary = Pick<
   | "stripeSubscriptionId"
 > | null;
 
-// Get all users with their usage summary
-export async function getAllUsersWithUsage() {
-  const users = await db.select().from(user).orderBy(desc(user.id));
+export type UserWithUsage = User & {
+  chatCount: number;
+  postCount: number;
+  totalCost: number;
+  totalTokens: number;
+  requestCount: number;
+  companyName: string | null;
+  onboardingCompleted: boolean;
+  activeSubscription: ActiveSubscriptionSummary;
+};
 
-  const usersWithUsage = await Promise.all(
-    users.map(async (u) => {
-      // Get chat count
-      const [chatCount] = await db
-        .select({ count: count() })
-        .from(chat)
-        .where(eq(chat.userId, u.id));
+export type GetAllUsersWithUsageParams = {
+  page?: number;
+  pageSize?: number;
+};
 
-      // Get post count
-      const [postCount] = await db
-        .select({ count: count() })
-        .from(post)
-        .where(eq(post.userId, u.id));
+export type GetAllUsersWithUsageResult = {
+  users: UserWithUsage[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
 
-      // Get AI usage summary
-      const [usageSummary] = await db
+// Get a paginated list of users with their usage summary.
+//
+// Implementation note: this function used to issue 5 queries per user inside
+// `Promise.all`, which saturated the connection pool and triggered Postgres
+// statement timeouts. It now runs a fixed 6 queries per page regardless of
+// total user count: 1 count + 1 page of users + 4 aggregates scoped to the
+// page's userIds + 1 for subscriptions (still picked in memory via
+// `pickActiveSubscription` so the priority logic stays in one place).
+export async function getAllUsersWithUsage(
+  params: GetAllUsersWithUsageParams = {},
+): Promise<GetAllUsersWithUsageResult> {
+  const page = Math.max(1, Math.trunc(params.page ?? 1));
+  const pageSize = Math.max(1, Math.trunc(params.pageSize ?? 50));
+  const offset = (page - 1) * pageSize;
+
+  const [usersPage, [totalRow]] = await Promise.all([
+    db
+      .select()
+      .from(user)
+      .orderBy(desc(user.id))
+      .limit(pageSize)
+      .offset(offset),
+    db.select({ count: count() }).from(user),
+  ]);
+
+  const total = totalRow?.count ?? 0;
+  const userIds = usersPage.map((u) => u.id);
+
+  if (userIds.length === 0) {
+    return { users: [], total, page, pageSize };
+  }
+
+  const [chatCounts, postCounts, usageRows, companyRows, subRows] =
+    await Promise.all([
+      db
         .select({
+          userId: chat.userId,
+          count: count(),
+        })
+        .from(chat)
+        .where(inArray(chat.userId, userIds))
+        .groupBy(chat.userId),
+      db
+        .select({
+          userId: post.userId,
+          count: count(),
+        })
+        .from(post)
+        .where(inArray(post.userId, userIds))
+        .groupBy(post.userId),
+      db
+        .select({
+          userId: aiUsageLog.userId,
           totalCost: sql<string>`COALESCE(SUM(${aiUsageLog.cost}), 0)`,
           totalTokens: sql<number>`COALESCE(SUM(${aiUsageLog.totalTokens}), 0)`,
           requestCount: count(),
         })
         .from(aiUsageLog)
-        .where(eq(aiUsageLog.userId, u.id));
-
-      // Get company info
-      const [companyInfo] = await db
+        .where(inArray(aiUsageLog.userId, userIds))
+        .groupBy(aiUsageLog.userId),
+      db
         .select({
-          companyId: userCompany.companyId,
+          userId: userCompany.userId,
           companyName: company.name,
           onboardingCompleted: company.onboardingCompleted,
         })
         .from(userCompany)
         .leftJoin(company, eq(userCompany.companyId, company.id))
-        .where(eq(userCompany.userId, u.id))
-        .limit(1);
-
-      // Pick active-ish subscription (active > trialing > past_due > ...)
-      const subRows = await db
+        .where(inArray(userCompany.userId, userIds)),
+      db
         .select({
+          userId: subscription.userId,
           id: subscription.id,
           planType: subscription.planType,
           status: subscription.status,
@@ -94,34 +146,86 @@ export async function getAllUsersWithUsage() {
           createdAt: subscription.createdAt,
         })
         .from(subscription)
-        .where(eq(subscription.userId, u.id));
-      const activeSub = pickActiveSubscription(subRows);
-      const activeSubscription: ActiveSubscriptionSummary = activeSub
-        ? {
-            id: activeSub.id,
-            planType: activeSub.planType,
-            status: activeSub.status,
-            currentPeriodEnd: activeSub.currentPeriodEnd,
-            cancelAtPeriodEnd: activeSub.cancelAtPeriodEnd,
-            stripeSubscriptionId: activeSub.stripeSubscriptionId,
-          }
-        : null;
+        .where(inArray(subscription.userId, userIds)),
+    ]);
 
-      return {
-        ...u,
-        chatCount: chatCount?.count ?? 0,
-        postCount: postCount?.count ?? 0,
-        totalCost: Number.parseFloat(usageSummary?.totalCost ?? "0"),
-        totalTokens: usageSummary?.totalTokens ?? 0,
-        requestCount: usageSummary?.requestCount ?? 0,
-        companyName: companyInfo?.companyName ?? null,
-        onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
-        activeSubscription,
-      };
-    })
-  );
+  const chatCountByUser = new Map<string, number>();
+  for (const row of chatCounts) {
+    chatCountByUser.set(row.userId, row.count);
+  }
 
-  return usersWithUsage;
+  const postCountByUser = new Map<string, number>();
+  for (const row of postCounts) {
+    postCountByUser.set(row.userId, row.count);
+  }
+
+  const usageByUser = new Map<
+    string,
+    { totalCost: string; totalTokens: number; requestCount: number }
+  >();
+  for (const row of usageRows) {
+    usageByUser.set(row.userId, {
+      totalCost: row.totalCost,
+      totalTokens: row.totalTokens,
+      requestCount: row.requestCount,
+    });
+  }
+
+  // Preserves the legacy `LIMIT 1` semantics: keep the first company row seen
+  // per user and ignore subsequent rows when a user belongs to multiple.
+  const companyByUser = new Map<
+    string,
+    { companyName: string | null; onboardingCompleted: boolean }
+  >();
+  for (const row of companyRows) {
+    if (companyByUser.has(row.userId)) continue;
+    companyByUser.set(row.userId, {
+      companyName: row.companyName ?? null,
+      onboardingCompleted: row.onboardingCompleted ?? false,
+    });
+  }
+
+  type SubRow = (typeof subRows)[number];
+  const subsByUser = new Map<string, SubRow[]>();
+  for (const row of subRows) {
+    const list = subsByUser.get(row.userId);
+    if (list) {
+      list.push(row);
+    } else {
+      subsByUser.set(row.userId, [row]);
+    }
+  }
+
+  const users: UserWithUsage[] = usersPage.map((u) => {
+    const usage = usageByUser.get(u.id);
+    const companyInfo = companyByUser.get(u.id);
+    const userSubs = subsByUser.get(u.id) ?? [];
+    const activeSub = pickActiveSubscription(userSubs);
+    const activeSubscription: ActiveSubscriptionSummary = activeSub
+      ? {
+          id: activeSub.id,
+          planType: activeSub.planType,
+          status: activeSub.status,
+          currentPeriodEnd: activeSub.currentPeriodEnd,
+          cancelAtPeriodEnd: activeSub.cancelAtPeriodEnd,
+          stripeSubscriptionId: activeSub.stripeSubscriptionId,
+        }
+      : null;
+
+    return {
+      ...u,
+      chatCount: chatCountByUser.get(u.id) ?? 0,
+      postCount: postCountByUser.get(u.id) ?? 0,
+      totalCost: Number.parseFloat(usage?.totalCost ?? "0"),
+      totalTokens: usage?.totalTokens ?? 0,
+      requestCount: usage?.requestCount ?? 0,
+      companyName: companyInfo?.companyName ?? null,
+      onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
+      activeSubscription,
+    };
+  });
+
+  return { users, total, page, pageSize };
 }
 
 // Get single user with detailed usage
@@ -419,6 +523,83 @@ export async function getUserMetaBusinessAccount(userId: string) {
     .orderBy(desc(metaBusinessAccount.updatedAt))
     .limit(1);
   return account ?? null;
+}
+
+// ================================
+// Users with a connected Meta Business Account (Marketing)
+// ================================
+
+export type UserWithMetaBusinessAccount = {
+  id: string;
+  email: string;
+  image_url: string | null;
+  metaAccountName: string | null;
+  metaUpdatedAt: string;
+};
+
+export type GetUsersWithMetaBusinessAccountResult = {
+  users: UserWithMetaBusinessAccount[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+// Returns one row per user that has at least one non-deleted meta_business_accounts
+// row. When a user has multiple connected accounts, the most-recently-updated one is
+// shown (matching getUserMetaBusinessAccount's semantics).
+export async function getUsersWithMetaBusinessAccount(options?: {
+  email?: string;
+  page?: number;
+  limit?: number;
+}): Promise<GetUsersWithMetaBusinessAccountResult> {
+  const page = Math.max(1, Math.trunc(options?.page ?? 1));
+  const limit = Math.max(1, Math.trunc(options?.limit ?? 20));
+  const offset = (page - 1) * limit;
+
+  const conditions = [isNull(metaBusinessAccount.deletedAt)];
+  if (options?.email) {
+    conditions.push(ilike(user.email, `%${options.email}%`));
+  }
+
+  const rows = await db
+    .select({
+      id: user.id,
+      email: user.email,
+      image_url: user.image_url,
+      metaAccountName: sql<
+        string | null
+      >`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+      metaUpdatedAt: sql<string>`MAX(${metaBusinessAccount.updatedAt})`,
+    })
+    .from(user)
+    .innerJoin(metaBusinessAccount, eq(metaBusinessAccount.userId, user.id))
+    .where(and(...conditions))
+    .groupBy(user.id, user.email, user.image_url)
+    .orderBy(desc(sql`MAX(${metaBusinessAccount.updatedAt})`))
+    .limit(limit)
+    .offset(offset);
+
+  const [totalResult] = await db
+    .select({ count: sql<number>`COUNT(DISTINCT ${user.id})` })
+    .from(user)
+    .innerJoin(metaBusinessAccount, eq(metaBusinessAccount.userId, user.id))
+    .where(and(...conditions));
+
+  return {
+    users: rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      image_url: row.image_url,
+      metaAccountName: row.metaAccountName,
+      metaUpdatedAt:
+        row.metaUpdatedAt instanceof Date
+          ? row.metaUpdatedAt.toISOString()
+          : String(row.metaUpdatedAt),
+    })),
+    total: Number(totalResult?.count ?? 0),
+    page,
+    limit,
+  };
 }
 
 // ================================
