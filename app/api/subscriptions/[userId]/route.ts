@@ -12,6 +12,11 @@ import {
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { auth } from "@/app/(auth)/auth";
 import { updateUserExpirationWithAudit } from "@/lib/backoffice/user-field-updates";
+import {
+  recoverFailedPaymentWithAudit,
+  type RecoveryError,
+  type RecoveryMode,
+} from "@/lib/backoffice/payment-recovery";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -240,6 +245,86 @@ export async function PATCH(
     console.error("Error updating user expiration date:", error);
     return NextResponse.json(
       { error: "Failed to update expiration date" },
+      { status: 500 }
+    );
+  }
+}
+
+const RECOVERY_ERROR_TO_STATUS: Record<RecoveryError, number> = {
+  stripe_not_configured: 500,
+  user_not_found: 404,
+  no_active_subscription: 400,
+  subscription_not_recoverable: 400,
+  no_failed_invoice: 400,
+  invoice_not_payable: 409,
+  stripe_error: 502,
+};
+
+function isRecoveryMode(value: unknown): value is RecoveryMode {
+  return value === "retry" || value === "mark_paid_oob";
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ userId: string }> }
+) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id || !session.user.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { userId } = await params;
+    const body = (await request.json()) as {
+      action?: string;
+      mode?: string;
+    };
+
+    if (body.action !== "recover_payment") {
+      return NextResponse.json(
+        { error: "Unsupported action" },
+        { status: 400 }
+      );
+    }
+
+    if (!isRecoveryMode(body.mode)) {
+      return NextResponse.json(
+        { error: "Invalid mode. Expected 'retry' or 'mark_paid_oob'." },
+        { status: 400 }
+      );
+    }
+
+    const result = await recoverFailedPaymentWithAudit({
+      userId,
+      mode: body.mode,
+      adminEmail: session.user.email,
+    });
+
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          error: result.error,
+          message: result.message,
+          stripeStatus: result.stripeStatus ?? null,
+        },
+        { status: RECOVERY_ERROR_TO_STATUS[result.error] }
+      );
+    }
+
+    revalidatePath(`/users/${userId}`);
+    revalidatePath(`/subscriptions/${userId}`);
+
+    return NextResponse.json({
+      success: true,
+      mode: result.mode,
+      invoiceId: result.invoiceId,
+      newStripeStatus: result.newStripeStatus,
+      hostedInvoiceUrl: result.hostedInvoiceUrl,
+    });
+  } catch (error) {
+    console.error("Error recovering failed payment:", error);
+    return NextResponse.json(
+      { error: "Failed to recover payment" },
       { status: 500 }
     );
   }

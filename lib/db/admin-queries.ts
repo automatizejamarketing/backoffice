@@ -569,7 +569,7 @@ export async function getUsersWithMetaBusinessAccount(options?: {
       metaAccountName: sql<
         string | null
       >`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
-      metaUpdatedAt: sql<string>`MAX(${metaBusinessAccount.updatedAt})`,
+      metaUpdatedAt: sql<Date | string>`MAX(${metaBusinessAccount.updatedAt})`,
     })
     .from(user)
     .innerJoin(metaBusinessAccount, eq(metaBusinessAccount.userId, user.id))
