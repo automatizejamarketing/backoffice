@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
+import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
 import { getUserSubscriptionDetails } from "@/lib/db/admin-queries";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import {
@@ -34,7 +35,7 @@ import {
   formatPlanLabel,
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
-import type { PlanType } from "@/lib/db/schema";
+import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   subscribed: "Assinatura iniciada",
@@ -104,6 +105,32 @@ function paymentStatusVariant(
   return "secondary";
 }
 
+// Picks the most recent failed payment that is still eligible for recovery.
+// Eligibility = active subscription is in `past_due`/`unpaid`, payment row
+// belongs to that subscription, status is `failed`, and a Stripe invoice ID is
+// attached (so we can call `stripe.invoices.pay`). The Stripe-side state is
+// re-validated on the server when the admin clicks the button. `payments` is
+// already ordered by `desc(createdAt)` upstream, so the first match wins.
+function computeRecoverableInvoice(
+  activeSubscription: Subscription | null,
+  payments: Payment[],
+): (Payment & { stripeInvoiceId: string }) | null {
+  if (!activeSubscription) return null;
+  if (
+    activeSubscription.status !== "past_due" &&
+    activeSubscription.status !== "unpaid"
+  ) {
+    return null;
+  }
+  const candidate = payments.find(
+    (p): p is Payment & { stripeInvoiceId: string } =>
+      p.status === "failed" &&
+      p.stripeInvoiceId !== null &&
+      p.subscriptionId === activeSubscription.id,
+  );
+  return candidate ?? null;
+}
+
 export default async function UserSubscriptionPage({
   params,
 }: {
@@ -143,6 +170,10 @@ export default async function UserSubscriptionPage({
     pendingPlanChange,
   );
   const isTrialing = activeSubscription?.status === "trialing";
+  const recoverableInvoice = computeRecoverableInvoice(
+    activeSubscription,
+    payments,
+  );
 
   return (
     <div className="container py-8 px-4 max-w-5xl space-y-6">
@@ -337,6 +368,21 @@ export default async function UserSubscriptionPage({
           )}
         </CardContent>
       </Card>
+
+      {/* B.1 Recuperar pagamento pendente (apenas quando past_due/unpaid + fatura falha) */}
+      {recoverableInvoice &&
+        (activeSubscription?.status === "past_due" ||
+          activeSubscription?.status === "unpaid") && (
+          <PaymentRecoveryCard
+            userId={user.id}
+            invoiceId={recoverableInvoice.stripeInvoiceId}
+            amountCents={recoverableInvoice.amount}
+            currency={recoverableInvoice.currency}
+            failureReason={recoverableInvoice.failureReason}
+            failedAt={recoverableInvoice.createdAt}
+            subscriptionStatus={activeSubscription.status}
+          />
+        )}
 
       {/* C. Mudança agendada */}
       {pendingPlanChange && (
