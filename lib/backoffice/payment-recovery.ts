@@ -21,6 +21,7 @@ export type RecoveryError =
   | "subscription_not_recoverable"
   | "no_failed_invoice"
   | "invoice_not_payable"
+  | "invoice_not_found"
   | "stripe_error";
 
 export type RecoveryResult =
@@ -42,6 +43,28 @@ const RECOVERABLE_SUB_STATUSES = ["past_due", "unpaid"] as const;
 
 function isStripeError(error: unknown): error is Stripe.errors.StripeError {
   return error instanceof Stripe.errors.StripeError;
+}
+
+// Returns the Stripe mode the backoffice is currently configured for, derived
+// from the SECRET KEY prefix. Used in error messages to help the operator spot
+// a key mismatch with the frontend (which is the only writer of stripe_invoice_id
+// in the shared `payments` table — they MUST point at the same Stripe account
+// and same mode).
+function getBackofficeStripeMode(): "test" | "live" | "unknown" {
+  const key = process.env.STRIPE_SECRET_KEY ?? "";
+  if (key.startsWith("sk_test_")) return "test";
+  if (key.startsWith("sk_live_")) return "live";
+  return "unknown";
+}
+
+function isResourceMissingError(
+  error: unknown,
+): error is Stripe.errors.StripeInvalidRequestError {
+  return (
+    isStripeError(error) &&
+    "code" in error &&
+    (error as { code?: string }).code === "resource_missing"
+  );
 }
 
 async function findLatestRecoverablePayment(
@@ -181,6 +204,25 @@ export async function recoverFailedPaymentWithAudit(args: {
   try {
     invoice = await stripe.invoices.retrieve(invoiceId);
   } catch (error) {
+    if (isResourceMissingError(error)) {
+      const backofficeMode = getBackofficeStripeMode();
+      const message = `A fatura "${invoiceId}" não existe na conta Stripe configurada no backoffice (modo atual: ${backofficeMode.toUpperCase()}). Causa mais provável: STRIPE_SECRET_KEY do backoffice e do automatize-frontend estão em contas Stripe diferentes ou em modos diferentes (test vs live). Como ambos os apps compartilham a mesma tabela 'payments', eles precisam apontar para a mesma conta e mesmo modo. Verifique 'backoffice/.env' e 'automatize-frontend/.env'.`;
+      await logAudit({
+        adminEmail,
+        userId,
+        mode,
+        invoiceId,
+        ok: false,
+        newValue: "failed",
+        note: `retrieve_failed_resource_missing: backoffice mode='${backofficeMode}'; key likely mismatched with frontend.`,
+      });
+      return {
+        ok: false,
+        error: "invoice_not_found",
+        message,
+      };
+    }
+
     const message = isStripeError(error)
       ? error.message
       : "Erro ao consultar a fatura no Stripe.";
@@ -216,6 +258,26 @@ export async function recoverFailedPaymentWithAudit(args: {
       mode === "mark_paid_oob" ? { paid_out_of_band: true } : {},
     );
   } catch (error) {
+    if (isResourceMissingError(error)) {
+      const backofficeMode = getBackofficeStripeMode();
+      const message = `A fatura "${invoiceId}" desapareceu da conta Stripe entre a consulta e o pagamento (modo atual do backoffice: ${backofficeMode.toUpperCase()}). Possíveis causas: chaves Stripe entre backoffice e automatize-frontend em contas/modos diferentes, ou a fatura foi excluída no Stripe Dashboard.`;
+      await logAudit({
+        adminEmail,
+        userId,
+        mode,
+        invoiceId,
+        ok: false,
+        newValue: "failed",
+        note: `pay_failed_resource_missing: backoffice mode='${backofficeMode}'.`,
+      });
+      return {
+        ok: false,
+        error: "invoice_not_found",
+        message,
+        stripeStatus: invoice.status,
+      };
+    }
+
     const message = isStripeError(error)
       ? `${error.message}${error.code ? ` (code: ${error.code})` : ""}`
       : "Erro inesperado ao tentar pagar a fatura no Stripe.";
