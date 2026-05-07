@@ -86,20 +86,20 @@ export default async function UsersPage({
 
       <UsersTableToolbar initialSearch={search} pageSize={pageSize} />
 
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
-        <table className="w-full">
+      <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <table className="w-full min-w-[1280px]">
           <thead className="border-b border-border bg-muted/50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Usuário
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="w-[420px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Empresa
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Telefone
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Plano
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -171,30 +171,40 @@ export default async function UsersPage({
                       </span>
                     </Link>
                   </td>
-                  <td className="px-4 py-3">
-                    {user.companyName ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-foreground/80">
+                  <td className="w-[420px] px-4 py-3">
+                    <div className="flex min-w-0 flex-col items-start gap-1">
+                      {user.companyName ? (
+                        <span
+                          className="max-w-[400px] truncate whitespace-nowrap text-sm text-foreground/80"
+                          title={user.companyName}
+                        >
                           {user.companyName}
                         </span>
-                        {user.onboardingCompleted && (
-                          <Badge variant="secondary" className="text-xs">
-                            Integrado
-                          </Badge>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-sm text-muted-foreground/60">—</span>
-                    )}
+                      ) : (
+                        <span className="whitespace-nowrap text-sm text-muted-foreground/60">
+                          —
+                        </span>
+                      )}
+                      <Badge
+                        variant={
+                          user.onboardingCompleted ? "secondary" : "outline"
+                        }
+                        className="w-fit whitespace-nowrap text-xs"
+                      >
+                        {user.onboardingCompleted
+                          ? "Integrado"
+                          : "Não integrado"}
+                      </Badge>
+                    </div>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     {phoneFormatted ? (
                       whatsappUrl ? (
                         <a
                           href={whatsappUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
+                          className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
                           aria-label={`Abrir conversa no WhatsApp com ${phoneFormatted}`}
                         >
                           <MessageCircle className="size-3.5 text-emerald-600" />
@@ -206,19 +216,23 @@ export default async function UsersPage({
                         </span>
                       )
                     ) : (
-                      <span className="text-sm text-muted-foreground/60">—</span>
+                      <span className="whitespace-nowrap text-sm text-muted-foreground/60">
+                        —
+                      </span>
                     )}
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     {sub ? (
                       <Link
                         href={`/subscriptions/${user.id}`}
-                        className="text-sm text-foreground/80 hover:underline"
+                        className="whitespace-nowrap text-sm text-foreground/80 hover:underline"
                       >
                         {formatPlanLabel(sub.planType)}
                       </Link>
                     ) : (
-                      <span className="text-sm text-muted-foreground/60">—</span>
+                      <span className="whitespace-nowrap text-sm text-muted-foreground/60">
+                        —
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3">

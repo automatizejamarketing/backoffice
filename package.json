@@ -61,6 +61,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "agentation": "^3.0.2",
     "dotenv": "^16.6.1",
     "drizzle-kit": "^0.30.4",
     "eslint": "^9",
