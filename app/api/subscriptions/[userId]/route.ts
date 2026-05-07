@@ -257,6 +257,7 @@ const RECOVERY_ERROR_TO_STATUS: Record<RecoveryError, number> = {
   subscription_not_recoverable: 400,
   no_failed_invoice: 400,
   invoice_not_payable: 409,
+  invoice_not_found: 404,
   stripe_error: 502,
 };
 
