@@ -56,6 +56,7 @@ export type UserWithUsage = User & {
 export type GetAllUsersWithUsageParams = {
   page?: number;
   pageSize?: number;
+  search?: string;
 };
 
 export type GetAllUsersWithUsageResult = {
@@ -64,6 +65,11 @@ export type GetAllUsersWithUsageResult = {
   page: number;
   pageSize: number;
 };
+
+// Minimum characters for the search filter to be applied. Shorter queries
+// (typed while the user is still composing) are ignored so the listing isn't
+// thrashed by partial keystrokes. Kept in sync with the toolbar UI.
+const MIN_SEARCH_LENGTH = 3;
 
 // Get a paginated list of users with their usage summary.
 //
@@ -80,14 +86,24 @@ export async function getAllUsersWithUsage(
   const pageSize = Math.max(1, Math.trunc(params.pageSize ?? 50));
   const offset = (page - 1) * pageSize;
 
+  const trimmedSearch = params.search?.trim() ?? "";
+  const searchFilter =
+    trimmedSearch.length >= MIN_SEARCH_LENGTH
+      ? or(
+          ilike(user.email, `%${trimmedSearch}%`),
+          ilike(user.name, `%${trimmedSearch}%`),
+        )
+      : undefined;
+
   const [usersPage, [totalRow]] = await Promise.all([
     db
       .select()
       .from(user)
+      .where(searchFilter)
       .orderBy(desc(user.id))
       .limit(pageSize)
       .offset(offset),
-    db.select({ count: count() }).from(user),
+    db.select({ count: count() }).from(user).where(searchFilter),
   ]);
 
   const total = totalRow?.count ?? 0;

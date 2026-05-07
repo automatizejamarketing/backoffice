@@ -8,30 +8,59 @@ import {
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./constants";
+import { UsersTableToolbar } from "./users-table-toolbar";
 
 // Force dynamic rendering to prevent build timeouts on Vercel
 // This page queries all users with usage stats, which can be slow
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 50;
+const ALLOWED_PAGE_SIZES = new Set<number>(PAGE_SIZE_OPTIONS);
 
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; pageSize?: string; q?: string }>;
 }) {
   const sp = await searchParams;
+
   const requestedPage = Number.parseInt(sp.page ?? "1", 10);
   const page =
     Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const { users, total, pageSize } = await getAllUsersWithUsage({
+
+  const requestedPageSize = Number.parseInt(
+    sp.pageSize ?? String(DEFAULT_PAGE_SIZE),
+    10,
+  );
+  const pageSize = ALLOWED_PAGE_SIZES.has(requestedPageSize)
+    ? requestedPageSize
+    : DEFAULT_PAGE_SIZE;
+
+  const search = sp.q?.trim() ?? "";
+
+  const { users, total, pageSize: appliedPageSize } = await getAllUsersWithUsage({
     page,
-    pageSize: PAGE_SIZE,
+    pageSize,
+    search,
   });
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const totalPages = Math.max(1, Math.ceil(total / appliedPageSize));
   const currentPage = Math.min(page, totalPages);
   const hasPrevious = currentPage > 1;
   const hasNext = currentPage < totalPages;
+
+  // Preserve `pageSize` and `q` when building pagination links so navigating
+  // between pages keeps the active filter and chosen page size.
+  function buildPageHref(targetPage: number): string {
+    const params = new URLSearchParams();
+    params.set("page", String(targetPage));
+    if (pageSize !== DEFAULT_PAGE_SIZE) {
+      params.set("pageSize", String(pageSize));
+    }
+    if (search) {
+      params.set("q", search);
+    }
+    return `/users?${params.toString()}`;
+  }
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -47,13 +76,15 @@ export default async function UsersPage({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Usuários</h1>
         <p className="text-sm text-muted-foreground">
           Todos os usuários cadastrados e suas estatísticas de uso
         </p>
       </div>
+
+      <UsersTableToolbar initialSearch={search} pageSize={pageSize} />
 
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <table className="w-full">
@@ -98,7 +129,9 @@ export default async function UsersPage({
                   colSpan={10}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
-                  Nenhum usuário encontrado
+                  {search
+                    ? `Nenhum usuário encontrado para "${search}"`
+                    : "Nenhum usuário encontrado"}
                 </td>
               </tr>
             ) : (
@@ -226,7 +259,7 @@ export default async function UsersPage({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
           Página {currentPage} de {totalPages} · {formatNumber(total)} usuários
-          no total
+          {search ? " encontrados" : " no total"}
         </p>
         <div className="flex items-center gap-1.5">
           {hasPrevious ? (
@@ -236,7 +269,7 @@ export default async function UsersPage({
               size="sm"
               className="h-8 px-3 text-xs gap-1"
             >
-              <Link href={`/users?page=${currentPage - 1}`}>
+              <Link href={buildPageHref(currentPage - 1)}>
                 <ChevronLeft className="size-3.5" />
                 Anterior
               </Link>
@@ -259,7 +292,7 @@ export default async function UsersPage({
               size="sm"
               className="h-8 px-3 text-xs gap-1"
             >
-              <Link href={`/users?page=${currentPage + 1}`}>
+              <Link href={buildPageHref(currentPage + 1)}>
                 Próxima
                 <ChevronRight className="size-3.5" />
               </Link>
