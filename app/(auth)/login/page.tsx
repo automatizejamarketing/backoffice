@@ -2,7 +2,6 @@ import { auth } from "@/app/(auth)/auth";
 import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./login-form";
-import Image from "next/image";
 
 const errorMessages: Record<string, string> = {
   unauthorized: "Seu email não está autorizado para acessar esta aplicação.",
@@ -33,12 +32,10 @@ export default async function LoginPage({
       <div className="w-full max-w-md space-y-8 p-8">
         <div className="flex flex-col items-center gap-6">
           {/* Logo */}
-          <Image
+          <img
             alt="AutomatizeJá"
             src="/logo/3.png"
-            width={146}
-            height={40}
-            priority
+            className="h-10 w-auto"
           />
           <div className="text-center">
             <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
