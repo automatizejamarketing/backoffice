@@ -16,17 +16,50 @@ import {
   MIN_SEARCH_LENGTH,
   PAGE_SIZE_OPTIONS,
 } from "./constants";
+import type { UsersFilterParams } from "@/lib/backoffice/users-filters";
 
 const DEBOUNCE_MS = 300;
 
 type UsersTableToolbarProps = {
   initialSearch: string;
   pageSize: number;
+  filters: Pick<
+    UsersFilterParams,
+    "subscriptionStatus" | "planPeriod" | "metaStatus" | "consultantId"
+  >;
+  consultants: Array<{ id: string; email: string; name: string | null }>;
+};
+
+const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
+  all: "Todas assinaturas",
+  active: "Ativas",
+  trialing: "Em trial",
+  past_due: "Pagamento pendente",
+  canceled: "Canceladas",
+  unpaid: "Não pagas",
+  incomplete: "Incompletas",
+  incomplete_expired: "Incompletas expiradas",
+};
+
+const PLAN_PERIOD_LABELS: Record<string, string> = {
+  all: "Todos planos",
+  monthly: "Mensal",
+  quarterly: "Trimestral",
+  semiannual: "Semestral",
+  annual: "Anual",
+};
+
+const META_STATUS_LABELS: Record<string, string> = {
+  all: "Todos Meta",
+  connected: "Meta conectado",
+  disconnected: "Sem Meta",
 };
 
 export function UsersTableToolbar({
   initialSearch,
   pageSize,
+  filters,
+  consultants,
 }: UsersTableToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -100,39 +133,119 @@ export function UsersTableToolbar({
     router.push(buildUrl({ pageSize: next }), { scroll: false });
   }
 
+  function handleFilterChange(key: string, value: string) {
+    router.push(buildUrl({ [key]: value === "all" ? null : value }), {
+      scroll: false,
+    });
+  }
+
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex flex-col gap-1.5 sm:max-w-sm sm:flex-1">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="Buscar por email ou nome..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-9 pl-9 text-sm"
-            aria-label="Buscar usuários por email ou nome"
-          />
+    <div className="space-y-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1.5 sm:max-w-sm sm:flex-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Buscar por email ou nome..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-9 pl-9 text-sm"
+              aria-label="Buscar usuários por email ou nome"
+            />
+          </div>
+          {isBelowMinSearch && (
+            <p className="text-xs text-muted-foreground">
+              Digite ao menos {MIN_SEARCH_LENGTH} caracteres para buscar
+            </p>
+          )}
         </div>
-        {isBelowMinSearch && (
-          <p className="text-xs text-muted-foreground">
-            Digite ao menos {MIN_SEARCH_LENGTH} caracteres para buscar
-          </p>
-        )}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Por página</span>
+          <Select
+            value={String(pageSize)}
+            onValueChange={handlePageSizeChange}
+          >
+            <SelectTrigger className="h-8 w-[72px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">Por página</span>
+
+      <div className="flex flex-wrap gap-2">
         <Select
-          value={String(pageSize)}
-          onValueChange={handlePageSizeChange}
+          value={filters.subscriptionStatus}
+          onValueChange={(value) =>
+            handleFilterChange("subscriptionStatus", value)
+          }
         >
-          <SelectTrigger className="h-8 w-[72px]">
+          <SelectTrigger className="h-8 w-[180px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <SelectItem key={size} value={String(size)}>
-                {size}
+            {Object.entries(SUBSCRIPTION_STATUS_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.planPeriod}
+          onValueChange={(value) => handleFilterChange("planPeriod", value)}
+        >
+          <SelectTrigger className="h-8 w-[150px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(PLAN_PERIOD_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.metaStatus}
+          onValueChange={(value) => handleFilterChange("metaStatus", value)}
+        >
+          <SelectTrigger className="h-8 w-[150px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(META_STATUS_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.consultantId}
+          onValueChange={(value) => handleFilterChange("consultantId", value)}
+        >
+          <SelectTrigger className="h-8 w-[220px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos consultores</SelectItem>
+            <SelectItem value="unassigned">Sem consultor</SelectItem>
+            {consultants.map((consultant) => (
+              <SelectItem key={consultant.id} value={consultant.id}>
+                {consultant.name
+                  ? `${consultant.name} (${consultant.email})`
+                  : consultant.email}
               </SelectItem>
             ))}
           </SelectContent>

@@ -1,13 +1,11 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { getAllAffiliates } from "@/lib/affiliate/queries";
 
 export async function GET(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const { searchParams } = new URL(request.url);
     const status = searchParams.get("status") || undefined;

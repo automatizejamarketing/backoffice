@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
@@ -51,30 +51,6 @@ export async function PATCH(
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<EditAdSetResponse | EditAdSetErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 },
-      );
-    }
-
-    const backofficeUserEmail = session.user.email?.trim();
-    if (!backofficeUserEmail) {
-      return NextResponse.json(
-        {
-          error: "Missing admin email",
-          message: "Sua sessão não possui email. Faça login novamente.",
-          solution: "Encerre a sessão e entre novamente com Google.",
-        },
-        { status: 400 },
-      );
-    }
-
     const { accountId, adsetId } = await params;
 
     const body: EditAdSetRequestBody = await request.json();
@@ -91,6 +67,14 @@ export async function PATCH(
         { status: 400 },
       );
     }
+
+    const authz = await requireMarketingUserAccessResponse(
+      userId,
+      "marketing:write",
+    );
+    if (!authz.ok) return authz.response;
+
+    const backofficeUserEmail = authz.actor.email;
 
     if (!note || note.trim().length === 0) {
       return NextResponse.json(

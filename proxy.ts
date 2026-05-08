@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { BACKOFFICE_MAGIC_SESSION_COOKIE } from "@/lib/auth/magic-session-constants";
 
 const isDevelopmentEnvironment = process.env.NODE_ENV === "development";
 
@@ -16,9 +17,12 @@ export async function proxy(request: NextRequest) {
     secret: process.env.AUTH_SECRET,
     secureCookie: !isDevelopmentEnvironment,
   });
+  const hasMagicSessionCookie = Boolean(
+    request.cookies.get(BACKOFFICE_MAGIC_SESSION_COOKIE)?.value,
+  );
 
   // If not logged in and not on login page, redirect to login
-  if (!token && pathname !== "/login") {
+  if (!token && !hasMagicSessionCookie && pathname !== "/login") {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
@@ -44,4 +48,3 @@ export const config = {
     "/((?!api/auth|login|_next/static|_next/image|favicon.ico).*)",
   ],
 };
-

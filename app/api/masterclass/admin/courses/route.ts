@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
-import { isAdminSession } from "@/lib/auth/admin";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   createMasterclassCourse,
   listMasterclassCourses,
@@ -14,26 +13,16 @@ type CreateCourseBody = {
 };
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  if (!isAdminSession(session)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const authz = await requireBackofficePermissionResponse("masterclass:manage");
+  if (!authz.ok) return authz.response;
 
   const courses = await listMasterclassCourses();
   return NextResponse.json(courses);
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  if (!isAdminSession(session)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const authz = await requireBackofficePermissionResponse("masterclass:manage");
+  if (!authz.ok) return authz.response;
 
   const body = (await request.json()) as CreateCourseBody;
   if (!body.title?.trim()) {

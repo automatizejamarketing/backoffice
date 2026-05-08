@@ -10,7 +10,7 @@ import {
   user,
 } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { updateUserExpirationWithAudit } from "@/lib/backoffice/user-field-updates";
 import {
   recoverFailedPaymentWithAudit,
@@ -37,10 +37,8 @@ export async function GET(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("billing:manage");
+    if (!authz.ok) return authz.response;
 
     const { userId } = await params;
 
@@ -202,10 +200,8 @@ export async function PATCH(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || !session.user.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("billing:manage");
+    if (!authz.ok) return authz.response;
 
     const { userId } = await params;
     const body = await request.json();
@@ -221,7 +217,7 @@ export async function PATCH(
     const result = await updateUserExpirationWithAudit({
       userId,
       expirationDateInput: expirationDate,
-      adminEmail: session.user.email,
+      adminEmail: authz.actor.email,
     });
 
     if (!result.ok) {
@@ -270,10 +266,8 @@ export async function POST(
   { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || !session.user.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("billing:manage");
+    if (!authz.ok) return authz.response;
 
     const { userId } = await params;
     const body = (await request.json()) as {
@@ -298,7 +292,7 @@ export async function POST(
     const result = await recoverFailedPaymentWithAudit({
       userId,
       mode: body.mode,
-      adminEmail: session.user.email,
+      adminEmail: authz.actor.email,
     });
 
     if (!result.ok) {

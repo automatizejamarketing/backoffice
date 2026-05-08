@@ -10,6 +10,7 @@ import { formatCurrency } from "../utils/formatters";
 type AdSetEditHistoryProps = {
   adsetId: string;
   accountId: string;
+  userId: string;
   refreshTrigger?: number;
 };
 
@@ -136,6 +137,7 @@ function formatTargetingChange(
 export function AdSetEditHistory({
   adsetId,
   accountId,
+  userId,
   refreshTrigger,
 }: AdSetEditHistoryProps) {
   const [logs, setLogs] = useState<AdSetEditLogWithAdmin[]>([]);
@@ -148,7 +150,7 @@ export function AdSetEditHistory({
 
     try {
       const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adsetId}/edit-history`
+        `/api/meta-marketing/${accountId}/adsets/${adsetId}/edit-history?userId=${userId}`
       );
 
       if (!response.ok) {
@@ -164,7 +166,7 @@ export function AdSetEditHistory({
     } finally {
       setIsLoading(false);
     }
-  }, [adsetId, accountId]);
+  }, [adsetId, accountId, userId]);
 
   useEffect(() => {
     fetchHistory();
