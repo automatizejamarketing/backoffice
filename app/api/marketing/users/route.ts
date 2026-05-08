@@ -1,12 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { getUsersWithMetaBusinessAccount } from "@/lib/db/admin-queries";
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authz = await requireBackofficePermissionResponse("marketing:read");
+  if (!authz.ok) return authz.response;
 
   const { searchParams } = new URL(request.url);
   const email = searchParams.get("email") ?? undefined;
@@ -20,6 +18,10 @@ export async function GET(request: NextRequest) {
       email,
       page,
       limit,
+      userIds:
+        authz.actor.role === "marketing_consultant"
+          ? (authz.actor.assignedUserIds ?? [])
+          : undefined,
     });
     return NextResponse.json(result);
   } catch (error) {

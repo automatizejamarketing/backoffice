@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { getBackofficePostDetails } from "@/lib/db/admin-queries";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ postId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authz = await requireBackofficePermissionResponse("posts:manage");
+  if (!authz.ok) return authz.response;
 
   const { postId } = await params;
 

@@ -399,6 +399,7 @@ export function AdSetDetail({
             <AdSetEditHistory
               adsetId={adSet.id}
               accountId={accountId}
+              userId={userId}
               refreshTrigger={historyRefreshTrigger}
             />
           </section>

@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { adjustUserCreditsWithAudit } from "@/lib/backoffice/user-field-updates";
 
 export async function PATCH(
@@ -8,10 +8,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || !session.user.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("users:manage");
+    if (!authz.ok) return authz.response;
 
     const { id: userId } = await params;
     const body = await request.json();
@@ -30,7 +28,7 @@ export async function PATCH(
     const result = await adjustUserCreditsWithAudit({
       userId,
       amount,
-      adminEmail: session.user.email,
+      adminEmail: authz.actor.email,
       description:
         typeof description === "string" && description.trim()
           ? description.trim()

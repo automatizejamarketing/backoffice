@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
@@ -74,18 +74,6 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string; adId: string }> }
 ): Promise<NextResponse<GetAdInsightsResponse | GetAdInsightsErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 }
-      );
-    }
-
     const { adId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
@@ -100,6 +88,9 @@ export async function GET(
         { status: 400 }
       );
     }
+
+    const authz = await requireMarketingUserAccessResponse(userId);
+    if (!authz.ok) return authz.response;
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
 

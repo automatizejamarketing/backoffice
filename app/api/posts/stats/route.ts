@@ -1,12 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { getPostPerformanceStats } from "@/lib/db/admin-queries";
 
 export async function GET(request: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authz = await requireBackofficePermissionResponse("posts:manage");
+  if (!authz.ok) return authz.response;
 
   const { searchParams } = new URL(request.url);
   const userId = searchParams.get("userId") ?? undefined;

@@ -9,7 +9,7 @@ import {
   type SubscriptionStatus,
 } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 
 const BILLING_PERIODS = [
   "monthly",
@@ -29,10 +29,8 @@ function isPlanType(value: string): value is PlanType {
 
 export async function GET(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("billing:manage");
+    if (!authz.ok) return authz.response;
 
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);

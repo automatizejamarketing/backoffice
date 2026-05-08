@@ -2,6 +2,7 @@ import type { InferSelectModel } from "drizzle-orm";
 import {
   boolean,
   foreignKey,
+  index,
   integer,
   json,
   jsonb,
@@ -16,6 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
+import type { BackofficeRole } from "@/lib/auth/rbac-core";
 
 export const user = pgTable("users", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -38,6 +40,63 @@ export const user = pgTable("users", {
 });
 
 export type User = InferSelectModel<typeof user>;
+
+export const backofficeUser = pgTable("backoffice_users", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  email: varchar("email", { length: 100 }).notNull().unique(),
+  name: varchar("name", { length: 100 }),
+  role: varchar("role", { enum: ["admin", "marketing_consultant"] })
+    .$type<BackofficeRole>()
+    .notNull()
+    .default("marketing_consultant"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type BackofficeUser = InferSelectModel<typeof backofficeUser>;
+
+export const userMarketingConsultant = pgTable(
+  "user_marketing_consultants",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    consultantId: uuid("consultant_id")
+      .notNull()
+      .references(() => backofficeUser.id),
+    assignedByEmail: varchar("assigned_by_email", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId] }),
+  }),
+);
+
+export type UserMarketingConsultant = InferSelectModel<
+  typeof userMarketingConsultant
+>;
+
+export const backofficeMagicLink = pgTable(
+  "backoffice_magic_links",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    email: varchar("email", { length: 100 }).notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    tokenHashUnique: unique("backoffice_magic_links_token_hash_unique").on(
+      table.tokenHash,
+    ),
+    emailIdx: index("backoffice_magic_links_email_idx").on(table.email),
+  }),
+);
+
+export type BackofficeMagicLink = InferSelectModel<typeof backofficeMagicLink>;
 
 export const blobUpload = pgTable("blob_uploads", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),

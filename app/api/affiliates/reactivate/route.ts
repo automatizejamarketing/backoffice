@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { stripe } from "@/lib/stripe";
 import {
   getAffiliateById,
@@ -9,10 +9,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const body = await request.json();
     const { affiliateId } = body as { affiliateId: string };
@@ -47,11 +45,11 @@ export async function POST(request: Request) {
       stripeReactivated = true;
     }
 
-    await reactivateAffiliate(affiliateId, session.user.email);
+    await reactivateAffiliate(affiliateId, authz.actor.email);
 
     await createAffiliateActionLog(
       affiliateId,
-      session.user.email,
+      authz.actor.email,
       "reactivated",
       { stripe_promotion_code_reactivated: stripeReactivated },
     );

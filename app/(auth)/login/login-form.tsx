@@ -1,16 +1,150 @@
 "use client";
 
+import { Loader2, Mail } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { signInWithGoogle } from "../actions";
 
 export function LoginForm() {
+  const [email, setEmail] = useState("");
+  const [isSending, setIsSending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [devMagicLink, setDevMagicLink] = useState<string | null>(null);
+
+  function showError(message: string) {
+    setError(message);
+    toast.error(message);
+  }
+
+  async function handleMagicLinkSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    setIsSending(true);
+    setError(null);
+    setMessage(null);
+    setDevMagicLink(null);
+
+    try {
+      const response = await fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        sent?: boolean;
+        devMagicLink?: string;
+        error?: string;
+      } | null;
+
+      if (!response.ok) {
+        showError(
+          response.status === 403
+            ? data?.error ??
+                "Este e-mail não está autorizado para acessar o backoffice."
+            : data?.error ?? "Não foi possível enviar o link. Verifique o e-mail.",
+        );
+        return;
+      }
+
+      if (!data?.ok) {
+        showError("Não foi possível enviar o link. Tente novamente.");
+        return;
+      }
+
+      setMessage(
+        data.sent
+          ? "Enviamos um link de acesso para o seu e-mail."
+          : data.devMagicLink
+            ? "Link gerado em modo local."
+            : "Se o e-mail estiver autorizado, enviaremos um link de acesso.",
+      );
+      setDevMagicLink(data.devMagicLink ?? null);
+    } catch {
+      showError("Não foi possível enviar o link. Tente novamente.");
+    } finally {
+      setIsSending(false);
+    }
+  }
+
   return (
-    <form action={signInWithGoogle} className="mt-8">
-      <Button type="submit" className="w-full gap-2" size="lg">
-        <GoogleIcon />
-        Entrar com Google
-      </Button>
-    </form>
+    <div className="mt-8 space-y-5">
+      <form action={signInWithGoogle}>
+        <Button type="submit" className="w-full gap-2" size="lg">
+          <GoogleIcon />
+          Entrar com Google
+        </Button>
+      </form>
+
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-zinc-300" />
+        <span className="text-xs font-semibold text-zinc-600">ou</span>
+        <div className="h-px flex-1 bg-zinc-300" />
+      </div>
+
+      <form
+        className="space-y-3"
+        onSubmit={handleMagicLinkSubmit}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="magic-link-email" className="text-zinc-800">
+            E-mail
+          </Label>
+          <Input
+            id="magic-link-email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="voce@empresa.com"
+            className="login-autofill-light h-10 border-zinc-300 bg-white text-sm text-zinc-950 shadow-xs placeholder:text-zinc-500 focus-visible:border-zinc-900 focus-visible:ring-zinc-900/20 md:text-sm"
+            required
+          />
+        </div>
+
+        <Button
+          type="submit"
+          variant="outline"
+          className="w-full gap-2 border border-zinc-300 bg-white text-zinc-900 shadow-xs ring-0 hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-950 hover:shadow-sm"
+          size="lg"
+          disabled={isSending}
+        >
+          {isSending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Mail className="size-4" />
+          )}
+          Enviar link de acesso
+        </Button>
+      </form>
+
+      <div className="min-h-[76px]" aria-live="polite">
+        {message && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+            {message}
+            {devMagicLink && (
+              <a
+                href={devMagicLink}
+                className="mt-2 block break-all font-medium underline"
+              >
+                Abrir magic link local
+              </a>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

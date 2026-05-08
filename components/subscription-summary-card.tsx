@@ -57,7 +57,7 @@ export function SubscriptionSummaryCard({
           Assinatura & Pagamentos
         </CardTitle>
         <Link
-          href={`/subscriptions/${userId}`}
+          href={`/users/${userId}?tab=subscription`}
           className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           Ver detalhes

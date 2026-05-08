@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   getAffiliateById,
   updateAffiliateCode,
@@ -11,10 +11,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const { id } = await params;
     const body = await request.json();
@@ -50,7 +48,7 @@ export async function PATCH(
     }
 
     await updateAffiliateCode(id, newCode);
-    await createAffiliateActionLog(id, session.user.email, "code_edited", {
+    await createAffiliateActionLog(id, authz.actor.email, "code_edited", {
       old_code: oldCode,
       new_code: newCode,
     });

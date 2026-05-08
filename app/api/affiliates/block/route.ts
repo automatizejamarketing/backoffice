@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { stripe } from "@/lib/stripe";
 import {
   getAffiliateById,
@@ -9,10 +9,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const body = await request.json();
     const { affiliateId, reason } = body as {
@@ -50,11 +48,11 @@ export async function POST(request: Request) {
       stripeDeactivated = true;
     }
 
-    await blockAffiliate(affiliateId, session.user.email);
+    await blockAffiliate(affiliateId, authz.actor.email);
 
     await createAffiliateActionLog(
       affiliateId,
-      session.user.email,
+      authz.actor.email,
       "blocked",
       {
         reason: reason || null,

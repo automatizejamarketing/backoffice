@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, MessageCircle } from "lucide-react";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
+import { listActiveMarketingConsultants } from "@/lib/db/backoffice-rbac-queries";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,41 +9,44 @@ import {
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
-import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from "./constants";
+import { DEFAULT_PAGE_SIZE } from "./constants";
 import { UsersTableToolbar } from "./users-table-toolbar";
+import { normalizeUsersFilterParams } from "@/lib/backoffice/users-filters";
+import { requirePagePermission } from "@/lib/auth/rbac";
 
 // Force dynamic rendering to prevent build timeouts on Vercel
 // This page queries all users with usage stats, which can be slow
 export const dynamic = "force-dynamic";
 
-const ALLOWED_PAGE_SIZES = new Set<number>(PAGE_SIZE_OPTIONS);
-
 export default async function UsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; pageSize?: string; q?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    pageSize?: string;
+    q?: string;
+    subscriptionStatus?: string;
+    planPeriod?: string;
+    metaStatus?: string;
+    consultantId?: string;
+  }>;
 }) {
+  await requirePagePermission("users:manage");
+
   const sp = await searchParams;
+  const filters = normalizeUsersFilterParams(sp);
+  const { page, pageSize, search } = filters;
 
-  const requestedPage = Number.parseInt(sp.page ?? "1", 10);
-  const page =
-    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-
-  const requestedPageSize = Number.parseInt(
-    sp.pageSize ?? String(DEFAULT_PAGE_SIZE),
-    10,
-  );
-  const pageSize = ALLOWED_PAGE_SIZES.has(requestedPageSize)
-    ? requestedPageSize
-    : DEFAULT_PAGE_SIZE;
-
-  const search = sp.q?.trim() ?? "";
-
-  const { users, total, pageSize: appliedPageSize } = await getAllUsersWithUsage({
-    page,
-    pageSize,
-    search,
-  });
+  const [{ users, total, pageSize: appliedPageSize }, consultants] =
+    await Promise.all([
+      getAllUsersWithUsage({
+        page,
+        pageSize,
+        search,
+        filters,
+      }),
+      listActiveMarketingConsultants(),
+    ]);
   const totalPages = Math.max(1, Math.ceil(total / appliedPageSize));
   const currentPage = Math.min(page, totalPages);
   const hasPrevious = currentPage > 1;
@@ -58,6 +62,18 @@ export default async function UsersPage({
     }
     if (search) {
       params.set("q", search);
+    }
+    if (filters.subscriptionStatus !== "all") {
+      params.set("subscriptionStatus", filters.subscriptionStatus);
+    }
+    if (filters.planPeriod !== "all") {
+      params.set("planPeriod", filters.planPeriod);
+    }
+    if (filters.metaStatus !== "all") {
+      params.set("metaStatus", filters.metaStatus);
+    }
+    if (filters.consultantId !== "all") {
+      params.set("consultantId", filters.consultantId);
     }
     return `/users?${params.toString()}`;
   }
@@ -84,10 +100,20 @@ export default async function UsersPage({
         </p>
       </div>
 
-      <UsersTableToolbar initialSearch={search} pageSize={pageSize} />
+      <UsersTableToolbar
+        initialSearch={search}
+        pageSize={pageSize}
+        filters={{
+          subscriptionStatus: filters.subscriptionStatus,
+          planPeriod: filters.planPeriod,
+          metaStatus: filters.metaStatus,
+          consultantId: filters.consultantId,
+        }}
+        consultants={consultants}
+      />
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
-        <table className="w-full min-w-[1280px]">
+        <table className="w-full min-w-[1540px]">
           <thead className="border-b border-border bg-muted/50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -104,6 +130,12 @@ export default async function UsersPage({
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Status
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Marketing
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Consultor
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Chats
@@ -126,7 +158,7 @@ export default async function UsersPage({
             {users.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={12}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   {search
@@ -224,7 +256,7 @@ export default async function UsersPage({
                   <td className="whitespace-nowrap px-4 py-3">
                     {sub ? (
                       <Link
-                        href={`/subscriptions/${user.id}`}
+                        href={`/users/${user.id}?tab=subscription`}
                         className="whitespace-nowrap text-sm text-foreground/80 hover:underline"
                       >
                         {formatPlanLabel(sub.planType)}
@@ -246,6 +278,46 @@ export default async function UsersPage({
                         </span>
                       )}
                     </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.hasMetaBusinessAccount ? (
+                      <Link
+                        href={`/users/${user.id}?tab=marketing`}
+                        className="inline-flex flex-col items-start gap-1 hover:underline"
+                      >
+                        <Badge variant="default" className="w-fit text-xs">
+                          Meta conectado
+                        </Badge>
+                        {user.metaAccountName && (
+                          <span className="max-w-[180px] truncate text-[11px] text-muted-foreground">
+                            {user.metaAccountName}
+                          </span>
+                        )}
+                      </Link>
+                    ) : (
+                      <Badge variant="outline" className="w-fit text-xs">
+                        Sem Meta
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.assignedConsultantEmail ? (
+                      <div className="flex max-w-[220px] flex-col">
+                        <span className="truncate text-sm text-foreground/80">
+                          {user.assignedConsultantName ??
+                            user.assignedConsultantEmail}
+                        </span>
+                        {user.assignedConsultantName && (
+                          <span className="truncate text-xs text-muted-foreground">
+                            {user.assignedConsultantEmail}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="whitespace-nowrap text-sm text-muted-foreground/60">
+                        —
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.chatCount)}

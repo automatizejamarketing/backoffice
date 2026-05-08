@@ -1,7 +1,10 @@
 import { getDashboardStats } from "@/lib/db/admin-queries";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { requirePagePermission } from "@/lib/auth/rbac";
 
 export default async function DashboardPage() {
+  await requirePagePermission("dashboard:view");
+
   const stats = await getDashboardStats();
 
   const formatCurrency = (value: number) => {

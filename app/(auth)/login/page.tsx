@@ -1,19 +1,31 @@
 import { auth } from "@/app/(auth)/auth";
+import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./login-form";
 import Image from "next/image";
 import logo from "@/public/logo/3.png";
+
+const errorMessages: Record<string, string> = {
+  unauthorized: "Seu email não está autorizado para acessar esta aplicação.",
+  magic_invalid: "O link de acesso é inválido. Solicite um novo link.",
+  magic_used: "Este link já foi utilizado. Solicite um novo link.",
+  magic_expired: "Este link expirou. Solicite um novo link.",
+  magic_error: "Não foi possível validar o link. Tente novamente.",
+};
 
 export default async function LoginPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const session = await auth();
-  const params = await searchParams;
+  const [session, actor, params] = await Promise.all([
+    auth(),
+    getCurrentBackofficeActor(),
+    searchParams,
+  ]);
 
   // Se já estiver logado, redireciona para o dashboard
-  if (session?.user) {
+  if (session?.user || actor) {
     redirect("/");
   }
 
@@ -38,9 +50,9 @@ export default async function LoginPage({
           </div>
         </div>
 
-        {params.error === "unauthorized" && (
+        {params.error && errorMessages[params.error] && (
           <div className="rounded-md border border-red-200 bg-red-50 p-4 text-center text-sm text-red-700">
-            Seu email não está autorizado para acessar esta aplicação.
+            {errorMessages[params.error]}
           </div>
         )}
 
