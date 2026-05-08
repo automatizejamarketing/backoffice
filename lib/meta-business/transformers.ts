@@ -120,13 +120,24 @@ export function transformCampaign(campaign: GraphApiCampaign): Campaign {
     budgetRemaining: campaign.budget_remaining,
     budgetMode: usesCampaignBudget ? "CBO" : "ABO",
     usesCampaignBudget,
-    isAdsetBudgetSharingEnabled: campaign.is_adset_budget_sharing_enabled,
+    isAdsetBudgetSharingEnabled: transformMetaBoolean(
+      campaign.is_adset_budget_sharing_enabled,
+    ),
     startTime: campaign.start_time,
     stopTime: campaign.stop_time,
     createdTime: campaign.created_time,
     updatedTime: campaign.updated_time,
     insights: transformInsights(campaign.insights),
   };
+}
+
+function transformMetaBoolean(value: boolean | string | undefined): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    return value === "1" || value.toLowerCase() === "true";
+  }
+
+  return undefined;
 }
 
 /**
@@ -149,7 +160,21 @@ export function transformAdSet(adSet: GraphApiAdSet): AdSet {
     optimizationGoal: adSet.optimization_goal,
     billingEvent: adSet.billing_event,
     bidAmount: adSet.bid_amount,
+    bidStrategy: adSet.bid_strategy,
+    destinationType: adSet.destination_type,
+    promotedObject: adSet.promoted_object,
     targeting: adSet.targeting,
+    targetingSentenceLines: adSet.targetingsentencelines?.data,
+    pacingType: adSet.pacing_type,
+    adsetSchedule: adSet.adset_schedule,
+    campaign: adSet.campaign
+      ? {
+          ...transformCampaign(adSet.campaign),
+          isAdsetBudgetSharingEnabled: transformMetaBoolean(
+            adSet.campaign.is_adset_budget_sharing_enabled,
+          ),
+        }
+      : undefined,
     insights: transformInsights(adSet.insights),
   };
 }

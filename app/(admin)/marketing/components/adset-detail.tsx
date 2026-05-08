@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, X, Info, Pencil } from "lucide-react";
+import { ArrowLeft, X, Info, Pencil, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -27,7 +27,11 @@ import {
 } from "@/components/ui/dialog";
 import {
   type AdSet,
+  type AdSetGeoLocations,
+  type AdSetScheduleBlock,
+  type AdSetTargeting,
   type InsightsMetrics,
+  type TargetingEntity,
   type TimeIncrement,
   DatePreset,
 } from "@/lib/meta-business/types";
@@ -62,6 +66,10 @@ type GetAdSetInsightsResponse = {
   insightsArray?: InsightsMetrics[];
 };
 
+type GetAdSetResponse = {
+  adset?: AdSet;
+};
+
 export function AdSetDetail({
   adSet: adSetProp,
   accountId,
@@ -76,6 +84,10 @@ export function AdSetDetail({
   );
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [detailedAdSet, setDetailedAdSet] = useState<AdSet | null>(null);
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
 
   useEffect(() => {
@@ -102,6 +114,44 @@ export function AdSetDetail({
     since: string;
     until: string;
   } | null>(null);
+
+  const fetchAdSetDetails = useCallback(async () => {
+    if (!adSet.id || !accountId || !userId) return;
+    if (detailedAdSet?.id === adSet.id && detailedAdSet.targeting) return;
+
+    setIsLoadingDetails(true);
+    setDetailsError(null);
+
+    try {
+      const params = new URLSearchParams({
+        userId,
+        adsLimit: "1",
+      });
+
+      const response = await fetch(
+        `/api/meta-marketing/${accountId}/adsets/${adSet.id}?${params}`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Não foi possível carregar os detalhes do conjunto.");
+      }
+
+      const data: GetAdSetResponse = await response.json();
+      setDetailedAdSet(data.adset ?? null);
+    } catch (err) {
+      console.error("Error fetching adset details:", err);
+      setDetailsError("Não foi possível carregar os detalhes do conjunto.");
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  }, [accountId, adSet.id, detailedAdSet?.id, detailedAdSet?.targeting, userId]);
+
+  const handleDetailsOpenChange = (open: boolean) => {
+    setIsDetailsOpen(open);
+    if (open) {
+      fetchAdSetDetails();
+    }
+  };
 
   const fetchInsights = useCallback(async () => {
     if (!adSet.id || !accountId) return;
@@ -226,6 +276,14 @@ export function AdSetDetail({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleDetailsOpenChange(true)}
+                className="shrink-0 h-8 text-xs"
+              >
+                Ver detalhes
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -418,6 +476,474 @@ export function AdSetDetail({
         refetchAdSet();
       }}
     />
+
+    <Dialog open={isDetailsOpen} onOpenChange={handleDetailsOpenChange}>
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto p-0">
+        <AdSetDetailsDialogContent
+          adSet={detailedAdSet ?? adSet}
+          isLoading={isLoadingDetails}
+          error={detailsError}
+          onRetry={fetchAdSetDetails}
+        />
+      </DialogContent>
+    </Dialog>
   </>
   );
+}
+
+type AdSetDetailsDialogContentProps = {
+  adSet: AdSet;
+  isLoading: boolean;
+  error: string | null;
+  onRetry: () => void;
+};
+
+function AdSetDetailsDialogContent({
+  adSet,
+  isLoading,
+  error,
+  onRetry,
+}: AdSetDetailsDialogContentProps) {
+  const targeting = adSet.targeting;
+  const campaign = adSet.campaign;
+  const hasCampaignBudget = Boolean(
+    campaign?.dailyBudget || campaign?.lifetimeBudget,
+  );
+  const dayNames = [
+    "Domingo",
+    "Segunda",
+    "Terça",
+    "Quarta",
+    "Quinta",
+    "Sexta",
+    "Sábado",
+  ];
+
+  return (
+    <div>
+      <DialogHeader className="border-b border-border/60 px-5 py-4 pr-12 text-left">
+        <DialogTitle>Detalhes do conjunto</DialogTitle>
+        <DialogDescription className="line-clamp-2">
+          {adSet.name ?? "Conjunto de anúncios"}
+        </DialogDescription>
+      </DialogHeader>
+
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center gap-3 px-5 py-12 text-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Carregando detalhes do conjunto...
+          </p>
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center gap-3 px-5 py-12 text-center">
+          <p className="text-sm text-destructive">{error}</p>
+          <Button variant="outline" size="sm" onClick={onRetry}>
+            Tentar novamente
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-4 px-5 py-5">
+          <DetailSection title="Público">
+            <DetailRow
+              label="Localizações"
+              values={formatGeoLocations(targeting?.geo_locations)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Localizações excluídas"
+              values={formatGeoLocations(targeting?.excluded_geo_locations)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Idade"
+              value={formatAgeRange(targeting)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Gênero"
+              values={formatGenders(targeting?.genders)}
+              empty="Todos"
+            />
+            <DetailRow
+              label="Públicos personalizados"
+              values={formatEntities(targeting?.custom_audiences)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Públicos personalizados excluídos"
+              values={formatEntities(targeting?.excluded_custom_audiences)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Direcionamento detalhado"
+              values={formatDetailedTargeting(targeting)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Idioma"
+              values={formatLocales(targeting?.locales)}
+              empty="Todos"
+            />
+          </DetailSection>
+
+          <DetailSection title="Posicionamentos">
+            <DetailRow
+              label="Plataformas"
+              values={formatMetaValues(targeting?.publisher_platforms)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Posicionamentos no Facebook"
+              values={formatMetaValues(targeting?.facebook_positions)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Posicionamentos no Instagram"
+              values={formatMetaValues(targeting?.instagram_positions)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Posicionamentos no Messenger"
+              values={formatMetaValues(targeting?.messenger_positions)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Posicionamentos na Audience Network"
+              values={formatMetaValues(targeting?.audience_network_positions)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Dispositivos"
+              values={formatMetaValues(targeting?.device_platforms)}
+              empty="Não informado"
+            />
+          </DetailSection>
+
+          <DetailSection title="Orçamento e datas">
+            <DetailRow
+              label="Origem do orçamento"
+              value={
+                hasCampaignBudget
+                  ? "Orçamento da campanha (CBO)"
+                  : "Orçamento do conjunto (ABO)"
+              }
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Orçamento diário"
+              value={formatBudgetCents(
+                hasCampaignBudget ? campaign?.dailyBudget : adSet.dailyBudget,
+              )}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Orçamento total"
+              value={formatBudgetCents(
+                hasCampaignBudget
+                  ? campaign?.lifetimeBudget
+                  : adSet.lifetimeBudget,
+              )}
+              empty="Não informado"
+            />
+            {campaign?.isAdsetBudgetSharingEnabled !== undefined && (
+              <DetailRow
+                label="Compartilhamento entre conjuntos"
+                value={campaign.isAdsetBudgetSharingEnabled ? "Sim" : "Não"}
+                empty="Não informado"
+              />
+            )}
+            <DetailRow
+              label="Data de início"
+              value={formatDate(adSet.startTime)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Hora de início"
+              value={formatTime(adSet.startTime)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Data de término"
+              value={formatDate(adSet.endTime)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Hora de término"
+              value={formatTime(adSet.endTime)}
+              empty="Não informado"
+            />
+          </DetailSection>
+
+          <DetailSection title="Veiculação">
+            <DetailRow
+              label="Veiculação"
+              values={formatPacingType(adSet.pacingType)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Dias e horários"
+              values={formatScheduleBlocks(adSet.adsetSchedule, dayNames)}
+              empty="Todos os dias e horários"
+            />
+            {adSet.targetingSentenceLines &&
+              adSet.targetingSentenceLines.length > 0 && (
+                <DetailRow
+                  label="Resumo da Meta"
+                  values={adSet.targetingSentenceLines
+                    .map((line) => line.content)
+                    .filter((line): line is string => Boolean(line))}
+                  empty="Não informado"
+                />
+              )}
+          </DetailSection>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type DetailSectionProps = {
+  title: string;
+  children: React.ReactNode;
+};
+
+function DetailSection({ title, children }: DetailSectionProps) {
+  return (
+    <section className="rounded-xl border border-border/60 bg-muted/20 p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </h3>
+      <dl className="mt-3 grid gap-3 sm:grid-cols-2">{children}</dl>
+    </section>
+  );
+}
+
+type DetailRowProps = {
+  label: string;
+  value?: string;
+  values?: string[];
+  empty: string;
+};
+
+function DetailRow({ label, value, values, empty }: DetailRowProps) {
+  const items = values ?? (value && value !== "-" ? [value] : []);
+
+  return (
+    <div className="space-y-1.5">
+      <dt className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </dt>
+      <dd>
+        {items.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {items.map((item, index) => (
+              <Badge
+                key={`${item}-${index}`}
+                variant="outline"
+                className="max-w-full wrap-break-word rounded-md bg-background px-2 py-1 text-left text-[11px] font-normal leading-relaxed"
+              >
+                {item}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">{empty}</span>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+function formatBudgetCents(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return undefined;
+
+  return formatCurrency(parsed / 100);
+}
+
+function formatTime(dateString: string | null | undefined): string | undefined {
+  if (!dateString) return undefined;
+
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return undefined;
+
+  return date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatAgeRange(targeting: AdSetTargeting | undefined): string | undefined {
+  if (!targeting?.age_min && !targeting?.age_max) return undefined;
+
+  const min = targeting.age_min ?? 18;
+  const max = targeting.age_max ? String(targeting.age_max) : "65+";
+
+  return `${min} - ${max}`;
+}
+
+function formatGenders(genders: number[] | undefined): string[] {
+  if (!genders || genders.length === 0) return [];
+
+  const labels: Record<number, string> = {
+    1: "Masculino",
+    2: "Feminino",
+  };
+
+  return genders.map((gender) => labels[gender] ?? String(gender));
+}
+
+function formatLocales(locales: number[] | undefined): string[] {
+  return locales?.map((locale) => `ID ${locale}`) ?? [];
+}
+
+function formatMetaValues(values: string[] | undefined): string[] {
+  return values?.map(formatMetaValue) ?? [];
+}
+
+function formatMetaValue(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatEntities(entities: TargetingEntity[] | undefined): string[] {
+  return entities?.map(formatEntity).filter(Boolean) ?? [];
+}
+
+function formatEntity(entity: TargetingEntity): string {
+  const name = entity.name ?? entity.key ?? entity.id;
+  const region = readPrimitive(entity, "region");
+  const country = readPrimitive(entity, "country");
+  const details = [region, country].filter(Boolean).join(", ");
+
+  if (!name) return details;
+  return details ? `${name} (${details})` : name;
+}
+
+function formatGeoLocations(geoLocations: AdSetGeoLocations | undefined): string[] {
+  if (!geoLocations) return [];
+
+  return [
+    ...(geoLocations.countries?.map((country) => `País: ${country}`) ?? []),
+    ...(geoLocations.country_groups?.map((group) => `Grupo: ${group}`) ?? []),
+    ...(geoLocations.regions?.map(
+      (region) => `Região: ${formatEntity(region)}`,
+    ) ?? []),
+    ...(geoLocations.cities?.map((city) => `Cidade: ${formatEntity(city)}`) ??
+      []),
+    ...(geoLocations.zips?.map((zip) => `CEP: ${formatEntity(zip)}`) ?? []),
+    ...(geoLocations.geo_markets?.map(
+      (market) => `Mercado: ${formatEntity(market)}`,
+    ) ?? []),
+    ...(geoLocations.custom_locations?.map(formatCustomLocation) ?? []),
+    ...(geoLocations.location_types?.map(
+      (type) => `Tipo: ${formatMetaValue(type)}`,
+    ) ?? []),
+  ].filter(Boolean);
+}
+
+function formatCustomLocation(location: TargetingEntity): string {
+  const address = readPrimitive(location, "address_string") ?? location.name;
+  const latitude = readPrimitive(location, "latitude");
+  const longitude = readPrimitive(location, "longitude");
+  const radius = readPrimitive(location, "radius");
+  const distanceUnit = readPrimitive(location, "distance_unit");
+  const coordinates =
+    latitude && longitude ? `${latitude}, ${longitude}` : undefined;
+  const base = address ?? coordinates ?? location.key ?? location.id ?? "";
+
+  if (radius) {
+    return `${base} (${radius}${distanceUnit ? ` ${distanceUnit}` : ""})`;
+  }
+
+  return base;
+}
+
+function formatDetailedTargeting(
+  targeting: AdSetTargeting | undefined,
+): string[] {
+  if (!targeting) return [];
+
+  const directSegments = [
+    ...(targeting.interests?.map((item) => `Interesse: ${formatEntity(item)}`) ??
+      []),
+    ...(targeting.behaviors?.map(
+      (item) => `Comportamento: ${formatEntity(item)}`,
+    ) ?? []),
+    ...(targeting.demographics?.map(
+      (item) => `Demográfico: ${formatEntity(item)}`,
+    ) ?? []),
+  ];
+
+  const flexibleSegments =
+    targeting.flexible_spec?.flatMap((spec, specIndex) =>
+      Object.entries(spec).flatMap(([key, entities]) =>
+        entities?.map(
+          (entity) =>
+            `${formatMetaValue(key)} ${specIndex + 1}: ${formatEntity(entity)}`,
+        ) ?? [],
+      ),
+    ) ?? [];
+
+  return [...directSegments, ...flexibleSegments];
+}
+
+function formatPacingType(pacingType: string[] | string | undefined): string[] {
+  if (!pacingType) return [];
+
+  const values = Array.isArray(pacingType) ? pacingType : [pacingType];
+  return values.map(formatMetaValue);
+}
+
+function formatScheduleBlocks(
+  scheduleBlocks: AdSetScheduleBlock[] | undefined,
+  dayNames: string[],
+): string[] {
+  if (!scheduleBlocks || scheduleBlocks.length === 0) return [];
+
+  return scheduleBlocks.map((block) => {
+    const days =
+      block.days
+        ?.map((day) => dayNames[day] ?? String(day))
+        .filter(Boolean)
+        .join(", ") ?? "Todos os dias";
+    const start = formatMinuteOfDay(block.start_minute);
+    const end = formatMinuteOfDay(block.end_minute);
+    const timezone = block.timezone_type
+      ? ` (${formatMetaValue(block.timezone_type)})`
+      : "";
+
+    return `${days}: ${start} - ${end}${timezone}`;
+  });
+}
+
+function formatMinuteOfDay(minute: number | undefined): string {
+  if (minute === undefined) return "--:--";
+
+  const hours = Math.floor(minute / 60);
+  const minutes = minute % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+    2,
+    "0",
+  )}`;
+}
+
+function readPrimitive(
+  source: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = source[key];
+
+  if (typeof value === "string" || typeof value === "number") {
+    return String(value);
+  }
+
+  return undefined;
 }
