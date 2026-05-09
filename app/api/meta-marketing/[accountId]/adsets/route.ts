@@ -201,6 +201,13 @@ type GraphApiPixelsResponse = { data: GraphApiPixel[] };
 type CreateAdSetApiResponse = { id: string };
 type CreateAdCreativeApiResponse = { id: string };
 type CreateAdApiResponse = { id: string };
+type MediaBoostEligibilityResponse = {
+  id: string;
+  boost_eligibility_info?: {
+    eligible_to_boost: boolean;
+    ineligible_reason?: string;
+  };
+};
 
 export type PostAdSetRequestBody = {
   userId: string;
@@ -465,6 +472,24 @@ function buildCallToAction(params: {
   }
 }
 
+async function checkMediaBoostEligibility(
+  mediaId: string,
+  accessToken: string,
+): Promise<{ isEligible: boolean; ineligibleReason?: string }> {
+  const response = await metaApiCall<MediaBoostEligibilityResponse>({
+    domain: "FACEBOOK",
+    method: "GET",
+    path: mediaId,
+    params: "fields=id,boost_eligibility_info",
+    accessToken,
+  });
+
+  return {
+    isEligible: response.boost_eligibility_info?.eligible_to_boost === true,
+    ineligibleReason: response.boost_eligibility_info?.ineligible_reason,
+  };
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
@@ -596,6 +621,40 @@ export async function POST(
     }
 
     const { accessToken } = tokenResult;
+
+    for (const source of creatives) {
+      try {
+        const eligibility = await checkMediaBoostEligibility(
+          source.instagramMediaId,
+          accessToken,
+        );
+
+        if (!eligibility.isEligible) {
+          return NextResponse.json(
+            {
+              error: "Mídia não elegível",
+              message:
+                "Esta publicação do Instagram não pode ser anunciada no momento.",
+              solution:
+                eligibility.ineligibleReason ??
+                "Escolha outra publicação elegível para anúncio.",
+            },
+            { status: 400 },
+          );
+        }
+      } catch (error) {
+        console.error("Error checking Instagram media boost eligibility:", error);
+        return NextResponse.json(
+          {
+            error: "Falha ao validar mídia",
+            message:
+              "Não foi possível confirmar se uma publicação do Instagram pode ser anunciada.",
+            solution: "Tente novamente ou selecione outra publicação.",
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     const formattedAccountId = accountId.startsWith("act_")
       ? accountId

@@ -10,6 +10,11 @@ export type InstagramMediaType =
   | "CAROUSEL_ALBUM"
   | "REELS";
 
+export type BoostEligibilityInfo = {
+  eligible_to_boost: boolean;
+  ineligible_reason?: string;
+};
+
 export type InstagramBusinessMediaItem = {
   id: string;
   caption?: string;
@@ -20,6 +25,7 @@ export type InstagramBusinessMediaItem = {
   timestamp?: string;
   like_count?: number;
   comments_count?: number;
+  boost_eligibility_info?: BoostEligibilityInfo;
 };
 
 type GraphApiPage = {
@@ -75,7 +81,72 @@ const MEDIA_FIELDS = [
   "timestamp",
   "like_count",
   "comments_count",
+  "boost_eligibility_info",
 ].join(",");
+
+const MAX_PAGES_TO_FILL_ELIGIBLE_MEDIA = 5;
+
+function isBoostEligibleMedia(media: InstagramBusinessMediaItem): boolean {
+  return media.boost_eligibility_info?.eligible_to_boost === true;
+}
+
+async function getBoostEligibleInstagramMedia(params: {
+  instagramBusinessAccountId: string;
+  accessToken: string;
+  limit: number;
+  after?: string | null;
+}) {
+  const eligibleMedia: InstagramBusinessMediaItem[] = [];
+  let nextCursor = params.after ?? undefined;
+  let lastPaging: GraphApiMediaResponse["paging"];
+
+  for (
+    let pagesLoaded = 0;
+    pagesLoaded < MAX_PAGES_TO_FILL_ELIGIBLE_MEDIA &&
+    eligibleMedia.length < params.limit;
+    pagesLoaded++
+  ) {
+    const mediaQueryParams = [
+      `fields=${MEDIA_FIELDS}`,
+      `limit=${params.limit}`,
+    ];
+    if (nextCursor) {
+      mediaQueryParams.push(`after=${nextCursor}`);
+    }
+
+    const mediaResponse = await metaApiCall<GraphApiMediaResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${params.instagramBusinessAccountId}/media`,
+      params: mediaQueryParams.join("&"),
+      accessToken: params.accessToken,
+    });
+
+    eligibleMedia.push(
+      ...(mediaResponse.data ?? []).filter(isBoostEligibleMedia).slice(
+        0,
+        params.limit - eligibleMedia.length,
+      ),
+    );
+
+    lastPaging = mediaResponse.paging;
+    nextCursor = mediaResponse.paging?.cursors?.after;
+
+    if (!mediaResponse.paging?.next) {
+      break;
+    }
+  }
+
+  return {
+    media: eligibleMedia,
+    pagination: {
+      hasNextPage: !!lastPaging?.next,
+      hasPreviousPage: Boolean(params.after),
+      nextCursor: lastPaging?.cursors?.after,
+      previousCursor: undefined,
+    },
+  };
+}
 
 export async function GET(
   request: NextRequest,
@@ -157,29 +228,17 @@ export async function GET(
 
     const igAccount = pagesWithInstagram[0].instagram_business_account!;
 
-    // Build media query params
-    const mediaQueryParams = [`fields=${MEDIA_FIELDS}`, `limit=${limit}`];
-    if (after) {
-      mediaQueryParams.push(`after=${after}`);
-    }
-
-    const mediaResponse = await metaApiCall<GraphApiMediaResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: `${igAccount.id}/media`,
-      params: mediaQueryParams.join("&"),
+    const mediaResponse = await getBoostEligibleInstagramMedia({
+      instagramBusinessAccountId: igAccount.id,
       accessToken,
+      limit,
+      after,
     });
 
     return NextResponse.json(
       {
-        media: mediaResponse.data ?? [],
-        pagination: {
-          hasNextPage: !!mediaResponse.paging?.next,
-          hasPreviousPage: !!mediaResponse.paging?.previous,
-          nextCursor: mediaResponse.paging?.cursors?.after,
-          previousCursor: mediaResponse.paging?.cursors?.before,
-        },
+        media: mediaResponse.media,
+        pagination: mediaResponse.pagination,
         instagramAccount: {
           id: igAccount.id,
           username: igAccount.username,

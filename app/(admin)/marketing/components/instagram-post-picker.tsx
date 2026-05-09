@@ -22,6 +22,10 @@ export type InstagramMediaItem = {
   timestamp?: string;
   like_count?: number;
   comments_count?: number;
+  boost_eligibility_info?: {
+    eligible_to_boost: boolean;
+    ineligible_reason?: string;
+  };
 };
 
 type InstagramPostPickerProps = {
@@ -151,10 +155,29 @@ export function InstagramPostPicker({
         <div className="flex size-12 items-center justify-center rounded-full bg-muted">
           <ImageIcon className="size-6 text-muted-foreground" />
         </div>
-        <p className="text-sm font-medium">Nenhum post encontrado</p>
+        <p className="text-sm font-medium">Nenhum post elegível encontrado</p>
         <p className="text-xs text-muted-foreground text-center">
-          Nenhum post disponível na conta do Instagram conectada
+          Nenhum post elegível para anúncio foi encontrado na conta do
+          Instagram conectada.
         </p>
+        {hasNextPage && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            disabled={isLoadingMore}
+            onClick={() => fetchMedia(nextCursor)}
+          >
+            {isLoadingMore ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Carregando...
+              </>
+            ) : (
+              "Carregar mais"
+            )}
+          </Button>
+        )}
       </div>
     );
   }
