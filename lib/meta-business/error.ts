@@ -269,3 +269,24 @@ export function errorToGraphErrorReturn(error: unknown): GraphErrorReturn {
     },
   };
 }
+
+export function graphErrorToClientError(errorReturn: GraphErrorReturn): {
+  error: string;
+  message: string;
+  solution: string;
+} {
+  const title = errorReturn.data?.errorUserTitle ?? errorReturn.reason.title;
+  const message =
+    errorReturn.data?.errorUserMsg ??
+    errorReturn.data?.message ??
+    errorReturn.reason.message;
+
+  return {
+    error: title,
+    message:
+      errorReturn.data?.errorUserTitle && errorReturn.data?.errorUserMsg
+        ? `${title}: ${message}`
+        : message,
+    solution: errorReturn.reason.solution,
+  };
+}

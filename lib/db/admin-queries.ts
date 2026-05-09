@@ -1,4 +1,15 @@
-import { and, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "./index";
 import {
   adsetEditLog,
@@ -24,6 +35,7 @@ import {
   userCompany,
   userMarketingConsultant,
   type CampaignAdSetBudgetChangeData,
+  type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
   type AdSetTargetingData,
   type Payment,
@@ -196,10 +208,7 @@ export async function getAllUsersWithUsage(
     )`);
   }
 
-  if (
-    params.filters?.consultantId &&
-    params.filters.consultantId !== "all"
-  ) {
+  if (params.filters?.consultantId && params.filters.consultantId !== "all") {
     if (params.filters.consultantId === "unassigned") {
       conditions.push(sql`NOT EXISTS (
         SELECT 1
@@ -236,84 +245,95 @@ export async function getAllUsersWithUsage(
     return { users: [], total, page, pageSize };
   }
 
-  const [chatCounts, postCounts, usageRows, companyRows, subRows, metaRows, consultantRows] =
-    await Promise.all([
-      db
-        .select({
-          userId: chat.userId,
-          count: count(),
-        })
-        .from(chat)
-        .where(inArray(chat.userId, userIds))
-        .groupBy(chat.userId),
-      db
-        .select({
-          userId: post.userId,
-          count: count(),
-        })
-        .from(post)
-        .where(inArray(post.userId, userIds))
-        .groupBy(post.userId),
-      db
-        .select({
-          userId: aiUsageLog.userId,
-          totalCost: sql<string>`COALESCE(SUM(${aiUsageLog.cost}), 0)`,
-          totalTokens: sql<number>`COALESCE(SUM(${aiUsageLog.totalTokens}), 0)`,
-          requestCount: count(),
-        })
-        .from(aiUsageLog)
-        .where(inArray(aiUsageLog.userId, userIds))
-        .groupBy(aiUsageLog.userId),
-      db
-        .select({
-          userId: userCompany.userId,
-          companyName: company.name,
-          onboardingCompleted: company.onboardingCompleted,
-        })
-        .from(userCompany)
-        .leftJoin(company, eq(userCompany.companyId, company.id))
-        .where(inArray(userCompany.userId, userIds)),
-      db
-        .select({
-          userId: subscription.userId,
-          id: subscription.id,
-          planType: subscription.planType,
-          status: subscription.status,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          stripeSubscriptionId: subscription.stripeSubscriptionId,
-          createdAt: subscription.createdAt,
-        })
-        .from(subscription)
-        .where(inArray(subscription.userId, userIds)),
-      db
-        .select({
-          userId: metaBusinessAccount.userId,
-          metaAccountName: sql<string | null>`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
-          metaUpdatedAt: sql<Date | string>`MAX(${metaBusinessAccount.updatedAt})`,
-        })
-        .from(metaBusinessAccount)
-        .where(
-          and(
-            inArray(metaBusinessAccount.userId, userIds),
-            isNull(metaBusinessAccount.deletedAt),
-          ),
-        )
-        .groupBy(metaBusinessAccount.userId),
-      db
-        .select({
-          userId: userMarketingConsultant.userId,
-          consultantId: backofficeUser.id,
-          consultantEmail: backofficeUser.email,
-          consultantName: backofficeUser.name,
-        })
-        .from(userMarketingConsultant)
-        .innerJoin(
-          backofficeUser,
-          eq(userMarketingConsultant.consultantId, backofficeUser.id),
-        )
-        .where(inArray(userMarketingConsultant.userId, userIds)),
-    ]);
+  const [
+    chatCounts,
+    postCounts,
+    usageRows,
+    companyRows,
+    subRows,
+    metaRows,
+    consultantRows,
+  ] = await Promise.all([
+    db
+      .select({
+        userId: chat.userId,
+        count: count(),
+      })
+      .from(chat)
+      .where(inArray(chat.userId, userIds))
+      .groupBy(chat.userId),
+    db
+      .select({
+        userId: post.userId,
+        count: count(),
+      })
+      .from(post)
+      .where(inArray(post.userId, userIds))
+      .groupBy(post.userId),
+    db
+      .select({
+        userId: aiUsageLog.userId,
+        totalCost: sql<string>`COALESCE(SUM(${aiUsageLog.cost}), 0)`,
+        totalTokens: sql<number>`COALESCE(SUM(${aiUsageLog.totalTokens}), 0)`,
+        requestCount: count(),
+      })
+      .from(aiUsageLog)
+      .where(inArray(aiUsageLog.userId, userIds))
+      .groupBy(aiUsageLog.userId),
+    db
+      .select({
+        userId: userCompany.userId,
+        companyName: company.name,
+        onboardingCompleted: company.onboardingCompleted,
+      })
+      .from(userCompany)
+      .leftJoin(company, eq(userCompany.companyId, company.id))
+      .where(inArray(userCompany.userId, userIds)),
+    db
+      .select({
+        userId: subscription.userId,
+        id: subscription.id,
+        planType: subscription.planType,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        stripeSubscriptionId: subscription.stripeSubscriptionId,
+        createdAt: subscription.createdAt,
+      })
+      .from(subscription)
+      .where(inArray(subscription.userId, userIds)),
+    db
+      .select({
+        userId: metaBusinessAccount.userId,
+        metaAccountName: sql<
+          string | null
+        >`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+        metaUpdatedAt: sql<
+          Date | string
+        >`MAX(${metaBusinessAccount.updatedAt})`,
+      })
+      .from(metaBusinessAccount)
+      .where(
+        and(
+          inArray(metaBusinessAccount.userId, userIds),
+          isNull(metaBusinessAccount.deletedAt),
+        ),
+      )
+      .groupBy(metaBusinessAccount.userId),
+    db
+      .select({
+        userId: userMarketingConsultant.userId,
+        consultantId: backofficeUser.id,
+        consultantEmail: backofficeUser.email,
+        consultantName: backofficeUser.name,
+      })
+      .from(userMarketingConsultant)
+      .innerJoin(
+        backofficeUser,
+        eq(userMarketingConsultant.consultantId, backofficeUser.id),
+      )
+      .where(inArray(userMarketingConsultant.userId, userIds)),
+  ]);
 
   const chatCountByUser = new Map<string, number>();
   for (const row of chatCounts) {
@@ -523,9 +543,12 @@ export async function getUserWithDetailedUsage(userId: string) {
   // Calculate totals
   const totalCost = recentUsage.reduce(
     (sum, log) => sum + Number.parseFloat(log.cost),
-    0
+    0,
   );
-  const totalTokens = recentUsage.reduce((sum, log) => sum + log.totalTokens, 0);
+  const totalTokens = recentUsage.reduce(
+    (sum, log) => sum + log.totalTokens,
+    0,
+  );
 
   return {
     ...foundUser,
@@ -683,7 +706,7 @@ export async function getUserAuditLogs(userId: string, limit = 50) {
   } catch (error) {
     if (getPostgresErrorCode(error) === "42P01") {
       console.warn(
-        "[getUserAuditLogs] Table backoffice_audit_logs is missing. Apply migrations: npm run db:push (or run lib/db/migrations/0001_backoffice_audit_logs.sql)."
+        "[getUserAuditLogs] Table backoffice_audit_logs is missing. Apply migrations: npm run db:push (or run lib/db/migrations/0001_backoffice_audit_logs.sql).",
       );
       return [];
     }
@@ -910,10 +933,15 @@ export async function getUsersWithPosts(options?: {
         ...row,
         companyName: companyInfo?.companyName ?? null,
       };
-    })
+    }),
   );
 
-  return { users: usersWithCompany, total: totalResult?.count ?? 0, page, limit };
+  return {
+    users: usersWithCompany,
+    total: totalResult?.count ?? 0,
+    page,
+    limit,
+  };
 }
 
 // ================================
@@ -935,8 +963,10 @@ export async function getAllUserGeneratedImages(options?: {
     isNull(generatedImage.deletedAt),
     isNull(generatedImageVersion.parentVersionId),
   ];
-  if (options?.userId) conditions.push(eq(generatedImage.userId, options.userId));
-  if (options?.status) conditions.push(eq(generatedImage.status, options.status));
+  if (options?.userId)
+    conditions.push(eq(generatedImage.userId, options.userId));
+  if (options?.status)
+    conditions.push(eq(generatedImage.status, options.status));
   if (options?.search) {
     const term = `%${options.search}%`;
     conditions.push(ilike(generatedImage.prompt, term));
@@ -958,7 +988,10 @@ export async function getAllUserGeneratedImages(options?: {
       updatedAt: generatedImage.updatedAt,
     })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .innerJoin(user, eq(generatedImage.userId, user.id))
     .where(and(...conditions))
     .orderBy(desc(generatedImage.createdAt))
@@ -968,7 +1001,10 @@ export async function getAllUserGeneratedImages(options?: {
   const [totalResult] = await db
     .select({ count: count() })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(and(...conditions));
 
   if (images.length === 0) {
@@ -982,12 +1018,15 @@ export async function getAllUserGeneratedImages(options?: {
       imageUrl: generatedImage.publicImageUrl,
     })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(
       and(
         inArray(generatedImageVersion.sourceAiGeneratedImageId, rootIds),
         isNull(generatedImage.deletedAt),
-      )
+      ),
     )
     .orderBy(desc(generatedImageVersion.versionNumber));
 
@@ -1004,12 +1043,15 @@ export async function getAllUserGeneratedImages(options?: {
       caption: aiGeneratedText.text,
     })
     .from(genericGeneratePost)
-    .leftJoin(aiGeneratedText, eq(genericGeneratePost.captionTextId, aiGeneratedText.id))
+    .leftJoin(
+      aiGeneratedText,
+      eq(genericGeneratePost.captionTextId, aiGeneratedText.id),
+    )
     .where(
       and(
         inArray(genericGeneratePost.postImageId, rootIds),
         isNull(genericGeneratePost.deletedAt),
-      )
+      ),
     );
 
   const captionMap = new Map<string, string | null>();
@@ -1045,7 +1087,7 @@ export type GeneratedImageDetails = {
 };
 
 export async function getGeneratedImageDetails(
-  imageId: string
+  imageId: string,
 ): Promise<GeneratedImageDetails | null> {
   const [found] = await db
     .select({
@@ -1077,12 +1119,15 @@ export async function getGeneratedImageDetails(
   const [latestVersion] = await db
     .select({ imageUrl: generatedImage.publicImageUrl })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(
       and(
         eq(generatedImageVersion.sourceAiGeneratedImageId, imageId),
         isNull(generatedImage.deletedAt),
-      )
+      ),
     )
     .orderBy(desc(generatedImageVersion.versionNumber))
     .limit(1);
@@ -1100,7 +1145,7 @@ export async function getGeneratedImageDetails(
       and(
         eq(genericGeneratePost.postImageId, imageId),
         isNull(genericGeneratePost.deletedAt),
-      )
+      ),
     )
     .limit(1);
 
@@ -1136,7 +1181,8 @@ export async function getBackofficeGeneratedPosts(options?: {
       backofficeUserEmail: sql<string>`(SELECT email FROM users WHERE id = ${backofficeGeneratedPost.backofficeUserId})`,
       targetUserId: backofficeGeneratedPost.targetUserId,
       targetUserEmail: sql<string>`(SELECT email FROM users WHERE id = ${backofficeGeneratedPost.targetUserId})`,
-      sourceUserGeneratedImageId: backofficeGeneratedPost.sourceUserGeneratedImageId,
+      sourceUserGeneratedImageId:
+        backofficeGeneratedPost.sourceUserGeneratedImageId,
       sourceBackofficePostId: backofficeGeneratedPost.sourceBackofficePostId,
       prompt: backofficeGeneratedPost.prompt,
       referenceImageUrls: backofficeGeneratedPost.referenceImageUrls,
@@ -1150,11 +1196,11 @@ export async function getBackofficeGeneratedPosts(options?: {
     .from(backofficeGeneratedPost)
     .leftJoin(
       generatedImage,
-      eq(backofficeGeneratedPost.generatedImageId, generatedImage.id)
+      eq(backofficeGeneratedPost.generatedImageId, generatedImage.id),
     )
     .leftJoin(
       aiGeneratedText,
-      eq(backofficeGeneratedPost.captionTextId, aiGeneratedText.id)
+      eq(backofficeGeneratedPost.captionTextId, aiGeneratedText.id),
     )
     .where(isNull(backofficeGeneratedPost.deletedAt))
     .orderBy(desc(backofficeGeneratedPost.createdAt))
@@ -1261,7 +1307,7 @@ export async function updateBackofficeGeneratedPost(
     captionTextId: string;
     status: string;
     notes: string;
-  }>
+  }>,
 ) {
   const [updated] = await db
     .update(backofficeGeneratedPost)
@@ -1286,7 +1332,10 @@ export async function getPostPerformanceStats(userId?: string) {
   const [totalPosts] = await db
     .select({ count: count() })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(imgConditions);
 
   const postsByType = await db
@@ -1295,7 +1344,10 @@ export async function getPostPerformanceStats(userId?: string) {
       count: count(),
     })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(imgConditions)
     .groupBy(generatedImage.aspectRatio);
 
@@ -1364,6 +1416,12 @@ export type CreateAdSetEditLogData = {
   adsetName?: string;
   previousDailyBudget?: string;
   newDailyBudget?: string;
+  previousLifetimeBudget?: string;
+  newLifetimeBudget?: string;
+  previousStartTime?: string;
+  newStartTime?: string;
+  previousEndTime?: string;
+  newEndTime?: string;
   previousTargeting?: AdSetTargetingData;
   newTargeting?: AdSetTargetingData;
   note: string;
@@ -1383,6 +1441,12 @@ export async function createAdSetEditLog(data: CreateAdSetEditLogData) {
       adsetName: data.adsetName,
       previousDailyBudget: data.previousDailyBudget,
       newDailyBudget: data.newDailyBudget,
+      previousLifetimeBudget: data.previousLifetimeBudget,
+      newLifetimeBudget: data.newLifetimeBudget,
+      previousStartTime: data.previousStartTime,
+      newStartTime: data.newStartTime,
+      previousEndTime: data.previousEndTime,
+      newEndTime: data.newEndTime,
       previousTargeting: data.previousTargeting,
       newTargeting: data.newTargeting,
       note: data.note,
@@ -1404,6 +1468,12 @@ export type AdSetEditLogWithAdmin = {
   adsetName: string | null;
   previousDailyBudget: string | null;
   newDailyBudget: string | null;
+  previousLifetimeBudget: string | null;
+  newLifetimeBudget: string | null;
+  previousStartTime: string | null;
+  newStartTime: string | null;
+  previousEndTime: string | null;
+  newEndTime: string | null;
   previousTargeting: AdSetTargetingData | null;
   newTargeting: AdSetTargetingData | null;
   note: string;
@@ -1427,6 +1497,12 @@ export async function getAdSetEditLogs(
       adsetName: adsetEditLog.adsetName,
       previousDailyBudget: adsetEditLog.previousDailyBudget,
       newDailyBudget: adsetEditLog.newDailyBudget,
+      previousLifetimeBudget: adsetEditLog.previousLifetimeBudget,
+      newLifetimeBudget: adsetEditLog.newLifetimeBudget,
+      previousStartTime: adsetEditLog.previousStartTime,
+      newStartTime: adsetEditLog.newStartTime,
+      previousEndTime: adsetEditLog.previousEndTime,
+      newEndTime: adsetEditLog.newEndTime,
       previousTargeting: adsetEditLog.previousTargeting,
       newTargeting: adsetEditLog.newTargeting,
       note: adsetEditLog.note,
@@ -1462,7 +1538,10 @@ export type CreateCampaignEditLogData = {
   newBudgetMode: CampaignBudgetModeData;
   previousDailyBudget?: string | null;
   newDailyBudget?: string;
+  previousLifetimeBudget?: string | null;
+  newLifetimeBudget?: string;
   adsetBudgetChanges?: CampaignAdSetBudgetChangeData[];
+  adsetScheduleChanges?: CampaignAdSetScheduleChangeData[];
   note: string;
   appliedToMeta: boolean;
   errorMessage?: string;
@@ -1481,7 +1560,10 @@ export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
       newBudgetMode: data.newBudgetMode,
       previousDailyBudget: data.previousDailyBudget,
       newDailyBudget: data.newDailyBudget,
+      previousLifetimeBudget: data.previousLifetimeBudget,
+      newLifetimeBudget: data.newLifetimeBudget,
       adsetBudgetChanges: data.adsetBudgetChanges,
+      adsetScheduleChanges: data.adsetScheduleChanges,
       note: data.note,
       appliedToMeta: data.appliedToMeta,
       errorMessage: data.errorMessage,

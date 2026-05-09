@@ -288,14 +288,29 @@ export type Campaign = {
 export type CampaignAdSetBudgetInput = {
   adsetId: string;
   adsetName?: string;
-  dailyBudget: number;
+  budgetType?: "daily" | "lifetime";
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+  startTime?: string;
+  endTime?: string;
 };
 
 export type CampaignAdSetBudgetChange = {
   adsetId: string;
   adsetName?: string;
   previousDailyBudget?: string | null;
-  newDailyBudget: string;
+  newDailyBudget?: string | null;
+  previousLifetimeBudget?: string | null;
+  newLifetimeBudget?: string | null;
+};
+
+export type CampaignAdSetScheduleChange = {
+  adsetId: string;
+  adsetName?: string;
+  previousStartTime?: string | null;
+  newStartTime?: string | null;
+  previousEndTime?: string | null;
+  newEndTime?: string | null;
 };
 
 // ================================

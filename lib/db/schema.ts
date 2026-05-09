@@ -135,7 +135,9 @@ export const masterclassLesson = pgTable(
       .references(() => masterclassCourse.id),
     title: text("title").notNull(),
     slug: text("slug").notNull(),
-    videoProvider: varchar("video_provider", { length: 20 }).notNull().default("youtube"),
+    videoProvider: varchar("video_provider", { length: 20 })
+      .notNull()
+      .default("youtube"),
     videoAssetId: text("video_asset_id").notNull(),
     position: integer("position").notNull(),
     published: boolean("published").notNull().default(true),
@@ -143,10 +145,9 @@ export const masterclassLesson = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    uniqueCoursePosition: unique("masterclass_lessons_course_position_unique").on(
-      table.courseId,
-      table.position,
-    ),
+    uniqueCoursePosition: unique(
+      "masterclass_lessons_course_position_unique",
+    ).on(table.courseId, table.position),
     uniqueCourseSlug: unique("masterclass_lessons_course_slug_unique").on(
       table.courseId,
       table.slug,
@@ -243,7 +244,7 @@ export const vote = pgTable(
     return {
       pk: primaryKey({ columns: [table.chatId, table.messageId] }),
     };
-  }
+  },
 );
 
 export type Vote = InferSelectModel<typeof vote>;
@@ -266,7 +267,7 @@ export const document = pgTable(
     return {
       pk: primaryKey({ columns: [table.id, table.createdAt] }),
     };
-  }
+  },
 );
 
 export type Document = InferSelectModel<typeof document>;
@@ -292,7 +293,7 @@ export const suggestion = pgTable(
       columns: [table.documentId, table.documentCreatedAt],
       foreignColumns: [document.id, document.createdAt],
     }),
-  })
+  }),
 );
 
 export type Suggestion = InferSelectModel<typeof suggestion>;
@@ -310,7 +311,7 @@ export const stream = pgTable(
       columns: [table.chatId],
       foreignColumns: [chat.id],
     }),
-  })
+  }),
 );
 
 export type Stream = InferSelectModel<typeof stream>;
@@ -358,7 +359,7 @@ export const userCompany = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.companyId] }),
-  })
+  }),
 );
 
 export type UserCompany = InferSelectModel<typeof userCompany>;
@@ -387,9 +388,9 @@ export const instagramAccount = pgTable(
   },
   (table) => ({
     uniqueUserAccount: unique(
-      "instagram_accounts_user_id_account_id_unique"
+      "instagram_accounts_user_id_account_id_unique",
     ).on(table.userId, table.accountId),
-  })
+  }),
 );
 
 export type InstagramAccount = InferSelectModel<typeof instagramAccount>;
@@ -413,9 +414,9 @@ export const metaBusinessAccount = pgTable(
   },
   (table) => ({
     uniqueUserFacebookAccount: unique(
-      "meta_business_accounts_user_id_facebook_user_id_unique"
+      "meta_business_accounts_user_id_facebook_user_id_unique",
     ).on(table.userId, table.facebookUserId),
-  })
+  }),
 );
 
 export type MetaBusinessAccount = InferSelectModel<typeof metaBusinessAccount>;
@@ -443,14 +444,27 @@ export type CampaignAdSetBudgetChangeData = {
   adsetId: string;
   adsetName?: string;
   previousDailyBudget?: string | null;
-  newDailyBudget: string;
+  newDailyBudget?: string | null;
+  previousLifetimeBudget?: string | null;
+  newLifetimeBudget?: string | null;
+};
+
+export type CampaignAdSetScheduleChangeData = {
+  adsetId: string;
+  adsetName?: string;
+  previousStartTime?: string | null;
+  newStartTime?: string | null;
+  previousEndTime?: string | null;
+  newEndTime?: string | null;
 };
 
 // AdSet Edit Logs - tracking manual changes made by backoffice admins
 // backoffice_user_email: Google OAuth admins are not in users table; store email like backoffice_audit_logs
 export const adsetEditLog = pgTable("adset_edit_logs", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
-  backofficeUserEmail: varchar("backoffice_user_email", { length: 100 }).notNull(),
+  backofficeUserEmail: varchar("backoffice_user_email", {
+    length: 100,
+  }).notNull(),
   targetUserId: uuid("target_user_id")
     .notNull()
     .references(() => user.id),
@@ -460,6 +474,12 @@ export const adsetEditLog = pgTable("adset_edit_logs", {
   adsetName: text("adset_name"),
   previousDailyBudget: numeric("previous_daily_budget"),
   newDailyBudget: numeric("new_daily_budget"),
+  previousLifetimeBudget: numeric("previous_lifetime_budget"),
+  newLifetimeBudget: numeric("new_lifetime_budget"),
+  previousStartTime: text("previous_start_time"),
+  newStartTime: text("new_start_time"),
+  previousEndTime: text("previous_end_time"),
+  newEndTime: text("new_end_time"),
   previousTargeting: jsonb("previous_targeting").$type<AdSetTargetingData>(),
   newTargeting: jsonb("new_targeting").$type<AdSetTargetingData>(),
   note: text("note").notNull(),
@@ -472,7 +492,9 @@ export type AdsetEditLog = InferSelectModel<typeof adsetEditLog>;
 
 export const campaignEditLog = pgTable("campaign_edit_logs", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
-  backofficeUserEmail: varchar("backoffice_user_email", { length: 100 }).notNull(),
+  backofficeUserEmail: varchar("backoffice_user_email", {
+    length: 100,
+  }).notNull(),
   targetUserId: uuid("target_user_id")
     .notNull()
     .references(() => user.id),
@@ -487,8 +509,14 @@ export const campaignEditLog = pgTable("campaign_edit_logs", {
     .notNull(),
   previousDailyBudget: numeric("previous_daily_budget"),
   newDailyBudget: numeric("new_daily_budget"),
-  adsetBudgetChanges:
-    jsonb("adset_budget_changes").$type<CampaignAdSetBudgetChangeData[]>(),
+  previousLifetimeBudget: numeric("previous_lifetime_budget"),
+  newLifetimeBudget: numeric("new_lifetime_budget"),
+  adsetBudgetChanges: jsonb("adset_budget_changes").$type<
+    CampaignAdSetBudgetChangeData[]
+  >(),
+  adsetScheduleChanges: jsonb("adset_schedule_changes").$type<
+    CampaignAdSetScheduleChangeData[]
+  >(),
   note: text("note").notNull(),
   appliedToMeta: boolean("applied_to_meta").notNull().default(false),
   errorMessage: text("error_message"),
@@ -508,7 +536,7 @@ export const scheduledPost = pgTable(
     // Media source: either aiGeneratedImageId OR mediaUrl must be provided
     // For AI-generated content, use aiGeneratedImageId
     aiGeneratedImageId: uuid("ai_generated_image_id").references(
-      () => generatedImage.id
+      () => generatedImage.id,
     ),
     // For uploaded/external images, use mediaUrl (fallback)
     mediaUrl: text("media_url"),
@@ -530,9 +558,9 @@ export const scheduledPost = pgTable(
   },
   (table) => ({
     uniqueMediaContainerId: unique(
-      "scheduled_posts_media_container_id_unique"
+      "scheduled_posts_media_container_id_unique",
     ).on(table.mediaContainerId),
-  })
+  }),
 );
 
 export type ScheduledPost = InferSelectModel<typeof scheduledPost>;
@@ -839,7 +867,7 @@ export const generatedImageVersion = pgTable(
       columns: [table.parentVersionId],
       foreignColumns: [table.id],
     }),
-  })
+  }),
 );
 
 export type GeneratedImageVersion = InferSelectModel<
@@ -1026,15 +1054,18 @@ export const backofficeGeneratedPost = pgTable("backoffice_generated_posts", {
   targetUserId: uuid("target_user_id")
     .notNull()
     .references(() => user.id),
-  sourceUserGeneratedImageId: uuid("source_user_generated_image_id")
-    .references(() => generatedImage.id),
+  sourceUserGeneratedImageId: uuid("source_user_generated_image_id").references(
+    () => generatedImage.id,
+  ),
   sourceBackofficePostId: uuid("source_backoffice_post_id"),
   prompt: text("prompt").notNull(),
   generatedImageId: uuid("generated_image_id").references(
-    () => generatedImage.id
+    () => generatedImage.id,
   ),
   captionTextId: uuid("caption_text_id").references(() => aiGeneratedText.id),
-  referenceImageUrls: jsonb("reference_image_urls").$type<string[]>().default([]),
+  referenceImageUrls: jsonb("reference_image_urls")
+    .$type<string[]>()
+    .default([]),
   aspectRatio: varchar("aspect_ratio", { length: 10 }).default("1:1"),
   status: varchar("status", { length: 32 }).notNull().default("generating"),
   notes: text("notes"),
@@ -1053,10 +1084,18 @@ export type BackofficeGeneratedPost = InferSelectModel<
 
 // Plan type enum - compound: {period}_{tier}
 export const PLAN_TYPE_VALUES = [
-  "monthly_starter", "monthly_pro", "monthly_premium",
-  "quarterly_starter", "quarterly_pro", "quarterly_premium",
-  "semiannual_starter", "semiannual_pro", "semiannual_premium",
-  "annual_starter", "annual_pro", "annual_premium",
+  "monthly_starter",
+  "monthly_pro",
+  "monthly_premium",
+  "quarterly_starter",
+  "quarterly_pro",
+  "quarterly_premium",
+  "semiannual_starter",
+  "semiannual_pro",
+  "semiannual_premium",
+  "annual_starter",
+  "annual_pro",
+  "annual_premium",
 ] as const;
 
 export type PlanType = (typeof PLAN_TYPE_VALUES)[number];
@@ -1117,9 +1156,9 @@ export const subscription = pgTable(
   },
   (table) => ({
     uniqueStripeSubscriptionId: unique(
-      "subscriptions_stripe_subscription_id_unique"
+      "subscriptions_stripe_subscription_id_unique",
     ).on(table.stripeSubscriptionId),
-  })
+  }),
 );
 
 export type Subscription = InferSelectModel<typeof subscription>;
@@ -1198,9 +1237,9 @@ export const payment = pgTable(
   },
   (table) => ({
     uniqueStripeInvoiceId: unique("payments_stripe_invoice_id_unique").on(
-      table.stripeInvoiceId
+      table.stripeInvoiceId,
     ),
-  })
+  }),
 );
 
 export type Payment = InferSelectModel<typeof payment>;
@@ -1264,9 +1303,9 @@ export const processedWebhookEvent = pgTable(
   },
   (table) => ({
     uniqueStripeEventId: unique(
-      "processed_webhook_events_stripe_event_id_unique"
+      "processed_webhook_events_stripe_event_id_unique",
     ).on(table.stripeEventId),
-  })
+  }),
 );
 
 export type ProcessedWebhookEvent = InferSelectModel<

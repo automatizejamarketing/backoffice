@@ -79,9 +79,9 @@ export function AdSetDetail({
 }: AdSetDetailProps) {
   const [adSet, setAdSet] = useState<AdSet>(adSetProp);
   const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
-  const [totalInsights, setTotalInsights] = useState<InsightsMetrics | undefined>(
-    adSetProp.insights
-  );
+  const [totalInsights, setTotalInsights] = useState<
+    InsightsMetrics | undefined
+  >(adSetProp.insights);
   const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
@@ -108,7 +108,7 @@ export function AdSetDetail({
   ] as const;
 
   const [datePreset, setDatePreset] = useState<DatePreset | null>(
-    DatePreset.LAST_30D
+    DatePreset.LAST_30D,
   );
   const [customRange, setCustomRange] = useState<{
     since: string;
@@ -144,7 +144,13 @@ export function AdSetDetail({
     } finally {
       setIsLoadingDetails(false);
     }
-  }, [accountId, adSet.id, detailedAdSet?.id, detailedAdSet?.targeting, userId]);
+  }, [
+    accountId,
+    adSet.id,
+    detailedAdSet?.id,
+    detailedAdSet?.targeting,
+    userId,
+  ]);
 
   const handleDetailsOpenChange = (open: boolean) => {
     setIsDetailsOpen(open);
@@ -172,7 +178,7 @@ export function AdSetDetail({
       }
 
       const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adSet.id}/insights?${params}`
+        `/api/meta-marketing/${accountId}/adsets/${adSet.id}/insights?${params}`,
       );
 
       if (response.ok) {
@@ -191,7 +197,7 @@ export function AdSetDetail({
       }
 
       const totalResponse = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adSet.id}/insights?${totalParams}`
+        `/api/meta-marketing/${accountId}/adsets/${adSet.id}/insights?${totalParams}`,
       );
 
       if (totalResponse.ok) {
@@ -239,255 +245,262 @@ export function AdSetDetail({
   }, [accountId, adSet.id, adSet.campaignId, userId]);
 
   return (
-  <>
-    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-[75vw] overflow-y-auto p-0"
-      >
-        <SheetHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/60 px-4 py-3 sm:px-6">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-                className="shrink-0 sm:hidden size-8"
-              >
-                <ArrowLeft className="size-4" />
-              </Button>
-              <div className="min-w-0">
-                <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
-                  {adSet.name ?? "Detalhes do Conjunto de Anúncios"}
-                </SheetTitle>
-                <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                  <Badge
-                    variant={getStatusBadgeVariant(adSet.effectiveStatus)}
-                    className="text-[10px] py-0 h-4"
-                  >
-                    {translateStatus(adSet.effectiveStatus ?? adSet.status)}
-                  </Badge>
-                  {adSet.startTime && (
-                    <span className="text-xs text-muted-foreground">
-                      Início: {formatDate(adSet.startTime)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDetailsOpenChange(true)}
-                className="shrink-0 h-8 text-xs"
-              >
-                Ver detalhes
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsEditOpen(true)}
-                className="shrink-0 h-8 text-xs"
-              >
-                <Pencil className="size-3.5 mr-1.5" />
-                Editar
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onClose}
-                className="shrink-0 hidden sm:flex size-8 text-muted-foreground"
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
-          </div>
-        </SheetHeader>
-
-        <div className="px-4 py-5 sm:px-6 sm:py-6 space-y-6">
-          {(adSet.dailyBudget || adSet.lifetimeBudget) && (
-            <section className="flex flex-wrap gap-4 p-3.5 bg-muted/30 rounded-xl border border-border/40 justify-between">
-              {adSet.dailyBudget && (
-                <div>
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Orçamento Diário
-                  </span>
-                  <p className="font-semibold text-sm mt-0.5 tabular-nums">
-                    {formatCurrency(parseInt(adSet.dailyBudget) / 100)}
-                  </p>
-                </div>
-              )}
-              {adSet.lifetimeBudget && (
-                <div>
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Orçamento Total
-                  </span>
-                  <p className="font-semibold text-sm mt-0.5 tabular-nums">
-                    {formatCurrency(parseInt(adSet.lifetimeBudget) / 100)}
-                  </p>
-                </div>
-              )}
-              {adSet.budgetRemaining && (
-                <div>
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Orçamento Restante
-                  </span>
-                  <p className="font-semibold text-sm mt-0.5 tabular-nums">
-                    {formatCurrency(parseInt(adSet.budgetRemaining) / 100)}
-                  </p>
-                </div>
-              )}
-              {adSet.optimizationGoal && (
-                <div>
-                  <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Objetivo de Otimização
-                  </span>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <p className="font-semibold text-sm">
-                      {getOptimizationGoalLabel(adSet.optimizationGoal)}
-                    </p>
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-foreground transition-colors"
-                          aria-label="Ver descrição"
-                        >
-                          <Info className="size-3.5" />
-                        </button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>
-                            {getOptimizationGoalLabel(adSet.optimizationGoal)}
-                          </DialogTitle>
-                          <DialogDescription className="text-left pt-2">
-                            {getOptimizationGoalDescription(
-                              adSet.optimizationGoal
-                            )}
-                          </DialogDescription>
-                        </DialogHeader>
-                      </DialogContent>
-                    </Dialog>
+    <>
+      <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-[75vw] overflow-y-auto p-0"
+        >
+          <SheetHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/60 px-4 py-3 sm:px-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="shrink-0 sm:hidden size-8"
+                >
+                  <ArrowLeft className="size-4" />
+                </Button>
+                <div className="min-w-0">
+                  <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
+                    {adSet.name ?? "Detalhes do Conjunto de Anúncios"}
+                  </SheetTitle>
+                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                    <Badge
+                      variant={getStatusBadgeVariant(adSet.effectiveStatus)}
+                      className="text-[10px] py-0 h-4"
+                    >
+                      {translateStatus(adSet.effectiveStatus ?? adSet.status)}
+                    </Badge>
+                    {adSet.startTime && (
+                      <span className="text-xs text-muted-foreground">
+                        Início: {formatDate(adSet.startTime)}
+                      </span>
+                    )}
                   </div>
                 </div>
-              )}
-            </section>
-          )}
-
-          <section>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Período
-              </p>
-              <DateFilter
-                datePreset={datePreset}
-                onDatePresetChange={(preset) => {
-                  setDatePreset(preset);
-                  setCustomRange(null);
-                }}
-                customRange={customRange}
-                onCustomRangeChange={(range) => {
-                  setCustomRange(range);
-                  setDatePreset(null);
-                }}
-              />
-            </div>
-          </section>
-
-          <section>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-              Métricas Totais
-            </p>
-            <InsightsCards
-              insights={totalInsights}
-              isLoading={isLoadingInsights}
-            />
-          </section>
-
-          <section>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Desempenho ao Longo do Tempo
-              </p>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
-                <TimeIncrementSelector
-                  value={timeIncrement}
-                  onChange={setTimeIncrement}
-                  disabled={isLoadingInsights}
-                />
-                <Select
-                  value={selectedMetric}
-                  onValueChange={(v) =>
-                    setSelectedMetric(v as typeof selectedMetric)
-                  }
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDetailsOpenChange(true)}
+                  className="shrink-0 h-8 text-xs"
                 >
-                  <SelectTrigger className="w-full sm:w-[130px] h-8 text-xs">
-                    <SelectValue placeholder="Selecione uma métrica" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {metricOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  Ver detalhes
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setIsEditOpen(true);
+                    void fetchAdSetDetails();
+                  }}
+                  className="shrink-0 h-8 text-xs"
+                >
+                  <Pencil className="size-3.5 mr-1.5" />
+                  Editar
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="shrink-0 hidden sm:flex size-8 text-muted-foreground"
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
             </div>
-            <InsightsChart
-              data={insightsData}
-              isLoading={isLoadingInsights}
-              metric={selectedMetric}
-            />
-          </section>
+          </SheetHeader>
 
-          <section>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-              Anúncios
-            </p>
-            <AdsTable accountId={accountId} userId={userId} adSetId={adSet.id} />
-          </section>
+          <div className="px-4 py-5 sm:px-6 sm:py-6 space-y-6">
+            {(adSet.dailyBudget || adSet.lifetimeBudget) && (
+              <section className="flex flex-wrap gap-4 p-3.5 bg-muted/30 rounded-xl border border-border/40 justify-between">
+                {adSet.dailyBudget && (
+                  <div>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Orçamento Diário
+                    </span>
+                    <p className="font-semibold text-sm mt-0.5 tabular-nums">
+                      {formatCurrency(parseInt(adSet.dailyBudget) / 100)}
+                    </p>
+                  </div>
+                )}
+                {adSet.lifetimeBudget && (
+                  <div>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Orçamento Total
+                    </span>
+                    <p className="font-semibold text-sm mt-0.5 tabular-nums">
+                      {formatCurrency(parseInt(adSet.lifetimeBudget) / 100)}
+                    </p>
+                  </div>
+                )}
+                {adSet.budgetRemaining && (
+                  <div>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Orçamento Restante
+                    </span>
+                    <p className="font-semibold text-sm mt-0.5 tabular-nums">
+                      {formatCurrency(parseInt(adSet.budgetRemaining) / 100)}
+                    </p>
+                  </div>
+                )}
+                {adSet.optimizationGoal && (
+                  <div>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Objetivo de Otimização
+                    </span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="font-semibold text-sm">
+                        {getOptimizationGoalLabel(adSet.optimizationGoal)}
+                      </p>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label="Ver descrição"
+                          >
+                            <Info className="size-3.5" />
+                          </button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>
+                              {getOptimizationGoalLabel(adSet.optimizationGoal)}
+                            </DialogTitle>
+                            <DialogDescription className="text-left pt-2">
+                              {getOptimizationGoalDescription(
+                                adSet.optimizationGoal,
+                              )}
+                            </DialogDescription>
+                          </DialogHeader>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
 
-          <section>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-              Histórico de Alterações
-            </p>
-            <AdSetEditHistory
-              adsetId={adSet.id}
-              accountId={accountId}
-              userId={userId}
-              refreshTrigger={historyRefreshTrigger}
-            />
-          </section>
-        </div>
-      </SheetContent>
-    </Sheet>
+            <section>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Período
+                </p>
+                <DateFilter
+                  datePreset={datePreset}
+                  onDatePresetChange={(preset) => {
+                    setDatePreset(preset);
+                    setCustomRange(null);
+                  }}
+                  customRange={customRange}
+                  onCustomRangeChange={(range) => {
+                    setCustomRange(range);
+                    setDatePreset(null);
+                  }}
+                />
+              </div>
+            </section>
 
-    <AdSetEditDialog
-      adSet={adSet}
-      accountId={accountId}
-      userId={userId}
-      isOpen={isEditOpen}
-      onClose={() => setIsEditOpen(false)}
-      onSuccess={() => {
-        setHistoryRefreshTrigger((prev) => prev + 1);
-        refetchAdSet();
-      }}
-    />
+            <section>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                Métricas Totais
+              </p>
+              <InsightsCards
+                insights={totalInsights}
+                isLoading={isLoadingInsights}
+              />
+            </section>
 
-    <Dialog open={isDetailsOpen} onOpenChange={handleDetailsOpenChange}>
-      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto p-0">
-        <AdSetDetailsDialogContent
-          adSet={detailedAdSet ?? adSet}
-          isLoading={isLoadingDetails}
-          error={detailsError}
-          onRetry={fetchAdSetDetails}
-        />
-      </DialogContent>
-    </Dialog>
-  </>
+            <section>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Desempenho ao Longo do Tempo
+                </p>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2.5">
+                  <TimeIncrementSelector
+                    value={timeIncrement}
+                    onChange={setTimeIncrement}
+                    disabled={isLoadingInsights}
+                  />
+                  <Select
+                    value={selectedMetric}
+                    onValueChange={(v) =>
+                      setSelectedMetric(v as typeof selectedMetric)
+                    }
+                  >
+                    <SelectTrigger className="w-full sm:w-[130px] h-8 text-xs">
+                      <SelectValue placeholder="Selecione uma métrica" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {metricOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <InsightsChart
+                data={insightsData}
+                isLoading={isLoadingInsights}
+                metric={selectedMetric}
+              />
+            </section>
+
+            <section>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                Anúncios
+              </p>
+              <AdsTable
+                accountId={accountId}
+                userId={userId}
+                adSetId={adSet.id}
+              />
+            </section>
+
+            <section>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                Histórico de Alterações
+              </p>
+              <AdSetEditHistory
+                adsetId={adSet.id}
+                accountId={accountId}
+                userId={userId}
+                refreshTrigger={historyRefreshTrigger}
+              />
+            </section>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <AdSetEditDialog
+        adSet={detailedAdSet ?? adSet}
+        accountId={accountId}
+        userId={userId}
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        onSuccess={() => {
+          setHistoryRefreshTrigger((prev) => prev + 1);
+          refetchAdSet();
+        }}
+      />
+
+      <Dialog open={isDetailsOpen} onOpenChange={handleDetailsOpenChange}>
+        <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto p-0">
+          <AdSetDetailsDialogContent
+            adSet={detailedAdSet ?? adSet}
+            isLoading={isLoadingDetails}
+            error={detailsError}
+            onRetry={fetchAdSetDetails}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -776,7 +789,9 @@ function formatTime(dateString: string | null | undefined): string | undefined {
   });
 }
 
-function formatAgeRange(targeting: AdSetTargeting | undefined): string | undefined {
+function formatAgeRange(
+  targeting: AdSetTargeting | undefined,
+): string | undefined {
   if (!targeting?.age_min && !targeting?.age_max) return undefined;
 
   const min = targeting.age_min ?? 18;
@@ -826,7 +841,9 @@ function formatEntity(entity: TargetingEntity): string {
   return details ? `${name} (${details})` : name;
 }
 
-function formatGeoLocations(geoLocations: AdSetGeoLocations | undefined): string[] {
+function formatGeoLocations(
+  geoLocations: AdSetGeoLocations | undefined,
+): string[] {
   if (!geoLocations) return [];
 
   return [
@@ -871,8 +888,9 @@ function formatDetailedTargeting(
   if (!targeting) return [];
 
   const directSegments = [
-    ...(targeting.interests?.map((item) => `Interesse: ${formatEntity(item)}`) ??
-      []),
+    ...(targeting.interests?.map(
+      (item) => `Interesse: ${formatEntity(item)}`,
+    ) ?? []),
     ...(targeting.behaviors?.map(
       (item) => `Comportamento: ${formatEntity(item)}`,
     ) ?? []),
@@ -883,11 +901,12 @@ function formatDetailedTargeting(
 
   const flexibleSegments =
     targeting.flexible_spec?.flatMap((spec, specIndex) =>
-      Object.entries(spec).flatMap(([key, entities]) =>
-        entities?.map(
-          (entity) =>
-            `${formatMetaValue(key)} ${specIndex + 1}: ${formatEntity(entity)}`,
-        ) ?? [],
+      Object.entries(spec).flatMap(
+        ([key, entities]) =>
+          entities?.map(
+            (entity) =>
+              `${formatMetaValue(key)} ${specIndex + 1}: ${formatEntity(entity)}`,
+          ) ?? [],
       ),
     ) ?? [];
 

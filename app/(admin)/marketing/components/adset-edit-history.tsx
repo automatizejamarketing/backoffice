@@ -31,7 +31,8 @@ function formatDate(date: Date | string): string {
 
 function formatBudgetChange(
   previous: string | null,
-  newValue: string | null
+  newValue: string | null,
+  label = "Orçamento",
 ): string | null {
   if (!previous && !newValue) return null;
 
@@ -39,17 +40,30 @@ function formatBudgetChange(
   const newBRL = newValue ? Number.parseInt(newValue) / 100 : null;
 
   if (prevBRL !== null && newBRL !== null) {
-    return `${formatCurrency(prevBRL)} → ${formatCurrency(newBRL)}`;
+    return `${label}: ${formatCurrency(prevBRL)} → ${formatCurrency(newBRL)}`;
   }
   if (newBRL !== null) {
-    return `Definido para ${formatCurrency(newBRL)}`;
+    return `${label}: definido para ${formatCurrency(newBRL)}`;
   }
   return null;
 }
 
+function formatScheduleChange(
+  previous: string | null,
+  newValue: string | null,
+  label: string,
+): string | null {
+  if (!previous && !newValue) return null;
+
+  const formatValue = (value: string | null) =>
+    value ? formatDate(value) : "N/A";
+
+  return `${label}: ${formatValue(previous)} → ${formatValue(newValue)}`;
+}
+
 function formatTargetingChange(
   previous: Record<string, unknown> | null,
-  newValue: Record<string, unknown> | null
+  newValue: Record<string, unknown> | null,
 ): string[] {
   const changes: string[] = [];
 
@@ -80,7 +94,7 @@ function formatTargetingChange(
 
   if (JSON.stringify(prevGenders) !== JSON.stringify(newGenders)) {
     changes.push(
-      `Gênero: ${formatGender(prevGenders)} → ${formatGender(newGenders)}`
+      `Gênero: ${formatGender(prevGenders)} → ${formatGender(newGenders)}`,
     );
   }
 
@@ -109,8 +123,14 @@ function formatTargetingChange(
 
   const prevIncluded = (previous?.custom_audiences as AudienceRef[]) ?? [];
   const newIncluded = (newValue?.custom_audiences as AudienceRef[]) ?? [];
-  const prevIncludedIds = prevIncluded.map((a) => a.id).sort().join(",");
-  const newIncludedIds = newIncluded.map((a) => a.id).sort().join(",");
+  const prevIncludedIds = prevIncluded
+    .map((a) => a.id)
+    .sort()
+    .join(",");
+  const newIncludedIds = newIncluded
+    .map((a) => a.id)
+    .sort()
+    .join(",");
 
   if (prevIncludedIds !== newIncludedIds) {
     changes.push(
@@ -122,8 +142,14 @@ function formatTargetingChange(
     (previous?.excluded_custom_audiences as AudienceRef[]) ?? [];
   const newExcluded =
     (newValue?.excluded_custom_audiences as AudienceRef[]) ?? [];
-  const prevExcludedIds = prevExcluded.map((a) => a.id).sort().join(",");
-  const newExcludedIds = newExcluded.map((a) => a.id).sort().join(",");
+  const prevExcludedIds = prevExcluded
+    .map((a) => a.id)
+    .sort()
+    .join(",");
+  const newExcludedIds = newExcluded
+    .map((a) => a.id)
+    .sort()
+    .join(",");
 
   if (prevExcludedIds !== newExcludedIds) {
     changes.push(
@@ -150,7 +176,7 @@ export function AdSetEditHistory({
 
     try {
       const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adsetId}/edit-history?userId=${userId}`
+        `/api/meta-marketing/${accountId}/adsets/${adsetId}/edit-history?userId=${userId}`,
       );
 
       if (!response.ok) {
@@ -161,7 +187,7 @@ export function AdSetEditHistory({
       setLogs(data.logs);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Erro ao carregar histórico"
+        err instanceof Error ? err.message : "Erro ao carregar histórico",
       );
     } finally {
       setIsLoading(false);
@@ -210,13 +236,29 @@ export function AdSetEditHistory({
   return (
     <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
       {logs.map((log) => {
-        const budgetChange = formatBudgetChange(
+        const dailyBudgetChange = formatBudgetChange(
           log.previousDailyBudget,
-          log.newDailyBudget
+          log.newDailyBudget,
+          "Orçamento diário",
+        );
+        const lifetimeBudgetChange = formatBudgetChange(
+          log.previousLifetimeBudget,
+          log.newLifetimeBudget,
+          "Orçamento total",
+        );
+        const startTimeChange = formatScheduleChange(
+          log.previousStartTime,
+          log.newStartTime,
+          "Início",
+        );
+        const endTimeChange = formatScheduleChange(
+          log.previousEndTime,
+          log.newEndTime,
+          "Término",
         );
         const targetingChanges = formatTargetingChange(
           log.previousTargeting,
-          log.newTargeting
+          log.newTargeting,
         );
 
         return (
@@ -248,9 +290,27 @@ export function AdSetEditHistory({
             </p>
 
             <div className="space-y-1">
-              {budgetChange && (
+              {dailyBudgetChange && (
                 <p className="text-sm">
-                  <span className="font-medium">Orçamento:</span> {budgetChange}
+                  <span className="font-medium">Orçamento:</span>{" "}
+                  {dailyBudgetChange}
+                </p>
+              )}
+              {lifetimeBudgetChange && (
+                <p className="text-sm">
+                  <span className="font-medium">Orçamento:</span>{" "}
+                  {lifetimeBudgetChange}
+                </p>
+              )}
+              {startTimeChange && (
+                <p className="text-sm">
+                  <span className="font-medium">Período:</span>{" "}
+                  {startTimeChange}
+                </p>
+              )}
+              {endTimeChange && (
+                <p className="text-sm">
+                  <span className="font-medium">Período:</span> {endTimeChange}
                 </p>
               )}
               {targetingChanges.map((change, idx) => (

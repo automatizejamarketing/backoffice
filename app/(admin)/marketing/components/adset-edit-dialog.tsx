@@ -15,6 +15,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { AdSet, AdSetTargeting } from "@/lib/meta-business/types";
+import {
+  getBudgetType,
+  metaDateToDateTimeLocal,
+  minorUnitsToCurrencyInput,
+} from "@/lib/meta-business/budget-schedule";
 import { formatCurrency } from "../utils/formatters";
 import {
   AudienceMultiSelect,
@@ -57,10 +62,19 @@ function geoLocationsToSelectedLocations(
   const locations: SelectedGeoLocation[] = [];
 
   for (const code of geo.countries ?? []) {
-    locations.push({ key: code, name: code, type: "country", country_code: code });
+    locations.push({
+      key: code,
+      name: code,
+      type: "country",
+      country_code: code,
+    });
   }
   for (const region of geo.regions ?? []) {
-    locations.push({ key: region.key, name: region.name ?? region.key, type: "region" });
+    locations.push({
+      key: region.key,
+      name: region.name ?? region.key,
+      type: "region",
+    });
   }
   for (const city of geo.cities ?? []) {
     locations.push({
@@ -90,10 +104,19 @@ export function AdSetEditDialog({
   onClose,
   onSuccess,
 }: AdSetEditDialogProps) {
-  const currentBudgetBRL = adSet.dailyBudget
-    ? Number.parseInt(adSet.dailyBudget) / 100
+  const hasCampaignBudget = Boolean(
+    adSet.campaign?.dailyBudget || adSet.campaign?.lifetimeBudget,
+  );
+  const effectiveBudgetSource = hasCampaignBudget ? adSet.campaign! : adSet;
+  const effectiveBudgetType = getBudgetType(effectiveBudgetSource);
+  const currentBudgetBRL = effectiveBudgetSource.dailyBudget
+    ? Number.parseInt(effectiveBudgetSource.dailyBudget) / 100
     : 0;
-  const usesCBO = !adSet.dailyBudget;
+  const currentLifetimeBudgetBRL = effectiveBudgetSource.lifetimeBudget
+    ? Number.parseInt(effectiveBudgetSource.lifetimeBudget) / 100
+    : 0;
+  const canEditBudget = !hasCampaignBudget;
+  const canEditSchedule = effectiveBudgetType === "lifetime";
   const currentAgeMin = adSet.targeting?.age_min ?? 18;
   const currentAgeMax = adSet.targeting?.age_max ?? 65;
   const currentGendersNormalized = normalizeGenderCodes(
@@ -107,24 +130,35 @@ export function AdSetEditDialog({
   ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
 
   const [dailyBudget, setDailyBudget] = useState<string>(
-    currentBudgetBRL.toFixed(2)
+    currentBudgetBRL.toFixed(2),
+  );
+  const [lifetimeBudget, setLifetimeBudget] = useState<string>(
+    currentLifetimeBudgetBRL.toFixed(2),
+  );
+  const [startDateTime, setStartDateTime] = useState<string>(
+    metaDateToDateTimeLocal(adSet.startTime),
+  );
+  const [endDateTime, setEndDateTime] = useState<string>(
+    metaDateToDateTimeLocal(adSet.endTime),
   );
   const [ageMin, setAgeMin] = useState<string>(currentAgeMin.toString());
   const [ageMax, setAgeMax] = useState<string>(currentAgeMax.toString());
   const [gender, setGender] = useState<string>(() =>
     getGenderValue(adSet.targeting?.genders),
   );
-  const [includedAudiences, setIncludedAudiences] =
-    useState<AudienceOption[]>(currentCustomAudiences);
-  const [excludedAudiences, setExcludedAudiences] =
-    useState<AudienceOption[]>(currentExcludedAudiences);
+  const [includedAudiences, setIncludedAudiences] = useState<AudienceOption[]>(
+    currentCustomAudiences,
+  );
+  const [excludedAudiences, setExcludedAudiences] = useState<AudienceOption[]>(
+    currentExcludedAudiences,
+  );
   const [availableAudiences, setAvailableAudiences] = useState<
     AudienceOption[]
   >([]);
   const [isLoadingAudiences, setIsLoadingAudiences] = useState(false);
-  const [selectedLocations, setSelectedLocations] = useState<SelectedGeoLocation[]>(
-    () => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
-  );
+  const [selectedLocations, setSelectedLocations] = useState<
+    SelectedGeoLocation[]
+  >(() => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,9 +192,10 @@ export function AdSetEditDialog({
   useEffect(() => {
     if (!isOpen) return;
 
-    const budget = adSet.dailyBudget
-      ? Number.parseInt(adSet.dailyBudget) / 100
-      : 0;
+    const budgetSource =
+      adSet.campaign?.dailyBudget || adSet.campaign?.lifetimeBudget
+        ? adSet.campaign
+        : adSet;
     const min = adSet.targeting?.age_min ?? 18;
     const max = adSet.targeting?.age_max ?? 65;
     const included: AudienceOption[] = (
@@ -170,16 +205,21 @@ export function AdSetEditDialog({
       adSet.targeting?.excluded_custom_audiences ?? []
     ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
 
-    setDailyBudget(budget.toFixed(2));
+    setDailyBudget(minorUnitsToCurrencyInput(budgetSource.dailyBudget));
+    setLifetimeBudget(minorUnitsToCurrencyInput(budgetSource.lifetimeBudget));
+    setStartDateTime(metaDateToDateTimeLocal(adSet.startTime));
+    setEndDateTime(metaDateToDateTimeLocal(adSet.endTime));
     setAgeMin(min.toString());
     setAgeMax(max.toString());
     setGender(getGenderValue(adSet.targeting?.genders));
     setIncludedAudiences(included);
     setExcludedAudiences(excluded);
-    setSelectedLocations(geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
+    setSelectedLocations(
+      geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
+    );
     setNote("");
     setError(null);
-  }, [isOpen, adSet.id]);
+  }, [adSet, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -191,11 +231,24 @@ export function AdSetEditDialog({
     }
 
     const budgetValue = Number.parseFloat(dailyBudget);
+    const lifetimeBudgetValue = Number.parseFloat(lifetimeBudget);
     const ageMinValue = Number.parseInt(ageMin);
     const ageMaxValue = Number.parseInt(ageMax);
 
-    const hasBudgetChange =
-      !usesCBO && !Number.isNaN(budgetValue) && budgetValue !== currentBudgetBRL;
+    const hasDailyBudgetChange =
+      canEditBudget &&
+      effectiveBudgetType === "daily" &&
+      !Number.isNaN(budgetValue) &&
+      budgetValue !== currentBudgetBRL;
+    const hasLifetimeBudgetChange =
+      canEditBudget &&
+      effectiveBudgetType === "lifetime" &&
+      !Number.isNaN(lifetimeBudgetValue) &&
+      lifetimeBudgetValue !== currentLifetimeBudgetBRL;
+    const hasScheduleChange =
+      canEditSchedule &&
+      (metaDateToDateTimeLocal(adSet.startTime) !== startDateTime ||
+        metaDateToDateTimeLocal(adSet.endTime) !== endDateTime);
     const hasAgeMinChange =
       !Number.isNaN(ageMinValue) && ageMinValue !== currentAgeMin;
     const hasAgeMaxChange =
@@ -231,9 +284,11 @@ export function AdSetEditDialog({
     const geoLocationsPayload = buildGeoLocationsPayload(selectedLocations);
     const hasGeoLocationChange =
       JSON.stringify(geoLocationsPayload) !==
-      JSON.stringify(buildGeoLocationsPayload(
-        geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
-      ));
+      JSON.stringify(
+        buildGeoLocationsPayload(
+          geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
+        ),
+      );
 
     const hasTargetingChange =
       hasAgeMinChange ||
@@ -243,7 +298,12 @@ export function AdSetEditDialog({
       hasExcludedAudienceChange ||
       hasGeoLocationChange;
 
-    if (!hasBudgetChange && !hasTargetingChange) {
+    if (
+      !hasDailyBudgetChange &&
+      !hasLifetimeBudgetChange &&
+      !hasScheduleChange &&
+      !hasTargetingChange
+    ) {
       setError("Nenhuma alteração foi feita");
       return;
     }
@@ -263,8 +323,25 @@ export function AdSetEditDialog({
       return;
     }
 
-    if (hasBudgetChange && budgetValue < 1) {
+    if (hasDailyBudgetChange && budgetValue < 1) {
       setError("Orçamento diário deve ser pelo menos R$ 1,00");
+      return;
+    }
+
+    if (hasLifetimeBudgetChange && lifetimeBudgetValue < 1) {
+      setError("Orçamento total deve ser pelo menos R$ 1,00");
+      return;
+    }
+
+    if (
+      hasScheduleChange &&
+      (!startDateTime ||
+        !endDateTime ||
+        new Date(endDateTime) <= new Date(startDateTime))
+    ) {
+      setError(
+        "Informe início e término válidos. O término deve ser posterior ao início.",
+      );
       return;
     }
 
@@ -278,8 +355,15 @@ export function AdSetEditDialog({
         note: note.trim(),
       };
 
-      if (hasBudgetChange) {
+      if (hasDailyBudgetChange) {
         body.dailyBudget = budgetValue;
+      }
+      if (hasLifetimeBudgetChange) {
+        body.lifetimeBudget = lifetimeBudgetValue;
+      }
+      if (hasScheduleChange) {
+        body.startTime = startDateTime;
+        body.endTime = endDateTime;
       }
 
       if (hasTargetingChange) {
@@ -299,9 +383,10 @@ export function AdSetEditDialog({
               name: a.name,
             })),
           }),
-          ...(hasGeoLocationChange && geoLocationsPayload && {
-            geo_locations: geoLocationsPayload,
-          }),
+          ...(hasGeoLocationChange &&
+            geoLocationsPayload && {
+              geo_locations: geoLocationsPayload,
+            }),
         };
       }
 
@@ -313,7 +398,7 @@ export function AdSetEditDialog({
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
-        }
+        },
       );
 
       if (!response.ok) {
@@ -325,7 +410,7 @@ export function AdSetEditDialog({
       onClose();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Erro ao aplicar alterações"
+        err instanceof Error ? err.message : "Erro ao aplicar alterações",
       );
     } finally {
       setIsSubmitting(false);
@@ -335,12 +420,17 @@ export function AdSetEditDialog({
   const handleClose = () => {
     if (!isSubmitting) {
       setDailyBudget(currentBudgetBRL.toFixed(2));
+      setLifetimeBudget(currentLifetimeBudgetBRL.toFixed(2));
+      setStartDateTime(metaDateToDateTimeLocal(adSet.startTime));
+      setEndDateTime(metaDateToDateTimeLocal(adSet.endTime));
       setAgeMin(currentAgeMin.toString());
       setAgeMax(currentAgeMax.toString());
       setGender(getGenderValue(adSet.targeting?.genders));
       setIncludedAudiences(currentCustomAudiences);
       setExcludedAudiences(currentExcludedAudiences);
-      setSelectedLocations(geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
+      setSelectedLocations(
+        geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
+      );
       setNote("");
       setError(null);
       onClose();
@@ -353,7 +443,7 @@ export function AdSetEditDialog({
         <DialogHeader>
           <DialogTitle>Editar Conjunto de Anúncios</DialogTitle>
           <DialogDescription>
-            Altere o orçamento diário e/ou segmentação do público. Todas as
+            Altere orçamento, período e/ou segmentação do público. Todas as
             alterações são registradas para auditoria.
           </DialogDescription>
         </DialogHeader>
@@ -361,14 +451,17 @@ export function AdSetEditDialog({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="dailyBudget">Orçamento Diário (R$)</Label>
-              {usesCBO ? (
-                <p className="text-xs text-muted-foreground rounded-md bg-muted p-3">
+              <Label>
+                {effectiveBudgetType === "lifetime"
+                  ? "Orçamento Total"
+                  : "Orçamento Diário"}
+              </Label>
+              {!canEditBudget ? (
+                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
                   Esta campanha utiliza Orçamento de Campanha (CBO). O orçamento
-                  diário é controlado no nível da campanha e não pode ser
-                  alterado aqui.
-                </p>
-              ) : (
+                  é controlado no nível da campanha.
+                </div>
+              ) : effectiveBudgetType === "daily" ? (
                 <div className="flex items-center gap-2">
                   <Input
                     id="dailyBudget"
@@ -384,8 +477,49 @@ export function AdSetEditDialog({
                     Atual: {formatCurrency(currentBudgetBRL)}
                   </span>
                 </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="lifetimeBudget"
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    value={lifetimeBudget}
+                    onChange={(e) => setLifetimeBudget(e.target.value)}
+                    placeholder="Ex: 500.00"
+                    disabled={isSubmitting}
+                  />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    Atual: {formatCurrency(currentLifetimeBudgetBRL)}
+                  </span>
+                </div>
               )}
             </div>
+
+            {canEditSchedule && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="startDateTime">Início</Label>
+                  <Input
+                    id="startDateTime"
+                    type="datetime-local"
+                    value={startDateTime}
+                    onChange={(e) => setStartDateTime(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="endDateTime">Término</Label>
+                  <Input
+                    id="endDateTime"
+                    type="datetime-local"
+                    value={endDateTime}
+                    onChange={(e) => setEndDateTime(e.target.value)}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -417,11 +551,13 @@ export function AdSetEditDialog({
             <div className="space-y-2">
               <Label>Gênero</Label>
               <div className="flex gap-2">
-                {([
-                  { value: "all", label: "Todos" },
-                  { value: "male", label: "Masculino" },
-                  { value: "female", label: "Feminino" },
-                ] as const).map((option) => (
+                {(
+                  [
+                    { value: "all", label: "Todos" },
+                    { value: "male", label: "Masculino" },
+                    { value: "female", label: "Feminino" },
+                  ] as const
+                ).map((option) => (
                   <Button
                     key={option.value}
                     type="button"
