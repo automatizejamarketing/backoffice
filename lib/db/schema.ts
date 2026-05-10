@@ -71,6 +71,9 @@ export const userMarketingConsultant = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId] }),
+    consultantIdx: index("user_marketing_consultants_consultant_id_idx").on(
+      table.consultantId,
+    ),
   }),
 );
 
@@ -145,6 +148,10 @@ export const masterclassLesson = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    coursePositionIdx: index("masterclass_lessons_course_id_position_idx").on(
+      table.courseId,
+      table.position,
+    ),
     uniqueCoursePosition: unique(
       "masterclass_lessons_course_position_unique",
     ).on(table.courseId, table.position),

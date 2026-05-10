@@ -2711,7 +2711,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "masterclass_lessons_course_id_position_idx": {
+          "name": "masterclass_lessons_course_id_position_idx",
+          "columns": [
+            {
+              "expression": "course_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "position",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "masterclass_lessons_course_id_masterclass_courses_id_fk": {
           "name": "masterclass_lessons_course_id_masterclass_courses_id_fk",
@@ -4399,7 +4421,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "user_marketing_consultants_consultant_id_idx": {
+          "name": "user_marketing_consultants_consultant_id_idx",
+          "columns": [
+            {
+              "expression": "consultant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "user_marketing_consultants_user_id_users_id_fk": {
           "name": "user_marketing_consultants_user_id_users_id_fk",
