@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { updateConversionStatus } from "@/lib/affiliate/queries";
 import type { AffiliateConversionStatus } from "@/lib/db/schema";
 
@@ -8,10 +8,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const { id } = await params;
     const body = await request.json();

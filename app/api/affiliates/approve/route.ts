@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { stripe } from "@/lib/stripe";
 import {
   getAffiliateById,
@@ -10,10 +10,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const body = await request.json();
     const { affiliateId, code } = body as {
@@ -64,7 +62,7 @@ export async function POST(request: Request) {
       await updateAffiliateCode(affiliateId, finalCode);
       await createAffiliateActionLog(
         affiliateId,
-        session.user.email,
+        authz.actor.email,
         "code_edited",
         { old_code: aff.code, new_code: finalCode },
       );
@@ -82,14 +80,14 @@ export async function POST(request: Request) {
 
     await approveAffiliate(
       affiliateId,
-      session.user.email,
+      authz.actor.email,
       promotionCode.id,
       couponId,
     );
 
     await createAffiliateActionLog(
       affiliateId,
-      session.user.email,
+      authz.actor.email,
       "approved",
       { stripe_promotion_code_id: promotionCode.id },
     );

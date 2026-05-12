@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
@@ -25,20 +25,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse<AdAccountsResponse | AdAccountsErrorResponse>> {
   try {
-    // Verify admin authentication
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 }
-      );
-    }
-
     const { id: userId } = await params;
+    const authz = await requireMarketingUserAccessResponse(userId);
+    if (!authz.ok) return authz.response;
 
     // Get user's Meta Business Account from database
     const metaAccount = await getUserMetaBusinessAccount(userId);

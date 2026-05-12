@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
+import {
+  currencyToMinorUnits,
+  isEndAfterStart,
+  isValidDateTimeLocal,
+} from "@/lib/meta-business/budget-schedule";
 import type {
   AdSetTargeting,
   AudienceRef,
@@ -17,6 +22,9 @@ type EditAdSetRequestBody = {
   campaignId?: string;
   adsetName?: string;
   dailyBudget?: number;
+  lifetimeBudget?: number;
+  startTime?: string;
+  endTime?: string;
   targeting?: {
     age_min?: number;
     age_max?: number;
@@ -51,35 +59,20 @@ export async function PATCH(
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<EditAdSetResponse | EditAdSetErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 },
-      );
-    }
-
-    const backofficeUserEmail = session.user.email?.trim();
-    if (!backofficeUserEmail) {
-      return NextResponse.json(
-        {
-          error: "Missing admin email",
-          message: "Sua sessão não possui email. Faça login novamente.",
-          solution: "Encerre a sessão e entre novamente com Google.",
-        },
-        { status: 400 },
-      );
-    }
-
     const { accountId, adsetId } = await params;
 
     const body: EditAdSetRequestBody = await request.json();
-    const { userId, campaignId, adsetName, dailyBudget, targeting, note } =
-      body;
+    const {
+      userId,
+      campaignId,
+      adsetName,
+      dailyBudget,
+      lifetimeBudget,
+      startTime,
+      endTime,
+      targeting,
+      note,
+    } = body;
 
     if (!userId) {
       return NextResponse.json(
@@ -92,6 +85,14 @@ export async function PATCH(
       );
     }
 
+    const authz = await requireMarketingUserAccessResponse(
+      userId,
+      "marketing:write",
+    );
+    if (!authz.ok) return authz.response;
+
+    const backofficeUserEmail = authz.actor.email;
+
     if (!note || note.trim().length === 0) {
       return NextResponse.json(
         {
@@ -103,7 +104,9 @@ export async function PATCH(
       );
     }
 
-    const hasBudgetChange = dailyBudget !== undefined;
+    const hasDailyBudgetChange = dailyBudget !== undefined;
+    const hasLifetimeBudgetChange = lifetimeBudget !== undefined;
+    const hasScheduleChange = startTime !== undefined || endTime !== undefined;
     const hasTargetingChange =
       targeting !== undefined &&
       (targeting.age_min !== undefined ||
@@ -113,12 +116,19 @@ export async function PATCH(
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined);
 
-    if (!hasBudgetChange && !hasTargetingChange) {
+    if (
+      !hasDailyBudgetChange &&
+      !hasLifetimeBudgetChange &&
+      !hasScheduleChange &&
+      !hasTargetingChange
+    ) {
       return NextResponse.json(
         {
           error: "No changes provided",
-          message: "At least one of dailyBudget or targeting must be provided",
-          solution: "Provide dailyBudget and/or targeting fields to update",
+          message:
+            "At least one of budget, schedule, or targeting must be provided",
+          solution:
+            "Provide dailyBudget, lifetimeBudget, startTime/endTime and/or targeting fields to update",
         },
         { status: 400 },
       );
@@ -143,11 +153,15 @@ export async function PATCH(
       domain: "FACEBOOK",
       method: "GET",
       path: adsetId,
-      params: "fields=id,name,daily_budget,campaign_id,targeting",
+      params:
+        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,targeting",
       accessToken,
     });
 
     const previousDailyBudget = currentAdSet.daily_budget ?? null;
+    const previousLifetimeBudget = currentAdSet.lifetime_budget ?? null;
+    const previousStartTime = currentAdSet.start_time ?? null;
+    const previousEndTime = currentAdSet.end_time ?? null;
     const previousTargeting = currentAdSet.targeting ?? null;
     const currentCampaign = await metaApiCall<GraphApiCampaign>({
       domain: "FACEBOOK",
@@ -159,18 +173,57 @@ export async function PATCH(
     const usesCBO =
       !!currentCampaign.daily_budget ||
       !!currentCampaign.lifetime_budget ||
-      previousDailyBudget === null;
+      (!previousDailyBudget && !previousLifetimeBudget);
+    const hasEffectiveLifetimeBudget =
+      !!currentCampaign.lifetime_budget ||
+      !!previousLifetimeBudget ||
+      hasLifetimeBudgetChange;
+
+    if (hasDailyBudgetChange && hasLifetimeBudgetChange) {
+      return NextResponse.json(
+        {
+          error: "Invalid budget",
+          message:
+            "Informe apenas um tipo de orçamento: diário ou total.",
+          solution:
+            "Remova um dos valores de orçamento antes de salvar a alteração.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (hasDailyBudgetChange && dailyBudget < 1) {
+      return NextResponse.json(
+        {
+          error: "Invalid daily budget",
+          message: "Orçamento diário deve ser pelo menos R$ 1,00",
+          solution: "Informe um orçamento diário válido.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (hasLifetimeBudgetChange && lifetimeBudget < 1) {
+      return NextResponse.json(
+        {
+          error: "Invalid lifetime budget",
+          message: "Orçamento total deve ser pelo menos R$ 1,00",
+          solution: "Informe um orçamento total válido.",
+        },
+        { status: 400 },
+      );
+    }
 
     const updateParams: Record<string, string> = {};
     const changes: EditAdSetResponse["changes"] = {};
 
-    if (hasBudgetChange) {
+    if (hasDailyBudgetChange || hasLifetimeBudgetChange) {
       if (usesCBO) {
         return NextResponse.json(
           {
             error: "Campaign uses CBO",
             message:
-              "Este conjunto de anúncios pertence a uma campanha com Orçamento de Campanha (CBO). O orçamento diário não pode ser alterado no nível do conjunto de anúncios.",
+              "Este conjunto de anúncios pertence a uma campanha com Orçamento de Campanha (CBO). O orçamento não pode ser alterado no nível do conjunto de anúncios.",
             solution:
               "Para alterar o orçamento, edite-o diretamente na campanha.",
           },
@@ -178,12 +231,84 @@ export async function PATCH(
         );
       }
 
-      const budgetInCents = Math.round(dailyBudget * 100);
-      updateParams.daily_budget = budgetInCents.toString();
-      changes.dailyBudget = {
-        previous: previousDailyBudget,
-        new: budgetInCents.toString(),
-      };
+      if (hasDailyBudgetChange) {
+        const budgetInCents = currencyToMinorUnits(dailyBudget);
+        updateParams.daily_budget = budgetInCents;
+        changes.dailyBudget = {
+          previous: previousDailyBudget,
+          new: budgetInCents,
+        };
+      }
+
+      if (hasLifetimeBudgetChange) {
+        if (!endTime && !previousEndTime) {
+          return NextResponse.json(
+            {
+              error: "Missing end time",
+              message:
+                "Orçamento total exige uma data e horário de término para o conjunto de anúncios.",
+              solution:
+                "Informe a data de término antes de salvar o orçamento total.",
+            },
+            { status: 400 },
+          );
+        }
+
+        updateParams.lifetime_budget = currencyToMinorUnits(lifetimeBudget);
+      }
+    }
+
+    if (hasScheduleChange) {
+      if (!hasEffectiveLifetimeBudget) {
+        return NextResponse.json(
+          {
+            error: "Invalid schedule change",
+            message:
+              "Datas de início e término só podem ser editadas em conjuntos com orçamento total.",
+            solution:
+              "Altere o tipo de orçamento para total antes de definir um período.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const nextStartTime = startTime ?? previousStartTime;
+      const nextEndTime = endTime ?? previousEndTime;
+
+      if (!nextStartTime || !nextEndTime) {
+        return NextResponse.json(
+          {
+            error: "Missing schedule",
+            message:
+              "Informe data e horário de início e término para orçamento total.",
+            solution:
+              "Preencha os dois campos de período antes de salvar a alteração.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !isValidDateTimeLocal(nextStartTime) ||
+        !isValidDateTimeLocal(nextEndTime) ||
+        !isEndAfterStart(nextStartTime, nextEndTime)
+      ) {
+        return NextResponse.json(
+          {
+            error: "Invalid schedule",
+            message: "A data de término deve ser posterior à data de início.",
+            solution: "Revise o período informado e tente novamente.",
+          },
+          { status: 400 },
+        );
+      }
+
+      if (startTime !== undefined) {
+        updateParams.start_time = new Date(startTime).toISOString();
+      }
+      if (endTime !== undefined) {
+        updateParams.end_time = new Date(endTime).toISOString();
+      }
     }
 
     let newTargeting: AdSetTargeting | undefined;
@@ -303,13 +428,25 @@ export async function PATCH(
         backofficeUserEmail,
         targetUserId: userId,
         adsetId,
-        accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+        accountId: accountId.startsWith("act_")
+          ? accountId
+          : `act_${accountId}`,
         campaignId: campaignId ?? currentAdSet.campaign_id,
         adsetName: adsetName ?? currentAdSet.name,
         previousDailyBudget: previousDailyBudget ?? undefined,
-        newDailyBudget: hasBudgetChange
-          ? Math.round(dailyBudget * 100).toString()
+        newDailyBudget: hasDailyBudgetChange
+          ? currencyToMinorUnits(dailyBudget)
           : undefined,
+        previousLifetimeBudget: previousLifetimeBudget ?? undefined,
+        newLifetimeBudget: hasLifetimeBudgetChange
+          ? currencyToMinorUnits(lifetimeBudget)
+          : undefined,
+        previousStartTime:
+          hasScheduleChange && previousStartTime ? previousStartTime : undefined,
+        newStartTime: startTime ? new Date(startTime).toISOString() : undefined,
+        previousEndTime:
+          hasScheduleChange && previousEndTime ? previousEndTime : undefined,
+        newEndTime: endTime ? new Date(endTime).toISOString() : undefined,
         previousTargeting: previousTargeting ?? undefined,
         newTargeting: newTargeting,
         note: note.trim(),
@@ -318,7 +455,10 @@ export async function PATCH(
       });
       logId = log.id;
     } catch (dbErr) {
-      console.error("[PATCH adset edit] Failed to write adset_edit_logs:", dbErr);
+      console.error(
+        "[PATCH adset edit] Failed to write adset_edit_logs:",
+        dbErr,
+      );
       auditLogFailed = true;
       auditLogError =
         dbErr instanceof Error ? dbErr.message : "Falha ao registrar auditoria";

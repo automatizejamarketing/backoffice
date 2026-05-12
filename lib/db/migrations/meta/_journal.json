@@ -64,6 +64,34 @@
       "when": 1777909623832,
       "tag": "0008_reflective_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778169334417,
+      "tag": "0009_backoffice_rbac",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778170500000,
+      "tag": "0010_backoffice_magic_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778288048582,
+      "tag": "0011_last_hiroim",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1778289002646,
+      "tag": "0012_tranquil_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }

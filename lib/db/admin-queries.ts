@@ -1,9 +1,21 @@
-import { and, count, desc, eq, gte, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db } from "./index";
 import {
   adsetEditLog,
   aiGeneratedText,
   aiUsageLog,
+  backofficeUser,
   backofficeAuditLog,
   backofficeGeneratedPost,
   campaignEditLog,
@@ -21,7 +33,9 @@ import {
   subscriptionEvent,
   user,
   userCompany,
+  userMarketingConsultant,
   type CampaignAdSetBudgetChangeData,
+  type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
   type AdSetTargetingData,
   type Payment,
@@ -30,6 +44,7 @@ import {
   type SubscriptionEvent,
   type User,
 } from "./schema";
+import type { UsersFilterParams } from "@/lib/backoffice/users-filters";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 export type ActiveSubscriptionSummary = Pick<
@@ -51,12 +66,24 @@ export type UserWithUsage = User & {
   companyName: string | null;
   onboardingCompleted: boolean;
   activeSubscription: ActiveSubscriptionSummary;
+  hasMetaBusinessAccount: boolean;
+  metaAccountName: string | null;
+  metaUpdatedAt: string | null;
+  assignedConsultantId: string | null;
+  assignedConsultantEmail: string | null;
+  assignedConsultantName: string | null;
 };
 
 export type GetAllUsersWithUsageParams = {
   page?: number;
   pageSize?: number;
   search?: string;
+  filters?: Partial<
+    Pick<
+      UsersFilterParams,
+      "subscriptionStatus" | "planPeriod" | "metaStatus" | "consultantId"
+    >
+  >;
 };
 
 export type GetAllUsersWithUsageResult = {
@@ -66,10 +93,60 @@ export type GetAllUsersWithUsageResult = {
   pageSize: number;
 };
 
+export type UserHubProfile = Pick<
+  User,
+  "id" | "email" | "name" | "image_url" | "phone"
+> & {
+  companyName: string | null;
+  onboardingCompleted: boolean;
+};
+
 // Minimum characters for the search filter to be applied. Shorter queries
 // (typed while the user is still composing) are ignored so the listing isn't
 // thrashed by partial keystrokes. Kept in sync with the toolbar UI.
 const MIN_SEARCH_LENGTH = 3;
+
+const activeSubscriptionStatusSql = sql`
+  (
+    SELECT s.status
+    FROM subscriptions s
+    WHERE s.user_id = ${user.id}
+    ORDER BY
+      CASE s.status
+        WHEN 'active' THEN 1
+        WHEN 'trialing' THEN 2
+        WHEN 'past_due' THEN 3
+        WHEN 'unpaid' THEN 4
+        WHEN 'incomplete' THEN 5
+        WHEN 'canceled' THEN 6
+        WHEN 'incomplete_expired' THEN 7
+        ELSE 99
+      END,
+      s.created_at DESC
+    LIMIT 1
+  )
+`;
+
+const activeSubscriptionPlanTypeSql = sql`
+  (
+    SELECT s.plan_type
+    FROM subscriptions s
+    WHERE s.user_id = ${user.id}
+    ORDER BY
+      CASE s.status
+        WHEN 'active' THEN 1
+        WHEN 'trialing' THEN 2
+        WHEN 'past_due' THEN 3
+        WHEN 'unpaid' THEN 4
+        WHEN 'incomplete' THEN 5
+        WHEN 'canceled' THEN 6
+        WHEN 'incomplete_expired' THEN 7
+        ELSE 99
+      END,
+      s.created_at DESC
+    LIMIT 1
+  )
+`;
 
 // Get a paginated list of users with their usage summary.
 //
@@ -87,23 +164,78 @@ export async function getAllUsersWithUsage(
   const offset = (page - 1) * pageSize;
 
   const trimmedSearch = params.search?.trim() ?? "";
-  const searchFilter =
-    trimmedSearch.length >= MIN_SEARCH_LENGTH
-      ? or(
-          ilike(user.email, `%${trimmedSearch}%`),
-          ilike(user.name, `%${trimmedSearch}%`),
-        )
-      : undefined;
+  const conditions = [];
+
+  if (trimmedSearch.length >= MIN_SEARCH_LENGTH) {
+    conditions.push(
+      or(
+        ilike(user.email, `%${trimmedSearch}%`),
+        ilike(user.name, `%${trimmedSearch}%`),
+      ),
+    );
+  }
+
+  if (
+    params.filters?.subscriptionStatus &&
+    params.filters.subscriptionStatus !== "all"
+  ) {
+    conditions.push(
+      sql`${activeSubscriptionStatusSql} = ${params.filters.subscriptionStatus}`,
+    );
+  }
+
+  if (params.filters?.planPeriod && params.filters.planPeriod !== "all") {
+    conditions.push(
+      sql`${activeSubscriptionPlanTypeSql} LIKE ${`${params.filters.planPeriod}_%`}`,
+    );
+  }
+
+  if (params.filters?.metaStatus === "connected") {
+    conditions.push(sql`EXISTS (
+      SELECT 1
+      FROM meta_business_accounts mba
+      WHERE mba.user_id = ${user.id}
+        AND mba.deleted_at IS NULL
+    )`);
+  }
+
+  if (params.filters?.metaStatus === "disconnected") {
+    conditions.push(sql`NOT EXISTS (
+      SELECT 1
+      FROM meta_business_accounts mba
+      WHERE mba.user_id = ${user.id}
+        AND mba.deleted_at IS NULL
+    )`);
+  }
+
+  if (params.filters?.consultantId && params.filters.consultantId !== "all") {
+    if (params.filters.consultantId === "unassigned") {
+      conditions.push(sql`NOT EXISTS (
+        SELECT 1
+        FROM user_marketing_consultants umc
+        WHERE umc.user_id = ${user.id}
+      )`);
+    } else {
+      conditions.push(sql`EXISTS (
+        SELECT 1
+        FROM user_marketing_consultants umc
+        WHERE umc.user_id = ${user.id}
+          AND umc.consultant_id = ${params.filters.consultantId}
+      )`);
+    }
+  }
+
+  const whereFilter = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [usersPage, [totalRow]] = await Promise.all([
     db
       .select()
       .from(user)
-      .where(searchFilter)
+      .where(whereFilter)
       .orderBy(desc(user.id))
       .limit(pageSize)
       .offset(offset),
-    db.select({ count: count() }).from(user).where(searchFilter),
+    db.select({ count: count() }).from(user).where(whereFilter),
   ]);
 
   const total = totalRow?.count ?? 0;
@@ -113,57 +245,95 @@ export async function getAllUsersWithUsage(
     return { users: [], total, page, pageSize };
   }
 
-  const [chatCounts, postCounts, usageRows, companyRows, subRows] =
-    await Promise.all([
-      db
-        .select({
-          userId: chat.userId,
-          count: count(),
-        })
-        .from(chat)
-        .where(inArray(chat.userId, userIds))
-        .groupBy(chat.userId),
-      db
-        .select({
-          userId: post.userId,
-          count: count(),
-        })
-        .from(post)
-        .where(inArray(post.userId, userIds))
-        .groupBy(post.userId),
-      db
-        .select({
-          userId: aiUsageLog.userId,
-          totalCost: sql<string>`COALESCE(SUM(${aiUsageLog.cost}), 0)`,
-          totalTokens: sql<number>`COALESCE(SUM(${aiUsageLog.totalTokens}), 0)`,
-          requestCount: count(),
-        })
-        .from(aiUsageLog)
-        .where(inArray(aiUsageLog.userId, userIds))
-        .groupBy(aiUsageLog.userId),
-      db
-        .select({
-          userId: userCompany.userId,
-          companyName: company.name,
-          onboardingCompleted: company.onboardingCompleted,
-        })
-        .from(userCompany)
-        .leftJoin(company, eq(userCompany.companyId, company.id))
-        .where(inArray(userCompany.userId, userIds)),
-      db
-        .select({
-          userId: subscription.userId,
-          id: subscription.id,
-          planType: subscription.planType,
-          status: subscription.status,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          stripeSubscriptionId: subscription.stripeSubscriptionId,
-          createdAt: subscription.createdAt,
-        })
-        .from(subscription)
-        .where(inArray(subscription.userId, userIds)),
-    ]);
+  const [
+    chatCounts,
+    postCounts,
+    usageRows,
+    companyRows,
+    subRows,
+    metaRows,
+    consultantRows,
+  ] = await Promise.all([
+    db
+      .select({
+        userId: chat.userId,
+        count: count(),
+      })
+      .from(chat)
+      .where(inArray(chat.userId, userIds))
+      .groupBy(chat.userId),
+    db
+      .select({
+        userId: post.userId,
+        count: count(),
+      })
+      .from(post)
+      .where(inArray(post.userId, userIds))
+      .groupBy(post.userId),
+    db
+      .select({
+        userId: aiUsageLog.userId,
+        totalCost: sql<string>`COALESCE(SUM(${aiUsageLog.cost}), 0)`,
+        totalTokens: sql<number>`COALESCE(SUM(${aiUsageLog.totalTokens}), 0)`,
+        requestCount: count(),
+      })
+      .from(aiUsageLog)
+      .where(inArray(aiUsageLog.userId, userIds))
+      .groupBy(aiUsageLog.userId),
+    db
+      .select({
+        userId: userCompany.userId,
+        companyName: company.name,
+        onboardingCompleted: company.onboardingCompleted,
+      })
+      .from(userCompany)
+      .leftJoin(company, eq(userCompany.companyId, company.id))
+      .where(inArray(userCompany.userId, userIds)),
+    db
+      .select({
+        userId: subscription.userId,
+        id: subscription.id,
+        planType: subscription.planType,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+        stripeSubscriptionId: subscription.stripeSubscriptionId,
+        createdAt: subscription.createdAt,
+      })
+      .from(subscription)
+      .where(inArray(subscription.userId, userIds)),
+    db
+      .select({
+        userId: metaBusinessAccount.userId,
+        metaAccountName: sql<
+          string | null
+        >`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+        metaUpdatedAt: sql<
+          Date | string
+        >`MAX(${metaBusinessAccount.updatedAt})`,
+      })
+      .from(metaBusinessAccount)
+      .where(
+        and(
+          inArray(metaBusinessAccount.userId, userIds),
+          isNull(metaBusinessAccount.deletedAt),
+        ),
+      )
+      .groupBy(metaBusinessAccount.userId),
+    db
+      .select({
+        userId: userMarketingConsultant.userId,
+        consultantId: backofficeUser.id,
+        consultantEmail: backofficeUser.email,
+        consultantName: backofficeUser.name,
+      })
+      .from(userMarketingConsultant)
+      .innerJoin(
+        backofficeUser,
+        eq(userMarketingConsultant.consultantId, backofficeUser.id),
+      )
+      .where(inArray(userMarketingConsultant.userId, userIds)),
+  ]);
 
   const chatCountByUser = new Map<string, number>();
   for (const row of chatCounts) {
@@ -212,11 +382,41 @@ export async function getAllUsersWithUsage(
     }
   }
 
+  const metaByUser = new Map<
+    string,
+    { metaAccountName: string | null; metaUpdatedAt: string | null }
+  >();
+  for (const row of metaRows) {
+    metaByUser.set(row.userId, {
+      metaAccountName: row.metaAccountName,
+      metaUpdatedAt:
+        row.metaUpdatedAt instanceof Date
+          ? row.metaUpdatedAt.toISOString()
+          : row.metaUpdatedAt
+            ? String(row.metaUpdatedAt)
+            : null,
+    });
+  }
+
+  const consultantByUser = new Map<
+    string,
+    { id: string; email: string; name: string | null }
+  >();
+  for (const row of consultantRows) {
+    consultantByUser.set(row.userId, {
+      id: row.consultantId,
+      email: row.consultantEmail,
+      name: row.consultantName,
+    });
+  }
+
   const users: UserWithUsage[] = usersPage.map((u) => {
     const usage = usageByUser.get(u.id);
     const companyInfo = companyByUser.get(u.id);
     const userSubs = subsByUser.get(u.id) ?? [];
     const activeSub = pickActiveSubscription(userSubs);
+    const metaInfo = metaByUser.get(u.id);
+    const consultant = consultantByUser.get(u.id);
     const activeSubscription: ActiveSubscriptionSummary = activeSub
       ? {
           id: activeSub.id,
@@ -238,6 +438,12 @@ export async function getAllUsersWithUsage(
       companyName: companyInfo?.companyName ?? null,
       onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
       activeSubscription,
+      hasMetaBusinessAccount: Boolean(metaInfo),
+      metaAccountName: metaInfo?.metaAccountName ?? null,
+      metaUpdatedAt: metaInfo?.metaUpdatedAt ?? null,
+      assignedConsultantId: consultant?.id ?? null,
+      assignedConsultantEmail: consultant?.email ?? null,
+      assignedConsultantName: consultant?.name ?? null,
     };
   });
 
@@ -337,9 +543,12 @@ export async function getUserWithDetailedUsage(userId: string) {
   // Calculate totals
   const totalCost = recentUsage.reduce(
     (sum, log) => sum + Number.parseFloat(log.cost),
-    0
+    0,
   );
-  const totalTokens = recentUsage.reduce((sum, log) => sum + log.totalTokens, 0);
+  const totalTokens = recentUsage.reduce(
+    (sum, log) => sum + log.totalTokens,
+    0,
+  );
 
   return {
     ...foundUser,
@@ -361,6 +570,40 @@ export async function getUserWithDetailedUsage(userId: string) {
     onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
     activeSubscription,
     activePendingPlanChange,
+  };
+}
+
+export async function getUserHubProfile(
+  userId: string,
+): Promise<UserHubProfile | null> {
+  const [foundUser] = await db
+    .select({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      image_url: user.image_url,
+      phone: user.phone,
+    })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+
+  if (!foundUser) return null;
+
+  const [companyInfo] = await db
+    .select({
+      companyName: company.name,
+      onboardingCompleted: company.onboardingCompleted,
+    })
+    .from(userCompany)
+    .leftJoin(company, eq(userCompany.companyId, company.id))
+    .where(eq(userCompany.userId, userId))
+    .limit(1);
+
+  return {
+    ...foundUser,
+    companyName: companyInfo?.companyName ?? null,
+    onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
   };
 }
 
@@ -463,7 +706,7 @@ export async function getUserAuditLogs(userId: string, limit = 50) {
   } catch (error) {
     if (getPostgresErrorCode(error) === "42P01") {
       console.warn(
-        "[getUserAuditLogs] Table backoffice_audit_logs is missing. Apply migrations: npm run db:push (or run lib/db/migrations/0001_backoffice_audit_logs.sql)."
+        "[getUserAuditLogs] Table backoffice_audit_logs is missing. Apply migrations: npm run db:push (or run lib/db/migrations/0001_backoffice_audit_logs.sql).",
       );
       return [];
     }
@@ -567,14 +810,22 @@ export async function getUsersWithMetaBusinessAccount(options?: {
   email?: string;
   page?: number;
   limit?: number;
+  userIds?: string[];
 }): Promise<GetUsersWithMetaBusinessAccountResult> {
   const page = Math.max(1, Math.trunc(options?.page ?? 1));
   const limit = Math.max(1, Math.trunc(options?.limit ?? 20));
   const offset = (page - 1) * limit;
 
+  if (options?.userIds && options.userIds.length === 0) {
+    return { users: [], total: 0, page, limit };
+  }
+
   const conditions = [isNull(metaBusinessAccount.deletedAt)];
   if (options?.email) {
     conditions.push(ilike(user.email, `%${options.email}%`));
+  }
+  if (options?.userIds) {
+    conditions.push(inArray(user.id, options.userIds));
   }
 
   const rows = await db
@@ -682,10 +933,15 @@ export async function getUsersWithPosts(options?: {
         ...row,
         companyName: companyInfo?.companyName ?? null,
       };
-    })
+    }),
   );
 
-  return { users: usersWithCompany, total: totalResult?.count ?? 0, page, limit };
+  return {
+    users: usersWithCompany,
+    total: totalResult?.count ?? 0,
+    page,
+    limit,
+  };
 }
 
 // ================================
@@ -707,8 +963,10 @@ export async function getAllUserGeneratedImages(options?: {
     isNull(generatedImage.deletedAt),
     isNull(generatedImageVersion.parentVersionId),
   ];
-  if (options?.userId) conditions.push(eq(generatedImage.userId, options.userId));
-  if (options?.status) conditions.push(eq(generatedImage.status, options.status));
+  if (options?.userId)
+    conditions.push(eq(generatedImage.userId, options.userId));
+  if (options?.status)
+    conditions.push(eq(generatedImage.status, options.status));
   if (options?.search) {
     const term = `%${options.search}%`;
     conditions.push(ilike(generatedImage.prompt, term));
@@ -730,7 +988,10 @@ export async function getAllUserGeneratedImages(options?: {
       updatedAt: generatedImage.updatedAt,
     })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .innerJoin(user, eq(generatedImage.userId, user.id))
     .where(and(...conditions))
     .orderBy(desc(generatedImage.createdAt))
@@ -740,7 +1001,10 @@ export async function getAllUserGeneratedImages(options?: {
   const [totalResult] = await db
     .select({ count: count() })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(and(...conditions));
 
   if (images.length === 0) {
@@ -754,12 +1018,15 @@ export async function getAllUserGeneratedImages(options?: {
       imageUrl: generatedImage.publicImageUrl,
     })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(
       and(
         inArray(generatedImageVersion.sourceAiGeneratedImageId, rootIds),
         isNull(generatedImage.deletedAt),
-      )
+      ),
     )
     .orderBy(desc(generatedImageVersion.versionNumber));
 
@@ -776,12 +1043,15 @@ export async function getAllUserGeneratedImages(options?: {
       caption: aiGeneratedText.text,
     })
     .from(genericGeneratePost)
-    .leftJoin(aiGeneratedText, eq(genericGeneratePost.captionTextId, aiGeneratedText.id))
+    .leftJoin(
+      aiGeneratedText,
+      eq(genericGeneratePost.captionTextId, aiGeneratedText.id),
+    )
     .where(
       and(
         inArray(genericGeneratePost.postImageId, rootIds),
         isNull(genericGeneratePost.deletedAt),
-      )
+      ),
     );
 
   const captionMap = new Map<string, string | null>();
@@ -817,7 +1087,7 @@ export type GeneratedImageDetails = {
 };
 
 export async function getGeneratedImageDetails(
-  imageId: string
+  imageId: string,
 ): Promise<GeneratedImageDetails | null> {
   const [found] = await db
     .select({
@@ -849,12 +1119,15 @@ export async function getGeneratedImageDetails(
   const [latestVersion] = await db
     .select({ imageUrl: generatedImage.publicImageUrl })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(
       and(
         eq(generatedImageVersion.sourceAiGeneratedImageId, imageId),
         isNull(generatedImage.deletedAt),
-      )
+      ),
     )
     .orderBy(desc(generatedImageVersion.versionNumber))
     .limit(1);
@@ -872,7 +1145,7 @@ export async function getGeneratedImageDetails(
       and(
         eq(genericGeneratePost.postImageId, imageId),
         isNull(genericGeneratePost.deletedAt),
-      )
+      ),
     )
     .limit(1);
 
@@ -901,8 +1174,6 @@ export async function getBackofficeGeneratedPosts(options?: {
   const limit = options?.limit ?? 20;
   const offset = (page - 1) * limit;
 
-  const adminUser = user;
-
   const posts = await db
     .select({
       id: backofficeGeneratedPost.id,
@@ -910,7 +1181,8 @@ export async function getBackofficeGeneratedPosts(options?: {
       backofficeUserEmail: sql<string>`(SELECT email FROM users WHERE id = ${backofficeGeneratedPost.backofficeUserId})`,
       targetUserId: backofficeGeneratedPost.targetUserId,
       targetUserEmail: sql<string>`(SELECT email FROM users WHERE id = ${backofficeGeneratedPost.targetUserId})`,
-      sourceUserGeneratedImageId: backofficeGeneratedPost.sourceUserGeneratedImageId,
+      sourceUserGeneratedImageId:
+        backofficeGeneratedPost.sourceUserGeneratedImageId,
       sourceBackofficePostId: backofficeGeneratedPost.sourceBackofficePostId,
       prompt: backofficeGeneratedPost.prompt,
       referenceImageUrls: backofficeGeneratedPost.referenceImageUrls,
@@ -924,11 +1196,11 @@ export async function getBackofficeGeneratedPosts(options?: {
     .from(backofficeGeneratedPost)
     .leftJoin(
       generatedImage,
-      eq(backofficeGeneratedPost.generatedImageId, generatedImage.id)
+      eq(backofficeGeneratedPost.generatedImageId, generatedImage.id),
     )
     .leftJoin(
       aiGeneratedText,
-      eq(backofficeGeneratedPost.captionTextId, aiGeneratedText.id)
+      eq(backofficeGeneratedPost.captionTextId, aiGeneratedText.id),
     )
     .where(isNull(backofficeGeneratedPost.deletedAt))
     .orderBy(desc(backofficeGeneratedPost.createdAt))
@@ -1035,7 +1307,7 @@ export async function updateBackofficeGeneratedPost(
     captionTextId: string;
     status: string;
     notes: string;
-  }>
+  }>,
 ) {
   const [updated] = await db
     .update(backofficeGeneratedPost)
@@ -1060,7 +1332,10 @@ export async function getPostPerformanceStats(userId?: string) {
   const [totalPosts] = await db
     .select({ count: count() })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(imgConditions);
 
   const postsByType = await db
@@ -1069,7 +1344,10 @@ export async function getPostPerformanceStats(userId?: string) {
       count: count(),
     })
     .from(generatedImageVersion)
-    .innerJoin(generatedImage, eq(generatedImageVersion.generatedImageId, generatedImage.id))
+    .innerJoin(
+      generatedImage,
+      eq(generatedImageVersion.generatedImageId, generatedImage.id),
+    )
     .where(imgConditions)
     .groupBy(generatedImage.aspectRatio);
 
@@ -1138,6 +1416,12 @@ export type CreateAdSetEditLogData = {
   adsetName?: string;
   previousDailyBudget?: string;
   newDailyBudget?: string;
+  previousLifetimeBudget?: string;
+  newLifetimeBudget?: string;
+  previousStartTime?: string;
+  newStartTime?: string;
+  previousEndTime?: string;
+  newEndTime?: string;
   previousTargeting?: AdSetTargetingData;
   newTargeting?: AdSetTargetingData;
   note: string;
@@ -1157,6 +1441,12 @@ export async function createAdSetEditLog(data: CreateAdSetEditLogData) {
       adsetName: data.adsetName,
       previousDailyBudget: data.previousDailyBudget,
       newDailyBudget: data.newDailyBudget,
+      previousLifetimeBudget: data.previousLifetimeBudget,
+      newLifetimeBudget: data.newLifetimeBudget,
+      previousStartTime: data.previousStartTime,
+      newStartTime: data.newStartTime,
+      previousEndTime: data.previousEndTime,
+      newEndTime: data.newEndTime,
       previousTargeting: data.previousTargeting,
       newTargeting: data.newTargeting,
       note: data.note,
@@ -1178,6 +1468,12 @@ export type AdSetEditLogWithAdmin = {
   adsetName: string | null;
   previousDailyBudget: string | null;
   newDailyBudget: string | null;
+  previousLifetimeBudget: string | null;
+  newLifetimeBudget: string | null;
+  previousStartTime: string | null;
+  newStartTime: string | null;
+  previousEndTime: string | null;
+  newEndTime: string | null;
   previousTargeting: AdSetTargetingData | null;
   newTargeting: AdSetTargetingData | null;
   note: string;
@@ -1187,7 +1483,8 @@ export type AdSetEditLogWithAdmin = {
 };
 
 export async function getAdSetEditLogs(
-  adsetId: string
+  adsetId: string,
+  targetUserId?: string,
 ): Promise<AdSetEditLogWithAdmin[]> {
   const logs = await db
     .select({
@@ -1200,6 +1497,12 @@ export async function getAdSetEditLogs(
       adsetName: adsetEditLog.adsetName,
       previousDailyBudget: adsetEditLog.previousDailyBudget,
       newDailyBudget: adsetEditLog.newDailyBudget,
+      previousLifetimeBudget: adsetEditLog.previousLifetimeBudget,
+      newLifetimeBudget: adsetEditLog.newLifetimeBudget,
+      previousStartTime: adsetEditLog.previousStartTime,
+      newStartTime: adsetEditLog.newStartTime,
+      previousEndTime: adsetEditLog.previousEndTime,
+      newEndTime: adsetEditLog.newEndTime,
       previousTargeting: adsetEditLog.previousTargeting,
       newTargeting: adsetEditLog.newTargeting,
       note: adsetEditLog.note,
@@ -1208,7 +1511,14 @@ export async function getAdSetEditLogs(
       createdAt: adsetEditLog.createdAt,
     })
     .from(adsetEditLog)
-    .where(eq(adsetEditLog.adsetId, adsetId))
+    .where(
+      targetUserId
+        ? and(
+            eq(adsetEditLog.adsetId, adsetId),
+            eq(adsetEditLog.targetUserId, targetUserId),
+          )
+        : eq(adsetEditLog.adsetId, adsetId),
+    )
     .orderBy(desc(adsetEditLog.createdAt));
 
   return logs;
@@ -1228,7 +1538,10 @@ export type CreateCampaignEditLogData = {
   newBudgetMode: CampaignBudgetModeData;
   previousDailyBudget?: string | null;
   newDailyBudget?: string;
+  previousLifetimeBudget?: string | null;
+  newLifetimeBudget?: string;
   adsetBudgetChanges?: CampaignAdSetBudgetChangeData[];
+  adsetScheduleChanges?: CampaignAdSetScheduleChangeData[];
   note: string;
   appliedToMeta: boolean;
   errorMessage?: string;
@@ -1247,7 +1560,10 @@ export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
       newBudgetMode: data.newBudgetMode,
       previousDailyBudget: data.previousDailyBudget,
       newDailyBudget: data.newDailyBudget,
+      previousLifetimeBudget: data.previousLifetimeBudget,
+      newLifetimeBudget: data.newLifetimeBudget,
       adsetBudgetChanges: data.adsetBudgetChanges,
+      adsetScheduleChanges: data.adsetScheduleChanges,
       note: data.note,
       appliedToMeta: data.appliedToMeta,
       errorMessage: data.errorMessage,
@@ -1256,4 +1572,3 @@ export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
 
   return log;
 }
-

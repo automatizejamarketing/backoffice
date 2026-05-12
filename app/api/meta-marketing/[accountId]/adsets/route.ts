@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
@@ -77,18 +77,6 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string }> }
 ): Promise<NextResponse<GetAdSetsResponse | AdSetsErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 }
-      );
-    }
-
     const { accountId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
@@ -103,6 +91,9 @@ export async function GET(
         { status: 400 }
       );
     }
+
+    const authz = await requireMarketingUserAccessResponse(userId);
+    if (!authz.ok) return authz.response;
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
 
@@ -210,6 +201,13 @@ type GraphApiPixelsResponse = { data: GraphApiPixel[] };
 type CreateAdSetApiResponse = { id: string };
 type CreateAdCreativeApiResponse = { id: string };
 type CreateAdApiResponse = { id: string };
+type MediaBoostEligibilityResponse = {
+  id: string;
+  boost_eligibility_info?: {
+    eligible_to_boost: boolean;
+    ineligible_reason?: string;
+  };
+};
 
 export type PostAdSetRequestBody = {
   userId: string;
@@ -474,23 +472,29 @@ function buildCallToAction(params: {
   }
 }
 
+async function checkMediaBoostEligibility(
+  mediaId: string,
+  accessToken: string,
+): Promise<{ isEligible: boolean; ineligibleReason?: string }> {
+  const response = await metaApiCall<MediaBoostEligibilityResponse>({
+    domain: "FACEBOOK",
+    method: "GET",
+    path: mediaId,
+    params: "fields=id,boost_eligibility_info",
+    accessToken,
+  });
+
+  return {
+    isEligible: response.boost_eligibility_info?.eligible_to_boost === true,
+    ineligibleReason: response.boost_eligibility_info?.ineligible_reason,
+  };
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
 ): Promise<NextResponse<PostAdSetResponse | AdSetsErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 },
-      );
-    }
-
     const { accountId } = await params;
     const body: PostAdSetRequestBody = await request.json();
     const {
@@ -523,6 +527,12 @@ export async function POST(
         { status: 400 },
       );
     }
+
+    const authz = await requireMarketingUserAccessResponse(
+      userId,
+      "marketing:write",
+    );
+    if (!authz.ok) return authz.response;
 
     if (!campaignId) {
       return NextResponse.json(
@@ -611,6 +621,40 @@ export async function POST(
     }
 
     const { accessToken } = tokenResult;
+
+    for (const source of creatives) {
+      try {
+        const eligibility = await checkMediaBoostEligibility(
+          source.instagramMediaId,
+          accessToken,
+        );
+
+        if (!eligibility.isEligible) {
+          return NextResponse.json(
+            {
+              error: "Mídia não elegível",
+              message:
+                "Esta publicação do Instagram não pode ser anunciada no momento.",
+              solution:
+                eligibility.ineligibleReason ??
+                "Escolha outra publicação elegível para anúncio.",
+            },
+            { status: 400 },
+          );
+        }
+      } catch (error) {
+        console.error("Error checking Instagram media boost eligibility:", error);
+        return NextResponse.json(
+          {
+            error: "Falha ao validar mídia",
+            message:
+              "Não foi possível confirmar se uma publicação do Instagram pode ser anunciada.",
+            solution: "Tente novamente ou selecione outra publicação.",
+          },
+          { status: 400 },
+        );
+      }
+    }
 
     const formattedAccountId = accountId.startsWith("act_")
       ? accountId
@@ -927,18 +971,6 @@ export async function PATCH(
   { params }: { params: Promise<{ accountId: string }> }
 ): Promise<NextResponse<PatchAdSetResponse | AdSetsErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
-        },
-        { status: 401 }
-      );
-    }
-
     const { accountId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
@@ -953,6 +985,12 @@ export async function PATCH(
         { status: 400 }
       );
     }
+
+    const authz = await requireMarketingUserAccessResponse(
+      userId,
+      "marketing:write",
+    );
+    if (!authz.ok) return authz.response;
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
 

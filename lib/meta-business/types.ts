@@ -249,7 +249,7 @@ export type GraphApiCampaign = {
   daily_budget?: string;
   lifetime_budget?: string;
   budget_remaining?: string;
-  is_adset_budget_sharing_enabled?: boolean;
+  is_adset_budget_sharing_enabled?: boolean | string;
   start_time?: string;
   stop_time?: string;
   created_time?: string;
@@ -288,14 +288,29 @@ export type Campaign = {
 export type CampaignAdSetBudgetInput = {
   adsetId: string;
   adsetName?: string;
-  dailyBudget: number;
+  budgetType?: "daily" | "lifetime";
+  dailyBudget?: number;
+  lifetimeBudget?: number;
+  startTime?: string;
+  endTime?: string;
 };
 
 export type CampaignAdSetBudgetChange = {
   adsetId: string;
   adsetName?: string;
   previousDailyBudget?: string | null;
-  newDailyBudget: string;
+  newDailyBudget?: string | null;
+  previousLifetimeBudget?: string | null;
+  newLifetimeBudget?: string | null;
+};
+
+export type CampaignAdSetScheduleChange = {
+  adsetId: string;
+  adsetName?: string;
+  previousStartTime?: string | null;
+  newStartTime?: string | null;
+  previousEndTime?: string | null;
+  newEndTime?: string | null;
 };
 
 // ================================
@@ -310,27 +325,68 @@ export type AudienceRef = {
   name?: string;
 };
 
+export type TargetingEntity = {
+  id?: string;
+  name?: string;
+  key?: string;
+  [key: string]: unknown;
+};
+
+export type AdSetGeoLocation = TargetingEntity & {
+  address_string?: string;
+  latitude?: number;
+  longitude?: number;
+  radius?: number | string;
+  distance_unit?: string;
+};
+
+export type AdSetGeoLocations = {
+  countries?: string[];
+  country_groups?: string[];
+  cities?: Array<TargetingEntity & { key: string; region?: string }>;
+  regions?: Array<TargetingEntity & { key: string }>;
+  zips?: TargetingEntity[];
+  geo_markets?: TargetingEntity[];
+  electoral_districts?: TargetingEntity[];
+  custom_locations?: AdSetGeoLocation[];
+  /** e.g. home, recent, travel_in — Meta location targeting behavior */
+  location_types?: string[];
+  [key: string]: unknown;
+};
+
 export type AdSetTargeting = {
   age_min?: number;
   age_max?: number;
-  geo_locations?: {
-    countries?: string[];
-    country_groups?: string[];
-    cities?: Array<{ key: string; name?: string; region?: string }>;
-    regions?: Array<{ key: string; name?: string }>;
-    zips?: Array<Record<string, unknown>>;
-    geo_markets?: Array<Record<string, unknown>>;
-    electoral_districts?: Array<Record<string, unknown>>;
-    custom_locations?: Array<Record<string, unknown>>;
-    /** e.g. home, recent, travel_in — Meta location targeting behavior */
-    location_types?: string[];
-  };
+  geo_locations?: AdSetGeoLocations;
+  excluded_geo_locations?: AdSetGeoLocations;
   genders?: number[];
   locales?: number[];
   custom_audiences?: AudienceRef[];
   excluded_custom_audiences?: AudienceRef[];
-  flexible_spec?: Array<Record<string, unknown>>;
+  interests?: TargetingEntity[];
+  behaviors?: TargetingEntity[];
+  demographics?: TargetingEntity[];
+  flexible_spec?: Array<Record<string, TargetingEntity[] | undefined>>;
+  publisher_platforms?: string[];
+  facebook_positions?: string[];
+  instagram_positions?: string[];
+  messenger_positions?: string[];
+  audience_network_positions?: string[];
+  device_platforms?: string[];
+  targeting_automation?: Record<string, unknown>;
   exclusions?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+export type AdSetScheduleBlock = {
+  days?: number[];
+  start_minute?: number;
+  end_minute?: number;
+  timezone_type?: string;
+};
+
+export type TargetingSentenceLine = {
+  content?: string;
   [key: string]: unknown;
 };
 
@@ -353,7 +409,16 @@ export type GraphApiAdSet = {
   optimization_goal?: string;
   billing_event?: string;
   bid_amount?: string;
+  bid_strategy?: string;
+  destination_type?: string;
+  promoted_object?: Record<string, unknown>;
   targeting?: AdSetTargeting;
+  targetingsentencelines?: {
+    data: TargetingSentenceLine[];
+  };
+  pacing_type?: string[] | string;
+  adset_schedule?: AdSetScheduleBlock[];
+  campaign?: GraphApiCampaign;
   insights?: {
     data: GraphApiInsights[];
   };
@@ -382,7 +447,14 @@ export type AdSet = {
   optimizationGoal?: string;
   billingEvent?: string;
   bidAmount?: string;
+  bidStrategy?: string;
+  destinationType?: string;
+  promotedObject?: Record<string, unknown>;
   targeting?: AdSetTargeting;
+  targetingSentenceLines?: TargetingSentenceLine[];
+  pacingType?: string[] | string;
+  adsetSchedule?: AdSetScheduleBlock[];
+  campaign?: Campaign;
   insights?: InsightsMetrics;
 };
 

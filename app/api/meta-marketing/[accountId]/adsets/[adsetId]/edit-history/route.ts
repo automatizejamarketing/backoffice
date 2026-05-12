@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import {
   getAdSetEditLogs,
   type AdSetEditLogWithAdmin,
@@ -16,25 +16,28 @@ type EditHistoryErrorResponse = {
 };
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ accountId: string; adsetId: string }> }
 ): Promise<NextResponse<GetEditHistoryResponse | EditHistoryErrorResponse>> {
   try {
-    const session = await auth();
-    if (!session?.user?.id) {
+    const userId = request.nextUrl.searchParams.get("userId");
+    if (!userId) {
       return NextResponse.json(
         {
-          error: "Not authenticated",
-          message: "You must be logged in to access this resource",
-          solution: "Please log in and try again",
+          error: "Missing userId",
+          message: "userId query parameter is required",
+          solution: "Provide userId to identify which user's logs to read",
         },
-        { status: 401 }
+        { status: 400 }
       );
     }
 
+    const authz = await requireMarketingUserAccessResponse(userId);
+    if (!authz.ok) return authz.response;
+
     const { adsetId } = await params;
 
-    const logs = await getAdSetEditLogs(adsetId);
+    const logs = await getAdSetEditLogs(adsetId, userId);
 
     return NextResponse.json(
       {

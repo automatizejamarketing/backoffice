@@ -1,14 +1,14 @@
 "use client";
 
 import {
+  Briefcase,
   ChevronUp,
-  CreditCard,
   Handshake,
   GraduationCap,
   Image,
   LayoutDashboard,
   LogOut,
-  Megaphone,
+  Shield,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -35,6 +35,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  hasBackofficePermission,
+  type BackofficeActor,
+  type BackofficePermission,
+} from "@/lib/auth/rbac-core";
 import { cn } from "@/lib/utils";
 
 type User = {
@@ -44,62 +49,94 @@ type User = {
   image?: string | null;
 };
 
-export function AppSidebar({ user }: { user: User }) {
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  isActive: boolean;
+  permission?: BackofficePermission;
+  consultantOnly?: boolean;
+};
+
+export function AppSidebar({
+  user,
+  actor,
+}: {
+  user: User;
+  actor: BackofficeActor;
+}) {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
 
   const isDashboard = pathname === "/";
+  const isPortfolioSection = pathname?.startsWith("/portfolio");
   const isUsersSection = pathname?.startsWith("/users");
-  const isSubscriptionsSection = pathname?.startsWith("/subscriptions");
   const isPostsSection = pathname?.startsWith("/posts");
-  const isMarketingSection = pathname?.startsWith("/marketing");
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
   const isMasterclassSection = pathname?.startsWith("/masterclass");
+  const isTeamSection = pathname?.startsWith("/team");
 
-  const navItems = [
+  const allNavItems: NavItem[] = [
     {
       href: "/",
       label: "Painel",
       icon: LayoutDashboard,
       isActive: isDashboard,
+      permission: "dashboard:view",
+    },
+    {
+      href: "/portfolio",
+      label: "Carteira",
+      icon: Briefcase,
+      isActive: isPortfolioSection,
+      permission: "marketing:read",
+      consultantOnly: true,
     },
     {
       href: "/users",
       label: "Usuários",
       icon: Users,
       isActive: isUsersSection,
-    },
-    {
-      href: "/subscriptions",
-      label: "Assinaturas",
-      icon: CreditCard,
-      isActive: isSubscriptionsSection,
+      permission: "users:manage",
     },
     {
       href: "/posts",
       label: "Conteúdo",
       icon: Image,
       isActive: isPostsSection,
-    },
-    {
-      href: "/marketing",
-      label: "Marketing",
-      icon: Megaphone,
-      isActive: isMarketingSection,
+      permission: "posts:manage",
     },
     {
       href: "/affiliates",
       label: "Afiliados",
       icon: Handshake,
       isActive: isAffiliatesSection,
+      permission: "affiliates:manage",
     },
     {
       href: "/masterclass",
       label: "Masterclass",
       icon: GraduationCap,
       isActive: isMasterclassSection,
+      permission: "masterclass:manage",
+    },
+    {
+      href: "/team",
+      label: "Equipe",
+      icon: Shield,
+      isActive: isTeamSection,
+      permission: "team:manage",
     },
   ];
+
+  const navItems = allNavItems.filter((item) => {
+    if (item.consultantOnly && actor.role !== "marketing_consultant") {
+      return false;
+    }
+    return item.permission
+      ? hasBackofficePermission(actor, item.permission)
+      : true;
+  });
 
   return (
     <Sidebar className="group-data-[side=left]:border-r-0">
@@ -108,7 +145,7 @@ export function AppSidebar({ user }: { user: User }) {
           <div className="flex flex-row items-center justify-between">
             <Link
               className="flex flex-row items-center rounded-md hover:bg-muted transition-colors p-2"
-              href="/"
+              href={actor.role === "marketing_consultant" ? "/portfolio" : "/"}
               onClick={() => {
                 setOpenMobile(false);
               }}
@@ -186,7 +223,9 @@ export function AppSidebar({ user }: { user: User }) {
                 side="top"
               >
                 <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{user.name ?? "Admin"}</p>
+                  <p className="text-sm font-medium">
+                    {user.name ?? (actor.role === "admin" ? "Admin" : "Consultor")}
+                  </p>
                   <p className="text-xs text-muted-foreground">{user.email}</p>
                 </div>
                 <DropdownMenuSeparator />

@@ -3,6 +3,7 @@ import { put } from "@vercel/blob";
 import { generateText } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { trackAiUsage } from "@/lib/ai/usage-tracker";
 import { AI_MODELS, ASPECT_RATIO_DIMENSIONS } from "@/lib/config/models";
 import {
@@ -34,6 +35,9 @@ async function fetchImageAsBase64(imageUrl: string): Promise<string | null> {
 }
 
 export async function POST(request: NextRequest) {
+  const authz = await requireBackofficePermissionResponse("posts:manage");
+  if (!authz.ok) return authz.response;
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

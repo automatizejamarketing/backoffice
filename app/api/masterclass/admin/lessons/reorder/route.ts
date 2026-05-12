@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
-import { isAdminSession } from "@/lib/auth/admin";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { reorderMasterclassLessons } from "@/lib/db/masterclass-queries";
 
 type ReorderBody = {
@@ -9,13 +8,8 @@ type ReorderBody = {
 };
 
 export async function PATCH(request: Request) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  if (!isAdminSession(session)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
+  const authz = await requireBackofficePermissionResponse("masterclass:manage");
+  if (!authz.ok) return authz.response;
 
   const body = (await request.json()) as ReorderBody;
   if (!body.courseId || !Array.isArray(body.lessonIdsInOrder)) {

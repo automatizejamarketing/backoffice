@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
+import { DevAgentation } from "@/components/dev-agentation";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -34,7 +35,8 @@ export default function RootLayout({
           <QueryProvider>
             <TooltipProvider>{children}</TooltipProvider>
           </QueryProvider>
-          <Toaster richColors />
+          <Toaster richColors closeButton />
+          <DevAgentation />
         </ThemeProvider>
       </body>
     </html>

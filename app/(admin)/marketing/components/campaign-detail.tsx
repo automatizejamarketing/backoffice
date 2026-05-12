@@ -292,14 +292,16 @@ export function CampaignDetail({
                   </p>
                 </div>
 
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <div>
                     <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                       Orçamento diário da campanha
                     </span>
                     <p className="font-semibold text-sm mt-0.5 tabular-nums">
                       {campaign.dailyBudget
-                        ? formatCurrency(Number.parseInt(campaign.dailyBudget, 10) / 100)
+                        ? formatCurrency(
+                            Number.parseInt(campaign.dailyBudget, 10) / 100,
+                          )
                         : "-"}
                     </p>
                   </div>
@@ -313,6 +315,22 @@ export function CampaignDetail({
                             Number.parseInt(campaign.lifetimeBudget, 10) / 100,
                           )
                         : "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Início
+                    </span>
+                    <p className="font-semibold text-sm mt-0.5">
+                      {formatDate(campaign.startTime)}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Término
+                    </span>
+                    <p className="font-semibold text-sm mt-0.5">
+                      {formatDate(campaign.stopTime)}
                     </p>
                   </div>
                 </div>

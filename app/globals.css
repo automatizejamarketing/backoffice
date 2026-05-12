@@ -122,4 +122,18 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  .login-autofill-light {
+    color-scheme: light;
+  }
+
+  .login-autofill-light:-webkit-autofill,
+  .login-autofill-light:-webkit-autofill:hover,
+  .login-autofill-light:-webkit-autofill:focus,
+  .login-autofill-light:-webkit-autofill:active {
+    -webkit-text-fill-color: oklch(0.145 0 0) !important;
+    caret-color: oklch(0.145 0 0) !important;
+    -webkit-box-shadow: none !important;
+    box-shadow: none !important;
+  }
 }

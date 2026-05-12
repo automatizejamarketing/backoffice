@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   getAffiliateById,
   rejectAffiliate,
@@ -8,10 +8,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authz = await requireBackofficePermissionResponse("affiliates:manage");
+    if (!authz.ok) return authz.response;
 
     const body = await request.json();
     const { affiliateId, reason } = body as {
@@ -34,11 +32,11 @@ export async function POST(request: Request) {
       );
     }
 
-    await rejectAffiliate(affiliateId, session.user.email, reason || "");
+    await rejectAffiliate(affiliateId, authz.actor.email, reason || "");
 
     await createAffiliateActionLog(
       affiliateId,
-      session.user.email,
+      authz.actor.email,
       "rejected",
       { reason: reason || null },
     );
