@@ -1216,6 +1216,7 @@ export async function PATCH(
         note: note.trim(),
         appliedToMeta,
         errorMessage,
+        source: "admin",
       });
       logId = log.id;
     } catch (dbErr) {

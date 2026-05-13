@@ -92,6 +92,13 @@
       "when": 1778289002646,
       "tag": "0012_tranquil_scarlet_witch",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778646199850,
+      "tag": "0013_famous_wild_child",
+      "breakpoints": true
     }
   ]
 }

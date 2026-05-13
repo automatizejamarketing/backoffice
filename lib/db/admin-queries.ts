@@ -37,6 +37,7 @@ import {
   type CampaignAdSetBudgetChangeData,
   type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
+  type CampaignEditLogSource,
   type AdSetTargetingData,
   type Payment,
   type PendingPlanChange,
@@ -1542,9 +1543,10 @@ export type CreateCampaignEditLogData = {
   newLifetimeBudget?: string;
   adsetBudgetChanges?: CampaignAdSetBudgetChangeData[];
   adsetScheduleChanges?: CampaignAdSetScheduleChangeData[];
-  note: string;
+  note: string | null;
   appliedToMeta: boolean;
   errorMessage?: string;
+  source?: CampaignEditLogSource;
 };
 
 export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
@@ -1567,6 +1569,7 @@ export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
       note: data.note,
       appliedToMeta: data.appliedToMeta,
       errorMessage: data.errorMessage,
+      source: data.source ?? "admin",
     })
     .returning();
 
