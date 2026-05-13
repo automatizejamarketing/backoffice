@@ -242,10 +242,18 @@ export function AdSetsTable({
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-2">
         {adSets.map((adSet) => (
-          <button
+          <div
             key={adSet.id}
+            role="button"
+            tabIndex={0}
             onClick={() => onAdSetClick(adSet)}
-            className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onAdSetClick(adSet);
+              }
+            }}
+            className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex items-start justify-between gap-2 mb-3">
               <span className="font-medium text-sm line-clamp-2 flex-1">
@@ -292,7 +300,7 @@ export function AdSetsTable({
                 <span className="text-[10px] text-muted-foreground">Cliques</span>
               </div>
             </div>
-          </button>
+          </div>
         ))}
       </div>
 

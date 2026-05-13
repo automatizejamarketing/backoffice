@@ -13,6 +13,10 @@ import {
 } from "@/lib/meta-business/types";
 import { transformAdSet, transformPaging } from "@/lib/meta-business/transformers";
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
+import {
+  DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE,
+  placementsToTargetingFields,
+} from "@/lib/meta-business/placements";
 
 type GraphApiAdSetsResponse = {
   data: GraphApiAdSet[];
@@ -756,20 +760,16 @@ export async function POST(
 
     // Build targeting – always use Brazil as geo.
     // OUTCOME_TRAFFIC (VISIT_INSTAGRAM_PROFILE) uses Instagram-only placements.
+    const placementFields = placementsToTargetingFields(
+      instagramOnlyPlacements
+        ? DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE.traffic
+        : DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE.sales,
+    );
     const metaTargeting: Record<string, unknown> = {
       geo_locations: geoLocations ?? { countries: ["BR"] },
       age_min: targeting.age_min ?? 18,
       age_max: targeting.age_max ?? 65,
-      ...(instagramOnlyPlacements
-        ? {
-            publisher_platforms: ["instagram"],
-            instagram_positions: ["stream", "story", "reels"],
-          }
-        : {
-            publisher_platforms: ["facebook", "instagram"],
-            facebook_positions: ["feed", "story", "facebook_reels"],
-            instagram_positions: ["stream", "story", "reels"],
-          }),
+      ...placementFields,
       targeting_automation: { advantage_audience: 0 },
       targeting_relaxation_types: { custom_audience: 0 },
     };

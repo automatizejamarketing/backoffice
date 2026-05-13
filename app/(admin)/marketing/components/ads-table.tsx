@@ -197,10 +197,18 @@ export function AdsTable({
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-2">
         {ads.map((ad) => (
-          <button
+          <div
             key={ad.id}
+            role="button"
+            tabIndex={0}
             onClick={() => onAdClick?.(ad)}
-            className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onAdClick?.(ad);
+              }
+            }}
+            className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex gap-3">
               <AdThumbnail ad={ad} size="sm" />
@@ -253,7 +261,7 @@ export function AdsTable({
                 </div>
               </div>
             </div>
-          </button>
+          </div>
         ))}
       </div>
 

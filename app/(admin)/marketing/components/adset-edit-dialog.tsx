@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Loader2 } from "lucide-react";
+import { Check, Facebook, Instagram, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,6 +20,14 @@ import {
   metaDateToDateTimeLocal,
   minorUnitsToCurrencyInput,
 } from "@/lib/meta-business/budget-schedule";
+import {
+  ALL_PLACEMENTS,
+  FACEBOOK_PLACEMENTS,
+  INSTAGRAM_PLACEMENTS,
+  targetingFieldsToPlacements,
+  type PlacementKey,
+} from "@/lib/meta-business/placements";
+import { cn } from "@/lib/utils";
 import { formatCurrency } from "../utils/formatters";
 import {
   AudienceMultiSelect,
@@ -31,6 +39,19 @@ import {
   buildGeoLocationsPayload,
   type SelectedGeoLocation,
 } from "@/lib/meta-business/geo-targeting-types";
+
+const PLACEMENT_LABEL_PT: Record<PlacementKey, string> = {
+  facebook_feed: "Feed do Facebook",
+  facebook_stories: "Stories do Facebook",
+  facebook_reels: "Reels do Facebook",
+  instagram_feed: "Feed do Instagram",
+  instagram_stories: "Stories do Instagram",
+  instagram_reels: "Reels do Instagram",
+};
+
+function sortedPlacementsKey(placements: readonly PlacementKey[]): string {
+  return [...placements].sort().join(",");
+}
 
 type AdSetEditDialogProps = {
   adSet: AdSet;
@@ -128,6 +149,18 @@ export function AdSetEditDialog({
   const currentExcludedAudiences: AudienceOption[] = (
     adSet.targeting?.excluded_custom_audiences ?? []
   ).map((a) => ({ id: a.id, name: a.name ?? a.id }));
+  const currentPlacements: PlacementKey[] = targetingFieldsToPlacements(
+    adSet.targeting,
+  );
+  // If the ad set is currently Instagram-only (publisher_platforms === ["instagram"]),
+  // keep the editor IG-only. Don't promote an IG-only ad set to Facebook by edit.
+  const currentPublisherPlatforms = adSet.targeting?.publisher_platforms ?? [];
+  const isInstagramOnlyAdSet =
+    currentPublisherPlatforms.length === 1 &&
+    currentPublisherPlatforms[0] === "instagram";
+  const availablePlacementsForAdSet: readonly PlacementKey[] =
+    isInstagramOnlyAdSet ? INSTAGRAM_PLACEMENTS : ALL_PLACEMENTS;
+  const placementsEditable = currentPlacements.length > 0;
 
   const [dailyBudget, setDailyBudget] = useState<string>(
     currentBudgetBRL.toFixed(2),
@@ -159,6 +192,8 @@ export function AdSetEditDialog({
   const [selectedLocations, setSelectedLocations] = useState<
     SelectedGeoLocation[]
   >(() => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
+  const [selectedPlacements, setSelectedPlacements] =
+    useState<PlacementKey[]>(currentPlacements);
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -217,6 +252,7 @@ export function AdSetEditDialog({
     setSelectedLocations(
       geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
     );
+    setSelectedPlacements(targetingFieldsToPlacements(adSet.targeting));
     setNote("");
     setError(null);
   }, [adSet, isOpen]);
@@ -290,13 +326,19 @@ export function AdSetEditDialog({
         ),
       );
 
+    const hasPlacementsChange =
+      placementsEditable &&
+      sortedPlacementsKey(selectedPlacements) !==
+        sortedPlacementsKey(currentPlacements);
+
     const hasTargetingChange =
       hasAgeMinChange ||
       hasAgeMaxChange ||
       hasGenderChange ||
       hasIncludedAudienceChange ||
       hasExcludedAudienceChange ||
-      hasGeoLocationChange;
+      hasGeoLocationChange ||
+      hasPlacementsChange;
 
     if (
       !hasDailyBudgetChange &&
@@ -320,6 +362,11 @@ export function AdSetEditDialog({
 
     if (ageMinValue > ageMaxValue) {
       setError("Idade mínima não pode ser maior que a idade máxima");
+      return;
+    }
+
+    if (hasPlacementsChange && selectedPlacements.length === 0) {
+      setError("Selecione pelo menos um posicionamento");
       return;
     }
 
@@ -387,6 +434,7 @@ export function AdSetEditDialog({
             geoLocationsPayload && {
               geo_locations: geoLocationsPayload,
             }),
+          ...(hasPlacementsChange && { placements: selectedPlacements }),
         };
       }
 
@@ -431,6 +479,7 @@ export function AdSetEditDialog({
       setSelectedLocations(
         geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
       );
+      setSelectedPlacements(currentPlacements);
       setNote("");
       setError(null);
       onClose();
@@ -618,6 +667,68 @@ export function AdSetEditDialog({
               onLocationsChange={setSelectedLocations}
               disabled={isSubmitting}
             />
+
+            <div className="space-y-2">
+              <Label>Posicionamentos</Label>
+              {!placementsEditable ? (
+                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                  Este conjunto de anúncios usa posicionamentos automáticos do
+                  Meta (Advantage+). Para alterar, use o Gerenciador de Anúncios.
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {availablePlacementsForAdSet.map((key) => {
+                    const checked = selectedPlacements.includes(key);
+                    const isFb = (FACEBOOK_PLACEMENTS as readonly string[]).includes(
+                      key,
+                    );
+                    const PlatformIcon = isFb ? Facebook : Instagram;
+                    const toggle = () => {
+                      if (isSubmitting) return;
+                      setSelectedPlacements((prev) => {
+                        const set = new Set(prev);
+                        if (set.has(key)) set.delete(key);
+                        else set.add(key);
+                        return ALL_PLACEMENTS.filter((p) => set.has(p));
+                      });
+                    };
+                    return (
+                      <button
+                        type="button"
+                        key={key}
+                        onClick={toggle}
+                        disabled={isSubmitting}
+                        className={cn(
+                          "flex items-center gap-2 rounded-md border p-2 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50",
+                          checked && "border-primary/60 bg-primary/5",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "grid size-4 place-content-center rounded-sm border border-primary",
+                            checked
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-background",
+                          )}
+                        >
+                          {checked ? <Check className="size-3" /> : null}
+                        </span>
+                        <PlatformIcon className="size-4 text-muted-foreground" />
+                        <span>{PLACEMENT_LABEL_PT[key]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {placementsEditable && currentPlacements.length > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Atual:{" "}
+                  {currentPlacements
+                    .map((k) => PLACEMENT_LABEL_PT[k])
+                    .join(", ")}
+                </p>
+              ) : null}
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="note">

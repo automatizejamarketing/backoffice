@@ -217,6 +217,15 @@ export function AdSetDetail({
     }
   }, [isOpen, fetchInsights]);
 
+  // Fetch the full ad set (with targeting) on open. The /adsets list endpoint
+  // doesn't return targeting, so without this call the Edit dialog would see an
+  // empty targeting object and incorrectly report Advantage+ placements.
+  useEffect(() => {
+    if (isOpen) {
+      void fetchAdSetDetails();
+    }
+  }, [isOpen, fetchAdSetDetails]);
+
   const refetchAdSet = useCallback(async () => {
     try {
       const statuses =
@@ -293,13 +302,20 @@ export function AdSetDetail({
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    setIsEditOpen(true);
-                    void fetchAdSetDetails();
-                  }}
+                  onClick={() => setIsEditOpen(true)}
+                  disabled={!detailedAdSet || isLoadingDetails}
+                  title={
+                    !detailedAdSet && isLoadingDetails
+                      ? "Carregando detalhes do conjunto..."
+                      : undefined
+                  }
                   className="shrink-0 h-8 text-xs"
                 >
-                  <Pencil className="size-3.5 mr-1.5" />
+                  {isLoadingDetails && !detailedAdSet ? (
+                    <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Pencil className="size-3.5 mr-1.5" />
+                  )}
                   Editar
                 </Button>
                 <Button
