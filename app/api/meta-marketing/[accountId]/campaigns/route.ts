@@ -140,6 +140,12 @@ function buildCampaignFields(): string {
     "stop_time",
     "created_time",
     "updated_time",
+    "issues_info{error_code,error_message,error_summary,error_type,level,mid}",
+    // Roll-up: pick only `effective_status` from descendants to detect issues
+    // without bloating the payload. The 200 cap is a safety net — typical
+    // campaigns have well under 70 ad sets (Meta's ABO limit).
+    "adsets.limit(200){id,effective_status}",
+    "ads.limit(200){id,effective_status}",
     insightsFields,
   ].join(",");
 }

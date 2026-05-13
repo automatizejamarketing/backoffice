@@ -68,6 +68,10 @@ function buildAdSetFields(): string {
     "billing_event",
     "bid_amount",
     "targeting",
+    "issues_info{error_code,error_message,error_summary,error_type,level,mid}",
+    // Roll-up: detect ad issues without bloating payload — `effective_status`
+    // alone is enough to count WITH_ISSUES / DISAPPROVED descendants.
+    "ads.limit(200){id,effective_status}",
     insightsFields,
   ].join(",");
 }

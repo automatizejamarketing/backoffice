@@ -8,6 +8,12 @@ import type {
   Campaign,
   AdSet,
   Ad,
+  AdIssue,
+  AdReviewFeedback,
+  DescendantIssuesCounts,
+  EffectiveStatus,
+  GraphApiAdIssuesInfo,
+  GraphApiAdReviewFeedback,
   PaginationInfo,
 } from "./types";
 
@@ -102,12 +108,74 @@ export function transformInsights(insights?: {
 }
 
 /**
+ * Transforms a Meta `issues_info` array into camelCase. Returns `undefined`
+ * when the input is missing or empty so callers can rely on a strict
+ * "no field" === "no issues" contract.
+ */
+export function transformAdIssues(
+  issues?: GraphApiAdIssuesInfo[],
+): AdIssue[] | undefined {
+  if (!issues || issues.length === 0) return undefined;
+  return issues.map((issue) => ({
+    errorCode: issue.error_code,
+    errorMessage: issue.error_message,
+    errorSummary: issue.error_summary,
+    errorType: issue.error_type,
+    level: issue.level,
+    mid: issue.mid,
+  }));
+}
+
+/**
+ * Transforms Meta `ad_review_feedback` snake_case → camelCase. Returns
+ * `undefined` when the input is missing.
+ */
+export function transformAdReviewFeedback(
+  feedback?: GraphApiAdReviewFeedback,
+): AdReviewFeedback | undefined {
+  if (!feedback) return undefined;
+  return {
+    global: feedback.global,
+    placementSpecific: feedback.placement_specific,
+  };
+}
+
+/**
+ * Counts how many descendant items (ad sets or ads) Meta marked as
+ * `WITH_ISSUES` or `DISAPPROVED`. Returns `undefined` when no descendants
+ * were returned (so we don't lie that "0 have issues" when we just didn't
+ * fetch them).
+ */
+export function countDescendantIssues(
+  items: Array<{ effective_status?: EffectiveStatus | string }> | undefined,
+): DescendantIssuesCounts | undefined {
+  if (!items) return undefined;
+  let withIssues = 0;
+  let disapproved = 0;
+  for (const item of items) {
+    if (item.effective_status === "WITH_ISSUES") withIssues++;
+    else if (item.effective_status === "DISAPPROVED") disapproved++;
+  }
+  return { withIssues, disapproved };
+}
+
+/**
  * Transforms Graph API campaign to camelCase Campaign.
  */
 export function transformCampaign(campaign: GraphApiCampaign): Campaign {
   const usesCampaignBudget = !!(
     campaign.daily_budget || campaign.lifetime_budget
   );
+
+  const adSetsSummary = countDescendantIssues(campaign.adsets?.data);
+  const adsSummary = countDescendantIssues(campaign.ads?.data);
+  const issuesSummary =
+    adSetsSummary || adsSummary
+      ? {
+          ...(adSetsSummary && { adSets: adSetsSummary }),
+          ...(adsSummary && { ads: adsSummary }),
+        }
+      : undefined;
 
   return {
     id: campaign.id,
@@ -128,6 +196,8 @@ export function transformCampaign(campaign: GraphApiCampaign): Campaign {
     createdTime: campaign.created_time,
     updatedTime: campaign.updated_time,
     insights: transformInsights(campaign.insights),
+    issues: transformAdIssues(campaign.issues_info),
+    issuesSummary,
   };
 }
 
@@ -144,6 +214,9 @@ function transformMetaBoolean(value: boolean | string | undefined): boolean | un
  * Transforms Graph API ad set to camelCase AdSet.
  */
 export function transformAdSet(adSet: GraphApiAdSet): AdSet {
+  const adsSummary = countDescendantIssues(adSet.ads?.data);
+  const issuesSummary = adsSummary ? { ads: adsSummary } : undefined;
+
   return {
     id: adSet.id,
     name: adSet.name,
@@ -176,6 +249,8 @@ export function transformAdSet(adSet: GraphApiAdSet): AdSet {
         }
       : undefined,
     insights: transformInsights(adSet.insights),
+    issues: transformAdIssues(adSet.issues_info),
+    issuesSummary,
   };
 }
 
@@ -204,6 +279,8 @@ export function transformAd(ad: GraphApiAd): Ad {
         }
       : undefined,
     insights: transformInsights(ad.insights),
+    issues: transformAdIssues(ad.issues_info),
+    reviewFeedback: transformAdReviewFeedback(ad.ad_review_feedback),
   };
 }
 

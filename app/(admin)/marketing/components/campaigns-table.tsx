@@ -30,6 +30,7 @@ import {
   type CampaignMetricDefinition,
 } from "../utils/campaign-metrics";
 import { DeliveryStatus } from "./delivery-status";
+import { IssuesIcon } from "./issues-icon";
 
 type GetCampaignsResponse = {
   data?: Campaign[];
@@ -311,6 +312,7 @@ export function CampaignsTable({
                     )}
                   </div>
                 )}
+                <IssuesIcon entity={campaign} entityType="campaign" />
                 <DeliveryStatus
                   status={campaign.effectiveStatus ?? campaign.status}
                   size="xs"
@@ -343,6 +345,7 @@ export function CampaignsTable({
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[60px] text-xs">Ativo</TableHead>
                 <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
+                <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
               </TableRow>
@@ -353,6 +356,7 @@ export function CampaignsTable({
                     <TableRow key={i}>
                       <TableCell><Skeleton className="h-5 w-9" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                      <TableCell />
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell>
                         <div className="grid grid-cols-5 gap-3">
@@ -394,6 +398,12 @@ export function CampaignsTable({
                       </TableCell>
                       <TableCell className="font-medium text-sm">
                         <span className="line-clamp-1">{campaign.name}</span>
+                      </TableCell>
+                      <TableCell
+                        className="text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <IssuesIcon entity={campaign} entityType="campaign" />
                       </TableCell>
                       <TableCell>
                         <DeliveryStatus
@@ -487,6 +497,7 @@ function CampaignsTableSkeleton() {
             <TableRow className="bg-muted/30 hover:bg-muted/30">
               <TableHead className="w-[60px] text-xs">Ativo</TableHead>
               <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
+              <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
               <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
             </TableRow>
@@ -496,6 +507,7 @@ function CampaignsTableSkeleton() {
               <TableRow key={i}>
                 <TableCell><Skeleton className="h-5 w-9" /></TableCell>
                 <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                <TableCell />
                 <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                 <TableCell>
                   <div className="grid grid-cols-5 gap-3">
