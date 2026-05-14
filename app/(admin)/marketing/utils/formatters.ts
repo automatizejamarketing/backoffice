@@ -183,19 +183,39 @@ export function translateStatus(status: string | null | undefined): string {
   return statusMap[status.toUpperCase()] ?? status;
 }
 
-export type DeliveryStatus = "active" | "pending" | "inactive";
+export type DeliveryStatus = "active" | "pending" | "inactive" | "completed";
 
 /**
  * Map Meta effective status to the simplified delivery status used in the UI.
+ *
+ * Marketing API v24 has no `COMPLETED` value in `effective_status` — Meta Ads
+ * Manager computes the "Concluído" badge client-side by checking `stop_time`
+ * (campaign) / `end_time` (ad set). So when callers can supply that field, we
+ * promote a past end date to `"completed"`, which beats the literal
+ * `effective_status` returned by Graph (often still `ACTIVE`).
+ *
+ * Permanent states (`DELETED`, `ARCHIVED`) are never overridden by an end date.
  */
 export function getDeliveryStatus(
-  status: string | null | undefined
+  status: string | null | undefined,
+  endTime?: string | null,
 ): DeliveryStatus {
   if (!status) {
     return "inactive";
   }
 
   const normalizedStatus = status.toUpperCase();
+
+  if (normalizedStatus === "DELETED" || normalizedStatus === "ARCHIVED") {
+    return "inactive";
+  }
+
+  if (endTime) {
+    const end = new Date(endTime);
+    if (!Number.isNaN(end.getTime()) && end.getTime() <= Date.now()) {
+      return "completed";
+    }
+  }
 
   switch (normalizedStatus) {
     case "ACTIVE":
@@ -219,6 +239,8 @@ export function getDeliveryDotColor(status: DeliveryStatus): string {
       return "bg-emerald-500";
     case "pending":
       return "bg-amber-500";
+    case "completed":
+      return "bg-slate-400";
     case "inactive":
     default:
       return "bg-muted-foreground/60";

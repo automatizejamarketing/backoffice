@@ -17,6 +17,7 @@ import {
   CampaignStatus,
   EffectiveStatus,
   type Campaign,
+  type DatePreset,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
 import {
@@ -42,6 +43,13 @@ type CampaignsTableProps = {
   userId: string; // Required: identifies which user's token to use
   onCampaignClick: (campaign: Campaign) => void;
   refreshKey?: number;
+  /**
+   * Date preset to scope the insights subquery (e.g. `TODAY`, `LAST_30D`).
+   * When both this and `customRange` are unset the API returns lifetime totals.
+   */
+  datePreset?: DatePreset | null;
+  /** Custom YYYY-MM-DD window that supersedes `datePreset`. */
+  customRange?: { since: string; until: string } | null;
 };
 
 function formatRoas(value: string | undefined): string {
@@ -77,6 +85,8 @@ export function CampaignsTable({
   userId,
   onCampaignClick,
   refreshKey,
+  datePreset,
+  customRange,
 }: CampaignsTableProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -96,6 +106,14 @@ export function CampaignsTable({
         const baseParams = new URLSearchParams({ limit: "25", userId });
         if (cursor) {
           baseParams.set("after", cursor);
+        }
+        // Forward the date filter so list-level metrics reflect the period
+        // selected above the table. Custom range wins when both are set.
+        if (customRange) {
+          baseParams.set("since", customRange.since);
+          baseParams.set("until", customRange.until);
+        } else if (datePreset) {
+          baseParams.set("datePreset", datePreset);
         }
 
         const activeParams = new URLSearchParams(baseParams);
@@ -154,7 +172,7 @@ export function CampaignsTable({
         setIsLoading(false);
       }
     },
-    [accountId, userId]
+    [accountId, userId, datePreset, customRange]
   );
 
   useEffect(() => {
@@ -315,6 +333,7 @@ export function CampaignsTable({
                 <IssuesIcon entity={campaign} entityType="campaign" />
                 <DeliveryStatus
                   status={campaign.effectiveStatus ?? campaign.status}
+                  endTime={campaign.stopTime}
                   size="xs"
                 />
               </div>
@@ -410,6 +429,7 @@ export function CampaignsTable({
                           status={
                             campaign.effectiveStatus ?? campaign.status ?? null
                           }
+                          endTime={campaign.stopTime}
                         />
                       </TableCell>
                       <TableCell>

@@ -282,6 +282,7 @@ export function AdSetsTable({
                 <IssuesIcon entity={adSet} entityType="adset" />
                 <DeliveryStatus
                   status={adSet.effectiveStatus ?? adSet.status}
+                  endTime={adSet.endTime}
                   size="xs"
                 />
               </div>
@@ -388,6 +389,7 @@ export function AdSetsTable({
                           status={
                             adSet.effectiveStatus ?? adSet.status ?? null
                           }
+                          endTime={adSet.endTime}
                         />
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-sm">

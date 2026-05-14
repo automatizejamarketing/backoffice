@@ -15,6 +15,12 @@ import {
 
 type DeliveryStatusProps = {
   status: string | null | undefined;
+  /**
+   * Campaign `stop_time` / ad-set `end_time` (ISO). When this date is in the
+   * past, the badge becomes "Concluído" — matching what Meta Ads Manager shows
+   * for finished campaigns / ad sets.
+   */
+  endTime?: string | null;
   size?: "sm" | "xs";
   className?: string;
 };
@@ -23,14 +29,16 @@ const labelByStatus: Record<DeliveryStatusKey, string> = {
   active: "Ativo",
   pending: "Pendente",
   inactive: "Inativo",
+  completed: "Concluído",
 };
 
 export function DeliveryStatus({
   status,
+  endTime,
   size = "sm",
   className,
 }: DeliveryStatusProps) {
-  const deliveryStatus = getDeliveryStatus(status);
+  const deliveryStatus = getDeliveryStatus(status, endTime);
 
   return (
     <TooltipProvider delayDuration={150}>

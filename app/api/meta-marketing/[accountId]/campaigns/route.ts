@@ -122,9 +122,29 @@ export type CampaignsErrorResponse = {
 /**
  * Build the fields parameter for campaigns query.
  */
-function buildCampaignFields(): string {
+function buildCampaignFields(options?: {
+  datePreset?: string | null;
+  since?: string | null;
+  until?: string | null;
+}): string {
+  const insightsBody =
+    "{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
+
+  // Meta Graph "field-level parameters" use parentheses around the value, not
+  // `=`. Wrong syntax surfaces as a 400 with "Expected '(' instead of '{'".
+  // Reference: https://developers.facebook.com/docs/graph-api/results
+  const insightsParams: string[] = [];
+  if (options?.datePreset) {
+    insightsParams.push(`date_preset(${options.datePreset})`);
+  } else if (options?.since && options?.until) {
+    insightsParams.push(
+      `time_range({'since':'${options.since}','until':'${options.until}'})`,
+    );
+  }
   const insightsFields =
-    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
+    insightsParams.length > 0
+      ? `insights.${insightsParams.join(".")}${insightsBody}`
+      : `insights${insightsBody}`;
 
   return [
     "id",
@@ -284,6 +304,9 @@ export async function GET(
     const after = searchParams.get("after");
     const before = searchParams.get("before");
     const effectiveStatus = searchParams.get("effectiveStatus");
+    const datePreset = searchParams.get("datePreset");
+    const since = searchParams.get("since");
+    const until = searchParams.get("until");
 
     // Validate and set limit (default: 25, max: 100)
     let limit = 25;
@@ -295,7 +318,9 @@ export async function GET(
     }
 
     // Build fields parameter
-    const fields = buildCampaignFields();
+    // Scope the insights subquery to the chosen window so list-level metrics
+    // reflect the date filter picked above the table.
+    const fields = buildCampaignFields({ datePreset, since, until });
 
     // Build query params
     const queryParams: string[] = [`fields=${fields}`, `limit=${limit}`];
