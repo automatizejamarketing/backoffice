@@ -261,6 +261,68 @@ export type GraphApiCampaign = {
     data: GraphApiAdSet[];
     paging?: GraphPaging;
   };
+  ads?: {
+    data: GraphApiAd[];
+    paging?: GraphPaging;
+  };
+  issues_info?: GraphApiAdIssuesInfo[];
+};
+
+/**
+ * Severity of an `issues_info` item returned by Meta. `HARD_ERROR` blocks
+ * delivery entirely; `SOFT_ERROR` reduces delivery (e.g. drops one placement)
+ * but the ad keeps running on the remaining placements.
+ */
+export type AdIssueErrorType = "HARD_ERROR" | "SOFT_ERROR";
+
+/** Hierarchy level where Meta detected the issue. */
+export type AdIssueLevel = "AD" | "AD_SET" | "CAMPAIGN";
+
+/** Graph API issues_info item (snake_case). */
+export type GraphApiAdIssuesInfo = {
+  error_code?: number;
+  error_message?: string;
+  error_summary?: string;
+  error_type?: AdIssueErrorType;
+  level?: AdIssueLevel;
+  mid?: string;
+};
+
+/** ad_review_feedback object (snake_case). */
+export type GraphApiAdReviewFeedback = {
+  global?: Record<string, string>;
+  placement_specific?: Record<string, Record<string, string>>;
+};
+
+/** Single issue/warning attached to an entity. camelCase mirror. */
+export type AdIssue = {
+  errorCode?: number;
+  errorMessage?: string;
+  errorSummary?: string;
+  errorType?: AdIssueErrorType;
+  level?: AdIssueLevel;
+  mid?: string;
+};
+
+/** Review-feedback (camelCase). */
+export type AdReviewFeedback = {
+  global?: Record<string, string>;
+  placementSpecific?: Record<string, Record<string, string>>;
+};
+
+/**
+ * Counts of descendant entities with delivery issues. Populated by listing
+ * endpoints via Graph API subqueries so a parent entity can signal that
+ * something is wrong below without forcing a drill-down request.
+ */
+export type DescendantIssuesCounts = {
+  withIssues: number;
+  disapproved: number;
+};
+
+export type DescendantIssuesSummary = {
+  adSets?: DescendantIssuesCounts;
+  ads?: DescendantIssuesCounts;
 };
 
 /**
@@ -283,6 +345,10 @@ export type Campaign = {
   createdTime?: string;
   updatedTime?: string;
   insights?: InsightsMetrics;
+  /** Delivery issues reported by Meta on the campaign itself. */
+  issues?: AdIssue[];
+  /** Rolled-up counts of descendant ad sets / ads with issues. */
+  issuesSummary?: DescendantIssuesSummary;
 };
 
 export type CampaignAdSetBudgetInput = {
@@ -426,6 +492,7 @@ export type GraphApiAdSet = {
     data: GraphApiAd[];
     paging?: GraphPaging;
   };
+  issues_info?: GraphApiAdIssuesInfo[];
 };
 
 /**
@@ -456,6 +523,10 @@ export type AdSet = {
   adsetSchedule?: AdSetScheduleBlock[];
   campaign?: Campaign;
   insights?: InsightsMetrics;
+  /** Delivery issues reported by Meta on the ad set itself. */
+  issues?: AdIssue[];
+  /** Rolled-up counts of descendant ads with issues. */
+  issuesSummary?: Pick<DescendantIssuesSummary, "ads">;
 };
 
 // ================================
@@ -486,6 +557,8 @@ export type GraphApiAd = {
   insights?: {
     data: GraphApiInsights[];
   };
+  issues_info?: GraphApiAdIssuesInfo[];
+  ad_review_feedback?: GraphApiAdReviewFeedback;
 };
 
 /**
@@ -515,6 +588,10 @@ export type Ad = {
   updatedTime?: string;
   creative?: AdCreative;
   insights?: InsightsMetrics;
+  /** Delivery issues reported by Meta. Empty/undefined when none. */
+  issues?: AdIssue[];
+  /** Policy-review feedback (typically present on DISAPPROVED ads). */
+  reviewFeedback?: AdReviewFeedback;
 };
 
 export type TimeIncrement = "day" | "week" | "month" | "quarterly";

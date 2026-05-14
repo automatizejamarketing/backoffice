@@ -16,6 +16,12 @@ import type {
   GraphApiCampaign,
 } from "@/lib/meta-business/types";
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
+import {
+  INSTAGRAM_PLACEMENTS,
+  isValidPlacementKey,
+  placementsToTargetingFields,
+  type PlacementKey,
+} from "@/lib/meta-business/placements";
 
 type EditAdSetRequestBody = {
   userId: string;
@@ -32,6 +38,7 @@ type EditAdSetRequestBody = {
     geo_locations?: GeoLocationsPayload;
     custom_audiences?: AudienceRef[];
     excluded_custom_audiences?: AudienceRef[];
+    placements?: PlacementKey[];
   };
   note: string;
 };
@@ -114,7 +121,33 @@ export async function PATCH(
         targeting.genders !== undefined ||
         targeting.geo_locations !== undefined ||
         targeting.custom_audiences !== undefined ||
-        targeting.excluded_custom_audiences !== undefined);
+        targeting.excluded_custom_audiences !== undefined ||
+        targeting.placements !== undefined);
+
+    if (targeting?.placements !== undefined) {
+      if (!Array.isArray(targeting.placements) || targeting.placements.length === 0) {
+        return NextResponse.json(
+          {
+            error: "Invalid placements",
+            message: "placements deve ser um array não vazio.",
+            solution: "Selecione pelo menos um posicionamento.",
+          },
+          { status: 400 },
+        );
+      }
+      for (const p of targeting.placements) {
+        if (!isValidPlacementKey(p)) {
+          return NextResponse.json(
+            {
+              error: "Invalid placement key",
+              message: `Posicionamento inválido: ${String(p)}.`,
+              solution: "Use apenas os 6 posicionamentos suportados.",
+            },
+            { status: 400 },
+          );
+        }
+      }
+    }
 
     if (
       !hasDailyBudgetChange &&
@@ -356,6 +389,45 @@ export async function PATCH(
         | Record<string, unknown>
         | undefined;
 
+      const prevTargetingAutomation = previousTargeting?.targeting_automation as
+        | Record<string, unknown>
+        | undefined;
+
+      // Resolve placement fields. If the user submitted new placements, use them;
+      // otherwise preserve whatever the ad set had (which might be Advantage+ /
+      // automatic placements, i.e. no publisher_platforms at all).
+      let placementFields:
+        | {
+            publisher_platforms: string[];
+            facebook_positions?: string[];
+            instagram_positions?: string[];
+          }
+        | null = null;
+      if (targeting.placements !== undefined) {
+        // Refuse to promote an IG-only ad set to Facebook through edit.
+        const prevPlatforms = previousTargeting?.publisher_platforms ?? [];
+        const wasInstagramOnly =
+          prevPlatforms.length === 1 && prevPlatforms[0] === "instagram";
+        if (wasInstagramOnly) {
+          const allowed = new Set<PlacementKey>(INSTAGRAM_PLACEMENTS);
+          for (const p of targeting.placements) {
+            if (!allowed.has(p)) {
+              return NextResponse.json(
+                {
+                  error: "Placement not allowed",
+                  message:
+                    "Este conjunto de anúncios é Instagram-only. Posicionamentos do Facebook não podem ser ativados aqui.",
+                  solution:
+                    "Mantenha apenas posicionamentos do Instagram ou refaça a campanha.",
+                },
+                { status: 400 },
+              );
+            }
+          }
+        }
+        placementFields = placementsToTargetingFields(targeting.placements);
+      }
+
       newTargeting = {
         geo_locations: newGeoLocations,
         age_min: targeting.age_min ?? previousTargeting?.age_min ?? 18,
@@ -368,6 +440,22 @@ export async function PATCH(
           excluded_custom_audiences: newExcludedAudiences,
         }),
         ...(prevRelaxation && { targeting_relaxation_types: prevRelaxation }),
+        ...(prevTargetingAutomation && {
+          targeting_automation: prevTargetingAutomation,
+        }),
+        ...(placementFields
+          ? placementFields
+          : {
+              ...(previousTargeting?.publisher_platforms && {
+                publisher_platforms: previousTargeting.publisher_platforms,
+              }),
+              ...(previousTargeting?.facebook_positions && {
+                facebook_positions: previousTargeting.facebook_positions,
+              }),
+              ...(previousTargeting?.instagram_positions && {
+                instagram_positions: previousTargeting.instagram_positions,
+              }),
+            }),
       };
 
       const metaTargeting: AdSetTargeting = {

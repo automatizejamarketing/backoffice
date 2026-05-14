@@ -17,6 +17,7 @@ import {
   CampaignStatus,
   EffectiveStatus,
   type Campaign,
+  type DatePreset,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
 import {
@@ -30,6 +31,7 @@ import {
   type CampaignMetricDefinition,
 } from "../utils/campaign-metrics";
 import { DeliveryStatus } from "./delivery-status";
+import { IssuesIcon } from "./issues-icon";
 
 type GetCampaignsResponse = {
   data?: Campaign[];
@@ -41,6 +43,13 @@ type CampaignsTableProps = {
   userId: string; // Required: identifies which user's token to use
   onCampaignClick: (campaign: Campaign) => void;
   refreshKey?: number;
+  /**
+   * Date preset to scope the insights subquery (e.g. `TODAY`, `LAST_30D`).
+   * When both this and `customRange` are unset the API returns lifetime totals.
+   */
+  datePreset?: DatePreset | null;
+  /** Custom YYYY-MM-DD window that supersedes `datePreset`. */
+  customRange?: { since: string; until: string } | null;
 };
 
 function formatRoas(value: string | undefined): string {
@@ -76,6 +85,8 @@ export function CampaignsTable({
   userId,
   onCampaignClick,
   refreshKey,
+  datePreset,
+  customRange,
 }: CampaignsTableProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -95,6 +106,14 @@ export function CampaignsTable({
         const baseParams = new URLSearchParams({ limit: "25", userId });
         if (cursor) {
           baseParams.set("after", cursor);
+        }
+        // Forward the date filter so list-level metrics reflect the period
+        // selected above the table. Custom range wins when both are set.
+        if (customRange) {
+          baseParams.set("since", customRange.since);
+          baseParams.set("until", customRange.until);
+        } else if (datePreset) {
+          baseParams.set("datePreset", datePreset);
         }
 
         const activeParams = new URLSearchParams(baseParams);
@@ -153,7 +172,7 @@ export function CampaignsTable({
         setIsLoading(false);
       }
     },
-    [accountId, userId]
+    [accountId, userId, datePreset, customRange]
   );
 
   useEffect(() => {
@@ -311,8 +330,10 @@ export function CampaignsTable({
                     )}
                   </div>
                 )}
+                <IssuesIcon entity={campaign} entityType="campaign" />
                 <DeliveryStatus
                   status={campaign.effectiveStatus ?? campaign.status}
+                  endTime={campaign.stopTime}
                   size="xs"
                 />
               </div>
@@ -343,6 +364,7 @@ export function CampaignsTable({
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[60px] text-xs">Ativo</TableHead>
                 <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
+                <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
               </TableRow>
@@ -353,6 +375,7 @@ export function CampaignsTable({
                     <TableRow key={i}>
                       <TableCell><Skeleton className="h-5 w-9" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                      <TableCell />
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell>
                         <div className="grid grid-cols-5 gap-3">
@@ -395,11 +418,18 @@ export function CampaignsTable({
                       <TableCell className="font-medium text-sm">
                         <span className="line-clamp-1">{campaign.name}</span>
                       </TableCell>
+                      <TableCell
+                        className="text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <IssuesIcon entity={campaign} entityType="campaign" />
+                      </TableCell>
                       <TableCell>
                         <DeliveryStatus
                           status={
                             campaign.effectiveStatus ?? campaign.status ?? null
                           }
+                          endTime={campaign.stopTime}
                         />
                       </TableCell>
                       <TableCell>
@@ -487,6 +517,7 @@ function CampaignsTableSkeleton() {
             <TableRow className="bg-muted/30 hover:bg-muted/30">
               <TableHead className="w-[60px] text-xs">Ativo</TableHead>
               <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
+              <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
               <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
             </TableRow>
@@ -496,6 +527,7 @@ function CampaignsTableSkeleton() {
               <TableRow key={i}>
                 <TableCell><Skeleton className="h-5 w-9" /></TableCell>
                 <TableCell><Skeleton className="h-4 w-full" /></TableCell>
+                <TableCell />
                 <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                 <TableCell>
                   <div className="grid grid-cols-5 gap-3">

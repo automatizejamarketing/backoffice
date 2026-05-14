@@ -59,6 +59,8 @@ function buildAdFields(): string {
     "created_time",
     "updated_time",
     "creative{id,name,title,body,image_url,thumbnail_url,effective_object_story_id}",
+    "issues_info{error_code,error_message,error_summary,error_type,level,mid}",
+    "ad_review_feedback",
     insightsFields,
   ].join(",");
 }

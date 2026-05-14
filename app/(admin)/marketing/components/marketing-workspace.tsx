@@ -8,10 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
-import type { Campaign } from "@/lib/meta-business/types";
+import { DatePreset, type Campaign } from "@/lib/meta-business/types";
 import { AdAccountSelector } from "./ad-account-selector";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
+import { DateFilter } from "./date-filter";
 import { MarketingUsersPicker } from "./marketing-users-picker";
 
 export type MarketingWorkspaceUser = {
@@ -47,6 +48,16 @@ export function MarketingWorkspace({
   );
   const [isCampaignDetailOpen, setIsCampaignDetailOpen] = useState(false);
   const [campaignsRefreshKey, setCampaignsRefreshKey] = useState(0);
+
+  // Date filter for the campaigns list (mirrors the in-sheet filter). Default
+  // to TODAY so the metric columns show today's numbers at first paint.
+  const [datePreset, setDatePreset] = useState<DatePreset | null>(
+    DatePreset.TODAY,
+  );
+  const [customRange, setCustomRange] = useState<{
+    since: string;
+    until: string;
+  } | null>(null);
 
   useEffect(() => {
     setSelectedUser(initialUser);
@@ -294,8 +305,20 @@ export function MarketingWorkspace({
 
       {selectedAccountId && selectedUser && (
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle>Campanhas</CardTitle>
+            <DateFilter
+              datePreset={datePreset}
+              onDatePresetChange={(preset) => {
+                setDatePreset(preset);
+                setCustomRange(null);
+              }}
+              customRange={customRange}
+              onCustomRangeChange={(range) => {
+                setCustomRange(range);
+                setDatePreset(null);
+              }}
+            />
           </CardHeader>
           <CardContent>
             <CampaignsTable
@@ -303,6 +326,8 @@ export function MarketingWorkspace({
               userId={selectedUser.id}
               onCampaignClick={handleCampaignClick}
               refreshKey={campaignsRefreshKey}
+              datePreset={datePreset}
+              customRange={customRange}
             />
           </CardContent>
         </Card>

@@ -447,6 +447,8 @@ export type AdSetTargetingData = {
 
 export type CampaignBudgetModeData = "ABO" | "CBO";
 
+export type CampaignEditLogSource = "user" | "admin";
+
 export type CampaignAdSetBudgetChangeData = {
   adsetId: string;
   adsetName?: string;
@@ -524,9 +526,13 @@ export const campaignEditLog = pgTable("campaign_edit_logs", {
   adsetScheduleChanges: jsonb("adset_schedule_changes").$type<
     CampaignAdSetScheduleChangeData[]
   >(),
-  note: text("note").notNull(),
+  note: text("note"),
   appliedToMeta: boolean("applied_to_meta").notNull().default(false),
   errorMessage: text("error_message"),
+  source: varchar("source", { length: 16 })
+    .$type<CampaignEditLogSource>()
+    .notNull()
+    .default("admin"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

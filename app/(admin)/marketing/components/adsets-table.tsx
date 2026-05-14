@@ -21,6 +21,7 @@ import {
 } from "@/lib/meta-business/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { DeliveryStatus } from "./delivery-status";
+import { IssuesIcon } from "./issues-icon";
 
 type GetAdSetsResponse = {
   data?: AdSet[];
@@ -241,10 +242,18 @@ export function AdSetsTable({
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-2">
         {adSets.map((adSet) => (
-          <button
+          <div
             key={adSet.id}
+            role="button"
+            tabIndex={0}
             onClick={() => onAdSetClick(adSet)}
-            className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onAdSetClick(adSet);
+              }
+            }}
+            className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex items-start justify-between gap-2 mb-3">
               <span className="font-medium text-sm line-clamp-2 flex-1">
@@ -270,8 +279,10 @@ export function AdSetsTable({
                     )}
                   </div>
                 )}
+                <IssuesIcon entity={adSet} entityType="adset" />
                 <DeliveryStatus
                   status={adSet.effectiveStatus ?? adSet.status}
+                  endTime={adSet.endTime}
                   size="xs"
                 />
               </div>
@@ -290,7 +301,7 @@ export function AdSetsTable({
                 <span className="text-[10px] text-muted-foreground">Cliques</span>
               </div>
             </div>
-          </button>
+          </div>
         ))}
       </div>
 
@@ -302,6 +313,7 @@ export function AdSetsTable({
               <TableRow className="bg-muted/30 hover:bg-muted/30">
                 <TableHead className="w-[60px] text-xs">Ativo</TableHead>
                 <TableHead className="min-w-[180px] text-xs">Conjunto de Anúncios</TableHead>
+                <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
                 <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
@@ -319,6 +331,7 @@ export function AdSetsTable({
                       <TableCell>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
+                      <TableCell />
                       <TableCell>
                         <Skeleton className="h-4 w-20" />
                       </TableCell>
@@ -365,11 +378,18 @@ export function AdSetsTable({
                       <TableCell className="font-medium text-sm">
                         <span className="line-clamp-1">{adSet.name}</span>
                       </TableCell>
+                      <TableCell
+                        className="text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <IssuesIcon entity={adSet} entityType="adset" />
+                      </TableCell>
                       <TableCell>
                         <DeliveryStatus
                           status={
                             adSet.effectiveStatus ?? adSet.status ?? null
                           }
+                          endTime={adSet.endTime}
                         />
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-sm">
@@ -451,6 +471,7 @@ function AdSetsTableSkeleton() {
             <TableRow className="bg-muted/30 hover:bg-muted/30">
               <TableHead className="w-[60px] text-xs">Ativo</TableHead>
               <TableHead className="min-w-[180px] text-xs">Conjunto de Anúncios</TableHead>
+              <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
               <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
               <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
@@ -467,6 +488,7 @@ function AdSetsTableSkeleton() {
                 <TableCell>
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
+                <TableCell />
                 <TableCell>
                   <Skeleton className="h-4 w-20" />
                 </TableCell>

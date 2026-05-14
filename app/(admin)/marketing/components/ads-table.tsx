@@ -21,6 +21,7 @@ import {
 } from "@/lib/meta-business/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { DeliveryStatus } from "./delivery-status";
+import { IssuesIcon } from "./issues-icon";
 
 type GetAdsResponse = {
   data?: Ad[];
@@ -196,10 +197,18 @@ export function AdsTable({
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-2">
         {ads.map((ad) => (
-          <button
+          <div
             key={ad.id}
+            role="button"
+            tabIndex={0}
             onClick={() => onAdClick?.(ad)}
-            className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onAdClick?.(ad);
+              }
+            }}
+            className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex gap-3">
               <AdThumbnail ad={ad} size="sm" />
@@ -228,6 +237,7 @@ export function AdsTable({
                         )}
                       </div>
                     )}
+                    <IssuesIcon entity={ad} entityType="ad" />
                     <DeliveryStatus
                       status={ad.effectiveStatus ?? ad.status}
                       size="xs"
@@ -251,7 +261,7 @@ export function AdsTable({
                 </div>
               </div>
             </div>
-          </button>
+          </div>
         ))}
       </div>
 
@@ -264,6 +274,7 @@ export function AdsTable({
                 <TableHead className="w-[60px] text-xs">Ativo</TableHead>
                 <TableHead className="w-[60px] text-xs">Preview</TableHead>
                 <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
+                <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
                 <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
@@ -284,6 +295,7 @@ export function AdsTable({
                       <TableCell>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
+                      <TableCell />
                       <TableCell>
                         <Skeleton className="h-4 w-20" />
                       </TableCell>
@@ -332,6 +344,12 @@ export function AdsTable({
                       </TableCell>
                       <TableCell className="font-medium text-sm">
                         <span className="line-clamp-1">{ad.name}</span>
+                      </TableCell>
+                      <TableCell
+                        className="text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <IssuesIcon entity={ad} entityType="ad" />
                       </TableCell>
                       <TableCell>
                         <DeliveryStatus
@@ -460,6 +478,7 @@ function AdsTableSkeleton() {
               <TableHead className="w-[60px] text-xs">Ativo</TableHead>
               <TableHead className="w-[60px] text-xs">Preview</TableHead>
               <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
+              <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
               <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
               <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
@@ -479,6 +498,7 @@ function AdsTableSkeleton() {
                 <TableCell>
                   <Skeleton className="h-4 w-full" />
                 </TableCell>
+                <TableCell />
                 <TableCell>
                   <Skeleton className="h-4 w-20" />
                 </TableCell>

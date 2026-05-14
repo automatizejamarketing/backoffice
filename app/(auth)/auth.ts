@@ -27,6 +27,10 @@ export const {
   signOut,
 } = NextAuth({
   ...authConfig,
+  secret:
+    process.env.AUTH_SECRET ??
+    process.env.NEXTAUTH_SECRET ??
+    (process.env.NODE_ENV === "production" ? undefined : "dev"),
   providers: [
     Google({
       clientId: process.env.AUTH_GOOGLE_ID,
