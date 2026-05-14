@@ -1,11 +1,28 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Plus, RefreshCcw } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 type Course = {
@@ -35,8 +52,21 @@ export default function MasterclassAdminPage() {
   const [loadingLessons, setLoadingLessons] = useState(false);
   const [savingCourse, setSavingCourse] = useState(false);
   const [savingLesson, setSavingLesson] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const [editingCourse, setEditingCourse] = useState<Course | null>(null);
+  const [deletingCourse, setDeletingCourse] = useState<Course | null>(null);
+  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  const [deletingLesson, setDeletingLesson] = useState<Lesson | null>(null);
 
   const [courseForm, setCourseForm] = useState({
+    title: "",
+    slug: "",
+    description: "",
+    published: true,
+  });
+
+  const [editCourseForm, setEditCourseForm] = useState({
     title: "",
     slug: "",
     description: "",
@@ -47,6 +77,15 @@ export default function MasterclassAdminPage() {
     title: "",
     slug: "",
     videoProvider: "youtube" as "youtube" | "mux" | "cloudflare",
+    videoAssetId: "",
+    position: 1,
+    published: true,
+  });
+
+  const [editLessonForm, setEditLessonForm] = useState({
+    title: "",
+    slug: "",
+    videoProvider: "youtube" as Lesson["videoProvider"],
     videoAssetId: "",
     position: 1,
     published: true,
@@ -191,6 +230,163 @@ export default function MasterclassAdminPage() {
     }
   }
 
+  function openEditCourse(course: Course) {
+    setEditingCourse(course);
+    setEditCourseForm({
+      title: course.title,
+      slug: course.slug,
+      description: course.description ?? "",
+      published: course.published,
+    });
+  }
+
+  async function handleUpdateCourse() {
+    if (!editingCourse) return;
+    if (!editCourseForm.title.trim()) {
+      toast.error("Informe o título do curso.");
+      return;
+    }
+
+    setUpdatingId(editingCourse.id);
+    try {
+      const response = await fetch(
+        `/api/masterclass/admin/courses/${editingCourse.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(editCourseForm),
+        },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (response.status === 409) {
+          throw new Error("Slug já existe para outro curso.");
+        }
+        throw new Error(payload?.error || "Falha ao editar curso.");
+      }
+
+      toast.success("Curso atualizado com sucesso.");
+      setEditingCourse(null);
+      await loadCourses();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function handleDeleteCourse(course: Course) {
+    setUpdatingId(course.id);
+    try {
+      const response = await fetch(`/api/masterclass/admin/courses/${course.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error || "Falha ao excluir curso.");
+      }
+
+      toast.success("Curso excluído.");
+      setDeletingCourse(null);
+      if (selectedCourseId === course.id) {
+        setSelectedCourseId("");
+        setLessons([]);
+      }
+      await loadCourses();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  function openEditLesson(lesson: Lesson) {
+    setEditingLesson(lesson);
+    setEditLessonForm({
+      title: lesson.title,
+      slug: lesson.slug,
+      videoProvider: lesson.videoProvider,
+      videoAssetId: lesson.videoAssetId,
+      position: lesson.position,
+      published: lesson.published,
+    });
+  }
+
+  async function handleUpdateLesson() {
+    if (!editingLesson) return;
+    if (!selectedCourseId) return;
+
+    if (!editLessonForm.title.trim() || !editLessonForm.videoAssetId.trim()) {
+      toast.error("Preencha título e video_asset_id/link.");
+      return;
+    }
+
+    setUpdatingId(editingLesson.id);
+    try {
+      const response = await fetch(
+        `/api/masterclass/admin/lessons/${editingLesson.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(editLessonForm),
+        },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (response.status === 409) {
+          throw new Error("Conflito de slug ou posição dentro do curso.");
+        }
+        throw new Error(payload?.error || "Falha ao editar aula.");
+      }
+
+      toast.success("Aula atualizada com sucesso.");
+      setEditingLesson(null);
+      await loadLessons(selectedCourseId);
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function handleDeleteLesson(lesson: Lesson) {
+    if (!selectedCourseId) return;
+    setUpdatingId(lesson.id);
+    try {
+      const response = await fetch(`/api/masterclass/admin/lessons/${lesson.id}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error || "Falha ao excluir aula.");
+      }
+
+      toast.success("Aula excluída.");
+      setDeletingLesson(null);
+      await loadLessons(selectedCourseId);
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   async function saveOrder(nextLessons: Lesson[]) {
     if (!selectedCourseId) {
       return;
@@ -309,18 +505,39 @@ export default function MasterclassAdminPage() {
             <CardTitle>Nova aula</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <select
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-              value={selectedCourseId}
-              onChange={(event) => setSelectedCourseId(event.target.value)}
-            >
-              <option value="">Selecione o curso</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.title}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                value={selectedCourseId}
+                onChange={(event) => setSelectedCourseId(event.target.value)}
+              >
+                <option value="">Selecione o curso</option>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.title}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={() => selectedCourse && openEditCourse(selectedCourse)}
+                disabled={!selectedCourse || updatingId === selectedCourse?.id}
+                aria-label="Editar curso"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                size="icon"
+                variant="outline"
+                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/30"
+                onClick={() => selectedCourse && setDeletingCourse(selectedCourse)}
+                disabled={!selectedCourse || updatingId === selectedCourse?.id}
+                aria-label="Excluir curso"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
             <Input
               placeholder="Título da aula"
               value={lessonForm.title}
@@ -430,6 +647,25 @@ export default function MasterclassAdminPage() {
                     <Button
                       size="icon"
                       variant="outline"
+                      onClick={() => openEditLesson(lesson)}
+                      disabled={updatingId === lesson.id}
+                      aria-label="Editar aula"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/30"
+                      onClick={() => setDeletingLesson(lesson)}
+                      disabled={updatingId === lesson.id}
+                      aria-label="Excluir aula"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
                       onClick={() => moveLesson(index, -1)}
                       disabled={index === 0}
                     >
@@ -450,6 +686,246 @@ export default function MasterclassAdminPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={Boolean(editingCourse)}
+        onOpenChange={(open) => {
+          if (!open) setEditingCourse(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar curso</DialogTitle>
+            <DialogDescription>
+              Atualize título, slug, descrição e status de publicação.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Título do curso"
+              value={editCourseForm.title}
+              onChange={(event) =>
+                setEditCourseForm((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Slug (opcional)"
+              value={editCourseForm.slug}
+              onChange={(event) =>
+                setEditCourseForm((current) => ({
+                  ...current,
+                  slug: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Descrição (opcional)"
+              value={editCourseForm.description}
+              onChange={(event) =>
+                setEditCourseForm((current) => ({
+                  ...current,
+                  description: event.target.value,
+                }))
+              }
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={editCourseForm.published}
+                onChange={(event) =>
+                  setEditCourseForm((current) => ({
+                    ...current,
+                    published: event.target.checked,
+                  }))
+                }
+              />
+              Publicado
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingCourse(null)}
+              disabled={updatingId === editingCourse?.id}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleUpdateCourse}
+              disabled={updatingId === editingCourse?.id}
+            >
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(deletingCourse)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingCourse(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir curso?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O curso "{deletingCourse?.title}" e todas as aulas relacionadas serão removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updatingId === deletingCourse?.id}>
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => deletingCourse && handleDeleteCourse(deletingCourse)}
+              disabled={updatingId === deletingCourse?.id}
+            >
+              Excluir
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={Boolean(editingLesson)}
+        onOpenChange={(open) => {
+          if (!open) setEditingLesson(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar aula</DialogTitle>
+            <DialogDescription>
+              Atualize dados da aula e a posição dentro do curso.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Título da aula"
+              value={editLessonForm.title}
+              onChange={(event) =>
+                setEditLessonForm((current) => ({
+                  ...current,
+                  title: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Slug da aula (opcional)"
+              value={editLessonForm.slug}
+              onChange={(event) =>
+                setEditLessonForm((current) => ({
+                  ...current,
+                  slug: event.target.value,
+                }))
+              }
+            />
+            <select
+              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+              value={editLessonForm.videoProvider}
+              onChange={(event) =>
+                setEditLessonForm((current) => ({
+                  ...current,
+                  videoProvider: event.target.value as Lesson["videoProvider"],
+                }))
+              }
+            >
+              <option value="youtube">YouTube</option>
+              <option value="mux">Mux</option>
+              <option value="cloudflare">Cloudflare</option>
+            </select>
+            <Input
+              placeholder="Video ID ou link"
+              value={editLessonForm.videoAssetId}
+              onChange={(event) =>
+                setEditLessonForm((current) => ({
+                  ...current,
+                  videoAssetId: event.target.value,
+                }))
+              }
+            />
+            <Input
+              type="number"
+              min={1}
+              value={editLessonForm.position}
+              onChange={(event) =>
+                setEditLessonForm((current) => ({
+                  ...current,
+                  position: Number(event.target.value || "1"),
+                }))
+              }
+              placeholder="Posição"
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={editLessonForm.published}
+                onChange={(event) =>
+                  setEditLessonForm((current) => ({
+                    ...current,
+                    published: event.target.checked,
+                  }))
+                }
+              />
+              Publicada
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingLesson(null)}
+              disabled={updatingId === editingLesson?.id}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleUpdateLesson}
+              disabled={updatingId === editingLesson?.id}
+            >
+              Salvar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(deletingLesson)}
+        onOpenChange={(open) => {
+          if (!open) setDeletingLesson(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir aula?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A aula "{deletingLesson?.title}" será removida do curso.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={updatingId === deletingLesson?.id}>
+              Cancelar
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => deletingLesson && handleDeleteLesson(deletingLesson)}
+              disabled={updatingId === deletingLesson?.id}
+            >
+              Excluir
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
