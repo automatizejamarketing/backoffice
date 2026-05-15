@@ -26,7 +26,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface SubscriptionData {
   id: string;
   userId: string;
-  stripeSubscriptionId: string;
+  provider: "stripe" | "mercadopago" | "manual";
+  stripeSubscriptionId: string | null;
   planType: string;
   planName: string;
   status: string;
@@ -42,7 +43,13 @@ interface SubscriptionData {
   };
 }
 
-const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+const STATUS_LABELS: Record<
+  string,
+  {
+    label: string;
+    variant: "default" | "secondary" | "destructive" | "outline";
+  }
+> = {
   active: { label: "Ativa", variant: "default" },
   trialing: { label: "Em trial", variant: "secondary" },
   past_due: { label: "Pagamento pendente", variant: "destructive" },
@@ -50,6 +57,13 @@ const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secon
   unpaid: { label: "Não paga", variant: "destructive" },
   incomplete: { label: "Incompleta", variant: "outline" },
   incomplete_expired: { label: "Expirada", variant: "secondary" },
+  expired: { label: "Expirada", variant: "secondary" },
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  stripe: "Stripe",
+  mercadopago: "Pix",
+  manual: "Manual",
 };
 
 export default function SubscriptionsPage() {
@@ -82,7 +96,7 @@ export default function SubscriptionsPage() {
   };
 
   const filteredSubscriptions = subscriptions.filter((sub) =>
-    sub.user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    sub.user.email.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -166,6 +180,7 @@ export default function SubscriptionsPage() {
                   <TableHead>Usuário</TableHead>
                   <TableHead>Plano</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Provedor</TableHead>
                   <TableHead>Expira em</TableHead>
                   <TableHead>Criada em</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
@@ -201,10 +216,15 @@ export default function SubscriptionsPage() {
                         )}
                       </TableCell>
                       <TableCell>
+                        <Badge variant="outline">
+                          {PROVIDER_LABELS[sub.provider] ?? sub.provider}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
                         {sub.user.expirationDate
-                          ? new Date(sub.user.expirationDate).toLocaleDateString(
-                              "pt-BR"
-                            )
+                          ? new Date(
+                              sub.user.expirationDate,
+                            ).toLocaleDateString("pt-BR")
                           : "-"}
                       </TableCell>
                       <TableCell>

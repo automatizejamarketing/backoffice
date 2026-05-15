@@ -7,6 +7,7 @@ import {
   pendingPlanChange,
   subscription,
   subscriptionEvent,
+  mercadopagoPaymentLink,
   user,
 } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
@@ -34,7 +35,7 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ userId: string }> }
+  { params }: { params: Promise<{ userId: string }> },
 ) {
   try {
     const authz = await requireBackofficePermissionResponse("billing:manage");
@@ -52,8 +53,8 @@ export async function GET(
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    const [subscriptions, payments, events, pendingChanges] = await Promise.all(
-      [
+    const [subscriptions, payments, events, pendingChanges, pixLinks] =
+      await Promise.all([
         db
           .select()
           .from(subscription)
@@ -82,8 +83,13 @@ export async function GET(
           )
           .orderBy(desc(pendingPlanChange.createdAt))
           .limit(1),
-      ],
-    );
+        db
+          .select()
+          .from(mercadopagoPaymentLink)
+          .where(eq(mercadopagoPaymentLink.userId, userId))
+          .orderBy(desc(mercadopagoPaymentLink.createdAt))
+          .limit(20),
+      ]);
 
     const activeSubscription = pickActiveSubscription(subscriptions);
     const activePendingPlanChange = pendingChanges[0] ?? null;
@@ -104,6 +110,7 @@ export async function GET(
       activeSubscription: activeSubscription
         ? {
             id: activeSubscription.id,
+            provider: activeSubscription.provider,
             stripeSubscriptionId: activeSubscription.stripeSubscriptionId,
             stripePriceId: activeSubscription.stripePriceId,
             planType: activeSubscription.planType,
@@ -135,8 +142,7 @@ export async function GET(
               PLAN_DEFINITIONS[activePendingPlanChange.newPlanType].name,
             newStripePriceId: activePendingPlanChange.newStripePriceId,
             changeType: activePendingPlanChange.changeType,
-            effectiveDate:
-              activePendingPlanChange.effectiveDate.toISOString(),
+            effectiveDate: activePendingPlanChange.effectiveDate.toISOString(),
             status: activePendingPlanChange.status,
             createdAt: activePendingPlanChange.createdAt.toISOString(),
             updatedAt: activePendingPlanChange.updatedAt.toISOString(),
@@ -144,6 +150,7 @@ export async function GET(
         : null,
       subscriptionHistory: subscriptions.map((s) => ({
         id: s.id,
+        provider: s.provider,
         stripeSubscriptionId: s.stripeSubscriptionId,
         stripePriceId: s.stripePriceId,
         planType: s.planType,
@@ -161,6 +168,7 @@ export async function GET(
       })),
       payments: payments.map((p) => ({
         id: p.id,
+        provider: p.provider,
         amount: p.amount,
         currency: p.currency,
         status: p.status,
@@ -171,8 +179,27 @@ export async function GET(
         stripeInvoiceId: p.stripeInvoiceId,
         stripePaymentIntentId: p.stripePaymentIntentId,
         stripeChargeId: p.stripeChargeId,
+        mercadopagoPaymentId: p.mercadopagoPaymentId,
+        mercadopagoPreferenceId: p.mercadopagoPreferenceId,
         paidAt: p.paidAt?.toISOString(),
         createdAt: p.createdAt.toISOString(),
+      })),
+      mercadopagoPaymentLinks: pixLinks.map((link) => ({
+        id: link.id,
+        planType: link.planType,
+        planName: PLAN_DEFINITIONS[link.planType].name,
+        amount: link.amount,
+        currency: link.currency,
+        preferenceId: link.preferenceId,
+        initPoint: link.initPoint,
+        status: link.status,
+        source: link.source,
+        adminEmail: link.adminEmail,
+        expiresAt: link.expiresAt.toISOString(),
+        paidAt: link.paidAt?.toISOString(),
+        mercadopagoPaymentId: link.mercadopagoPaymentId,
+        createdAt: link.createdAt.toISOString(),
+        updatedAt: link.updatedAt.toISOString(),
       })),
       events: events.map((e) => ({
         id: e.id,
@@ -190,14 +217,14 @@ export async function GET(
     console.error("Error fetching user subscription details:", error);
     return NextResponse.json(
       { error: "Failed to fetch user subscription details" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ userId: string }> }
+  { params }: { params: Promise<{ userId: string }> },
 ) {
   try {
     const authz = await requireBackofficePermissionResponse("billing:manage");
@@ -210,7 +237,7 @@ export async function PATCH(
     if (!expirationDate) {
       return NextResponse.json(
         { error: "expirationDate is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -224,7 +251,7 @@ export async function PATCH(
       if (result.error === "invalid_date") {
         return NextResponse.json(
           { error: "Invalid date format" },
-          { status: 400 }
+          { status: 400 },
         );
       }
       return NextResponse.json({ error: result.error }, { status: 404 });
@@ -241,7 +268,7 @@ export async function PATCH(
     console.error("Error updating user expiration date:", error);
     return NextResponse.json(
       { error: "Failed to update expiration date" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -263,7 +290,7 @@ function isRecoveryMode(value: unknown): value is RecoveryMode {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ userId: string }> }
+  { params }: { params: Promise<{ userId: string }> },
 ) {
   try {
     const authz = await requireBackofficePermissionResponse("billing:manage");
@@ -278,14 +305,14 @@ export async function POST(
     if (body.action !== "recover_payment") {
       return NextResponse.json(
         { error: "Unsupported action" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!isRecoveryMode(body.mode)) {
       return NextResponse.json(
         { error: "Invalid mode. Expected 'retry' or 'mark_paid_oob'." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -302,7 +329,7 @@ export async function POST(
           message: result.message,
           stripeStatus: result.stripeStatus ?? null,
         },
-        { status: RECOVERY_ERROR_TO_STATUS[result.error] }
+        { status: RECOVERY_ERROR_TO_STATUS[result.error] },
       );
     }
 
@@ -320,7 +347,7 @@ export async function POST(
     console.error("Error recovering failed payment:", error);
     return NextResponse.json(
       { error: "Failed to recover payment" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

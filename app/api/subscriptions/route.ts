@@ -56,6 +56,7 @@ export async function GET(request: Request) {
       .select({
         id: subscription.id,
         userId: subscription.userId,
+        provider: subscription.provider,
         stripeSubscriptionId: subscription.stripeSubscriptionId,
         planType: subscription.planType,
         status: subscription.status,
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
     const subscriptions = results.map((row) => ({
       id: row.id,
       userId: row.userId,
+      provider: row.provider,
       stripeSubscriptionId: row.stripeSubscriptionId,
       planType: row.planType,
       planName: PLAN_DEFINITIONS[row.planType].name,
@@ -114,7 +116,7 @@ export async function GET(request: Request) {
     console.error("Error fetching subscriptions:", error);
     return NextResponse.json(
       { error: "Failed to fetch subscriptions" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

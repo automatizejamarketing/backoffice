@@ -31,6 +31,7 @@ import {
   referenceImage,
   subscription,
   subscriptionEvent,
+  mercadopagoPaymentLink,
   user,
   userCompany,
   userMarketingConsultant,
@@ -40,6 +41,7 @@ import {
   type CampaignEditLogSource,
   type AdSetTargetingData,
   type Payment,
+  type MercadoPagoPaymentLink,
   type PendingPlanChange,
   type Subscription,
   type SubscriptionEvent,
@@ -614,6 +616,7 @@ export interface UserSubscriptionDetails {
   pendingPlanChange: PendingPlanChange | null;
   subscriptionHistory: Subscription[];
   payments: Payment[];
+  mercadopagoPaymentLinks: MercadoPagoPaymentLink[];
   events: SubscriptionEvent[];
 }
 
@@ -633,7 +636,13 @@ export async function getUserSubscriptionDetails(
     .limit(1);
   if (!foundUser) return null;
 
-  const [subscriptions, payments, events, pendingChanges] = await Promise.all([
+  const [
+    subscriptions,
+    payments,
+    events,
+    pendingChanges,
+    mercadopagoPaymentLinks,
+  ] = await Promise.all([
     db
       .select()
       .from(subscription)
@@ -662,6 +671,12 @@ export async function getUserSubscriptionDetails(
       )
       .orderBy(desc(pendingPlanChange.createdAt))
       .limit(1),
+    db
+      .select()
+      .from(mercadopagoPaymentLink)
+      .where(eq(mercadopagoPaymentLink.userId, userId))
+      .orderBy(desc(mercadopagoPaymentLink.createdAt))
+      .limit(20),
   ]);
 
   return {
@@ -670,6 +685,7 @@ export async function getUserSubscriptionDetails(
     pendingPlanChange: pendingChanges[0] ?? null,
     subscriptionHistory: subscriptions,
     payments,
+    mercadopagoPaymentLinks,
     events,
   };
 }

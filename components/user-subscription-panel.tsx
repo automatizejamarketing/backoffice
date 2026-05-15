@@ -8,6 +8,10 @@ import {
   User,
 } from "lucide-react";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
+import {
+  MercadoPagoPixActions,
+  type PixLinkView,
+} from "@/components/mercadopago-pix-actions";
 import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,6 +56,12 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
   upgrade: "Upgrade",
   downgrade: "Downgrade",
   plan_change: "Mudança de plano",
+};
+
+const PROVIDER_LABELS: Record<string, string> = {
+  stripe: "Stripe/cartão",
+  mercadopago: "Mercado Pago Pix",
+  manual: "Manual",
 };
 
 function formatDate(value: Date | string | null | undefined): string {
@@ -129,6 +139,7 @@ export function UserSubscriptionPanel({
     pendingPlanChange,
     subscriptionHistory,
     payments,
+    mercadopagoPaymentLinks,
     events,
   } = data;
 
@@ -154,6 +165,24 @@ export function UserSubscriptionPanel({
     activeSubscription,
     payments,
   );
+  const pixDisabledReason =
+    activeSubscription?.provider === "stripe" &&
+    ["active", "trialing", "past_due"].includes(activeSubscription.status)
+      ? "Pix bloqueado: este usuário possui assinatura Stripe ativa."
+      : null;
+  const pixLinks: PixLinkView[] = mercadopagoPaymentLinks.map((link) => ({
+    id: link.id,
+    planType: link.planType,
+    amount: link.amount,
+    currency: link.currency,
+    preferenceId: link.preferenceId,
+    initPoint: link.initPoint,
+    status: link.status,
+    source: link.source,
+    adminEmail: link.adminEmail,
+    expiresAt: link.expiresAt.toISOString(),
+    createdAt: link.createdAt.toISOString(),
+  }));
 
   return (
     <div className="space-y-6">
@@ -284,6 +313,13 @@ export function UserSubscriptionPanel({
 
               <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
                 <Row
+                  label="Provedor"
+                  value={
+                    PROVIDER_LABELS[activeSubscription.provider] ??
+                    activeSubscription.provider
+                  }
+                />
+                <Row
                   label="Período atual (início)"
                   value={formatDateTime(activeSubscription.currentPeriodStart)}
                 />
@@ -330,6 +366,23 @@ export function UserSubscriptionPanel({
               </dl>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5" />
+            Mercado Pago Pix
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MercadoPagoPixActions
+            userId={user.id}
+            currentPlanType={activeSubscription?.planType ?? null}
+            initialLinks={pixLinks}
+            disabledReason={pixDisabledReason}
+          />
         </CardContent>
       </Card>
 
@@ -474,8 +527,10 @@ export function UserSubscriptionPanel({
                     <TableHead>Plano</TableHead>
                     <TableHead>Valor</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Provedor</TableHead>
                     <TableHead>Descrição</TableHead>
                     <TableHead>Stripe Invoice</TableHead>
+                    <TableHead>MP Payment</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -506,11 +561,17 @@ export function UserSubscriptionPanel({
                           )}
                         </div>
                       </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {PROVIDER_LABELS[p.provider] ?? p.provider}
+                      </TableCell>
                       <TableCell className="max-w-[260px] text-xs text-muted-foreground">
                         {p.description ?? "—"}
                       </TableCell>
                       <TableCell className="max-w-[140px] truncate font-mono text-[11px] text-muted-foreground">
                         {p.stripeInvoiceId ?? "—"}
+                      </TableCell>
+                      <TableCell className="max-w-[140px] truncate font-mono text-[11px] text-muted-foreground">
+                        {p.mercadopagoPaymentId ?? "—"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -541,6 +602,7 @@ export function UserSubscriptionPanel({
                     <TableHead>Criada</TableHead>
                     <TableHead>Plano</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Provedor</TableHead>
                     <TableHead>Período</TableHead>
                     <TableHead>Encerrada</TableHead>
                     <TableHead>Stripe Subscription</TableHead>
@@ -565,6 +627,9 @@ export function UserSubscriptionPanel({
                           {s.status}
                         </Badge>
                       </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {PROVIDER_LABELS[s.provider] ?? s.provider}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                         {formatDate(s.currentPeriodStart)} —{" "}
                         {formatDate(s.currentPeriodEnd)}
@@ -573,7 +638,7 @@ export function UserSubscriptionPanel({
                         {formatDate(s.endedAt)}
                       </TableCell>
                       <TableCell className="max-w-[180px] truncate font-mono text-[11px] text-muted-foreground">
-                        {s.stripeSubscriptionId}
+                        {s.stripeSubscriptionId ?? "—"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -593,9 +658,10 @@ function Row({
   mono = false,
 }: {
   label: string;
-  value: string;
+  value: string | null | undefined;
   mono?: boolean;
 }) {
+  const displayValue = value ?? "—";
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -606,7 +672,7 @@ function Row({
             : "break-words text-sm font-medium text-foreground"
         }
       >
-        {value}
+        {displayValue}
       </dd>
     </div>
   );
