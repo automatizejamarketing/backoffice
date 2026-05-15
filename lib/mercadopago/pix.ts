@@ -12,24 +12,12 @@ import {
   type MercadoPagoPaymentLink,
   type PlanType,
 } from "@/lib/db/schema";
-import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
+import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 
 const PIX_LINK_VALIDITY_DAYS = 7;
+const PIX_AVAILABILITY_CACHE_MS = 60 * 60 * 1000;
 const resend = new Resend(process.env.RESEND_API_KEY);
-const PIX_MONTHLY_PRICE_CENTAVOS: Record<PlanType, number> = {
-  monthly_starter: 29700,
-  quarterly_starter: 26567,
-  semiannual_starter: 24950,
-  annual_starter: 20808,
-  monthly_pro: 49700,
-  quarterly_pro: 39900,
-  semiannual_pro: 33283,
-  annual_pro: 29142,
-  monthly_premium: 89700,
-  quarterly_premium: 69700,
-  semiannual_premium: 63700,
-  annual_premium: 49700,
-};
+let pixAvailabilityCheckedAt = 0;
 
 function getAccessToken(): string {
   const token =
@@ -67,10 +55,14 @@ function getCheckoutReturnBaseUrl(): string {
 }
 
 function getFromAddress(): string {
-  return (
-    process.env.RESEND_FROM_EMAIL ??
-    "Automatize Marketing <onboarding@resend.dev>"
-  );
+  const configured = process.env.RESEND_FROM_EMAIL;
+  if (configured) return configured;
+
+  if (process.env.NODE_ENV === "development") {
+    return "Automatize Marketing <onboarding@resend.dev>";
+  }
+
+  throw new Error("RESEND_FROM_EMAIL is not configured");
 }
 
 function getPixPlanAmountCentavos(planType: PlanType): number {
@@ -81,17 +73,11 @@ function getPixPlanAmountCentavos(planType: PlanType): number {
     if (Number.isInteger(testAmount) && testAmount > 0) return testAmount;
   }
 
-  return (
-    PIX_MONTHLY_PRICE_CENTAVOS[planType] * getPixCommitmentMonths(planType)
-  );
+  return PLAN_DEFINITIONS[planType].totalCommitmentCentavos;
 }
 
 function getPixCommitmentMonths(planType: PlanType): 1 | 3 | 6 | 12 {
-  const period = PLAN_DEFINITIONS[planType].period;
-  if (period === "quarterly") return 3;
-  if (period === "semiannual") return 6;
-  if (period === "annual") return 12;
-  return 1;
+  return getCommitmentMonths(planType);
 }
 
 function toBRLUnitAmount(amountCentavos: number): number {
@@ -99,12 +85,18 @@ function toBRLUnitAmount(amountCentavos: number): number {
 }
 
 async function assertPixAvailable(): Promise<void> {
-  const response = await fetch("https://api.mercadopago.com/v1/payment_methods", {
-    headers: {
-      Authorization: `Bearer ${getAccessToken()}`,
-      "Content-Type": "application/json",
+  const now = Date.now();
+  if (now - pixAvailabilityCheckedAt < PIX_AVAILABILITY_CACHE_MS) return;
+
+  const response = await fetch(
+    "https://api.mercadopago.com/v1/payment_methods",
+    {
+      headers: {
+        Authorization: `Bearer ${getAccessToken()}`,
+        "Content-Type": "application/json",
+      },
     },
-  });
+  );
 
   if (!response.ok) {
     throw new Error(await response.text());
@@ -126,6 +118,8 @@ async function assertPixAvailable(): Promise<void> {
       "Pix is not enabled for this Mercado Pago account. Register a Pix key or use credentials from an account with Pix enabled.",
     );
   }
+
+  pixAvailabilityCheckedAt = now;
 }
 
 async function createPreference({
@@ -256,8 +250,6 @@ export async function createOrReuseBackofficePixLink({
     throw new Error("Usuário tem assinatura Stripe ativa.");
   }
 
-  await assertPixAvailable();
-
   const amount = getPixPlanAmountCentavos(planType);
   const now = new Date();
   const [existing] = await db
@@ -275,7 +267,19 @@ export async function createOrReuseBackofficePixLink({
     .orderBy(desc(mercadopagoPaymentLink.createdAt))
     .limit(1);
 
-  if (existing) return { ...existing, reused: true };
+  if (existing) {
+    if (existing.adminEmail !== adminEmail) {
+      const [updated] = await db
+        .update(mercadopagoPaymentLink)
+        .set({ adminEmail, updatedAt: now })
+        .where(eq(mercadopagoPaymentLink.id, existing.id))
+        .returning();
+
+      return { ...(updated ?? existing), reused: true };
+    }
+
+    return { ...existing, reused: true };
+  }
 
   const [targetUser] = await db
     .select({ id: user.id, email: user.email })
