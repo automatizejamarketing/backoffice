@@ -1,4 +1,4 @@
-import type { InferSelectModel } from "drizzle-orm";
+import { sql, type InferSelectModel } from "drizzle-orm";
 import {
   boolean,
   foreignKey,
@@ -12,6 +12,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -1113,6 +1114,14 @@ export const PLAN_TYPE_VALUES = [
 
 export type PlanType = (typeof PLAN_TYPE_VALUES)[number];
 
+export const BILLING_PROVIDER_VALUES = [
+  "stripe",
+  "mercadopago",
+  "manual",
+] as const;
+
+export type BillingProvider = (typeof BILLING_PROVIDER_VALUES)[number];
+
 // Subscription status enum (mirrors Stripe)
 export type SubscriptionStatus =
   | "active"
@@ -1121,7 +1130,8 @@ export type SubscriptionStatus =
   | "unpaid"
   | "incomplete"
   | "incomplete_expired"
-  | "trialing";
+  | "trialing"
+  | "expired";
 
 // Subscriptions table - tracks Stripe subscription records
 export const subscription = pgTable(
@@ -1131,10 +1141,16 @@ export const subscription = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => user.id),
+    provider: varchar("provider", {
+      enum: [...BILLING_PROVIDER_VALUES],
+    })
+      .$type<BillingProvider>()
+      .notNull()
+      .default("stripe"),
     stripeSubscriptionId: varchar("stripe_subscription_id", {
       length: 255,
-    }).notNull(),
-    stripePriceId: varchar("stripe_price_id", { length: 255 }).notNull(),
+    }),
+    stripePriceId: varchar("stripe_price_id", { length: 255 }),
     planType: varchar("plan_type", {
       enum: [...PLAN_TYPE_VALUES],
     })
@@ -1149,6 +1165,7 @@ export const subscription = pgTable(
         "incomplete",
         "incomplete_expired",
         "trialing",
+        "expired",
       ],
     })
       .$type<SubscriptionStatus>()
@@ -1168,9 +1185,11 @@ export const subscription = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    uniqueStripeSubscriptionId: unique(
+    uniqueStripeSubscriptionId: uniqueIndex(
       "subscriptions_stripe_subscription_id_unique",
-    ).on(table.stripeSubscriptionId),
+    )
+      .on(table.stripeSubscriptionId)
+      .where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
   }),
 );
 
@@ -1231,6 +1250,16 @@ export const payment = pgTable(
     stripeInvoiceId: varchar("stripe_invoice_id", { length: 255 }),
     stripePaymentIntentId: varchar("stripe_payment_intent_id", { length: 255 }),
     stripeChargeId: varchar("stripe_charge_id", { length: 255 }),
+    provider: varchar("provider", {
+      enum: [...BILLING_PROVIDER_VALUES],
+    })
+      .$type<BillingProvider>()
+      .notNull()
+      .default("stripe"),
+    mercadopagoPaymentId: varchar("mercadopago_payment_id", { length: 255 }),
+    mercadopagoPreferenceId: varchar("mercadopago_preference_id", {
+      length: 255,
+    }),
     amount: integer("amount").notNull(),
     currency: varchar("currency", { length: 10 }).notNull(),
     status: varchar("status", {
@@ -1252,6 +1281,9 @@ export const payment = pgTable(
     uniqueStripeInvoiceId: unique("payments_stripe_invoice_id_unique").on(
       table.stripeInvoiceId,
     ),
+    uniqueMercadopagoPaymentId: unique(
+      "payments_mercadopago_payment_id_unique",
+    ).on(table.mercadopagoPaymentId),
   }),
 );
 
@@ -1323,6 +1355,95 @@ export const processedWebhookEvent = pgTable(
 
 export type ProcessedWebhookEvent = InferSelectModel<
   typeof processedWebhookEvent
+>;
+
+export type MercadoPagoPaymentLinkStatus =
+  | "pending"
+  | "approved"
+  | "expired"
+  | "canceled";
+
+export type MercadoPagoPaymentLinkSource =
+  | "self_service"
+  | "backoffice"
+  | "renewal_email";
+
+export const mercadopagoPaymentLink = pgTable(
+  "mercadopago_payment_links",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    planType: varchar("plan_type", {
+      enum: [...PLAN_TYPE_VALUES],
+    })
+      .$type<PlanType>()
+      .notNull(),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 10 }).notNull().default("brl"),
+    preferenceId: varchar("preference_id", { length: 255 }).notNull(),
+    initPoint: text("init_point").notNull(),
+    status: varchar("status", {
+      enum: ["pending", "approved", "expired", "canceled"],
+    })
+      .$type<MercadoPagoPaymentLinkStatus>()
+      .notNull()
+      .default("pending"),
+    source: varchar("source", {
+      enum: ["self_service", "backoffice", "renewal_email"],
+    })
+      .$type<MercadoPagoPaymentLinkSource>()
+      .notNull(),
+    adminEmail: varchar("admin_email", { length: 100 }),
+    expiresAt: timestamp("expires_at").notNull(),
+    paidAt: timestamp("paid_at"),
+    mercadopagoPaymentId: varchar("mercadopago_payment_id", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniquePreferenceId: unique(
+      "mercadopago_payment_links_preference_id_unique",
+    ).on(table.preferenceId),
+  }),
+);
+
+export type MercadoPagoPaymentLink = InferSelectModel<
+  typeof mercadopagoPaymentLink
+>;
+
+export type BillingNotificationType = "expiration_3d" | "expiration_1d";
+
+export const billingNotificationDelivery = pgTable(
+  "billing_notification_deliveries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    subscriptionId: uuid("subscription_id").references(() => subscription.id),
+    notificationType: varchar("notification_type", {
+      enum: ["expiration_3d", "expiration_1d"],
+    })
+      .$type<BillingNotificationType>()
+      .notNull(),
+    expirationDate: timestamp("expiration_date").notNull(),
+    mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id").references(
+      () => mercadopagoPaymentLink.id,
+    ),
+    sentAt: timestamp("sent_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueDelivery: unique(
+      "billing_notification_deliveries_user_type_expiration_unique",
+    ).on(table.userId, table.notificationType, table.expirationDate),
+  }),
+);
+
+export type BillingNotificationDelivery = InferSelectModel<
+  typeof billingNotificationDelivery
 >;
 
 // Plan price configs - allows price changes without redeployment

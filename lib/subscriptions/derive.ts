@@ -14,6 +14,7 @@ const STATUS_PRIORITY: Record<SubscriptionStatus, number> = {
   unpaid: 2,
   canceled: 1,
   incomplete_expired: 0,
+  expired: 0,
 };
 
 /**
@@ -56,6 +57,7 @@ const STATUS_LABELS: Record<SubscriptionStatus, string> = {
   unpaid: "Não paga",
   incomplete: "Incompleta",
   incomplete_expired: "Incompleta expirada",
+  expired: "Expirada",
 };
 
 /**
@@ -94,6 +96,7 @@ export function getStatusBadgeProps(
       break;
     case "incomplete":
     case "incomplete_expired":
+    case "expired":
       variant = "outline";
       break;
     case "canceled":
@@ -139,12 +142,10 @@ export function describeUpcomingChange(
         currentPeriodEnd: Date | string | null;
       })
     | null,
-  pendingPlanChange:
-    | Pick<
-        PendingPlanChange,
-        "newPlanType" | "currentPlanType" | "effectiveDate" | "changeType"
-      >
-    | null,
+  pendingPlanChange: Pick<
+    PendingPlanChange,
+    "newPlanType" | "currentPlanType" | "effectiveDate" | "changeType"
+  > | null,
 ): {
   kind: "pending_change" | "trial_to_paid" | "cancel_at_period_end";
   label: string;

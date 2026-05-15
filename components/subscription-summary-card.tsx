@@ -16,6 +16,12 @@ interface Props {
   expirationDate: Date | string | null;
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  stripe: "Stripe/cartão",
+  mercadopago: "Mercado Pago Pix",
+  manual: "Manual",
+};
+
 function formatDate(value: Date | string | null | undefined): string {
   if (!value) return "—";
   const d = value instanceof Date ? value : new Date(value);
@@ -124,7 +130,8 @@ export function SubscriptionSummaryCard({
               <div>
                 <dt className="text-xs text-muted-foreground">Compromisso</dt>
                 <dd className="font-medium text-foreground">
-                  {subscription.commitmentMonths} {subscription.commitmentMonths === 1 ? "mês" : "meses"}
+                  {subscription.commitmentMonths}{" "}
+                  {subscription.commitmentMonths === 1 ? "mês" : "meses"}
                   {subscription.commitmentEndDate && (
                     <span className="text-muted-foreground">
                       {" "}
@@ -140,11 +147,18 @@ export function SubscriptionSummaryCard({
                 </dd>
               </div>
               <div>
+                <dt className="text-xs text-muted-foreground">Provedor</dt>
+                <dd className="font-medium text-foreground">
+                  {PROVIDER_LABELS[subscription.provider] ??
+                    subscription.provider}
+                </dd>
+              </div>
+              <div>
                 <dt className="text-xs text-muted-foreground">
                   Stripe Subscription
                 </dt>
                 <dd className="font-mono text-[11px] text-foreground/80 break-all">
-                  {subscription.stripeSubscriptionId}
+                  {subscription.stripeSubscriptionId ?? "—"}
                 </dd>
               </div>
             </dl>
