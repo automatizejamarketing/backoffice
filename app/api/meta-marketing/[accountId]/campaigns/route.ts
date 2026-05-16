@@ -38,6 +38,7 @@ import {
   type CampaignSortMetric,
   type SortOrder,
   buildInsightsSortToken,
+  getInsightsSortField,
   isCampaignSortMetric,
   isSortOrder,
 } from "@/lib/meta-business/campaign-sort";
@@ -348,20 +349,30 @@ async function fetchAllCampaignPages(args: {
 async function fetchSortedCampaignIds(args: {
   formattedAccountId: string;
   sortToken: string;
+  sortField: string;
   dateParam: string;
   objectiveParam: string | null;
   accessToken: string;
 }): Promise<string[]> {
-  const { formattedAccountId, sortToken, dateParam, objectiveParam, accessToken } =
-    args;
+  const {
+    formattedAccountId,
+    sortToken,
+    sortField,
+    dateParam,
+    objectiveParam,
+    accessToken,
+  } = args;
   const ordered: string[] = [];
   const seen = new Set<string>();
   let after: string | undefined;
 
   do {
+    // Meta requires the sorted field to be present in `fields` for the sort
+    // to apply — required for the structured `results`/`cost_per_result`/
+    // `purchase_roas`, harmless for the core scalar fields.
     const params = [
       "level=campaign",
-      "fields=campaign_id",
+      `fields=campaign_id,${sortField}`,
       `sort=${encodeURIComponent(JSON.stringify([sortToken]))}`,
       dateParam,
       `limit=${PAGE_LIMIT}`,
@@ -549,6 +560,7 @@ export async function GET(
       const orderedIds = await fetchSortedCampaignIds({
         formattedAccountId,
         sortToken: buildInsightsSortToken(sortMetric, sortOrder),
+        sortField: getInsightsSortField(sortMetric),
         dateParam: buildInsightsDateParam({ datePreset, since, until }),
         objectiveParam: buildObjectiveFilteringParam(
           objectiveFilter,

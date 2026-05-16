@@ -1,8 +1,12 @@
 /**
- * Metrics the "Ordenar por" selector exposes. Restricted to core Ads Insights
- * fields that the Meta Insights edge can sort server-side via the `sort`
- * parameter. Derived/action-based metrics (ROAS, purchases, leads, link
- * clicks, ...) are intentionally excluded — Meta cannot sort by those.
+ * Metrics the "Ordenar por" selector exposes, sorted server-side by the Meta
+ * Ads Insights edge via the `sort` parameter (`{field}_descending`).
+ *
+ * Besides the core scalar fields, Meta also exposes the objective-defined
+ * `results` / `cost_per_result` and the `purchase_roas` fields on the
+ * account-level insights endpoint (`/act_<id>/insights` with `level=campaign`),
+ * so those are sortable too. `results`/`cost_per_result` are resolved by Meta
+ * per campaign from its optimization goal (same value Ads Manager shows).
  */
 export type CampaignSortMetric =
   | "spend"
@@ -11,14 +15,17 @@ export type CampaignSortMetric =
   | "reach"
   | "cpc"
   | "ctr"
-  | "cpm";
+  | "cpm"
+  | "results"
+  | "costPerResult"
+  | "purchaseRoas";
 
 export type SortOrder = "asc" | "desc";
 
 export type CampaignSortOption = {
   id: CampaignSortMetric;
   label: string;
-  /** Field name used in the Insights edge `sort` token. */
+  /** Field name used in the Insights edge `sort` token and `fields` list. */
   metaField: string;
 };
 
@@ -30,6 +37,13 @@ export const CAMPAIGN_SORT_OPTIONS: CampaignSortOption[] = [
   { id: "cpc", label: "CPC", metaField: "cpc" },
   { id: "ctr", label: "CTR", metaField: "ctr" },
   { id: "cpm", label: "CPM", metaField: "cpm" },
+  { id: "results", label: "Resultado", metaField: "results" },
+  {
+    id: "costPerResult",
+    label: "Custo por resultado",
+    metaField: "cost_per_result",
+  },
+  { id: "purchaseRoas", label: "ROAS", metaField: "purchase_roas" },
 ];
 
 const SORT_OPTION_BY_ID = new Map(
@@ -48,15 +62,20 @@ export function isSortOrder(
   return value === "asc" || value === "desc";
 }
 
+/** The raw Meta Insights field name for a sort metric. */
+export function getInsightsSortField(metric: CampaignSortMetric): string {
+  return SORT_OPTION_BY_ID.get(metric)?.metaField ?? metric;
+}
+
 /**
- * Builds the Meta Insights `sort` token, e.g. `spend_descending`.
+ * Builds the Meta Insights `sort` token, e.g. `spend_descending` or
+ * `cost_per_result_ascending`.
  * Reference: GET /act_<id>/insights?sort=["spend_descending"].
  */
 export function buildInsightsSortToken(
   metric: CampaignSortMetric,
   order: SortOrder,
 ): string {
-  const option = SORT_OPTION_BY_ID.get(metric);
-  const field = option?.metaField ?? metric;
+  const field = getInsightsSortField(metric);
   return `${field}_${order === "desc" ? "descending" : "ascending"}`;
 }
