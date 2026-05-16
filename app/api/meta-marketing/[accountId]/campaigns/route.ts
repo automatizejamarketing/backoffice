@@ -29,6 +29,18 @@ import {
   transformCampaign,
   transformPaging,
 } from "@/lib/meta-business/transformers";
+import {
+  type CampaignObjectiveFilter,
+  getObjectivesForGroup,
+  isCampaignObjectiveFilter,
+} from "@/lib/meta-business/campaign-objectives";
+import {
+  type CampaignSortMetric,
+  type SortOrder,
+  buildInsightsSortToken,
+  isCampaignSortMetric,
+  isSortOrder,
+} from "@/lib/meta-business/campaign-sort";
 
 // ================================
 // Graph API Response Types
@@ -36,6 +48,16 @@ import {
 
 type GraphApiCampaignsResponse = {
   data: GraphApiCampaign[];
+  paging?: GraphPaging;
+};
+
+type GraphApiCampaignInsightsResponse = {
+  data: Array<{ campaign_id?: string }>;
+  paging?: GraphPaging;
+};
+
+type GraphApiCampaignIdsResponse = {
+  data: Array<{ id: string }>;
   paging?: GraphPaging;
 };
 
@@ -249,6 +271,186 @@ function isStatusPatchBody(
   return "status" in body;
 }
 
+// Safety cap so a pathologically large account can't fan out into hundreds of
+// Graph API page requests / an unbounded payload.
+const MAX_CAMPAIGNS = 500;
+// Meta caps `?ids=` node batch reads (commonly 50 for ad objects).
+const NODE_BATCH_SIZE = 50;
+const PAGE_LIMIT = 100;
+
+/**
+ * Builds the Graph API `filtering` clause that restricts to the objectives of
+ * a filter group. The campaigns edge filters on its own `objective` field;
+ * the Insights edge uses the `campaign.objective` path. Returns `null` for
+ * "all" (no objective filtering).
+ */
+function buildObjectiveFilteringParam(
+  filter: CampaignObjectiveFilter,
+  edge: "campaigns" | "insights",
+): string | null {
+  const objectives = getObjectivesForGroup(filter);
+  if (!objectives || objectives.length === 0) return null;
+  const field = edge === "insights" ? "campaign.objective" : "objective";
+  const clause = [{ field, operator: "IN", value: objectives }];
+  return `filtering=${encodeURIComponent(JSON.stringify(clause))}`;
+}
+
+function buildInsightsDateParam(options: {
+  datePreset?: string | null;
+  since?: string | null;
+  until?: string | null;
+}): string {
+  if (options.since && options.until) {
+    return `time_range=${encodeURIComponent(
+      JSON.stringify({ since: options.since, until: options.until }),
+    )}`;
+  }
+  if (options.datePreset) {
+    return `date_preset=${options.datePreset}`;
+  }
+  return "date_preset=maximum";
+}
+
+/** Follows cursor pagination on the campaigns edge until exhausted or capped. */
+async function fetchAllCampaignPages(args: {
+  formattedAccountId: string;
+  fields: string;
+  accessToken: string;
+  extraParams: string[];
+}): Promise<GraphApiCampaign[]> {
+  const { formattedAccountId, fields, accessToken, extraParams } = args;
+  const collected: GraphApiCampaign[] = [];
+  let after: string | undefined;
+
+  do {
+    const params = [`fields=${fields}`, `limit=${PAGE_LIMIT}`, ...extraParams];
+    if (after) params.push(`after=${after}`);
+
+    const page = await metaApiCall<GraphApiCampaignsResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${formattedAccountId}/campaigns`,
+      params: params.join("&"),
+      accessToken,
+    });
+
+    collected.push(...page.data);
+    after = page.paging?.next ? page.paging.cursors?.after : undefined;
+  } while (after && collected.length < MAX_CAMPAIGNS);
+
+  return collected.slice(0, MAX_CAMPAIGNS);
+}
+
+/**
+ * The Meta-defined ranking: Insights edge at campaign level, sorted by the
+ * chosen metric. Returns ordered, de-duplicated campaign ids.
+ */
+async function fetchSortedCampaignIds(args: {
+  formattedAccountId: string;
+  sortToken: string;
+  dateParam: string;
+  objectiveParam: string | null;
+  accessToken: string;
+}): Promise<string[]> {
+  const { formattedAccountId, sortToken, dateParam, objectiveParam, accessToken } =
+    args;
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  let after: string | undefined;
+
+  do {
+    const params = [
+      "level=campaign",
+      "fields=campaign_id",
+      `sort=${encodeURIComponent(JSON.stringify([sortToken]))}`,
+      dateParam,
+      `limit=${PAGE_LIMIT}`,
+    ];
+    if (objectiveParam) params.push(objectiveParam);
+    if (after) params.push(`after=${after}`);
+
+    const page = await metaApiCall<GraphApiCampaignInsightsResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${formattedAccountId}/insights`,
+      params: params.join("&"),
+      accessToken,
+    });
+
+    for (const row of page.data) {
+      const id = row.campaign_id;
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(id);
+      }
+    }
+    after = page.paging?.next ? page.paging.cursors?.after : undefined;
+  } while (after && ordered.length < MAX_CAMPAIGNS);
+
+  return ordered.slice(0, MAX_CAMPAIGNS);
+}
+
+/** Full campaign id set under the objective filter (to detect zero-delivery
+ * campaigns the Insights edge omits). */
+async function fetchAllCampaignIds(args: {
+  formattedAccountId: string;
+  objectiveParam: string | null;
+  accessToken: string;
+}): Promise<string[]> {
+  const { formattedAccountId, objectiveParam, accessToken } = args;
+  const ids: string[] = [];
+  let after: string | undefined;
+
+  do {
+    const params = ["fields=id", `limit=${PAGE_LIMIT}`];
+    if (objectiveParam) params.push(objectiveParam);
+    if (after) params.push(`after=${after}`);
+
+    const page = await metaApiCall<GraphApiCampaignIdsResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${formattedAccountId}/campaigns`,
+      params: params.join("&"),
+      accessToken,
+    });
+
+    for (const row of page.data) ids.push(row.id);
+    after = page.paging?.next ? page.paging.cursors?.after : undefined;
+  } while (after && ids.length < MAX_CAMPAIGNS);
+
+  return ids.slice(0, MAX_CAMPAIGNS);
+}
+
+/** Hydrates full campaign objects (incl. nested insights) via `?ids=` node
+ * batch reads, chunked to Meta's batch limit. */
+async function fetchCampaignsByIds(args: {
+  ids: string[];
+  fields: string;
+  accessToken: string;
+}): Promise<Map<string, GraphApiCampaign>> {
+  const { ids, fields, accessToken } = args;
+  const map = new Map<string, GraphApiCampaign>();
+
+  for (let i = 0; i < ids.length; i += NODE_BATCH_SIZE) {
+    const chunk = ids.slice(i, i + NODE_BATCH_SIZE);
+    const batch = await metaApiCall<Record<string, GraphApiCampaign>>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: "",
+      params: `ids=${chunk.join(",")}&fields=${fields}`,
+      accessToken,
+    });
+
+    for (const [id, campaign] of Object.entries(batch)) {
+      if (campaign && typeof campaign === "object" && "id" in campaign) {
+        map.set(id, campaign);
+      }
+    }
+  }
+
+  return map;
+}
+
 // ================================
 // Route Handlers
 // ================================
@@ -307,6 +509,22 @@ export async function GET(
     const datePreset = searchParams.get("datePreset");
     const since = searchParams.get("since");
     const until = searchParams.get("until");
+    const fetchAll = searchParams.get("fetchAll") === "1";
+
+    const objectiveParamRaw = searchParams.get("objective");
+    const objectiveFilter: CampaignObjectiveFilter =
+      isCampaignObjectiveFilter(objectiveParamRaw) ? objectiveParamRaw : "all";
+
+    const sortMetricRaw = searchParams.get("sortMetric");
+    const sortMetric: CampaignSortMetric | null = isCampaignSortMetric(
+      sortMetricRaw,
+    )
+      ? sortMetricRaw
+      : null;
+    const sortOrderRaw = searchParams.get("sortOrder");
+    const sortOrder: SortOrder = isSortOrder(sortOrderRaw)
+      ? sortOrderRaw
+      : "desc";
 
     // Validate and set limit (default: 25, max: 100)
     let limit = 25;
@@ -317,33 +535,100 @@ export async function GET(
       }
     }
 
-    // Build fields parameter
     // Scope the insights subquery to the chosen window so list-level metrics
     // reflect the date filter picked above the table.
     const fields = buildCampaignFields({ datePreset, since, until });
+    const formattedAccountId = formatAccountId(accountId);
 
-    // Build query params
-    const queryParams: string[] = [`fields=${fields}`, `limit=${limit}`];
+    // Sort-by-metric mode. Meta only sorts metrics on the Insights edge, which
+    // does not return campaign metadata. So the Insights edge defines the
+    // global ranking, then we hydrate full campaign objects from the campaigns
+    // edge and reorder to match. Campaigns with no delivery in the window are
+    // absent from insights — append them after the ranked ones so none vanish.
+    if (sortMetric) {
+      const orderedIds = await fetchSortedCampaignIds({
+        formattedAccountId,
+        sortToken: buildInsightsSortToken(sortMetric, sortOrder),
+        dateParam: buildInsightsDateParam({ datePreset, since, until }),
+        objectiveParam: buildObjectiveFilteringParam(
+          objectiveFilter,
+          "insights",
+        ),
+        accessToken,
+      });
 
-    if (after) {
-      queryParams.push(`after=${after}`);
-    }
-    if (before) {
-      queryParams.push(`before=${before}`);
-    }
+      const allIds = await fetchAllCampaignIds({
+        formattedAccountId,
+        objectiveParam: buildObjectiveFilteringParam(
+          objectiveFilter,
+          "campaigns",
+        ),
+        accessToken,
+      });
 
-    // Add effective_status filter if provided
-    if (effectiveStatus) {
-      const statusArray = effectiveStatus.split(",").map((s) => s.trim());
-      queryParams.push(
-        `effective_status=${encodeURIComponent(JSON.stringify(statusArray))}`,
+      const seen = new Set(orderedIds);
+      const finalOrder = [
+        ...orderedIds,
+        ...allIds.filter((id) => !seen.has(id)),
+      ].slice(0, MAX_CAMPAIGNS);
+
+      const campaignMap = await fetchCampaignsByIds({
+        ids: finalOrder,
+        fields,
+        accessToken,
+      });
+
+      const sortedCampaigns = finalOrder
+        .map((id) => campaignMap.get(id))
+        .filter((c): c is GraphApiCampaign => Boolean(c))
+        .map(transformCampaign);
+
+      return NextResponse.json(
+        {
+          data: sortedCampaigns,
+          pagination: { hasNextPage: false, hasPreviousPage: false },
+        },
+        { status: 200 },
       );
     }
 
-    // Ensure account ID has act_ prefix
-    const formattedAccountId = formatAccountId(accountId);
+    // Default mode: campaigns edge. The caller orders the list active-first by
+    // requesting ACTIVE then PAUSED. Objective filter applied server-side.
+    const extraParams: string[] = [];
+    if (effectiveStatus) {
+      const statusArray = effectiveStatus.split(",").map((s) => s.trim());
+      extraParams.push(
+        `effective_status=${encodeURIComponent(JSON.stringify(statusArray))}`,
+      );
+    }
+    const objectiveCampaignsParam = buildObjectiveFilteringParam(
+      objectiveFilter,
+      "campaigns",
+    );
+    if (objectiveCampaignsParam) extraParams.push(objectiveCampaignsParam);
 
-    // Make Graph API request
+    if (fetchAll) {
+      const allCampaigns = await fetchAllCampaignPages({
+        formattedAccountId,
+        fields,
+        accessToken,
+        extraParams,
+      });
+
+      return NextResponse.json(
+        {
+          data: allCampaigns.map(transformCampaign),
+          pagination: { hasNextPage: false, hasPreviousPage: false },
+        },
+        { status: 200 },
+      );
+    }
+
+    const queryParams: string[] = [`fields=${fields}`, `limit=${limit}`];
+    if (after) queryParams.push(`after=${after}`);
+    if (before) queryParams.push(`before=${before}`);
+    queryParams.push(...extraParams);
+
     const response = await metaApiCall<GraphApiCampaignsResponse>({
       domain: "FACEBOOK",
       method: "GET",
@@ -352,7 +637,6 @@ export async function GET(
       accessToken,
     });
 
-    // Transform response to camelCase
     const campaigns = response.data.map(transformCampaign);
     const pagination = transformPaging(response.paging);
 

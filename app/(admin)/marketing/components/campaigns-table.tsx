@@ -20,6 +20,11 @@ import {
   type DatePreset,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
+import type { CampaignObjectiveFilter } from "@/lib/meta-business/campaign-objectives";
+import type {
+  CampaignSortMetric,
+  SortOrder,
+} from "@/lib/meta-business/campaign-sort";
 import {
   formatCurrency,
   formatNumber,
@@ -52,7 +57,15 @@ type CampaignsTableProps = {
   datePreset?: DatePreset | null;
   /** Custom YYYY-MM-DD window that supersedes `datePreset`. */
   customRange?: { since: string; until: string } | null;
+  /** Objective filter, owned by the parent toolbar (default `"all"`). */
+  objectiveFilter: CampaignObjectiveFilter;
+  /** Metric to sort by, or `null` for the default status order. */
+  sortMetric: CampaignSortMetric | null;
+  sortOrder: SortOrder;
 };
+
+const PAGE_SIZE = 25;
+const MAX_CAMPAIGNS = 500;
 
 function formatRoas(value: string | undefined): string {
   if (!value) return "-";
@@ -89,46 +102,66 @@ export function CampaignsTable({
   refreshKey,
   datePreset,
   customRange,
+  objectiveFilter,
+  sortMetric,
+  sortOrder,
 }: CampaignsTableProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentCursor, setCurrentCursor] = useState<string | undefined>();
+  const [page, setPage] = useState(0);
   const [togglingCampaignId, setTogglingCampaignId] = useState<string | null>(
     null
   );
 
-  const fetchCampaigns = useCallback(
-    async (cursor?: string) => {
-      setIsLoading(true);
-      setError(null);
+  const fetchCampaigns = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    setPage(0);
 
-      try {
-        const baseParams = new URLSearchParams({ limit: "25", userId });
-        if (cursor) {
-          baseParams.set("after", cursor);
-        }
-        // Forward the date filter so list-level metrics reflect the period
-        // selected above the table. Custom range wins when both are set.
-        if (customRange) {
-          baseParams.set("since", customRange.since);
-          baseParams.set("until", customRange.until);
-        } else if (datePreset) {
-          baseParams.set("datePreset", datePreset);
-        }
+    try {
+      // `fetchAll` makes the route follow Meta pagination internally and
+      // return the full set so sorting/filtering covers every campaign.
+      const baseParams = new URLSearchParams({ userId, fetchAll: "1" });
+      // Forward the date filter so list-level metrics reflect the period
+      // selected above the table. Custom range wins when both are set.
+      if (customRange) {
+        baseParams.set("since", customRange.since);
+        baseParams.set("until", customRange.until);
+      } else if (datePreset) {
+        baseParams.set("datePreset", datePreset);
+      }
+      if (objectiveFilter !== "all") {
+        baseParams.set("objective", objectiveFilter);
+      }
 
+      let combinedCampaigns: Campaign[];
+
+      if (sortMetric) {
+        // Metric sort: a single Meta-ranked list (active/paused interleaved).
+        const params = new URLSearchParams(baseParams);
+        params.set("sortMetric", sortMetric);
+        params.set("sortOrder", sortOrder);
+
+        const response = await fetch(
+          `/api/meta-marketing/${accountId}/campaigns?${params}`
+        );
+        if (!response.ok) {
+          throw new Error("Falha ao buscar campanhas");
+        }
+        const data: GetCampaignsResponse = await response.json();
+        combinedCampaigns = data.data ?? [];
+      } else {
+        // Default: status order — all ACTIVE first, then all PAUSED.
         const activeParams = new URLSearchParams(baseParams);
         activeParams.set("effectiveStatus", "ACTIVE");
 
         const activeResponse = await fetch(
           `/api/meta-marketing/${accountId}/campaigns?${activeParams}`
         );
-
         if (!activeResponse.ok) {
           throw new Error("Falha ao buscar campanhas");
         }
-
         const activeData: GetCampaignsResponse = await activeResponse.json();
 
         const pausedParams = new URLSearchParams(baseParams);
@@ -137,45 +170,33 @@ export function CampaignsTable({
         const pausedResponse = await fetch(
           `/api/meta-marketing/${accountId}/campaigns?${pausedParams}`
         );
-
         if (!pausedResponse.ok) {
           throw new Error("Falha ao buscar campanhas");
         }
-
         const pausedData: GetCampaignsResponse = await pausedResponse.json();
 
-        const combinedCampaigns = [
+        combinedCampaigns = [
           ...(activeData.data ?? []),
           ...(pausedData.data ?? []),
         ];
-
-        setCampaigns(combinedCampaigns);
-
-        const combinedPagination: PaginationInfo = {
-          hasNextPage:
-            (activeData.pagination?.hasNextPage ?? false) ||
-            (pausedData.pagination?.hasNextPage ?? false),
-          hasPreviousPage:
-            (activeData.pagination?.hasPreviousPage ?? false) ||
-            (pausedData.pagination?.hasPreviousPage ?? false),
-          nextCursor:
-            activeData.pagination?.nextCursor ??
-            pausedData.pagination?.nextCursor,
-          previousCursor:
-            activeData.pagination?.previousCursor ??
-            pausedData.pagination?.previousCursor,
-        };
-
-        setPagination(combinedPagination);
-      } catch (err) {
-        console.error("Error fetching campaigns:", err);
-        setError("Falha ao buscar campanhas");
-      } finally {
-        setIsLoading(false);
       }
-    },
-    [accountId, userId, datePreset, customRange]
-  );
+
+      setCampaigns(combinedCampaigns);
+    } catch (err) {
+      console.error("Error fetching campaigns:", err);
+      setError("Falha ao buscar campanhas");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    accountId,
+    userId,
+    datePreset,
+    customRange,
+    objectiveFilter,
+    sortMetric,
+    sortOrder,
+  ]);
 
   useEffect(() => {
     fetchCampaigns();
@@ -238,18 +259,19 @@ export function CampaignsTable({
     }
   };
 
+  const totalPages = Math.max(1, Math.ceil(campaigns.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const pagedCampaigns = campaigns.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE,
+  );
+
   const handleNextPage = () => {
-    if (pagination?.nextCursor) {
-      setCurrentCursor(pagination.nextCursor);
-      fetchCampaigns(pagination.nextCursor);
-    }
+    setPage((p) => Math.min(totalPages - 1, p + 1));
   };
 
   const handlePreviousPage = () => {
-    if (pagination?.previousCursor) {
-      setCurrentCursor(pagination.previousCursor);
-      fetchCampaigns(pagination.previousCursor);
-    }
+    setPage((p) => Math.max(0, p - 1));
   };
 
   const canToggle = (campaign: Campaign): boolean => {
@@ -271,11 +293,7 @@ export function CampaignsTable({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
         <p className="text-sm text-destructive">{error}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchCampaigns(currentCursor)}
-        >
+        <Button variant="outline" size="sm" onClick={() => fetchCampaigns()}>
           Tentar novamente
         </Button>
       </div>
@@ -285,7 +303,9 @@ export function CampaignsTable({
   if (campaigns.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
-        <p className="text-sm text-muted-foreground">Nenhuma campanha encontrada</p>
+        <p className="text-sm text-muted-foreground">
+          Nenhuma campanha encontrada
+        </p>
       </div>
     );
   }
@@ -294,7 +314,7 @@ export function CampaignsTable({
     <div className="space-y-3">
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-2">
-        {campaigns.map((campaign) => (
+        {pagedCampaigns.map((campaign) => (
           <div
             key={campaign.id}
             role="button"
@@ -360,7 +380,7 @@ export function CampaignsTable({
                   entityName={campaign.name}
                   accountId={accountId}
                   userId={userId}
-                  onDuplicated={() => fetchCampaigns(currentCursor)}
+                  onDuplicated={() => fetchCampaigns()}
                 />
               </div>
             </div>
@@ -415,7 +435,7 @@ export function CampaignsTable({
                       </TableCell>
                     </TableRow>
                   ))
-                : campaigns.map((campaign) => (
+                : pagedCampaigns.map((campaign) => (
                     <TableRow
                       key={campaign.id}
                       className="cursor-pointer hover:bg-accent/40"
@@ -486,9 +506,7 @@ export function CampaignsTable({
                             entityName={campaign.name}
                             accountId={accountId}
                             userId={userId}
-                            onDuplicated={() =>
-                              fetchCampaigns(currentCursor)
-                            }
+                            onDuplicated={() => fetchCampaigns()}
                           />
                         </div>
                       </TableCell>
@@ -515,14 +533,19 @@ export function CampaignsTable({
         </div>
       </div>
 
-      {/* Pagination */}
-      {pagination && (pagination.hasNextPage || pagination.hasPreviousPage) && (
+      {/* Pagination (client-side over the fully-loaded set) */}
+      {campaigns.length > PAGE_SIZE && (
         <div className="flex items-center justify-end gap-1.5">
+          <span className="mr-2 text-xs text-muted-foreground tabular-nums">
+            {safePage * PAGE_SIZE + 1}–
+            {Math.min((safePage + 1) * PAGE_SIZE, campaigns.length)} de{" "}
+            {campaigns.length}
+          </span>
           <Button
             variant="ghost"
             size="sm"
             onClick={handlePreviousPage}
-            disabled={!pagination.hasPreviousPage || isLoading}
+            disabled={safePage <= 0 || isLoading}
             className="h-8 px-3 text-xs gap-1"
           >
             <ChevronLeft className="size-3.5" />
@@ -532,13 +555,18 @@ export function CampaignsTable({
             variant="ghost"
             size="sm"
             onClick={handleNextPage}
-            disabled={!pagination.hasNextPage || isLoading}
+            disabled={safePage >= totalPages - 1 || isLoading}
             className="h-8 px-3 text-xs gap-1"
           >
             Próxima
             <ChevronRight className="size-3.5" />
           </Button>
         </div>
+      )}
+      {campaigns.length >= MAX_CAMPAIGNS && (
+        <p className="text-right text-[11px] text-muted-foreground">
+          Exibindo as primeiras {MAX_CAMPAIGNS} campanhas.
+        </p>
       )}
     </div>
   );

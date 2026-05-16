@@ -3,12 +3,30 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
+import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
 import { DatePreset, type Campaign } from "@/lib/meta-business/types";
+import {
+  type CampaignObjectiveFilter,
+  OBJECTIVE_GROUP_LABELS,
+  OBJECTIVE_GROUP_ORDER,
+} from "@/lib/meta-business/campaign-objectives";
+import {
+  type CampaignSortMetric,
+  type SortOrder,
+  CAMPAIGN_SORT_OPTIONS,
+} from "@/lib/meta-business/campaign-sort";
 import { AdAccountSelector } from "./ad-account-selector";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
@@ -58,6 +76,12 @@ export function MarketingWorkspace({
     since: string;
     until: string;
   } | null>(null);
+
+  // Campaign list filter/sort controls (rendered next to the date filter).
+  const [objectiveFilter, setObjectiveFilter] =
+    useState<CampaignObjectiveFilter>("all");
+  const [sortMetric, setSortMetric] = useState<CampaignSortMetric | null>(null);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   useEffect(() => {
     setSelectedUser(initialUser);
@@ -307,18 +331,84 @@ export function MarketingWorkspace({
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle>Campanhas</CardTitle>
-            <DateFilter
-              datePreset={datePreset}
-              onDatePresetChange={(preset) => {
-                setDatePreset(preset);
-                setCustomRange(null);
-              }}
-              customRange={customRange}
-              onCustomRangeChange={(range) => {
-                setCustomRange(range);
-                setDatePreset(null);
-              }}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={objectiveFilter}
+                onValueChange={(value) =>
+                  setObjectiveFilter(value as CampaignObjectiveFilter)
+                }
+              >
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OBJECTIVE_GROUP_ORDER.map((group) => (
+                    <SelectItem key={group} value={group}>
+                      {OBJECTIVE_GROUP_LABELS[group]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={sortMetric ?? "status"}
+                onValueChange={(value) =>
+                  setSortMetric(
+                    value === "status" ? null : (value as CampaignSortMetric),
+                  )
+                }
+              >
+                <SelectTrigger className="w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="status">Status (padrão)</SelectItem>
+                  {CAMPAIGN_SORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={!sortMetric}
+                onClick={() =>
+                  setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))
+                }
+                title={
+                  !sortMetric
+                    ? "Selecione uma métrica para ordenar"
+                    : sortOrder === "desc"
+                      ? "Maior para menor"
+                      : "Menor para maior"
+                }
+                aria-label="Inverter ordenação"
+              >
+                {!sortMetric ? (
+                  <ArrowDownUp className="size-4" />
+                ) : sortOrder === "desc" ? (
+                  <ArrowDown className="size-4" />
+                ) : (
+                  <ArrowUp className="size-4" />
+                )}
+              </Button>
+
+              <DateFilter
+                datePreset={datePreset}
+                onDatePresetChange={(preset) => {
+                  setDatePreset(preset);
+                  setCustomRange(null);
+                }}
+                customRange={customRange}
+                onCustomRangeChange={(range) => {
+                  setCustomRange(range);
+                  setDatePreset(null);
+                }}
+              />
+            </div>
           </CardHeader>
           <CardContent>
             <CampaignsTable
@@ -328,6 +418,9 @@ export function MarketingWorkspace({
               refreshKey={campaignsRefreshKey}
               datePreset={datePreset}
               customRange={customRange}
+              objectiveFilter={objectiveFilter}
+              sortMetric={sortMetric}
+              sortOrder={sortOrder}
             />
           </CardContent>
         </Card>
