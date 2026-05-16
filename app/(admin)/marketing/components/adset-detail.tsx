@@ -42,6 +42,8 @@ import { AdsTable } from "./ads-table";
 import { DateFilter } from "./date-filter";
 import { AdSetEditDialog } from "./adset-edit-dialog";
 import { AdSetEditHistory } from "./adset-edit-history";
+import { DuplicateButton } from "./duplicate-button";
+import { NameEditButton } from "./name-edit-button";
 import {
   getStatusBadgeVariant,
   formatDate,
@@ -58,6 +60,10 @@ type AdSetDetailProps = {
   userId: string;
   isOpen: boolean;
   onClose: () => void;
+  /** Called after the ad set is duplicated (parent should refresh its list). */
+  onDuplicated?: () => void;
+  /** Called after the ad set is renamed (parent should refresh its list). */
+  onRenamed?: () => void;
 };
 
 type GetAdSetInsightsResponse = {
@@ -76,6 +82,8 @@ export function AdSetDetail({
   userId,
   isOpen,
   onClose,
+  onDuplicated,
+  onRenamed,
 }: AdSetDetailProps) {
   const [adSet, setAdSet] = useState<AdSet>(adSetProp);
   const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
@@ -272,9 +280,22 @@ export function AdSetDetail({
                   <ArrowLeft className="size-4" />
                 </Button>
                 <div className="min-w-0">
-                  <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
-                    {adSet.name ?? "Detalhes do Conjunto de Anúncios"}
-                  </SheetTitle>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
+                      {adSet.name ?? "Detalhes do Conjunto de Anúncios"}
+                    </SheetTitle>
+                    <NameEditButton
+                      entityType="adset"
+                      entityId={adSet.id}
+                      currentName={adSet.name}
+                      accountId={accountId}
+                      userId={userId}
+                      onRenamed={(newName) => {
+                        setAdSet((prev) => ({ ...prev, name: newName }));
+                        onRenamed?.();
+                      }}
+                    />
+                  </div>
                   <div className="flex flex-wrap items-center gap-2 mt-0.5">
                     <Badge
                       variant={getStatusBadgeVariant(adSet.effectiveStatus)}
@@ -291,6 +312,18 @@ export function AdSetDetail({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <DuplicateButton
+                  entityType="adset"
+                  entityId={adSet.id}
+                  entityName={adSet.name}
+                  accountId={accountId}
+                  userId={userId}
+                  variant="labeled"
+                  onDuplicated={() => {
+                    onDuplicated?.();
+                    onClose();
+                  }}
+                />
                 <Button
                   variant="outline"
                   size="sm"

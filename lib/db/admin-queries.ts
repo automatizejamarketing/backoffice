@@ -1591,3 +1591,67 @@ export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
 
   return log;
 }
+
+export type DuplicationEntity = "campaign" | "adset" | "ad";
+
+export type CreateDuplicationLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  entity: DuplicationEntity;
+  sourceId: string;
+  sourceName: string;
+  newId: string;
+  newName: string;
+};
+
+/**
+ * Lightweight audit record for a Meta object duplication. Reuses the generic
+ * `backoffice_audit_logs` table — the typed campaign/adset edit-log tables have
+ * a budget-mode shape that does not fit a duplication.
+ */
+export async function createDuplicationLog(data: CreateDuplicationLogData) {
+  const [log] = await db
+    .insert(backofficeAuditLog)
+    .values({
+      adminEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      action: `duplicate_${data.entity}`,
+      fieldName: data.entity,
+      oldValue: data.sourceId,
+      newValue: data.newId,
+      note: `Duplicado "${data.sourceName}" (${data.sourceId}) → "${data.newName}" (${data.newId})`,
+    })
+    .returning();
+
+  return log;
+}
+
+export type CreateRenameLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  entity: DuplicationEntity;
+  objectId: string;
+  previousName: string;
+  newName: string;
+};
+
+/**
+ * Lightweight audit record for a Meta object rename. Reuses the generic
+ * `backoffice_audit_logs` table.
+ */
+export async function createRenameLog(data: CreateRenameLogData) {
+  const [log] = await db
+    .insert(backofficeAuditLog)
+    .values({
+      adminEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      action: `rename_${data.entity}`,
+      fieldName: `${data.entity}_name`,
+      oldValue: data.previousName,
+      newValue: data.newName,
+      note: `Renomeado ${data.entity} ${data.objectId}: "${data.previousName}" → "${data.newName}"`,
+    })
+    .returning();
+
+  return log;
+}

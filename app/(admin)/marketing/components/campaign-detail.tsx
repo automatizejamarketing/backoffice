@@ -39,6 +39,8 @@ import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-inc
 import { AdSetDetail } from "./adset-detail";
 import { AdSetCreateDialog } from "./adset-create-dialog";
 import { CampaignEditDialog } from "./campaign-edit-dialog";
+import { DuplicateButton } from "./duplicate-button";
+import { NameEditButton } from "./name-edit-button";
 import {
   getCampaignMetricsForObjective,
   type CampaignMetricId,
@@ -231,9 +233,22 @@ export function CampaignDetail({
                   <ArrowLeft className="size-4" />
                 </Button>
                 <div className="min-w-0">
-                  <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
-                    {campaign.name ?? "Detalhes da Campanha"}
-                  </SheetTitle>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <SheetTitle className="line-clamp-1 text-left text-base font-semibold">
+                      {campaign.name ?? "Detalhes da Campanha"}
+                    </SheetTitle>
+                    <NameEditButton
+                      entityType="campaign"
+                      entityId={campaign.id}
+                      currentName={campaign.name}
+                      accountId={accountId}
+                      userId={userId}
+                      onRenamed={(newName) => {
+                        setCampaign((prev) => ({ ...prev, name: newName }));
+                        onCampaignUpdated?.({ ...campaign, name: newName });
+                      }}
+                    />
+                  </div>
                   <div className="flex items-center gap-2 mt-0.5">
                     <Badge
                       variant={getStatusBadgeVariant(campaign.effectiveStatus)}
@@ -252,6 +267,18 @@ export function CampaignDetail({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <DuplicateButton
+                  entityType="campaign"
+                  entityId={campaign.id}
+                  entityName={campaign.name}
+                  accountId={accountId}
+                  userId={userId}
+                  variant="labeled"
+                  onDuplicated={() => {
+                    onCampaignUpdated?.(campaign);
+                    onClose();
+                  }}
+                />
                 <Button
                   variant="outline"
                   size="sm"
@@ -439,6 +466,8 @@ export function CampaignDetail({
           userId={userId}
           isOpen={isAdSetDetailOpen}
           onClose={handleCloseAdSetDetail}
+          onDuplicated={() => setAdSetsRefreshKey((prev) => prev + 1)}
+          onRenamed={() => setAdSetsRefreshKey((prev) => prev + 1)}
         />
       )}
 

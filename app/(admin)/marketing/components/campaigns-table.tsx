@@ -31,7 +31,9 @@ import {
   type CampaignMetricDefinition,
 } from "../utils/campaign-metrics";
 import { DeliveryStatus } from "./delivery-status";
+import { DuplicateButton } from "./duplicate-button";
 import { IssuesIcon } from "./issues-icon";
+import { NameEditButton } from "./name-edit-button";
 
 type GetCampaignsResponse = {
   data?: Campaign[];
@@ -307,9 +309,25 @@ export function CampaignsTable({
             className="w-full text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex items-start justify-between gap-2 mb-3">
-              <span className="font-medium text-sm line-clamp-2 flex-1">
-                {campaign.name}
-              </span>
+              <div className="flex items-start gap-1 flex-1 min-w-0">
+                <span className="font-medium text-sm line-clamp-2">
+                  {campaign.name}
+                </span>
+                <NameEditButton
+                  entityType="campaign"
+                  entityId={campaign.id}
+                  currentName={campaign.name}
+                  accountId={accountId}
+                  userId={userId}
+                  onRenamed={(newName) =>
+                    setCampaigns((prev) =>
+                      prev.map((c) =>
+                        c.id === campaign.id ? { ...c, name: newName } : c,
+                      ),
+                    )
+                  }
+                />
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 {canToggle(campaign) && (
                   <div
@@ -335,6 +353,14 @@ export function CampaignsTable({
                   status={campaign.effectiveStatus ?? campaign.status}
                   endTime={campaign.stopTime}
                   size="xs"
+                />
+                <DuplicateButton
+                  entityType="campaign"
+                  entityId={campaign.id}
+                  entityName={campaign.name}
+                  accountId={accountId}
+                  userId={userId}
+                  onDuplicated={() => fetchCampaigns(currentCursor)}
                 />
               </div>
             </div>
@@ -416,7 +442,27 @@ export function CampaignsTable({
                         )}
                       </TableCell>
                       <TableCell className="font-medium text-sm">
-                        <span className="line-clamp-1">{campaign.name}</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="line-clamp-1">
+                            {campaign.name}
+                          </span>
+                          <NameEditButton
+                            entityType="campaign"
+                            entityId={campaign.id}
+                            currentName={campaign.name}
+                            accountId={accountId}
+                            userId={userId}
+                            onRenamed={(newName) =>
+                              setCampaigns((prev) =>
+                                prev.map((c) =>
+                                  c.id === campaign.id
+                                    ? { ...c, name: newName }
+                                    : c,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
                       </TableCell>
                       <TableCell
                         className="text-center"
@@ -425,12 +471,26 @@ export function CampaignsTable({
                         <IssuesIcon entity={campaign} entityType="campaign" />
                       </TableCell>
                       <TableCell>
-                        <DeliveryStatus
-                          status={
-                            campaign.effectiveStatus ?? campaign.status ?? null
-                          }
-                          endTime={campaign.stopTime}
-                        />
+                        <div className="flex items-center gap-2">
+                          <DeliveryStatus
+                            status={
+                              campaign.effectiveStatus ??
+                              campaign.status ??
+                              null
+                            }
+                            endTime={campaign.stopTime}
+                          />
+                          <DuplicateButton
+                            entityType="campaign"
+                            entityId={campaign.id}
+                            entityName={campaign.name}
+                            accountId={accountId}
+                            userId={userId}
+                            onDuplicated={() =>
+                              fetchCampaigns(currentCursor)
+                            }
+                          />
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="grid grid-cols-5 gap-3">
