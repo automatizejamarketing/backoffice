@@ -16,6 +16,9 @@ export interface PlanDefinition {
   description: string;
   interval: "month" | "year";
   intervalCount: number;
+  commitmentMonths: 1 | 3 | 6 | 12;
+  monthlyPriceCentavos: number;
+  totalCommitmentCentavos: number;
   hierarchy: number;
 }
 
@@ -52,6 +55,31 @@ const PERIOD_DESCRIPTIONS: Record<BillingPeriod, string> = {
   annual: "Cobrança anual",
 };
 
+const COMMITMENT_MONTHS: Record<BillingPeriod, 1 | 3 | 6 | 12> = {
+  monthly: 1,
+  quarterly: 3,
+  semiannual: 6,
+  annual: 12,
+};
+
+// Keep plan prices here, not inside payment-provider helpers. The frontend
+// owns the production billing migration, but both apps need the same pricing
+// source so backoffice-generated Pix links cannot drift from self-service Pix.
+const MONTHLY_PRICE_CENTAVOS: Record<PlanType, number> = {
+  monthly_starter: 29700,
+  quarterly_starter: 26567,
+  semiannual_starter: 24950,
+  annual_starter: 20808,
+  monthly_pro: 49700,
+  quarterly_pro: 39900,
+  semiannual_pro: 33283,
+  annual_pro: 29142,
+  monthly_premium: 89700,
+  quarterly_premium: 69700,
+  semiannual_premium: 63700,
+  annual_premium: 49700,
+};
+
 function buildDefinition(
   period: BillingPeriod,
   tier: PlanTier,
@@ -66,6 +94,8 @@ function buildDefinition(
         : period === "semiannual"
           ? 6
           : 1; // annual = 1 year
+  const commitmentMonths = COMMITMENT_MONTHS[period];
+  const monthlyPriceCentavos = MONTHLY_PRICE_CENTAVOS[id];
 
   return {
     id,
@@ -75,6 +105,9 @@ function buildDefinition(
     description: `${TIER_LABELS[tier]} — ${PERIOD_DESCRIPTIONS[period]}`,
     interval,
     intervalCount,
+    commitmentMonths,
+    monthlyPriceCentavos,
+    totalCommitmentCentavos: monthlyPriceCentavos * commitmentMonths,
     hierarchy: TIER_RANK[tier] * 100 + PERIOD_RANK[period],
   };
 }
@@ -107,6 +140,10 @@ export function getPlanTier(planType: PlanType): PlanTier {
 
 export function getBillingPeriod(planType: PlanType): BillingPeriod {
   return PLAN_DEFINITIONS[planType].period;
+}
+
+export function getCommitmentMonths(planType: PlanType): 1 | 3 | 6 | 12 {
+  return PLAN_DEFINITIONS[planType].commitmentMonths;
 }
 
 export function buildPlanType(period: BillingPeriod, tier: PlanTier): PlanType {
