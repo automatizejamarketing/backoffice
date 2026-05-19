@@ -539,6 +539,36 @@ export const campaignEditLog = pgTable("campaign_edit_logs", {
 
 export type CampaignEditLog = InferSelectModel<typeof campaignEditLog>;
 
+// Ad Creative create/edit audit - backoffice admins/consultants acting on a user's behalf
+export const adCreativeEditLog = pgTable("ad_creative_edit_logs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  backofficeUserEmail: varchar("backoffice_user_email", {
+    length: 100,
+  }).notNull(),
+  targetUserId: uuid("target_user_id")
+    .notNull()
+    .references(() => user.id),
+  accountId: text("account_id").notNull(),
+  campaignId: text("campaign_id"),
+  adsetId: text("adset_id").notNull(),
+  operation: varchar("operation", { length: 16 }).notNull(),
+  editStrategy: varchar("edit_strategy", { length: 24 }),
+  sourceAdId: text("source_ad_id"),
+  resultAdId: text("result_ad_id"),
+  pausedAdId: text("paused_ad_id"),
+  creativeId: text("creative_id"),
+  mediaSource: varchar("media_source", { length: 24 }).notNull(),
+  mediaKind: varchar("media_kind", { length: 12 }),
+  videoId: text("video_id"),
+  videoStatus: varchar("video_status", { length: 12 }),
+  message: text("message"),
+  appliedToMeta: boolean("applied_to_meta").notNull().default(false),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type AdCreativeEditLog = InferSelectModel<typeof adCreativeEditLog>;
+
 // Scheduled posts for Instagram publishing
 export const scheduledPost = pgTable(
   "scheduled_posts",

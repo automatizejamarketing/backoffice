@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, X, Info, Pencil, Loader2 } from "lucide-react";
+import { ArrowLeft, X, Info, Pencil, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -42,6 +42,7 @@ import { AdsTable } from "./ads-table";
 import { DateFilter } from "./date-filter";
 import { AdSetEditDialog } from "./adset-edit-dialog";
 import { AdSetEditHistory } from "./adset-edit-history";
+import { AdCreativeDialog } from "./ad-creative-dialog";
 import { DuplicateButton } from "./duplicate-button";
 import { NameEditButton } from "./name-edit-button";
 import {
@@ -97,6 +98,8 @@ export function AdSetDetail({
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
+  const [isCreateAdOpen, setIsCreateAdOpen] = useState(false);
+  const [adsRefreshSignal, setAdsRefreshSignal] = useState(0);
 
   useEffect(() => {
     setAdSet(adSetProp);
@@ -502,13 +505,25 @@ export function AdSetDetail({
             </section>
 
             <section>
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                Anúncios
-              </p>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Anúncios
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => setIsCreateAdOpen(true)}
+                >
+                  <Plus className="mr-1.5 size-3.5" />
+                  Criar anúncio
+                </Button>
+              </div>
               <AdsTable
                 accountId={accountId}
                 userId={userId}
                 adSetId={adSet.id}
+                refreshSignal={adsRefreshSignal}
               />
             </section>
 
@@ -538,6 +553,19 @@ export function AdSetDetail({
           refetchAdSet();
         }}
       />
+
+      {isCreateAdOpen && (
+        <AdCreativeDialog
+          mode="create"
+          accountId={accountId}
+          userId={userId}
+          adsetId={adSet.id}
+          adsetName={adSet.name}
+          isOpen={isCreateAdOpen}
+          onClose={() => setIsCreateAdOpen(false)}
+          onCreated={() => setAdsRefreshSignal((s) => s + 1)}
+        />
+      )}
 
       <Dialog open={isDetailsOpen} onOpenChange={handleDetailsOpenChange}>
         <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto p-0">

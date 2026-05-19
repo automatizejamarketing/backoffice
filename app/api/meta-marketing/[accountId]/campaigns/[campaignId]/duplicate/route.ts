@@ -59,10 +59,20 @@ export async function POST(
       );
     }
 
+    console.log("TODELETE - [POST campaign duplicate] start", {
+      accountId,
+      campaignId,
+      userId,
+    });
+
     const result = await duplicateCampaign({
       accountId,
       campaignId,
       accessToken: tokenResult.accessToken,
+    });
+
+    console.log("TODELETE - [POST campaign duplicate] duplicateCampaign result", {
+      result,
     });
 
     let auditLogFailed = false;
@@ -86,6 +96,10 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
+    console.log("TODELETE - [POST campaign duplicate] raw error caught", {
+      message: error instanceof Error ? error.message : String(error),
+      raw: error,
+    });
     const errorReturn = errorToGraphErrorReturn(error);
     const clientError = graphErrorToClientError(errorReturn);
     console.error("[POST campaign duplicate] Error:", errorReturn);
