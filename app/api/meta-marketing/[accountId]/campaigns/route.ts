@@ -660,7 +660,6 @@ export async function GET(
       { status: 200 },
     );
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
 
     console.error("Error fetching campaigns:", errorReturn);
@@ -727,20 +726,11 @@ export async function PATCH(
     const { accessToken } = tokenResult;
 
     const body: PatchCampaignRequestBody = await request.json();
-    console.log("TODELETE - [PATCH campaigns] request body", {
-      accountId,
-      userId,
-      body,
-    });
 
     if (isStatusPatchBody(body)) {
       const { campaignId, status } = body;
 
       if (!campaignId || !status) {
-        console.log("TODELETE - [PATCH campaigns] invalid status body", {
-          campaignId,
-          status,
-        });
         return NextResponse.json(
           {
             error: "Invalid request",
@@ -790,10 +780,6 @@ export async function PATCH(
     } = body;
 
     if (!campaignId || !mode) {
-      console.log("TODELETE - [PATCH campaigns] missing campaignId/mode", {
-        campaignId,
-        mode,
-      });
       return NextResponse.json(
         {
           error: "Invalid request",
@@ -805,10 +791,6 @@ export async function PATCH(
     }
 
     if (!note?.trim()) {
-      console.log("TODELETE - [PATCH campaigns] missing note", {
-        campaignId,
-        mode,
-      });
       return NextResponse.json(
         {
           error: "Missing note",
@@ -837,16 +819,6 @@ export async function PATCH(
         : "ABO";
     const previousDailyBudget = currentCampaign.daily_budget ?? null;
     const previousLifetimeBudget = currentCampaign.lifetime_budget ?? null;
-    console.log("TODELETE - [PATCH campaigns] current Meta campaign", {
-      campaignId,
-      previousBudgetMode,
-      previousDailyBudget,
-      previousLifetimeBudget,
-      startTime: currentCampaign.start_time,
-      stopTime: currentCampaign.stop_time,
-      requestedMode: mode,
-      requestedBudgetType: budgetType,
-    });
 
     const updateParams = new URLSearchParams();
     let adsetBudgetChanges:
@@ -892,21 +864,9 @@ export async function PATCH(
         (hasPositiveMinorUnits(currentCampaign.lifetime_budget)
           ? "lifetime"
           : "daily");
-      console.log("TODELETE - [PATCH campaigns] CBO branch", {
-        campaignId,
-        selectedBudgetType,
-        dailyBudget,
-        lifetimeBudget,
-        startTime,
-        endTime,
-      });
 
       if (selectedBudgetType === "daily") {
         if (!isPositiveBudget(dailyBudget)) {
-          console.log("TODELETE - [PATCH campaigns] invalid CBO daily budget", {
-            campaignId,
-            dailyBudget,
-          });
           return NextResponse.json(
             {
               error: "Invalid daily budget",
@@ -928,23 +888,8 @@ export async function PATCH(
 
         if (previousBudgetMode === "ABO") {
           const adSetsResponse = await loadCampaignAdSets();
-          console.log("TODELETE - [PATCH campaigns] ABO to CBO adsets loaded", {
-            campaignId,
-            selectedBudgetType,
-            adsetCount: adSetsResponse.data.length,
-            adsets: adSetsResponse.data.map((adSet) => ({
-              id: adSet.id,
-              name: adSet.name,
-              dailyBudget: adSet.daily_budget,
-              lifetimeBudget: adSet.lifetime_budget,
-            })),
-          });
 
           if (adSetsResponse.data.length === 0) {
-            console.log(
-              "TODELETE - [PATCH campaigns] no adsets for ABO to CBO",
-              { campaignId },
-            );
             return NextResponse.json(
               {
                 error: "No ad sets found",
@@ -961,19 +906,6 @@ export async function PATCH(
             (adSet) => getAdSetBudgetType(adSet) === "lifetime",
           );
           if (lifetimeBudgetAdSets.length > 0) {
-            console.log(
-              "TODELETE - [PATCH campaigns] daily CBO blocked by lifetime ABO adsets",
-              {
-                campaignId,
-                lifetimeBudgetAdSets: lifetimeBudgetAdSets.map((adSet) => ({
-                  id: adSet.id,
-                  name: adSet.name,
-                  lifetimeBudget: adSet.lifetime_budget,
-                  startTime: adSet.start_time,
-                  endTime: adSet.end_time,
-                })),
-              },
-            );
             return NextResponse.json(
               {
                 error: "Incompatible budget type",
@@ -988,13 +920,6 @@ export async function PATCH(
         }
       } else {
         if (!isPositiveBudget(lifetimeBudget)) {
-          console.log(
-            "TODELETE - [PATCH campaigns] invalid CBO lifetime budget",
-            {
-              campaignId,
-              lifetimeBudget,
-            },
-          );
           return NextResponse.json(
             {
               error: "Invalid lifetime budget",
@@ -1013,17 +938,6 @@ export async function PATCH(
           !isValidDateTimeLocal(endTime) ||
           !isEndAfterStart(startTime, endTime)
         ) {
-          console.log("TODELETE - [PATCH campaigns] invalid CBO schedule", {
-            campaignId,
-            startTime,
-            endTime,
-            hasStartTime: Boolean(startTime),
-            hasEndTime: Boolean(endTime),
-            startValid: startTime ? isValidDateTimeLocal(startTime) : false,
-            endValid: endTime ? isValidDateTimeLocal(endTime) : false,
-            endAfterStart:
-              startTime && endTime ? isEndAfterStart(startTime, endTime) : false,
-          });
           return NextResponse.json(
             {
               error: "Invalid schedule",
@@ -1045,15 +959,7 @@ export async function PATCH(
         }
 
         const adSetsResponse = await loadCampaignAdSets();
-        console.log("TODELETE - [PATCH campaigns] CBO lifetime adsets loaded", {
-          campaignId,
-          adsetCount: adSetsResponse.data.length,
-          adsetIds: adSetsResponse.data.map((adSet) => adSet.id),
-        });
         if (adSetsResponse.data.length === 0) {
-          console.log("TODELETE - [PATCH campaigns] no adsets for CBO lifetime", {
-            campaignId,
-          });
           return NextResponse.json(
             {
               error: "No ad sets found",
@@ -1085,18 +991,6 @@ export async function PATCH(
           );
 
           if ("error" in scheduleParams) {
-            console.log(
-              "TODELETE - [PATCH campaigns] invalid CBO adset start_time update",
-              {
-                campaignId,
-                adsetId: adSet.id,
-                currentStartTime: adSet.start_time,
-                requestedStartTime: newStartTime,
-                currentEndTime: adSet.end_time,
-                requestedEndTime: newEndTime,
-                error: scheduleParams.error,
-              },
-            );
             return NextResponse.json(
               {
                 error: "Invalid schedule",
@@ -1118,10 +1012,6 @@ export async function PATCH(
       }
     } else {
       if (!adsetBudgets?.length) {
-        console.log("TODELETE - [PATCH campaigns] missing ABO adset budgets", {
-          campaignId,
-          adsetBudgetsLength: adsetBudgets?.length ?? 0,
-        });
         return NextResponse.json(
           {
             error: "Missing ad set budgets",
@@ -1135,17 +1025,8 @@ export async function PATCH(
       }
 
       const adSetsResponse = await loadCampaignAdSets();
-      console.log("TODELETE - [PATCH campaigns] ABO adsets loaded", {
-        campaignId,
-        adsetCount: adSetsResponse.data.length,
-        requestedAdsetBudgetCount: adsetBudgets.length,
-        adsetIds: adSetsResponse.data.map((adSet) => adSet.id),
-      });
 
       if (adSetsResponse.data.length === 0) {
-        console.log("TODELETE - [PATCH campaigns] no adsets for ABO", {
-          campaignId,
-        });
         return NextResponse.json(
           {
             error: "No ad sets found",
@@ -1159,10 +1040,6 @@ export async function PATCH(
       }
 
       if (adSetsResponse.data.length > 70) {
-        console.log("TODELETE - [PATCH campaigns] too many adsets for ABO", {
-          campaignId,
-          adsetCount: adSetsResponse.data.length,
-        });
         return NextResponse.json(
           {
             error: "Too many ad sets",
@@ -1178,13 +1055,6 @@ export async function PATCH(
       const inputBudgetMap = new Map<string, CampaignAdSetBudgetInput>();
       for (const adsetBudget of adsetBudgets) {
         if (!adsetBudget?.adsetId || inputBudgetMap.has(adsetBudget.adsetId)) {
-          console.log("TODELETE - [PATCH campaigns] invalid ABO adset item", {
-            campaignId,
-            adsetBudget,
-            alreadySeen: adsetBudget?.adsetId
-              ? inputBudgetMap.has(adsetBudget.adsetId)
-              : false,
-          });
           return NextResponse.json(
             {
               error: "Invalid ad set budgets",
@@ -1205,11 +1075,6 @@ export async function PATCH(
           selectedBudgetType === "daily" &&
           !isPositiveBudget(adsetBudget.dailyBudget)
         ) {
-          console.log("TODELETE - [PATCH campaigns] invalid ABO daily budget", {
-            campaignId,
-            adsetId: adsetBudget.adsetId,
-            dailyBudget: adsetBudget.dailyBudget,
-          });
           return NextResponse.json(
             {
               error: "Invalid ad set budget",
@@ -1226,14 +1091,6 @@ export async function PATCH(
           selectedBudgetType === "lifetime" &&
           !isPositiveBudget(adsetBudget.lifetimeBudget)
         ) {
-          console.log(
-            "TODELETE - [PATCH campaigns] invalid ABO lifetime budget",
-            {
-              campaignId,
-              adsetId: adsetBudget.adsetId,
-              lifetimeBudget: adsetBudget.lifetimeBudget,
-            },
-          );
           return NextResponse.json(
             {
               error: "Invalid ad set budget",
@@ -1260,22 +1117,6 @@ export async function PATCH(
             !isValidDateTimeLocal(nextEndTime) ||
             !isEndAfterStart(nextStartTime, nextEndTime)
           ) {
-            console.log("TODELETE - [PATCH campaigns] invalid ABO schedule", {
-              campaignId,
-              adsetId: adsetBudget.adsetId,
-              nextStartTime,
-              nextEndTime,
-              existingStartTime: existingAdSet?.start_time,
-              existingEndTime: existingAdSet?.end_time,
-              startValid: nextStartTime
-                ? isValidDateTimeLocal(nextStartTime)
-                : false,
-              endValid: nextEndTime ? isValidDateTimeLocal(nextEndTime) : false,
-              endAfterStart:
-                nextStartTime && nextEndTime
-                  ? isEndAfterStart(nextStartTime, nextEndTime)
-                  : false,
-            });
             return NextResponse.json(
               {
                 error: "Invalid ad set schedule",
@@ -1299,12 +1140,6 @@ export async function PATCH(
         missingAdSets.length > 0 ||
         inputBudgetMap.size !== adSetsResponse.data.length
       ) {
-        console.log("TODELETE - [PATCH campaigns] incomplete ABO budgets", {
-          campaignId,
-          expectedAdsetCount: adSetsResponse.data.length,
-          receivedAdsetCount: inputBudgetMap.size,
-          missingAdSetIds: missingAdSets.map((adSet) => adSet.id),
-        });
         return NextResponse.json(
           {
             error: "Incomplete ad set budgets",
@@ -1449,14 +1284,6 @@ export async function PATCH(
       | undefined;
 
     try {
-      console.log("TODELETE - [PATCH campaigns] applying Meta updates", {
-        campaignId,
-        campaignUpdateParams: Object.fromEntries(updateParams.entries()),
-        adSetUpdateOperations: adSetUpdateOperations.map((operation) => ({
-          adsetId: operation.adsetId,
-          params: Object.fromEntries(operation.params.entries()),
-        })),
-      });
       if (updateParams.size > 0) {
         await metaApiCall<GraphApiUpdateCampaignResponse>({
           domain: "FACEBOOK",
@@ -1469,11 +1296,6 @@ export async function PATCH(
       }
 
       for (const operation of adSetUpdateOperations) {
-        console.log("TODELETE - [PATCH campaigns] applying adset update", {
-          campaignId,
-          adsetId: operation.adsetId,
-          params: Object.fromEntries(operation.params.entries()),
-        });
         await metaApiCall<{ success: boolean }>({
           domain: "FACEBOOK",
           method: "POST",
@@ -1485,19 +1307,9 @@ export async function PATCH(
       }
       appliedToMeta = true;
     } catch (metaError) {
-      console.log("TODELETE - [PATCH campaigns] Meta update failed raw", {
-        campaignId,
-        metaError,
-      });
       const errorReturn = errorToGraphErrorReturn(metaError);
       metaClientError = graphErrorToClientError(errorReturn);
       errorMessage = metaClientError.message;
-      console.log("TODELETE - [PATCH campaigns] Meta update failed parsed", {
-        campaignId,
-        statusCode: errorReturn.statusCode,
-        reason: errorReturn.reason,
-        data: errorReturn.data,
-      });
     }
 
     let logId: string | undefined;
@@ -1557,12 +1369,6 @@ export async function PATCH(
     }
 
     if (!appliedToMeta) {
-      console.log("TODELETE - [PATCH campaigns] returning Meta failure", {
-        campaignId,
-        errorMessage,
-        auditLogFailed,
-        auditLogError,
-      });
       return NextResponse.json(
         {
           error: metaClientError?.error ?? "Failed to apply changes to Meta",
@@ -1605,7 +1411,6 @@ export async function PATCH(
       { status: 200 },
     );
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     const clientError = graphErrorToClientError(errorReturn);
 

@@ -120,14 +120,6 @@ export async function createDynamicAdCreative(params: {
     instagram_user_id: instagramAccountId,
   };
 
-  console.log("TODELETE - [createDynamicAdCreative] request", {
-    endpoint: ADCREATIVES_PATH(adAccountId),
-    name,
-    imageHash,
-    objectStorySpec,
-    assetFeedSpec,
-    contextualMultiAds: OPT_OUT_MULTI_ADS,
-  });
 
   const formData = new FormData();
   formData.append("name", name);
@@ -143,11 +135,6 @@ export async function createDynamicAdCreative(params: {
 
   const data = await response.json();
 
-  console.log("TODELETE - [createDynamicAdCreative] response", {
-    status: response.status,
-    ok: response.ok,
-    data,
-  });
 
   if (!response.ok || data.error) {
     console.error("Error creating dynamic ad creative:", data);
@@ -375,13 +362,6 @@ export async function createAd(params: {
 
   const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${adAccountId}/ads`;
 
-  console.log("TODELETE - [createAd] request", {
-    endpoint: url,
-    name,
-    adset_id: adSetId,
-    creative: { creative_id: creativeId },
-    status,
-  });
 
   const formData = new FormData();
   formData.append("name", name);
@@ -397,22 +377,6 @@ export async function createAd(params: {
 
   const data = await response.json();
 
-  console.log("TODELETE - [createAd] response", {
-    status: response.status,
-    ok: response.ok,
-    data,
-    metaError: data?.error
-      ? {
-          message: data.error.message,
-          type: data.error.type,
-          code: data.error.code,
-          error_subcode: data.error.error_subcode,
-          error_user_title: data.error.error_user_title,
-          error_user_msg: data.error.error_user_msg,
-          fbtrace_id: data.error.fbtrace_id,
-        }
-      : undefined,
-  });
 
   if (!response.ok || data.error) {
     console.error("Error creating ad:", data);

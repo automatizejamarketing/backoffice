@@ -152,7 +152,6 @@ export async function GET(
       { status: 200 }
     );
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("Error fetching ads:", errorReturn);
 
@@ -243,7 +242,6 @@ export async function PATCH(
       { status: 200 }
     );
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("Error updating ad:", errorReturn);
 

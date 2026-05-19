@@ -104,16 +104,6 @@ export async function resolvePageAndIg(
     accessToken,
   });
 
-  console.log("TODELETE - [resolvePageAndIg] me/accounts response", {
-    preferredPageId,
-    pageCount: pagesResponse.data?.length ?? 0,
-    pages: pagesResponse.data?.map((p) => ({
-      id: p.id,
-      name: p.name,
-      igId: p.instagram_business_account?.id,
-      igUsername: p.instagram_business_account?.username,
-    })),
-  });
 
   // Prefer the page the ad set actually promotes (so object_story_spec matches
   // the ad set's promoted_object); fall back to the first page with an IG.
@@ -126,12 +116,6 @@ export async function resolvePageAndIg(
     preferredPage ??
     pagesResponse.data.find((p) => p.instagram_business_account?.id);
 
-  console.log("TODELETE - [resolvePageAndIg] chosen page", {
-    matchedPreferred: Boolean(preferredPage),
-    pageId: pageWithIg?.id,
-    igAccountId: pageWithIg?.instagram_business_account?.id,
-    igUsername: pageWithIg?.instagram_business_account?.username,
-  });
 
   if (!pageWithIg?.instagram_business_account?.id) {
     throw new GraphApiError({
@@ -220,24 +204,6 @@ export async function buildCreativeFromMedia(args: {
     ? `https://www.instagram.com/${page.igUsername}`
     : text.linkUrl;
 
-  console.log("TODELETE - [buildCreativeFromMedia] entry", {
-    adAccountId,
-    name,
-    mediaKind: media.kind,
-    adSetIsDynamic,
-    adSetDestinationType,
-    adSetOptimizationGoal,
-    isInstagramProfileDestination,
-    page,
-    formLinkUrl: text.linkUrl,
-    formCtaType: text.ctaType,
-    effectiveUrl,
-    effectiveCtaType,
-    titles: text.titles,
-    texts: text.texts,
-    hasConfirmedVideo: Boolean(args.confirmedVideo),
-    confirmedVideo: args.confirmedVideo,
-  });
 
   const common = {
     adAccountId,
@@ -306,20 +272,11 @@ export async function buildCreativeFromMedia(args: {
   if (media.kind === "automatize_image" || media.kind === "device_image") {
     const imageUrl =
       media.kind === "automatize_image" ? media.imageUrl : media.blobUrl;
-    console.log("TODELETE - [buildCreativeFromMedia] image branch", {
-      mediaKind: media.kind,
-      imageUrl,
-      titles,
-      texts,
-    });
     const creative = await createDynamicAdCreative({
       ...common,
       imageUrl,
       titles,
       texts,
-    });
-    console.log("TODELETE - [buildCreativeFromMedia] image creative created", {
-      creativeId: creative.id,
     });
     return {
       phase: "creative_ready",
@@ -346,21 +303,12 @@ export async function buildCreativeFromMedia(args: {
     };
   }
 
-  console.log("TODELETE - [buildCreativeFromMedia] video branch", {
-    videoId: args.confirmedVideo.videoId,
-    thumbnailUrl: args.confirmedVideo.thumbnailUrl,
-    titles,
-    texts,
-  });
   const creative = await createDynamicVideoAdCreative({
     ...common,
     videoId: args.confirmedVideo.videoId,
     thumbnailUrl: args.confirmedVideo.thumbnailUrl,
     titles,
     texts,
-  });
-  console.log("TODELETE - [buildCreativeFromMedia] video creative created", {
-    creativeId: creative.id,
   });
   return {
     phase: "creative_ready",

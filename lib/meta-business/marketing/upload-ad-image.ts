@@ -49,17 +49,9 @@ export async function uploadImageToAdAccount(params: {
 }): Promise<UploadAdImageResult> {
   const { adAccountId, accessToken, imageUrl } = params;
 
-  console.log("TODELETE - [uploadImageToAdAccount] downloading source", {
-    adAccountId,
-    imageUrl,
-  });
 
   const sourceResponse = await fetch(imageUrl);
   if (!sourceResponse.ok) {
-    console.log("TODELETE - [uploadImageToAdAccount] source download failed", {
-      status: sourceResponse.status,
-      imageUrl,
-    });
     throw new Error(
       `[uploadImageToAdAccount] Failed to download source image (${sourceResponse.status}): ${imageUrl}`,
     );
@@ -71,12 +63,6 @@ export async function uploadImageToAdAccount(params: {
   const extension = inferExtension(contentType, imageUrl);
   const filename = `image.${extension}`;
 
-  console.log("TODELETE - [uploadImageToAdAccount] source downloaded", {
-    contentType,
-    extension,
-    filename,
-    byteLength: arrayBuffer.byteLength,
-  });
 
   const blob = new Blob([arrayBuffer], { type: contentType });
 
@@ -93,12 +79,6 @@ export async function uploadImageToAdAccount(params: {
 
   const data = await response.json();
 
-  console.log("TODELETE - [uploadImageToAdAccount] /adimages response", {
-    endpoint: url,
-    status: response.status,
-    ok: response.ok,
-    data,
-  });
 
   if (!response.ok || data.error) {
     console.error("[uploadImageToAdAccount] Error uploading image:", data);
@@ -108,11 +88,6 @@ export async function uploadImageToAdAccount(params: {
   const adImages = (data as AdImagesResponse).images ?? {};
   const entry = adImages[filename] ?? Object.values(adImages)[0] ?? undefined;
 
-  console.log("TODELETE - [uploadImageToAdAccount] resolved hash", {
-    filename,
-    hash: entry?.hash,
-    availableKeys: Object.keys(adImages),
-  });
 
   if (!entry?.hash) {
     console.error(

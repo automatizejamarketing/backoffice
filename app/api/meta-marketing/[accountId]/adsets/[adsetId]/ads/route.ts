@@ -8,7 +8,6 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import {
   errorToGraphErrorReturn,
   graphErrorToClientError,
-  GraphApiError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
@@ -137,23 +136,6 @@ export async function POST(
       );
     }
 
-    console.log("TODELETE - [create ad] incoming request", {
-      accountId,
-      adsetId,
-      userId,
-      mediaSource: body.media?.source,
-      media: body.media,
-      titlesCount: body.text?.titles?.length ?? 0,
-      textsCount: body.text?.texts?.length ?? 0,
-      titles: body.text?.titles,
-      texts: body.text?.texts,
-      ctaType: body.text?.ctaType,
-      linkUrl,
-      adName: body.adName,
-      status: body.status,
-      confirmVideoId: body.confirmVideoId,
-      accessTokenLen: accessToken?.length ?? 0,
-    });
 
     // Validate the ad set and derive name + campaign.
     const adset = await metaApiCall<{
@@ -175,17 +157,6 @@ export async function POST(
       accessToken,
     });
 
-    console.log("TODELETE - [create ad] resolved ad set", {
-      id: adset.id,
-      name: adset.name,
-      campaign_id: adset.campaign_id,
-      is_dynamic_creative: adset.is_dynamic_creative,
-      optimization_goal: adset.optimization_goal,
-      billing_event: adset.billing_event,
-      status: adset.status,
-      destination_type: adset.destination_type,
-      promoted_object: adset.promoted_object,
-    });
 
     // Resolve & validate the media into the orchestrator input.
     let media: AdMediaInput;
@@ -288,11 +259,6 @@ export async function POST(
       }
     }
 
-    console.log("TODELETE - [create ad] media resolved", {
-      mediaSource,
-      media,
-      blobUrlForCleanup,
-    });
 
     const page = await resolvePageAndIg(
       accessToken,
@@ -308,14 +274,6 @@ export async function POST(
       linkUrl,
     };
 
-    console.log("TODELETE - [create ad] page + build args", {
-      page,
-      name,
-      adStatus,
-      adSetIsDynamic: adset.is_dynamic_creative === true,
-      text,
-      hasConfirmVideoId: Boolean(body.confirmVideoId),
-    });
 
     // Device video, second pass: caller confirms the uploaded video is ready.
     let confirmedVideo: { videoId: string; thumbnailUrl: string } | undefined;
@@ -359,9 +317,6 @@ export async function POST(
       confirmedVideo,
     });
 
-    console.log("TODELETE - [create ad] buildCreativeFromMedia outcome", {
-      outcome,
-    });
 
     // First device-video pass: video is processing — client must poll then
     // re-POST with confirmVideoId.
@@ -396,13 +351,6 @@ export async function POST(
       );
     }
 
-    console.log("TODELETE - [create ad] calling createAd", {
-      adAccountId: formatAccountId(accountId),
-      adSetId: adsetId,
-      creativeId: outcome.creativeId,
-      name,
-      status: adStatus,
-    });
 
     const ad = await createAd({
       adAccountId: formatAccountId(accountId),
@@ -413,9 +361,6 @@ export async function POST(
       status: adStatus,
     });
 
-    console.log("TODELETE - [create ad] createAd succeeded", {
-      adId: ad.id,
-    });
 
     if (blobUrlForCleanup) {
       void cleanupBlobAfterMetaIngestion({
@@ -460,13 +405,6 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
-    console.log("TODELETE - [create ad] raw error caught", {
-      message: error instanceof Error ? error.message : String(error),
-      isGraphApiError: error instanceof GraphApiError,
-      errorReturn:
-        error instanceof GraphApiError ? error.errorReturn : undefined,
-      raw: error,
-    });
     const errorReturn = errorToGraphErrorReturn(error);
     const clientError = graphErrorToClientError(errorReturn);
     console.error("[POST create ad] Error:", errorReturn);

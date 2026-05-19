@@ -102,13 +102,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   // Vercel's cookie-less onUploadCompleted callback, which proxy.ts would
   // redirect to /login in production.
   if (isRegisterBody(rawBody)) {
-    console.log("TODELETE - [files/upload] register blob", {
-      userId: rawBody.userId,
-      blobUrl: rawBody.blobUrl,
-      pathname: rawBody.pathname,
-      contentType: rawBody.contentType,
-      source: rawBody.source,
-    });
     if (rawBody.source !== CAMPAIGN_MEDIA_SOURCE || !rawBody.blobUrl) {
       return NextResponse.json(
         { error: "Invalid register payload" },
@@ -125,9 +118,6 @@ export async function POST(request: Request): Promise<NextResponse> {
       blobUrl: rawBody.blobUrl,
       pathname: rawBody.pathname,
       contentType: rawBody.contentType,
-    });
-    console.log("TODELETE - [files/upload] register blob OK", {
-      blobUrl: rawBody.blobUrl,
     });
     return NextResponse.json({ ok: true });
   }

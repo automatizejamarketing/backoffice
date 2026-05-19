@@ -113,34 +113,6 @@ async function renameObject(
   });
 }
 
-function safeJson(value: unknown): string {
-  try {
-    const s = JSON.stringify(value);
-    return s.length > 8000 ? `${s.slice(0, 8000)}…(truncated)` : s;
-  } catch {
-    return "<unserializable>";
-  }
-}
-
-function summarizeTree(tree: CampaignTree) {
-  const adsets = tree.adsets?.data ?? [];
-  return {
-    name: tree.name,
-    adsetCount: adsets.length,
-    totalAds: adsets.reduce(
-      (sum, a) => sum + (a.ads?.data?.length ?? 0),
-      0,
-    ),
-    adsets: adsets.map((a) => ({
-      id: a.id,
-      name: a.name,
-      hasAdsEdge: a.ads !== undefined,
-      adCount: a.ads?.data?.length ?? 0,
-      adIds: (a.ads?.data ?? []).map((ad) => ad.id),
-    })),
-  };
-}
-
 async function getCampaignTree(
   campaignId: string,
   accessToken: string,
@@ -152,21 +124,7 @@ async function getCampaignTree(
     params: "fields=name,adsets.limit(200){id,name,ads.limit(200){id,name}}",
     accessToken,
   });
-  console.log("TODELETE - [getCampaignTree] response", {
-    campaignId,
-    summary: summarizeTree(tree),
-    raw: safeJson(tree),
-  });
   return tree;
-}
-
-function countTree(tree: CampaignTree): { adsets: number; ads: number } {
-  const adsets = tree.adsets?.data ?? [];
-  const ads = adsets.reduce(
-    (sum, adset) => sum + (adset.ads?.data?.length ?? 0),
-    0,
-  );
-  return { adsets: adsets.length, ads };
 }
 
 /**
@@ -192,9 +150,6 @@ async function resolveCopiedAdsetMap(args: {
   }
   if (map.size > 0) return map;
 
-  console.log(
-    "TODELETE - [resolveCopiedAdsetMap] no ad_object_ids; falling back to name match",
-  );
   let tree: CampaignTree = { adsets: { data: [] } };
   for (let attempt = 0; attempt < TREE_POLL_ATTEMPTS; attempt += 1) {
     tree = await getCampaignTree(newCampaignId, accessToken);
@@ -266,22 +221,9 @@ export async function duplicateCampaign(args: {
   const { accountId, campaignId, accessToken } = args;
   const act = formatAccountId(accountId);
 
-  console.log("TODELETE - [duplicateCampaign] start", {
-    accountId,
-    act,
-    campaignId,
-  });
 
-  // Source tree up front: drives the copy name AND the deep-copy wait targets.
+  // Source tree up front: drives the copy name and the source ad set list.
   const sourceTree = await getCampaignTree(campaignId, accessToken);
-  const { adsets: srcAdsetCount, ads: srcAdCount } = countTree(sourceTree);
-
-  console.log("TODELETE - [duplicateCampaign] source counts", {
-    campaignId,
-    srcAdsetCount,
-    srcAdCount,
-    sourceSummary: summarizeTree(sourceTree),
-  });
 
   const siblings = await metaApiCall<{ data?: NamedNode[] }>({
     domain: "FACEBOOK",
@@ -296,14 +238,6 @@ export async function duplicateCampaign(args: {
     (siblings.data ?? []).map((c) => c.name ?? ""),
   );
 
-  console.log("TODELETE - [duplicateCampaign] /copies request", {
-    path: `${campaignId}/copies`,
-    body: {
-      deep_copy: "true",
-      status_option: STATUS_OPTION,
-      rename_options: NO_RENAME,
-    },
-  });
 
   const copy = await metaApiCall<CopyResponse>({
     domain: "FACEBOOK",
@@ -318,10 +252,6 @@ export async function duplicateCampaign(args: {
     accessToken,
   });
 
-  console.log("TODELETE - [duplicateCampaign] /copies response", {
-    copy,
-    raw: safeJson(copy),
-  });
 
   const newCampaignId = copy.copied_campaign_id;
   if (!newCampaignId) throw missingCopyIdError("da campanha");
@@ -337,29 +267,15 @@ export async function duplicateCampaign(args: {
     accessToken,
   });
 
-  console.log("TODELETE - [duplicateCampaign] adset map", {
-    entries: [...adsetMap.entries()],
-    sourceAdsetIds: sourceAdsets.map((a) => a.id),
-  });
 
   const copiedAdsBySourceAdset = new Map<string, string[]>();
   let totalAds = 0;
   for (const sa of sourceAdsets) {
     const targetAdsetId = adsetMap.get(sa.id);
     if (!targetAdsetId) {
-      console.log(
-        "TODELETE - [duplicateCampaign] no copied ad set for source",
-        { sourceAdsetId: sa.id },
-      );
       continue;
     }
     const sourceAds = await listAdsetAds(sa.id, accessToken);
-    console.log("TODELETE - [duplicateCampaign] copying ads of ad set", {
-      sourceAdsetId: sa.id,
-      targetAdsetId,
-      sourceAdCount: sourceAds.length,
-      sourceAdIds: sourceAds.map((a) => a.id),
-    });
     const copiedIds: string[] = [];
     for (const ad of sourceAds) {
       const copiedAdId = await copyAdInto(ad.id, targetAdsetId, accessToken);
@@ -367,11 +283,6 @@ export async function duplicateCampaign(args: {
         copiedIds.push(copiedAdId);
         totalAds += 1;
       }
-      console.log("TODELETE - [duplicateCampaign] copied ad", {
-        sourceAdId: ad.id,
-        targetAdsetId,
-        copiedAdId,
-      });
     }
     copiedAdsBySourceAdset.set(sa.id, copiedIds);
   }
@@ -402,14 +313,6 @@ export async function duplicateCampaign(args: {
     }
   }
 
-  console.log("TODELETE - [duplicateCampaign] done", {
-    newCampaignId,
-    newName,
-    adsetsMapped: adsetMap.size,
-    adsRenamed: adIndex,
-    totalAdsCopied: totalAds,
-    expectedAdsFromSource: srcAdCount,
-  });
 
   return {
     id: newCampaignId,

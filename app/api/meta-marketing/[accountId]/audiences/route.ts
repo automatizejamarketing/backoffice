@@ -101,7 +101,6 @@ export async function GET(
 
     return NextResponse.json({ audiences }, { status: 200 });
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
 
     return NextResponse.json(
