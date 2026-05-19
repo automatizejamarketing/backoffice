@@ -1,4 +1,15 @@
 import { graphFacebookBaseUrl, graphApiVersion } from "./constant";
+import { appSecretProof, facebookAppSecret } from "./appsecret-proof";
+import { GraphApiError, parseGraphError } from "./error";
+
+/** Appends appsecret_proof when META_GENERAL_APP_SECRET is set (user-token call). */
+function appendAppSecretProof(
+  params: URLSearchParams,
+  accessToken: string,
+): void {
+  const secret = facebookAppSecret();
+  if (secret) params.append("appsecret_proof", appSecretProof(accessToken, secret));
+}
 
 /**
  * User basic info fields from Facebook Graph API
@@ -97,9 +108,10 @@ async function fetchGraphJson<T>(url: string): Promise<T> {
   const data = await response.json();
 
   if (!response.ok || data.error) {
-    const errorData = data as FacebookGraphApiError;
-    console.error("Error fetching Facebook Graph data:", errorData);
-    throw new Error(errorData.error?.message ?? "Failed to fetch Graph data");
+    console.error("Error fetching Facebook Graph data:", data);
+    // Typed error carries code/error_subcode so callers can detect 190/460
+    // (session invalidated — user must reconnect) and surface it precisely.
+    throw new GraphApiError(parseGraphError(data));
   }
 
   return data as T;
@@ -112,6 +124,7 @@ async function getFacebookUserProfile(
     fields: USER_FIELDS.join(","),
     access_token: accessToken,
   });
+  appendAppSecretProof(params, accessToken);
 
   return fetchGraphJson<FacebookUserBasicInfo>(
     `${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`,
@@ -126,6 +139,9 @@ async function getAdAccounts(
     limit: AD_ACCOUNTS_PAGE_LIMIT,
     access_token: accessToken,
   });
+  // Meta-returned paging.next URLs embed this query (incl. the proof), so the
+  // proof only needs to be set on the first page.
+  appendAppSecretProof(params, accessToken);
   const visitedUrls = new Set<string>();
   const allAccounts: FacebookAdAccountBasicInfo[] = [];
   let nextUrl =

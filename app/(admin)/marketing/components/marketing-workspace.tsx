@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
+import type { AdAccountsErrorResponse } from "@/app/api/users/[id]/ad-accounts/route";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
 import { DatePreset, type Campaign } from "@/lib/meta-business/types";
 import {
@@ -28,6 +29,7 @@ import {
   CAMPAIGN_SORT_OPTIONS,
 } from "@/lib/meta-business/campaign-sort";
 import { AdAccountSelector } from "./ad-account-selector";
+import { MetaTokenIssue } from "./meta-token-issue";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
@@ -61,6 +63,9 @@ export function MarketingWorkspace({
     null,
   );
   const [isLoadingAdAccounts, setIsLoadingAdAccounts] = useState(false);
+  const [adAccountsError, setAdAccountsError] =
+    useState<AdAccountsErrorResponse | null>(null);
+  const [adAccountsRefreshKey, setAdAccountsRefreshKey] = useState(0);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(
     null,
   );
@@ -100,6 +105,7 @@ export function MarketingWorkspace({
   useEffect(() => {
     setMetaAccount(null);
     setAdAccounts([]);
+    setAdAccountsError(null);
     setSelectedAccountId(null);
     setSelectedCampaign(null);
     setIsCampaignDetailOpen(false);
@@ -135,21 +141,26 @@ export function MarketingWorkspace({
   useEffect(() => {
     if (!metaAccount || !selectedUser) {
       setAdAccounts([]);
+      setAdAccountsError(null);
       setSelectedAccountId(null);
       return;
     }
 
     let cancelled = false;
+    setAdAccountsError(null);
     const timeoutId = setTimeout(() => {
       setIsLoadingAdAccounts(true);
     }, 0);
 
     fetch(`/api/users/${selectedUser.id}/ad-accounts`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) {
-          const accounts = data.data ?? [];
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (cancelled) return;
+
+        if (res.ok) {
+          const accounts = (body?.data ?? []) as FacebookAdAccountBasicInfo[];
           setAdAccounts(accounts);
+          setAdAccountsError(null);
           setIsLoadingAdAccounts(false);
           setSelectedAccountId((prev) => {
             if (!prev && accounts.length > 0) {
@@ -157,11 +168,28 @@ export function MarketingWorkspace({
             }
             return prev;
           });
+        } else {
+          setAdAccounts([]);
+          setSelectedAccountId(null);
+          setAdAccountsError(
+            (body as AdAccountsErrorResponse | null) ?? {
+              error: "Erro",
+              message: "Não foi possível carregar as contas de anúncios.",
+              solution: "Tente novamente em alguns instantes.",
+            },
+          );
+          setIsLoadingAdAccounts(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setAdAccounts([]);
+          setSelectedAccountId(null);
+          setAdAccountsError({
+            error: "Erro de conexão",
+            message: "Não foi possível contatar o servidor.",
+            solution: "Verifique a conexão e tente novamente.",
+          });
           setIsLoadingAdAccounts(false);
         }
       });
@@ -170,12 +198,13 @@ export function MarketingWorkspace({
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [metaAccount, selectedUser]);
+  }, [metaAccount, selectedUser, adAccountsRefreshKey]);
 
   const handleClearSelection = () => {
     setSelectedUser(null);
     setMetaAccount(null);
     setAdAccounts([]);
+    setAdAccountsError(null);
     setSelectedAccountId(null);
     setSelectedCampaign(null);
     setIsCampaignDetailOpen(false);
@@ -301,6 +330,14 @@ export function MarketingWorkspace({
                     <p className="text-sm text-muted-foreground">
                       Carregando contas de anúncios...
                     </p>
+                  ) : adAccountsError ? (
+                    <MetaTokenIssue
+                      userId={selectedUser.id}
+                      error={adAccountsError}
+                      onRetried={() =>
+                        setAdAccountsRefreshKey((k) => k + 1)
+                      }
+                    />
                   ) : adAccounts.length > 0 ? (
                     <AdAccountSelector
                       accounts={adAccounts.map((acc) => ({

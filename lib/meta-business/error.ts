@@ -205,6 +205,24 @@ const errorMap: Record<string, MappedError> = {
     solution: "Obtenha um novo token (reauth/refresh) e tente novamente.",
     isTransient: false,
   },
+  "190_460": {
+    httpStatusCode: 401,
+    title: "Sessão do Facebook expirada",
+    message:
+      "A sessão do Facebook deste usuário foi invalidada porque a senha foi alterada ou o Facebook encerrou a sessão por segurança. O token salvo não pode mais ser usado.",
+    solution:
+      "O próprio usuário precisa reconectar a conta do Facebook pelo site (fazer login e autorizar novamente). Não é possível renovar este token automaticamente.",
+    isTransient: false,
+  },
+  "190_463": {
+    httpStatusCode: 401,
+    title: "Token do Facebook expirado",
+    message:
+      "O token de acesso do Facebook deste usuário expirou. Não é possível renová-lo automaticamente neste estado.",
+    solution:
+      "O próprio usuário precisa reconectar a conta do Facebook pelo site para gerar um novo token.",
+    isTransient: false,
+  },
   "200": {
     httpStatusCode: 403,
     title: "Erro de Permissão",
