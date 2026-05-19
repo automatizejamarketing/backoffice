@@ -21,7 +21,9 @@ import {
 } from "@/lib/meta-business/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { DeliveryStatus } from "./delivery-status";
+import { DuplicateButton } from "./duplicate-button";
 import { IssuesIcon } from "./issues-icon";
+import { NameEditButton } from "./name-edit-button";
 
 type GetAdSetsResponse = {
   data?: AdSet[];
@@ -256,9 +258,25 @@ export function AdSetsTable({
             className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex items-start justify-between gap-2 mb-3">
-              <span className="font-medium text-sm line-clamp-2 flex-1">
-                {adSet.name}
-              </span>
+              <div className="flex items-start gap-1 flex-1 min-w-0">
+                <span className="font-medium text-sm line-clamp-2">
+                  {adSet.name}
+                </span>
+                <NameEditButton
+                  entityType="adset"
+                  entityId={adSet.id}
+                  currentName={adSet.name}
+                  accountId={accountId}
+                  userId={userId}
+                  onRenamed={(newName) =>
+                    setAdSets((prev) =>
+                      prev.map((a) =>
+                        a.id === adSet.id ? { ...a, name: newName } : a,
+                      ),
+                    )
+                  }
+                />
+              </div>
               <div className="flex items-center gap-2 shrink-0">
                 {canToggle(adSet) && (
                   <div
@@ -284,6 +302,14 @@ export function AdSetsTable({
                   status={adSet.effectiveStatus ?? adSet.status}
                   endTime={adSet.endTime}
                   size="xs"
+                />
+                <DuplicateButton
+                  entityType="adset"
+                  entityId={adSet.id}
+                  entityName={adSet.name}
+                  accountId={accountId}
+                  userId={userId}
+                  onDuplicated={() => fetchAdSets(currentCursor)}
                 />
               </div>
             </div>
@@ -376,7 +402,25 @@ export function AdSetsTable({
                         )}
                       </TableCell>
                       <TableCell className="font-medium text-sm">
-                        <span className="line-clamp-1">{adSet.name}</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="line-clamp-1">{adSet.name}</span>
+                          <NameEditButton
+                            entityType="adset"
+                            entityId={adSet.id}
+                            currentName={adSet.name}
+                            accountId={accountId}
+                            userId={userId}
+                            onRenamed={(newName) =>
+                              setAdSets((prev) =>
+                                prev.map((a) =>
+                                  a.id === adSet.id
+                                    ? { ...a, name: newName }
+                                    : a,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
                       </TableCell>
                       <TableCell
                         className="text-center"
@@ -385,12 +429,22 @@ export function AdSetsTable({
                         <IssuesIcon entity={adSet} entityType="adset" />
                       </TableCell>
                       <TableCell>
-                        <DeliveryStatus
-                          status={
-                            adSet.effectiveStatus ?? adSet.status ?? null
-                          }
-                          endTime={adSet.endTime}
-                        />
+                        <div className="flex items-center gap-2">
+                          <DeliveryStatus
+                            status={
+                              adSet.effectiveStatus ?? adSet.status ?? null
+                            }
+                            endTime={adSet.endTime}
+                          />
+                          <DuplicateButton
+                            entityType="adset"
+                            entityId={adSet.id}
+                            entityName={adSet.name}
+                            accountId={accountId}
+                            userId={userId}
+                            onDuplicated={() => fetchAdSets(currentCursor)}
+                          />
+                        </div>
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-sm">
                         {formatCurrency(adSet.insights?.spend)}

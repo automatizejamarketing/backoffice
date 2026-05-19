@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -21,7 +21,10 @@ import {
 } from "@/lib/meta-business/types";
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { DeliveryStatus } from "./delivery-status";
+import { DuplicateButton } from "./duplicate-button";
+import { EditCreativeButton } from "./edit-creative-button";
 import { IssuesIcon } from "./issues-icon";
+import { NameEditButton } from "./name-edit-button";
 
 type GetAdsResponse = {
   data?: Ad[];
@@ -33,6 +36,8 @@ type AdsTableProps = {
   userId: string;
   adSetId?: string;
   onAdClick?: (ad: Ad) => void;
+  /** Bumping this value triggers a refetch (e.g. after creating an ad). */
+  refreshSignal?: number;
 };
 
 export function AdsTable({
@@ -40,6 +45,7 @@ export function AdsTable({
   userId,
   adSetId,
   onAdClick,
+  refreshSignal,
 }: AdsTableProps) {
   const [ads, setAds] = useState<Ad[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -86,6 +92,16 @@ export function AdsTable({
   useEffect(() => {
     fetchAds();
   }, [fetchAds]);
+
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    fetchAds(currentCursor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   const handleNextPage = () => {
     if (pagination?.nextCursor) {
@@ -214,9 +230,25 @@ export function AdsTable({
               <AdThumbnail ad={ad} size="sm" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="font-medium text-sm line-clamp-2">
-                    {ad.name}
-                  </span>
+                  <div className="flex items-start gap-1 flex-1 min-w-0">
+                    <span className="font-medium text-sm line-clamp-2">
+                      {ad.name}
+                    </span>
+                    <NameEditButton
+                      entityType="ad"
+                      entityId={ad.id}
+                      currentName={ad.name}
+                      accountId={accountId}
+                      userId={userId}
+                      onRenamed={(newName) =>
+                        setAds((prev) =>
+                          prev.map((a) =>
+                            a.id === ad.id ? { ...a, name: newName } : a,
+                          ),
+                        )
+                      }
+                    />
+                  </div>
                   <div className="flex items-center gap-2">
                     {canToggle(ad) && (
                       <div
@@ -242,6 +274,20 @@ export function AdsTable({
                       status={ad.effectiveStatus ?? ad.status}
                       size="xs"
                       className="shrink-0"
+                    />
+                    <EditCreativeButton
+                      accountId={accountId}
+                      userId={userId}
+                      ad={{ id: ad.id, name: ad.name }}
+                      onEdited={() => fetchAds(currentCursor)}
+                    />
+                    <DuplicateButton
+                      entityType="ad"
+                      entityId={ad.id}
+                      entityName={ad.name}
+                      accountId={accountId}
+                      userId={userId}
+                      onDuplicated={() => fetchAds(currentCursor)}
                     />
                   </div>
                 </div>
@@ -343,7 +389,25 @@ export function AdsTable({
                         <AdThumbnail ad={ad} size="sm" />
                       </TableCell>
                       <TableCell className="font-medium text-sm">
-                        <span className="line-clamp-1">{ad.name}</span>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="line-clamp-1">{ad.name}</span>
+                          <NameEditButton
+                            entityType="ad"
+                            entityId={ad.id}
+                            currentName={ad.name}
+                            accountId={accountId}
+                            userId={userId}
+                            onRenamed={(newName) =>
+                              setAds((prev) =>
+                                prev.map((a) =>
+                                  a.id === ad.id
+                                    ? { ...a, name: newName }
+                                    : a,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
                       </TableCell>
                       <TableCell
                         className="text-center"
@@ -352,9 +416,19 @@ export function AdsTable({
                         <IssuesIcon entity={ad} entityType="ad" />
                       </TableCell>
                       <TableCell>
-                        <DeliveryStatus
-                          status={ad.effectiveStatus ?? ad.status ?? null}
-                        />
+                        <div className="flex items-center gap-2">
+                          <DeliveryStatus
+                            status={ad.effectiveStatus ?? ad.status ?? null}
+                          />
+                          <DuplicateButton
+                            entityType="ad"
+                            entityId={ad.id}
+                            entityName={ad.name}
+                            accountId={accountId}
+                            userId={userId}
+                            onDuplicated={() => fetchAds(currentCursor)}
+                          />
+                        </div>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(ad.insights?.spend)}

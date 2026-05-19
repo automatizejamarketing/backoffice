@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm";
 import { db } from "./index";
 import {
+  adCreativeEditLog,
   adsetEditLog,
   aiGeneratedText,
   aiUsageLog,
@@ -1586,6 +1587,130 @@ export async function createCampaignEditLog(data: CreateCampaignEditLogData) {
       appliedToMeta: data.appliedToMeta,
       errorMessage: data.errorMessage,
       source: data.source ?? "admin",
+    })
+    .returning();
+
+  return log;
+}
+
+export type CreateAdCreativeEditLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  accountId: string;
+  campaignId?: string | null;
+  adsetId: string;
+  operation: "create" | "edit";
+  editStrategy?: "create_only" | "repoint" | "duplicate_paused";
+  sourceAdId?: string;
+  resultAdId?: string;
+  pausedAdId?: string;
+  creativeId?: string;
+  mediaSource:
+    | "instagram"
+    | "automatize_media"
+    | "device_image"
+    | "device_video";
+  mediaKind?: "image" | "video" | "instagram_post";
+  videoId?: string;
+  videoStatus?: "ready" | "processing" | "error";
+  message?: string;
+  appliedToMeta: boolean;
+  errorMessage?: string;
+};
+
+/**
+ * Typed audit record for backoffice-driven ad creative create/edit. The generic
+ * `backoffice_audit_logs` table is too lossy to capture the media source, the
+ * repoint-vs-duplicate edit strategy, and the resulting Meta object ids.
+ */
+export async function createAdCreativeEditLog(
+  data: CreateAdCreativeEditLogData,
+) {
+  const [log] = await db
+    .insert(adCreativeEditLog)
+    .values({
+      backofficeUserEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      accountId: data.accountId,
+      campaignId: data.campaignId,
+      adsetId: data.adsetId,
+      operation: data.operation,
+      editStrategy: data.editStrategy,
+      sourceAdId: data.sourceAdId,
+      resultAdId: data.resultAdId,
+      pausedAdId: data.pausedAdId,
+      creativeId: data.creativeId,
+      mediaSource: data.mediaSource,
+      mediaKind: data.mediaKind,
+      videoId: data.videoId,
+      videoStatus: data.videoStatus,
+      message: data.message,
+      appliedToMeta: data.appliedToMeta,
+      errorMessage: data.errorMessage,
+    })
+    .returning();
+
+  return log;
+}
+
+export type DuplicationEntity = "campaign" | "adset" | "ad";
+
+export type CreateDuplicationLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  entity: DuplicationEntity;
+  sourceId: string;
+  sourceName: string;
+  newId: string;
+  newName: string;
+};
+
+/**
+ * Lightweight audit record for a Meta object duplication. Reuses the generic
+ * `backoffice_audit_logs` table — the typed campaign/adset edit-log tables have
+ * a budget-mode shape that does not fit a duplication.
+ */
+export async function createDuplicationLog(data: CreateDuplicationLogData) {
+  const [log] = await db
+    .insert(backofficeAuditLog)
+    .values({
+      adminEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      action: `duplicate_${data.entity}`,
+      fieldName: data.entity,
+      oldValue: data.sourceId,
+      newValue: data.newId,
+      note: `Duplicado "${data.sourceName}" (${data.sourceId}) → "${data.newName}" (${data.newId})`,
+    })
+    .returning();
+
+  return log;
+}
+
+export type CreateRenameLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  entity: DuplicationEntity;
+  objectId: string;
+  previousName: string;
+  newName: string;
+};
+
+/**
+ * Lightweight audit record for a Meta object rename. Reuses the generic
+ * `backoffice_audit_logs` table.
+ */
+export async function createRenameLog(data: CreateRenameLogData) {
+  const [log] = await db
+    .insert(backofficeAuditLog)
+    .values({
+      adminEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      action: `rename_${data.entity}`,
+      fieldName: `${data.entity}_name`,
+      oldValue: data.previousName,
+      newValue: data.newName,
+      note: `Renomeado ${data.entity} ${data.objectId}: "${data.previousName}" → "${data.newName}"`,
     })
     .returning();
 

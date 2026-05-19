@@ -3,13 +3,33 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
+import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
+import type { AdAccountsErrorResponse } from "@/app/api/users/[id]/ad-accounts/route";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
 import { DatePreset, type Campaign } from "@/lib/meta-business/types";
+import {
+  type CampaignObjectiveFilter,
+  OBJECTIVE_GROUP_LABELS,
+  OBJECTIVE_GROUP_ORDER,
+} from "@/lib/meta-business/campaign-objectives";
+import {
+  type CampaignSortMetric,
+  type SortOrder,
+  CAMPAIGN_SORT_OPTIONS,
+} from "@/lib/meta-business/campaign-sort";
 import { AdAccountSelector } from "./ad-account-selector";
+import { MetaTokenIssue } from "./meta-token-issue";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
@@ -43,6 +63,9 @@ export function MarketingWorkspace({
     null,
   );
   const [isLoadingAdAccounts, setIsLoadingAdAccounts] = useState(false);
+  const [adAccountsError, setAdAccountsError] =
+    useState<AdAccountsErrorResponse | null>(null);
+  const [adAccountsRefreshKey, setAdAccountsRefreshKey] = useState(0);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(
     null,
   );
@@ -58,6 +81,12 @@ export function MarketingWorkspace({
     since: string;
     until: string;
   } | null>(null);
+
+  // Campaign list filter/sort controls (rendered next to the date filter).
+  const [objectiveFilter, setObjectiveFilter] =
+    useState<CampaignObjectiveFilter>("all");
+  const [sortMetric, setSortMetric] = useState<CampaignSortMetric | null>(null);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   useEffect(() => {
     setSelectedUser(initialUser);
@@ -76,6 +105,7 @@ export function MarketingWorkspace({
   useEffect(() => {
     setMetaAccount(null);
     setAdAccounts([]);
+    setAdAccountsError(null);
     setSelectedAccountId(null);
     setSelectedCampaign(null);
     setIsCampaignDetailOpen(false);
@@ -111,21 +141,26 @@ export function MarketingWorkspace({
   useEffect(() => {
     if (!metaAccount || !selectedUser) {
       setAdAccounts([]);
+      setAdAccountsError(null);
       setSelectedAccountId(null);
       return;
     }
 
     let cancelled = false;
+    setAdAccountsError(null);
     const timeoutId = setTimeout(() => {
       setIsLoadingAdAccounts(true);
     }, 0);
 
     fetch(`/api/users/${selectedUser.id}/ad-accounts`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) {
-          const accounts = data.data ?? [];
+      .then(async (res) => {
+        const body = await res.json().catch(() => null);
+        if (cancelled) return;
+
+        if (res.ok) {
+          const accounts = (body?.data ?? []) as FacebookAdAccountBasicInfo[];
           setAdAccounts(accounts);
+          setAdAccountsError(null);
           setIsLoadingAdAccounts(false);
           setSelectedAccountId((prev) => {
             if (!prev && accounts.length > 0) {
@@ -133,11 +168,28 @@ export function MarketingWorkspace({
             }
             return prev;
           });
+        } else {
+          setAdAccounts([]);
+          setSelectedAccountId(null);
+          setAdAccountsError(
+            (body as AdAccountsErrorResponse | null) ?? {
+              error: "Erro",
+              message: "Não foi possível carregar as contas de anúncios.",
+              solution: "Tente novamente em alguns instantes.",
+            },
+          );
+          setIsLoadingAdAccounts(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setAdAccounts([]);
+          setSelectedAccountId(null);
+          setAdAccountsError({
+            error: "Erro de conexão",
+            message: "Não foi possível contatar o servidor.",
+            solution: "Verifique a conexão e tente novamente.",
+          });
           setIsLoadingAdAccounts(false);
         }
       });
@@ -146,12 +198,13 @@ export function MarketingWorkspace({
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [metaAccount, selectedUser]);
+  }, [metaAccount, selectedUser, adAccountsRefreshKey]);
 
   const handleClearSelection = () => {
     setSelectedUser(null);
     setMetaAccount(null);
     setAdAccounts([]);
+    setAdAccountsError(null);
     setSelectedAccountId(null);
     setSelectedCampaign(null);
     setIsCampaignDetailOpen(false);
@@ -277,6 +330,14 @@ export function MarketingWorkspace({
                     <p className="text-sm text-muted-foreground">
                       Carregando contas de anúncios...
                     </p>
+                  ) : adAccountsError ? (
+                    <MetaTokenIssue
+                      userId={selectedUser.id}
+                      error={adAccountsError}
+                      onRetried={() =>
+                        setAdAccountsRefreshKey((k) => k + 1)
+                      }
+                    />
                   ) : adAccounts.length > 0 ? (
                     <AdAccountSelector
                       accounts={adAccounts.map((acc) => ({
@@ -307,18 +368,84 @@ export function MarketingWorkspace({
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle>Campanhas</CardTitle>
-            <DateFilter
-              datePreset={datePreset}
-              onDatePresetChange={(preset) => {
-                setDatePreset(preset);
-                setCustomRange(null);
-              }}
-              customRange={customRange}
-              onCustomRangeChange={(range) => {
-                setCustomRange(range);
-                setDatePreset(null);
-              }}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={objectiveFilter}
+                onValueChange={(value) =>
+                  setObjectiveFilter(value as CampaignObjectiveFilter)
+                }
+              >
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OBJECTIVE_GROUP_ORDER.map((group) => (
+                    <SelectItem key={group} value={group}>
+                      {OBJECTIVE_GROUP_LABELS[group]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={sortMetric ?? "status"}
+                onValueChange={(value) =>
+                  setSortMetric(
+                    value === "status" ? null : (value as CampaignSortMetric),
+                  )
+                }
+              >
+                <SelectTrigger className="w-[170px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="status">Status (padrão)</SelectItem>
+                  {CAMPAIGN_SORT_OPTIONS.map((option) => (
+                    <SelectItem key={option.id} value={option.id}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Button
+                variant="outline"
+                size="icon"
+                disabled={!sortMetric}
+                onClick={() =>
+                  setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))
+                }
+                title={
+                  !sortMetric
+                    ? "Selecione uma métrica para ordenar"
+                    : sortOrder === "desc"
+                      ? "Maior para menor"
+                      : "Menor para maior"
+                }
+                aria-label="Inverter ordenação"
+              >
+                {!sortMetric ? (
+                  <ArrowDownUp className="size-4" />
+                ) : sortOrder === "desc" ? (
+                  <ArrowDown className="size-4" />
+                ) : (
+                  <ArrowUp className="size-4" />
+                )}
+              </Button>
+
+              <DateFilter
+                datePreset={datePreset}
+                onDatePresetChange={(preset) => {
+                  setDatePreset(preset);
+                  setCustomRange(null);
+                }}
+                customRange={customRange}
+                onCustomRangeChange={(range) => {
+                  setCustomRange(range);
+                  setDatePreset(null);
+                }}
+              />
+            </div>
           </CardHeader>
           <CardContent>
             <CampaignsTable
@@ -328,6 +455,9 @@ export function MarketingWorkspace({
               refreshKey={campaignsRefreshKey}
               datePreset={datePreset}
               customRange={customRange}
+              objectiveFilter={objectiveFilter}
+              sortMetric={sortMetric}
+              sortOrder={sortOrder}
             />
           </CardContent>
         </Card>

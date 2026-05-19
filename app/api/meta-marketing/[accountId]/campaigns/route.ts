@@ -29,6 +29,19 @@ import {
   transformCampaign,
   transformPaging,
 } from "@/lib/meta-business/transformers";
+import {
+  type CampaignObjectiveFilter,
+  getObjectivesForGroup,
+  isCampaignObjectiveFilter,
+} from "@/lib/meta-business/campaign-objectives";
+import {
+  type CampaignSortMetric,
+  type SortOrder,
+  buildInsightsSortToken,
+  getInsightsSortField,
+  isCampaignSortMetric,
+  isSortOrder,
+} from "@/lib/meta-business/campaign-sort";
 
 // ================================
 // Graph API Response Types
@@ -36,6 +49,16 @@ import {
 
 type GraphApiCampaignsResponse = {
   data: GraphApiCampaign[];
+  paging?: GraphPaging;
+};
+
+type GraphApiCampaignInsightsResponse = {
+  data: Array<{ campaign_id?: string }>;
+  paging?: GraphPaging;
+};
+
+type GraphApiCampaignIdsResponse = {
+  data: Array<{ id: string }>;
   paging?: GraphPaging;
 };
 
@@ -249,6 +272,196 @@ function isStatusPatchBody(
   return "status" in body;
 }
 
+// Safety cap so a pathologically large account can't fan out into hundreds of
+// Graph API page requests / an unbounded payload.
+const MAX_CAMPAIGNS = 500;
+// Meta caps `?ids=` node batch reads (commonly 50 for ad objects).
+const NODE_BATCH_SIZE = 50;
+const PAGE_LIMIT = 100;
+
+/**
+ * Builds the Graph API `filtering` clause that restricts to the objectives of
+ * a filter group. The campaigns edge filters on its own `objective` field;
+ * the Insights edge uses the `campaign.objective` path. Returns `null` for
+ * "all" (no objective filtering).
+ */
+function buildObjectiveFilteringParam(
+  filter: CampaignObjectiveFilter,
+  edge: "campaigns" | "insights",
+): string | null {
+  const objectives = getObjectivesForGroup(filter);
+  if (!objectives || objectives.length === 0) return null;
+  const field = edge === "insights" ? "campaign.objective" : "objective";
+  const clause = [{ field, operator: "IN", value: objectives }];
+  return `filtering=${encodeURIComponent(JSON.stringify(clause))}`;
+}
+
+function buildInsightsDateParam(options: {
+  datePreset?: string | null;
+  since?: string | null;
+  until?: string | null;
+}): string {
+  if (options.since && options.until) {
+    return `time_range=${encodeURIComponent(
+      JSON.stringify({ since: options.since, until: options.until }),
+    )}`;
+  }
+  if (options.datePreset) {
+    return `date_preset=${options.datePreset}`;
+  }
+  return "date_preset=maximum";
+}
+
+/** Follows cursor pagination on the campaigns edge until exhausted or capped. */
+async function fetchAllCampaignPages(args: {
+  formattedAccountId: string;
+  fields: string;
+  accessToken: string;
+  extraParams: string[];
+}): Promise<GraphApiCampaign[]> {
+  const { formattedAccountId, fields, accessToken, extraParams } = args;
+  const collected: GraphApiCampaign[] = [];
+  let after: string | undefined;
+
+  do {
+    const params = [`fields=${fields}`, `limit=${PAGE_LIMIT}`, ...extraParams];
+    if (after) params.push(`after=${after}`);
+
+    const page = await metaApiCall<GraphApiCampaignsResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${formattedAccountId}/campaigns`,
+      params: params.join("&"),
+      accessToken,
+    });
+
+    collected.push(...page.data);
+    after = page.paging?.next ? page.paging.cursors?.after : undefined;
+  } while (after && collected.length < MAX_CAMPAIGNS);
+
+  return collected.slice(0, MAX_CAMPAIGNS);
+}
+
+/**
+ * The Meta-defined ranking: Insights edge at campaign level, sorted by the
+ * chosen metric. Returns ordered, de-duplicated campaign ids.
+ */
+async function fetchSortedCampaignIds(args: {
+  formattedAccountId: string;
+  sortToken: string;
+  sortField: string;
+  dateParam: string;
+  objectiveParam: string | null;
+  accessToken: string;
+}): Promise<string[]> {
+  const {
+    formattedAccountId,
+    sortToken,
+    sortField,
+    dateParam,
+    objectiveParam,
+    accessToken,
+  } = args;
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  let after: string | undefined;
+
+  do {
+    // Meta requires the sorted field to be present in `fields` for the sort
+    // to apply — required for the structured `results`/`cost_per_result`/
+    // `purchase_roas`, harmless for the core scalar fields.
+    const params = [
+      "level=campaign",
+      `fields=campaign_id,${sortField}`,
+      `sort=${encodeURIComponent(JSON.stringify([sortToken]))}`,
+      dateParam,
+      `limit=${PAGE_LIMIT}`,
+    ];
+    if (objectiveParam) params.push(objectiveParam);
+    if (after) params.push(`after=${after}`);
+
+    const page = await metaApiCall<GraphApiCampaignInsightsResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${formattedAccountId}/insights`,
+      params: params.join("&"),
+      accessToken,
+    });
+
+    for (const row of page.data) {
+      const id = row.campaign_id;
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        ordered.push(id);
+      }
+    }
+    after = page.paging?.next ? page.paging.cursors?.after : undefined;
+  } while (after && ordered.length < MAX_CAMPAIGNS);
+
+  return ordered.slice(0, MAX_CAMPAIGNS);
+}
+
+/** Full campaign id set under the objective filter (to detect zero-delivery
+ * campaigns the Insights edge omits). */
+async function fetchAllCampaignIds(args: {
+  formattedAccountId: string;
+  objectiveParam: string | null;
+  accessToken: string;
+}): Promise<string[]> {
+  const { formattedAccountId, objectiveParam, accessToken } = args;
+  const ids: string[] = [];
+  let after: string | undefined;
+
+  do {
+    const params = ["fields=id", `limit=${PAGE_LIMIT}`];
+    if (objectiveParam) params.push(objectiveParam);
+    if (after) params.push(`after=${after}`);
+
+    const page = await metaApiCall<GraphApiCampaignIdsResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${formattedAccountId}/campaigns`,
+      params: params.join("&"),
+      accessToken,
+    });
+
+    for (const row of page.data) ids.push(row.id);
+    after = page.paging?.next ? page.paging.cursors?.after : undefined;
+  } while (after && ids.length < MAX_CAMPAIGNS);
+
+  return ids.slice(0, MAX_CAMPAIGNS);
+}
+
+/** Hydrates full campaign objects (incl. nested insights) via `?ids=` node
+ * batch reads, chunked to Meta's batch limit. */
+async function fetchCampaignsByIds(args: {
+  ids: string[];
+  fields: string;
+  accessToken: string;
+}): Promise<Map<string, GraphApiCampaign>> {
+  const { ids, fields, accessToken } = args;
+  const map = new Map<string, GraphApiCampaign>();
+
+  for (let i = 0; i < ids.length; i += NODE_BATCH_SIZE) {
+    const chunk = ids.slice(i, i + NODE_BATCH_SIZE);
+    const batch = await metaApiCall<Record<string, GraphApiCampaign>>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: "",
+      params: `ids=${chunk.join(",")}&fields=${fields}`,
+      accessToken,
+    });
+
+    for (const [id, campaign] of Object.entries(batch)) {
+      if (campaign && typeof campaign === "object" && "id" in campaign) {
+        map.set(id, campaign);
+      }
+    }
+  }
+
+  return map;
+}
+
 // ================================
 // Route Handlers
 // ================================
@@ -307,6 +520,22 @@ export async function GET(
     const datePreset = searchParams.get("datePreset");
     const since = searchParams.get("since");
     const until = searchParams.get("until");
+    const fetchAll = searchParams.get("fetchAll") === "1";
+
+    const objectiveParamRaw = searchParams.get("objective");
+    const objectiveFilter: CampaignObjectiveFilter =
+      isCampaignObjectiveFilter(objectiveParamRaw) ? objectiveParamRaw : "all";
+
+    const sortMetricRaw = searchParams.get("sortMetric");
+    const sortMetric: CampaignSortMetric | null = isCampaignSortMetric(
+      sortMetricRaw,
+    )
+      ? sortMetricRaw
+      : null;
+    const sortOrderRaw = searchParams.get("sortOrder");
+    const sortOrder: SortOrder = isSortOrder(sortOrderRaw)
+      ? sortOrderRaw
+      : "desc";
 
     // Validate and set limit (default: 25, max: 100)
     let limit = 25;
@@ -317,33 +546,101 @@ export async function GET(
       }
     }
 
-    // Build fields parameter
     // Scope the insights subquery to the chosen window so list-level metrics
     // reflect the date filter picked above the table.
     const fields = buildCampaignFields({ datePreset, since, until });
+    const formattedAccountId = formatAccountId(accountId);
 
-    // Build query params
-    const queryParams: string[] = [`fields=${fields}`, `limit=${limit}`];
+    // Sort-by-metric mode. Meta only sorts metrics on the Insights edge, which
+    // does not return campaign metadata. So the Insights edge defines the
+    // global ranking, then we hydrate full campaign objects from the campaigns
+    // edge and reorder to match. Campaigns with no delivery in the window are
+    // absent from insights — append them after the ranked ones so none vanish.
+    if (sortMetric) {
+      const orderedIds = await fetchSortedCampaignIds({
+        formattedAccountId,
+        sortToken: buildInsightsSortToken(sortMetric, sortOrder),
+        sortField: getInsightsSortField(sortMetric),
+        dateParam: buildInsightsDateParam({ datePreset, since, until }),
+        objectiveParam: buildObjectiveFilteringParam(
+          objectiveFilter,
+          "insights",
+        ),
+        accessToken,
+      });
 
-    if (after) {
-      queryParams.push(`after=${after}`);
-    }
-    if (before) {
-      queryParams.push(`before=${before}`);
-    }
+      const allIds = await fetchAllCampaignIds({
+        formattedAccountId,
+        objectiveParam: buildObjectiveFilteringParam(
+          objectiveFilter,
+          "campaigns",
+        ),
+        accessToken,
+      });
 
-    // Add effective_status filter if provided
-    if (effectiveStatus) {
-      const statusArray = effectiveStatus.split(",").map((s) => s.trim());
-      queryParams.push(
-        `effective_status=${encodeURIComponent(JSON.stringify(statusArray))}`,
+      const seen = new Set(orderedIds);
+      const finalOrder = [
+        ...orderedIds,
+        ...allIds.filter((id) => !seen.has(id)),
+      ].slice(0, MAX_CAMPAIGNS);
+
+      const campaignMap = await fetchCampaignsByIds({
+        ids: finalOrder,
+        fields,
+        accessToken,
+      });
+
+      const sortedCampaigns = finalOrder
+        .map((id) => campaignMap.get(id))
+        .filter((c): c is GraphApiCampaign => Boolean(c))
+        .map(transformCampaign);
+
+      return NextResponse.json(
+        {
+          data: sortedCampaigns,
+          pagination: { hasNextPage: false, hasPreviousPage: false },
+        },
+        { status: 200 },
       );
     }
 
-    // Ensure account ID has act_ prefix
-    const formattedAccountId = formatAccountId(accountId);
+    // Default mode: campaigns edge. The caller orders the list active-first by
+    // requesting ACTIVE then PAUSED. Objective filter applied server-side.
+    const extraParams: string[] = [];
+    if (effectiveStatus) {
+      const statusArray = effectiveStatus.split(",").map((s) => s.trim());
+      extraParams.push(
+        `effective_status=${encodeURIComponent(JSON.stringify(statusArray))}`,
+      );
+    }
+    const objectiveCampaignsParam = buildObjectiveFilteringParam(
+      objectiveFilter,
+      "campaigns",
+    );
+    if (objectiveCampaignsParam) extraParams.push(objectiveCampaignsParam);
 
-    // Make Graph API request
+    if (fetchAll) {
+      const allCampaigns = await fetchAllCampaignPages({
+        formattedAccountId,
+        fields,
+        accessToken,
+        extraParams,
+      });
+
+      return NextResponse.json(
+        {
+          data: allCampaigns.map(transformCampaign),
+          pagination: { hasNextPage: false, hasPreviousPage: false },
+        },
+        { status: 200 },
+      );
+    }
+
+    const queryParams: string[] = [`fields=${fields}`, `limit=${limit}`];
+    if (after) queryParams.push(`after=${after}`);
+    if (before) queryParams.push(`before=${before}`);
+    queryParams.push(...extraParams);
+
     const response = await metaApiCall<GraphApiCampaignsResponse>({
       domain: "FACEBOOK",
       method: "GET",
@@ -352,7 +649,6 @@ export async function GET(
       accessToken,
     });
 
-    // Transform response to camelCase
     const campaigns = response.data.map(transformCampaign);
     const pagination = transformPaging(response.paging);
 
@@ -364,7 +660,6 @@ export async function GET(
       { status: 200 },
     );
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
 
     console.error("Error fetching campaigns:", errorReturn);
@@ -431,20 +726,11 @@ export async function PATCH(
     const { accessToken } = tokenResult;
 
     const body: PatchCampaignRequestBody = await request.json();
-    console.log("TODELETE - [PATCH campaigns] request body", {
-      accountId,
-      userId,
-      body,
-    });
 
     if (isStatusPatchBody(body)) {
       const { campaignId, status } = body;
 
       if (!campaignId || !status) {
-        console.log("TODELETE - [PATCH campaigns] invalid status body", {
-          campaignId,
-          status,
-        });
         return NextResponse.json(
           {
             error: "Invalid request",
@@ -494,10 +780,6 @@ export async function PATCH(
     } = body;
 
     if (!campaignId || !mode) {
-      console.log("TODELETE - [PATCH campaigns] missing campaignId/mode", {
-        campaignId,
-        mode,
-      });
       return NextResponse.json(
         {
           error: "Invalid request",
@@ -509,10 +791,6 @@ export async function PATCH(
     }
 
     if (!note?.trim()) {
-      console.log("TODELETE - [PATCH campaigns] missing note", {
-        campaignId,
-        mode,
-      });
       return NextResponse.json(
         {
           error: "Missing note",
@@ -541,16 +819,6 @@ export async function PATCH(
         : "ABO";
     const previousDailyBudget = currentCampaign.daily_budget ?? null;
     const previousLifetimeBudget = currentCampaign.lifetime_budget ?? null;
-    console.log("TODELETE - [PATCH campaigns] current Meta campaign", {
-      campaignId,
-      previousBudgetMode,
-      previousDailyBudget,
-      previousLifetimeBudget,
-      startTime: currentCampaign.start_time,
-      stopTime: currentCampaign.stop_time,
-      requestedMode: mode,
-      requestedBudgetType: budgetType,
-    });
 
     const updateParams = new URLSearchParams();
     let adsetBudgetChanges:
@@ -596,21 +864,9 @@ export async function PATCH(
         (hasPositiveMinorUnits(currentCampaign.lifetime_budget)
           ? "lifetime"
           : "daily");
-      console.log("TODELETE - [PATCH campaigns] CBO branch", {
-        campaignId,
-        selectedBudgetType,
-        dailyBudget,
-        lifetimeBudget,
-        startTime,
-        endTime,
-      });
 
       if (selectedBudgetType === "daily") {
         if (!isPositiveBudget(dailyBudget)) {
-          console.log("TODELETE - [PATCH campaigns] invalid CBO daily budget", {
-            campaignId,
-            dailyBudget,
-          });
           return NextResponse.json(
             {
               error: "Invalid daily budget",
@@ -632,23 +888,8 @@ export async function PATCH(
 
         if (previousBudgetMode === "ABO") {
           const adSetsResponse = await loadCampaignAdSets();
-          console.log("TODELETE - [PATCH campaigns] ABO to CBO adsets loaded", {
-            campaignId,
-            selectedBudgetType,
-            adsetCount: adSetsResponse.data.length,
-            adsets: adSetsResponse.data.map((adSet) => ({
-              id: adSet.id,
-              name: adSet.name,
-              dailyBudget: adSet.daily_budget,
-              lifetimeBudget: adSet.lifetime_budget,
-            })),
-          });
 
           if (adSetsResponse.data.length === 0) {
-            console.log(
-              "TODELETE - [PATCH campaigns] no adsets for ABO to CBO",
-              { campaignId },
-            );
             return NextResponse.json(
               {
                 error: "No ad sets found",
@@ -665,19 +906,6 @@ export async function PATCH(
             (adSet) => getAdSetBudgetType(adSet) === "lifetime",
           );
           if (lifetimeBudgetAdSets.length > 0) {
-            console.log(
-              "TODELETE - [PATCH campaigns] daily CBO blocked by lifetime ABO adsets",
-              {
-                campaignId,
-                lifetimeBudgetAdSets: lifetimeBudgetAdSets.map((adSet) => ({
-                  id: adSet.id,
-                  name: adSet.name,
-                  lifetimeBudget: adSet.lifetime_budget,
-                  startTime: adSet.start_time,
-                  endTime: adSet.end_time,
-                })),
-              },
-            );
             return NextResponse.json(
               {
                 error: "Incompatible budget type",
@@ -692,13 +920,6 @@ export async function PATCH(
         }
       } else {
         if (!isPositiveBudget(lifetimeBudget)) {
-          console.log(
-            "TODELETE - [PATCH campaigns] invalid CBO lifetime budget",
-            {
-              campaignId,
-              lifetimeBudget,
-            },
-          );
           return NextResponse.json(
             {
               error: "Invalid lifetime budget",
@@ -717,17 +938,6 @@ export async function PATCH(
           !isValidDateTimeLocal(endTime) ||
           !isEndAfterStart(startTime, endTime)
         ) {
-          console.log("TODELETE - [PATCH campaigns] invalid CBO schedule", {
-            campaignId,
-            startTime,
-            endTime,
-            hasStartTime: Boolean(startTime),
-            hasEndTime: Boolean(endTime),
-            startValid: startTime ? isValidDateTimeLocal(startTime) : false,
-            endValid: endTime ? isValidDateTimeLocal(endTime) : false,
-            endAfterStart:
-              startTime && endTime ? isEndAfterStart(startTime, endTime) : false,
-          });
           return NextResponse.json(
             {
               error: "Invalid schedule",
@@ -749,15 +959,7 @@ export async function PATCH(
         }
 
         const adSetsResponse = await loadCampaignAdSets();
-        console.log("TODELETE - [PATCH campaigns] CBO lifetime adsets loaded", {
-          campaignId,
-          adsetCount: adSetsResponse.data.length,
-          adsetIds: adSetsResponse.data.map((adSet) => adSet.id),
-        });
         if (adSetsResponse.data.length === 0) {
-          console.log("TODELETE - [PATCH campaigns] no adsets for CBO lifetime", {
-            campaignId,
-          });
           return NextResponse.json(
             {
               error: "No ad sets found",
@@ -789,18 +991,6 @@ export async function PATCH(
           );
 
           if ("error" in scheduleParams) {
-            console.log(
-              "TODELETE - [PATCH campaigns] invalid CBO adset start_time update",
-              {
-                campaignId,
-                adsetId: adSet.id,
-                currentStartTime: adSet.start_time,
-                requestedStartTime: newStartTime,
-                currentEndTime: adSet.end_time,
-                requestedEndTime: newEndTime,
-                error: scheduleParams.error,
-              },
-            );
             return NextResponse.json(
               {
                 error: "Invalid schedule",
@@ -822,10 +1012,6 @@ export async function PATCH(
       }
     } else {
       if (!adsetBudgets?.length) {
-        console.log("TODELETE - [PATCH campaigns] missing ABO adset budgets", {
-          campaignId,
-          adsetBudgetsLength: adsetBudgets?.length ?? 0,
-        });
         return NextResponse.json(
           {
             error: "Missing ad set budgets",
@@ -839,17 +1025,8 @@ export async function PATCH(
       }
 
       const adSetsResponse = await loadCampaignAdSets();
-      console.log("TODELETE - [PATCH campaigns] ABO adsets loaded", {
-        campaignId,
-        adsetCount: adSetsResponse.data.length,
-        requestedAdsetBudgetCount: adsetBudgets.length,
-        adsetIds: adSetsResponse.data.map((adSet) => adSet.id),
-      });
 
       if (adSetsResponse.data.length === 0) {
-        console.log("TODELETE - [PATCH campaigns] no adsets for ABO", {
-          campaignId,
-        });
         return NextResponse.json(
           {
             error: "No ad sets found",
@@ -863,10 +1040,6 @@ export async function PATCH(
       }
 
       if (adSetsResponse.data.length > 70) {
-        console.log("TODELETE - [PATCH campaigns] too many adsets for ABO", {
-          campaignId,
-          adsetCount: adSetsResponse.data.length,
-        });
         return NextResponse.json(
           {
             error: "Too many ad sets",
@@ -882,13 +1055,6 @@ export async function PATCH(
       const inputBudgetMap = new Map<string, CampaignAdSetBudgetInput>();
       for (const adsetBudget of adsetBudgets) {
         if (!adsetBudget?.adsetId || inputBudgetMap.has(adsetBudget.adsetId)) {
-          console.log("TODELETE - [PATCH campaigns] invalid ABO adset item", {
-            campaignId,
-            adsetBudget,
-            alreadySeen: adsetBudget?.adsetId
-              ? inputBudgetMap.has(adsetBudget.adsetId)
-              : false,
-          });
           return NextResponse.json(
             {
               error: "Invalid ad set budgets",
@@ -909,11 +1075,6 @@ export async function PATCH(
           selectedBudgetType === "daily" &&
           !isPositiveBudget(adsetBudget.dailyBudget)
         ) {
-          console.log("TODELETE - [PATCH campaigns] invalid ABO daily budget", {
-            campaignId,
-            adsetId: adsetBudget.adsetId,
-            dailyBudget: adsetBudget.dailyBudget,
-          });
           return NextResponse.json(
             {
               error: "Invalid ad set budget",
@@ -930,14 +1091,6 @@ export async function PATCH(
           selectedBudgetType === "lifetime" &&
           !isPositiveBudget(adsetBudget.lifetimeBudget)
         ) {
-          console.log(
-            "TODELETE - [PATCH campaigns] invalid ABO lifetime budget",
-            {
-              campaignId,
-              adsetId: adsetBudget.adsetId,
-              lifetimeBudget: adsetBudget.lifetimeBudget,
-            },
-          );
           return NextResponse.json(
             {
               error: "Invalid ad set budget",
@@ -964,22 +1117,6 @@ export async function PATCH(
             !isValidDateTimeLocal(nextEndTime) ||
             !isEndAfterStart(nextStartTime, nextEndTime)
           ) {
-            console.log("TODELETE - [PATCH campaigns] invalid ABO schedule", {
-              campaignId,
-              adsetId: adsetBudget.adsetId,
-              nextStartTime,
-              nextEndTime,
-              existingStartTime: existingAdSet?.start_time,
-              existingEndTime: existingAdSet?.end_time,
-              startValid: nextStartTime
-                ? isValidDateTimeLocal(nextStartTime)
-                : false,
-              endValid: nextEndTime ? isValidDateTimeLocal(nextEndTime) : false,
-              endAfterStart:
-                nextStartTime && nextEndTime
-                  ? isEndAfterStart(nextStartTime, nextEndTime)
-                  : false,
-            });
             return NextResponse.json(
               {
                 error: "Invalid ad set schedule",
@@ -1003,12 +1140,6 @@ export async function PATCH(
         missingAdSets.length > 0 ||
         inputBudgetMap.size !== adSetsResponse.data.length
       ) {
-        console.log("TODELETE - [PATCH campaigns] incomplete ABO budgets", {
-          campaignId,
-          expectedAdsetCount: adSetsResponse.data.length,
-          receivedAdsetCount: inputBudgetMap.size,
-          missingAdSetIds: missingAdSets.map((adSet) => adSet.id),
-        });
         return NextResponse.json(
           {
             error: "Incomplete ad set budgets",
@@ -1153,14 +1284,6 @@ export async function PATCH(
       | undefined;
 
     try {
-      console.log("TODELETE - [PATCH campaigns] applying Meta updates", {
-        campaignId,
-        campaignUpdateParams: Object.fromEntries(updateParams.entries()),
-        adSetUpdateOperations: adSetUpdateOperations.map((operation) => ({
-          adsetId: operation.adsetId,
-          params: Object.fromEntries(operation.params.entries()),
-        })),
-      });
       if (updateParams.size > 0) {
         await metaApiCall<GraphApiUpdateCampaignResponse>({
           domain: "FACEBOOK",
@@ -1173,11 +1296,6 @@ export async function PATCH(
       }
 
       for (const operation of adSetUpdateOperations) {
-        console.log("TODELETE - [PATCH campaigns] applying adset update", {
-          campaignId,
-          adsetId: operation.adsetId,
-          params: Object.fromEntries(operation.params.entries()),
-        });
         await metaApiCall<{ success: boolean }>({
           domain: "FACEBOOK",
           method: "POST",
@@ -1189,19 +1307,9 @@ export async function PATCH(
       }
       appliedToMeta = true;
     } catch (metaError) {
-      console.log("TODELETE - [PATCH campaigns] Meta update failed raw", {
-        campaignId,
-        metaError,
-      });
       const errorReturn = errorToGraphErrorReturn(metaError);
       metaClientError = graphErrorToClientError(errorReturn);
       errorMessage = metaClientError.message;
-      console.log("TODELETE - [PATCH campaigns] Meta update failed parsed", {
-        campaignId,
-        statusCode: errorReturn.statusCode,
-        reason: errorReturn.reason,
-        data: errorReturn.data,
-      });
     }
 
     let logId: string | undefined;
@@ -1261,12 +1369,6 @@ export async function PATCH(
     }
 
     if (!appliedToMeta) {
-      console.log("TODELETE - [PATCH campaigns] returning Meta failure", {
-        campaignId,
-        errorMessage,
-        auditLogFailed,
-        auditLogError,
-      });
       return NextResponse.json(
         {
           error: metaClientError?.error ?? "Failed to apply changes to Meta",
@@ -1309,7 +1411,6 @@ export async function PATCH(
       { status: 200 },
     );
   } catch (error) {
-    console.log("TODELETE - ", error);
     const errorReturn = errorToGraphErrorReturn(error);
     const clientError = graphErrorToClientError(errorReturn);
 

@@ -3,6 +3,11 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
+import { GraphApiError, graphErrorToClientError } from "@/lib/meta-business/error";
+import {
+  buildReconnectInfo,
+  type ReconnectInfo,
+} from "@/lib/meta-business/reconnect-link";
 
 export type AdAccountsResponse = {
   data: FacebookAdAccountBasicInfo[];
@@ -12,6 +17,10 @@ export type AdAccountsErrorResponse = {
   error: string;
   message: string;
   solution?: string;
+  code?: number;
+  errorSubcode?: number;
+  needsReconnect?: boolean;
+  reconnect?: ReconnectInfo;
 };
 
 /**
@@ -52,6 +61,34 @@ export async function GET(
 
     return NextResponse.json({ data: adAccounts }, { status: 200 });
   } catch (error) {
+    if (error instanceof GraphApiError) {
+      const er = error.errorReturn;
+      const client = graphErrorToClientError(er);
+      const code = er.data?.code;
+      const errorSubcode = er.data?.errorSubcode;
+      // code 190 (incl. subcode 460 session-invalidated / 463 expired) means
+      // the stored token is dead and cannot be refreshed — the user must
+      // reconnect their Facebook account via the frontend OAuth flow.
+      const needsReconnect = code === 190;
+
+      console.error("backoffice.adAccounts.graphError", {
+        code,
+        errorSubcode,
+        needsReconnect,
+      });
+
+      return NextResponse.json(
+        {
+          ...client,
+          code,
+          errorSubcode,
+          needsReconnect,
+          ...(needsReconnect ? { reconnect: buildReconnectInfo() } : {}),
+        },
+        { status: needsReconnect ? 409 : er.statusCode }
+      );
+    }
+
     console.error("Error fetching ad accounts:", error);
 
     return NextResponse.json(

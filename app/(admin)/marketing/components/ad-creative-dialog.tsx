@@ -1,0 +1,236 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AdCreativeForm,
+  DEFAULT_AD_CREATIVE_FORM,
+  hasValidDynamicText,
+  isValidHttpsUrl,
+  type AdCreativeFormValue,
+} from "./ad-creative-form";
+import { AdMediaProcessingCard } from "./ad-media-processing-card";
+import { MediaSourcePicker, type SelectedMedia } from "./media-source-picker";
+import { useAdCreativeBuilder } from "./use-ad-creative-builder";
+
+type CreateModeProps = {
+  mode: "create";
+  accountId: string;
+  userId: string;
+  adsetId: string;
+  adsetName?: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+};
+
+type EditModeProps = {
+  mode: "edit";
+  accountId: string;
+  userId: string;
+  ad: { id: string; name?: string };
+  isOpen: boolean;
+  onClose: () => void;
+  onEdited: () => void;
+};
+
+type AdCreativeDialogProps = CreateModeProps | EditModeProps;
+
+export function AdCreativeDialog(props: AdCreativeDialogProps) {
+  const isEdit = props.mode === "edit";
+  const [media, setMedia] = useState<SelectedMedia | null>(null);
+  const [form, setForm] = useState<AdCreativeFormValue>(
+    DEFAULT_AD_CREATIVE_FORM,
+  );
+
+  const builder = useAdCreativeBuilder(
+    props.mode === "create"
+      ? {
+          mode: "create",
+          accountId: props.accountId,
+          userId: props.userId,
+          adsetId: props.adsetId,
+        }
+      : {
+          mode: "edit",
+          accountId: props.accountId,
+          userId: props.userId,
+          adId: props.ad.id,
+        },
+  );
+
+  // Reset everything whenever the dialog is (re)opened.
+  useEffect(() => {
+    if (props.isOpen) {
+      setMedia(null);
+      setForm(DEFAULT_AD_CREATIVE_FORM);
+      builder.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.isOpen]);
+
+  // Notify parent once, when the operation succeeds.
+  useEffect(() => {
+    if (builder.phase === "done") {
+      if (props.mode === "create") props.onCreated();
+      else props.onEdited();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [builder.phase]);
+
+  const isVideo = media?.source === "device" && media.mediaType === "video";
+  const isInstagram = media?.source === "instagram";
+
+  const canSubmit = useMemo(() => {
+    if (!media) return false;
+    if (!isValidHttpsUrl(form.linkUrl)) return false;
+    // Instagram keeps its own caption; image/video need 1-5 titles + texts.
+    if (!isInstagram && !hasValidDynamicText(form)) return false;
+    return builder.phase === "editing" || builder.phase === "error";
+  }, [media, isInstagram, form, builder.phase]);
+
+  const showForm =
+    builder.phase === "editing" || builder.phase === "error";
+
+  const title = isEdit ? "Editar criativo do anúncio" : "Criar anúncio";
+  const description = isEdit
+    ? "Substitua a mídia e o texto do anúncio. Se o anúncio já estiver ativo/engajado, um novo anúncio será criado no mesmo conjunto e o original pausado."
+    : "Crie um novo anúncio neste conjunto escolhendo a mídia e o texto do criativo.";
+
+  return (
+    <Dialog
+      open={props.isOpen}
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent
+        className="max-h-[90vh] overflow-hidden p-0 sm:max-w-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex max-h-[90vh] flex-col">
+          <DialogHeader className="border-b px-6 py-4">
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{description}</DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {builder.phase === "done" ? (
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <CheckCircle2 className="size-10 text-emerald-500" />
+                {builder.result?.kind === "duplicate_paused" ? (
+                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-700 dark:text-amber-400">
+                    <Info className="mt-0.5 size-4 shrink-0" />
+                    <span>{builder.result.message}</span>
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium">
+                    {isEdit
+                      ? "Criativo atualizado no anúncio existente."
+                      : "Anúncio criado com sucesso."}
+                  </p>
+                )}
+              </div>
+            ) : showForm ? (
+              <div className="flex flex-col gap-5">
+                {builder.phase === "error" && builder.error && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+                  >
+                    <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                    <div className="space-y-0.5">
+                      <p className="font-medium">
+                        {isEdit
+                          ? "Não foi possível atualizar o criativo"
+                          : "Não foi possível criar o anúncio"}
+                      </p>
+                      <p className="text-destructive/90">{builder.error}</p>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Mídia do criativo
+                  </p>
+                  <MediaSourcePicker
+                    accountId={props.accountId}
+                    userId={props.userId}
+                    onChange={setMedia}
+                  />
+                </div>
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Texto do anúncio
+                  </p>
+                  <AdCreativeForm
+                    value={form}
+                    onChange={setForm}
+                    hideText={isInstagram}
+                    showStatus={!isEdit}
+                  />
+                </div>
+              </div>
+            ) : (
+              <AdMediaProcessingCard
+                phase={builder.phase}
+                isVideo={Boolean(isVideo)}
+                isEdit={isEdit}
+                videoProgress={builder.videoProgress}
+                errorMessage={builder.error}
+              />
+            )}
+          </div>
+
+          <DialogFooter className="border-t px-6 py-4">
+            {builder.phase === "done" ? (
+              <Button onClick={props.onClose}>Fechar</Button>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={props.onClose}
+                  disabled={
+                    builder.phase === "submitting" ||
+                    builder.phase === "processing"
+                  }
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  disabled={!canSubmit}
+                  onClick={() => {
+                    if (media) builder.submit({ media, text: form });
+                  }}
+                >
+                  {builder.phase === "submitting" ||
+                  builder.phase === "processing" ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" />
+                      {builder.phase === "processing"
+                        ? "Processando vídeo..."
+                        : "Enviando..."}
+                    </>
+                  ) : isEdit ? (
+                    "Salvar criativo"
+                  ) : (
+                    "Criar anúncio"
+                  )}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

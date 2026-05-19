@@ -9,6 +9,7 @@ import {
   parseGraphError,
   type GraphErrorReturn,
 } from "./error";
+import { appSecretProofParam, facebookAppSecret } from "./appsecret-proof";
 
 export type MetaApiCallParams = {
   domain?: "FACEBOOK" | "INSTAGRAM";
@@ -44,8 +45,14 @@ export async function metaApiCall<T>({
   const baseGraphUrl =
     domain === "FACEBOOK" ? graphFacebookBaseUrl : graphInstagramBaseUrl;
 
+  // appsecret_proof only for FACEBOOK (user token + META_GENERAL_APP_SECRET).
+  // INSTAGRAM uses a different secret and is left byte-identical to before.
+  const appSecret = domain === "FACEBOOK" ? facebookAppSecret() : undefined;
+  const proof = appSecretProofParam(accessToken, appSecret);
+
   const trimmedParams = params.trim();
-  const query = trimmedParams ? `?${trimmedParams}` : "";
+  const qsParts = [trimmedParams, proof].filter(Boolean);
+  const query = qsParts.length ? `?${qsParts.join("&")}` : "";
   const url = `${baseGraphUrl}/${graphApiVersion}/${path}${query}`;
 
   try {
