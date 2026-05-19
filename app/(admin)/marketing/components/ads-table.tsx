@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -22,6 +22,7 @@ import {
 import { formatCurrency, formatNumber } from "../utils/formatters";
 import { DeliveryStatus } from "./delivery-status";
 import { DuplicateButton } from "./duplicate-button";
+import { EditCreativeButton } from "./edit-creative-button";
 import { IssuesIcon } from "./issues-icon";
 import { NameEditButton } from "./name-edit-button";
 
@@ -35,6 +36,8 @@ type AdsTableProps = {
   userId: string;
   adSetId?: string;
   onAdClick?: (ad: Ad) => void;
+  /** Bumping this value triggers a refetch (e.g. after creating an ad). */
+  refreshSignal?: number;
 };
 
 export function AdsTable({
@@ -42,6 +45,7 @@ export function AdsTable({
   userId,
   adSetId,
   onAdClick,
+  refreshSignal,
 }: AdsTableProps) {
   const [ads, setAds] = useState<Ad[]>([]);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
@@ -88,6 +92,16 @@ export function AdsTable({
   useEffect(() => {
     fetchAds();
   }, [fetchAds]);
+
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    fetchAds(currentCursor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   const handleNextPage = () => {
     if (pagination?.nextCursor) {
@@ -260,6 +274,12 @@ export function AdsTable({
                       status={ad.effectiveStatus ?? ad.status}
                       size="xs"
                       className="shrink-0"
+                    />
+                    <EditCreativeButton
+                      accountId={accountId}
+                      userId={userId}
+                      ad={{ id: ad.id, name: ad.name }}
+                      onEdited={() => fetchAds(currentCursor)}
                     />
                     <DuplicateButton
                       entityType="ad"

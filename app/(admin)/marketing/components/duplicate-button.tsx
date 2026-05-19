@@ -126,7 +126,7 @@ export function DuplicateButton({
           if (!next) setError(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
             <AlertDialogTitle>Duplicar {label}?</AlertDialogTitle>
             <AlertDialogDescription>
