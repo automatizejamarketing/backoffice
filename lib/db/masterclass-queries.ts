@@ -171,6 +171,8 @@ export async function updateMasterclassLesson(
     videoAssetId?: string;
     position?: number;
     published?: boolean;
+    supportMaterialTitle?: string | null;
+    supportMaterialUrl?: string | null;
   },
 ) {
   const [existing] = await db
@@ -220,6 +222,14 @@ export async function updateMasterclassLesson(
 
   if (input.published !== undefined) {
     data.published = input.published;
+  }
+
+  if (input.supportMaterialTitle !== undefined) {
+    data.supportMaterialTitle = input.supportMaterialTitle?.trim() || null;
+  }
+
+  if (input.supportMaterialUrl !== undefined) {
+    data.supportMaterialUrl = input.supportMaterialUrl?.trim() || null;
   }
 
   const [updated] = await db
