@@ -80,6 +80,8 @@ export default function MasterclassAdminPage() {
     videoAssetId: "",
     position: 1,
     published: true,
+    supportMaterialTitle: "",
+    supportMaterialUrl: "",
   });
 
   const [editLessonForm, setEditLessonForm] = useState({
@@ -223,6 +225,8 @@ export default function MasterclassAdminPage() {
         title: "",
         slug: "",
         videoAssetId: "",
+        supportMaterialTitle: "",
+        supportMaterialUrl: "",
       }));
       await loadLessons(selectedCourseId);
     } catch (error) {
@@ -605,6 +609,39 @@ export default function MasterclassAdminPage() {
               />
               Publicada
             </label>
+            <div className="border-t pt-4 mt-2">
+              <h4 className="text-sm font-medium mb-4">Material de Apoio (Opcional)</h4>
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <label htmlFor="lessonMaterialTitle" className="text-sm font-medium">Nome do Material (ex: Baixar PDF)</label>
+                  <Input
+                    id="lessonMaterialTitle"
+                    value={lessonForm.supportMaterialTitle}
+                    onChange={(e) =>
+                      setLessonForm((current) => ({
+                        ...current,
+                        supportMaterialTitle: e.target.value,
+                      }))
+                    }
+                    placeholder="Nome do botão ou material"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label htmlFor="lessonMaterialUrl" className="text-sm font-medium">URL do Arquivo (Google Drive, Notion, etc)</label>
+                  <Input
+                    id="lessonMaterialUrl"
+                    value={lessonForm.supportMaterialUrl}
+                    onChange={(e) =>
+                      setLessonForm((current) => ({
+                        ...current,
+                        supportMaterialUrl: e.target.value,
+                      }))
+                    }
+                    placeholder="https://..."
+                  />
+                </div>
+              </div>
+            </div>
             <Button onClick={handleCreateLesson} disabled={savingLesson || !selectedCourseId}>
               <Plus className="h-4 w-4" />
               Criar aula
