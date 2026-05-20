@@ -31,17 +31,13 @@ import type {
   InsightsMetrics,
 } from "@/lib/meta-business/types";
 import {
-  formatCurrency,
-  formatNumber,
-  formatPercentage,
-  formatRoas,
-} from "../utils/formatters";
-import {
   getCampaignMetricsForObjective,
-  getMetricRawValue,
-  type CampaignMetricDefinition,
   type CampaignMetricId,
 } from "../utils/campaign-metrics";
+import {
+  formatMetricValue,
+  getMetricLabel,
+} from "../utils/metric-formatters";
 
 type MetricInfo = {
   fullTitle: string;
@@ -122,25 +118,6 @@ const METRIC_COLOR_MAP: Record<CampaignMetricId, string> = {
   leadCount: "text-orange-500",
 };
 
-function formatMetricValue(
-  metric: CampaignMetricDefinition,
-  insights?: InsightsMetrics,
-): string {
-  const rawValue = getMetricRawValue(insights, metric.id);
-
-  switch (metric.format) {
-    case "currency":
-      return formatCurrency(rawValue);
-    case "percentage":
-      return formatPercentage(rawValue);
-    case "roas":
-      return formatRoas(rawValue);
-    case "number":
-    default:
-      return formatNumber(rawValue);
-  }
-}
-
 export function InsightsCards({
   insights,
   isLoading = false,
@@ -199,28 +176,6 @@ export function InsightsCards({
       ))}
     </div>
   );
-}
-
-function getMetricLabel(labelKey: string): string {
-  const labels: Record<string, string> = {
-    spend: "Gasto",
-    impressions: "Impressões",
-    clicks: "Cliques",
-    reach: "Alcance",
-    cpc: "CPC",
-    ctr: "CTR",
-    cpm: "CPM",
-    roas: "ROAS",
-    cpa: "CPA",
-    purchaseValue: "Valor de compra",
-    numberOfPurchases: "Compras",
-    linkClicks: "Cliques no link",
-    landingPageViews: "Views da página",
-    cpl: "CPL",
-    numberOfLeads: "Leads",
-  };
-
-  return labels[labelKey] ?? labelKey;
 }
 
 function MetricInfoButton({

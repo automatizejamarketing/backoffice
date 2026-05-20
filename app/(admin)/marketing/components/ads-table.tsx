@@ -18,9 +18,14 @@ import {
   AdStatus,
   EffectiveStatus,
   type Ad,
+  type CampaignObjective,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
-import { formatCurrency, formatNumber } from "../utils/formatters";
+import { getCampaignMetricsForObjective } from "../utils/campaign-metrics";
+import {
+  formatMetricValue,
+  getMetricLabel,
+} from "../utils/metric-formatters";
 import { DeliveryStatus } from "./delivery-status";
 import { DuplicateButton } from "./duplicate-button";
 import { EditCreativeButton } from "./edit-creative-button";
@@ -41,6 +46,12 @@ type AdsTableProps = {
    * per-row edit-creative button so the edit dialog matches the ad set mode.
    */
   adSetIsDynamic?: boolean;
+  /**
+   * Objective of the grandparent campaign. Drives the metric columns shown
+   * in this table so an ad in a sales campaign exposes ROAS/CPA/etc. instead
+   * of the generic spend/clicks fallback.
+   */
+  objective?: CampaignObjective;
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
@@ -53,6 +64,7 @@ export function AdsTable({
   userId,
   adSetId,
   adSetIsDynamic,
+  objective,
   onAdClick,
   onMediaClick,
   refreshSignal,
@@ -63,6 +75,12 @@ export function AdsTable({
   const [error, setError] = useState<string | null>(null);
   const [currentCursor, setCurrentCursor] = useState<string | undefined>();
   const [togglingAdId, setTogglingAdId] = useState<string | null>(null);
+
+  const mobileMetrics = getCampaignMetricsForObjective(objective, "mobileList");
+  const desktopMetrics = getCampaignMetricsForObjective(
+    objective,
+    "desktopList",
+  );
 
   const fetchAds = useCallback(
     async (cursor?: string) => {
@@ -310,18 +328,16 @@ export function AdsTable({
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                  <div>
-                    <span className="block text-xs font-semibold tabular-nums">
-                      {formatCurrency(ad.insights?.spend)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">Gasto</span>
-                  </div>
-                  <div>
-                    <span className="block text-xs font-semibold tabular-nums">
-                      {formatNumber(ad.insights?.clicks)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">Cliques</span>
-                  </div>
+                  {mobileMetrics.map((metric) => (
+                    <div key={metric.id}>
+                      <span className="block text-xs font-semibold tabular-nums">
+                        {formatMetricValue(metric, ad.insights)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {getMetricLabel(metric.labelKey)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -340,10 +356,7 @@ export function AdsTable({
                 <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
                 <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-                <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
-                <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
-                <TableHead className="w-[80px] text-right text-xs">Cliques</TableHead>
-                <TableHead className="w-[80px] text-right text-xs">CPC</TableHead>
+                <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -364,16 +377,14 @@ export function AdsTable({
                         <Skeleton className="h-4 w-20" />
                       </TableCell>
                       <TableCell>
-                        <Skeleton className="h-4 w-14 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-14 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-10 ml-auto" />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton className="h-4 w-10 ml-auto" />
+                        <div className="grid grid-cols-5 gap-3">
+                          {Array.from({ length: 5 }).map((_, j) => (
+                            <div key={j}>
+                              <Skeleton className="h-4 w-12 mb-1" />
+                              <Skeleton className="h-3 w-16" />
+                            </div>
+                          ))}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -453,17 +464,19 @@ export function AdsTable({
                           />
                         </div>
                       </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(ad.insights?.spend)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatNumber(ad.insights?.impressions)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatNumber(ad.insights?.clicks)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {formatCurrency(ad.insights?.cpc)}
+                      <TableCell>
+                        <div className="grid grid-cols-5 gap-3">
+                          {desktopMetrics.map((metric) => (
+                            <div key={metric.id} className="min-w-0">
+                              <div className="tabular-nums text-sm font-medium">
+                                {formatMetricValue(metric, ad.insights)}
+                              </div>
+                              <div className="truncate text-[11px] text-muted-foreground">
+                                {getMetricLabel(metric.labelKey)}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -577,7 +590,7 @@ function AdsTableSkeleton() {
                   <Skeleton className="h-4 w-14" />
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                  {Array.from({ length: 2 }).map((_, j) => (
+                  {Array.from({ length: 4 }).map((_, j) => (
                     <div key={j}>
                       <Skeleton className="h-3.5 w-14 mb-1" />
                       <Skeleton className="h-2.5 w-10" />
@@ -599,10 +612,7 @@ function AdsTableSkeleton() {
               <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
               <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-              <TableHead className="w-[100px] text-right text-xs">Gasto</TableHead>
-              <TableHead className="w-[100px] text-right text-xs">Impressões</TableHead>
-              <TableHead className="w-[80px] text-right text-xs">Cliques</TableHead>
-              <TableHead className="w-[80px] text-right text-xs">CPC</TableHead>
+              <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -622,16 +632,14 @@ function AdsTableSkeleton() {
                   <Skeleton className="h-4 w-20" />
                 </TableCell>
                 <TableCell>
-                  <Skeleton className="h-4 w-14 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-14 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-10 ml-auto" />
-                </TableCell>
-                <TableCell>
-                  <Skeleton className="h-4 w-10 ml-auto" />
+                  <div className="grid grid-cols-5 gap-3">
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <div key={j}>
+                        <Skeleton className="h-4 w-12 mb-1" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                    ))}
+                  </div>
                 </TableCell>
               </TableRow>
             ))}

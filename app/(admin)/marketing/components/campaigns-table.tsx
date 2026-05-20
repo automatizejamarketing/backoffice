@@ -25,16 +25,11 @@ import type {
   CampaignSortMetric,
   SortOrder,
 } from "@/lib/meta-business/campaign-sort";
+import { getCampaignMetricsForCampaign } from "../utils/campaign-metrics";
 import {
-  formatCurrency,
-  formatNumber,
-  formatPercentage,
-} from "../utils/formatters";
-import {
-  getCampaignMetricsForCampaign,
-  getMetricRawValue,
-  type CampaignMetricDefinition,
-} from "../utils/campaign-metrics";
+  formatMetricValue,
+  getMetricLabel,
+} from "../utils/metric-formatters";
 import { DeliveryStatus } from "./delivery-status";
 import { DuplicateButton } from "./duplicate-button";
 import { IssuesIcon } from "./issues-icon";
@@ -66,34 +61,6 @@ type CampaignsTableProps = {
 
 const PAGE_SIZE = 25;
 const MAX_CAMPAIGNS = 500;
-
-function formatRoas(value: string | undefined): string {
-  if (!value) return "-";
-
-  const numValue = Number.parseFloat(value);
-  if (Number.isNaN(numValue)) return "-";
-
-  return `${numValue.toFixed(2)}x`;
-}
-
-function formatMetricValue(
-  metric: CampaignMetricDefinition,
-  campaign: Campaign,
-): string {
-  const rawValue = getMetricRawValue(campaign.insights, metric.id);
-
-  switch (metric.format) {
-    case "currency":
-      return formatCurrency(rawValue);
-    case "percentage":
-      return formatPercentage(rawValue);
-    case "roas":
-      return formatRoas(rawValue);
-    case "number":
-    default:
-      return formatNumber(rawValue);
-  }
-}
 
 export function CampaignsTable({
   accountId,
@@ -389,7 +356,7 @@ export function CampaignsTable({
                 (metric) => (
                   <div key={metric.id}>
                     <span className="block text-xs font-semibold tabular-nums">
-                      {formatMetricValue(metric, campaign)}
+                      {formatMetricValue(metric, campaign.insights)}
                     </span>
                     <span className="text-[10px] text-muted-foreground">
                       {getMetricLabel(metric.labelKey)}
@@ -516,7 +483,7 @@ export function CampaignsTable({
                             (metric) => (
                               <div key={metric.id} className="min-w-0">
                                 <div className="tabular-nums text-sm font-medium">
-                                  {formatMetricValue(metric, campaign)}
+                                  {formatMetricValue(metric, campaign.insights)}
                                 </div>
                                 <div className="truncate text-[11px] text-muted-foreground">
                                   {getMetricLabel(metric.labelKey)}
@@ -636,24 +603,3 @@ function CampaignsTableSkeleton() {
   );
 }
 
-function getMetricLabel(labelKey: string): string {
-  const labels: Record<string, string> = {
-    spend: "Gasto",
-    impressions: "Impressões",
-    clicks: "Cliques",
-    reach: "Alcance",
-    cpc: "CPC",
-    ctr: "CTR",
-    cpm: "CPM",
-    roas: "ROAS",
-    cpa: "CPA",
-    purchaseValue: "Valor de compra",
-    numberOfPurchases: "Compras",
-    linkClicks: "Cliques no link",
-    landingPageViews: "Views da página",
-    cpl: "CPL",
-    numberOfLeads: "Leads",
-  };
-
-  return labels[labelKey] ?? labelKey;
-}
