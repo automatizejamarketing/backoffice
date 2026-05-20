@@ -13,6 +13,8 @@ type UpdateLessonBody = {
   videoAssetId?: unknown;
   position?: unknown;
   published?: unknown;
+  supportMaterialTitle?: unknown;
+  supportMaterialUrl?: unknown;
 };
 
 function isVideoProvider(value: unknown): value is VideoProvider {
@@ -29,7 +31,16 @@ export async function PATCH(
   const { id } = await params;
   const body = (await request.json()) as UpdateLessonBody;
 
-  const data: Parameters<typeof updateMasterclassLesson>[1] = {};
+  const data: {
+    title?: string;
+    slug?: string;
+    videoProvider?: VideoProvider;
+    videoAssetId?: string;
+    position?: number;
+    published?: boolean;
+    supportMaterialTitle?: string | null;
+    supportMaterialUrl?: string | null;
+  } = {};
 
   if (body.title !== undefined) {
     if (typeof body.title !== "string" || !body.title.trim()) {
@@ -71,13 +82,33 @@ export async function PATCH(
   }
 
   if (body.published !== undefined) {
-    if (typeof body.published !== "boolean") {
-      return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
+      if (typeof body.published !== "boolean") {
+        return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
+      }
+      data.published = body.published;
     }
-    data.published = body.published;
-  }
 
-  if (Object.keys(data).length === 0) {
+    if (body.supportMaterialTitle !== undefined) {
+      if (
+        body.supportMaterialTitle !== null &&
+        typeof body.supportMaterialTitle !== "string"
+      ) {
+        return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
+      }
+      data.supportMaterialTitle = body.supportMaterialTitle;
+    }
+
+    if (body.supportMaterialUrl !== undefined) {
+      if (
+        body.supportMaterialUrl !== null &&
+        typeof body.supportMaterialUrl !== "string"
+      ) {
+        return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
+      }
+      data.supportMaterialUrl = body.supportMaterialUrl;
+    }
+
+    if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "invalid_payload" }, { status: 422 });
   }
 

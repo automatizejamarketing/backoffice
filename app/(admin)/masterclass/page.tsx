@@ -89,6 +89,8 @@ export default function MasterclassAdminPage() {
     videoAssetId: "",
     position: 1,
     published: true,
+    supportMaterialTitle: "",
+    supportMaterialUrl: "",
   });
 
   async function loadCourses() {
@@ -317,6 +319,8 @@ export default function MasterclassAdminPage() {
       videoAssetId: lesson.videoAssetId,
       position: lesson.position,
       published: lesson.published,
+      supportMaterialTitle: (lesson as any).supportMaterialTitle || "",
+      supportMaterialUrl: (lesson as any).supportMaterialUrl || "",
     });
   }
 
@@ -877,6 +881,39 @@ export default function MasterclassAdminPage() {
               />
               Publicada
             </label>
+            <div className="border-t pt-4 mt-2">
+              <h4 className="text-sm font-medium mb-4">Material de Apoio (Opcional)</h4>
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <label htmlFor="editLessonMaterialTitle" className="text-sm font-medium">Nome do Material (ex: Baixar PDF)</label>
+                  <Input
+                    id="editLessonMaterialTitle"
+                    value={editLessonForm.supportMaterialTitle}
+                    onChange={(e) =>
+                      setEditLessonForm((current) => ({
+                        ...current,
+                        supportMaterialTitle: e.target.value,
+                      }))
+                    }
+                    placeholder="Nome do botão ou material"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label htmlFor="editLessonMaterialUrl" className="text-sm font-medium">URL do Arquivo (Google Drive, Notion, etc)</label>
+                  <Input
+                    id="editLessonMaterialUrl"
+                    value={editLessonForm.supportMaterialUrl}
+                    onChange={(e) =>
+                      setEditLessonForm((current) => ({
+                        ...current,
+                        supportMaterialUrl: e.target.value,
+                      }))
+                    }
+                    placeholder="https://..."
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button

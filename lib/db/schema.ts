@@ -144,6 +144,8 @@ export const masterclassLesson = pgTable(
       .default("youtube"),
     videoAssetId: text("video_asset_id").notNull(),
     position: integer("position").notNull(),
+    supportMaterialTitle: text("support_material_title"),
+    supportMaterialUrl: text("support_material_url"),
     published: boolean("published").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

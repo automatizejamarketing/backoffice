@@ -236,6 +236,7 @@ export function transformAdSet(adSet: GraphApiAdSet): AdSet {
     bidStrategy: adSet.bid_strategy,
     destinationType: adSet.destination_type,
     promotedObject: adSet.promoted_object,
+    isDynamicCreative: adSet.is_dynamic_creative === true,
     targeting: adSet.targeting,
     targetingSentenceLines: adSet.targetingsentencelines?.data,
     pacingType: adSet.pacing_type,

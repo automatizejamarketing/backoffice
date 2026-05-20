@@ -47,6 +47,7 @@ function buildAdSetDetailFields(adsSubquery: string): string {
     "bid_strategy",
     "destination_type",
     "promoted_object",
+    "is_dynamic_creative",
     "targeting",
     "targetingsentencelines{content}",
     "pacing_type",
