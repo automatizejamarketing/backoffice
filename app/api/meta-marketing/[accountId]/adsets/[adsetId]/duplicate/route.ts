@@ -5,7 +5,7 @@ import {
   graphErrorToClientError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
-import { duplicateAdSet } from "@/lib/meta-business/duplicate";
+import { duplicateAdSet, type FailedCopy } from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
 
 export type DuplicateAdSetResponse = {
@@ -13,6 +13,8 @@ export type DuplicateAdSetResponse = {
   id: string;
   name: string;
   auditLogFailed?: boolean;
+  /** Ads Meta refused to copy. The new ad set still exists. */
+  failedAds?: FailedCopy[];
 };
 
 export type DuplicateErrorResponse = {
@@ -82,7 +84,13 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { success: true, id: result.id, name: result.name, auditLogFailed },
+      {
+        success: true,
+        id: result.id,
+        name: result.name,
+        auditLogFailed,
+        ...(result.failedAds && { failedAds: result.failedAds }),
+      },
       { status: 201 },
     );
   } catch (error) {
