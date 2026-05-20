@@ -14,6 +14,8 @@ type CreateLessonBody = {
   videoAssetId?: string;
   position?: number;
   published?: boolean;
+  supportMaterialTitle?: string;
+  supportMaterialUrl?: string;
 };
 
 export async function GET(request: Request) {
@@ -57,6 +59,8 @@ export async function POST(request: Request) {
       videoAssetId: body.videoAssetId,
       position,
       published: body.published ?? true,
+      supportMaterialTitle: body.supportMaterialTitle,
+      supportMaterialUrl: body.supportMaterialUrl,
     });
     return NextResponse.json(created, { status: 201 });
   } catch (error) {

@@ -136,6 +136,8 @@ export async function createMasterclassLesson(input: {
   videoAssetId: string;
   position: number;
   published?: boolean;
+  supportMaterialTitle?: string;
+  supportMaterialUrl?: string;
 }) {
   const normalizedAssetId = normalizeVideoAssetId(input.videoProvider, input.videoAssetId);
   if (!normalizedAssetId) {
@@ -156,6 +158,8 @@ export async function createMasterclassLesson(input: {
       videoAssetId: normalizedAssetId,
       position: input.position,
       published: input.published ?? true,
+      supportMaterialTitle: input.supportMaterialTitle?.trim() || null,
+      supportMaterialUrl: input.supportMaterialUrl?.trim() || null,
     })
     .returning();
 
