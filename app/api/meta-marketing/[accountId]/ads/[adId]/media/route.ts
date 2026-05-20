@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
-import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
+import {
+  errorToGraphErrorReturn,
+  GraphApiError,
+} from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import type {
   AdMediaErrorResponse,
@@ -131,11 +134,66 @@ const CREATIVE_FIELDS = [
 const VIDEO_FIELDS = "source,picture,permalink_url,status,length,format";
 const ADIMAGE_FIELDS = "hash,url,permalink_url,width,height";
 
+// Meta's video endpoint returns a generic "unexpected error" for short bursts
+// of transient failures. Retry twice with growing backoff before giving up so
+// a single hiccup doesn't leave the UI permanently stuck on "Não foi possível
+// obter informações deste vídeo".
+const VIDEO_RETRY_DELAYS_MS = [500, 1500] as const;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchVideoWithRetry(
+  videoId: string,
+  accessToken: string,
+): Promise<GraphVideoResponse> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= VIDEO_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await metaApiCall<GraphVideoResponse>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: videoId,
+        params: `fields=${VIDEO_FIELDS}`,
+        accessToken,
+      });
+    } catch (err) {
+      lastErr = err;
+      const isTransient =
+        err instanceof GraphApiError && err.errorReturn.reason.isTransient;
+      if (!isTransient || attempt >= VIDEO_RETRY_DELAYS_MS.length) break;
+      await delay(VIDEO_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastErr;
+}
+
+type VideoFetchError = { __error: true; message: string };
+
+function describeVideoError(err: unknown): string {
+  if (err instanceof GraphApiError) {
+    return (
+      err.errorReturn.reason.message ??
+      err.errorReturn.reason.title ??
+      "Erro desconhecido da Meta."
+    );
+  }
+  if (err instanceof Error) return err.message;
+  return "Erro desconhecido.";
+}
+
 function slugify(input: string | undefined, fallback: string): string {
   const base = (input ?? "").toString().toLowerCase().trim();
+  // The filename ends up in a `Content-Disposition: filename="..."` header
+  // downstream, which is a ByteString — any code point > 255 (em dash U+2014,
+  // ellipsis U+2026, fancy quotes, ...) makes Node's Headers constructor
+  // throw at runtime. So we strip everything outside ASCII after stripping
+  // combining diacritics from accented characters.
   const cleaned = base
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\x00-\x7f]/g, "-")
     .replace(/[\\/:*?"<>|]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
@@ -247,10 +305,14 @@ export async function GET(
       );
     }
 
+    // Collect every image hash, even when the draft already carries a low-res
+    // `previewUrl` (e.g. carousel `picture`, single-image `image_url`). We
+    // then prefer the high-res `/adimages` URL at merge time, falling back to
+    // the low-res only when Meta couldn't resolve the hash.
     const hashes: string[] = Array.from(
       new Set(
         drafts
-          .filter((d): d is ImageDraft => d.kind === "image" && !!d.hash && !d.previewUrl)
+          .filter((d): d is ImageDraft => d.kind === "image" && !!d.hash)
           .map((d) => d.hash as string),
       ),
     );
@@ -279,26 +341,19 @@ export async function GET(
       new Set(drafts.filter((d): d is VideoDraft => d.kind === "video").map((d) => d.videoId)),
     );
 
-    const videoResults = new Map<string, GraphVideoResponse | { __error: true }>();
+    const videoResults = new Map<string, GraphVideoResponse | VideoFetchError>();
     if (videoIds.length > 0) {
       const settled = await Promise.allSettled(
-        videoIds.map((vid) =>
-          metaApiCall<GraphVideoResponse>({
-            domain: "FACEBOOK",
-            method: "GET",
-            path: vid,
-            params: `fields=${VIDEO_FIELDS}`,
-            accessToken,
-          }),
-        ),
+        videoIds.map((vid) => fetchVideoWithRetry(vid, accessToken)),
       );
       settled.forEach((res, idx) => {
         const vid = videoIds[idx];
         if (res.status === "fulfilled") {
           videoResults.set(vid, res.value);
         } else {
-          console.warn(`Falha ao resolver vídeo ${vid}:`, res.reason);
-          videoResults.set(vid, { __error: true });
+          const message = describeVideoError(res.reason);
+          console.warn(`Falha ao resolver vídeo ${vid}: ${message}`);
+          videoResults.set(vid, { __error: true, message });
         }
       });
     }
@@ -306,9 +361,14 @@ export async function GET(
     const items: AdMediaItem[] = [];
     drafts.forEach((draft, idx) => {
       if (draft.kind === "image") {
-        const previewUrl =
-          draft.previewUrl ??
-          (draft.hash ? hashToUrl.get(draft.hash) : undefined);
+        // `picture`/`image_url` returned inline on creatives are CDN thumbs
+        // (~400px wide). The `/adimages?fields=url` response gives the full
+        // resolution upload, which is what users actually want when they
+        // download or zoom. Prefer the resolved URL when both exist.
+        const resolvedHashUrl = draft.hash
+          ? hashToUrl.get(draft.hash)
+          : undefined;
+        const previewUrl = resolvedHashUrl ?? draft.previewUrl;
         if (!previewUrl) return;
         const ext = inferImageExt(previewUrl);
         const baseFilename = slugify(adShallow.name, adShallow.id ?? adId);
@@ -336,13 +396,17 @@ export async function GET(
       const filename = `${baseFilename}${drafts.length > 1 ? `-${idx + 1}` : ""}.mp4`;
 
       if (!videoData || "__error" in videoData) {
+        const detail =
+          videoData && "__error" in videoData ? videoData.message : undefined;
         items.push({
           key: `vid-${idx}-${draft.videoId}`,
           kind: "video",
           previewUrl: draft.posterUrl ?? "",
           posterUrl: draft.posterUrl,
           videoStatus: "error",
-          videoErrorMessage: "Não foi possível obter informações deste vídeo.",
+          videoErrorMessage: detail
+            ? `Não foi possível obter informações deste vídeo: ${detail}`
+            : "Não foi possível obter informações deste vídeo.",
           name: draft.name,
         });
         return;
