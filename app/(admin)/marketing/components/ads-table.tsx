@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import {
   AdStatus,
   EffectiveStatus,
@@ -36,6 +37,8 @@ type AdsTableProps = {
   userId: string;
   adSetId?: string;
   onAdClick?: (ad: Ad) => void;
+  /** Disparado ao clicar na miniatura do anúncio. */
+  onMediaClick?: (ad: Ad) => void;
   /** Bumping this value triggers a refetch (e.g. after creating an ad). */
   refreshSignal?: number;
 };
@@ -45,6 +48,7 @@ export function AdsTable({
   userId,
   adSetId,
   onAdClick,
+  onMediaClick,
   refreshSignal,
 }: AdsTableProps) {
   const [ads, setAds] = useState<Ad[]>([]);
@@ -227,7 +231,14 @@ export function AdsTable({
             className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="flex gap-3">
-              <AdThumbnail ad={ad} size="sm" />
+              <div onClick={(e) => e.stopPropagation()}>
+                <AdThumbnailButton
+                  ad={ad}
+                  size="sm"
+                  onClick={onMediaClick ? () => onMediaClick(ad) : undefined}
+                  disabled={!onMediaClick}
+                />
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-start gap-1 flex-1 min-w-0">
@@ -385,8 +396,13 @@ export function AdsTable({
                           <div className="w-9 h-5" />
                         )}
                       </TableCell>
-                      <TableCell>
-                        <AdThumbnail ad={ad} size="sm" />
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <AdThumbnailButton
+                          ad={ad}
+                          size="sm"
+                          onClick={onMediaClick ? () => onMediaClick(ad) : undefined}
+                          disabled={!onMediaClick}
+                        />
                       </TableCell>
                       <TableCell className="font-medium text-sm">
                         <div className="flex items-center gap-1.5 min-w-0">
@@ -478,12 +494,19 @@ export function AdsTable({
   );
 }
 
-type AdThumbnailProps = {
+type AdThumbnailButtonProps = {
   ad: Ad;
   size?: "sm" | "md" | "lg";
+  onClick?: () => void;
+  disabled?: boolean;
 };
 
-function AdThumbnail({ ad, size = "sm" }: AdThumbnailProps) {
+function AdThumbnailButton({
+  ad,
+  size = "sm",
+  onClick,
+  disabled,
+}: AdThumbnailButtonProps) {
   const [imageError, setImageError] = useState(false);
 
   const sizeClasses = {
@@ -493,28 +516,43 @@ function AdThumbnail({ ad, size = "sm" }: AdThumbnailProps) {
   };
 
   const imageUrl = ad.creative?.thumbnailUrl ?? ad.creative?.imageUrl;
-
-  if (!imageUrl || imageError) {
-    return (
-      <div
-        className={`${sizeClasses[size]} rounded border border-border bg-muted flex items-center justify-center shrink-0`}
-      >
-        <ImageOff className="size-4 text-muted-foreground" />
-      </div>
-    );
-  }
+  const fallback = !imageUrl || imageError;
+  const interactive = !disabled && !!onClick;
 
   return (
-    <div
-      className={`${sizeClasses[size]} rounded border border-border overflow-hidden shrink-0`}
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      disabled={disabled}
+      aria-label={
+        interactive
+          ? `Ver mídia do anúncio ${ad.name ?? ""}`.trim()
+          : undefined
+      }
+      className={cn(
+        sizeClasses[size],
+        "rounded border border-border overflow-hidden shrink-0 relative p-0 bg-muted",
+        interactive
+          ? "cursor-pointer transition-all hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          : "cursor-default",
+      )}
     >
-      <img
-        src={imageUrl}
-        alt={ad.name ?? "Ad preview"}
-        className="size-full object-cover"
-        onError={() => setImageError(true)}
-      />
-    </div>
+      {fallback ? (
+        <div className="size-full flex items-center justify-center">
+          <ImageOff className="size-4 text-muted-foreground" />
+        </div>
+      ) : (
+        <img
+          src={imageUrl}
+          alt={ad.name ?? "Ad preview"}
+          className="size-full object-cover"
+          onError={() => setImageError(true)}
+        />
+      )}
+    </button>
   );
 }
 

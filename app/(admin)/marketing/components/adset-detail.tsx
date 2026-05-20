@@ -26,6 +26,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  type Ad,
   type AdSet,
   type AdSetGeoLocations,
   type AdSetScheduleBlock,
@@ -43,6 +44,7 @@ import { DateFilter } from "./date-filter";
 import { AdSetEditDialog } from "./adset-edit-dialog";
 import { AdSetEditHistory } from "./adset-edit-history";
 import { AdCreativeDialog } from "./ad-creative-dialog";
+import { AdMediaPreviewDialog } from "./ad-media-preview-dialog";
 import { DuplicateButton } from "./duplicate-button";
 import { NameEditButton } from "./name-edit-button";
 import {
@@ -100,6 +102,7 @@ export function AdSetDetail({
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [isCreateAdOpen, setIsCreateAdOpen] = useState(false);
   const [adsRefreshSignal, setAdsRefreshSignal] = useState(0);
+  const [selectedAdForMedia, setSelectedAdForMedia] = useState<Ad | null>(null);
 
   useEffect(() => {
     setAdSet(adSetProp);
@@ -524,6 +527,7 @@ export function AdSetDetail({
                 userId={userId}
                 adSetId={adSet.id}
                 refreshSignal={adsRefreshSignal}
+                onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />
             </section>
 
@@ -577,6 +581,16 @@ export function AdSetDetail({
           />
         </DialogContent>
       </Dialog>
+
+      <AdMediaPreviewDialog
+        open={selectedAdForMedia !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedAdForMedia(null);
+        }}
+        accountId={accountId}
+        userId={userId}
+        ad={selectedAdForMedia}
+      />
     </>
   );
 }
