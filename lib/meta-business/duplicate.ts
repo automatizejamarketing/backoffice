@@ -2,17 +2,24 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
 
 /**
- * Native Meta `/copies` duplication.
+ * Native Meta `/copies` duplication, orchestrated entity-by-entity.
  *
- * Meta copies the object server-side preserving 100% of the configuration
- * (targeting, budget, creative, promoted_object, schedule, ...). We copy with
- * `rename_strategy: NO_RENAME` and then rename the copied tree explicitly so the
- * names follow the SAME convention used when campaigns/ad sets/ads are created
- * (`<base>`, `<base> - Ad Set`, `<base> - Ad`).
+ * We deliberately DO NOT use `deep_copy=true` on campaign or ad set copies.
+ * Meta enforces a hard sync-copy limit (errorSubcode 1885194: "the number of
+ * ad objects to copy at once must be fewer than 3") that any campaign with
+ * more than 2 ad sets, or any ad set with more than 2 ads, would hit. The
+ * official async batch fallback returns the same error per the public Meta
+ * developer-community thread, so the only universally-reliable path is to
+ * copy one entity per call.
+ *
+ * For each copy Meta preserves 100% of the configuration (targeting, budget,
+ * creative, promoted_object, schedule, ...). We rename the copied tree after
+ * the fact to follow the SAME convention used when campaigns/ad sets/ads are
+ * created (`<base>`, `<base> - Ad Set`, `<base> - Ad`).
  *
  * Constraints enforced here:
- * - Ad set copy is always created in the SAME campaign (source `campaign_id`).
- * - Ad copy is always created in the SAME ad set (source `adset_id`).
+ * - Ad set copy is always created in the destination campaign.
+ * - Ad copy is always created in the destination ad set.
  * - Status of the copies is inherited from the source (INHERITED_FROM_SOURCE).
  */
 
@@ -20,17 +27,13 @@ const COPY_MARKER = "Cópia";
 const STATUS_OPTION = "INHERITED_FROM_SOURCE";
 const NO_RENAME = JSON.stringify({ rename_strategy: "NO_RENAME" });
 
-// Async deep copies (large campaigns) populate children eventually. App-created
-// campaigns have ~1 ad set, so the copy is normally synchronous.
-const TREE_POLL_ATTEMPTS = 6;
-const TREE_POLL_DELAY_MS = 1500;
+// Cap parallel ad copies inside a single ad set so we don't trigger Meta's
+// rate limiter on large adsets (25+ ads). Chosen empirically: high enough to
+// hide round-trip latency, low enough to stay under Meta's per-app throttle.
+const AD_COPY_CONCURRENCY = 5;
 
 function formatAccountId(accountId: string): string {
   return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -68,16 +71,22 @@ function missingCopyIdError(kind: string): GraphApiError {
   });
 }
 
+function errorMessage(err: unknown): string {
+  if (err instanceof GraphApiError) {
+    return (
+      err.errorReturn.reason.message ??
+      err.errorReturn.reason.title ??
+      "Erro desconhecido"
+    );
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 type CopyResponse = {
   copied_campaign_id?: string;
   copied_adset_id?: string;
   copied_ad_id?: string;
-  // Present for deep copies; we instead read the new tree by id (deterministic).
-  ad_object_ids?: Array<{
-    ad_object_type?: string;
-    source_id?: string;
-    copied_id?: string;
-  }>;
 };
 
 type NamedNode = { id: string; name?: string };
@@ -93,10 +102,52 @@ type CampaignTree = {
   };
 };
 
-type AdSetTree = {
-  name?: string;
-  ads?: { data?: NamedNode[] };
+export type FailedCopy = {
+  /** Source object id (the one we tried to copy). */
+  sourceId: string;
+  sourceName?: string;
+  /** Source ad set id, only set for failed ad copies. */
+  sourceAdsetId?: string;
+  /** Why Meta rejected (or the call timed out). */
+  error: string;
 };
+
+export type DuplicateResult = {
+  id: string;
+  name: string;
+  sourceName: string;
+  /** Adsets that failed to copy. Only present when at least one failed. */
+  failedAdsets?: FailedCopy[];
+  /** Ads that failed to copy. Only present when at least one failed. */
+  failedAds?: FailedCopy[];
+};
+
+/**
+ * Run `fn` over `items` with at most `concurrency` workers in flight. Each
+ * task is independent — failures do NOT abort the others; instead the caller
+ * inspects the per-item `Result`. Preserves input order in the output array.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const i = cursor;
+      cursor += 1;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
 
 async function renameObject(
   objectId: string,
@@ -117,52 +168,13 @@ async function getCampaignTree(
   campaignId: string,
   accessToken: string,
 ): Promise<CampaignTree> {
-  const tree = await metaApiCall<CampaignTree>({
+  return metaApiCall<CampaignTree>({
     domain: "FACEBOOK",
     method: "GET",
     path: campaignId,
     params: "fields=name,adsets.limit(200){id,name,ads.limit(200){id,name}}",
     accessToken,
   });
-  return tree;
-}
-
-/**
- * Map each SOURCE ad set id -> COPIED ad set id. Campaign `/copies` returns
- * this in `ad_object_ids` (campaign deep copy creates the campaign + ad sets
- * but NOT the ads — confirmed empirically). Fallback when `ad_object_ids` is
- * absent: poll the new campaign tree and match copied ad sets to source ad
- * sets by name (NO_RENAME keeps names equal until we rename).
- */
-async function resolveCopiedAdsetMap(args: {
-  copy: CopyResponse;
-  newCampaignId: string;
-  sourceAdsets: Array<{ id: string; name?: string }>;
-  accessToken: string;
-}): Promise<Map<string, string>> {
-  const { copy, newCampaignId, sourceAdsets, accessToken } = args;
-  const map = new Map<string, string>();
-
-  for (const obj of copy.ad_object_ids ?? []) {
-    if (obj.ad_object_type === "ad_set" && obj.source_id && obj.copied_id) {
-      map.set(obj.source_id, obj.copied_id);
-    }
-  }
-  if (map.size > 0) return map;
-
-  let tree: CampaignTree = { adsets: { data: [] } };
-  for (let attempt = 0; attempt < TREE_POLL_ATTEMPTS; attempt += 1) {
-    tree = await getCampaignTree(newCampaignId, accessToken);
-    if ((tree.adsets?.data?.length ?? 0) >= sourceAdsets.length) break;
-    if (attempt < TREE_POLL_ATTEMPTS - 1) await delay(TREE_POLL_DELAY_MS);
-  }
-  const copied = [...(tree.adsets?.data ?? [])];
-  for (const sa of sourceAdsets) {
-    const idx = copied.findIndex((c) => c.name === sa.name);
-    const match = idx >= 0 ? copied.splice(idx, 1)[0] : copied.shift();
-    if (match) map.set(sa.id, match.id);
-  }
-  return map;
 }
 
 async function listAdsetAds(
@@ -180,8 +192,32 @@ async function listAdsetAds(
 }
 
 /**
- * Native ad `/copies` into a specific (copied) ad set — same mechanism as
- * `duplicateAd`. Returns the copied ad id (creative is duplicated by Meta).
+ * Copy a single ad set into a target campaign. No `deep_copy`: this only
+ * creates the ad set itself; ads are copied separately by the caller.
+ */
+async function copyAdsetInto(
+  sourceAdsetId: string,
+  targetCampaignId: string,
+  accessToken: string,
+): Promise<string | undefined> {
+  const res = await metaApiCall<CopyResponse>({
+    domain: "FACEBOOK",
+    method: "POST",
+    path: `${sourceAdsetId}/copies`,
+    params: "",
+    body: new URLSearchParams({
+      campaign_id: targetCampaignId,
+      status_option: STATUS_OPTION,
+      rename_options: NO_RENAME,
+    }),
+    accessToken,
+  });
+  return res.copied_adset_id;
+}
+
+/**
+ * Copy a single ad into a target ad set. Meta duplicates the creative as part
+ * of this call.
  */
 async function copyAdInto(
   sourceAdId: string,
@@ -203,15 +239,46 @@ async function copyAdInto(
   return res.copied_ad_id;
 }
 
-export type DuplicateResult = {
-  id: string;
-  name: string;
-  sourceName: string;
-};
+type AdCopyOutcome =
+  | { ok: true; sourceAd: NamedNode; copiedAdId: string }
+  | { ok: false; sourceAd: NamedNode; error: string };
 
 /**
- * Deep-copies a campaign (all ad sets + ads) and renames the whole tree to
- * follow the creation convention derived from `<sourceName> - Cópia`.
+ * Copy every ad in `sourceAds` into `targetAdsetId` with bounded concurrency.
+ * Per-ad failures are captured (never thrown) so a single bad ad cannot abort
+ * the rest of the duplication.
+ */
+async function copyAdsIntoAdset(
+  sourceAds: NamedNode[],
+  targetAdsetId: string,
+  accessToken: string,
+): Promise<AdCopyOutcome[]> {
+  return mapWithConcurrency<NamedNode, AdCopyOutcome>(
+    sourceAds,
+    AD_COPY_CONCURRENCY,
+    async (ad) => {
+      try {
+        const copiedAdId = await copyAdInto(ad.id, targetAdsetId, accessToken);
+        if (!copiedAdId) {
+          return {
+            ok: false,
+            sourceAd: ad,
+            error: "A Meta não retornou o ID do anúncio copiado.",
+          };
+        }
+        return { ok: true, sourceAd: ad, copiedAdId };
+      } catch (err) {
+        return { ok: false, sourceAd: ad, error: errorMessage(err) };
+      }
+    },
+  );
+}
+
+/**
+ * Duplicates a campaign (and its full tree: ad sets + ads) one entity at a
+ * time, avoiding Meta's sync-copy size limit entirely. Renames the copied
+ * tree to follow the creation convention. Per-entity failures are reported
+ * back in `failedAdsets` / `failedAds` so the caller can warn the user.
  */
 export async function duplicateCampaign(args: {
   accountId: string;
@@ -221,9 +288,8 @@ export async function duplicateCampaign(args: {
   const { accountId, campaignId, accessToken } = args;
   const act = formatAccountId(accountId);
 
-
-  // Source tree up front: drives the copy name and the source ad set list.
   const sourceTree = await getCampaignTree(campaignId, accessToken);
+  const sourceAdsets = sourceTree.adsets?.data ?? [];
 
   const siblings = await metaApiCall<{ data?: NamedNode[] }>({
     domain: "FACEBOOK",
@@ -238,74 +304,84 @@ export async function duplicateCampaign(args: {
     (siblings.data ?? []).map((c) => c.name ?? ""),
   );
 
-
-  const copy = await metaApiCall<CopyResponse>({
+  // 1) Copy the campaign by itself (no deep_copy → exactly 1 object).
+  const campaignCopy = await metaApiCall<CopyResponse>({
     domain: "FACEBOOK",
     method: "POST",
     path: `${campaignId}/copies`,
     params: "",
     body: new URLSearchParams({
-      deep_copy: "true",
       status_option: STATUS_OPTION,
       rename_options: NO_RENAME,
     }),
     accessToken,
   });
 
-
-  const newCampaignId = copy.copied_campaign_id;
+  const newCampaignId = campaignCopy.copied_campaign_id;
   if (!newCampaignId) throw missingCopyIdError("da campanha");
 
-  // Campaign `/copies` copies the campaign + ad sets but NOT the ads (Meta
-  // returns only `campaign`/`ad_set` in `ad_object_ids`). So copy each ad
-  // explicitly into its corresponding copied ad set.
-  const sourceAdsets = sourceTree.adsets?.data ?? [];
-  const adsetMap = await resolveCopiedAdsetMap({
-    copy,
-    newCampaignId,
-    sourceAdsets,
-    accessToken,
-  });
+  // 2) For each source ad set, copy it (1 object), then parallel-copy its
+  //    ads into the freshly copied ad set. Track failures non-fatally.
+  type AdsetCopyState = {
+    sourceAdset: NamedNode;
+    copiedAdsetId: string;
+    adOutcomes: AdCopyOutcome[];
+  };
 
+  const adsetStates: AdsetCopyState[] = [];
+  const failedAdsets: FailedCopy[] = [];
 
-  const copiedAdsBySourceAdset = new Map<string, string[]>();
-  let totalAds = 0;
   for (const sa of sourceAdsets) {
-    const targetAdsetId = adsetMap.get(sa.id);
-    if (!targetAdsetId) {
+    let copiedAdsetId: string | undefined;
+    try {
+      copiedAdsetId = await copyAdsetInto(sa.id, newCampaignId, accessToken);
+    } catch (err) {
+      failedAdsets.push({
+        sourceId: sa.id,
+        sourceName: sa.name,
+        error: errorMessage(err),
+      });
       continue;
     }
-    const sourceAds = await listAdsetAds(sa.id, accessToken);
-    const copiedIds: string[] = [];
-    for (const ad of sourceAds) {
-      const copiedAdId = await copyAdInto(ad.id, targetAdsetId, accessToken);
-      if (copiedAdId) {
-        copiedIds.push(copiedAdId);
-        totalAds += 1;
-      }
+    if (!copiedAdsetId) {
+      failedAdsets.push({
+        sourceId: sa.id,
+        sourceName: sa.name,
+        error: "A Meta não retornou o ID do conjunto copiado.",
+      });
+      continue;
     }
-    copiedAdsBySourceAdset.set(sa.id, copiedIds);
+
+    const sourceAds = sa.ads?.data ?? (await listAdsetAds(sa.id, accessToken));
+    const adOutcomes = await copyAdsIntoAdset(
+      sourceAds,
+      copiedAdsetId,
+      accessToken,
+    );
+    adsetStates.push({ sourceAdset: sa, copiedAdsetId, adOutcomes });
   }
 
-  // Rename the whole tree following the creation naming convention.
+  // 3) Rename the whole tree (campaign + adsets + ads) following the creation
+  //    convention. Renames are sequential to keep error reporting simple.
   await renameObject(newCampaignId, newName, accessToken);
 
+  const totalAds = adsetStates.reduce(
+    (acc, s) => acc + s.adOutcomes.filter((o) => o.ok).length,
+    0,
+  );
   let adIndex = 0;
-  for (let i = 0; i < sourceAdsets.length; i += 1) {
-    const sa = sourceAdsets[i];
-    const copiedAdsetId = adsetMap.get(sa.id);
-    if (!copiedAdsetId) continue;
-
+  for (let i = 0; i < adsetStates.length; i += 1) {
+    const state = adsetStates[i];
     await renameObject(
-      copiedAdsetId,
-      `${newName} - Ad Set${childSuffix(sourceAdsets.length, i)}`,
+      state.copiedAdsetId,
+      `${newName} - Ad Set${childSuffix(adsetStates.length, i)}`,
       accessToken,
     );
 
-    const copiedIds = copiedAdsBySourceAdset.get(sa.id) ?? [];
-    for (const copiedAdId of copiedIds) {
+    for (const outcome of state.adOutcomes) {
+      if (!outcome.ok) continue;
       await renameObject(
-        copiedAdId,
+        outcome.copiedAdId,
         `${newName} - Ad${childSuffix(totalAds, adIndex)}`,
         accessToken,
       );
@@ -313,18 +389,33 @@ export async function duplicateCampaign(args: {
     }
   }
 
+  const failedAds = adsetStates.flatMap((state) =>
+    state.adOutcomes
+      .filter((o): o is Extract<AdCopyOutcome, { ok: false }> => !o.ok)
+      .map(
+        (o): FailedCopy => ({
+          sourceId: o.sourceAd.id,
+          sourceName: o.sourceAd.name,
+          sourceAdsetId: state.sourceAdset.id,
+          error: o.error,
+        }),
+      ),
+  );
 
   return {
     id: newCampaignId,
     name: newName,
     sourceName: sourceTree.name ?? "Campanha",
+    ...(failedAdsets.length > 0 && { failedAdsets }),
+    ...(failedAds.length > 0 && { failedAds }),
   };
 }
 
 /**
- * Copies an ad set (with its ads) WITHIN THE SAME campaign. The source
- * `campaign_id` is read and passed explicitly so the copy can never land in a
- * different campaign.
+ * Duplicates an ad set (with its ads) WITHIN THE SAME campaign, copying the
+ * ad set itself and each ad individually so Meta's sync-copy limit is never
+ * hit. The source `campaign_id` is read and passed explicitly so the copy
+ * lands in the same campaign as the original.
  */
 export async function duplicateAdSet(args: {
   accountId: string;
@@ -343,70 +434,74 @@ export async function duplicateAdSet(args: {
 
   if (!source.campaign_id) throw missingCopyIdError("da campanha de origem");
 
-  const siblings = await metaApiCall<{ data?: NamedNode[] }>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: `${source.campaign_id}/adsets`,
-    params: "fields=name&limit=500",
-    accessToken,
-  });
+  const [siblings, sourceAds] = await Promise.all([
+    metaApiCall<{ data?: NamedNode[] }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${source.campaign_id}/adsets`,
+      params: "fields=name&limit=500",
+      accessToken,
+    }),
+    listAdsetAds(adsetId, accessToken),
+  ]);
 
   const newName = resolveCopyName(
     source.name ?? "Conjunto",
     (siblings.data ?? []).map((a) => a.name ?? ""),
   );
 
-  const copy = await metaApiCall<CopyResponse>({
-    domain: "FACEBOOK",
-    method: "POST",
-    path: `${adsetId}/copies`,
-    params: "",
-    body: new URLSearchParams({
-      campaign_id: source.campaign_id,
-      deep_copy: "true",
-      status_option: STATUS_OPTION,
-      rename_options: NO_RENAME,
-    }),
+  // 1) Copy the ad set itself (no deep_copy → exactly 1 object).
+  const newAdsetId = await copyAdsetInto(
+    adsetId,
+    source.campaign_id,
     accessToken,
-  });
-
-  const newAdsetId = copy.copied_adset_id;
+  );
   if (!newAdsetId) throw missingCopyIdError("do conjunto");
 
-  let adsetTree: AdSetTree = {};
-  for (let attempt = 0; attempt < TREE_POLL_ATTEMPTS; attempt += 1) {
-    adsetTree = await metaApiCall<AdSetTree>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: newAdsetId,
-      params: "fields=name,ads.limit(200){id,name}",
-      accessToken,
-    });
-    if ((adsetTree.ads?.data?.length ?? 0) > 0) break;
-    if (attempt < TREE_POLL_ATTEMPTS - 1) await delay(TREE_POLL_DELAY_MS);
-  }
+  // 2) Parallel-copy the ads into the new ad set, tracking failures.
+  const adOutcomes = await copyAdsIntoAdset(
+    sourceAds,
+    newAdsetId,
+    accessToken,
+  );
 
+  // 3) Rename ad set + each successfully copied ad.
   await renameObject(newAdsetId, newName, accessToken);
 
-  const ads = adsetTree.ads?.data ?? [];
-  for (let i = 0; i < ads.length; i += 1) {
+  const successfulAdCount = adOutcomes.filter((o) => o.ok).length;
+  let adIndex = 0;
+  for (const outcome of adOutcomes) {
+    if (!outcome.ok) continue;
     await renameObject(
-      ads[i].id,
-      `${newName} - Ad${childSuffix(ads.length, i)}`,
+      outcome.copiedAdId,
+      `${newName} - Ad${childSuffix(successfulAdCount, adIndex)}`,
       accessToken,
     );
+    adIndex += 1;
   }
+
+  const failedAds = adOutcomes
+    .filter((o): o is Extract<AdCopyOutcome, { ok: false }> => !o.ok)
+    .map(
+      (o): FailedCopy => ({
+        sourceId: o.sourceAd.id,
+        sourceName: o.sourceAd.name,
+        sourceAdsetId: adsetId,
+        error: o.error,
+      }),
+    );
 
   return {
     id: newAdsetId,
     name: newName,
     sourceName: source.name ?? "Conjunto",
+    ...(failedAds.length > 0 && { failedAds }),
   };
 }
 
 /**
- * Copies an ad WITHIN THE SAME ad set. The source `adset_id` is read and passed
- * explicitly so the copy can never land in a different ad set.
+ * Copies an ad WITHIN THE SAME ad set. Single-entity `/copies` already fits
+ * Meta's sync limit comfortably, so this path is unchanged from before.
  */
 export async function duplicateAd(args: {
   accountId: string;
@@ -438,20 +533,7 @@ export async function duplicateAd(args: {
     (siblings.data ?? []).map((a) => a.name ?? ""),
   );
 
-  const copy = await metaApiCall<CopyResponse>({
-    domain: "FACEBOOK",
-    method: "POST",
-    path: `${adId}/copies`,
-    params: "",
-    body: new URLSearchParams({
-      adset_id: source.adset_id,
-      status_option: STATUS_OPTION,
-      rename_options: NO_RENAME,
-    }),
-    accessToken,
-  });
-
-  const newAdId = copy.copied_ad_id;
+  const newAdId = await copyAdInto(adId, source.adset_id, accessToken);
   if (!newAdId) throw missingCopyIdError("do anúncio");
 
   await renameObject(newAdId, newName, accessToken);

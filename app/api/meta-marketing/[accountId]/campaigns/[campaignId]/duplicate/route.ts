@@ -5,7 +5,7 @@ import {
   graphErrorToClientError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
-import { duplicateCampaign } from "@/lib/meta-business/duplicate";
+import { duplicateCampaign, type FailedCopy } from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
 
 export type DuplicateCampaignResponse = {
@@ -13,6 +13,13 @@ export type DuplicateCampaignResponse = {
   id: string;
   name: string;
   auditLogFailed?: boolean;
+  /**
+   * Ad sets that Meta refused to copy. The campaign was still created — these
+   * are individual sub-copies that failed and would need a manual retry.
+   */
+  failedAdsets?: FailedCopy[];
+  /** Ads that failed to copy under an otherwise-successful ad set. */
+  failedAds?: FailedCopy[];
 };
 
 export type DuplicateErrorResponse = {
@@ -84,7 +91,14 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { success: true, id: result.id, name: result.name, auditLogFailed },
+      {
+        success: true,
+        id: result.id,
+        name: result.name,
+        auditLogFailed,
+        ...(result.failedAdsets && { failedAdsets: result.failedAdsets }),
+        ...(result.failedAds && { failedAds: result.failedAds }),
+      },
       { status: 201 },
     );
   } catch (error) {
