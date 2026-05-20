@@ -1,9 +1,11 @@
 import { metaApiCall } from "../api";
 import { GraphApiError } from "../error";
 import {
+  createAdCreative,
   createAdCreativeFromInstagramPost,
   createDynamicAdCreative,
   createDynamicVideoAdCreative,
+  createVideoAdCreative,
 } from "./creative-builders";
 import { uploadImageToAdAccount } from "./upload-ad-image";
 import { uploadVideoToMeta } from "./upload-video-to-meta";
@@ -17,8 +19,17 @@ export type AdMediaInput =
 /**
  * Instagram posts preserve their own caption (built via
  * `source_instagram_media_id`), so `titles`/`texts` are ignored for them.
- * Image/video creatives use Dynamic Creative with 1-5 titles and 1-5 texts
- * (mirrors automatize-frontend's campaign creation).
+ *
+ * For image/video creatives, the validation is bifurcated by
+ * `adSetIsDynamic` at the call site:
+ * - non-dynamic ad sets (new flow): exactly 1 title + 1 text — sent to
+ *   Meta via object_story_spec.link_data / .video_data.
+ * - dynamic ad sets (legacy — `is_dynamic_creative=true` cannot be
+ *   undone): 1–5 titles and 1–5 texts — sent to Meta via asset_feed_spec.
+ *
+ * The shape of `AdCreativeText` is kept as arrays so the request payload
+ * stays consistent across both modes; the single-text mode just sends
+ * arrays with one entry.
  */
 export type AdCreativeText = {
   titles: string[];
@@ -30,25 +41,58 @@ export type AdCreativeText = {
 const MAX_TITLES = 5;
 const MAX_TEXTS = 5;
 
-function validateDynamicText(titles: string[], texts: string[]): void {
+function validateAdText(
+  titles: string[],
+  texts: string[],
+  adSetIsDynamic: boolean,
+): void {
   const t = titles.map((s) => s.trim()).filter(Boolean);
   const b = texts.map((s) => s.trim()).filter(Boolean);
-  const fail = (message: string) => {
+  const fail = (message: string, solution: string) => {
     throw new GraphApiError({
       statusCode: 400,
       reason: {
         httpStatusCode: 400,
         title: "Texto do anúncio inválido",
         message,
-        solution: "Informe entre 1 e 5 títulos e entre 1 e 5 textos.",
+        solution,
         isTransient: false,
       },
     });
   };
-  if (t.length < 1) fail("Informe ao menos um título.");
-  if (t.length > MAX_TITLES) fail(`No máximo ${MAX_TITLES} títulos.`);
-  if (b.length < 1) fail("Informe ao menos um texto principal.");
-  if (b.length > MAX_TEXTS) fail(`No máximo ${MAX_TEXTS} textos principais.`);
+  if (adSetIsDynamic) {
+    if (t.length < 1)
+      fail(
+        "Informe ao menos um título.",
+        "Informe entre 1 e 5 títulos e entre 1 e 5 textos.",
+      );
+    if (t.length > MAX_TITLES)
+      fail(
+        `No máximo ${MAX_TITLES} títulos.`,
+        "Informe entre 1 e 5 títulos e entre 1 e 5 textos.",
+      );
+    if (b.length < 1)
+      fail(
+        "Informe ao menos um texto principal.",
+        "Informe entre 1 e 5 títulos e entre 1 e 5 textos.",
+      );
+    if (b.length > MAX_TEXTS)
+      fail(
+        `No máximo ${MAX_TEXTS} textos principais.`,
+        "Informe entre 1 e 5 títulos e entre 1 e 5 textos.",
+      );
+  } else {
+    if (t.length !== 1)
+      fail(
+        "Informe exatamente um título.",
+        "Anúncios de criativo não dinâmico aceitam 1 título e 1 texto principal.",
+      );
+    if (b.length !== 1)
+      fail(
+        "Informe exatamente um texto principal.",
+        "Anúncios de criativo não dinâmico aceitam 1 título e 1 texto principal.",
+      );
+  }
 }
 
 export type ResolvedPage = {
@@ -217,7 +261,8 @@ export async function buildCreativeFromMedia(args: {
 
   // Instagram = boost an existing post (source_instagram_media_id), a
   // non-dynamic creative. Meta forbids it in a Dynamic Creative ad set and
-  // there is no way to express an existing IG post as asset_feed_spec.
+  // there is no way to express an existing IG post as asset_feed_spec, so
+  // legacy dynamic ad sets keep refusing Instagram media.
   if (media.kind === "instagram") {
     if (adSetIsDynamic) {
       throw new GraphApiError({
@@ -245,39 +290,31 @@ export async function buildCreativeFromMedia(args: {
     };
   }
 
-  // Automatize / device media always use Dynamic Creative (asset_feed_spec).
-  // The ad set's is_dynamic_creative is fixed at creation and cannot be
-  // toggled, so a non-dynamic ad set is incompatible — surface a clear,
-  // actionable error BEFORE uploading anything to Meta.
-  if (!adSetIsDynamic) {
-    throw new GraphApiError({
-      statusCode: 400,
-      reason: {
-        httpStatusCode: 400,
-        title: "Conjunto de anúncios não é de Criativo Dinâmico",
-        message:
-          "Mídias do Automatize e do dispositivo usam Criativo Dinâmico, mas este conjunto de anúncios não é de Criativo Dinâmico.",
-        solution:
-          "Selecione uma publicação do Instagram, ou use um conjunto de anúncios de Criativo Dinâmico.",
-        isTransient: false,
-      },
-    });
-  }
-
-  // 1-5 titles + 1-5 texts for the Dynamic Creative asset_feed_spec.
-  validateDynamicText(text.titles, text.texts);
+  // Automatize / device media: bifurcate by the ad set's is_dynamic_creative
+  // (fixed at creation, cannot be toggled afterwards).
+  //   - legacy dynamic ad sets → asset_feed_spec with 1-5 titles + 1-5 texts.
+  //   - new non-dynamic ad sets → object_story_spec.link_data/.video_data
+  //     with exactly 1 title and 1 text.
+  validateAdText(text.titles, text.texts, adSetIsDynamic);
   const titles = text.titles.map((s) => s.trim()).filter(Boolean);
   const texts = text.texts.map((s) => s.trim()).filter(Boolean);
 
   if (media.kind === "automatize_image" || media.kind === "device_image") {
     const imageUrl =
       media.kind === "automatize_image" ? media.imageUrl : media.blobUrl;
-    const creative = await createDynamicAdCreative({
-      ...common,
-      imageUrl,
-      titles,
-      texts,
-    });
+    const creative = adSetIsDynamic
+      ? await createDynamicAdCreative({
+          ...common,
+          imageUrl,
+          titles,
+          texts,
+        })
+      : await createAdCreative({
+          ...common,
+          imageUrl,
+          headline: titles[0],
+          bodyText: texts[0],
+        });
     return {
       phase: "creative_ready",
       creativeId: creative.id,
@@ -303,13 +340,21 @@ export async function buildCreativeFromMedia(args: {
     };
   }
 
-  const creative = await createDynamicVideoAdCreative({
-    ...common,
-    videoId: args.confirmedVideo.videoId,
-    thumbnailUrl: args.confirmedVideo.thumbnailUrl,
-    titles,
-    texts,
-  });
+  const creative = adSetIsDynamic
+    ? await createDynamicVideoAdCreative({
+        ...common,
+        videoId: args.confirmedVideo.videoId,
+        thumbnailUrl: args.confirmedVideo.thumbnailUrl,
+        titles,
+        texts,
+      })
+    : await createVideoAdCreative({
+        ...common,
+        videoId: args.confirmedVideo.videoId,
+        thumbnailUrl: args.confirmedVideo.thumbnailUrl,
+        headline: titles[0],
+        bodyText: texts[0],
+      });
   return {
     phase: "creative_ready",
     creativeId: creative.id,

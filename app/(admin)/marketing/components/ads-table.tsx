@@ -36,6 +36,11 @@ type AdsTableProps = {
   accountId: string;
   userId: string;
   adSetId?: string;
+  /**
+   * Whether the parent ad set has Dynamic Creative enabled. Forwarded to the
+   * per-row edit-creative button so the edit dialog matches the ad set mode.
+   */
+  adSetIsDynamic?: boolean;
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
@@ -47,6 +52,7 @@ export function AdsTable({
   accountId,
   userId,
   adSetId,
+  adSetIsDynamic,
   onAdClick,
   onMediaClick,
   refreshSignal,
@@ -290,6 +296,7 @@ export function AdsTable({
                       accountId={accountId}
                       userId={userId}
                       ad={{ id: ad.id, name: ad.name }}
+                      adSetIsDynamic={adSetIsDynamic}
                       onEdited={() => fetchAds(currentCursor)}
                     />
                     <DuplicateButton

@@ -60,6 +60,16 @@ export function hasValidDynamicText(value: AdCreativeFormValue): boolean {
   );
 }
 
+/**
+ * Validate that exactly one non-empty title and one non-empty text are set —
+ * the contract for ads in non-dynamic ad sets (the new default flow).
+ */
+export function hasValidSingleText(value: AdCreativeFormValue): boolean {
+  const titles = value.titles.map((t) => t.trim()).filter(Boolean);
+  const texts = value.texts.map((t) => t.trim()).filter(Boolean);
+  return titles.length === 1 && texts.length === 1;
+}
+
 type AdCreativeFormProps = {
   value: AdCreativeFormValue;
   onChange: (value: AdCreativeFormValue) => void;
@@ -67,6 +77,15 @@ type AdCreativeFormProps = {
   hideText?: boolean;
   showStatus?: boolean;
   disabled?: boolean;
+  /**
+   * "single" (default) → 1 title + 1 text, hides add/remove controls;
+   *   used for new (non-dynamic) ad sets and for any ad set whose
+   *   `is_dynamic_creative` is false.
+   * "multi" → 1-5 titles + 1-5 texts with the add/remove controls;
+   *   used only for legacy ad sets created when the dynamic-creative
+   *   flow was the default (Meta cannot toggle the flag off).
+   */
+  mode?: "single" | "multi";
 };
 
 export function AdCreativeForm({
@@ -75,6 +94,7 @@ export function AdCreativeForm({
   hideText = false,
   showStatus = true,
   disabled = false,
+  mode = "single",
 }: AdCreativeFormProps) {
   const set = <K extends keyof AdCreativeFormValue>(
     key: K,
@@ -105,7 +125,32 @@ export function AdCreativeForm({
 
   return (
     <div className="flex flex-col gap-5">
-      {!hideText && (
+      {!hideText && mode === "single" && (
+        <>
+          <div className="space-y-2.5">
+            <Label className="text-sm font-medium">Título</Label>
+            <Input
+              placeholder="Título"
+              value={value.titles[0] ?? ""}
+              disabled={disabled}
+              onChange={(e) => updateList("titles", 0, e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2.5">
+            <Label className="text-sm font-medium">Texto principal</Label>
+            <Textarea
+              rows={3}
+              placeholder="Texto principal"
+              value={value.texts[0] ?? ""}
+              disabled={disabled}
+              onChange={(e) => updateList("texts", 0, e.target.value)}
+            />
+          </div>
+        </>
+      )}
+
+      {!hideText && mode === "multi" && (
         <>
           <div className="space-y-2.5">
             <div className="flex items-center gap-2">

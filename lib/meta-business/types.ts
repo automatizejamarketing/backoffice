@@ -478,6 +478,7 @@ export type GraphApiAdSet = {
   bid_strategy?: string;
   destination_type?: string;
   promoted_object?: Record<string, unknown>;
+  is_dynamic_creative?: boolean;
   targeting?: AdSetTargeting;
   targetingsentencelines?: {
     data: TargetingSentenceLine[];
@@ -517,6 +518,12 @@ export type AdSet = {
   bidStrategy?: string;
   destinationType?: string;
   promotedObject?: Record<string, unknown>;
+  /**
+   * Whether this ad set was created with Dynamic Creative enabled. Meta does
+   * not allow toggling this flag after creation, so legacy ad sets created
+   * during the dynamic-creative flow keep it `true` forever.
+   */
+  isDynamicCreative?: boolean;
   targeting?: AdSetTargeting;
   targetingSentenceLines?: TargetingSentenceLine[];
   pacingType?: string[] | string;

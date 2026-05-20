@@ -526,6 +526,7 @@ export function AdSetDetail({
                 accountId={accountId}
                 userId={userId}
                 adSetId={adSet.id}
+                adSetIsDynamic={adSet.isDynamicCreative === true}
                 refreshSignal={adsRefreshSignal}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />
@@ -565,6 +566,7 @@ export function AdSetDetail({
           userId={userId}
           adsetId={adSet.id}
           adsetName={adSet.name}
+          adSetIsDynamic={adSet.isDynamicCreative === true}
           isOpen={isCreateAdOpen}
           onClose={() => setIsCreateAdOpen(false)}
           onCreated={() => setAdsRefreshSignal((s) => s + 1)}

@@ -15,6 +15,7 @@ import {
   AdCreativeForm,
   DEFAULT_AD_CREATIVE_FORM,
   hasValidDynamicText,
+  hasValidSingleText,
   isValidHttpsUrl,
   type AdCreativeFormValue,
 } from "./ad-creative-form";
@@ -28,6 +29,14 @@ type CreateModeProps = {
   userId: string;
   adsetId: string;
   adsetName?: string;
+  /**
+   * Whether the target ad set has Dynamic Creative enabled. When true (legacy
+   * ad sets created before this flow was migrated), the form accepts 1-5
+   * titles / 1-5 texts. When false (or unset, which is the new default), the
+   * form accepts exactly 1 title and 1 text and the creative is built as a
+   * non-dynamic `object_story_spec`.
+   */
+  adSetIsDynamic?: boolean;
   isOpen: boolean;
   onClose: () => void;
   onCreated: () => void;
@@ -38,6 +47,8 @@ type EditModeProps = {
   accountId: string;
   userId: string;
   ad: { id: string; name?: string };
+  /** Same semantics as in create mode (the parent ad set of the ad). */
+  adSetIsDynamic?: boolean;
   isOpen: boolean;
   onClose: () => void;
   onEdited: () => void;
@@ -89,14 +100,22 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
 
   const isVideo = media?.source === "device" && media.mediaType === "video";
   const isInstagram = media?.source === "instagram";
+  const formMode: "single" | "multi" = props.adSetIsDynamic ? "multi" : "single";
 
   const canSubmit = useMemo(() => {
     if (!media) return false;
     if (!isValidHttpsUrl(form.linkUrl)) return false;
-    // Instagram keeps its own caption; image/video need 1-5 titles + texts.
-    if (!isInstagram && !hasValidDynamicText(form)) return false;
+    // Instagram keeps its own caption; image/video need the text matching the
+    // ad set's mode (1 title + 1 text for non-dynamic, 1-5 each for legacy).
+    if (!isInstagram) {
+      const textOk =
+        formMode === "single"
+          ? hasValidSingleText(form)
+          : hasValidDynamicText(form);
+      if (!textOk) return false;
+    }
     return builder.phase === "editing" || builder.phase === "error";
-  }, [media, isInstagram, form, builder.phase]);
+  }, [media, isInstagram, form, formMode, builder.phase]);
 
   const showForm =
     builder.phase === "editing" || builder.phase === "error";
@@ -177,6 +196,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                     onChange={setForm}
                     hideText={isInstagram}
                     showStatus={!isEdit}
+                    mode={formMode}
                   />
                 </div>
               </div>
