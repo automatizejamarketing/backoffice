@@ -45,6 +45,7 @@ import {
   getCampaignMetricsForObjective,
   type CampaignMetricId,
 } from "../utils/campaign-metrics";
+import { getMetricLabel } from "../utils/metric-formatters";
 
 type CampaignDetailProps = {
   campaign: Campaign;
@@ -451,6 +452,7 @@ export function CampaignDetail({
                 accountId={accountId}
                 userId={userId}
                 campaignId={campaign.id}
+                objective={campaign.objective}
                 onAdSetClick={handleAdSetClick}
                 refreshKey={adSetsRefreshKey}
               />
@@ -464,6 +466,7 @@ export function CampaignDetail({
           adSet={selectedAdSet}
           accountId={accountId}
           userId={userId}
+          objective={campaign.objective}
           isOpen={isAdSetDetailOpen}
           onClose={handleCloseAdSetDetail}
           onDuplicated={() => setAdSetsRefreshKey((prev) => prev + 1)}
@@ -494,24 +497,3 @@ export function CampaignDetail({
   );
 }
 
-function getMetricLabel(labelKey: string): string {
-  const labels: Record<string, string> = {
-    spend: "Gasto",
-    impressions: "Impressões",
-    clicks: "Cliques",
-    reach: "Alcance",
-    cpc: "CPC",
-    ctr: "CTR",
-    cpm: "CPM",
-    roas: "ROAS",
-    cpa: "CPA",
-    purchaseValue: "Valor de compra",
-    numberOfPurchases: "Compras",
-    linkClicks: "Cliques no link",
-    landingPageViews: "Views da página",
-    cpl: "CPL",
-    numberOfLeads: "Leads",
-  };
-
-  return labels[labelKey] ?? labelKey;
-}

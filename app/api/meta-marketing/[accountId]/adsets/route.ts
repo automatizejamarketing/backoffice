@@ -53,7 +53,7 @@ export type AdSetsErrorResponse = {
 
 function buildAdSetFields(): string {
   const insightsFields =
-    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,date_start,date_stop}";
+    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
 
   return [
     "id",

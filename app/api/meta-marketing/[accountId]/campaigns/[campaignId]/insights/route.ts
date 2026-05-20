@@ -3,49 +3,11 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { transformInsightsData } from "@/lib/meta-business/transformers";
 import type {
-  DatePreset,
   GraphApiInsights,
   InsightsMetrics,
-  TimeIncrement,
 } from "@/lib/meta-business/types";
-
-const PURCHASE_ACTION_TYPES = [
-  "purchase",
-  "omni_purchase",
-  "offsite_conversion.fb_pixel_purchase",
-] as const;
-
-const LEAD_ACTION_TYPES = [
-  "lead",
-  "complete_registration",
-  "onsite_conversion.lead_grouped",
-] as const;
-
-const LINK_CLICK_ACTION_TYPES = ["link_click"] as const;
-
-const LANDING_PAGE_VIEW_ACTION_TYPES = [
-  "landing_page_view",
-  "onsite_conversion.landing_page_view",
-] as const;
-
-function getActionValue(
-  actions:
-    | GraphApiInsights["actions"]
-    | GraphApiInsights["cost_per_action_type"]
-    | GraphApiInsights["action_values"]
-    | GraphApiInsights["purchase_roas"]
-    | GraphApiInsights["website_purchase_roas"],
-  actionTypes: readonly string[],
-): string | undefined {
-  if (!actions) return undefined;
-
-  const matchingAction = actions.find((action) =>
-    actionTypes.includes(action.action_type),
-  );
-
-  return matchingAction?.value;
-}
 
 type GraphApiInsightsResponse = {
   data: GraphApiInsights[];
@@ -62,55 +24,6 @@ export type GetCampaignInsightsErrorResponse = {
   message: string;
   solution?: string;
 };
-
-function transformInsights(data: GraphApiInsights): InsightsMetrics {
-  const purchaseCount = getActionValue(data.actions, PURCHASE_ACTION_TYPES);
-  const purchaseCost = getActionValue(
-    data.cost_per_action_type,
-    PURCHASE_ACTION_TYPES,
-  );
-  const purchaseValue = getActionValue(data.action_values, PURCHASE_ACTION_TYPES);
-  const purchaseRoas =
-    getActionValue(data.purchase_roas, PURCHASE_ACTION_TYPES) ??
-    getActionValue(data.purchase_roas, ["omni_purchase"]);
-  const websitePurchaseRoas =
-    getActionValue(data.website_purchase_roas, PURCHASE_ACTION_TYPES) ??
-    getActionValue(data.website_purchase_roas, ["omni_purchase"]);
-  const linkClicks = getActionValue(data.actions, LINK_CLICK_ACTION_TYPES);
-  const landingPageViews = getActionValue(
-    data.actions,
-    LANDING_PAGE_VIEW_ACTION_TYPES,
-  );
-  const leadCount = getActionValue(data.actions, LEAD_ACTION_TYPES);
-  const leadCost = getActionValue(data.cost_per_action_type, LEAD_ACTION_TYPES);
-  const conversions = purchaseCount ?? leadCount;
-  const costPerConversion = purchaseCost ?? leadCost;
-
-  return {
-    spend: data.spend,
-    impressions: data.impressions,
-    clicks: data.clicks,
-    reach: data.reach,
-    cpc: data.cpc,
-    cpm: data.cpm,
-    ctr: data.ctr,
-    cpp: data.cpp,
-    frequency: data.frequency,
-    conversions,
-    costPerConversion,
-    purchaseCount,
-    purchaseCost,
-    purchaseValue,
-    purchaseRoas,
-    websitePurchaseRoas,
-    linkClicks,
-    landingPageViews,
-    leadCount,
-    leadCost,
-    dateStart: data.date_start,
-    dateStop: data.date_stop,
-  };
-}
 
 export async function GET(
   request: NextRequest,
@@ -205,7 +118,7 @@ export async function GET(
 
     // Transform response
     if (timeIncrement && response.data && response.data.length > 0) {
-      const insightsArray = response.data.map(transformInsights);
+      const insightsArray = response.data.map(transformInsightsData);
       return NextResponse.json(
         {
           campaignId,
@@ -216,7 +129,7 @@ export async function GET(
     }
 
     const insights = response.data?.[0]
-      ? transformInsights(response.data[0])
+      ? transformInsightsData(response.data[0])
       : undefined;
 
     return NextResponse.json(

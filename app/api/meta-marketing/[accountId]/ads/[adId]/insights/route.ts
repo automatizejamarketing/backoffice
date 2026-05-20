@@ -3,6 +3,7 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { transformInsightsData } from "@/lib/meta-business/transformers";
 import type {
   GraphApiInsights,
   InsightsMetrics,
@@ -23,51 +24,6 @@ export type GetAdInsightsErrorResponse = {
   message: string;
   solution?: string;
 };
-
-function transformInsights(data: GraphApiInsights): InsightsMetrics {
-  let conversions: string | undefined;
-  let costPerConversion: string | undefined;
-
-  if (data.actions) {
-    const conversionAction = data.actions.find(
-      (a) =>
-        a.action_type === "purchase" ||
-        a.action_type === "lead" ||
-        a.action_type === "complete_registration"
-    );
-    if (conversionAction) {
-      conversions = conversionAction.value;
-    }
-  }
-
-  if (data.cost_per_action_type) {
-    const costAction = data.cost_per_action_type.find(
-      (a) =>
-        a.action_type === "purchase" ||
-        a.action_type === "lead" ||
-        a.action_type === "complete_registration"
-    );
-    if (costAction) {
-      costPerConversion = costAction.value;
-    }
-  }
-
-  return {
-    spend: data.spend,
-    impressions: data.impressions,
-    clicks: data.clicks,
-    reach: data.reach,
-    cpc: data.cpc,
-    cpm: data.cpm,
-    ctr: data.ctr,
-    cpp: data.cpp,
-    frequency: data.frequency,
-    conversions,
-    costPerConversion,
-    dateStart: data.date_start,
-    dateStop: data.date_stop,
-  };
-}
 
 export async function GET(
   request: NextRequest,
@@ -124,6 +80,9 @@ export async function GET(
       "frequency",
       "actions",
       "cost_per_action_type",
+      "action_values",
+      "purchase_roas",
+      "website_purchase_roas",
       "date_start",
       "date_stop",
     ].join(",");
@@ -149,7 +108,7 @@ export async function GET(
     });
 
     if (timeIncrement && response.data && response.data.length > 0) {
-      const insightsArray = response.data.map(transformInsights);
+      const insightsArray = response.data.map(transformInsightsData);
       return NextResponse.json(
         {
           adId,
@@ -160,7 +119,7 @@ export async function GET(
     }
 
     const insights = response.data?.[0]
-      ? transformInsights(response.data[0])
+      ? transformInsightsData(response.data[0])
       : undefined;
 
     return NextResponse.json(

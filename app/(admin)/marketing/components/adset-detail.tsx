@@ -31,6 +31,7 @@ import {
   type AdSetGeoLocations,
   type AdSetScheduleBlock,
   type AdSetTargeting,
+  type CampaignObjective,
   type InsightsMetrics,
   type TargetingEntity,
   type TimeIncrement,
@@ -61,6 +62,12 @@ type AdSetDetailProps = {
   adSet: AdSet;
   accountId: string;
   userId: string;
+  /**
+   * Objective of the parent campaign. Controls which metric set is shown in
+   * the totals cards and in the ads table inside this sheet, so each level
+   * (campaign / adset / ad) renders the same objective-aware metrics.
+   */
+  objective?: CampaignObjective;
   isOpen: boolean;
   onClose: () => void;
   /** Called after the ad set is duplicated (parent should refresh its list). */
@@ -83,6 +90,7 @@ export function AdSetDetail({
   adSet: adSetProp,
   accountId,
   userId,
+  objective,
   isOpen,
   onClose,
   onDuplicated,
@@ -467,6 +475,7 @@ export function AdSetDetail({
               <InsightsCards
                 insights={totalInsights}
                 isLoading={isLoadingInsights}
+                objective={objective}
               />
             </section>
 
@@ -527,6 +536,7 @@ export function AdSetDetail({
                 userId={userId}
                 adSetId={adSet.id}
                 adSetIsDynamic={adSet.isDynamicCreative === true}
+                objective={objective}
                 refreshSignal={adsRefreshSignal}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />

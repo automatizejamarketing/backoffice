@@ -50,15 +50,11 @@ function getActionValue(
 }
 
 /**
- * Transforms Graph API insights to camelCase InsightsMetrics.
+ * Transforms a single Graph API insights row to camelCase InsightsMetrics.
+ * Use this when iterating over `insights.data` (e.g. time-incremented arrays)
+ * or for individual rows from a `/insights` endpoint response.
  */
-export function transformInsights(insights?: {
-  data: GraphApiInsights[];
-}): InsightsMetrics | undefined {
-  if (!insights?.data?.[0]) return undefined;
-
-  const data = insights.data[0];
-
+export function transformInsightsData(data: GraphApiInsights): InsightsMetrics {
   const purchaseCount = getActionValue(data.actions, PURCHASE_ACTION_TYPES);
   const purchaseCost = getActionValue(
     data.cost_per_action_type,
@@ -105,6 +101,19 @@ export function transformInsights(insights?: {
     dateStart: data.date_start,
     dateStop: data.date_stop,
   };
+}
+
+/**
+ * Transforms the `insights` envelope returned inline on campaigns/adsets/ads
+ * (i.e. `{ data: GraphApiInsights[] }`). Returns the first row transformed,
+ * or undefined when there is no data.
+ */
+export function transformInsights(insights?: {
+  data: GraphApiInsights[];
+}): InsightsMetrics | undefined {
+  const data = insights?.data?.[0];
+  if (!data) return undefined;
+  return transformInsightsData(data);
 }
 
 /**
