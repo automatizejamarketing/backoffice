@@ -12,6 +12,7 @@ export type BackofficePermission =
   | "posts:manage"
   | "marketing:read"
   | "marketing:write"
+  | "business:manage"
   | "affiliates:manage"
   | "masterclass:manage"
   | "team:manage";
@@ -30,6 +31,7 @@ export type BackofficeActor = {
 export const USER_HUB_TAB_VALUES = [
   "summary",
   "subscription",
+  "business",
   "marketing",
   "usage",
   "content",
@@ -46,6 +48,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "posts:manage",
     "marketing:read",
     "marketing:write",
+    "business:manage",
     "affiliates:manage",
     "masterclass:manage",
     "team:manage",
@@ -74,5 +77,8 @@ export function canAccessUserHubTab(
   tab: UserHubTab,
 ): boolean {
   if (actor.role === "admin") return true;
-  return tab === "marketing" && canAccessMarketingUser(actor, userId);
+  return (
+    (tab === "business" || tab === "marketing") &&
+    canAccessMarketingUser(actor, userId)
+  );
 }

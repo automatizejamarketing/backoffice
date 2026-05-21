@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   BarChart3,
+  BriefcaseBusiness,
   ClipboardList,
   CreditCard,
   FileImage,
@@ -11,11 +12,15 @@ import {
   UserRound,
 } from "lucide-react";
 import { MarketingWorkspace } from "@/app/(admin)/marketing/components/marketing-workspace";
+import { BusinessHealthBadge } from "@/components/business-health-badge";
+import { BusinessRulesSummary } from "@/components/business-rules-summary";
 import { CreditsControl } from "@/components/credits-control";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { MarketingConsultantControl } from "@/components/marketing-consultant-control";
+import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UserSubscriptionPanel } from "@/components/user-subscription-panel";
 import {
@@ -29,6 +34,12 @@ import {
   getAssignedMarketingConsultant,
   listActiveMarketingConsultants,
 } from "@/lib/db/backoffice-rbac-queries";
+import {
+  getBusinessCustomerDetail,
+  getBusinessOperatingRules,
+  type BusinessOperatingRulesRecord,
+  type BusinessPortfolioItem,
+} from "@/lib/db/business-queries";
 import {
   canAccessUserHubTab,
   hasBackofficePermission,
@@ -46,6 +57,7 @@ const TAB_CONFIG: Array<{
 }> = [
   { value: "summary", label: "Resumo", icon: UserRound },
   { value: "subscription", label: "Assinatura", icon: CreditCard },
+  { value: "business", label: "Business", icon: BriefcaseBusiness },
   { value: "marketing", label: "Marketing", icon: Megaphone },
   { value: "usage", label: "Uso", icon: BarChart3 },
   { value: "content", label: "Conteúdo", icon: FileImage },
@@ -111,18 +123,17 @@ export default async function UserDetailPage({
   const requestedTab = isUserHubTab(sp.tab) ? sp.tab : "summary";
 
   if (actor.role === "marketing_consultant") {
-    if (!canAccessUserHubTab(actor, id, "marketing")) {
+    if (!canAccessUserHubTab(actor, id, "business")) {
       redirect("/portfolio");
     }
-    if (requestedTab !== "marketing") {
-      redirect(`/users/${id}?tab=marketing`);
+    if (requestedTab !== "business" && requestedTab !== "marketing") {
+      redirect(`/users/${id}?tab=business`);
     }
   } else if (!hasBackofficePermission(actor, "users:manage")) {
     redirect("/portfolio");
   }
 
-  const activeTab: UserHubTab =
-    actor.role === "marketing_consultant" ? "marketing" : requestedTab;
+  const activeTab: UserHubTab = requestedTab;
 
   if (!canAccessUserHubTab(actor, id, activeTab)) {
     redirect("/portfolio");
@@ -136,7 +147,9 @@ export default async function UserDetailPage({
   const isAdminHub = actor.role === "admin";
   const visibleTabs = isAdminHub
     ? TAB_CONFIG
-    : TAB_CONFIG.filter((tab) => tab.value === "marketing");
+    : TAB_CONFIG.filter(
+        (tab) => tab.value === "business" || tab.value === "marketing",
+      );
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -161,7 +174,16 @@ export default async function UserDetailPage({
   const phoneFormatted = formatBrazilianPhone(profile.phone);
   const whatsappUrl = getWhatsAppUrl(profile.phone);
 
-  const [detailedUser, subscriptionData, userPostsResult, auditLogs, consultants, assignedConsultant] =
+  const [
+    detailedUser,
+    subscriptionData,
+    userPostsResult,
+    auditLogs,
+    consultants,
+    assignedConsultant,
+    businessData,
+    businessRules,
+  ] =
     await Promise.all([
       isAdminHub && (activeTab === "summary" || activeTab === "usage")
         ? getUserWithDetailedUsage(id)
@@ -181,12 +203,21 @@ export default async function UserDetailPage({
       isAdminHub && activeTab === "summary"
         ? getAssignedMarketingConsultant(id)
         : Promise.resolve(null),
+      activeTab === "business"
+        ? getBusinessCustomerDetail(actor, id)
+        : Promise.resolve(null),
+      activeTab === "business"
+        ? getBusinessOperatingRules()
+        : Promise.resolve(null),
     ]);
 
   if ((activeTab === "summary" || activeTab === "usage") && !detailedUser) {
     notFound();
   }
   if (activeTab === "subscription" && !subscriptionData) {
+    notFound();
+  }
+  if (activeTab === "business" && (!businessData || !businessRules)) {
     notFound();
   }
 
@@ -322,6 +353,14 @@ export default async function UserDetailPage({
           }}
           showHeader={false}
           showUserPicker={false}
+        />
+      )}
+
+      {activeTab === "business" && businessData && businessRules && (
+        <BusinessTab
+          account={businessData}
+          rules={businessRules}
+          canOpenMarketing={canAccessUserHubTab(actor, id, "marketing")}
         />
       )}
 
@@ -590,5 +629,218 @@ function MetricCard({ label, value }: { label: string; value: string }) {
         <div className="text-2xl font-bold text-foreground">{value}</div>
       </CardContent>
     </Card>
+  );
+}
+
+function formatShortDate(value: Date | string | null) {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+  }).format(date);
+}
+
+function formatShortDateTime(value: Date | string | null) {
+  if (!value) return "Nunca";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Nunca";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function formatActivity(value: Date | null) {
+  if (!value) return "Nunca";
+  const diffDays = Math.max(
+    0,
+    Math.floor((Date.now() - value.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+  if (diffDays === 0) return "Hoje";
+  if (diffDays === 1) return "Há 1 dia";
+  return `Há ${diffDays} dias`;
+}
+
+function formatRenewal(daysUntilRenewal: number | null) {
+  if (daysUntilRenewal === null) return "Sem data";
+  if (daysUntilRenewal < 0) return "Expirado";
+  if (daysUntilRenewal === 0) return "Hoje";
+  if (daysUntilRenewal === 1) return "Em 1 dia";
+  return `Em ${daysUntilRenewal} dias`;
+}
+
+function BusinessTab({
+  account,
+  rules,
+  canOpenMarketing,
+}: {
+  account: BusinessPortfolioItem;
+  rules: BusinessOperatingRulesRecord;
+  canOpenMarketing: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <BusinessRulesSummary rules={rules} />
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between gap-3">
+              <span>Saúde do cliente</span>
+              <BusinessHealthBadge status={account.health.status} />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div>
+              <p className="text-sm text-muted-foreground">Próxima ação</p>
+              <p className="mt-1 text-xl font-semibold text-foreground">
+                {account.health.nextAction}
+              </p>
+            </div>
+
+            {account.health.reasons.length === 0 ? (
+              <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+                Nenhum alerta pelas regras atuais.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {account.health.reasons.map((reason) => (
+                  <div key={reason.code} className="rounded-lg border p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium text-foreground">
+                        {reason.label}
+                      </p>
+                      <Badge
+                        variant={
+                          reason.severity === "critical"
+                            ? "destructive"
+                            : "secondary"
+                        }
+                      >
+                        {reason.severity === "critical"
+                          ? "Crítico"
+                          : "Atenção"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {reason.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Campanha gerenciada</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              {account.hasActiveManagedCampaign ? (
+                <Badge variant="default">Campanha [AM] ativa</Badge>
+              ) : account.managedCampaignCheckedAt ? (
+                <Badge variant="outline">Sem campanha [AM] ativa</Badge>
+              ) : (
+                <Badge variant="secondary">Não verificado</Badge>
+              )}
+              <p className="mt-2 text-sm text-muted-foreground">
+                {account.health.activityShieldedByManagedCampaign
+                  ? "O alerta de sem uso foi removido porque há campanha gerenciada ativa."
+                  : "Esta checagem só afeta o alerta de sem uso."}
+              </p>
+            </div>
+
+            {account.managedCampaignNames.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase text-muted-foreground">
+                  Campanhas encontradas
+                </p>
+                <div className="space-y-1">
+                  {account.managedCampaignNames.map((name) => (
+                    <p key={name} className="rounded-md bg-muted px-2 py-1 text-sm">
+                      {name}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {account.managedCampaignError && (
+              <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300">
+                {account.managedCampaignError}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <ManagedCampaignRefreshButton userId={account.userId} />
+              {canOpenMarketing && (
+                <Button asChild variant="ghost" size="sm">
+                  <Link href={`/users/${account.userId}?tab=marketing`}>
+                    Abrir marketing
+                  </Link>
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Última checagem:{" "}
+              {formatShortDateTime(account.managedCampaignCheckedAt)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard
+          label="Renovação"
+          value={formatRenewal(account.health.daysUntilRenewal)}
+        />
+        <MetricCard label="Último uso de IA" value={formatActivity(account.lastAiUsageAt)} />
+        <MetricCard label="Último post" value={formatActivity(account.lastPostAt)} />
+        <MetricCard label="Créditos" value={String(account.credits)} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Contexto operacional</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <BusinessInfo label="Empresa" value={account.companyName ?? "—"} />
+          <BusinessInfo
+            label="Onboarding"
+            value={account.onboardingCompleted ? "Completo" : "Incompleto"}
+          />
+          <BusinessInfo
+            label="Status da assinatura"
+            value={account.subscriptionStatus ?? "Sem assinatura"}
+          />
+          <BusinessInfo
+            label="Fim do período"
+            value={formatShortDate(
+              account.subscriptionCurrentPeriodEnd ?? account.expirationDate,
+            )}
+          />
+          <BusinessInfo
+            label="Meta"
+            value={account.metaAccountName ?? "Sem Meta conectada"}
+          />
+          <BusinessInfo
+            label="Consultor"
+            value={account.consultantName ?? account.consultantEmail ?? "—"}
+          />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function BusinessInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words font-medium text-foreground">{value}</p>
+    </div>
   );
 }
