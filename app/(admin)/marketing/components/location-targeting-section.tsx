@@ -69,6 +69,8 @@ type LocationTargetingSectionProps = {
   selectedLocations: SelectedGeoLocation[];
   onLocationsChange: (locations: SelectedGeoLocation[]) => void;
   disabled?: boolean;
+  /** When false, hides the required "*" mark and the empty-state warning (e.g. in the edit dialog). Defaults to true. */
+  required?: boolean;
   minRadiusKm?: number;
   maxRadiusKm?: number;
 };
@@ -214,6 +216,7 @@ export function LocationTargetingSection({
   selectedLocations,
   onLocationsChange,
   disabled = false,
+  required = true,
   minRadiusKm = MIN_RADIUS_KM,
   maxRadiusKm = MAX_RADIUS_KM,
 }: LocationTargetingSectionProps) {
@@ -377,7 +380,7 @@ export function LocationTargetingSection({
         <div className="flex items-center justify-between gap-3">
           <Label className="text-sm font-medium">
             {t("title")}
-            <span className="ml-1 text-destructive">*</span>
+            {required ? <span className="ml-1 text-destructive">*</span> : null}
           </Label>
           <Badge
             variant="outline"
@@ -502,9 +505,11 @@ export function LocationTargetingSection({
 
       <div className="space-y-2">
         {selectedLocations.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 px-3 py-3 text-sm text-destructive">
-            {t("atLeastOneLocation")}
-          </div>
+          required ? (
+            <div className="rounded-xl border border-dashed border-destructive/40 bg-destructive/5 px-3 py-3 text-sm text-destructive">
+              {t("atLeastOneLocation")}
+            </div>
+          ) : null
         ) : (
           selectedLocations.map((location, locationIndex) => {
             const locationTypeLabel = getLocationTypeLabel(location.type, t);

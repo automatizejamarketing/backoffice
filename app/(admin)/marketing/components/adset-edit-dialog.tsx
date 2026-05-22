@@ -36,7 +36,9 @@ import {
 import { LocationTargetingSection } from "./location-targeting-section";
 import {
   DEFAULT_BRAZIL_LOCATION,
+  DEFAULT_CITY_RADIUS_KM,
   buildGeoLocationsPayload,
+  type DistanceUnit,
   type SelectedGeoLocation,
 } from "@/lib/meta-business/geo-targeting-types";
 
@@ -75,6 +77,26 @@ function normalizeGenderCodes(
   return [...new Set(out)].sort((a, b) => a - b);
 }
 
+function toRadiusNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function toDistanceUnit(value: unknown): DistanceUnit {
+  return value === "mile" ? "mile" : "kilometer";
+}
+
+/**
+ * Inverse of buildGeoLocationsPayload: turns a Meta geo_locations object back
+ * into the form's SelectedGeoLocation[]. Must handle every collection the
+ * create flow can produce — especially custom_locations (map-pin targeting),
+ * otherwise the dialog silently falls back to "Brasil" and a save wipes the
+ * original location (Meta replaces the whole targeting spec on update).
+ */
 function geoLocationsToSelectedLocations(
   geo: AdSetTargeting["geo_locations"] | undefined,
 ): SelectedGeoLocation[] {
@@ -90,7 +112,11 @@ function geoLocationsToSelectedLocations(
       country_code: code,
     });
   }
+  for (const group of geo.country_groups ?? []) {
+    locations.push({ key: group, name: group, type: "country_group" });
+  }
   for (const region of geo.regions ?? []) {
+    if (!region.key) continue;
     locations.push({
       key: region.key,
       name: region.name ?? region.key,
@@ -98,11 +124,59 @@ function geoLocationsToSelectedLocations(
     });
   }
   for (const city of geo.cities ?? []) {
+    if (!city.key) continue;
+    const radius = toRadiusNumber(city.radius);
     locations.push({
       key: city.key,
       name: city.name ?? city.key,
       type: "city",
       region: city.region,
+      ...(radius !== undefined && {
+        radius,
+        distance_unit: toDistanceUnit(city.distance_unit),
+      }),
+    });
+  }
+  for (const zip of geo.zips ?? []) {
+    if (!zip.key) continue;
+    locations.push({ key: zip.key, name: zip.name ?? zip.key, type: "zip" });
+  }
+  for (const market of geo.geo_markets ?? []) {
+    if (!market.key) continue;
+    locations.push({
+      key: market.key,
+      name: market.name ?? market.key,
+      type: "geo_market",
+    });
+  }
+  for (const district of geo.electoral_districts ?? []) {
+    if (!district.key) continue;
+    locations.push({
+      key: district.key,
+      name: district.name ?? district.key,
+      type: "electoral_district",
+    });
+  }
+  for (const custom of geo.custom_locations ?? []) {
+    const hasCoords =
+      typeof custom.latitude === "number" &&
+      typeof custom.longitude === "number";
+    const key =
+      (typeof custom.key === "string" && custom.key) ||
+      (hasCoords
+        ? `custom_${custom.latitude!.toFixed(6)}_${custom.longitude!.toFixed(6)}`
+        : (custom.address_string ?? custom.name ?? "custom_location"));
+    locations.push({
+      key,
+      name: custom.name ?? custom.address_string ?? "Localização personalizada",
+      type: "custom_location",
+      address_string: custom.address_string ?? custom.name,
+      ...(hasCoords && {
+        latitude: custom.latitude,
+        longitude: custom.longitude,
+      }),
+      radius: toRadiusNumber(custom.radius) ?? DEFAULT_CITY_RADIUS_KM,
+      distance_unit: toDistanceUnit(custom.distance_unit),
     });
   }
 
@@ -666,6 +740,7 @@ export function AdSetEditDialog({
               selectedLocations={selectedLocations}
               onLocationsChange={setSelectedLocations}
               disabled={isSubmitting}
+              required={false}
             />
 
             <div className="space-y-2">

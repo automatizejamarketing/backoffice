@@ -16,6 +16,7 @@ import type {
   GraphApiCampaign,
 } from "@/lib/meta-business/types";
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
+import { sanitizeGeoLocationsForMeta } from "@/lib/meta-business/geo-locations";
 import {
   INSTAGRAM_PLACEMENTS,
   isValidPlacementKey,
@@ -349,25 +350,6 @@ export async function PATCH(
       const prevGeoLocations = previousTargeting?.geo_locations;
       const requestGeoLocations = targeting.geo_locations;
 
-      if (
-        !requestGeoLocations &&
-        (!prevGeoLocations ||
-          (!prevGeoLocations.countries?.length &&
-            !prevGeoLocations.cities?.length &&
-            !prevGeoLocations.regions?.length))
-      ) {
-        return NextResponse.json(
-          {
-            error: "Missing geo_locations",
-            message:
-              "O conjunto de anúncios não possui localização geográfica configurada. A localização não pode ser alterada através desta interface.",
-            solution:
-              "Configure a localização geográfica diretamente na Meta ou entre em contato com o suporte.",
-          },
-          { status: 400 },
-        );
-      }
-
       const newGeoLocations = requestGeoLocations ?? prevGeoLocations;
 
       const newGenders =
@@ -470,14 +452,8 @@ export async function PATCH(
         }),
       };
 
-      if (metaTargeting.geo_locations) {
-        const src = metaTargeting.geo_locations;
-        const cleanGeo: typeof metaTargeting.geo_locations = {};
-        if (src.countries?.length) cleanGeo.countries = src.countries;
-        if (src.cities?.length) cleanGeo.cities = src.cities;
-        if (src.regions?.length) cleanGeo.regions = src.regions;
-        if (src.location_types?.length)
-          cleanGeo.location_types = src.location_types;
+      const cleanGeo = sanitizeGeoLocationsForMeta(metaTargeting.geo_locations);
+      if (cleanGeo) {
         metaTargeting.geo_locations = cleanGeo;
         newTargeting.geo_locations = cleanGeo;
       }
