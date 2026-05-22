@@ -22,10 +22,16 @@ function isAllowedUpstreamUrl(raw: string): boolean {
 }
 
 function sanitizeFilename(input: string): string {
+  // The result is placed in `Content-Disposition: filename="..."`, which the
+  // Headers constructor encodes as ByteString. Any character > U+00FF (em
+  // dash U+2014, ellipsis U+2026, fancy quotes, ...) throws at runtime, so
+  // we strip everything outside ASCII after dropping diacritics. Browsers
+  // that need the original Unicode read `filename*=UTF-8''` instead.
   const trimmed = input.trim();
   const cleaned = trimmed
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
+    .replace(/[^\x00-\x7f]/g, "-")
     .replace(/[\\/:*?"<>|\r\n\t]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
