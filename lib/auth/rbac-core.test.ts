@@ -54,11 +54,13 @@ describe("canAccessUserHubTab", () => {
   test("allows admins to access every user hub tab", () => {
     expect(canAccessUserHubTab(admin, "any-user", "summary")).toBe(true);
     expect(canAccessUserHubTab(admin, "any-user", "subscription")).toBe(true);
+    expect(canAccessUserHubTab(admin, "any-user", "business")).toBe(true);
     expect(canAccessUserHubTab(admin, "any-user", "marketing")).toBe(true);
     expect(canAccessUserHubTab(admin, "any-user", "audit")).toBe(true);
   });
 
-  test("limits assigned consultants to the marketing tab", () => {
+  test("limits assigned consultants to business and marketing tabs", () => {
+    expect(canAccessUserHubTab(consultant, "user-1", "business")).toBe(true);
     expect(canAccessUserHubTab(consultant, "user-1", "marketing")).toBe(true);
     expect(canAccessUserHubTab(consultant, "user-1", "summary")).toBe(false);
     expect(canAccessUserHubTab(consultant, "user-1", "subscription")).toBe(
@@ -67,6 +69,7 @@ describe("canAccessUserHubTab", () => {
   });
 
   test("blocks consultants from unassigned user hub tabs", () => {
+    expect(canAccessUserHubTab(consultant, "user-3", "business")).toBe(false);
     expect(canAccessUserHubTab(consultant, "user-3", "marketing")).toBe(false);
   });
 });

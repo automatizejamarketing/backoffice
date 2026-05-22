@@ -211,6 +211,91 @@ export const backofficeAuditLog = pgTable("backoffice_audit_logs", {
 
 export type BackofficeAuditLog = InferSelectModel<typeof backofficeAuditLog>;
 
+export const businessOperatingRules = pgTable("business_operating_rules", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 64 }).notNull().default("default"),
+  renewalCriticalDays: integer("renewal_critical_days").notNull().default(3),
+  renewalAttentionDays: integer("renewal_attention_days").notNull().default(7),
+  trialCriticalDays: integer("trial_critical_days").notNull().default(1),
+  trialAttentionDays: integer("trial_attention_days").notNull().default(3),
+  inactivityAttentionDays: integer("inactivity_attention_days")
+    .notNull()
+    .default(14),
+  lowCreditsThreshold: integer("low_credits_threshold").notNull().default(10),
+  managedCampaignNamePrefix: varchar("managed_campaign_name_prefix", {
+    length: 32,
+  })
+    .notNull()
+    .default("[AM]"),
+  activeManagedCampaignExcludesInactivity: boolean(
+    "active_managed_campaign_excludes_inactivity",
+  )
+    .notNull()
+    .default(true),
+  updatedByEmail: varchar("updated_by_email", { length: 100 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  nameUnique: uniqueIndex("business_operating_rules_name_unique").on(
+    table.name,
+  ),
+}));
+
+export type BusinessOperatingRule = InferSelectModel<
+  typeof businessOperatingRules
+>;
+
+export const businessRuleChangeLog = pgTable("business_rule_change_logs", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  ruleId: uuid("rule_id")
+    .notNull()
+    .references(() => businessOperatingRules.id),
+  adminEmail: varchar("admin_email", { length: 100 }).notNull(),
+  fieldName: varchar("field_name", { length: 80 }).notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type BusinessRuleChangeLog = InferSelectModel<
+  typeof businessRuleChangeLog
+>;
+
+export const businessManagedCampaignCache = pgTable(
+  "business_managed_campaign_cache",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    adAccountId: text("ad_account_id").notNull(),
+    adAccountName: text("ad_account_name"),
+    checkedAt: timestamp("checked_at").notNull().defaultNow(),
+    hasActiveManagedCampaign: boolean("has_active_managed_campaign")
+      .notNull()
+      .default(false),
+    managedCampaignNames: jsonb("managed_campaign_names")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userAdAccountUnique: uniqueIndex(
+      "business_managed_campaign_cache_user_ad_account_unique",
+    ).on(table.userId, table.adAccountId),
+    userIdx: index("business_managed_campaign_cache_user_id_idx").on(
+      table.userId,
+    ),
+  }),
+);
+
+export type BusinessManagedCampaignCache = InferSelectModel<
+  typeof businessManagedCampaignCache
+>;
+
 export const chat = pgTable("chats", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   createdAt: timestamp("created_at").notNull(),

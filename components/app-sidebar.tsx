@@ -8,6 +8,7 @@ import {
   Image,
   LayoutDashboard,
   LogOut,
+  Settings2,
   Shield,
   Users,
 } from "lucide-react";
@@ -75,6 +76,7 @@ export function AppSidebar({
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
   const isMasterclassSection = pathname?.startsWith("/masterclass");
   const isTeamSection = pathname?.startsWith("/team");
+  const isBusinessRulesSection = pathname?.startsWith("/business-rules");
 
   const allNavItems: NavItem[] = [
     {
@@ -90,7 +92,13 @@ export function AppSidebar({
       icon: Briefcase,
       isActive: isPortfolioSection,
       permission: "marketing:read",
-      consultantOnly: true,
+    },
+    {
+      href: "/business-rules",
+      label: "Regras",
+      icon: Settings2,
+      isActive: isBusinessRulesSection,
+      permission: "business:manage",
     },
     {
       href: "/users",
