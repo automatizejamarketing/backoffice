@@ -157,7 +157,11 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
   );
 
   const submit = useCallback(
-    async (input: { media: SelectedMedia; text: AdCreativeFormValue }) => {
+    async (input: {
+      media: SelectedMedia;
+      text: AdCreativeFormValue;
+      pageId?: string | null;
+    }) => {
       setError(null);
       setResult(null);
       setVideoProgress(null);
@@ -181,6 +185,9 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
         text,
         status: input.text.status,
       };
+      if (input.pageId) {
+        body.pageId = input.pageId;
+      }
       lastBodyRef.current = body;
 
       try {

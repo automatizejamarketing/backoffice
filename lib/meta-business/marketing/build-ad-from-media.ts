@@ -102,6 +102,62 @@ export type ResolvedPage = {
 };
 
 /**
+ * A Facebook Page (with its connected Instagram account) the admin can choose
+ * as the ad identity. Only pages with a connected Instagram account are
+ * returned, mirroring `automatize-frontend`'s page selector.
+ */
+export type PageIdentity = {
+  pageId: string;
+  pageName?: string;
+  pagePictureUrl?: string;
+  instagramBusinessAccountId: string;
+  instagramUsername?: string;
+  instagramProfilePictureUrl?: string;
+};
+
+type GraphApiPagesWithPicturesResponse = {
+  data: Array<{
+    id: string;
+    name?: string;
+    picture?: { data?: { url?: string } };
+    instagram_business_account?: {
+      id: string;
+      username?: string;
+      profile_picture_url?: string;
+    };
+  }>;
+};
+
+/**
+ * List the Facebook Pages (with a connected Instagram account) available to the
+ * user's Meta token. Used to let a backoffice admin pick the ad identity.
+ */
+export async function getPagesWithInstagram(
+  accessToken: string,
+): Promise<PageIdentity[]> {
+  const pagesResponse = await metaApiCall<GraphApiPagesWithPicturesResponse>({
+    domain: "FACEBOOK",
+    method: "GET",
+    path: "me/accounts",
+    params:
+      "fields=id,name,picture,instagram_business_account{id,username,profile_picture_url}",
+    accessToken,
+  });
+
+  return pagesResponse.data
+    .filter((page) => page.instagram_business_account?.id)
+    .map((page) => ({
+      pageId: page.id,
+      pageName: page.name,
+      pagePictureUrl: page.picture?.data?.url,
+      instagramBusinessAccountId: page.instagram_business_account!.id,
+      instagramUsername: page.instagram_business_account!.username,
+      instagramProfilePictureUrl:
+        page.instagram_business_account!.profile_picture_url,
+    }));
+}
+
+/**
  * `creative_ready`  → a creative exists, the caller may create/repoint the ad.
  * `video_processing`→ a device video was uploaded to Meta but is still
  *                      processing; the caller must poll status and re-invoke

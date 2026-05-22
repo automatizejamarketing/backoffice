@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +22,8 @@ import {
 } from "./ad-creative-form";
 import { AdMediaProcessingCard } from "./ad-media-processing-card";
 import { MediaSourcePicker, type SelectedMedia } from "./media-source-picker";
+import { PageSelector } from "./page-selector";
+import { usePages } from "./use-pages";
 import { useAdCreativeBuilder } from "./use-ad-creative-builder";
 
 type CreateModeProps = {
@@ -59,9 +62,20 @@ type AdCreativeDialogProps = CreateModeProps | EditModeProps;
 export function AdCreativeDialog(props: AdCreativeDialogProps) {
   const isEdit = props.mode === "edit";
   const [media, setMedia] = useState<SelectedMedia | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [form, setForm] = useState<AdCreativeFormValue>(
     DEFAULT_AD_CREATIVE_FORM,
   );
+
+  const { pages, isLoading: isLoadingPages } = usePages(
+    props.accountId,
+    props.userId,
+    props.isOpen,
+  );
+  const selectedPage =
+    pages.find((page) => page.pageId === selectedPageId) ?? null;
+  const selectedInstagramAccountId =
+    selectedPage?.instagramBusinessAccountId ?? undefined;
 
   const builder = useAdCreativeBuilder(
     props.mode === "create"
@@ -83,6 +97,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
   useEffect(() => {
     if (props.isOpen) {
       setMedia(null);
+      setSelectedPageId(null);
       setForm(DEFAULT_AD_CREATIVE_FORM);
       builder.reset();
     }
@@ -177,6 +192,50 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                     </div>
                   </div>
                 )}
+                <div className="space-y-3">
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Página do Facebook (Identidade)
+                    </p>
+                    <PageSelector
+                      pages={pages}
+                      isLoading={isLoadingPages}
+                      selectedPageId={selectedPageId}
+                      onSelectPage={setSelectedPageId}
+                    />
+                  </div>
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Conta do Instagram
+                    </p>
+                    <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
+                      {isLoadingPages ? (
+                        <span className="truncate">Carregando...</span>
+                      ) : selectedPage ? (
+                        <>
+                          <Avatar className="size-5 shrink-0">
+                            <AvatarImage
+                              src={selectedPage.instagramProfilePictureUrl}
+                              alt={selectedPage.instagramUsername ?? ""}
+                            />
+                            <AvatarFallback className="text-[10px]">
+                              {(selectedPage.instagramUsername ?? "?")
+                                .charAt(0)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="truncate text-foreground">
+                            {selectedPage.instagramUsername
+                              ? `@${selectedPage.instagramUsername}`
+                              : selectedPage.instagramBusinessAccountId}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="truncate">Selecione uma página</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Mídia do criativo
@@ -185,6 +244,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                     accountId={props.accountId}
                     userId={props.userId}
                     onChange={setMedia}
+                    instagramBusinessAccountId={selectedInstagramAccountId}
                   />
                 </div>
                 <div>
@@ -229,7 +289,12 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                 <Button
                   disabled={!canSubmit}
                   onClick={() => {
-                    if (media) builder.submit({ media, text: form });
+                    if (media)
+                      builder.submit({
+                        media,
+                        text: form,
+                        pageId: selectedPageId,
+                      });
                   }}
                 >
                   {builder.phase === "submitting" ||

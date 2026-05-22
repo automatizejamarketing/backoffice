@@ -191,6 +191,9 @@ export async function GET(
     const { accessToken } = tokenResult;
 
     const after = searchParams.get("after");
+    const requestedInstagramAccountId = searchParams.get(
+      "instagramBusinessAccountId",
+    );
     const limitParam = searchParams.get("limit");
     let limit = 12;
     if (limitParam) {
@@ -226,7 +229,19 @@ export async function GET(
       );
     }
 
-    const igAccount = pagesWithInstagram[0].instagram_business_account!;
+    // Use the requested Instagram account when it belongs to one of the user's
+    // pages; otherwise fall back to the first connected account. This lets the
+    // caller switch identity (Facebook Page → Instagram account) and load that
+    // account's media.
+    const requestedPage = requestedInstagramAccountId
+      ? pagesWithInstagram.find(
+          (page) =>
+            page.instagram_business_account?.id === requestedInstagramAccountId,
+        )
+      : undefined;
+    const igAccount =
+      requestedPage?.instagram_business_account ??
+      pagesWithInstagram[0].instagram_business_account!;
 
     const mediaResponse = await getBoostEligibleInstagramMedia({
       instagramBusinessAccountId: igAccount.id,

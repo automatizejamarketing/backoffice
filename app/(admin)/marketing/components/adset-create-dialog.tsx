@@ -24,6 +24,8 @@ import {
   type InstagramMediaItem,
 } from "./instagram-post-picker";
 import { LocationTargetingSection } from "./location-targeting-section";
+import { PageSelector } from "./page-selector";
+import { usePages } from "./use-pages";
 import {
   DEFAULT_BRAZIL_LOCATION,
   buildGeoLocationsPayload,
@@ -58,6 +60,7 @@ export function AdSetCreateDialog({
   onSuccess,
 }: AdSetCreateDialogProps) {
   const [adsetName, setAdsetName] = useState("");
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [dailyBudget, setDailyBudget] = useState("");
   const [ageMin, setAgeMin] = useState("18");
   const [ageMax, setAgeMax] = useState("65");
@@ -78,6 +81,16 @@ export function AdSetCreateDialog({
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [selectedLocations, setSelectedLocations] = useState<SelectedGeoLocation[]>([DEFAULT_BRAZIL_LOCATION]);
+
+  const { pages, isLoading: isLoadingPages } = usePages(
+    accountId,
+    userId,
+    isOpen,
+  );
+  const selectedPage =
+    pages.find((page) => page.pageId === selectedPageId) ?? null;
+  const selectedInstagramAccountId =
+    selectedPage?.instagramBusinessAccountId ?? undefined;
 
   const isSalesCampaign = SALES_OBJECTIVES.includes(campaignObjective ?? "");
   const isLeadsCampaign = LEADS_OBJECTIVES.includes(campaignObjective ?? "");
@@ -110,8 +123,16 @@ export function AdSetCreateDialog({
     }
   }, [isOpen, fetchAudiences]);
 
+  // Selected Instagram posts belong to a specific identity; clear them when the
+  // chosen Instagram account changes so we never submit a post from another
+  // account.
+  useEffect(() => {
+    setSelectedPosts([]);
+  }, [selectedInstagramAccountId]);
+
   const resetForm = () => {
     setAdsetName("");
+    setSelectedPageId(null);
     setDailyBudget("");
     setAgeMin("18");
     setAgeMax("65");
@@ -210,6 +231,10 @@ export function AdSetCreateDialog({
         },
       };
 
+      if (selectedPageId) {
+        body.pageId = selectedPageId;
+      }
+
       if (hasPosts) {
         body.creatives = selectedPosts.map((p) => ({
           instagramMediaId: p.id,
@@ -285,6 +310,21 @@ export function AdSetCreateDialog({
                 placeholder="Ex: Conjunto de Anúncios 1"
                 disabled={isSubmitting}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Página do Facebook (Identidade)</Label>
+              <PageSelector
+                pages={pages}
+                isLoading={isLoadingPages}
+                selectedPageId={selectedPageId}
+                onSelectPage={setSelectedPageId}
+                disabled={isSubmitting}
+              />
+              <p className="text-xs text-muted-foreground">
+                Página e perfil do Instagram sob os quais os anúncios deste
+                conjunto serão veiculados.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -564,6 +604,7 @@ export function AdSetCreateDialog({
               maxSelection={MAX_MEDIA_ITEMS}
               selectedPosts={selectedPosts}
               onSelectionChange={setSelectedPosts}
+              instagramBusinessAccountId={selectedInstagramAccountId}
             />
           </div>
           <div className="flex items-center justify-between gap-2 px-6 pb-6">

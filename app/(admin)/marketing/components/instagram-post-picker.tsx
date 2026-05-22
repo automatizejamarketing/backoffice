@@ -35,6 +35,12 @@ type InstagramPostPickerProps = {
   maxSelection: number;
   selectedPosts: InstagramMediaItem[];
   onSelectionChange: (posts: InstagramMediaItem[]) => void;
+  /**
+   * Instagram Business Account to load media from (the ad identity). When it
+   * changes, the grid reloads with that account's posts. Omit to use the
+   * user's first connected Instagram account.
+   */
+  instagramBusinessAccountId?: string;
 };
 
 function formatCount(num: number): string {
@@ -49,6 +55,7 @@ export function InstagramPostPicker({
   maxSelection,
   selectedPosts,
   onSelectionChange,
+  instagramBusinessAccountId,
 }: InstagramPostPickerProps) {
   const [media, setMedia] = useState<InstagramMediaItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>();
@@ -74,6 +81,12 @@ export function InstagramPostPicker({
         });
         if (cursor) {
           queryParams.set("after", cursor);
+        }
+        if (instagramBusinessAccountId) {
+          queryParams.set(
+            "instagramBusinessAccountId",
+            instagramBusinessAccountId,
+          );
         }
 
         const response = await fetch(
@@ -108,7 +121,7 @@ export function InstagramPostPicker({
         setIsLoadingMore(false);
       }
     },
-    [accountId, userId],
+    [accountId, userId, instagramBusinessAccountId],
   );
 
   useEffect(() => {

@@ -221,6 +221,8 @@ export type PostAdSetRequestBody = {
   userId: string;
   campaignId: string;
   campaignObjective?: string;
+  /** Facebook Page chosen as the ad identity (page-first selection). */
+  pageId?: string;
   adsetName: string;
   dailyBudget: number;
   targeting: {
@@ -508,6 +510,7 @@ export async function POST(
       userId,
       campaignId,
       campaignObjective,
+      pageId: requestedPageId,
       adsetName,
       dailyBudget,
       targeting,
@@ -684,10 +687,16 @@ export async function POST(
       accessToken,
     });
 
-    const pageWithIg = pagesResponse.data.find(
-      (p) => p.instagram_business_account?.id,
-    );
-    const connectedPage = pageWithIg ?? pagesResponse.data[0];
+    // Page-first identity: use the admin's chosen Page when provided; otherwise
+    // fall back to the first Page that has a connected Instagram account.
+    const connectedPage = requestedPageId?.trim()
+      ? pagesResponse.data.find((p) => p.id === requestedPageId.trim())
+      : (pagesResponse.data.find((p) => p.instagram_business_account?.id) ??
+        pagesResponse.data[0]);
+
+    const pageWithIg = connectedPage?.instagram_business_account?.id
+      ? connectedPage
+      : undefined;
 
     if (!connectedPage) {
       return NextResponse.json(

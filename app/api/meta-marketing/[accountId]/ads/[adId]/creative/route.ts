@@ -34,6 +34,8 @@ type EditCreativeRequestBody = {
     linkUrl?: string;
   };
   confirmVideoId?: string;
+  /** Facebook Page chosen as the ad identity (page-first selection). */
+  pageId?: string;
 };
 
 type EditCreativeSuccess =
@@ -295,9 +297,28 @@ export async function POST(
       }
     }
 
+    // Page-first identity: the admin may change the Facebook Page of the ad.
+    // For objectives that promote the page (traffic/leads/engagement/awareness),
+    // the parent ad set locks the page via promoted_object.page_id, so the
+    // creative page MUST match it — reject a divergent choice with a clear
+    // message. Sales ad sets promote a pixel (no page), so any page is allowed.
+    const requestedPageId = body.pageId?.trim();
+    const adsetPageId = ad.adset?.promoted_object?.page_id;
+    if (requestedPageId && adsetPageId && requestedPageId !== adsetPageId) {
+      return NextResponse.json(
+        {
+          error: "Página fixada pelo conjunto",
+          message:
+            "Para este objetivo, a Página do anúncio é definida pelo conjunto de anúncios e não pode ser alterada por anúncio.",
+          solution:
+            "Crie um novo conjunto de anúncios com a Página desejada para veicular sob outra identidade.",
+        },
+        { status: 400 },
+      );
+    }
     const page = await resolvePageAndIg(
       accessToken,
-      ad.adset?.promoted_object?.page_id,
+      requestedPageId ?? adsetPageId,
     );
     const text = {
       titles: body.text.titles ?? [],
