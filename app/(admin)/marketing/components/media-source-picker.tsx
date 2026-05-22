@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   InstagramPostPicker,
@@ -38,18 +38,38 @@ type MediaSourcePickerProps = {
   accountId: string;
   userId: string;
   onChange: (media: SelectedMedia | null) => void;
+  /**
+   * Instagram Business Account (the ad identity) whose media should be listed.
+   * When it changes, the Instagram grid reloads and any previously selected
+   * Instagram post is cleared.
+   */
+  instagramBusinessAccountId?: string;
 };
 
 export function MediaSourcePicker({
   accountId,
   userId,
   onChange,
+  instagramBusinessAccountId,
 }: MediaSourcePickerProps) {
   const [igSelected, setIgSelected] = useState<InstagramMediaItem[]>([]);
   const [automatizeSelected, setAutomatizeSelected] =
     useState<AutomatizeMediaSelection | null>(null);
   const [deviceSelected, setDeviceSelected] =
     useState<DeviceUploadSelection | null>(null);
+
+  // When the Instagram identity changes, drop any Instagram post that was
+  // selected from the previous account (it no longer belongs to the chosen
+  // identity). Other sources (Automatize/Upload) are identity-agnostic.
+  const igSelectedRef = useRef(igSelected);
+  igSelectedRef.current = igSelected;
+  useEffect(() => {
+    if (igSelectedRef.current.length > 0) {
+      setIgSelected([]);
+      onChange(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instagramBusinessAccountId]);
 
   // Single overall selection: choosing in one tab clears the others.
   const handleInstagram = (posts: InstagramMediaItem[]) => {
@@ -116,6 +136,7 @@ export function MediaSourcePicker({
           maxSelection={1}
           selectedPosts={igSelected}
           onSelectionChange={handleInstagram}
+          instagramBusinessAccountId={instagramBusinessAccountId}
         />
       </TabsContent>
 
