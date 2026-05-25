@@ -1,6 +1,7 @@
 import { sql, type InferSelectModel } from "drizzle-orm";
 import {
   boolean,
+  date,
   foreignKey,
   index,
   integer,
@@ -294,6 +295,76 @@ export const businessManagedCampaignCache = pgTable(
 
 export type BusinessManagedCampaignCache = InferSelectModel<
   typeof businessManagedCampaignCache
+>;
+
+// Weekly cached performance of Automatize-managed ([AM]) campaigns, pulled from
+// the Meta Marketing API by a cron so the user-facing banner reads from our DB
+// instead of hitting Meta on every page load. One row per campaign per weekly
+// period; ALL [AM] campaigns are stored, the "performing well" filter is applied
+// at read time using campaign_performance_rules.
+export const campaignPerformanceSnapshot = pgTable(
+  "campaign_performance_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    adAccountId: text("ad_account_id").notNull(),
+    adAccountName: text("ad_account_name"),
+    campaignId: text("campaign_id").notNull(),
+    campaignName: text("campaign_name").notNull(),
+    objective: text("objective"),
+    spend: numeric("spend", { precision: 14, scale: 2 }),
+    revenue: numeric("revenue", { precision: 14, scale: 2 }),
+    purchaseRoas: numeric("purchase_roas", { precision: 12, scale: 4 }),
+    purchaseCount: integer("purchase_count"),
+    impressions: integer("impressions"),
+    clicks: integer("clicks"),
+    currency: varchar("currency", { length: 8 }),
+    // Full extracted metric set so new rules can reference new metrics without a
+    // schema migration. Keyed by SUPPORTED_METRICS keys.
+    metrics: jsonb("metrics").$type<Record<string, number>>(),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userCampaignPeriodUnique: uniqueIndex(
+      "campaign_performance_snapshots_user_campaign_period_unique",
+    ).on(table.userId, table.campaignId, table.periodStart, table.periodEnd),
+    userIdx: index("campaign_performance_snapshots_user_id_idx").on(
+      table.userId,
+    ),
+    userPeriodIdx: index("campaign_performance_snapshots_user_period_idx").on(
+      table.userId,
+      table.periodEnd,
+    ),
+  }),
+);
+
+export type CampaignPerformanceSnapshot = InferSelectModel<
+  typeof campaignPerformanceSnapshot
+>;
+
+// Admin-configurable rules that define what "performing well" means for the
+// marketing banner. Enabled rules are combined with AND. Editable from the
+// backoffice without a deploy. Seeded with a single "ROAS > 2" test rule.
+export const campaignPerformanceRule = pgTable("campaign_performance_rules", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 80 }).notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  metric: varchar("metric", { length: 40 }).notNull(),
+  operator: varchar("operator", { length: 8 }).notNull(),
+  threshold: numeric("threshold", { precision: 14, scale: 4 }).notNull(),
+  description: text("description"),
+  updatedByEmail: varchar("updated_by_email", { length: 100 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type CampaignPerformanceRule = InferSelectModel<
+  typeof campaignPerformanceRule
 >;
 
 export const chat = pgTable("chats", {

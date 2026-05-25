@@ -18,6 +18,7 @@ import { CreditsControl } from "@/components/credits-control";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { MarketingConsultantControl } from "@/components/marketing-consultant-control";
 import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
+import { CampaignPerformanceRefreshButton } from "@/components/campaign-performance-refresh-button";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -776,6 +777,7 @@ function BusinessTab({
 
             <div className="flex flex-wrap items-center gap-2">
               <ManagedCampaignRefreshButton userId={account.userId} />
+              <CampaignPerformanceRefreshButton userId={account.userId} />
               {canOpenMarketing && (
                 <Button asChild variant="ghost" size="sm">
                   <Link href={`/users/${account.userId}?tab=marketing`}>

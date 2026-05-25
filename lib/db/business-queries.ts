@@ -15,6 +15,8 @@ import {
   businessManagedCampaignCache,
   businessOperatingRules,
   businessRuleChangeLog,
+  campaignPerformanceRule,
+  campaignPerformanceSnapshot,
   company,
   metaBusinessAccount,
   post,
@@ -23,6 +25,7 @@ import {
   userCompany,
   userMarketingConsultant,
   type BusinessOperatingRule,
+  type CampaignPerformanceRule,
   type Subscription,
 } from "@/lib/db/schema";
 import type { BackofficeActor } from "@/lib/auth/rbac-core";
@@ -276,6 +279,175 @@ export async function updateBusinessOperatingRules(
 
     return { rules: rulesFromRow(updated), changes };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Campaign performance rules (marketing banner "performing well" criteria).
+// One row per rule; the frontend engine combines enabled rules with AND.
+// ---------------------------------------------------------------------------
+
+export type CampaignPerformanceRuleItem = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  metric: string;
+  operator: string;
+  threshold: number;
+  description: string | null;
+  updatedByEmail: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function performanceRuleFromRow(
+  row: CampaignPerformanceRule,
+): CampaignPerformanceRuleItem {
+  return {
+    id: row.id,
+    name: row.name,
+    enabled: row.enabled,
+    metric: row.metric,
+    operator: row.operator,
+    threshold: Number(row.threshold),
+    description: row.description,
+    updatedByEmail: row.updatedByEmail,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export async function listCampaignPerformanceRules(): Promise<
+  CampaignPerformanceRuleItem[]
+> {
+  const rows = await db
+    .select()
+    .from(campaignPerformanceRule)
+    .orderBy(asc(campaignPerformanceRule.createdAt));
+  return rows.map(performanceRuleFromRow);
+}
+
+export async function createCampaignPerformanceRule(
+  input: {
+    name: string;
+    enabled: boolean;
+    metric: string;
+    operator: string;
+    threshold: number;
+    description?: string | null;
+  },
+  adminEmail: string,
+): Promise<CampaignPerformanceRuleItem> {
+  const now = new Date();
+  const [row] = await db
+    .insert(campaignPerformanceRule)
+    .values({
+      name: input.name,
+      enabled: input.enabled,
+      metric: input.metric,
+      operator: input.operator,
+      threshold: input.threshold.toString(),
+      description: input.description ?? null,
+      updatedByEmail: adminEmail,
+      updatedAt: now,
+    })
+    .returning();
+  return performanceRuleFromRow(row);
+}
+
+export async function updateCampaignPerformanceRule(
+  id: string,
+  patch: {
+    name?: string;
+    enabled?: boolean;
+    metric?: string;
+    operator?: string;
+    threshold?: number;
+    description?: string | null;
+  },
+  adminEmail: string,
+): Promise<CampaignPerformanceRuleItem | null> {
+  const [row] = await db
+    .update(campaignPerformanceRule)
+    .set({
+      ...(patch.name !== undefined ? { name: patch.name } : {}),
+      ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+      ...(patch.metric !== undefined ? { metric: patch.metric } : {}),
+      ...(patch.operator !== undefined ? { operator: patch.operator } : {}),
+      ...(patch.threshold !== undefined
+        ? { threshold: patch.threshold.toString() }
+        : {}),
+      ...(patch.description !== undefined
+        ? { description: patch.description }
+        : {}),
+      updatedByEmail: adminEmail,
+      updatedAt: new Date(),
+    })
+    .where(eq(campaignPerformanceRule.id, id))
+    .returning();
+  return row ? performanceRuleFromRow(row) : null;
+}
+
+export async function deleteCampaignPerformanceRule(id: string): Promise<void> {
+  await db
+    .delete(campaignPerformanceRule)
+    .where(eq(campaignPerformanceRule.id, id));
+}
+
+// Upsert one [AM] campaign's weekly performance snapshot. Keyed by
+// (userId, campaignId, periodStart, periodEnd) — same shape the frontend cron
+// writes, so on-demand and scheduled refreshes converge on the same rows.
+export async function upsertCampaignPerformanceSnapshot(data: {
+  userId: string;
+  adAccountId: string;
+  adAccountName?: string | null;
+  campaignId: string;
+  campaignName: string;
+  objective?: string | null;
+  spend: number;
+  revenue: number;
+  purchaseRoas: number;
+  purchaseCount: number;
+  impressions: number;
+  clicks: number;
+  currency?: string | null;
+  metrics: Record<string, number>;
+  periodStart: string;
+  periodEnd: string;
+}) {
+  const now = new Date();
+  const row = {
+    adAccountId: data.adAccountId,
+    adAccountName: data.adAccountName ?? null,
+    campaignName: data.campaignName,
+    objective: data.objective ?? null,
+    spend: data.spend.toFixed(2),
+    revenue: data.revenue.toFixed(2),
+    purchaseRoas: data.purchaseRoas.toFixed(4),
+    purchaseCount: data.purchaseCount,
+    impressions: data.impressions,
+    clicks: data.clicks,
+    currency: data.currency ?? null,
+    metrics: data.metrics,
+    updatedAt: now,
+  };
+  await db
+    .insert(campaignPerformanceSnapshot)
+    .values({
+      userId: data.userId,
+      campaignId: data.campaignId,
+      periodStart: data.periodStart,
+      periodEnd: data.periodEnd,
+      ...row,
+    })
+    .onConflictDoUpdate({
+      target: [
+        campaignPerformanceSnapshot.userId,
+        campaignPerformanceSnapshot.campaignId,
+        campaignPerformanceSnapshot.periodStart,
+        campaignPerformanceSnapshot.periodEnd,
+      ],
+      set: row,
+    });
 }
 
 export async function upsertManagedCampaignCache(data: {

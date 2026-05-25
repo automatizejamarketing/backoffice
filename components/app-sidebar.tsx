@@ -3,6 +3,7 @@
 import {
   Briefcase,
   ChevronUp,
+  Gauge,
   Handshake,
   GraduationCap,
   Image,
@@ -77,6 +78,9 @@ export function AppSidebar({
   const isMasterclassSection = pathname?.startsWith("/masterclass");
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
+  const isMarketingRulesSection = pathname?.startsWith(
+    "/marketing-performance-rules",
+  );
 
   const allNavItems: NavItem[] = [
     {
@@ -98,6 +102,13 @@ export function AppSidebar({
       label: "Regras",
       icon: Settings2,
       isActive: isBusinessRulesSection,
+      permission: "business:manage",
+    },
+    {
+      href: "/marketing-performance-rules",
+      label: "Regras de performance",
+      icon: Gauge,
+      isActive: isMarketingRulesSection,
       permission: "business:manage",
     },
     {
