@@ -15,6 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AdSetStatus,
+  DatePreset,
   EffectiveStatus,
   type AdSet,
   type CampaignObjective,
@@ -45,6 +46,8 @@ type AdSetsTableProps = {
    * sales campaign shows ROAS/CPA/etc. instead of generic spend/clicks.
    */
   objective?: CampaignObjective;
+  datePreset?: DatePreset | null;
+  customRange?: { since: string; until: string } | null;
   onAdSetClick: (adSet: AdSet) => void;
   /** Increment this value to trigger a refresh */
   refreshKey?: number;
@@ -55,6 +58,8 @@ export function AdSetsTable({
   userId,
   campaignId,
   objective,
+  datePreset,
+  customRange,
   onAdSetClick,
   refreshKey,
 }: AdSetsTableProps) {
@@ -83,6 +88,12 @@ export function AdSetsTable({
         }
         if (campaignId) {
           baseParams.set("campaignId", campaignId);
+        }
+        if (customRange) {
+          baseParams.set("since", customRange.since);
+          baseParams.set("until", customRange.until);
+        } else if (datePreset) {
+          baseParams.set("datePreset", datePreset);
         }
 
         const activeParams = new URLSearchParams(baseParams);
@@ -141,7 +152,7 @@ export function AdSetsTable({
         setIsLoading(false);
       }
     },
-    [accountId, campaignId, userId]
+    [accountId, campaignId, customRange, datePreset, userId]
   );
 
   useEffect(() => {

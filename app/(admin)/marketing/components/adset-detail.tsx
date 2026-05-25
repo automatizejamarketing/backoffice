@@ -537,6 +537,8 @@ export function AdSetDetail({
                 adSetId={adSet.id}
                 adSetIsDynamic={adSet.isDynamicCreative === true}
                 objective={objective}
+                datePreset={datePreset}
+                customRange={customRange}
                 refreshSignal={adsRefreshSignal}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />

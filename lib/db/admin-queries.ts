@@ -1609,7 +1609,8 @@ export type CreateAdCreativeEditLogData = {
     | "instagram"
     | "automatize_media"
     | "device_image"
-    | "device_video";
+    | "device_video"
+    | "existing_creative";
   mediaKind?: "image" | "video" | "instagram_post";
   videoId?: string;
   videoStatus?: "ready" | "processing" | "error";

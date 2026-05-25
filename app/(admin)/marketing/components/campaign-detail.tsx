@@ -453,6 +453,8 @@ export function CampaignDetail({
                 userId={userId}
                 campaignId={campaign.id}
                 objective={campaign.objective}
+                datePreset={datePreset}
+                customRange={customRange}
                 onAdSetClick={handleAdSetClick}
                 refreshKey={adSetsRefreshKey}
               />

@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   AdStatus,
+  DatePreset,
   EffectiveStatus,
   type Ad,
   type CampaignObjective,
@@ -31,6 +32,7 @@ import { DuplicateButton } from "./duplicate-button";
 import { EditCreativeButton } from "./edit-creative-button";
 import { IssuesIcon } from "./issues-icon";
 import { NameEditButton } from "./name-edit-button";
+import { PromotionLinkEditDialog } from "./promotion-link-edit-dialog";
 
 type GetAdsResponse = {
   data?: Ad[];
@@ -52,6 +54,8 @@ type AdsTableProps = {
    * of the generic spend/clicks fallback.
    */
   objective?: CampaignObjective;
+  datePreset?: DatePreset | null;
+  customRange?: { since: string; until: string } | null;
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
@@ -65,6 +69,8 @@ export function AdsTable({
   adSetId,
   adSetIsDynamic,
   objective,
+  datePreset,
+  customRange,
   onAdClick,
   onMediaClick,
   refreshSignal,
@@ -81,6 +87,8 @@ export function AdsTable({
     objective,
     "desktopList",
   );
+  const canEditPromotionLink =
+    objective === "OUTCOME_SALES" || objective === "CONVERSIONS";
 
   const fetchAds = useCallback(
     async (cursor?: string) => {
@@ -94,6 +102,12 @@ export function AdsTable({
         }
         if (adSetId) {
           params.set("adsetId", adSetId);
+        }
+        if (customRange) {
+          params.set("since", customRange.since);
+          params.set("until", customRange.until);
+        } else if (datePreset) {
+          params.set("datePreset", datePreset);
         }
 
         const response = await fetch(
@@ -114,7 +128,7 @@ export function AdsTable({
         setIsLoading(false);
       }
     },
-    [accountId, adSetId, userId]
+    [accountId, adSetId, customRange, datePreset, userId]
   );
 
   useEffect(() => {
@@ -317,6 +331,14 @@ export function AdsTable({
                       adSetIsDynamic={adSetIsDynamic}
                       onEdited={() => fetchAds(currentCursor)}
                     />
+                    {canEditPromotionLink && (
+                      <PromotionLinkEditDialog
+                        accountId={accountId}
+                        userId={userId}
+                        ad={{ id: ad.id, name: ad.name }}
+                        onUpdated={() => fetchAds(currentCursor)}
+                      />
+                    )}
                     <DuplicateButton
                       entityType="ad"
                       entityId={ad.id}
@@ -462,6 +484,14 @@ export function AdsTable({
                             userId={userId}
                             onDuplicated={() => fetchAds(currentCursor)}
                           />
+                          {canEditPromotionLink && (
+                            <PromotionLinkEditDialog
+                              accountId={accountId}
+                              userId={userId}
+                              ad={{ id: ad.id, name: ad.name }}
+                              onUpdated={() => fetchAds(currentCursor)}
+                            />
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>

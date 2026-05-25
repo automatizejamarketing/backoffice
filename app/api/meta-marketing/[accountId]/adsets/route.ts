@@ -51,9 +51,28 @@ export type AdSetsErrorResponse = {
   solution?: string;
 };
 
-function buildAdSetFields(): string {
-  const insightsFields =
+function buildAdSetFields(options?: {
+  datePreset?: string | null;
+  since?: string | null;
+  until?: string | null;
+}): string {
+  let insightsFields =
     "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
+
+  const insightsParams: string[] = [];
+  if (options?.datePreset) {
+    insightsParams.push(`date_preset(${options.datePreset})`);
+  } else if (options?.since && options?.until) {
+    insightsParams.push(
+      `time_range({'since':'${options.since}','until':'${options.until}'})`,
+    );
+  }
+
+  if (insightsParams.length > 0) {
+    insightsFields = `insights.${insightsParams.join(
+      ".",
+    )}{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}`;
+  }
 
   return [
     "id",
@@ -124,6 +143,9 @@ export async function GET(
     const before = searchParams.get("before");
     const campaignId = searchParams.get("campaignId");
     const effectiveStatus = searchParams.get("effectiveStatus");
+    const datePreset = searchParams.get("datePreset");
+    const since = searchParams.get("since");
+    const until = searchParams.get("until");
 
     let limit = 25;
     if (limitParam) {
@@ -133,7 +155,7 @@ export async function GET(
       }
     }
 
-    const fields = buildAdSetFields();
+    const fields = buildAdSetFields({ datePreset, since, until });
     const queryParams: string[] = [`fields=${fields}`, `limit=${limit}`];
 
     if (after) {

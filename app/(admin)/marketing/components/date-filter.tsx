@@ -1,13 +1,24 @@
 "use client";
 
+import { useState } from "react";
+import { Calendar } from "@/components/ui/calendar";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, ChevronDown } from "lucide-react";
+import type { DateRange } from "react-day-picker";
 import { DatePreset } from "@/lib/meta-business/types";
 
 type DateFilterProps = {
@@ -40,40 +51,152 @@ const PRESET_LABELS: Record<DatePreset, string> = {
   [DatePreset.THIS_YEAR]: "Este ano",
 };
 
+function parseLocalDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatLocalDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(value: string): string {
+  const [year, month, day] = value.split("-");
+  return `${day}/${month}/${year}`;
+}
+
 export function DateFilter({
   datePreset = DatePreset.LAST_30D,
   onDatePresetChange,
   customRange,
+  onCustomRangeChange,
 }: DateFilterProps) {
+  const [isCustomOpen, setIsCustomOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(
+    customRange
+      ? {
+          from: parseLocalDate(customRange.since),
+          to: parseLocalDate(customRange.until),
+        }
+      : undefined,
+  );
+
+  const handlePresetChange = (value: string) => {
+    if (value === "custom") {
+      if (customRange) {
+        setDateRange({
+          from: parseLocalDate(customRange.since),
+          to: parseLocalDate(customRange.until),
+        });
+      }
+      setIsCustomOpen(true);
+      return;
+    }
+
+    onCustomRangeChange?.(null);
+    onDatePresetChange?.(value as DatePreset);
+  };
+
+  const handleCustomRangeApply = () => {
+    if (!dateRange?.from || !dateRange?.to) return;
+
+    const since = formatLocalDate(dateRange.from);
+    const until = formatLocalDate(dateRange.to);
+    onCustomRangeChange?.({ since, until });
+    setIsCustomOpen(false);
+  };
+
+  const handleCustomRangeCancel = () => {
+    setIsCustomOpen(false);
+    setDateRange(
+      customRange
+        ? {
+            from: parseLocalDate(customRange.since),
+            to: parseLocalDate(customRange.until),
+          }
+        : undefined,
+    );
+  };
+
   const displayValue = customRange
-    ? "Período personalizado"
+    ? `${formatDisplayDate(customRange.since)} - ${formatDisplayDate(customRange.until)}`
     : datePreset
       ? PRESET_LABELS[datePreset]
       : "Selecione um período";
 
   return (
-    <Select
-      value={customRange ? "custom" : datePreset || ""}
-      onValueChange={(value) => {
-        if (value === "custom") {
-          // For custom, we'd need a calendar component
-          // For now, just keep the current preset
-          return;
-        }
-        onDatePresetChange?.(value as DatePreset);
-      }}
-    >
-      <SelectTrigger className="w-[180px] sm:w-[200px]">
-        <CalendarIcon className="size-4 mr-2 text-muted-foreground" />
-        <SelectValue placeholder="Selecione um período" />
-      </SelectTrigger>
-      <SelectContent>
-        {Object.values(DatePreset).map((preset) => (
-          <SelectItem key={preset} value={preset}>
-            {PRESET_LABELS[preset]}
+    <div className="flex items-center gap-2">
+      <Select
+        value={customRange ? "custom" : datePreset || ""}
+        onValueChange={handlePresetChange}
+      >
+        <SelectTrigger className="w-[180px] sm:w-[220px]">
+          <CalendarIcon className="size-4 mr-2 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate text-left">
+            {displayValue}
+          </span>
+        </SelectTrigger>
+        <SelectContent>
+          {Object.values(DatePreset).map((preset) => (
+            <SelectItem key={preset} value={preset}>
+              {PRESET_LABELS[preset]}
+            </SelectItem>
+          ))}
+          <SelectItem value="custom">
+            <span className="flex items-center gap-2">
+              Período personalizado
+              <ChevronDown className="size-3" />
+            </span>
           </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+        </SelectContent>
+      </Select>
+
+      <Dialog
+        open={isCustomOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setIsCustomOpen(true);
+          } else {
+            handleCustomRangeCancel();
+          }
+        }}
+      >
+        <DialogContent className="max-h-[calc(100vh-2rem)] w-fit max-w-[calc(100vw-2rem)] overflow-y-auto p-0">
+          <div className="flex max-h-[calc(100vh-2rem)] flex-col">
+            <DialogHeader className="border-b px-6 py-4">
+              <DialogTitle>Selecionar período personalizado</DialogTitle>
+              <DialogDescription>
+                Escolha a data inicial e final para filtrar os resultados.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="overflow-x-auto px-4 py-4">
+              <Calendar
+                mode="range"
+                selected={dateRange}
+                onSelect={setDateRange}
+                numberOfMonths={2}
+                disabled={{ after: new Date() }}
+              />
+            </div>
+
+            <DialogFooter className="border-t px-6 py-4">
+              <Button variant="outline" onClick={handleCustomRangeCancel}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleCustomRangeApply}
+                disabled={!dateRange?.from || !dateRange?.to}
+              >
+                Aplicar
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
