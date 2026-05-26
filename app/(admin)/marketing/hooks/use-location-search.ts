@@ -24,11 +24,20 @@ type UseLocationSearchParams = {
   userId?: string | null;
   locale?: string;
   searchTerm: string;
+  placesSessionToken: string | null;
   selectedLocations: SelectedGeoLocation[];
   enabled?: boolean;
 };
 
-async function fetchLocations(
+type GooglePlacesAutocompleteResponse = {
+  data: GeoLocationSearchResult[];
+};
+
+type GooglePlacesDetailsResponse = {
+  location: GeoLocationSearchResult | null;
+};
+
+async function fetchMetaLocations(
   accountId: string,
   userId: string | undefined,
   locale: string | undefined,
@@ -59,25 +68,136 @@ async function fetchLocations(
   return (await response.json()) as SearchLocationsResponse;
 }
 
+async function fetchGooglePlacesAutocomplete(
+  searchTerm: string,
+  placesSessionToken: string | null,
+  userId: string | undefined,
+): Promise<GooglePlacesAutocompleteResponse> {
+  if (searchTerm.length < 3 || !placesSessionToken || !userId) {
+    return { data: [] };
+  }
+
+  const response = await fetch("/api/geo/google-places/autocomplete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      input: searchTerm,
+      sessionToken: placesSessionToken,
+      userId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to search specific addresses");
+  }
+
+  return (await response.json()) as GooglePlacesAutocompleteResponse;
+}
+
+function mergeGeoLocationSearchResults(
+  metaResults: GeoLocationSearchResult[],
+  googleResults: GeoLocationSearchResult[],
+) {
+  const seen = new Set<string>();
+  const merged: GeoLocationSearchResult[] = [];
+
+  for (const location of [...metaResults, ...googleResults]) {
+    const key = `${location.source ?? "meta"}:${location.key}`;
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(location);
+  }
+
+  return merged;
+}
+
+async function fetchLocations(
+  accountId: string,
+  userId: string | undefined,
+  locale: string | undefined,
+  searchTerm: string,
+  placesSessionToken: string | null,
+): Promise<SearchLocationsResponse> {
+  const [metaResult, googleResult] = await Promise.allSettled([
+    fetchMetaLocations(accountId, userId, locale, searchTerm),
+    fetchGooglePlacesAutocomplete(searchTerm, placesSessionToken, userId),
+  ]);
+
+  if (metaResult.status === "rejected") {
+    throw metaResult.reason;
+  }
+
+  if (googleResult.status === "rejected") {
+    console.warn("googlePlaces.autocomplete.clientFailed", googleResult.reason);
+  }
+
+  return {
+    data: mergeGeoLocationSearchResults(
+      metaResult.value.data,
+      googleResult.status === "fulfilled" ? googleResult.value.data : [],
+    ),
+  };
+}
+
+export async function fetchGooglePlaceDetails({
+  placeId,
+  sessionToken,
+  userId,
+}: {
+  placeId: string;
+  sessionToken: string;
+  userId?: string | null;
+}): Promise<GeoLocationSearchResult | null> {
+  const response = await fetch("/api/geo/google-places/details", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ placeId, sessionToken, userId }),
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to resolve address coordinates");
+  }
+
+  const data = (await response.json()) as GooglePlacesDetailsResponse;
+  return data.location;
+}
+
 export function useLocationSearch({
   accountId,
   userId,
   locale,
   searchTerm,
+  placesSessionToken,
   selectedLocations,
   enabled = true,
 }: UseLocationSearchParams) {
-  const [debouncedSearchTerm] = useDebounceValue(searchTerm, 250);
+  const [debouncedSearchTerm] = useDebounceValue(searchTerm, 400);
   const normalizedSearchTerm = debouncedSearchTerm.trim();
 
   const query = useQuery({
-    queryKey: ["meta-location-search", accountId, userId, locale, normalizedSearchTerm],
+    queryKey: [
+      "meta-location-search",
+      accountId,
+      userId,
+      locale,
+      normalizedSearchTerm,
+      placesSessionToken,
+    ],
     queryFn: () => {
       if (!accountId) {
         throw new Error("Account ID is required");
       }
 
-      return fetchLocations(accountId, userId ?? undefined, locale, normalizedSearchTerm);
+      return fetchLocations(
+        accountId,
+        userId ?? undefined,
+        locale,
+        normalizedSearchTerm,
+        placesSessionToken,
+      );
     },
     enabled: enabled && Boolean(accountId) && Boolean(userId) && normalizedSearchTerm.length > 0,
     staleTime: 60_000,

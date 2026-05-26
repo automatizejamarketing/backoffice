@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { locationTargetingMessages, useLocationTargetingT } from "../utils/location-targeting-messages";
+import { useLocationTargetingT } from "../utils/location-targeting-messages";
 import {
   ChevronDown,
   ChevronUp,
@@ -30,12 +30,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
-import { isFullBrazilCep } from "@/lib/geo/brazil-cep";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_CITY_RADIUS_KM,
   MAX_RADIUS_KM,
   MIN_RADIUS_KM,
+  applyDefaultBrazilLocationRule,
   hasLocationCoordinates,
   normalizeSelectedGeoLocation,
   type GeoLocationSearchResult,
@@ -46,7 +46,10 @@ import {
   mergeZipGeocodeForMap,
   useZipGeocodeForMap,
 } from "../hooks/use-zip-geocode-for-map";
-import { useLocationSearch } from "../hooks/use-location-search";
+import {
+  fetchGooglePlaceDetails,
+  useLocationSearch,
+} from "../hooks/use-location-search";
 
 const LocationTargetingMapPreview = dynamic(
   () =>
@@ -210,6 +213,14 @@ function summarizeLocations(
   });
 }
 
+function createPlacesSessionToken() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function LocationTargetingSection({
   accountId,
   userId,
@@ -225,6 +236,11 @@ export function LocationTargetingSection({
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [placesSessionToken, setPlacesSessionToken] = useState<string | null>(
+    null,
+  );
+  const [resolvingPlaceId, setResolvingPlaceId] = useState<string | null>(null);
+  const [placeDetailsError, setPlaceDetailsError] = useState<string | null>(null);
 
   const clampRadius = (value: number) =>
     Math.min(maxRadiusKm, Math.max(minRadiusKm, value));
@@ -234,6 +250,7 @@ export function LocationTargetingSection({
     userId,
     locale,
     searchTerm,
+    placesSessionToken,
     selectedLocations,
     enabled: open,
   });
@@ -241,10 +258,25 @@ export function LocationTargetingSection({
   const { geocodeByKey, isGeocoding, geocodeError } =
     useZipGeocodeForMap(selectedLocations);
 
-  const groupedResults = useMemo(() => {
-    const groups = new Map<string, GeoLocationSearchResult[]>();
+  const { metaResults, googleResults } = useMemo(() => {
+    const meta: GeoLocationSearchResult[] = [];
+    const google: GeoLocationSearchResult[] = [];
 
     for (const result of results) {
+      if (result.source === "google_places") {
+        google.push(result);
+      } else {
+        meta.push(result);
+      }
+    }
+
+    return { metaResults: meta, googleResults: google };
+  }, [results]);
+
+  const groupedMetaResults = useMemo(() => {
+    const groups = new Map<string, GeoLocationSearchResult[]>();
+
+    for (const result of metaResults) {
       const key = result.type;
       const existing = groups.get(key) ?? [];
       existing.push(result);
@@ -256,7 +288,7 @@ export function LocationTargetingSection({
         LOCATION_RESULT_ORDER.indexOf(left as GeoLocationType) -
         LOCATION_RESULT_ORDER.indexOf(right as GeoLocationType),
     );
-  }, [results]);
+  }, [metaResults]);
 
   const coordinateLocationsByKey = useMemo(() => {
     const map = new Map<
@@ -281,12 +313,65 @@ export function LocationTargetingSection({
     }
   }, [selectedLocations.length, expandedIndex]);
 
-  const handleSelectLocation = (location: GeoLocationSearchResult) => {
+  const handleSearchTermChange = (value: string) => {
+    setSearchTerm(value);
+    setPlaceDetailsError(null);
+
+    if (value.trim().length === 0) {
+      setPlacesSessionToken(null);
+      return;
+    }
+
+    setPlacesSessionToken((current) => current ?? createPlacesSessionToken());
+  };
+
+  const commitSelectedLocation = (location: GeoLocationSearchResult) => {
     const normalizedLocation = normalizeSelectedGeoLocation(location);
-    onLocationsChange([...selectedLocations, normalizedLocation]);
-    setExpandedIndex(selectedLocations.length);
+    const nextLocations = applyDefaultBrazilLocationRule([
+      ...selectedLocations,
+      normalizedLocation,
+    ]);
+    onLocationsChange(nextLocations);
+    setExpandedIndex(nextLocations.length - 1);
     setSearchTerm("");
+    setPlacesSessionToken(null);
+    setPlaceDetailsError(null);
     setOpen(false);
+  };
+
+  const handleSelectLocation = async (location: GeoLocationSearchResult) => {
+    if (location.source !== "google_places") {
+      commitSelectedLocation(location);
+      return;
+    }
+
+    if (!location.place_id || !placesSessionToken) {
+      setPlaceDetailsError(t("placeDetailsError"));
+      return;
+    }
+
+    setResolvingPlaceId(location.place_id);
+    setPlaceDetailsError(null);
+
+    try {
+      const resolvedLocation = await fetchGooglePlaceDetails({
+        placeId: location.place_id,
+        sessionToken: placesSessionToken,
+        userId,
+      });
+
+      if (!resolvedLocation) {
+        setPlaceDetailsError(t("placeDetailsError"));
+        return;
+      }
+
+      commitSelectedLocation(resolvedLocation);
+    } catch {
+      setPlaceDetailsError(t("placeDetailsError"));
+    } finally {
+      setResolvingPlaceId(null);
+      setPlacesSessionToken(null);
+    }
   };
 
   const handleRemoveLocation = (locationKey: string) => {
@@ -294,7 +379,9 @@ export function LocationTargetingSection({
       (location) => location.key === locationKey,
     );
     onLocationsChange(
-      selectedLocations.filter((location) => location.key !== locationKey),
+      applyDefaultBrazilLocationRule(
+        selectedLocations.filter((location) => location.key !== locationKey),
+      ),
     );
 
     setExpandedIndex((current) => {
@@ -430,13 +517,18 @@ export function LocationTargetingSection({
           <Command shouldFilter={false}>
             <CommandInput
               value={searchTerm}
-              onValueChange={setSearchTerm}
+              onValueChange={handleSearchTermChange}
               placeholder={t("searchPlaceholder")}
             />
             <CommandList>
               {error ? (
                 <div className="px-3 py-8 text-center text-sm text-destructive">
                   {error instanceof Error ? error.message : t("searchError")}
+                </div>
+              ) : null}
+              {placeDetailsError ? (
+                <div className="px-3 py-3 text-center text-sm text-destructive">
+                  {placeDetailsError}
                 </div>
               ) : null}
               {!error && isFetching ? (
@@ -454,13 +546,8 @@ export function LocationTargetingSection({
                 <>
                   <CommandEmpty>
                     <span className="block">{t("noResults")}</span>
-                    {isFullBrazilCep(searchTerm.trim()) ? (
-                      <span className="mt-2 block text-xs text-muted-foreground">
-                        {t("zipCepSearchHint")}
-                      </span>
-                    ) : null}
                   </CommandEmpty>
-                  {groupedResults.map(([type, locations]) => (
+                  {groupedMetaResults.map(([type, locations]) => (
                     <CommandGroup
                       key={type}
                       heading={getLocationTypeLabel(type as GeoLocationType, t)}
@@ -496,6 +583,45 @@ export function LocationTargetingSection({
                       })}
                     </CommandGroup>
                   ))}
+                  {googleResults.length > 0 ? (
+                    <CommandGroup heading={t("googlePlacesGroup")}>
+                      {googleResults.map((location) => {
+                        const Icon = getLocationTypeIcon(location.type);
+                        const isResolving = resolvingPlaceId === location.place_id;
+
+                        return (
+                          <CommandItem
+                            key={`${location.source}-${location.key}`}
+                            value={`${location.name}-${location.key}`}
+                            disabled={resolvingPlaceId !== null}
+                            onSelect={() => handleSelectLocation(location)}
+                          >
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                              {isResolving ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Icon className="size-4" />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">
+                                {location.name}
+                              </p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {getLocationMeta(location, t)}
+                              </p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                            >
+                              {getLocationTypeLabel(location.type, t)}
+                            </Badge>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  ) : null}
                 </>
               ) : null}
             </CommandList>

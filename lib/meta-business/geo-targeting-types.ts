@@ -19,6 +19,9 @@ export type GeoLocationSearchResult = {
   key: string;
   name: string;
   type: GeoLocationType;
+  source?: "meta" | "google_places";
+  place_id?: string;
+  requires_details?: boolean;
   country_code?: string;
   country_name?: string;
   region?: string;
@@ -32,6 +35,8 @@ export type GeoLocationSearchResult = {
   address_string?: string;
   latitude?: number;
   longitude?: number;
+  radius?: number;
+  distance_unit?: DistanceUnit;
 };
 
 export type DistanceUnit = "kilometer" | "mile";
@@ -84,6 +89,28 @@ export const DEFAULT_BRAZIL_LOCATION: SelectedGeoLocation = {
   country_code: "BR",
   country_name: "Brazil",
 };
+
+export function isDefaultBrazilLocation(
+  location: Pick<SelectedGeoLocation, "country_code" | "key" | "type">,
+): boolean {
+  return (
+    location.type === "country" &&
+    (location.key.toUpperCase() === DEFAULT_BRAZIL_LOCATION.key ||
+      location.country_code?.toUpperCase() === DEFAULT_BRAZIL_LOCATION.country_code)
+  );
+}
+
+export function applyDefaultBrazilLocationRule(
+  locations: SelectedGeoLocation[],
+): SelectedGeoLocation[] {
+  const specificLocations = locations.filter(
+    (location) => !isDefaultBrazilLocation(location),
+  );
+
+  return specificLocations.length > 0
+    ? specificLocations
+    : [DEFAULT_BRAZIL_LOCATION];
+}
 
 export function isCityLikeGeoLocation(
   location: Pick<SelectedGeoLocation, "type">,
