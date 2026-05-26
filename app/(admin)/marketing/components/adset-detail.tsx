@@ -58,6 +58,7 @@ import {
 } from "../utils/formatters";
 import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-increment-to-days";
 import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
+import type { CampaignMetricId } from "../utils/campaign-metrics";
 
 type AdSetDetailProps = {
   adSet: AdSet;
@@ -69,6 +70,7 @@ type AdSetDetailProps = {
    * (campaign / adset / ad) renders the same objective-aware metrics.
    */
   objective?: CampaignObjective;
+  selectedMetricIds?: CampaignMetricId[] | null;
   isOpen: boolean;
   onClose: () => void;
   /** Called after the ad set is duplicated (parent should refresh its list). */
@@ -92,6 +94,7 @@ export function AdSetDetail({
   accountId,
   userId,
   objective,
+  selectedMetricIds,
   isOpen,
   onClose,
   onDuplicated,
@@ -540,6 +543,7 @@ export function AdSetDetail({
                 objective={objective}
                 datePreset={datePreset}
                 customRange={customRange}
+                selectedMetricIds={selectedMetricIds}
                 refreshSignal={adsRefreshSignal}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />

@@ -22,7 +22,10 @@ import {
   type CampaignObjective,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
-import { getCampaignMetricsForObjective } from "../utils/campaign-metrics";
+import {
+  resolveCampaignTableMetrics,
+  type CampaignMetricId,
+} from "../utils/campaign-metrics";
 import {
   formatMetricValue,
   getMetricLabel,
@@ -56,6 +59,7 @@ type AdsTableProps = {
   objective?: CampaignObjective;
   datePreset?: DatePreset | null;
   customRange?: { since: string; until: string } | null;
+  selectedMetricIds?: CampaignMetricId[] | null;
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
@@ -71,6 +75,7 @@ export function AdsTable({
   objective,
   datePreset,
   customRange,
+  selectedMetricIds,
   onAdClick,
   onMediaClick,
   refreshSignal,
@@ -82,11 +87,21 @@ export function AdsTable({
   const [currentCursor, setCurrentCursor] = useState<string | undefined>();
   const [togglingAdId, setTogglingAdId] = useState<string | null>(null);
 
-  const mobileMetrics = getCampaignMetricsForObjective(objective, "mobileList");
-  const desktopMetrics = getCampaignMetricsForObjective(
+  const mobileMetrics = resolveCampaignTableMetrics(
+    objective,
+    "mobileList",
+    selectedMetricIds,
+  );
+  const desktopMetrics = resolveCampaignTableMetrics(
     objective,
     "desktopList",
+    selectedMetricIds,
   );
+  const desktopMetricCount = desktopMetrics.length;
+  const desktopMetricsGridStyle = {
+    gridTemplateColumns: `repeat(${desktopMetricCount}, minmax(0, 1fr))`,
+  };
+  const desktopMetricsMinWidth = Math.max(420, desktopMetricCount * 110);
   const canEditPromotionLink =
     objective === "OUTCOME_SALES" || objective === "CONVERSIONS";
 
@@ -223,7 +238,7 @@ export function AdsTable({
   };
 
   if (isLoading && ads.length === 0) {
-    return <AdsTableSkeleton />;
+    return <AdsTableSkeleton metricCount={desktopMetricCount} />;
   }
 
   if (error) {
@@ -378,7 +393,9 @@ export function AdsTable({
                 <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
                 <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-                <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
+                <TableHead className="text-xs" style={{ minWidth: desktopMetricsMinWidth }}>
+                  Métricas principais
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -399,8 +416,8 @@ export function AdsTable({
                         <Skeleton className="h-4 w-20" />
                       </TableCell>
                       <TableCell>
-                        <div className="grid grid-cols-5 gap-3">
-                          {Array.from({ length: 5 }).map((_, j) => (
+                        <div className="grid gap-3" style={desktopMetricsGridStyle}>
+                          {Array.from({ length: desktopMetricCount }).map((_, j) => (
                             <div key={j}>
                               <Skeleton className="h-4 w-12 mb-1" />
                               <Skeleton className="h-3 w-16" />
@@ -495,7 +512,7 @@ export function AdsTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="grid grid-cols-5 gap-3">
+                        <div className="grid gap-3" style={desktopMetricsGridStyle}>
                           {desktopMetrics.map((metric) => (
                             <div key={metric.id} className="min-w-0">
                               <div className="tabular-nums text-sm font-medium">
@@ -606,7 +623,11 @@ function AdThumbnailButton({
   );
 }
 
-function AdsTableSkeleton() {
+function AdsTableSkeleton({ metricCount = 5 }: { metricCount?: number }) {
+  const metricsGridStyle = {
+    gridTemplateColumns: `repeat(${metricCount}, minmax(0, 1fr))`,
+  };
+
   return (
     <div className="space-y-3">
       <div className="block sm:hidden space-y-2">
@@ -642,7 +663,12 @@ function AdsTableSkeleton() {
               <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
               <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-              <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
+              <TableHead
+                className="text-xs"
+                style={{ minWidth: Math.max(420, metricCount * 110) }}
+              >
+                Métricas principais
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -662,8 +688,8 @@ function AdsTableSkeleton() {
                   <Skeleton className="h-4 w-20" />
                 </TableCell>
                 <TableCell>
-                  <div className="grid grid-cols-5 gap-3">
-                    {Array.from({ length: 5 }).map((_, j) => (
+                  <div className="grid gap-3" style={metricsGridStyle}>
+                    {Array.from({ length: metricCount }).map((_, j) => (
                       <div key={j}>
                         <Skeleton className="h-4 w-12 mb-1" />
                         <Skeleton className="h-3 w-16" />

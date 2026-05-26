@@ -80,6 +80,7 @@ export async function GET(
       "frequency",
       "actions",
       "cost_per_action_type",
+      "cost_per_result",
       "action_values",
       "purchase_roas",
       "website_purchase_roas",

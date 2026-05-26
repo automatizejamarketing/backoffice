@@ -201,6 +201,14 @@ export type GraphApiInsights = {
     action_type: string;
     value: string;
   }>;
+  cost_per_result?: Array<{
+    action_type?: string;
+    value?: string;
+  }>;
+  cost_per_objective_result?: Array<{
+    action_type?: string;
+    value?: string;
+  }>;
   date_start?: string;
   date_stop?: string;
 };
@@ -229,6 +237,10 @@ export type InsightsMetrics = {
   landingPageViews?: string;
   leadCount?: string;
   leadCost?: string;
+  addToCartCount?: string;
+  initiateCheckoutCount?: string;
+  cartAbandonmentCount?: string;
+  costPerResult?: string;
   dateStart?: string;
   dateStop?: string;
 };

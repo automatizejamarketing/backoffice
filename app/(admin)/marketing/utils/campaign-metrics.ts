@@ -21,7 +21,11 @@ export type CampaignMetricId =
   | "linkClicks"
   | "landingPageViews"
   | "leadCost"
-  | "leadCount";
+  | "leadCount"
+  | "addToCartCount"
+  | "initiateCheckoutCount"
+  | "cartAbandonmentCount"
+  | "costPerResult";
 
 export type CampaignMetricFormat =
   | "currency"
@@ -90,7 +94,52 @@ export const CAMPAIGN_METRIC_DEFINITIONS: Record<
     format: "number",
     labelKey: "numberOfLeads",
   },
+  addToCartCount: {
+    id: "addToCartCount",
+    format: "number",
+    labelKey: "addToCart",
+  },
+  initiateCheckoutCount: {
+    id: "initiateCheckoutCount",
+    format: "number",
+    labelKey: "checkout",
+  },
+  cartAbandonmentCount: {
+    id: "cartAbandonmentCount",
+    format: "number",
+    labelKey: "cartAbandonment",
+  },
+  costPerResult: {
+    id: "costPerResult",
+    format: "currency",
+    labelKey: "costPerResult",
+  },
 };
+
+export const MARKETING_TABLE_METRIC_IDS: CampaignMetricId[] = [
+  "spend",
+  "purchaseRoas",
+  "costPerResult",
+  "purchaseCost",
+  "leadCost",
+  "cpc",
+  "cpm",
+  "ctr",
+  "purchaseValue",
+  "purchaseCount",
+  "cartAbandonmentCount",
+  "initiateCheckoutCount",
+  "addToCartCount",
+  "linkClicks",
+  "landingPageViews",
+  "leadCount",
+  "impressions",
+  "reach",
+  "clicks",
+];
+
+export const MARKETING_TABLE_METRIC_OPTIONS =
+  MARKETING_TABLE_METRIC_IDS.map((metricId) => CAMPAIGN_METRIC_DEFINITIONS[metricId]);
 
 const METRIC_GROUPS: Record<CampaignMetricBucket, Record<CampaignMetricSurface, CampaignMetricId[]>> = {
   sales: {
@@ -182,6 +231,29 @@ export function getCampaignMetricsForCampaign(
   return getCampaignMetricsForObjective(campaign.objective, surface);
 }
 
+export function getMetricDefinitionsFromIds(
+  metricIds: readonly CampaignMetricId[],
+): CampaignMetricDefinition[] {
+  return metricIds
+    .map((metricId) => CAMPAIGN_METRIC_DEFINITIONS[metricId])
+    .filter((metric): metric is CampaignMetricDefinition => Boolean(metric));
+}
+
+export function resolveCampaignTableMetrics(
+  objective: CampaignObjective | undefined,
+  surface: CampaignMetricSurface,
+  selectedMetricIds?: readonly CampaignMetricId[] | null,
+): CampaignMetricDefinition[] {
+  if (!selectedMetricIds || selectedMetricIds.length === 0) {
+    return getCampaignMetricsForObjective(objective, surface);
+  }
+
+  const customMetrics = getMetricDefinitionsFromIds(selectedMetricIds);
+  return customMetrics.length > 0
+    ? customMetrics
+    : getCampaignMetricsForObjective(objective, surface);
+}
+
 export function getMetricRawValue(
   insights: InsightsMetrics | undefined,
   metricId: CampaignMetricId,
@@ -219,6 +291,14 @@ export function getMetricRawValue(
       return insights.leadCost;
     case "leadCount":
       return insights.leadCount;
+    case "addToCartCount":
+      return insights.addToCartCount;
+    case "initiateCheckoutCount":
+      return insights.initiateCheckoutCount;
+    case "cartAbandonmentCount":
+      return insights.cartAbandonmentCount;
+    case "costPerResult":
+      return insights.costPerResult;
     default:
       return undefined;
   }

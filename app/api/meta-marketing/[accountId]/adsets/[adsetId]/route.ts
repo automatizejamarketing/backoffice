@@ -53,8 +53,8 @@ function buildAdSetDetailFields(adsSubquery: string): string {
     "pacing_type",
     "adset_schedule",
     "campaign{id,name,status,effective_status,objective,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,is_adset_budget_sharing_enabled,created_time,updated_time}",
-    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,date_start,date_stop}",
-    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,effective_object_story_id},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,date_start,date_stop}}`,
+    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}",
+    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,effective_object_story_id},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
   ].join(",");
 }
 

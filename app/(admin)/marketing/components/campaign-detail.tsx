@@ -54,6 +54,7 @@ type CampaignDetailProps = {
   isOpen: boolean;
   onClose: () => void;
   onCampaignUpdated?: (campaign: Campaign) => void;
+  selectedMetricIds?: CampaignMetricId[] | null;
 };
 
 type GetCampaignInsightsResponse = {
@@ -69,6 +70,7 @@ export function CampaignDetail({
   isOpen,
   onClose,
   onCampaignUpdated,
+  selectedMetricIds,
 }: CampaignDetailProps) {
   const [campaign, setCampaign] = useState<Campaign>(campaignProp);
   const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
@@ -455,6 +457,7 @@ export function CampaignDetail({
                 objective={campaign.objective}
                 datePreset={datePreset}
                 customRange={customRange}
+                selectedMetricIds={selectedMetricIds}
                 onAdSetClick={handleAdSetClick}
                 refreshKey={adSetsRefreshKey}
               />
@@ -469,6 +472,7 @@ export function CampaignDetail({
           accountId={accountId}
           userId={userId}
           objective={campaign.objective}
+          selectedMetricIds={selectedMetricIds}
           isOpen={isAdSetDetailOpen}
           onClose={handleCloseAdSetDetail}
           onDuplicated={() => setAdSetsRefreshKey((prev) => prev + 1)}

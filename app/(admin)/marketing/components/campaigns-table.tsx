@@ -25,7 +25,10 @@ import type {
   CampaignSortMetric,
   SortOrder,
 } from "@/lib/meta-business/campaign-sort";
-import { getCampaignMetricsForCampaign } from "../utils/campaign-metrics";
+import {
+  resolveCampaignTableMetrics,
+  type CampaignMetricId,
+} from "../utils/campaign-metrics";
 import {
   formatMetricValue,
   getMetricLabel,
@@ -57,6 +60,7 @@ type CampaignsTableProps = {
   /** Metric to sort by, or `null` for the default status order. */
   sortMetric: CampaignSortMetric | null;
   sortOrder: SortOrder;
+  selectedMetricIds?: CampaignMetricId[] | null;
 };
 
 const PAGE_SIZE = 25;
@@ -72,6 +76,7 @@ export function CampaignsTable({
   objectiveFilter,
   sortMetric,
   sortOrder,
+  selectedMetricIds,
 }: CampaignsTableProps) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -252,8 +257,31 @@ export function CampaignsTable({
     return campaign.status === CampaignStatus.ACTIVE;
   };
 
+  const getMobileMetrics = (campaign: Campaign) =>
+    resolveCampaignTableMetrics(
+      campaign.objective,
+      "mobileList",
+      selectedMetricIds,
+    );
+
+  const getDesktopMetrics = (campaign: Campaign) =>
+    resolveCampaignTableMetrics(
+      campaign.objective,
+      "desktopList",
+      selectedMetricIds,
+    );
+
+  const desktopMetricCount =
+    selectedMetricIds && selectedMetricIds.length > 0
+      ? selectedMetricIds.length
+      : 5;
+  const desktopMetricsMinWidth = Math.max(420, desktopMetricCount * 110);
+  const desktopMetricsGridStyle = {
+    gridTemplateColumns: `repeat(${desktopMetricCount}, minmax(0, 1fr))`,
+  };
+
   if (isLoading && campaigns.length === 0) {
-    return <CampaignsTableSkeleton />;
+    return <CampaignsTableSkeleton metricCount={desktopMetricCount} />;
   }
 
   if (error) {
@@ -352,7 +380,7 @@ export function CampaignsTable({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              {getCampaignMetricsForCampaign(campaign, "mobileList").map(
+              {getMobileMetrics(campaign).map(
                 (metric) => (
                   <div key={metric.id}>
                     <span className="block text-xs font-semibold tabular-nums">
@@ -379,7 +407,9 @@ export function CampaignsTable({
                 <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
                 <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-                <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
+                <TableHead className="text-xs" style={{ minWidth: desktopMetricsMinWidth }}>
+                  Métricas principais
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -391,8 +421,8 @@ export function CampaignsTable({
                       <TableCell />
                       <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                       <TableCell>
-                        <div className="grid grid-cols-5 gap-3">
-                          {Array.from({ length: 5 }).map((_, j) => (
+                        <div className="grid gap-3" style={desktopMetricsGridStyle}>
+                          {Array.from({ length: desktopMetricCount }).map((_, j) => (
                             <div key={j}>
                               <Skeleton className="h-4 w-12 mb-1" />
                               <Skeleton className="h-3 w-16" />
@@ -478,8 +508,13 @@ export function CampaignsTable({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="grid grid-cols-5 gap-3">
-                          {getCampaignMetricsForCampaign(campaign, "desktopList").map(
+                        <div
+                          className="grid gap-3"
+                          style={{
+                            gridTemplateColumns: `repeat(${getDesktopMetrics(campaign).length}, minmax(0, 1fr))`,
+                          }}
+                        >
+                          {getDesktopMetrics(campaign).map(
                             (metric) => (
                               <div key={metric.id} className="min-w-0">
                                 <div className="tabular-nums text-sm font-medium">
@@ -539,7 +574,11 @@ export function CampaignsTable({
   );
 }
 
-function CampaignsTableSkeleton() {
+function CampaignsTableSkeleton({ metricCount = 5 }: { metricCount?: number }) {
+  const metricsGridStyle = {
+    gridTemplateColumns: `repeat(${metricCount}, minmax(0, 1fr))`,
+  };
+
   return (
     <div className="space-y-3">
       {/* Mobile Skeleton */}
@@ -574,7 +613,12 @@ function CampaignsTableSkeleton() {
               <TableHead className="min-w-[200px] text-xs">Campanha</TableHead>
               <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
               <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
-              <TableHead className="min-w-[420px] text-xs">Métricas principais</TableHead>
+                <TableHead
+                  className="text-xs"
+                  style={{ minWidth: Math.max(420, metricCount * 110) }}
+                >
+                  Métricas principais
+                </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -585,8 +629,8 @@ function CampaignsTableSkeleton() {
                 <TableCell />
                 <TableCell><Skeleton className="h-4 w-20" /></TableCell>
                 <TableCell>
-                  <div className="grid grid-cols-5 gap-3">
-                    {Array.from({ length: 5 }).map((_, j) => (
+                  <div className="grid gap-3" style={metricsGridStyle}>
+                    {Array.from({ length: metricCount }).map((_, j) => (
                       <div key={j}>
                         <Skeleton className="h-4 w-12 mb-1" />
                         <Skeleton className="h-3 w-16" />

@@ -34,6 +34,10 @@ import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
 import { MarketingUsersPicker } from "./marketing-users-picker";
+import { MetricColumnsSelector } from "./metric-columns-selector";
+import { useMetricColumnPreferences } from "../hooks/use-metric-column-preferences";
+import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
+import { getMetricLabel } from "../utils/metric-formatters";
 
 export type MarketingWorkspaceUser = {
   id: string;
@@ -87,6 +91,8 @@ export function MarketingWorkspace({
     useState<CampaignObjectiveFilter>("all");
   const [sortMetric, setSortMetric] = useState<CampaignSortMetric | null>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const { selectedMetricIds, setSelectedMetricIds } =
+    useMetricColumnPreferences();
 
   useEffect(() => {
     setSelectedUser(initialUser);
@@ -433,6 +439,13 @@ export function MarketingWorkspace({
                 )}
               </Button>
 
+              <MetricColumnsSelector
+                selectedMetricIds={selectedMetricIds}
+                onChange={setSelectedMetricIds}
+                options={MARKETING_TABLE_METRIC_OPTIONS}
+                getLabel={getMetricLabel}
+              />
+
               <DateFilter
                 datePreset={datePreset}
                 onDatePresetChange={(preset) => {
@@ -458,6 +471,7 @@ export function MarketingWorkspace({
               objectiveFilter={objectiveFilter}
               sortMetric={sortMetric}
               sortOrder={sortOrder}
+              selectedMetricIds={selectedMetricIds}
             />
           </CardContent>
         </Card>
@@ -474,6 +488,7 @@ export function MarketingWorkspace({
             setSelectedCampaign(null);
           }}
           onCampaignUpdated={handleCampaignUpdated}
+          selectedMetricIds={selectedMetricIds}
         />
       )}
     </div>

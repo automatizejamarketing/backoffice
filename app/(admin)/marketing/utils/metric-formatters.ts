@@ -55,6 +55,10 @@ const METRIC_LABELS: Record<string, string> = {
   landingPageViews: "Views da página",
   cpl: "CPL",
   numberOfLeads: "Leads",
+  addToCart: "Adições ao carrinho",
+  checkout: "Finalização de compra",
+  cartAbandonment: "Abandono de carrinho",
+  costPerResult: "Custo por resultado",
 };
 
 export function getMetricLabel(labelKey: string): string {

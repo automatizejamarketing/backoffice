@@ -98,6 +98,10 @@ const METRIC_ICON_MAP: Record<CampaignMetricId, typeof DollarSign> = {
   landingPageViews: Eye,
   leadCost: DollarSign,
   leadCount: Users,
+  addToCartCount: MousePointerClick,
+  initiateCheckoutCount: MousePointerClick,
+  cartAbandonmentCount: MousePointerClick,
+  costPerResult: DollarSign,
 };
 
 const METRIC_COLOR_MAP: Record<CampaignMetricId, string> = {
@@ -116,6 +120,10 @@ const METRIC_COLOR_MAP: Record<CampaignMetricId, string> = {
   landingPageViews: "text-blue-500",
   leadCost: "text-cyan-500",
   leadCount: "text-orange-500",
+  addToCartCount: "text-violet-500",
+  initiateCheckoutCount: "text-blue-500",
+  cartAbandonmentCount: "text-rose-500",
+  costPerResult: "text-cyan-500",
 };
 
 export function InsightsCards({

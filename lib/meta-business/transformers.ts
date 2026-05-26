@@ -36,17 +36,59 @@ const LANDING_PAGE_VIEW_ACTION_TYPES = [
   "onsite_conversion.landing_page_view",
 ] as const;
 
+const ADD_TO_CART_ACTION_TYPES = [
+  "add_to_cart",
+  "omni_add_to_cart",
+  "offsite_conversion.fb_pixel_add_to_cart",
+] as const;
+
+const INITIATE_CHECKOUT_ACTION_TYPES = [
+  "initiate_checkout",
+  "omni_initiated_checkout",
+  "offsite_conversion.fb_pixel_initiate_checkout",
+] as const;
+
 function getActionValue(
-  actions: GraphApiInsights["actions"] | GraphApiInsights["cost_per_action_type"] | GraphApiInsights["action_values"] | GraphApiInsights["purchase_roas"] | GraphApiInsights["website_purchase_roas"],
+  actions:
+    | GraphApiInsights["actions"]
+    | GraphApiInsights["cost_per_action_type"]
+    | GraphApiInsights["action_values"]
+    | GraphApiInsights["purchase_roas"]
+    | GraphApiInsights["website_purchase_roas"]
+    | GraphApiInsights["cost_per_result"]
+    | GraphApiInsights["cost_per_objective_result"],
   actionTypes: readonly string[],
 ): string | undefined {
   if (!actions) return undefined;
 
-  const matchingAction = actions.find((action) =>
-    actionTypes.includes(action.action_type),
+  const matchingAction = actions.find(
+    (action) =>
+      typeof action.action_type === "string" &&
+      actionTypes.includes(action.action_type),
   );
 
   return matchingAction?.value;
+}
+
+function getFirstMetricValue(
+  actions:
+    | GraphApiInsights["cost_per_result"]
+    | GraphApiInsights["cost_per_objective_result"],
+): string | undefined {
+  return actions?.find((action) => action.value !== undefined)?.value;
+}
+
+function subtractMetricValues(
+  minuend: string | undefined,
+  subtrahend: string | undefined,
+): string | undefined {
+  if (minuend === undefined) return undefined;
+
+  const left = Number.parseFloat(minuend);
+  const right = subtrahend === undefined ? 0 : Number.parseFloat(subtrahend);
+  if (!Number.isFinite(left)) return undefined;
+
+  return String(Math.max(0, left - (Number.isFinite(right) ? right : 0)));
 }
 
 /**
@@ -74,6 +116,18 @@ export function transformInsightsData(data: GraphApiInsights): InsightsMetrics {
   );
   const leadCount = getActionValue(data.actions, LEAD_ACTION_TYPES);
   const leadCost = getActionValue(data.cost_per_action_type, LEAD_ACTION_TYPES);
+  const addToCartCount = getActionValue(data.actions, ADD_TO_CART_ACTION_TYPES);
+  const initiateCheckoutCount = getActionValue(
+    data.actions,
+    INITIATE_CHECKOUT_ACTION_TYPES,
+  );
+  const cartAbandonmentCount = subtractMetricValues(
+    addToCartCount,
+    purchaseCount,
+  );
+  const costPerResult =
+    getFirstMetricValue(data.cost_per_result) ??
+    getFirstMetricValue(data.cost_per_objective_result);
   const conversions = purchaseCount ?? leadCount;
   const costPerConversion = purchaseCost ?? leadCost;
 
@@ -98,6 +152,10 @@ export function transformInsightsData(data: GraphApiInsights): InsightsMetrics {
     landingPageViews,
     leadCount,
     leadCost,
+    addToCartCount,
+    initiateCheckoutCount,
+    cartAbandonmentCount,
+    costPerResult,
     dateStart: data.date_start,
     dateStop: data.date_stop,
   };
