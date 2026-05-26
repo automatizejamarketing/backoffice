@@ -21,6 +21,12 @@ import {
   minorUnitsToCurrencyInput,
 } from "@/lib/meta-business/budget-schedule";
 import {
+  areCampaignScheduleBlocksEqual,
+  fromMetaAdSetScheduleBlocks,
+  getDeliveryModeFromMetaAdSetSchedule,
+  validateCampaignSchedulePayload,
+} from "@/lib/meta-business/campaign-schedule";
+import {
   ALL_PLACEMENTS,
   FACEBOOK_PLACEMENTS,
   INSTAGRAM_PLACEMENTS,
@@ -33,6 +39,10 @@ import {
   AudienceMultiSelect,
   type AudienceOption,
 } from "./audience-multi-select";
+import {
+  AdSetDeliveryScheduleEditor,
+  type AdSetDeliveryScheduleValue,
+} from "./adset-delivery-schedule-editor";
 import { LocationTargetingSection } from "./location-targeting-section";
 import {
   DEFAULT_BRAZIL_LOCATION,
@@ -53,6 +63,22 @@ const PLACEMENT_LABEL_PT: Record<PlacementKey, string> = {
 
 function sortedPlacementsKey(placements: readonly PlacementKey[]): string {
   return [...placements].sort().join(",");
+}
+
+function hasPositiveMinorUnits(value: string | undefined): boolean {
+  if (!value) return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function hasAnyPositiveBudget(
+  source: Pick<AdSet, "dailyBudget" | "lifetimeBudget"> | undefined,
+): boolean {
+  return Boolean(
+    source &&
+      (hasPositiveMinorUnits(source.dailyBudget) ||
+        hasPositiveMinorUnits(source.lifetimeBudget)),
+  );
 }
 
 type AdSetEditDialogProps = {
@@ -191,6 +217,13 @@ function getGenderValue(genders: readonly unknown[] | undefined): string {
   return "all";
 }
 
+function adSetToDeliveryScheduleValue(adSet: AdSet): AdSetDeliveryScheduleValue {
+  return {
+    deliveryMode: getDeliveryModeFromMetaAdSetSchedule(adSet.adsetSchedule),
+    scheduleBlocks: fromMetaAdSetScheduleBlocks(adSet.adsetSchedule),
+  };
+}
+
 export function AdSetEditDialog({
   adSet,
   accountId,
@@ -199,9 +232,7 @@ export function AdSetEditDialog({
   onClose,
   onSuccess,
 }: AdSetEditDialogProps) {
-  const hasCampaignBudget = Boolean(
-    adSet.campaign?.dailyBudget || adSet.campaign?.lifetimeBudget,
-  );
+  const hasCampaignBudget = hasAnyPositiveBudget(adSet.campaign);
   const effectiveBudgetSource = hasCampaignBudget ? adSet.campaign! : adSet;
   const effectiveBudgetType = getBudgetType(effectiveBudgetSource);
   const currentBudgetBRL = effectiveBudgetSource.dailyBudget
@@ -212,6 +243,11 @@ export function AdSetEditDialog({
     : 0;
   const canEditBudget = !hasCampaignBudget;
   const canEditSchedule = effectiveBudgetType === "lifetime";
+  const canEditDeliverySchedule = effectiveBudgetType === "lifetime";
+  const currentDeliveryMode = getDeliveryModeFromMetaAdSetSchedule(
+    adSet.adsetSchedule,
+  );
+  const currentScheduleBlocks = fromMetaAdSetScheduleBlocks(adSet.adsetSchedule);
   const currentAgeMin = adSet.targeting?.age_min ?? 18;
   const currentAgeMax = adSet.targeting?.age_max ?? 65;
   const currentGendersNormalized = normalizeGenderCodes(
@@ -268,6 +304,10 @@ export function AdSetEditDialog({
   >(() => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
   const [selectedPlacements, setSelectedPlacements] =
     useState<PlacementKey[]>(currentPlacements);
+  const [deliverySchedule, setDeliverySchedule] =
+    useState<AdSetDeliveryScheduleValue>(() =>
+      adSetToDeliveryScheduleValue(adSet),
+    );
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +367,7 @@ export function AdSetEditDialog({
       geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
     );
     setSelectedPlacements(targetingFieldsToPlacements(adSet.targeting));
+    setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
     setNote("");
     setError(null);
   }, [adSet, isOpen]);
@@ -404,6 +445,13 @@ export function AdSetEditDialog({
       placementsEditable &&
       sortedPlacementsKey(selectedPlacements) !==
         sortedPlacementsKey(currentPlacements);
+    const hasDeliveryScheduleChange =
+      canEditDeliverySchedule &&
+      (deliverySchedule.deliveryMode !== currentDeliveryMode ||
+        !areCampaignScheduleBlocksEqual(
+          deliverySchedule.scheduleBlocks,
+          currentScheduleBlocks,
+        ));
 
     const hasTargetingChange =
       hasAgeMinChange ||
@@ -418,6 +466,7 @@ export function AdSetEditDialog({
       !hasDailyBudgetChange &&
       !hasLifetimeBudgetChange &&
       !hasScheduleChange &&
+      !hasDeliveryScheduleChange &&
       !hasTargetingChange
     ) {
       setError("Nenhuma alteração foi feita");
@@ -466,6 +515,25 @@ export function AdSetEditDialog({
       return;
     }
 
+    if (hasDeliveryScheduleChange) {
+      const scheduleValidationError = validateCampaignSchedulePayload({
+        startTime: adSet.startTime ?? "",
+        endTime: adSet.endTime ?? "",
+        deliveryMode: deliverySchedule.deliveryMode,
+        scheduleBlocks:
+          deliverySchedule.deliveryMode === "specific_hours"
+            ? deliverySchedule.scheduleBlocks
+            : undefined,
+      });
+
+      if (scheduleValidationError) {
+        setError(
+          "Revise os dias e horarios. O conjunto precisa ter periodo valido e ao menos um bloco em horarios especificos.",
+        );
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -485,6 +553,13 @@ export function AdSetEditDialog({
       if (hasScheduleChange) {
         body.startTime = startDateTime;
         body.endTime = endDateTime;
+      }
+      if (hasDeliveryScheduleChange) {
+        body.deliveryMode = deliverySchedule.deliveryMode;
+        body.scheduleBlocks =
+          deliverySchedule.deliveryMode === "specific_hours"
+            ? deliverySchedule.scheduleBlocks
+            : [];
       }
 
       if (hasTargetingChange) {
@@ -554,6 +629,7 @@ export function AdSetEditDialog({
         geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
       );
       setSelectedPlacements(currentPlacements);
+      setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
       setNote("");
       setError(null);
       onClose();
@@ -641,6 +717,16 @@ export function AdSetEditDialog({
                     disabled={isSubmitting}
                   />
                 </div>
+              </div>
+            )}
+
+            {canEditDeliverySchedule && (
+              <div className="space-y-2">
+                <AdSetDeliveryScheduleEditor
+                  value={deliverySchedule}
+                  onChange={setDeliverySchedule}
+                  disabled={isSubmitting}
+                />
               </div>
             )}
 

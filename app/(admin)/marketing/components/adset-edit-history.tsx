@@ -61,6 +61,74 @@ function formatScheduleChange(
   return `${label}: ${formatValue(previous)} → ${formatValue(newValue)}`;
 }
 
+type AdsetScheduleBlock = {
+  days?: number[];
+  start_minute?: number;
+  end_minute?: number;
+};
+
+const DAY_LABELS: Record<number, string> = {
+  0: "Dom",
+  1: "Seg",
+  2: "Ter",
+  3: "Qua",
+  4: "Qui",
+  5: "Sex",
+  6: "Sab",
+};
+
+function formatMinute(minute: number | undefined): string {
+  if (minute === undefined) return "--:--";
+  if (minute === 1440) return "24:00";
+  const hours = Math.floor(minute / 60)
+    .toString()
+    .padStart(2, "0");
+  const minutes = (minute % 60).toString().padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function formatAdsetSchedule(
+  blocks: AdsetScheduleBlock[] | null,
+  pacingType: string[] | string | null,
+): string {
+  const pacingValues = Array.isArray(pacingType)
+    ? pacingType
+    : pacingType
+      ? [pacingType]
+      : [];
+
+  if (!blocks?.length || !pacingValues.includes("day_parting")) {
+    return "Todos os dias e horarios";
+  }
+
+  return blocks
+    .map((block) => {
+      const days = (block.days ?? [])
+        .map((day) => DAY_LABELS[day] ?? String(day))
+        .join(", ");
+      return `${days || "Dias"} ${formatMinute(block.start_minute)}-${formatMinute(
+        block.end_minute,
+      )}`;
+    })
+    .join("; ");
+}
+
+function formatDeliveryScheduleChange(log: AdSetEditLogWithAdmin): string | null {
+  if (
+    !log.previousAdsetSchedule &&
+    !log.newAdsetSchedule &&
+    !log.previousPacingType &&
+    !log.newPacingType
+  ) {
+    return null;
+  }
+
+  return `${formatAdsetSchedule(
+    log.previousAdsetSchedule,
+    log.previousPacingType,
+  )} → ${formatAdsetSchedule(log.newAdsetSchedule, log.newPacingType)}`;
+}
+
 function formatTargetingChange(
   previous: Record<string, unknown> | null,
   newValue: Record<string, unknown> | null,
@@ -256,6 +324,7 @@ export function AdSetEditHistory({
           log.newEndTime,
           "Término",
         );
+        const deliveryScheduleChange = formatDeliveryScheduleChange(log);
         const targetingChanges = formatTargetingChange(
           log.previousTargeting,
           log.newTargeting,
@@ -311,6 +380,12 @@ export function AdSetEditHistory({
               {endTimeChange && (
                 <p className="text-sm">
                   <span className="font-medium">Período:</span> {endTimeChange}
+                </p>
+              )}
+              {deliveryScheduleChange && (
+                <p className="text-sm">
+                  <span className="font-medium">Dias e horários:</span>{" "}
+                  {deliveryScheduleChange}
                 </p>
               )}
               {targetingChanges.map((change, idx) => (

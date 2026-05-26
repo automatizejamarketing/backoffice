@@ -40,6 +40,8 @@ import {
   type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
   type CampaignEditLogSource,
+  type AdSetPacingTypeData,
+  type AdSetScheduleData,
   type AdSetTargetingData,
   type Payment,
   type MercadoPagoPaymentLink,
@@ -1440,6 +1442,10 @@ export type CreateAdSetEditLogData = {
   newStartTime?: string;
   previousEndTime?: string;
   newEndTime?: string;
+  previousPacingType?: AdSetPacingTypeData;
+  newPacingType?: AdSetPacingTypeData;
+  previousAdsetSchedule?: AdSetScheduleData[];
+  newAdsetSchedule?: AdSetScheduleData[];
   previousTargeting?: AdSetTargetingData;
   newTargeting?: AdSetTargetingData;
   note: string;
@@ -1465,6 +1471,10 @@ export async function createAdSetEditLog(data: CreateAdSetEditLogData) {
       newStartTime: data.newStartTime,
       previousEndTime: data.previousEndTime,
       newEndTime: data.newEndTime,
+      previousPacingType: data.previousPacingType,
+      newPacingType: data.newPacingType,
+      previousAdsetSchedule: data.previousAdsetSchedule,
+      newAdsetSchedule: data.newAdsetSchedule,
       previousTargeting: data.previousTargeting,
       newTargeting: data.newTargeting,
       note: data.note,
@@ -1492,6 +1502,10 @@ export type AdSetEditLogWithAdmin = {
   newStartTime: string | null;
   previousEndTime: string | null;
   newEndTime: string | null;
+  previousPacingType: AdSetPacingTypeData | null;
+  newPacingType: AdSetPacingTypeData | null;
+  previousAdsetSchedule: AdSetScheduleData[] | null;
+  newAdsetSchedule: AdSetScheduleData[] | null;
   previousTargeting: AdSetTargetingData | null;
   newTargeting: AdSetTargetingData | null;
   note: string;
@@ -1521,6 +1535,10 @@ export async function getAdSetEditLogs(
       newStartTime: adsetEditLog.newStartTime,
       previousEndTime: adsetEditLog.previousEndTime,
       newEndTime: adsetEditLog.newEndTime,
+      previousPacingType: adsetEditLog.previousPacingType,
+      newPacingType: adsetEditLog.newPacingType,
+      previousAdsetSchedule: adsetEditLog.previousAdsetSchedule,
+      newAdsetSchedule: adsetEditLog.newAdsetSchedule,
       previousTargeting: adsetEditLog.previousTargeting,
       newTargeting: adsetEditLog.newTargeting,
       note: adsetEditLog.note,

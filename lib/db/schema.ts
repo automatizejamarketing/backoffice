@@ -533,6 +533,16 @@ export type AdSetTargetingData = {
   [key: string]: unknown;
 };
 
+export type AdSetPacingTypeData = string[] | string;
+
+export type AdSetScheduleData = {
+  days?: number[];
+  start_minute?: number;
+  end_minute?: number;
+  timezone_type?: string;
+  [key: string]: unknown;
+};
+
 export type CampaignBudgetModeData = "ABO" | "CBO";
 
 export type CampaignEditLogSource = "user" | "admin";
@@ -577,6 +587,12 @@ export const adsetEditLog = pgTable("adset_edit_logs", {
   newStartTime: text("new_start_time"),
   previousEndTime: text("previous_end_time"),
   newEndTime: text("new_end_time"),
+  previousPacingType: jsonb("previous_pacing_type").$type<AdSetPacingTypeData>(),
+  newPacingType: jsonb("new_pacing_type").$type<AdSetPacingTypeData>(),
+  previousAdsetSchedule: jsonb("previous_adset_schedule").$type<
+    AdSetScheduleData[]
+  >(),
+  newAdsetSchedule: jsonb("new_adset_schedule").$type<AdSetScheduleData[]>(),
   previousTargeting: jsonb("previous_targeting").$type<AdSetTargetingData>(),
   newTargeting: jsonb("new_targeting").$type<AdSetTargetingData>(),
   note: text("note").notNull(),

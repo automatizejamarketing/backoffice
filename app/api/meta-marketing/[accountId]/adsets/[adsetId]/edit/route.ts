@@ -10,6 +10,14 @@ import {
   isValidDateTimeLocal,
 } from "@/lib/meta-business/budget-schedule";
 import type {
+  CampaignDeliveryMode,
+  CampaignScheduleBlock,
+} from "@/lib/meta-business/campaign-schedule";
+import {
+  toMetaAdSetScheduleBlocks,
+  validateCampaignSchedulePayload,
+} from "@/lib/meta-business/campaign-schedule";
+import type {
   AdSetTargeting,
   AudienceRef,
   GraphApiAdSet,
@@ -32,6 +40,8 @@ type EditAdSetRequestBody = {
   lifetimeBudget?: number;
   startTime?: string;
   endTime?: string;
+  deliveryMode?: CampaignDeliveryMode;
+  scheduleBlocks?: CampaignScheduleBlock[];
   targeting?: {
     age_min?: number;
     age_max?: number;
@@ -53,6 +63,12 @@ type EditAdSetResponse = {
   changes?: {
     dailyBudget?: { previous: string | null; new: string };
     targeting?: { previous: AdSetTargeting | null; new: AdSetTargeting };
+    deliverySchedule?: {
+      previousPacingType?: GraphApiAdSet["pacing_type"];
+      newPacingType: string[];
+      previousAdsetSchedule?: GraphApiAdSet["adset_schedule"];
+      newAdsetSchedule: ReturnType<typeof toMetaAdSetScheduleBlocks>;
+    };
   };
 };
 
@@ -61,6 +77,12 @@ type EditAdSetErrorResponse = {
   message: string;
   solution?: string;
 };
+
+function hasPositiveMinorUnits(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
+}
 
 export async function PATCH(
   request: NextRequest,
@@ -78,6 +100,8 @@ export async function PATCH(
       lifetimeBudget,
       startTime,
       endTime,
+      deliveryMode,
+      scheduleBlocks,
       targeting,
       note,
     } = body;
@@ -115,6 +139,8 @@ export async function PATCH(
     const hasDailyBudgetChange = dailyBudget !== undefined;
     const hasLifetimeBudgetChange = lifetimeBudget !== undefined;
     const hasScheduleChange = startTime !== undefined || endTime !== undefined;
+    const hasDeliveryScheduleChange =
+      deliveryMode !== undefined || scheduleBlocks !== undefined;
     const hasTargetingChange =
       targeting !== undefined &&
       (targeting.age_min !== undefined ||
@@ -154,15 +180,16 @@ export async function PATCH(
       !hasDailyBudgetChange &&
       !hasLifetimeBudgetChange &&
       !hasScheduleChange &&
+      !hasDeliveryScheduleChange &&
       !hasTargetingChange
     ) {
       return NextResponse.json(
         {
           error: "No changes provided",
           message:
-            "At least one of budget, schedule, or targeting must be provided",
+            "At least one of budget, schedule, delivery hours, or targeting must be provided",
           solution:
-            "Provide dailyBudget, lifetimeBudget, startTime/endTime and/or targeting fields to update",
+            "Provide dailyBudget, lifetimeBudget, startTime/endTime, deliveryMode/scheduleBlocks and/or targeting fields to update",
         },
         { status: 400 },
       );
@@ -188,7 +215,7 @@ export async function PATCH(
       method: "GET",
       path: adsetId,
       params:
-        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,targeting",
+        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,pacing_type,adset_schedule,targeting",
       accessToken,
     });
 
@@ -205,12 +232,13 @@ export async function PATCH(
       accessToken,
     });
     const usesCBO =
-      !!currentCampaign.daily_budget ||
-      !!currentCampaign.lifetime_budget ||
-      (!previousDailyBudget && !previousLifetimeBudget);
+      hasPositiveMinorUnits(currentCampaign.daily_budget) ||
+      hasPositiveMinorUnits(currentCampaign.lifetime_budget) ||
+      (!hasPositiveMinorUnits(previousDailyBudget) &&
+        !hasPositiveMinorUnits(previousLifetimeBudget));
     const hasEffectiveLifetimeBudget =
-      !!currentCampaign.lifetime_budget ||
-      !!previousLifetimeBudget ||
+      hasPositiveMinorUnits(currentCampaign.lifetime_budget) ||
+      hasPositiveMinorUnits(previousLifetimeBudget) ||
       hasLifetimeBudgetChange;
 
     if (hasDailyBudgetChange && hasLifetimeBudgetChange) {
@@ -343,6 +371,73 @@ export async function PATCH(
       if (endTime !== undefined) {
         updateParams.end_time = new Date(endTime).toISOString();
       }
+    }
+
+    if (hasDeliveryScheduleChange) {
+      if (!hasEffectiveLifetimeBudget) {
+        return NextResponse.json(
+          {
+            error: "Invalid delivery schedule change",
+            message:
+              "A Meta permite editar dias e horarios apenas em conjuntos com orçamento total.",
+            solution:
+              "Use um conjunto com orçamento total antes de definir dias e horarios.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const nextDeliveryMode = deliveryMode ?? "all_day";
+      const nextScheduleBlocks =
+        nextDeliveryMode === "specific_hours" ? scheduleBlocks : undefined;
+
+      const scheduleValidationError = validateCampaignSchedulePayload({
+        startTime: startTime ?? currentAdSet.start_time ?? "",
+        endTime: endTime ?? currentAdSet.end_time ?? "",
+        deliveryMode: nextDeliveryMode,
+        scheduleBlocks: nextScheduleBlocks,
+      });
+
+      if (scheduleValidationError) {
+        return NextResponse.json(
+          {
+            error: "Invalid delivery schedule",
+            message:
+              "Revise os dias e horarios de veiculacao antes de salvar.",
+            solution:
+              "Use blocos validos, sem sobreposicao, dentro de um periodo ativo com orçamento total.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const nextMetaSchedule =
+        nextDeliveryMode === "specific_hours"
+          ? toMetaAdSetScheduleBlocks(scheduleBlocks)
+          : [];
+      const nextPacingType =
+        nextDeliveryMode === "specific_hours" ? ["day_parting"] : ["standard"];
+
+      updateParams.pacing_type = JSON.stringify(nextPacingType);
+      updateParams.adset_schedule = JSON.stringify(nextMetaSchedule);
+      const currentLifetimeBudget = currentAdSet.lifetime_budget;
+      if (
+        nextDeliveryMode === "specific_hours" &&
+        hasPositiveMinorUnits(currentLifetimeBudget)
+      ) {
+        updateParams.lifetime_budget = currentLifetimeBudget;
+      }
+      const effectiveEndTime = endTime ?? currentAdSet.end_time;
+      if (nextDeliveryMode === "specific_hours" && effectiveEndTime) {
+        updateParams.end_time = new Date(effectiveEndTime).toISOString();
+      }
+
+      changes.deliverySchedule = {
+        previousPacingType: currentAdSet.pacing_type,
+        newPacingType: nextPacingType,
+        previousAdsetSchedule: currentAdSet.adset_schedule,
+        newAdsetSchedule: nextMetaSchedule,
+      };
     }
 
     let newTargeting: AdSetTargeting | undefined;
@@ -513,6 +608,14 @@ export async function PATCH(
         newEndTime: endTime ? new Date(endTime).toISOString() : undefined,
         previousTargeting: previousTargeting ?? undefined,
         newTargeting: newTargeting,
+        previousPacingType: hasDeliveryScheduleChange
+          ? currentAdSet.pacing_type
+          : undefined,
+        newPacingType: changes.deliverySchedule?.newPacingType,
+        previousAdsetSchedule: hasDeliveryScheduleChange
+          ? currentAdSet.adset_schedule
+          : undefined,
+        newAdsetSchedule: changes.deliverySchedule?.newAdsetSchedule,
         note: note.trim(),
         appliedToMeta,
         errorMessage,
