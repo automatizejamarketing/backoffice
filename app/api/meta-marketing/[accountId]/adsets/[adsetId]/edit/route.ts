@@ -26,6 +26,12 @@ import type {
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
 import { sanitizeGeoLocationsForMeta } from "@/lib/meta-business/geo-locations";
 import {
+  applyInterestTargetingToMetaTargeting,
+  preserveDetailedTargetingFields,
+  type InterestTargetingValue,
+} from "@/lib/meta-business/interest-targeting-types";
+import { validateInterestTargetingForEdit } from "@/lib/meta-business/parse-interest-targeting-request";
+import {
   INSTAGRAM_PLACEMENTS,
   isValidPlacementKey,
   placementsToTargetingFields,
@@ -50,6 +56,7 @@ type EditAdSetRequestBody = {
     custom_audiences?: AudienceRef[];
     excluded_custom_audiences?: AudienceRef[];
     placements?: PlacementKey[];
+    interest_targeting?: InterestTargetingValue;
   };
   note: string;
 };
@@ -149,7 +156,8 @@ export async function PATCH(
         targeting.geo_locations !== undefined ||
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined ||
-        targeting.placements !== undefined);
+        targeting.placements !== undefined ||
+        targeting.interest_targeting !== undefined);
 
     if (targeting?.placements !== undefined) {
       if (!Array.isArray(targeting.placements) || targeting.placements.length === 0) {
@@ -442,6 +450,30 @@ export async function PATCH(
 
     let newTargeting: AdSetTargeting | undefined;
     if (hasTargetingChange) {
+      let validatedInterestTargeting:
+        | Awaited<ReturnType<typeof validateInterestTargetingForEdit>>
+        | undefined;
+
+      if (targeting?.interest_targeting !== undefined) {
+        validatedInterestTargeting = await validateInterestTargetingForEdit(
+          accessToken,
+          targeting.interest_targeting,
+          "pt-BR",
+        );
+
+        if (!validatedInterestTargeting.ok) {
+          return NextResponse.json(
+            {
+              error: "Invalid interest targeting",
+              message: validatedInterestTargeting.message,
+              solution:
+                "Remova interesses inválidos ou indisponíveis e tente novamente.",
+            },
+            { status: 400 },
+          );
+        }
+      }
+
       const prevGeoLocations = previousTargeting?.geo_locations;
       const requestGeoLocations = targeting.geo_locations;
 
@@ -535,7 +567,7 @@ export async function PATCH(
             }),
       };
 
-      const metaTargeting: AdSetTargeting = {
+      const metaTargeting: Record<string, unknown> = {
         ...newTargeting,
         ...(newCustomAudiences?.length && {
           custom_audiences: newCustomAudiences.map((a) => ({ id: a.id })),
@@ -547,7 +579,39 @@ export async function PATCH(
         }),
       };
 
-      const cleanGeo = sanitizeGeoLocationsForMeta(metaTargeting.geo_locations);
+      if (targeting.interest_targeting !== undefined && validatedInterestTargeting?.ok) {
+        preserveDetailedTargetingFields(previousTargeting, metaTargeting, {
+          replaceInterestTargeting: true,
+        });
+        applyInterestTargetingToMetaTargeting(
+          metaTargeting,
+          validatedInterestTargeting.value,
+          previousTargeting,
+        );
+
+        newTargeting = {
+          ...newTargeting,
+          ...(metaTargeting.flexible_spec !== undefined && {
+            flexible_spec: metaTargeting.flexible_spec as AdSetTargeting["flexible_spec"],
+          }),
+          ...(metaTargeting.exclusions !== undefined && {
+            exclusions: metaTargeting.exclusions as AdSetTargeting["exclusions"],
+          }),
+        };
+        if (metaTargeting.flexible_spec === undefined) {
+          delete newTargeting.flexible_spec;
+        }
+        if (metaTargeting.interests === undefined) {
+          delete newTargeting.interests;
+        }
+        if (metaTargeting.exclusions === undefined) {
+          delete newTargeting.exclusions;
+        }
+      }
+
+      const cleanGeo = sanitizeGeoLocationsForMeta(
+        metaTargeting.geo_locations as AdSetTargeting["geo_locations"],
+      );
       if (cleanGeo) {
         metaTargeting.geo_locations = cleanGeo;
         newTargeting.geo_locations = cleanGeo;

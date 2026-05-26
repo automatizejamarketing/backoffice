@@ -14,6 +14,11 @@ import {
 import { transformAdSet, transformPaging } from "@/lib/meta-business/transformers";
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
 import {
+  applyInterestTargetingToMetaTargeting,
+  type InterestTargetingValue,
+} from "@/lib/meta-business/interest-targeting-types";
+import { validateInterestTargetingForWrite } from "@/lib/meta-business/parse-interest-targeting-request";
+import {
   DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE,
   placementsToTargetingFields,
 } from "@/lib/meta-business/placements";
@@ -253,6 +258,7 @@ export type PostAdSetRequestBody = {
     genders?: number[];
     custom_audiences?: { id: string; name?: string }[];
     excluded_custom_audiences?: { id: string; name?: string }[];
+    interest_targeting?: InterestTargetingValue;
   };
   /** @deprecated Use `creatives` instead */
   creative?: {
@@ -821,6 +827,29 @@ export async function POST(
       metaTargeting.excluded_custom_audiences =
         targeting.excluded_custom_audiences.map((a) => ({ id: a.id }));
     }
+
+    const interestValidation = await validateInterestTargetingForWrite(
+      accessToken,
+      targeting.interest_targeting,
+      "pt-BR",
+    );
+
+    if (!interestValidation.ok) {
+      return NextResponse.json(
+        {
+          error: "Invalid interest targeting",
+          message: interestValidation.message,
+          solution:
+            "Remova interesses inválidos ou indisponíveis e tente novamente.",
+        },
+        { status: 400 },
+      );
+    }
+
+    applyInterestTargetingToMetaTargeting(
+      metaTargeting,
+      interestValidation.value,
+    );
 
     // Build adset create params
     const adsetParams = new URLSearchParams({

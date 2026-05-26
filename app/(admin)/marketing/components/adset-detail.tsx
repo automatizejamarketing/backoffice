@@ -57,6 +57,7 @@ import {
   getOptimizationGoalDescription,
 } from "../utils/formatters";
 import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-increment-to-days";
+import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
 
 type AdSetDetailProps = {
   adSet: AdSet;
@@ -694,6 +695,16 @@ function AdSetDetailsDialogContent({
               empty="Não informado"
             />
             <DetailRow
+              label="Interesses incluídos"
+              values={formatIncludedInterests(targeting)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Interesses excluídos"
+              values={formatExcludedInterests(targeting)}
+              empty="Não informado"
+            />
+            <DetailRow
               label="Direcionamento detalhado"
               values={formatDetailedTargeting(targeting)}
               empty="Não informado"
@@ -993,9 +1004,6 @@ function formatDetailedTargeting(
   if (!targeting) return [];
 
   const directSegments = [
-    ...(targeting.interests?.map(
-      (item) => `Interesse: ${formatEntity(item)}`,
-    ) ?? []),
     ...(targeting.behaviors?.map(
       (item) => `Comportamento: ${formatEntity(item)}`,
     ) ?? []),
@@ -1006,16 +1014,46 @@ function formatDetailedTargeting(
 
   const flexibleSegments =
     targeting.flexible_spec?.flatMap((spec, specIndex) =>
-      Object.entries(spec).flatMap(
-        ([key, entities]) =>
+      Object.entries(spec).flatMap(([key, entities]) => {
+        if (key === "interests") return [];
+        return (
           entities?.map(
             (entity) =>
               `${formatMetaValue(key)} ${specIndex + 1}: ${formatEntity(entity)}`,
-          ) ?? [],
-      ),
+          ) ?? []
+        );
+      }),
     ) ?? [];
 
   return [...directSegments, ...flexibleSegments];
+}
+
+function formatIncludedInterests(
+  targeting: AdSetTargeting | undefined,
+): string[] {
+  const value = interestTargetingFromMetaTargeting(targeting);
+  const nonEmptyGroups = value.includeGroups.filter(
+    (group) => group.interests.length > 0,
+  );
+
+  if (nonEmptyGroups.length <= 1) {
+    return nonEmptyGroups.flatMap((group) =>
+      group.interests.map((interest) => interest.name),
+    );
+  }
+
+  return nonEmptyGroups.map((group, index) => {
+    const names = group.interests.map((interest) => interest.name).join(", ");
+    return `Grupo ${index + 1}: ${names}`;
+  });
+}
+
+function formatExcludedInterests(
+  targeting: AdSetTargeting | undefined,
+): string[] {
+  return interestTargetingFromMetaTargeting(targeting).exclusions.map(
+    (interest) => interest.name,
+  );
 }
 
 function formatPacingType(pacingType: string[] | string | undefined): string[] {

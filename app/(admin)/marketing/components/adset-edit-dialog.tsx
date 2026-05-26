@@ -44,6 +44,7 @@ import {
   type AdSetDeliveryScheduleValue,
 } from "./adset-delivery-schedule-editor";
 import { LocationTargetingSection } from "./location-targeting-section";
+import { InterestTargetingSection } from "./interest-targeting-section";
 import {
   DEFAULT_BRAZIL_LOCATION,
   DEFAULT_CITY_RADIUS_KM,
@@ -51,6 +52,11 @@ import {
   type DistanceUnit,
   type SelectedGeoLocation,
 } from "@/lib/meta-business/geo-targeting-types";
+import {
+  areInterestTargetingValuesEqual,
+  interestTargetingFromMetaTargeting,
+  type InterestTargetingValue,
+} from "@/lib/meta-business/interest-targeting-types";
 
 const PLACEMENT_LABEL_PT: Record<PlacementKey, string> = {
   facebook_feed: "Feed do Facebook",
@@ -262,6 +268,9 @@ export function AdSetEditDialog({
   const currentPlacements: PlacementKey[] = targetingFieldsToPlacements(
     adSet.targeting,
   );
+  const baselineInterestTargeting = interestTargetingFromMetaTargeting(
+    adSet.targeting,
+  );
   // If the ad set is currently Instagram-only (publisher_platforms === ["instagram"]),
   // keep the editor IG-only. Don't promote an IG-only ad set to Facebook by edit.
   const currentPublisherPlatforms = adSet.targeting?.publisher_platforms ?? [];
@@ -302,6 +311,8 @@ export function AdSetEditDialog({
   const [selectedLocations, setSelectedLocations] = useState<
     SelectedGeoLocation[]
   >(() => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
+  const [interestTargeting, setInterestTargeting] =
+    useState<InterestTargetingValue>(baselineInterestTargeting);
   const [selectedPlacements, setSelectedPlacements] =
     useState<PlacementKey[]>(currentPlacements);
   const [deliverySchedule, setDeliverySchedule] =
@@ -366,6 +377,7 @@ export function AdSetEditDialog({
     setSelectedLocations(
       geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
     );
+    setInterestTargeting(interestTargetingFromMetaTargeting(adSet.targeting));
     setSelectedPlacements(targetingFieldsToPlacements(adSet.targeting));
     setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
     setNote("");
@@ -441,6 +453,11 @@ export function AdSetEditDialog({
         ),
       );
 
+    const hasInterestTargetingChange = !areInterestTargetingValuesEqual(
+      interestTargeting,
+      baselineInterestTargeting,
+    );
+
     const hasPlacementsChange =
       placementsEditable &&
       sortedPlacementsKey(selectedPlacements) !==
@@ -460,6 +477,7 @@ export function AdSetEditDialog({
       hasIncludedAudienceChange ||
       hasExcludedAudienceChange ||
       hasGeoLocationChange ||
+      hasInterestTargetingChange ||
       hasPlacementsChange;
 
     if (
@@ -583,6 +601,9 @@ export function AdSetEditDialog({
             geoLocationsPayload && {
               geo_locations: geoLocationsPayload,
             }),
+          ...(hasInterestTargetingChange && {
+            interest_targeting: interestTargeting,
+          }),
           ...(hasPlacementsChange && { placements: selectedPlacements }),
         };
       }
@@ -628,6 +649,7 @@ export function AdSetEditDialog({
       setSelectedLocations(
         geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
       );
+      setInterestTargeting(baselineInterestTargeting);
       setSelectedPlacements(currentPlacements);
       setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
       setNote("");
@@ -638,7 +660,7 @@ export function AdSetEditDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="sm:max-w-[540px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Editar Conjunto de Anúncios</DialogTitle>
           <DialogDescription>
@@ -827,6 +849,14 @@ export function AdSetEditDialog({
               onLocationsChange={setSelectedLocations}
               disabled={isSubmitting}
               required={false}
+            />
+
+            <InterestTargetingSection
+              accountId={accountId}
+              userId={userId}
+              value={interestTargeting}
+              onChange={setInterestTargeting}
+              disabled={isSubmitting}
             />
 
             <div className="space-y-2">

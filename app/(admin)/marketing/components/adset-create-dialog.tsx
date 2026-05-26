@@ -23,6 +23,7 @@ import {
   InstagramPostPicker,
   type InstagramMediaItem,
 } from "./instagram-post-picker";
+import { InterestTargetingSection } from "./interest-targeting-section";
 import { LocationTargetingSection } from "./location-targeting-section";
 import { PageSelector } from "./page-selector";
 import { usePages } from "./use-pages";
@@ -31,6 +32,11 @@ import {
   buildGeoLocationsPayload,
   type SelectedGeoLocation,
 } from "@/lib/meta-business/geo-targeting-types";
+import {
+  createDefaultInterestTargetingValue,
+  hasInterestTargetingConfigured,
+  type InterestTargetingValue,
+} from "@/lib/meta-business/interest-targeting-types";
 
 const MAX_MEDIA_ITEMS = 5;
 
@@ -81,6 +87,8 @@ export function AdSetCreateDialog({
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState("");
   const [selectedLocations, setSelectedLocations] = useState<SelectedGeoLocation[]>([DEFAULT_BRAZIL_LOCATION]);
+  const [interestTargeting, setInterestTargeting] =
+    useState<InterestTargetingValue>(createDefaultInterestTargetingValue);
 
   const { pages, isLoading: isLoadingPages } = usePages(
     accountId,
@@ -143,6 +151,7 @@ export function AdSetCreateDialog({
     setError(null);
     setUrl("");
     setSelectedLocations([DEFAULT_BRAZIL_LOCATION]);
+    setInterestTargeting(createDefaultInterestTargetingValue());
   };
 
   const handleClose = () => {
@@ -227,6 +236,9 @@ export function AdSetCreateDialog({
               id: a.id,
               name: a.name,
             })),
+          }),
+          ...(hasInterestTargetingConfigured(interestTargeting) && {
+            interest_targeting: interestTargeting,
           }),
         },
       };
@@ -431,6 +443,14 @@ export function AdSetCreateDialog({
               userId={userId}
               selectedLocations={selectedLocations}
               onLocationsChange={setSelectedLocations}
+              disabled={isSubmitting}
+            />
+
+            <InterestTargetingSection
+              accountId={accountId}
+              userId={userId}
+              value={interestTargeting}
+              onChange={setInterestTargeting}
               disabled={isSubmitting}
             />
 
