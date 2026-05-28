@@ -67,17 +67,17 @@ const COMMITMENT_MONTHS: Record<BillingPeriod, 1 | 3 | 6 | 12> = {
 // source so backoffice-generated Pix links cannot drift from self-service Pix.
 const MONTHLY_PRICE_CENTAVOS: Record<PlanType, number> = {
   monthly_starter: 29700,
-  quarterly_starter: 26567,
-  semiannual_starter: 24950,
-  annual_starter: 20808,
+  quarterly_starter: 26700,
+  semiannual_starter: 22700,
+  annual_starter: 19700,
   monthly_pro: 49700,
-  quarterly_pro: 39900,
-  semiannual_pro: 33283,
-  annual_pro: 29142,
+  quarterly_pro: 46700,
+  semiannual_pro: 42700,
+  annual_pro: 39700,
   monthly_premium: 89700,
-  quarterly_premium: 69700,
-  semiannual_premium: 63700,
-  annual_premium: 49700,
+  quarterly_premium: 84700,
+  semiannual_premium: 79700,
+  annual_premium: 74700,
 };
 
 function buildDefinition(
