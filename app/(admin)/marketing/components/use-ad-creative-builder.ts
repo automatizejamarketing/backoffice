@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AdCreativeFormValue } from "./ad-creative-form";
 import type { SelectedMedia } from "./media-source-picker";
+import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 export type AdCreativeBuilderPhase =
   | "editing"
@@ -50,6 +51,11 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
   const [error, setError] = useState<string | null>(null);
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [result, setResult] = useState<AdCreativeBuilderResult | null>(null);
+
+  const invalidateMarketing = useMarketingInvalidate(
+    target.accountId,
+    target.userId,
+  );
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastBodyRef = useRef<Record<string, unknown> | null>(null);
@@ -105,8 +111,10 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
         });
       }
       setPhase("done");
+      // A new/edited ad must surface in the ads list, so flush the cache.
+      void invalidateMarketing();
     },
-    [],
+    [invalidateMarketing],
   );
 
   const pollVideo = useCallback(

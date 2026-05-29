@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 const MAX_NAME_LENGTH = 100;
 
@@ -36,7 +37,7 @@ type NameEditButtonProps = {
   currentName?: string;
   accountId: string;
   userId: string;
-  onRenamed: (newName: string) => void;
+  onRenamed?: (newName: string) => void;
 };
 
 export function NameEditButton({
@@ -47,6 +48,7 @@ export function NameEditButton({
   userId,
   onRenamed,
 }: NameEditButtonProps) {
+  const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(currentName ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -93,7 +95,8 @@ export function NameEditButton({
       }
 
       setOpen(false);
-      onRenamed(data.name ?? trimmed);
+      void invalidateMarketing();
+      onRenamed?.(data.name ?? trimmed);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : `Erro ao renomear ${label}`,

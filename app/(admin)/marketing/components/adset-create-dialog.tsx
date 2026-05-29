@@ -23,6 +23,7 @@ import {
   InstagramPostPicker,
   type InstagramMediaItem,
 } from "./instagram-post-picker";
+import { useMarketingInvalidate } from "../hooks/marketing-queries";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import { LocationTargetingSection } from "./location-targeting-section";
 import { PageSelector } from "./page-selector";
@@ -65,6 +66,7 @@ export function AdSetCreateDialog({
   onClose,
   onSuccess,
 }: AdSetCreateDialogProps) {
+  const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const [adsetName, setAdsetName] = useState("");
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [dailyBudget, setDailyBudget] = useState("");
@@ -273,6 +275,10 @@ export function AdSetCreateDialog({
       if (!response.ok && response.status !== 207) {
         throw new Error(data.message ?? "Falha ao criar conjunto de anúncios");
       }
+
+      // A new ad set (with its ads) must appear under the campaign, so flush
+      // the cached lists/details.
+      void invalidateMarketing();
 
       if (response.status === 207) {
         setError(

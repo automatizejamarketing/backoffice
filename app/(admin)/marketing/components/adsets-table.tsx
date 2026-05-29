@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAdSets, useToggleAdSetStatus } from "../hooks/marketing-queries";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -19,7 +20,6 @@ import {
   EffectiveStatus,
   type AdSet,
   type CampaignObjective,
-  type PaginationInfo,
 } from "@/lib/meta-business/types";
 import {
   resolveCampaignTableMetrics,
@@ -33,11 +33,6 @@ import { DeliveryStatus } from "./delivery-status";
 import { DuplicateButton } from "./duplicate-button";
 import { IssuesIcon } from "./issues-icon";
 import { NameEditButton } from "./name-edit-button";
-
-type GetAdSetsResponse = {
-  data?: AdSet[];
-  pagination?: PaginationInfo;
-};
 
 type AdSetsTableProps = {
   accountId: string;
@@ -53,8 +48,6 @@ type AdSetsTableProps = {
   customRange?: { since: string; until: string } | null;
   selectedMetricIds?: CampaignMetricId[] | null;
   onAdSetClick: (adSet: AdSet) => void;
-  /** Increment this value to trigger a refresh */
-  refreshKey?: number;
 };
 
 export function AdSetsTable({
@@ -66,13 +59,8 @@ export function AdSetsTable({
   customRange,
   selectedMetricIds,
   onAdSetClick,
-  refreshKey,
 }: AdSetsTableProps) {
-  const [adSets, setAdSets] = useState<AdSet[]>([]);
-  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [currentCursor, setCurrentCursor] = useState<string | undefined>();
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [togglingAdSetId, setTogglingAdSetId] = useState<string | null>(null);
 
   const mobileMetrics = resolveCampaignTableMetrics(
@@ -91,90 +79,25 @@ export function AdSetsTable({
   };
   const desktopMetricsMinWidth = Math.max(420, desktopMetricCount * 110);
 
-  const fetchAdSets = useCallback(
-    async (cursor?: string) => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const baseParams = new URLSearchParams({ limit: "25", userId });
-        if (cursor) {
-          baseParams.set("after", cursor);
-        }
-        if (campaignId) {
-          baseParams.set("campaignId", campaignId);
-        }
-        if (customRange) {
-          baseParams.set("since", customRange.since);
-          baseParams.set("until", customRange.until);
-        } else if (datePreset) {
-          baseParams.set("datePreset", datePreset);
-        }
-
-        const activeParams = new URLSearchParams(baseParams);
-        activeParams.set("effectiveStatus", "ACTIVE");
-
-        const activeResponse = await fetch(
-          `/api/meta-marketing/${accountId}/adsets?${activeParams}`
-        );
-
-        if (!activeResponse.ok) {
-          throw new Error("Falha ao buscar conjuntos de anúncios");
-        }
-
-        const activeData: GetAdSetsResponse = await activeResponse.json();
-
-        const pausedParams = new URLSearchParams(baseParams);
-        pausedParams.set("effectiveStatus", "PAUSED,CAMPAIGN_PAUSED");
-
-        const pausedResponse = await fetch(
-          `/api/meta-marketing/${accountId}/adsets?${pausedParams}`
-        );
-
-        if (!pausedResponse.ok) {
-          throw new Error("Falha ao buscar conjuntos de anúncios");
-        }
-
-        const pausedData: GetAdSetsResponse = await pausedResponse.json();
-
-        const combinedAdSets = [
-          ...(activeData.data ?? []),
-          ...(pausedData.data ?? []),
-        ];
-
-        setAdSets(combinedAdSets);
-
-        const combinedPagination: PaginationInfo = {
-          hasNextPage:
-            (activeData.pagination?.hasNextPage ?? false) ||
-            (pausedData.pagination?.hasNextPage ?? false),
-          hasPreviousPage:
-            (activeData.pagination?.hasPreviousPage ?? false) ||
-            (pausedData.pagination?.hasPreviousPage ?? false),
-          nextCursor:
-            activeData.pagination?.nextCursor ??
-            pausedData.pagination?.nextCursor,
-          previousCursor:
-            activeData.pagination?.previousCursor ??
-            pausedData.pagination?.previousCursor,
-        };
-
-        setPagination(combinedPagination);
-      } catch (err) {
-        console.error("Error fetching ad sets:", err);
-        setError("Falha ao buscar conjuntos de anúncios");
-      } finally {
-        setIsLoading(false);
-      }
+  const { data, isPending, isFetching, error, refetch } = useAdSets(
+    accountId,
+    userId,
+    {
+      campaignId: campaignId ?? null,
+      datePreset,
+      since: customRange?.since ?? null,
+      until: customRange?.until ?? null,
+      cursor: cursor ?? null,
     },
-    [accountId, campaignId, customRange, datePreset, userId]
   );
 
-  useEffect(() => {
-    fetchAdSets();
-  }, [fetchAdSets, refreshKey]);
+  const adSets = data?.data ?? [];
+  const pagination = data?.pagination ?? null;
+  const isInitialLoading = isPending;
 
-  const handleToggleStatus = async (adSet: AdSet, event: React.MouseEvent) => {
+  const toggleStatus = useToggleAdSetStatus(accountId, userId);
+
+  const handleToggleStatus = (adSet: AdSet, event: React.MouseEvent) => {
     event.stopPropagation();
 
     if (togglingAdSetId) return;
@@ -184,48 +107,11 @@ export function AdSetsTable({
         ? AdSetStatus.PAUSED
         : AdSetStatus.ACTIVE;
 
-    const newEffectiveStatus =
-      newStatus === AdSetStatus.ACTIVE
-        ? EffectiveStatus.ACTIVE
-        : EffectiveStatus.PAUSED;
-
     setTogglingAdSetId(adSet.id);
-
-    try {
-      const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets?userId=${userId}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            adsetId: adSet.id,
-            status: newStatus,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Falha ao atualizar status");
-      }
-
-      setAdSets((prevAdSets) =>
-        prevAdSets.map((a) =>
-          a.id === adSet.id
-            ? {
-                ...a,
-                status: newStatus,
-                effectiveStatus: newEffectiveStatus,
-              }
-            : a
-        )
-      );
-    } catch (err) {
-      console.error("Error toggling ad set status:", err);
-    } finally {
-      setTogglingAdSetId(null);
-    }
+    toggleStatus.mutate(
+      { adsetId: adSet.id, nextStatus: newStatus },
+      { onSettled: () => setTogglingAdSetId(null) },
+    );
   };
 
   const canToggle = (adSet: AdSet): boolean => {
@@ -241,31 +127,31 @@ export function AdSetsTable({
 
   const handleNextPage = () => {
     if (pagination?.nextCursor) {
-      setCurrentCursor(pagination.nextCursor);
-      fetchAdSets(pagination.nextCursor);
+      setCursor(pagination.nextCursor);
     }
   };
 
   const handlePreviousPage = () => {
     if (pagination?.previousCursor) {
-      setCurrentCursor(pagination.previousCursor);
-      fetchAdSets(pagination.previousCursor);
+      setCursor(pagination.previousCursor);
     }
   };
 
-  if (isLoading && adSets.length === 0) {
+  if (isInitialLoading && adSets.length === 0) {
     return <AdSetsTableSkeleton metricCount={desktopMetricCount} />;
   }
 
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
-        <p className="text-destructive text-sm">{error}</p>
+        <p className="text-destructive text-sm">
+          Falha ao buscar conjuntos de anúncios
+        </p>
         <Button
           variant="outline"
           size="sm"
           className="mt-3"
-          onClick={() => fetchAdSets(currentCursor)}
+          onClick={() => refetch()}
         >
           Tentar novamente
         </Button>
@@ -312,13 +198,6 @@ export function AdSetsTable({
                   currentName={adSet.name}
                   accountId={accountId}
                   userId={userId}
-                  onRenamed={(newName) =>
-                    setAdSets((prev) =>
-                      prev.map((a) =>
-                        a.id === adSet.id ? { ...a, name: newName } : a,
-                      ),
-                    )
-                  }
                 />
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -353,7 +232,6 @@ export function AdSetsTable({
                   entityName={adSet.name}
                   accountId={accountId}
                   userId={userId}
-                  onDuplicated={() => fetchAdSets(currentCursor)}
                 />
               </div>
             </div>
@@ -389,7 +267,7 @@ export function AdSetsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading
+              {isInitialLoading
                 ? Array.from({ length: 3 }).map((_, i) => (
                     <TableRow key={i}>
                       <TableCell>
@@ -449,15 +327,6 @@ export function AdSetsTable({
                             currentName={adSet.name}
                             accountId={accountId}
                             userId={userId}
-                            onRenamed={(newName) =>
-                              setAdSets((prev) =>
-                                prev.map((a) =>
-                                  a.id === adSet.id
-                                    ? { ...a, name: newName }
-                                    : a,
-                                ),
-                              )
-                            }
                           />
                         </div>
                       </TableCell>
@@ -481,7 +350,6 @@ export function AdSetsTable({
                             entityName={adSet.name}
                             accountId={accountId}
                             userId={userId}
-                            onDuplicated={() => fetchAdSets(currentCursor)}
                           />
                         </div>
                       </TableCell>
@@ -513,7 +381,7 @@ export function AdSetsTable({
             variant="ghost"
             size="sm"
             onClick={handlePreviousPage}
-            disabled={!pagination.hasPreviousPage || isLoading}
+            disabled={!pagination.hasPreviousPage || isFetching}
             className="h-8 px-3 text-xs gap-1"
           >
             <ChevronLeft className="size-3.5" />
@@ -523,7 +391,7 @@ export function AdSetsTable({
             variant="ghost"
             size="sm"
             onClick={handleNextPage}
-            disabled={!pagination.hasNextPage || isLoading}
+            disabled={!pagination.hasNextPage || isFetching}
             className="h-8 px-3 text-xs gap-1"
           >
             Próxima

@@ -32,7 +32,6 @@ import {
   type AdSetScheduleBlock,
   type AdSetTargeting,
   type CampaignObjective,
-  type InsightsMetrics,
   type TargetingEntity,
   type TimeIncrement,
   DatePreset,
@@ -56,8 +55,8 @@ import {
   getOptimizationGoalLabel,
   getOptimizationGoalDescription,
 } from "../utils/formatters";
-import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-increment-to-days";
 import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
+import { useAdSetDetail, useAdSetInsights } from "../hooks/marketing-queries";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 
 type AdSetDetailProps = {
@@ -79,16 +78,6 @@ type AdSetDetailProps = {
   onRenamed?: () => void;
 };
 
-type GetAdSetInsightsResponse = {
-  adsetId?: string;
-  insights?: InsightsMetrics;
-  insightsArray?: InsightsMetrics[];
-};
-
-type GetAdSetResponse = {
-  adset?: AdSet;
-};
-
 export function AdSetDetail({
   adSet: adSetProp,
   accountId,
@@ -101,19 +90,10 @@ export function AdSetDetail({
   onRenamed,
 }: AdSetDetailProps) {
   const [adSet, setAdSet] = useState<AdSet>(adSetProp);
-  const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
-  const [totalInsights, setTotalInsights] = useState<
-    InsightsMetrics | undefined
-  >(adSetProp.insights);
-  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [detailedAdSet, setDetailedAdSet] = useState<AdSet | null>(null);
-  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [isCreateAdOpen, setIsCreateAdOpen] = useState(false);
-  const [adsRefreshSignal, setAdsRefreshSignal] = useState(0);
   const [selectedAdForMedia, setSelectedAdForMedia] = useState<Ad | null>(null);
 
   useEffect(() => {
@@ -141,116 +121,39 @@ export function AdSetDetail({
     until: string;
   } | null>(null);
 
-  const fetchAdSetDetails = useCallback(async () => {
-    if (!adSet.id || !accountId || !userId) return;
-    if (detailedAdSet?.id === adSet.id && detailedAdSet.targeting) return;
+  // Full ad set (with targeting). The /adsets list omits targeting, so the Edit
+  // dialog needs this richer payload. Cached and refetched after invalidation.
+  const detailQuery = useAdSetDetail(accountId, userId, adSet.id, {
+    adsLimit: 1,
+    enabled: isOpen || isDetailsOpen,
+  });
+  const detailedAdSet = detailQuery.data ?? null;
+  const isLoadingDetails = detailQuery.isFetching;
+  const detailsError = detailQuery.error
+    ? "Não foi possível carregar os detalhes do conjunto."
+    : null;
 
-    setIsLoadingDetails(true);
-    setDetailsError(null);
-
-    try {
-      const params = new URLSearchParams({
-        userId,
-        adsLimit: "1",
-      });
-
-      const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adSet.id}?${params}`,
-      );
-
-      if (!response.ok) {
-        throw new Error("Não foi possível carregar os detalhes do conjunto.");
-      }
-
-      const data: GetAdSetResponse = await response.json();
-      setDetailedAdSet(data.adset ?? null);
-    } catch (err) {
-      console.error("Error fetching adset details:", err);
-      setDetailsError("Não foi possível carregar os detalhes do conjunto.");
-    } finally {
-      setIsLoadingDetails(false);
-    }
-  }, [
+  // Insights (time-series + total) cached with a short stale time; mutations to
+  // this ad set invalidate them so they refresh.
+  const insightsQuery = useAdSetInsights(
     accountId,
-    adSet.id,
-    detailedAdSet?.id,
-    detailedAdSet?.targeting,
     userId,
-  ]);
+    adSet.id,
+    {
+      timeIncrement,
+      datePreset,
+      since: customRange?.since ?? null,
+      until: customRange?.until ?? null,
+    },
+    { enabled: isOpen },
+  );
+  const insightsData = insightsQuery.data?.insightsArray ?? [];
+  const totalInsights = insightsQuery.data?.total ?? adSet.insights;
+  const isLoadingInsights = insightsQuery.isFetching;
 
   const handleDetailsOpenChange = (open: boolean) => {
     setIsDetailsOpen(open);
-    if (open) {
-      fetchAdSetDetails();
-    }
   };
-
-  const fetchInsights = useCallback(async () => {
-    if (!adSet.id || !accountId) return;
-
-    setIsLoadingInsights(true);
-
-    try {
-      const params = new URLSearchParams({
-        timeIncrement: convertTimeIncrementToDays(timeIncrement),
-        userId,
-      });
-
-      if (customRange) {
-        params.append("since", customRange.since);
-        params.append("until", customRange.until);
-      } else if (datePreset) {
-        params.append("datePreset", datePreset);
-      }
-
-      const response = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adSet.id}/insights?${params}`,
-      );
-
-      if (response.ok) {
-        const data: GetAdSetInsightsResponse = await response.json();
-        setInsightsData(data.insightsArray ?? []);
-      }
-
-      const totalParams = new URLSearchParams({ userId });
-      if (customRange) {
-        totalParams.append("since", customRange.since);
-        totalParams.append("until", customRange.until);
-      } else if (datePreset) {
-        totalParams.append("datePreset", datePreset);
-      } else {
-        totalParams.append("datePreset", DatePreset.LAST_30D);
-      }
-
-      const totalResponse = await fetch(
-        `/api/meta-marketing/${accountId}/adsets/${adSet.id}/insights?${totalParams}`,
-      );
-
-      if (totalResponse.ok) {
-        const totalData: GetAdSetInsightsResponse = await totalResponse.json();
-        setTotalInsights(totalData.insights);
-      }
-    } catch (err) {
-      console.error("Error fetching adset insights:", err);
-    } finally {
-      setIsLoadingInsights(false);
-    }
-  }, [adSet.id, accountId, userId, timeIncrement, datePreset, customRange]);
-
-  useEffect(() => {
-    if (isOpen) {
-      fetchInsights();
-    }
-  }, [isOpen, fetchInsights]);
-
-  // Fetch the full ad set (with targeting) on open. The /adsets list endpoint
-  // doesn't return targeting, so without this call the Edit dialog would see an
-  // empty targeting object and incorrectly report Advantage+ placements.
-  useEffect(() => {
-    if (isOpen) {
-      void fetchAdSetDetails();
-    }
-  }, [isOpen, fetchAdSetDetails]);
 
   const refetchAdSet = useCallback(async () => {
     try {
@@ -544,7 +447,6 @@ export function AdSetDetail({
                 datePreset={datePreset}
                 customRange={customRange}
                 selectedMetricIds={selectedMetricIds}
-                refreshSignal={adsRefreshSignal}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />
             </section>
@@ -586,7 +488,6 @@ export function AdSetDetail({
           adSetIsDynamic={adSet.isDynamicCreative === true}
           isOpen={isCreateAdOpen}
           onClose={() => setIsCreateAdOpen(false)}
-          onCreated={() => setAdsRefreshSignal((s) => s + 1)}
         />
       )}
 
@@ -596,7 +497,7 @@ export function AdSetDetail({
             adSet={detailedAdSet ?? adSet}
             isLoading={isLoadingDetails}
             error={detailsError}
-            onRetry={fetchAdSetDetails}
+            onRetry={() => detailQuery.refetch()}
           />
         </DialogContent>
       </Dialog>

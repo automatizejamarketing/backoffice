@@ -16,7 +16,7 @@ type EditCreativeButtonProps = {
    * matches the ad set the server will write to.
    */
   adSetIsDynamic?: boolean;
-  onEdited: () => void;
+  onEdited?: () => void;
 };
 
 export function EditCreativeButton({

@@ -28,6 +28,7 @@ import {
   type BudgetType,
 } from "@/lib/meta-business/budget-schedule";
 import { formatCurrency } from "../utils/formatters";
+import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 type CampaignEditDialogProps = {
   campaign: Campaign;
@@ -63,6 +64,7 @@ export function CampaignEditDialog({
   onClose,
   onSuccess,
 }: CampaignEditDialogProps) {
+  const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const currentDailyBudgetValue = useMemo(() => {
     if (!campaign.dailyBudget) return null;
     const parsed = Number.parseInt(campaign.dailyBudget, 10);
@@ -462,6 +464,9 @@ export function CampaignEditDialog({
         );
       }
 
+      // Budget/schedule changes cascade to ad sets and shift insights, so flush
+      // the cached lists, details and charts.
+      void invalidateMarketing();
       onSuccess(responseData.campaign);
       onClose();
     } catch (err) {

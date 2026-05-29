@@ -11,6 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 type DuplicateEntity = "campaign" | "adset" | "ad";
 
@@ -52,7 +53,7 @@ type DuplicateButtonProps = {
   entityName?: string;
   accountId: string;
   userId: string;
-  onDuplicated: () => void;
+  onDuplicated?: () => void;
   /** `icon` for table rows, `labeled` for detail headers. */
   variant?: "icon" | "labeled";
 };
@@ -66,6 +67,7 @@ export function DuplicateButton({
   onDuplicated,
   variant = "icon",
 }: DuplicateButtonProps) {
+  const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,10 +101,11 @@ export function DuplicateButton({
       const hasPartialFailures =
         failedAdsets.length > 0 || failedAds.length > 0;
 
-      // The duplicate did create the top-level entity, so refresh the parent
-      // list regardless. For partial failures we keep the dialog open so the
-      // user can read the warning before dismissing it.
-      onDuplicated();
+      // The duplicate did create the top-level entity, so refresh the cached
+      // lists/details regardless. For partial failures we keep the dialog open
+      // so the user can read the warning before dismissing it.
+      void invalidateMarketing();
+      onDuplicated?.();
 
       if (hasPartialFailures) {
         setPartial({

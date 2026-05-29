@@ -35,6 +35,7 @@ import {
 } from "@/lib/meta-business/placements";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "../utils/formatters";
+import { useMarketingInvalidate } from "../hooks/marketing-queries";
 import {
   AudienceMultiSelect,
   type AudienceOption,
@@ -238,6 +239,7 @@ export function AdSetEditDialog({
   onClose,
   onSuccess,
 }: AdSetEditDialogProps) {
+  const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const hasCampaignBudget = hasAnyPositiveBudget(adSet.campaign);
   const effectiveBudgetSource = hasCampaignBudget ? adSet.campaign! : adSet;
   const effectiveBudgetType = getBudgetType(effectiveBudgetSource);
@@ -624,6 +626,9 @@ export function AdSetEditDialog({
         throw new Error(errorData.message ?? "Falha ao aplicar alterações");
       }
 
+      // Targeting/budget/schedule edits change this ad set and may shift its
+      // delivery, so refresh the cached lists, detail and insights.
+      void invalidateMarketing();
       onSuccess();
       onClose();
     } catch (err) {

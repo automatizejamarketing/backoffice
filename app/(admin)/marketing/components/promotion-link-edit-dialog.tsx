@@ -13,18 +13,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  useMarketingInvalidate,
+  usePromotionLink,
+} from "../hooks/marketing-queries";
 
 type PromotionLinkEditDialogProps = {
   accountId: string;
   userId: string;
   ad: { id: string; name?: string };
-  onUpdated: () => void;
-};
-
-type PromotionLinkResponse = {
-  promotionUrl?: string;
-  message?: string;
-  error?: string;
+  onUpdated?: () => void;
 };
 
 type PromotionLinkPatchResponse = {
@@ -51,54 +49,24 @@ export function PromotionLinkEditDialog({
   const [open, setOpen] = useState(false);
   const [promotionUrl, setPromotionUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  const linkQuery = usePromotionLink(accountId, userId, ad.id, { enabled: open });
+  const invalidateMarketing = useMarketingInvalidate(accountId, userId);
+
+  const isLoading = linkQuery.isFetching;
+
   useEffect(() => {
-    if (!open) return;
-
-    let cancelled = false;
-
-    async function loadCurrentLink() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams({ userId });
-        const response = await fetch(
-          `/api/meta-marketing/${accountId}/ads/${ad.id}/promotion-link?${params}`,
-        );
-        const data = (await response
-          .json()
-          .catch(() => ({}))) as PromotionLinkResponse;
-
-        if (!response.ok) {
-          throw new Error(
-            data.message ?? "Não foi possível carregar o link atual.",
-          );
-        }
-
-        if (!cancelled) {
-          setPromotionUrl(data.promotionUrl ?? "");
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Não foi possível carregar o link atual.",
-          );
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
+    if (open && linkQuery.data !== undefined) {
+      setPromotionUrl(linkQuery.data);
     }
+  }, [open, linkQuery.data]);
 
-    void loadCurrentLink();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accountId, ad.id, open, userId]);
+  useEffect(() => {
+    if (linkQuery.error) {
+      setError("Não foi possível carregar o link atual.");
+    }
+  }, [linkQuery.error]);
 
   async function handleSave() {
     const nextUrl = promotionUrl.trim();
@@ -134,7 +102,8 @@ export function PromotionLinkEditDialog({
       );
       if (data.message) toast.message(data.message);
       setOpen(false);
-      onUpdated();
+      void invalidateMarketing();
+      onUpdated?.();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Não foi possível atualizar o link.",

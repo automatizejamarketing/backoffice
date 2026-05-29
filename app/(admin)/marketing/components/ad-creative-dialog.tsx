@@ -42,7 +42,7 @@ type CreateModeProps = {
   adSetIsDynamic?: boolean;
   isOpen: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated?: () => void;
 };
 
 type EditModeProps = {
@@ -54,7 +54,7 @@ type EditModeProps = {
   adSetIsDynamic?: boolean;
   isOpen: boolean;
   onClose: () => void;
-  onEdited: () => void;
+  onEdited?: () => void;
 };
 
 type AdCreativeDialogProps = CreateModeProps | EditModeProps;
@@ -107,8 +107,8 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
   // Notify parent once, when the operation succeeds.
   useEffect(() => {
     if (builder.phase === "done") {
-      if (props.mode === "create") props.onCreated();
-      else props.onEdited();
+      if (props.mode === "create") props.onCreated?.();
+      else props.onEdited?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [builder.phase]);

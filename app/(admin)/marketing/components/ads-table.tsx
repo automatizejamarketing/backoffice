@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState } from "react";
 import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAds, useToggleAdStatus } from "../hooks/marketing-queries";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -20,7 +21,6 @@ import {
   EffectiveStatus,
   type Ad,
   type CampaignObjective,
-  type PaginationInfo,
 } from "@/lib/meta-business/types";
 import {
   resolveCampaignTableMetrics,
@@ -36,11 +36,6 @@ import { EditCreativeButton } from "./edit-creative-button";
 import { IssuesIcon } from "./issues-icon";
 import { NameEditButton } from "./name-edit-button";
 import { PromotionLinkEditDialog } from "./promotion-link-edit-dialog";
-
-type GetAdsResponse = {
-  data?: Ad[];
-  pagination?: PaginationInfo;
-};
 
 type AdsTableProps = {
   accountId: string;
@@ -63,8 +58,6 @@ type AdsTableProps = {
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
-  /** Bumping this value triggers a refetch (e.g. after creating an ad). */
-  refreshSignal?: number;
 };
 
 export function AdsTable({
@@ -78,13 +71,8 @@ export function AdsTable({
   selectedMetricIds,
   onAdClick,
   onMediaClick,
-  refreshSignal,
 }: AdsTableProps) {
-  const [ads, setAds] = useState<Ad[]>([]);
-  const [pagination, setPagination] = useState<PaginationInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [currentCursor, setCurrentCursor] = useState<string | undefined>();
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [togglingAdId, setTogglingAdId] = useState<string | null>(null);
 
   const mobileMetrics = resolveCampaignTableMetrics(
@@ -105,76 +93,37 @@ export function AdsTable({
   const canEditPromotionLink =
     objective === "OUTCOME_SALES" || objective === "CONVERSIONS";
 
-  const fetchAds = useCallback(
-    async (cursor?: string) => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const params = new URLSearchParams({ limit: "25", userId });
-        if (cursor) {
-          params.set("after", cursor);
-        }
-        if (adSetId) {
-          params.set("adsetId", adSetId);
-        }
-        if (customRange) {
-          params.set("since", customRange.since);
-          params.set("until", customRange.until);
-        } else if (datePreset) {
-          params.set("datePreset", datePreset);
-        }
-
-        const response = await fetch(
-          `/api/meta-marketing/${accountId}/ads?${params}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Falha ao buscar anúncios");
-        }
-
-        const data: GetAdsResponse = await response.json();
-        setAds(data.data ?? []);
-        setPagination(data.pagination ?? null);
-      } catch (err) {
-        console.error("Error fetching ads:", err);
-        setError("Falha ao buscar anúncios");
-      } finally {
-        setIsLoading(false);
-      }
+  const { data, isPending, isFetching, error, refetch } = useAds(
+    accountId,
+    userId,
+    {
+      adSetId: adSetId ?? null,
+      datePreset,
+      since: customRange?.since ?? null,
+      until: customRange?.until ?? null,
+      cursor: cursor ?? null,
     },
-    [accountId, adSetId, customRange, datePreset, userId]
   );
 
-  useEffect(() => {
-    fetchAds();
-  }, [fetchAds]);
+  const ads = data?.data ?? [];
+  const pagination = data?.pagination ?? null;
+  const isInitialLoading = isPending;
 
-  const didMountRef = useRef(false);
-  useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
-    fetchAds(currentCursor);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshSignal]);
+  const toggleStatus = useToggleAdStatus(accountId, userId);
 
   const handleNextPage = () => {
     if (pagination?.nextCursor) {
-      setCurrentCursor(pagination.nextCursor);
-      fetchAds(pagination.nextCursor);
+      setCursor(pagination.nextCursor);
     }
   };
 
   const handlePreviousPage = () => {
     if (pagination?.previousCursor) {
-      setCurrentCursor(pagination.previousCursor);
-      fetchAds(pagination.previousCursor);
+      setCursor(pagination.previousCursor);
     }
   };
 
-  const handleToggleStatus = async (ad: Ad, event: React.MouseEvent) => {
+  const handleToggleStatus = (ad: Ad, event: React.MouseEvent) => {
     event.stopPropagation();
 
     if (togglingAdId) return;
@@ -182,48 +131,11 @@ export function AdsTable({
     const newStatus =
       ad.status === AdStatus.ACTIVE ? AdStatus.PAUSED : AdStatus.ACTIVE;
 
-    const newEffectiveStatus =
-      newStatus === AdStatus.ACTIVE
-        ? EffectiveStatus.ACTIVE
-        : EffectiveStatus.PAUSED;
-
     setTogglingAdId(ad.id);
-
-    try {
-      const response = await fetch(
-        `/api/meta-marketing/${accountId}/ads?userId=${userId}`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            adId: ad.id,
-            status: newStatus,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Falha ao atualizar status");
-      }
-
-      setAds((prevAds) =>
-        prevAds.map((a) =>
-          a.id === ad.id
-            ? {
-                ...a,
-                status: newStatus,
-                effectiveStatus: newEffectiveStatus,
-              }
-            : a
-        )
-      );
-    } catch (err) {
-      console.error("Error toggling ad status:", err);
-    } finally {
-      setTogglingAdId(null);
-    }
+    toggleStatus.mutate(
+      { adId: ad.id, nextStatus: newStatus },
+      { onSettled: () => setTogglingAdId(null) },
+    );
   };
 
   const canToggle = (ad: Ad): boolean => {
@@ -237,19 +149,19 @@ export function AdsTable({
     return ad.status === AdStatus.ACTIVE;
   };
 
-  if (isLoading && ads.length === 0) {
+  if (isInitialLoading && ads.length === 0) {
     return <AdsTableSkeleton metricCount={desktopMetricCount} />;
   }
 
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
-        <p className="text-destructive text-sm">{error}</p>
+        <p className="text-destructive text-sm">Falha ao buscar anúncios</p>
         <Button
           variant="outline"
           size="sm"
           className="mt-3"
-          onClick={() => fetchAds(currentCursor)}
+          onClick={() => refetch()}
         >
           Tentar novamente
         </Button>
@@ -304,13 +216,6 @@ export function AdsTable({
                       currentName={ad.name}
                       accountId={accountId}
                       userId={userId}
-                      onRenamed={(newName) =>
-                        setAds((prev) =>
-                          prev.map((a) =>
-                            a.id === ad.id ? { ...a, name: newName } : a,
-                          ),
-                        )
-                      }
                     />
                   </div>
                   <div className="flex items-center gap-2">
@@ -344,14 +249,12 @@ export function AdsTable({
                       userId={userId}
                       ad={{ id: ad.id, name: ad.name }}
                       adSetIsDynamic={adSetIsDynamic}
-                      onEdited={() => fetchAds(currentCursor)}
                     />
                     {canEditPromotionLink && (
                       <PromotionLinkEditDialog
                         accountId={accountId}
                         userId={userId}
                         ad={{ id: ad.id, name: ad.name }}
-                        onUpdated={() => fetchAds(currentCursor)}
                       />
                     )}
                     <DuplicateButton
@@ -360,7 +263,6 @@ export function AdsTable({
                       entityName={ad.name}
                       accountId={accountId}
                       userId={userId}
-                      onDuplicated={() => fetchAds(currentCursor)}
                     />
                   </div>
                 </div>
@@ -399,7 +301,7 @@ export function AdsTable({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading
+              {isInitialLoading
                 ? Array.from({ length: 3 }).map((_, i) => (
                     <TableRow key={i}>
                       <TableCell>
@@ -470,15 +372,6 @@ export function AdsTable({
                             currentName={ad.name}
                             accountId={accountId}
                             userId={userId}
-                            onRenamed={(newName) =>
-                              setAds((prev) =>
-                                prev.map((a) =>
-                                  a.id === ad.id
-                                    ? { ...a, name: newName }
-                                    : a,
-                                ),
-                              )
-                            }
                           />
                         </div>
                       </TableCell>
@@ -499,14 +392,12 @@ export function AdsTable({
                             entityName={ad.name}
                             accountId={accountId}
                             userId={userId}
-                            onDuplicated={() => fetchAds(currentCursor)}
                           />
                           {canEditPromotionLink && (
                             <PromotionLinkEditDialog
                               accountId={accountId}
                               userId={userId}
                               ad={{ id: ad.id, name: ad.name }}
-                              onUpdated={() => fetchAds(currentCursor)}
                             />
                           )}
                         </div>
@@ -539,7 +430,7 @@ export function AdsTable({
             variant="ghost"
             size="sm"
             onClick={handlePreviousPage}
-            disabled={!pagination.hasPreviousPage || isLoading}
+            disabled={!pagination.hasPreviousPage || isFetching}
             className="h-8 px-3 text-xs gap-1"
           >
             <ChevronLeft className="size-3.5" />
@@ -549,7 +440,7 @@ export function AdsTable({
             variant="ghost"
             size="sm"
             onClick={handleNextPage}
-            disabled={!pagination.hasNextPage || isLoading}
+            disabled={!pagination.hasNextPage || isFetching}
             className="h-8 px-3 text-xs gap-1"
           >
             Próxima

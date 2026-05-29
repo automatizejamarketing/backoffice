@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeft, Pencil, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useCampaignInsights } from "../hooks/marketing-queries";
 import { Badge } from "@/components/ui/badge";
 import {
   Sheet,
@@ -20,7 +21,6 @@ import {
 import {
   type Campaign,
   type AdSet,
-  type InsightsMetrics,
   type TimeIncrement,
   DatePreset,
 } from "@/lib/meta-business/types";
@@ -35,7 +35,6 @@ import {
   formatCurrency,
   translateStatus,
 } from "../utils/formatters";
-import { convertTimeIncrementToDays } from "@/lib/meta-business/convert-time-increment-to-days";
 import { AdSetDetail } from "./adset-detail";
 import { AdSetCreateDialog } from "./adset-create-dialog";
 import { CampaignEditDialog } from "./campaign-edit-dialog";
@@ -57,12 +56,6 @@ type CampaignDetailProps = {
   selectedMetricIds?: CampaignMetricId[] | null;
 };
 
-type GetCampaignInsightsResponse = {
-  campaignId?: string;
-  insights?: InsightsMetrics;
-  insightsArray?: InsightsMetrics[];
-};
-
 export function CampaignDetail({
   campaign: campaignProp,
   accountId,
@@ -73,11 +66,6 @@ export function CampaignDetail({
   selectedMetricIds,
 }: CampaignDetailProps) {
   const [campaign, setCampaign] = useState<Campaign>(campaignProp);
-  const [insightsData, setInsightsData] = useState<InsightsMetrics[]>([]);
-  const [totalInsights, setTotalInsights] = useState<
-    InsightsMetrics | undefined
-  >(campaignProp.insights);
-  const [isLoadingInsights, setIsLoadingInsights] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
 
   const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
@@ -109,11 +97,9 @@ export function CampaignDetail({
   const [selectedAdSet, setSelectedAdSet] = useState<AdSet | null>(null);
   const [isAdSetDetailOpen, setIsAdSetDetailOpen] = useState(false);
   const [isCreateAdSetOpen, setIsCreateAdSetOpen] = useState(false);
-  const [adSetsRefreshKey, setAdSetsRefreshKey] = useState(0);
 
   useEffect(() => {
     setCampaign(campaignProp);
-    setTotalInsights(campaignProp.insights);
   }, [campaignProp]);
 
   const refetchCampaign = useCallback(async () => {
@@ -133,64 +119,22 @@ export function CampaignDetail({
     }
   }, [accountId, campaign.id, onCampaignUpdated, userId]);
 
-  const fetchInsights = useCallback(async () => {
-    if (!campaign.id || !accountId) return;
+  const insightsQuery = useCampaignInsights(
+    accountId,
+    userId,
+    campaign.id,
+    {
+      timeIncrement,
+      datePreset,
+      since: customRange?.since ?? null,
+      until: customRange?.until ?? null,
+    },
+    { enabled: isOpen },
+  );
 
-    setIsLoadingInsights(true);
-
-    try {
-      const params = new URLSearchParams({
-        timeIncrement: convertTimeIncrementToDays(timeIncrement),
-        userId,
-      });
-
-      if (customRange) {
-        params.append("since", customRange.since);
-        params.append("until", customRange.until);
-      } else if (datePreset) {
-        params.append("datePreset", datePreset);
-      }
-
-      const response = await fetch(
-        `/api/meta-marketing/${accountId}/campaigns/${campaign.id}/insights?${params}`,
-      );
-
-      if (response.ok) {
-        const data: GetCampaignInsightsResponse = await response.json();
-        setInsightsData(data.insightsArray ?? []);
-      }
-
-      const totalParams = new URLSearchParams({ userId });
-      if (customRange) {
-        totalParams.append("since", customRange.since);
-        totalParams.append("until", customRange.until);
-      } else if (datePreset) {
-        totalParams.append("datePreset", datePreset);
-      } else {
-        totalParams.append("datePreset", DatePreset.LAST_30D);
-      }
-
-      const totalResponse = await fetch(
-        `/api/meta-marketing/${accountId}/campaigns/${campaign.id}/insights?${totalParams}`,
-      );
-
-      if (totalResponse.ok) {
-        const totalData: GetCampaignInsightsResponse =
-          await totalResponse.json();
-        setTotalInsights(totalData.insights);
-      }
-    } catch (err) {
-      console.error("Error fetching campaign insights:", err);
-    } finally {
-      setIsLoadingInsights(false);
-    }
-  }, [campaign.id, accountId, userId, timeIncrement, datePreset, customRange]);
-
-  useEffect(() => {
-    if (isOpen) {
-      fetchInsights();
-    }
-  }, [isOpen, fetchInsights]);
+  const insightsData = insightsQuery.data?.insightsArray ?? [];
+  const totalInsights = insightsQuery.data?.total ?? campaign.insights;
+  const isLoadingInsights = insightsQuery.isFetching;
 
   useEffect(() => {
     setSelectedMetric(chartMetrics[0]?.id ?? "spend");
@@ -207,13 +151,13 @@ export function CampaignDetail({
   };
 
   const handleCreateAdSetSuccess = () => {
-    setAdSetsRefreshKey((prev) => prev + 1);
+    // The create dialog invalidates the marketing cache, so the ad set table
+    // refetches on its own.
   };
 
   const handleCampaignEditSuccess = (updatedCampaign: Campaign) => {
     setCampaign(updatedCampaign);
     onCampaignUpdated?.(updatedCampaign);
-    setAdSetsRefreshKey((prev) => prev + 1);
     void refetchCampaign();
   };
 
@@ -459,7 +403,6 @@ export function CampaignDetail({
                 customRange={customRange}
                 selectedMetricIds={selectedMetricIds}
                 onAdSetClick={handleAdSetClick}
-                refreshKey={adSetsRefreshKey}
               />
             </section>
           </div>
@@ -475,8 +418,6 @@ export function CampaignDetail({
           selectedMetricIds={selectedMetricIds}
           isOpen={isAdSetDetailOpen}
           onClose={handleCloseAdSetDetail}
-          onDuplicated={() => setAdSetsRefreshKey((prev) => prev + 1)}
-          onRenamed={() => setAdSetsRefreshKey((prev) => prev + 1)}
         />
       )}
 
