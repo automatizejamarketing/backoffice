@@ -4,14 +4,17 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import {
   GOOGLE_PLACES_AUTOCOMPLETE_TYPE_GROUPS,
   mapGoogleAutocompleteResponse,
+  resolveAutocompleteLocationBias,
   type GooglePlaceAutocompleteResult,
   type GooglePlacesAutocompleteResponse,
+  type GooglePlacesCircleBias,
 } from "@/lib/geo/google-places-location-search";
 
 type AutocompleteRequestBody = {
   input?: unknown;
   sessionToken?: unknown;
   userId?: unknown;
+  locationBias?: unknown;
 };
 
 type AutocompleteResponse =
@@ -29,6 +32,7 @@ async function fetchAutocompleteGroup(
   input: string,
   sessionToken: string,
   includedPrimaryTypes: readonly string[],
+  locationBias?: GooglePlacesCircleBias,
 ) {
   const response = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
     method: "POST",
@@ -47,6 +51,10 @@ async function fetchAutocompleteGroup(
       sessionToken,
       includeQueryPredictions: false,
       includePureServiceAreaBusinesses: false,
+      // Optional soft bias toward an area; when absent the search stays
+      // country-wide (Brazil). locationBias coexists with includedRegionCodes,
+      // so biased results are still constrained to Brazil.
+      ...(locationBias ? { locationBias } : {}),
     }),
   });
 
@@ -56,6 +64,7 @@ async function fetchAutocompleteGroup(
 
   return mapGoogleAutocompleteResponse(
     (await response.json()) as GooglePlacesAutocompleteResponse,
+    { isBusiness: includedPrimaryTypes.includes("establishment") },
   );
 }
 
@@ -82,6 +91,29 @@ function mergeResults(
   }
 
   return data;
+}
+
+function resolveRequestLocationBias(
+  request: NextRequest,
+  body: AutocompleteRequestBody,
+): GooglePlacesCircleBias | undefined {
+  // 1. Explicit bias from the client (e.g. the browser Geolocation API) wins.
+  const explicit = resolveAutocompleteLocationBias(body.locationBias);
+  if (explicit) {
+    return explicit;
+  }
+
+  // 2. Fall back to Vercel's IP geolocation headers — no permission prompt,
+  //    city-level accuracy, which is plenty for a soft bias. The headers are
+  //    absent on localhost, so dev simply falls back to a Brazil-wide search.
+  const latitude = Number.parseFloat(
+    request.headers.get("x-vercel-ip-latitude") ?? "",
+  );
+  const longitude = Number.parseFloat(
+    request.headers.get("x-vercel-ip-longitude") ?? "",
+  );
+
+  return resolveAutocompleteLocationBias({ latitude, longitude });
 }
 
 export async function POST(
@@ -123,9 +155,17 @@ export async function POST(
       );
     }
 
+    const locationBias = resolveRequestLocationBias(request, body);
+
     const groups = await Promise.allSettled(
       GOOGLE_PLACES_AUTOCOMPLETE_TYPE_GROUPS.map((typeGroup) =>
-        fetchAutocompleteGroup(apiKey, input, sessionToken, typeGroup),
+        fetchAutocompleteGroup(
+          apiKey,
+          input,
+          sessionToken,
+          typeGroup,
+          locationBias,
+        ),
       ),
     );
 

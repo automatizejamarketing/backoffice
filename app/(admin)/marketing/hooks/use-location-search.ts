@@ -19,6 +19,12 @@ type SearchLocationsError = {
   solution?: string;
 };
 
+type LocationBiasInput = {
+  latitude: number;
+  longitude: number;
+  radiusMeters?: number;
+};
+
 type UseLocationSearchParams = {
   accountId: string | null;
   userId?: string | null;
@@ -27,6 +33,12 @@ type UseLocationSearchParams = {
   placesSessionToken: string | null;
   selectedLocations: SelectedGeoLocation[];
   enabled?: boolean;
+  /**
+   * Optional soft bias toward an area (e.g. the browser's geolocation). When
+   * omitted, the server falls back to Vercel IP geolocation, then to a
+   * country-wide (Brazil) search.
+   */
+  locationBias?: LocationBiasInput | null;
 };
 
 type GooglePlacesAutocompleteResponse = {
@@ -72,6 +84,7 @@ async function fetchGooglePlacesAutocomplete(
   searchTerm: string,
   placesSessionToken: string | null,
   userId: string | undefined,
+  locationBias?: LocationBiasInput | null,
 ): Promise<GooglePlacesAutocompleteResponse> {
   if (searchTerm.length < 3 || !placesSessionToken || !userId) {
     return { data: [] };
@@ -84,6 +97,7 @@ async function fetchGooglePlacesAutocomplete(
       input: searchTerm,
       sessionToken: placesSessionToken,
       userId,
+      ...(locationBias ? { locationBias } : {}),
     }),
   });
 
@@ -120,10 +134,16 @@ async function fetchLocations(
   locale: string | undefined,
   searchTerm: string,
   placesSessionToken: string | null,
+  locationBias?: LocationBiasInput | null,
 ): Promise<SearchLocationsResponse> {
   const [metaResult, googleResult] = await Promise.allSettled([
     fetchMetaLocations(accountId, userId, locale, searchTerm),
-    fetchGooglePlacesAutocomplete(searchTerm, placesSessionToken, userId),
+    fetchGooglePlacesAutocomplete(
+      searchTerm,
+      placesSessionToken,
+      userId,
+      locationBias,
+    ),
   ]);
 
   if (metaResult.status === "rejected") {
@@ -173,6 +193,7 @@ export function useLocationSearch({
   placesSessionToken,
   selectedLocations,
   enabled = true,
+  locationBias,
 }: UseLocationSearchParams) {
   const [debouncedSearchTerm] = useDebounceValue(searchTerm, 400);
   const normalizedSearchTerm = debouncedSearchTerm.trim();
@@ -185,6 +206,7 @@ export function useLocationSearch({
       locale,
       normalizedSearchTerm,
       placesSessionToken,
+      locationBias,
     ],
     queryFn: () => {
       if (!accountId) {
@@ -197,6 +219,7 @@ export function useLocationSearch({
         locale,
         normalizedSearchTerm,
         placesSessionToken,
+        locationBias,
       );
     },
     enabled: enabled && Boolean(accountId) && Boolean(userId) && normalizedSearchTerm.length > 0,

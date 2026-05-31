@@ -37,6 +37,7 @@ export const locationTargetingMessages: Record<string, string> = {
   electoralDistrict: "Distrito Eleitoral",
   place: "Local",
   address: "Endereço",
+  business: "Empresa",
   customLocationHint: "Localização personalizada",
   placeHint: "Ponto de interesse",
   mapPreviewTitle: "Visualização do Mapa",

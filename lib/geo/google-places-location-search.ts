@@ -6,7 +6,71 @@ import {
 export const GOOGLE_PLACES_AUTOCOMPLETE_TYPE_GROUPS = [
   ["street_address", "route", "neighborhood", "sublocality", "postal_code"],
   ["premise"],
+  ["establishment"],
 ] as const;
+
+/**
+ * Default radius (meters) applied when an autocomplete request supplies a
+ * location-bias center without an explicit radius. A soft bias only needs a
+ * rough area, so a city-sized radius is enough.
+ */
+export const DEFAULT_AUTOCOMPLETE_BIAS_RADIUS_METERS = 20_000;
+const MAX_AUTOCOMPLETE_BIAS_RADIUS_METERS = 50_000;
+
+/** Circle location bias accepted by the Places Autocomplete (New) API. */
+export type GooglePlacesCircleBias = {
+  circle: {
+    center: { latitude: number; longitude: number };
+    radius: number;
+  };
+};
+
+/** Raw center a caller can provide to bias autocomplete results. */
+export type GooglePlacesAutocompleteBiasInput = {
+  latitude: number;
+  longitude: number;
+  radiusMeters?: number;
+};
+
+/**
+ * Validates an untrusted location-bias payload (from the request body or from
+ * Vercel IP headers) and turns it into a circle bias. Returns `undefined` when
+ * the input is missing or invalid — in that case the caller should run a
+ * country-wide (Brazil) autocomplete with no bias.
+ */
+export function resolveAutocompleteLocationBias(
+  value: unknown,
+): GooglePlacesCircleBias | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const { latitude, longitude } = candidate;
+
+  if (
+    typeof latitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    return undefined;
+  }
+
+  const requestedRadius = candidate.radiusMeters;
+  const radius =
+    typeof requestedRadius === "number" &&
+    Number.isFinite(requestedRadius) &&
+    requestedRadius > 0
+      ? Math.min(requestedRadius, MAX_AUTOCOMPLETE_BIAS_RADIUS_METERS)
+      : DEFAULT_AUTOCOMPLETE_BIAS_RADIUS_METERS;
+
+  return { circle: { center: { latitude, longitude }, radius } };
+}
 
 export type GooglePlacesSource = "google_places";
 
@@ -118,6 +182,7 @@ function buildAddressString(data: GooglePlaceDetailsResponse) {
 
 export function mapGoogleAutocompleteResponse(
   response: GooglePlacesAutocompleteResponse,
+  options?: { isBusiness?: boolean },
 ): GooglePlaceAutocompleteResult[] {
   const seen = new Set<string>();
   const results: GooglePlaceAutocompleteResult[] = [];
@@ -141,6 +206,7 @@ export function mapGoogleAutocompleteResponse(
       source: "google_places",
       place_id: placeId,
       requires_details: true,
+      is_business: options?.isBusiness ?? false,
       address_string: displayText,
       country_code: "BR",
       country_name: "Brasil",

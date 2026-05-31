@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { useLocationTargetingT } from "../utils/location-targeting-messages";
 import {
+  Building2,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -50,6 +51,7 @@ import {
   fetchGooglePlaceDetails,
   useLocationSearch,
 } from "../hooks/use-location-search";
+import { useBrowserGeolocation } from "../hooks/use-browser-geolocation";
 
 const LocationTargetingMapPreview = dynamic(
   () =>
@@ -245,6 +247,8 @@ export function LocationTargetingSection({
   const clampRadius = (value: number) =>
     Math.min(maxRadiusKm, Math.max(minRadiusKm, value));
 
+  const browserLocationBias = useBrowserGeolocation(open);
+
   const { results, isFetching, error } = useLocationSearch({
     accountId,
     userId,
@@ -253,6 +257,7 @@ export function LocationTargetingSection({
     placesSessionToken,
     selectedLocations,
     enabled: open,
+    locationBias: browserLocationBias,
   });
 
   const { geocodeByKey, isGeocoding, geocodeError } =
@@ -269,6 +274,11 @@ export function LocationTargetingSection({
         meta.push(result);
       }
     }
+
+    // Prioritize businesses (establishments) above addresses in the Google list.
+    google.sort(
+      (a, b) => Number(b.is_business ?? false) - Number(a.is_business ?? false),
+    );
 
     return { metaResults: meta, googleResults: google };
   }, [results]);
@@ -512,7 +522,7 @@ export function LocationTargetingSection({
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-[min(92vw,30rem)] p-0 shadow-xl"
+          className="w-[var(--radix-popover-trigger-width)] p-0 shadow-xl"
         >
           <Command shouldFilter={false}>
             <CommandInput
@@ -586,7 +596,13 @@ export function LocationTargetingSection({
                   {googleResults.length > 0 ? (
                     <CommandGroup heading={t("googlePlacesGroup")}>
                       {googleResults.map((location) => {
-                        const Icon = getLocationTypeIcon(location.type);
+                        const isBusiness = location.is_business ?? false;
+                        const Icon = isBusiness
+                          ? Building2
+                          : getLocationTypeIcon(location.type);
+                        const typeLabel = isBusiness
+                          ? t("business")
+                          : getLocationTypeLabel(location.type, t);
                         const isResolving = resolvingPlaceId === location.place_id;
 
                         return (
@@ -615,7 +631,7 @@ export function LocationTargetingSection({
                               variant="outline"
                               className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
                             >
-                              {getLocationTypeLabel(location.type, t)}
+                              {typeLabel}
                             </Badge>
                           </CommandItem>
                         );

@@ -22,6 +22,8 @@ export type GeoLocationSearchResult = {
   source?: "meta" | "google_places";
   place_id?: string;
   requires_details?: boolean;
+  /** Google Places: true when this result is a business/establishment (not an address). */
+  is_business?: boolean;
   country_code?: string;
   country_name?: string;
   region?: string;
