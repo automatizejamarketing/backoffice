@@ -1,3 +1,6 @@
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
@@ -95,6 +98,12 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<EditAdSetResponse | EditAdSetErrorResponse>> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "PATCH /api/meta-marketing/{accountId}/adsets/{adsetId}/edit",
+    operationHint: "update",
+    entityHint: "adset",
+  });
   try {
     const { accountId, adsetId } = await params;
 
@@ -129,6 +138,17 @@ export async function PATCH(
       "marketing:write",
     );
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     const backofficeUserEmail = authz.actor.email;
 
@@ -686,7 +706,8 @@ export async function PATCH(
       });
       logId = log.id;
     } catch (dbErr) {
-      console.error(
+      logMetaMutationError(dbErr);
+    console.error(
         "[PATCH adset edit] Failed to write adset_edit_logs:",
         dbErr,
       );

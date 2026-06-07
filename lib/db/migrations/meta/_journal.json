@@ -120,6 +120,34 @@
       "when": 1779748500001,
       "tag": "0017_adset_dayparting_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780000000001,
+      "tag": "0018_progressive_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780100000001,
+      "tag": "0019_profile_reminder_banner",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1780200000001,
+      "tag": "0020_company_locations",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1780300000001,
+      "tag": "0021_drop_ai_chat_tables",
+      "breakpoints": true
     }
   ]
 }

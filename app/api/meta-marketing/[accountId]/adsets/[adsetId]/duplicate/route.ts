@@ -1,3 +1,6 @@
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import {
@@ -27,6 +30,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<DuplicateAdSetResponse | DuplicateErrorResponse>> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "POST /api/meta-marketing/{accountId}/adsets/{adsetId}/duplicate",
+    operationHint: "duplicate",
+    entityHint: "adset",
+  });
   try {
     const { accountId, adsetId } = await params;
     const { searchParams } = new URL(request.url);
@@ -48,6 +57,17 @@ export async function POST(
       "marketing:write",
     );
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) {
@@ -79,7 +99,8 @@ export async function POST(
         newName: result.name,
       });
     } catch (dbErr) {
-      console.error("[POST adset duplicate] audit log failed:", dbErr);
+      logMetaMutationError(dbErr);
+    console.error("[POST adset duplicate] audit log failed:", dbErr);
       auditLogFailed = true;
     }
 

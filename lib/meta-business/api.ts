@@ -10,6 +10,7 @@ import {
   type GraphErrorReturn,
 } from "./error";
 import { appSecretProofParam, facebookAppSecret } from "./appsecret-proof";
+import { logMetaCall } from "@/lib/observability/meta-logger";
 
 export type MetaApiCallParams = {
   domain?: "FACEBOOK" | "INSTAGRAM";
@@ -54,6 +55,9 @@ export async function metaApiCall<T>({
   const qsParts = [trimmedParams, proof].filter(Boolean);
   const query = qsParts.length ? `?${qsParts.join("&")}` : "";
   const url = `${baseGraphUrl}/${graphApiVersion}/${path}${query}`;
+  const endpoint = `${baseGraphUrl}/${graphApiVersion}/${path}`;
+  const requestParams = trimmedParams || body;
+  const startedAt = Date.now();
 
   try {
     const response = await fetch(url, {
@@ -65,17 +69,37 @@ export async function metaApiCall<T>({
       body,
     });
 
+    const durationMs = Date.now() - startedAt;
+
     if (!response.ok) {
       let json: unknown;
       try {
         json = await response.json();
       } catch {
+        logMetaCall({
+          phase: "error",
+          method,
+          endpoint,
+          requestParams,
+          httpStatus: response.status,
+          durationMs,
+        });
         throw new GraphApiError({
           statusCode: response.status,
           reason: genericError,
           data: undefined,
         });
       }
+
+      logMetaCall({
+        phase: "error",
+        method,
+        endpoint,
+        requestParams,
+        httpStatus: response.status,
+        durationMs,
+        errorData: json,
+      });
 
       const errorReturn = parseGraphError(json);
 
@@ -90,8 +114,38 @@ export async function metaApiCall<T>({
       });
     }
 
-    return response.json() as Promise<T>;
+    const json = (await response.json()) as T;
+    logMetaCall({
+      phase: "success",
+      method,
+      endpoint,
+      requestParams,
+      httpStatus: response.status,
+      durationMs,
+      responseData: json,
+      entityId:
+        json && typeof json === "object" && "id" in (json as object)
+          ? String((json as unknown as { id: string }).id)
+          : undefined,
+    });
+
+    return json;
   } catch (error) {
+    if (!(error instanceof GraphApiError)) {
+      logMetaCall({
+        phase: "error",
+        method,
+        endpoint,
+        requestParams,
+        durationMs: Date.now() - startedAt,
+        errorData: {
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        },
+      });
+    }
+
     if (error instanceof GraphApiError) {
       throw error;
     }

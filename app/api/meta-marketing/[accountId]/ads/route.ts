@@ -1,3 +1,6 @@
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
@@ -107,6 +110,17 @@ export async function GET(
     const authz = await requireMarketingUserAccessResponse(userId);
     if (!authz.ok) return authz.response;
 
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
+
     const tokenResult = await getUserAccessTokenByUserId(userId);
 
     if (!tokenResult.success) {
@@ -192,6 +206,12 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> }
 ): Promise<NextResponse<PatchAdResponse | AdsErrorResponse>> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "PATCH /api/meta-marketing/{accountId}/ads",
+    operationHint: "update",
+    entityHint: "ad",
+  });
   try {
     const { accountId } = await params;
     const { searchParams } = new URL(request.url);

@@ -1,3 +1,4 @@
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
 import { throwMetaError } from "./meta-error";
 import { uploadImageToAdAccount } from "./upload-ad-image";
@@ -57,14 +58,15 @@ export async function createAdCreativeFromInstagramPost(params: {
   formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
   formData.append("access_token", accessToken);
 
-  const response = await fetch(ADCREATIVES_PATH(adAccountId), {
+  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
     method: "POST",
     body: formData,
+    requestParams: formData,
+    entity: "adcreative",
+    operation: "create",
   });
 
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("Error creating ad creative from Instagram post:", data);
     throwMetaError(data, response.status);
   }
@@ -128,15 +130,16 @@ export async function createDynamicAdCreative(params: {
   formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
   formData.append("access_token", accessToken);
 
-  const response = await fetch(ADCREATIVES_PATH(adAccountId), {
+  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
     method: "POST",
     body: formData,
+    requestParams: formData,
+    entity: "adcreative",
+    operation: "create",
   });
 
-  const data = await response.json();
 
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("Error creating dynamic ad creative:", data);
     throwMetaError(data, response.status);
   }
@@ -199,14 +202,15 @@ export async function createAdCreative(params: {
   formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
   formData.append("access_token", accessToken);
 
-  const response = await fetch(ADCREATIVES_PATH(adAccountId), {
+  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
     method: "POST",
     body: formData,
+    requestParams: formData,
+    entity: "adcreative",
+    operation: "create",
   });
 
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("Error creating ad creative:", data);
     throwMetaError(data, response.status);
   }
@@ -265,14 +269,15 @@ export async function createVideoAdCreative(params: {
   formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
   formData.append("access_token", accessToken);
 
-  const response = await fetch(ADCREATIVES_PATH(adAccountId), {
+  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
     method: "POST",
     body: formData,
+    requestParams: formData,
+    entity: "adcreative",
+    operation: "create",
   });
 
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("Error creating video ad creative:", data);
     throwMetaError(data, response.status);
   }
@@ -331,14 +336,15 @@ export async function createDynamicVideoAdCreative(params: {
   formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
   formData.append("access_token", accessToken);
 
-  const response = await fetch(ADCREATIVES_PATH(adAccountId), {
+  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
     method: "POST",
     body: formData,
+    requestParams: formData,
+    entity: "adcreative",
+    operation: "create",
   });
 
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("Error creating dynamic video ad creative:", data);
     throwMetaError(data, response.status);
   }
@@ -370,15 +376,16 @@ export async function createAd(params: {
   formData.append("status", status);
   formData.append("access_token", accessToken);
 
-  const response = await fetch(url, {
+  const { response, data } = await fetchMetaGraph(url, {
     method: "POST",
     body: formData,
+    requestParams: formData,
+    entity: "ad",
+    operation: "create",
   });
 
-  const data = await response.json();
 
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("Error creating ad:", data);
     throwMetaError(data, response.status);
   }

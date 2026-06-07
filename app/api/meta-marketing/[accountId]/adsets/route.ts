@@ -1,3 +1,6 @@
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
@@ -127,6 +130,17 @@ export async function GET(
 
     const authz = await requireMarketingUserAccessResponse(userId);
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
 
@@ -454,6 +468,7 @@ async function deleteMetaObject(
     });
     return true;
   } catch (error) {
+    logMetaMutationError(error);
     console.error(`[deleteMetaObject] Failed to delete ${objectId}`);
     return false;
   }
@@ -531,6 +546,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
 ): Promise<NextResponse<PostAdSetResponse | AdSetsErrorResponse>> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "POST /api/meta-marketing/{accountId}/adsets",
+    operationHint: "create",
+    entityHint: "adset",
+  });
   try {
     const { accountId } = await params;
     const body: PostAdSetRequestBody = await request.json();
@@ -571,6 +592,17 @@ export async function POST(
       "marketing:write",
     );
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     if (!campaignId) {
       return NextResponse.json(
@@ -681,7 +713,8 @@ export async function POST(
           );
         }
       } catch (error) {
-        console.error("Error checking Instagram media boost eligibility:", error);
+        logMetaMutationError(error);
+    console.error("Error checking Instagram media boost eligibility:", error);
         return NextResponse.json(
           {
             error: "Falha ao validar mídia",
@@ -983,8 +1016,8 @@ export async function POST(
             : `Conjunto de anúncios criado, mas os anúncios falharam: ${creativeErrorReturn.reason.message}`;
 
         return NextResponse.json(
-          {
-            success: false,
+      attachCorrelationId({
+        success: false,
             adsetId,
             adsetName: adsetName.trim(),
             ads: createdAds,
@@ -995,7 +1028,7 @@ export async function POST(
             message,
             solution:
               "O conjunto foi criado com sucesso. Adicione os anúncios faltantes manualmente pelo Meta Ads Manager.",
-          } as PostAdSetResponse & AdSetsErrorResponse,
+          } as PostAdSetResponse & AdSetsErrorResponse),
           { status: 207 },
         );
       }
@@ -1014,6 +1047,7 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
+    logMetaMutationError(error);
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("[POST /adsets] Error:", errorReturn);
 
@@ -1032,6 +1066,12 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> }
 ): Promise<NextResponse<PatchAdSetResponse | AdSetsErrorResponse>> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "PATCH /api/meta-marketing/{accountId}/adsets",
+    operationHint: "update",
+    entityHint: "adset",
+  });
   try {
     const { accountId } = await params;
     const { searchParams } = new URL(request.url);
@@ -1053,6 +1093,17 @@ export async function PATCH(
       "marketing:write",
     );
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
 

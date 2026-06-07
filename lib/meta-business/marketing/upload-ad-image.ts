@@ -1,3 +1,4 @@
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
 import { throwMetaError } from "./meta-error";
 
@@ -72,15 +73,14 @@ export async function uploadImageToAdAccount(params: {
 
   const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${adAccountId}/adimages`;
 
-  const response = await fetch(url, {
+  const { response, data } = await fetchMetaGraph(url, {
     method: "POST",
     body: formData,
+    requestParams: formData,
   });
 
-  const data = await response.json();
 
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("[uploadImageToAdAccount] Error uploading image:", data);
     throwMetaError(data, response.status);
   }

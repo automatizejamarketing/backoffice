@@ -334,7 +334,6 @@ export default async function UserDetailPage({
               label="Total de Tokens"
               value={formatNumber(detailedUser.totalTokens)}
             />
-            <MetricCard label="Chats" value={formatNumber(detailedUser.chatCount)} />
             <MetricCard label="Posts" value={formatNumber(detailedUser.postCount)} />
           </div>
         </div>

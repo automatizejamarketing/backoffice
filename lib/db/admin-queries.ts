@@ -20,7 +20,6 @@ import {
   backofficeAuditLog,
   backofficeGeneratedPost,
   campaignEditLog,
-  chat,
   company,
   generatedImage,
   generatedImageVersion,
@@ -64,7 +63,6 @@ export type ActiveSubscriptionSummary = Pick<
 > | null;
 
 export type UserWithUsage = User & {
-  chatCount: number;
   postCount: number;
   totalCost: number;
   totalTokens: number;
@@ -252,7 +250,6 @@ export async function getAllUsersWithUsage(
   }
 
   const [
-    chatCounts,
     postCounts,
     usageRows,
     companyRows,
@@ -260,14 +257,6 @@ export async function getAllUsersWithUsage(
     metaRows,
     consultantRows,
   ] = await Promise.all([
-    db
-      .select({
-        userId: chat.userId,
-        count: count(),
-      })
-      .from(chat)
-      .where(inArray(chat.userId, userIds))
-      .groupBy(chat.userId),
     db
       .select({
         userId: post.userId,
@@ -340,11 +329,6 @@ export async function getAllUsersWithUsage(
       )
       .where(inArray(userMarketingConsultant.userId, userIds)),
   ]);
-
-  const chatCountByUser = new Map<string, number>();
-  for (const row of chatCounts) {
-    chatCountByUser.set(row.userId, row.count);
-  }
 
   const postCountByUser = new Map<string, number>();
   for (const row of postCounts) {
@@ -436,7 +420,6 @@ export async function getAllUsersWithUsage(
 
     return {
       ...u,
-      chatCount: chatCountByUser.get(u.id) ?? 0,
       postCount: postCountByUser.get(u.id) ?? 0,
       totalCost: Number.parseFloat(usage?.totalCost ?? "0"),
       totalTokens: usage?.totalTokens ?? 0,
@@ -463,12 +446,6 @@ export async function getUserWithDetailedUsage(userId: string) {
   if (!foundUser) {
     return null;
   }
-
-  // Get chat count
-  const [chatCount] = await db
-    .select({ count: count() })
-    .from(chat)
-    .where(eq(chat.userId, userId));
 
   // Get post count
   const [postCount] = await db
@@ -558,7 +535,6 @@ export async function getUserWithDetailedUsage(userId: string) {
 
   return {
     ...foundUser,
-    chatCount: chatCount?.count ?? 0,
     postCount: postCount?.count ?? 0,
     totalCost,
     totalTokens,
@@ -755,9 +731,6 @@ export async function getDashboardStats() {
     })
     .from(aiUsageLog);
 
-  // Total chats
-  const [chatCount] = await db.select({ count: count() }).from(chat);
-
   // Total posts
   const [postCount] = await db.select({ count: count() }).from(post);
 
@@ -773,7 +746,6 @@ export async function getDashboardStats() {
     totalCost: Number.parseFloat(totalUsage?.totalCost ?? "0"),
     totalTokens: totalUsage?.totalTokens ?? 0,
     totalRequests: totalUsage?.totalRequests ?? 0,
-    totalChats: chatCount?.count ?? 0,
     totalPosts: postCount?.count ?? 0,
     completedOnboarding: completedOnboarding?.count ?? 0,
   };

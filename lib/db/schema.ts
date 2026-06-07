@@ -4,7 +4,6 @@ import {
   foreignKey,
   index,
   integer,
-  json,
   jsonb,
   numeric,
   pgTable,
@@ -38,6 +37,11 @@ export const user = pgTable("users", {
   expirationDate: timestamp("expiration_date"),
   credits: integer("credits").notNull().default(0),
   referredByAffiliateId: uuid("referred_by_affiliate_id"),
+  onboardingCardDismissedAt: timestamp("onboarding_card_dismissed_at"),
+  onboardingWelcomeSeenAt: timestamp("onboarding_welcome_seen_at"),
+  onboardingProfileBannerDismissedAt: timestamp(
+    "onboarding_profile_banner_dismissed_at",
+  ),
 });
 
 export type User = InferSelectModel<typeof user>;
@@ -296,121 +300,6 @@ export type BusinessManagedCampaignCache = InferSelectModel<
   typeof businessManagedCampaignCache
 >;
 
-export const chat = pgTable("chats", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  createdAt: timestamp("created_at").notNull(),
-  title: text("title").notNull(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => user.id),
-  visibility: varchar("visibility", { enum: ["public", "private"] })
-    .notNull()
-    .default("private"),
-  lastContext: jsonb("last_context").$type<AppUsage | null>(),
-});
-
-export type Chat = InferSelectModel<typeof chat>;
-
-export const message = pgTable("messages", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  chatId: uuid("chat_id")
-    .notNull()
-    .references(() => chat.id),
-  role: varchar("role").notNull(),
-  parts: json("parts").notNull(),
-  attachments: json("attachments").notNull(),
-  createdAt: timestamp("created_at").notNull(),
-});
-
-export type DBMessage = InferSelectModel<typeof message>;
-
-export const vote = pgTable(
-  "votes",
-  {
-    chatId: uuid("chat_id")
-      .notNull()
-      .references(() => chat.id),
-    messageId: uuid("message_id")
-      .notNull()
-      .references(() => message.id),
-    isUpvoted: boolean("is_upvoted").notNull(),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.chatId, table.messageId] }),
-    };
-  },
-);
-
-export type Vote = InferSelectModel<typeof vote>;
-
-export const document = pgTable(
-  "documents",
-  {
-    id: uuid("id").notNull().defaultRandom(),
-    createdAt: timestamp("created_at").notNull(),
-    title: text("title").notNull(),
-    content: text("content"),
-    kind: varchar("text", { enum: ["text", "code", "image", "sheet"] })
-      .notNull()
-      .default("text"),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => user.id),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.id, table.createdAt] }),
-    };
-  },
-);
-
-export type Document = InferSelectModel<typeof document>;
-
-export const suggestion = pgTable(
-  "suggestions",
-  {
-    id: uuid("id").notNull().defaultRandom(),
-    documentId: uuid("document_id").notNull(),
-    documentCreatedAt: timestamp("document_created_at").notNull(),
-    originalText: text("original_text").notNull(),
-    suggestedText: text("suggested_text").notNull(),
-    description: text("description"),
-    isResolved: boolean("is_resolved").notNull().default(false),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => user.id),
-    createdAt: timestamp("created_at").notNull(),
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.id] }),
-    documentRef: foreignKey({
-      columns: [table.documentId, table.documentCreatedAt],
-      foreignColumns: [document.id, document.createdAt],
-    }),
-  }),
-);
-
-export type Suggestion = InferSelectModel<typeof suggestion>;
-
-export const stream = pgTable(
-  "streams",
-  {
-    id: uuid("id").notNull().defaultRandom(),
-    chatId: uuid("chat_id").notNull(),
-    createdAt: timestamp("created_at").notNull(),
-  },
-  (table) => ({
-    pk: primaryKey({ columns: [table.id] }),
-    chatRef: foreignKey({
-      columns: [table.chatId],
-      foreignColumns: [chat.id],
-    }),
-  }),
-);
-
-export type Stream = InferSelectModel<typeof stream>;
-
 // Company table for storing brand information
 export const company = pgTable("companies", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -431,11 +320,48 @@ export const company = pgTable("companies", {
   hashtags: jsonb("hashtags").$type<string[]>(),
   preferredFormats: jsonb("preferred_formats").$type<string[]>(),
   onboardingCompleted: boolean("onboarding_completed").notNull().default(false),
+  businessPhone: varchar("business_phone", { length: 32 }),
+  googlePlaceId: varchar("google_place_id", { length: 255 }),
+  businessAddress: jsonb("business_address"),
+  businessOperatingHours: jsonb("business_operating_hours"),
+  onboardingProfileCompletedAt: timestamp("onboarding_profile_completed_at"),
+  onboardingCampaignCompletedAt: timestamp("onboarding_campaign_completed_at"),
+  onboardingPostCompletedAt: timestamp("onboarding_post_completed_at"),
+  onboardingBrandCompletedAt: timestamp("onboarding_brand_completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export type Company = InferSelectModel<typeof company>;
+
+// Physical business locations (multi-unit support per company)
+export const companyLocation = pgTable(
+  "company_locations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }),
+    googlePlaceId: varchar("google_place_id", { length: 255 }),
+    businessPhone: varchar("business_phone", { length: 32 }),
+    businessAddress: jsonb("business_address"),
+    businessOperatingHours: jsonb("business_operating_hours"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyIdx: index("company_locations_company_id_idx").on(table.companyId),
+    companyPlaceUnique: uniqueIndex("company_locations_company_place_unique").on(
+      table.companyId,
+      table.googlePlaceId,
+    ),
+  }),
+);
+
+export type CompanyLocation = InferSelectModel<typeof companyLocation>;
 
 // User-Company relationship (multi-tenant support)
 export const userCompany = pgTable(
@@ -816,9 +742,6 @@ export const post = pgTable("posts", {
 
   // Reference to scheduled post (if scheduled)
   scheduledPostId: uuid("scheduled_post_id").references(() => scheduledPost.id),
-
-  // Related chat (for AI conversation context)
-  chatId: uuid("chat_id").references(() => chat.id),
 
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

@@ -1,3 +1,4 @@
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
 import { throwMetaError } from "./meta-error";
 
@@ -29,19 +30,18 @@ export async function uploadVideoToMeta(params: {
 
   const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${adAccountId}/advideos`;
 
-  const response = await fetch(url, {
+  const { response, data } = await fetchMetaGraph(url, {
     method: "POST",
     body: formData,
+    requestParams: formData,
   });
 
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     console.error("[uploadVideoToMeta] Error uploading video:", data);
     throwMetaError(data, response.status);
   }
 
-  const videoId = data.id;
+  const videoId = (data as { id: string }).id;
 
   // `picture` is available shortly after upload, before full processing.
   let thumbnailUrl = "";

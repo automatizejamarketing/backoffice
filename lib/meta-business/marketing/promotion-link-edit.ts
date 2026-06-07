@@ -1,3 +1,4 @@
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { duplicateAd } from "@/lib/meta-business/duplicate";
 import { GraphApiError } from "@/lib/meta-business/error";

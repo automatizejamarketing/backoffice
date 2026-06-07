@@ -1,3 +1,6 @@
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { createAdCreativeEditLog } from "@/lib/db/admin-queries";
@@ -45,7 +48,7 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string; adId: string }> },
 ): Promise<NextResponse<PromotionLinkGetResponse | PromotionLinkErrorResponse>> {
   try {
-    const { adId } = await params;
+    const { accountId, adId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -62,6 +65,17 @@ export async function GET(
 
     const authz = await requireMarketingUserAccessResponse(userId);
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) {
@@ -100,6 +114,12 @@ export async function PATCH(
 ): Promise<
   NextResponse<PromotionLinkPatchResponse | PromotionLinkErrorResponse>
 > {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "PATCH /api/meta-marketing/{accountId}/ads/{adId}/promotion-link",
+    operationHint: "update",
+    entityHint: "adcreative",
+  });
   try {
     const { accountId, adId } = await params;
     const { searchParams } = new URL(request.url);
@@ -177,7 +197,8 @@ export async function PATCH(
           `Link de promoção atualizado de ${result.previousPromotionUrl ?? "(sem link)"} para ${result.newPromotionUrl}.`,
       });
     } catch (dbErr) {
-      console.error("[promotion-link PATCH] audit log failed:", dbErr);
+      logMetaMutationError(dbErr);
+    console.error("[promotion-link PATCH] audit log failed:", dbErr);
       auditLogFailed = true;
     }
 

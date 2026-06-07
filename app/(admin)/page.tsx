@@ -52,12 +52,6 @@ export default async function DashboardPage() {
       icon: "🤖",
     },
     {
-      title: "Total de Chats",
-      value: formatNumber(stats.totalChats),
-      description: "Conversas criadas",
-      icon: "💬",
-    },
-    {
       title: "Total de Posts",
       value: formatNumber(stats.totalPosts),
       description: "Posts criados",

@@ -1,3 +1,6 @@
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
@@ -124,6 +127,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string; adId: string }> },
 ): Promise<NextResponse<EditCreativeSuccess | EditCreativeError>> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "POST /api/meta-marketing/{accountId}/ads/{adId}/creative",
+    operationHint: "update",
+    entityHint: "adcreative",
+  });
   try {
     const { accountId, adId } = await params;
     const { searchParams } = new URL(request.url);
@@ -145,6 +154,17 @@ export async function POST(
       "marketing:write",
     );
     if (!authz.ok) return authz.response;
+
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+    });
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) {
@@ -389,7 +409,8 @@ export async function POST(
             "Upload de vídeo iniciado; aguardando processamento da Meta.",
         });
       } catch (dbErr) {
-        console.error("[POST edit creative] processing audit failed:", dbErr);
+        logMetaMutationError(dbErr);
+    console.error("[POST edit creative] processing audit failed:", dbErr);
       }
       return NextResponse.json(
         {
@@ -466,7 +487,8 @@ export async function POST(
         message: editMessage,
       });
     } catch (dbErr) {
-      console.error("[POST edit creative] audit log failed:", dbErr);
+      logMetaMutationError(dbErr);
+    console.error("[POST edit creative] audit log failed:", dbErr);
       auditLogFailed = true;
     }
 

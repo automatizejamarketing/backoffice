@@ -1,3 +1,5 @@
+import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
+
 export type GraphErrorInfo = {
   message: string;
   type: string;
@@ -292,6 +294,7 @@ export function graphErrorToClientError(errorReturn: GraphErrorReturn): {
   error: string;
   message: string;
   solution: string;
+  correlationId?: string;
 } {
   const title = errorReturn.data?.errorUserTitle ?? errorReturn.reason.title;
   const message =
@@ -299,12 +302,12 @@ export function graphErrorToClientError(errorReturn: GraphErrorReturn): {
     errorReturn.data?.message ??
     errorReturn.reason.message;
 
-  return {
+  return attachCorrelationId({
     error: title,
     message:
       errorReturn.data?.errorUserTitle && errorReturn.data?.errorUserMsg
         ? `${title}: ${message}`
         : message,
     solution: errorReturn.reason.solution,
-  };
+  });
 }

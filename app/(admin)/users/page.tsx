@@ -138,9 +138,6 @@ export default async function UsersPage({
                 Consultor
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Chats
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Posts
               </th>
               <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -318,9 +315,6 @@ export default async function UsersPage({
                         —
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm text-foreground/80">
-                    {formatNumber(user.chatCount)}
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-foreground/80">
                     {formatNumber(user.postCount)}

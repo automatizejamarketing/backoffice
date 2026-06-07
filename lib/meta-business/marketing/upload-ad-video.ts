@@ -1,3 +1,4 @@
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
 
 export type UploadAdVideoResponse = {
@@ -60,14 +61,13 @@ export async function uploadAdVideoFromUrl(
 
   const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${adAccountId}/advideos`;
 
-  const response = await fetch(url, {
+  const { response, data } = await fetchMetaGraph(url, {
     method: "POST",
     body: formData,
+    requestParams: formData,
   });
 
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
+  if (!response.ok || (data as { error?: unknown }).error) {
     const errorData = data as FacebookGraphApiError;
     console.error("Error uploading ad video:", errorData);
     throw new Error(errorData.error?.message ?? "Failed to upload ad video");
