@@ -9,10 +9,14 @@ export default async function TrackableLinksPage() {
   await requirePagePermission("trackable-links:manage");
 
   const links = await listTrackableLinksWithCounts();
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
-    /\/$/,
-    "",
-  );
+  // Trackable links point at the FRONTEND app (where the ?lr capture + signup
+  // happen), NOT the backoffice. NEXT_PUBLIC_FRONTEND_URL must be set per
+  // environment in the backoffice deploy: staging -> frontend staging URL,
+  // prod -> https://www.automatizemarketing.com. Falls back to localhost:3000
+  // for local dev (where the frontend runs on port 3000).
+  const frontendUrl = (
+    process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
+  ).replace(/\/$/, "");
 
   const initialLinks = links.map((l) => ({
     id: l.id,
@@ -23,5 +27,7 @@ export default async function TrackableLinksPage() {
     createdAt: l.createdAt.toISOString(),
   }));
 
-  return <TrackableLinksClient initialLinks={initialLinks} appUrl={appUrl} />;
+  return (
+    <TrackableLinksClient initialLinks={initialLinks} frontendUrl={frontendUrl} />
+  );
 }

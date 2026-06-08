@@ -42,10 +42,10 @@ type TrackableLinkRow = {
 
 export function TrackableLinksClient({
   initialLinks,
-  appUrl,
+  frontendUrl,
 }: {
   initialLinks: TrackableLinkRow[];
-  appUrl: string;
+  frontendUrl: string;
 }) {
   const [links, setLinks] = useState<TrackableLinkRow[]>(initialLinks);
   const [busy, setBusy] = useState(false);
@@ -60,7 +60,7 @@ export function TrackableLinksClient({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<TrackableLinkRow | null>(null);
 
-  const linkUrl = (slug: string) => `${appUrl}/?lr=${slug}`;
+  const linkUrl = (slug: string) => `${frontendUrl}/?lr=${slug}`;
 
   const handleCopy = async (slug: string) => {
     try {
