@@ -10,13 +10,16 @@ export default async function TrackableLinksPage() {
 
   const links = await listTrackableLinksWithCounts();
   // Trackable links point at the FRONTEND app (where the ?lr capture + signup
-  // happen), NOT the backoffice. NEXT_PUBLIC_FRONTEND_URL must be set per
-  // environment in the backoffice deploy: staging -> frontend staging URL,
-  // prod -> https://www.automatizemarketing.com. Falls back to localhost:3000
-  // for local dev (where the frontend runs on port 3000).
-  const frontendUrl = (
-    process.env.NEXT_PUBLIC_FRONTEND_URL ?? "http://localhost:3000"
-  ).replace(/\/$/, "");
+  // happen), NOT the backoffice. Read at RUNTIME (server-side) from FRONTEND_URL
+  // — intentionally NOT a NEXT_PUBLIC_ var, so the value is read at request time
+  // (this page is force-dynamic) instead of being inlined at build, and always
+  // reflects the deploy's current env. Set it per environment in the backoffice
+  // deploy (Vercel): staging -> frontend staging URL, prod -> frontend prod URL.
+  // Falls back to localhost:3000 for local dev (frontend runs on port 3000).
+  const frontendUrl = (process.env.FRONTEND_URL ?? "http://localhost:3000").replace(
+    /\/$/,
+    "",
+  );
 
   const initialLinks = links.map((l) => ({
     id: l.id,
