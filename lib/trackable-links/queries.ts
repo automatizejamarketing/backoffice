@@ -143,3 +143,56 @@ export async function listTrackableLinksWithCounts(): Promise<
     signups: signupMap.get(l.id) ?? 0,
   }));
 }
+
+/** Fetch a link by id, INCLUDING soft-deleted ones (detail page must work for deleted links too). */
+export async function getTrackableLinkById(
+  id: string,
+): Promise<TrackableLink | null> {
+  const [row] = await db
+    .select()
+    .from(trackableLink)
+    .where(eq(trackableLink.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getTrackableLinkClickCount(
+  trackableLinkId: string,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(trackableLinkClick)
+    .where(eq(trackableLinkClick.trackableLinkId, trackableLinkId));
+  return Number(row?.total ?? 0);
+}
+
+export type TrackableLinkUser = {
+  id: string;
+  name: string | null;
+  email: string;
+  createdAt: Date | null;
+  emailVerified: Date | null;
+  expirationDate: Date | null;
+};
+
+/**
+ * Users attributed to a trackable link (referred_by_trackable_link_id = link id),
+ * newest signup first. These users all signed up after the feature shipped, so
+ * created_at is populated for everyone shown here.
+ */
+export async function listUsersByTrackableLink(
+  trackableLinkId: string,
+): Promise<TrackableLinkUser[]> {
+  return db
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+      emailVerified: user.emailVerified,
+      expirationDate: user.expirationDate,
+    })
+    .from(user)
+    .where(eq(user.referredByTrackableLinkId, trackableLinkId))
+    .orderBy(desc(user.createdAt));
+}

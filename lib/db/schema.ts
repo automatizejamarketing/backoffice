@@ -43,6 +43,10 @@ export const user = pgTable("users", {
   onboardingProfileBannerDismissedAt: timestamp(
     "onboarding_profile_banner_dismissed_at",
   ),
+  // Signup timestamp. Nullable: rows created before this column existed stay
+  // NULL (their real signup date is unknown); new signups get now() via the DB
+  // default. Added for the trackable-link "users per link" view.
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export type User = InferSelectModel<typeof user>;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,7 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Copy, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { slugifyName } from "@/lib/trackable-links/slug";
 
@@ -226,6 +227,16 @@ export function TrackableLinksClient({
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          asChild
+                          title="Ver usuários"
+                        >
+                          <Link href={`/trackable-links/${l.id}`}>
+                            <Eye className="size-4" />
+                          </Link>
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
