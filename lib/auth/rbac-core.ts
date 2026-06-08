@@ -14,6 +14,7 @@ export type BackofficePermission =
   | "marketing:write"
   | "business:manage"
   | "affiliates:manage"
+  | "trackable-links:manage"
   | "masterclass:manage"
   | "team:manage";
 
@@ -50,6 +51,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "marketing:write",
     "business:manage",
     "affiliates:manage",
+    "trackable-links:manage",
     "masterclass:manage",
     "team:manage",
   ],

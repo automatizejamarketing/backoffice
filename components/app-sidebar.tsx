@@ -7,6 +7,7 @@ import {
   GraduationCap,
   Image,
   LayoutDashboard,
+  Link2,
   LogOut,
   Settings2,
   Shield,
@@ -74,6 +75,7 @@ export function AppSidebar({
   const isUsersSection = pathname?.startsWith("/users");
   const isPostsSection = pathname?.startsWith("/posts");
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
+  const isTrackableLinksSection = pathname?.startsWith("/trackable-links");
   const isMasterclassSection = pathname?.startsWith("/masterclass");
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
@@ -120,6 +122,13 @@ export function AppSidebar({
       icon: Handshake,
       isActive: isAffiliatesSection,
       permission: "affiliates:manage",
+    },
+    {
+      href: "/trackable-links",
+      label: "Links Rastreáveis",
+      icon: Link2,
+      isActive: isTrackableLinksSection,
+      permission: "trackable-links:manage",
     },
     {
       href: "/masterclass",

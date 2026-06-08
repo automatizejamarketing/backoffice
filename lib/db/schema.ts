@@ -37,6 +37,7 @@ export const user = pgTable("users", {
   expirationDate: timestamp("expiration_date"),
   credits: integer("credits").notNull().default(0),
   referredByAffiliateId: uuid("referred_by_affiliate_id"),
+  referredByTrackableLinkId: uuid("referred_by_trackable_link_id"),
   onboardingCardDismissedAt: timestamp("onboarding_card_dismissed_at"),
   onboardingWelcomeSeenAt: timestamp("onboarding_welcome_seen_at"),
   onboardingProfileBannerDismissedAt: timestamp(
@@ -1623,3 +1624,36 @@ export const affiliateConversion = pgTable("affiliate_conversions", {
 });
 
 export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
+
+// =============================================
+// Trackable Links (Links Rastreáveis)
+// =============================================
+
+export const trackableLink = pgTable("trackable_links", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  // Immutable kebab-case slug carried in the ?lr= URL param. Globally unique
+  // and never reused (even after soft-delete) — distributed links and live
+  // cookies may still reference it.
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
+  createdBy: varchar("created_by", { length: 100 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+});
+
+export type TrackableLink = InferSelectModel<typeof trackableLink>;
+
+export const trackableLinkClick = pgTable("trackable_link_clicks", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  trackableLinkId: uuid("trackable_link_id")
+    .notNull()
+    .references(() => trackableLink.id),
+  ipHash: varchar("ip_hash", { length: 64 }),
+  userAgent: text("user_agent"),
+  referrerUrl: text("referrer_url"),
+  landingUrl: text("landing_url"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type TrackableLinkClick = InferSelectModel<typeof trackableLinkClick>;
