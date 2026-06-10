@@ -1322,6 +1322,9 @@ export const payment = pgTable(
       length: 255,
     }),
     amount: integer("amount").notNull(),
+    grossAmount: integer("gross_amount"),
+    netAmount: integer("net_amount"),
+    feeAmount: integer("fee_amount"),
     currency: varchar("currency", { length: 10 }).notNull(),
     status: varchar("status", {
       enum: ["succeeded", "failed", "pending", "refunded"],
@@ -1661,3 +1664,240 @@ export const trackableLinkClick = pgTable("trackable_link_clicks", {
 });
 
 export type TrackableLinkClick = InferSelectModel<typeof trackableLinkClick>;
+
+// =============================================
+// Performance Insights + Masterclass extras
+// These tables were created out-of-band in PRODUCTION (the feature code was
+// never committed to this repo). Mirrored here 2026-06-09 from the live prod
+// DDL so schema.ts describes the real database. Keep byte-equal with
+// automatize-frontend/lib/db/schema.ts. When the original feature code is
+// recovered, reconcile it with these definitions.
+// =============================================
+
+export const performanceSnapshotRun = pgTable(
+  "performance_snapshot_runs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    triggeredBy: varchar("triggered_by", { length: 24 })
+      .notNull()
+      .default("manual"),
+    requestedByEmail: varchar("requested_by_email", { length: 100 }),
+    userId: uuid("user_id").references(() => user.id),
+    status: varchar("status", { length: 24 }).notNull().default("running"),
+    window: varchar("window", { length: 24 }).notNull().default("last_7d"),
+    rulebookVersion: varchar("rulebook_version", { length: 80 }).notNull(),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+    errorMessage: text("error_message"),
+    summary: jsonb("summary")
+      .notNull()
+      .default(
+        sql`'{"adsEvaluated": 0, "usersEvaluated": 0, "adsetsEvaluated": 0, "insightsCreated": 0, "patternsCreated": 0, "campaignsEvaluated": 0}'::jsonb`
+      ),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    startedAtIdx: index("performance_snapshot_runs_started_at_idx").on(
+      table.startedAt
+    ),
+    statusIdx: index("performance_snapshot_runs_status_idx").on(table.status),
+    userIdIdx: index("performance_snapshot_runs_user_id_idx").on(table.userId),
+  })
+);
+
+export type PerformanceSnapshotRun = InferSelectModel<
+  typeof performanceSnapshotRun
+>;
+
+export const performanceSnapshot = pgTable(
+  "performance_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => performanceSnapshotRun.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id"),
+    entityLevel: varchar("entity_level", { length: 16 }).notNull(),
+    entityId: text("entity_id").notNull(),
+    entityName: text("entity_name"),
+    campaignId: text("campaign_id"),
+    adsetId: text("adset_id"),
+    window: varchar("window", { length: 24 }).notNull(),
+    metrics: jsonb("metrics").notNull(),
+    payload: jsonb("payload").notNull(),
+    capturedAt: timestamp("captured_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    campaignIdIdx: index("performance_snapshots_campaign_id_idx").on(
+      table.campaignId
+    ),
+    runEntityUnique: uniqueIndex("performance_snapshots_run_entity_unique").on(
+      table.runId,
+      table.entityLevel,
+      table.entityId
+    ),
+    userIdIdx: index("performance_snapshots_user_id_idx").on(table.userId),
+  })
+);
+
+export type PerformanceSnapshot = InferSelectModel<typeof performanceSnapshot>;
+
+export const performanceInsight = pgTable(
+  "performance_insights",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => performanceSnapshotRun.id),
+    snapshotId: uuid("snapshot_id").references(() => performanceSnapshot.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    ruleId: varchar("rule_id", { length: 80 }).notNull(),
+    rulebookVersion: varchar("rulebook_version", { length: 80 }).notNull(),
+    severity: varchar("severity", { length: 24 }).notNull(),
+    confidence: varchar("confidence", { length: 24 }).notNull(),
+    entityLevel: varchar("entity_level", { length: 16 }).notNull(),
+    entityId: text("entity_id").notNull(),
+    entityName: text("entity_name"),
+    actionType: varchar("action_type", { length: 48 }).notNull(),
+    title: text("title").notNull(),
+    evidence: text("evidence").notNull(),
+    recommendation: text("recommendation").notNull(),
+    metrics: jsonb("metrics").notNull(),
+    status: varchar("status", { length: 24 }).notNull().default("open"),
+    reviewedByEmail: varchar("reviewed_by_email", { length: 100 }),
+    reviewNote: text("review_note"),
+    reviewedAt: timestamp("reviewed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    runIdIdx: index("performance_insights_run_id_idx").on(table.runId),
+    statusSeverityIdx: index("performance_insights_status_severity_idx").on(
+      table.status,
+      table.severity
+    ),
+    userStatusIdx: index("performance_insights_user_status_idx").on(
+      table.userId,
+      table.status
+    ),
+  })
+);
+
+export type PerformanceInsight = InferSelectModel<typeof performanceInsight>;
+
+export const performanceCasePattern = pgTable(
+  "performance_case_patterns",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => performanceSnapshotRun.id),
+    sourceUserId: uuid("source_user_id")
+      .notNull()
+      .references(() => user.id),
+    sourceCampaignId: text("source_campaign_id").notNull(),
+    sourceCampaignName: text("source_campaign_name"),
+    clientFingerprint: text("client_fingerprint").notNull(),
+    description: text("description").notNull(),
+    metrics: jsonb("metrics").notNull(),
+    status: varchar("status", { length: 24 }).notNull().default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    fingerprintIdx: index("performance_case_patterns_fingerprint_idx").on(
+      table.clientFingerprint
+    ),
+    runIdIdx: index("performance_case_patterns_run_id_idx").on(table.runId),
+  })
+);
+
+export type PerformanceCasePattern = InferSelectModel<
+  typeof performanceCasePattern
+>;
+
+export const performanceInsightSettings = pgTable(
+  "performance_insight_settings",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    enabled: boolean("enabled").notNull().default(false),
+    cadence: varchar("cadence", { length: 24 }).notNull().default("weekly"),
+    scope: jsonb("scope")
+      .notNull()
+      .default(
+        sql`'{"windows": ["last_7d", "last_14d", "last_30d"], "includeAds": true, "includeAdsets": true, "includeCampaigns": true}'::jsonb`
+      ),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    enabledIdx: index("performance_insight_settings_enabled_idx").on(
+      table.enabled
+    ),
+    userUnique: uniqueIndex("performance_insight_settings_user_unique").on(
+      table.userId
+    ),
+  })
+);
+
+export type PerformanceInsightSettings = InferSelectModel<
+  typeof performanceInsightSettings
+>;
+
+export const masterclassComment = pgTable(
+  "masterclass_comments",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    // No FK on lesson_id in the live DDL — keep it faithful.
+    lessonId: text("lesson_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at"),
+  },
+  (table) => ({
+    lessonCreatedAtIdx: index("masterclass_comments_lesson_created_at_idx").on(
+      table.lessonId,
+      table.createdAt
+    ),
+  })
+);
+
+export type MasterclassComment = InferSelectModel<typeof masterclassComment>;
+
+export const masterclassMaterial = pgTable(
+  "masterclass_materials",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    // No FK on lesson_id in the live DDL — keep it faithful.
+    lessonId: text("lesson_id").notNull(),
+    title: text("title").notNull(),
+    blobUrl: text("blob_url").notNull(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    lessonCreatedAtIdx: index(
+      "masterclass_materials_lesson_created_at_idx"
+    ).on(table.lessonId, table.createdAt),
+  })
+);
+
+export type MasterclassMaterial = InferSelectModel<typeof masterclassMaterial>;
