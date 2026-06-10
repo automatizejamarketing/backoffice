@@ -489,6 +489,8 @@ export function MarketingWorkspace({
           }}
           onCampaignUpdated={handleCampaignUpdated}
           selectedMetricIds={selectedMetricIds}
+          parentDatePreset={datePreset}
+          parentCustomRange={customRange}
         />
       )}
     </div>

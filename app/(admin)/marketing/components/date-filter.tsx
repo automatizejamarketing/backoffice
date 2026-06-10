@@ -21,6 +21,26 @@ import { CalendarIcon, ChevronDown } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { DatePreset } from "@/lib/meta-business/types";
 
+export type DateFilterRange = {
+  datePreset: DatePreset | null;
+  customRange: { since: string; until: string } | null;
+};
+
+export function resolveDateFilterFromParent(
+  parentDatePreset?: DatePreset | null,
+  parentCustomRange?: { since: string; until: string } | null,
+): DateFilterRange {
+  if (parentCustomRange?.since && parentCustomRange?.until) {
+    return { datePreset: null, customRange: parentCustomRange };
+  }
+
+  if (parentDatePreset) {
+    return { datePreset: parentDatePreset, customRange: null };
+  }
+
+  return { datePreset: DatePreset.LAST_30D, customRange: null };
+}
+
 type DateFilterProps = {
   datePreset?: DatePreset | null;
   onDatePresetChange?: (preset: DatePreset | null) => void;
@@ -50,6 +70,14 @@ const PRESET_LABELS: Record<DatePreset, string> = {
   [DatePreset.THIS_WEEK_SUN_TODAY]: "Esta semana (Dom-Hoje)",
   [DatePreset.THIS_YEAR]: "Este ano",
 };
+
+const DATE_FILTER_PRESETS: DatePreset[] = [
+  DatePreset.TODAY,
+  DatePreset.YESTERDAY,
+  DatePreset.LAST_7D,
+  DatePreset.LAST_14D,
+  DatePreset.LAST_30D,
+];
 
 function parseLocalDate(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
@@ -140,7 +168,7 @@ export function DateFilter({
           </span>
         </SelectTrigger>
         <SelectContent>
-          {Object.values(DatePreset).map((preset) => (
+          {DATE_FILTER_PRESETS.map((preset) => (
             <SelectItem key={preset} value={preset}>
               {PRESET_LABELS[preset]}
             </SelectItem>

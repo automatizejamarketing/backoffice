@@ -40,7 +40,7 @@ import { InsightsCards } from "./insights-cards";
 import { InsightsChart } from "./insights-chart";
 import { TimeIncrementSelector } from "./time-increment-selector";
 import { AdsTable } from "./ads-table";
-import { DateFilter } from "./date-filter";
+import { DateFilter, resolveDateFilterFromParent } from "./date-filter";
 import { AdSetEditDialog } from "./adset-edit-dialog";
 import { AdSetEditHistory } from "./adset-edit-history";
 import { AdCreativeDialog } from "./ad-creative-dialog";
@@ -76,6 +76,8 @@ type AdSetDetailProps = {
   onDuplicated?: () => void;
   /** Called after the ad set is renamed (parent should refresh its list). */
   onRenamed?: () => void;
+  parentDatePreset?: DatePreset | null;
+  parentCustomRange?: { since: string; until: string } | null;
 };
 
 export function AdSetDetail({
@@ -88,6 +90,8 @@ export function AdSetDetail({
   onClose,
   onDuplicated,
   onRenamed,
+  parentDatePreset,
+  parentCustomRange,
 }: AdSetDetailProps) {
   const [adSet, setAdSet] = useState<AdSet>(adSetProp);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -120,6 +124,17 @@ export function AdSetDetail({
     since: string;
     until: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const resolved = resolveDateFilterFromParent(
+      parentDatePreset,
+      parentCustomRange,
+    );
+    setDatePreset(resolved.datePreset);
+    setCustomRange(resolved.customRange);
+  }, [isOpen, parentDatePreset, parentCustomRange]);
 
   // Full ad set (with targeting). The /adsets list omits targeting, so the Edit
   // dialog needs this richer payload. Cached and refetched after invalidation.

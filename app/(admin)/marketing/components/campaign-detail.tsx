@@ -28,7 +28,7 @@ import { InsightsCards } from "./insights-cards";
 import { InsightsChart } from "./insights-chart";
 import { TimeIncrementSelector } from "./time-increment-selector";
 import { AdSetsTable } from "./adsets-table";
-import { DateFilter } from "./date-filter";
+import { DateFilter, resolveDateFilterFromParent } from "./date-filter";
 import {
   getStatusBadgeVariant,
   formatDate,
@@ -54,6 +54,8 @@ type CampaignDetailProps = {
   onClose: () => void;
   onCampaignUpdated?: (campaign: Campaign) => void;
   selectedMetricIds?: CampaignMetricId[] | null;
+  parentDatePreset?: DatePreset | null;
+  parentCustomRange?: { since: string; until: string } | null;
 };
 
 export function CampaignDetail({
@@ -64,6 +66,8 @@ export function CampaignDetail({
   onClose,
   onCampaignUpdated,
   selectedMetricIds,
+  parentDatePreset,
+  parentCustomRange,
 }: CampaignDetailProps) {
   const [campaign, setCampaign] = useState<Campaign>(campaignProp);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -93,6 +97,17 @@ export function CampaignDetail({
     since: string;
     until: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const resolved = resolveDateFilterFromParent(
+      parentDatePreset,
+      parentCustomRange,
+    );
+    setDatePreset(resolved.datePreset);
+    setCustomRange(resolved.customRange);
+  }, [isOpen, parentDatePreset, parentCustomRange]);
 
   const [selectedAdSet, setSelectedAdSet] = useState<AdSet | null>(null);
   const [isAdSetDetailOpen, setIsAdSetDetailOpen] = useState(false);
@@ -418,6 +433,8 @@ export function CampaignDetail({
           selectedMetricIds={selectedMetricIds}
           isOpen={isAdSetDetailOpen}
           onClose={handleCloseAdSetDetail}
+          parentDatePreset={datePreset}
+          parentCustomRange={customRange}
         />
       )}
 
