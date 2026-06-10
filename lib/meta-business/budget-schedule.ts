@@ -56,3 +56,16 @@ export function isValidDateTimeLocal(value: string): boolean {
 export function isEndAfterStart(startTime: string, endTime: string): boolean {
   return new Date(endTime).getTime() > new Date(startTime).getTime();
 }
+
+const MIN_CAMPAIGN_RUNTIME_MS = 60 * 60 * 1000;
+
+export function hasMinimumRuntime(startIso: string, endIso: string): boolean {
+  return (
+    new Date(endIso).getTime() - new Date(startIso).getTime() >=
+    MIN_CAMPAIGN_RUNTIME_MS
+  );
+}
+
+export function isEndInFuture(endIso: string): boolean {
+  return new Date(endIso).getTime() > Date.now();
+}

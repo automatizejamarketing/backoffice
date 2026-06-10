@@ -26,6 +26,10 @@ export type DuplicateErrorResponse = {
   solution?: string;
 };
 
+export type DuplicateAdSetRequestBody = {
+  promotionUrl?: string;
+};
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
@@ -81,10 +85,16 @@ export async function POST(
       );
     }
 
+    const body: DuplicateAdSetRequestBody = await request
+      .json()
+      .catch(() => ({}));
+    const promotionUrl = body.promotionUrl?.trim();
+
     const result = await duplicateAdSet({
       accountId,
       adsetId,
       accessToken: tokenResult.accessToken,
+      ...(promotionUrl && { fallbackPromotionUrl: promotionUrl }),
     });
 
     let auditLogFailed = false;

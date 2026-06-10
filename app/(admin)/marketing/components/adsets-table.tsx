@@ -232,6 +232,7 @@ export function AdSetsTable({
                   entityName={adSet.name}
                   accountId={accountId}
                   userId={userId}
+                  objective={objective}
                 />
               </div>
             </div>
@@ -350,6 +351,7 @@ export function AdSetsTable({
                             entityName={adSet.name}
                             accountId={accountId}
                             userId={userId}
+                            objective={objective}
                           />
                         </div>
                       </TableCell>

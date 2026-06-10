@@ -263,6 +263,7 @@ export function AdsTable({
                       entityName={ad.name}
                       accountId={accountId}
                       userId={userId}
+                      objective={objective}
                     />
                   </div>
                 </div>
@@ -392,6 +393,7 @@ export function AdsTable({
                             entityName={ad.name}
                             accountId={accountId}
                             userId={userId}
+                            objective={objective}
                           />
                           {canEditPromotionLink && (
                             <PromotionLinkEditDialog

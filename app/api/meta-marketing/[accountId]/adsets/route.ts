@@ -16,15 +16,13 @@ import {
 } from "@/lib/meta-business/types";
 import { transformAdSet, transformPaging } from "@/lib/meta-business/transformers";
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
-import {
-  applyInterestTargetingToMetaTargeting,
-  type InterestTargetingValue,
-} from "@/lib/meta-business/interest-targeting-types";
-import { validateInterestTargetingForWrite } from "@/lib/meta-business/parse-interest-targeting-request";
-import {
-  DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE,
-  placementsToTargetingFields,
-} from "@/lib/meta-business/placements";
+import type { InterestTargetingValue } from "@/lib/meta-business/interest-targeting-types";
+import type {
+  CampaignDeliveryMode,
+  CampaignScheduleBlock,
+} from "@/lib/meta-business/campaign-schedule";
+import { createAdSetInExistingCampaign } from "@/lib/meta-business/marketing/create-adset-in-existing-campaign";
+import type { PlacementKey } from "@/lib/meta-business/placements";
 
 type GraphApiAdSetsResponse = {
   data: GraphApiAdSet[];
@@ -244,10 +242,6 @@ type GraphApiPagesResponse = {
   data: GraphApiPage[];
 };
 
-type GraphApiPixel = { id: string; name?: string };
-type GraphApiPixelsResponse = { data: GraphApiPixel[] };
-
-type CreateAdSetApiResponse = { id: string };
 type CreateAdCreativeApiResponse = { id: string };
 type CreateAdApiResponse = { id: string };
 type MediaBoostEligibilityResponse = {
@@ -261,11 +255,19 @@ type MediaBoostEligibilityResponse = {
 export type PostAdSetRequestBody = {
   userId: string;
   campaignId: string;
+  /** Used by backoffice-only ad/creative layer (CTA mapping). */
   campaignObjective?: string;
-  /** Facebook Page chosen as the ad identity (page-first selection). */
   pageId?: string;
+  pixelId?: string;
   adsetName: string;
-  dailyBudget: number;
+  /** @deprecated Prefer budgetType + budgetValue */
+  dailyBudget?: number;
+  budgetType?: "daily" | "lifetime";
+  budgetValue?: number;
+  startTime?: string;
+  endTime?: string;
+  deliveryMode?: CampaignDeliveryMode;
+  scheduleBlocks?: CampaignScheduleBlock[];
   targeting: {
     age_min: number;
     age_max: number;
@@ -273,18 +275,19 @@ export type PostAdSetRequestBody = {
     custom_audiences?: { id: string; name?: string }[];
     excluded_custom_audiences?: { id: string; name?: string }[];
     interest_targeting?: InterestTargetingValue;
+    placements?: PlacementKey[];
+    geo_locations?: GeoLocationsPayload;
   };
   /** @deprecated Use `creatives` instead */
   creative?: {
     instagramMediaId: string;
   };
-  /** Array of Instagram media to create as ads (1-5 items) */
   creatives?: Array<{
     instagramMediaId: string;
   }>;
-  /** URL for SALES campaigns (required when creatives are provided for OUTCOME_SALES) */
+  /** URL for SALES campaigns when creatives are provided */
   url?: string;
-  /** Optional geo targeting payload (defaults to Brazil if not provided) */
+  /** @deprecated Prefer targeting.geo_locations */
   geoLocations?: GeoLocationsPayload;
 };
 
@@ -292,88 +295,12 @@ export type PostAdSetResponse = {
   success: boolean;
   adsetId: string;
   adsetName: string;
-  /** @deprecated Use `ads` instead */
+  adset?: AdSet;
   adId?: string;
-  /** @deprecated Use `adCreatives` instead */
   adCreativeId?: string;
   ads?: Array<{ id: string; creativeId: string }>;
   adCreatives?: Array<{ id: string }>;
 };
-
-type PromotedObjectType =
-  | "page"            // { page_id } — LEADS, ENGAGEMENT, AWARENESS, default
-  | "instagram_traffic" // { page_id, instagram_profile_id } — TRAFFIC
-  | "pixel_conversion"; // { pixel_id, custom_event_type } — SALES
-
-type OptimizationConfig = {
-  optimizationGoal: string;
-  billingEvent: string;
-  destinationType?: string;
-  promotedObjectType: PromotedObjectType;
-  instagramOnlyPlacements?: boolean;
-};
-
-function getOptimizationConfig(objective?: string): OptimizationConfig {
-  switch (objective) {
-    case CampaignObjective.OUTCOME_LEADS:
-    case CampaignObjective.LEAD_GENERATION:
-      return {
-        optimizationGoal: "LEAD_GENERATION",
-        billingEvent: "IMPRESSIONS",
-        destinationType: "ON_AD",
-        promotedObjectType: "page",
-      };
-    case CampaignObjective.OUTCOME_TRAFFIC:
-    case CampaignObjective.LINK_CLICKS:
-      // VISIT_INSTAGRAM_PROFILE requires:
-      //   destination_type: INSTAGRAM_PROFILE
-      //   promoted_object: { page_id, instagram_profile_id }
-      //   Instagram-only placements
-      return {
-        optimizationGoal: "VISIT_INSTAGRAM_PROFILE",
-        billingEvent: "IMPRESSIONS",
-        destinationType: "INSTAGRAM_PROFILE",
-        promotedObjectType: "instagram_traffic",
-        instagramOnlyPlacements: true,
-      };
-    case CampaignObjective.OUTCOME_ENGAGEMENT:
-    case CampaignObjective.POST_ENGAGEMENT:
-      return {
-        optimizationGoal: "POST_ENGAGEMENT",
-        billingEvent: "IMPRESSIONS",
-        promotedObjectType: "page",
-      };
-    case CampaignObjective.OUTCOME_AWARENESS:
-    case CampaignObjective.BRAND_AWARENESS:
-    case CampaignObjective.REACH:
-      return {
-        optimizationGoal: "REACH",
-        billingEvent: "IMPRESSIONS",
-        promotedObjectType: "page",
-      };
-    case CampaignObjective.OUTCOME_SALES:
-    case CampaignObjective.CONVERSIONS:
-      // OFFSITE_CONVERSIONS requires:
-      //   promoted_object: { pixel_id, custom_event_type: "PURCHASE" }
-      return {
-        optimizationGoal: "OFFSITE_CONVERSIONS",
-        billingEvent: "IMPRESSIONS",
-        promotedObjectType: "pixel_conversion",
-      };
-    case CampaignObjective.VIDEO_VIEWS:
-      return {
-        optimizationGoal: "THRUPLAY",
-        billingEvent: "IMPRESSIONS",
-        promotedObjectType: "page",
-      };
-    default:
-      return {
-        optimizationGoal: "REACH",
-        billingEvent: "IMPRESSIONS",
-        promotedObjectType: "page",
-      };
-  }
-}
 
 /**
  * Get the privacy policy URL from environment variable or use default
@@ -560,14 +487,26 @@ export async function POST(
       campaignId,
       campaignObjective,
       pageId: requestedPageId,
+      pixelId,
       adsetName,
       dailyBudget,
+      budgetType: bodyBudgetType,
+      budgetValue: bodyBudgetValue,
+      startTime,
+      endTime,
+      deliveryMode,
+      scheduleBlocks,
       targeting,
       creative,
       creatives: rawCreatives,
       url,
       geoLocations,
     } = body;
+
+    const budgetType =
+      bodyBudgetType ?? (dailyBudget !== undefined ? "daily" : undefined);
+    const budgetValue =
+      bodyBudgetValue ?? dailyBudget;
 
     const creatives =
       rawCreatives && rawCreatives.length > 0
@@ -621,17 +560,6 @@ export async function POST(
           error: "Missing adsetName",
           message: "adsetName is required",
           solution: "Provide a name for the new adset",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (!dailyBudget || dailyBudget < 1) {
-      return NextResponse.json(
-        {
-          error: "Invalid dailyBudget",
-          message: "Daily budget must be at least R$ 1,00",
-          solution: "Provide a valid daily budget",
         },
         { status: 400 },
       );
@@ -727,19 +655,52 @@ export async function POST(
       }
     }
 
+    const geoLocationsPayload =
+      targeting.geo_locations ?? geoLocations ?? undefined;
+
+    const createResult = await createAdSetInExistingCampaign({
+      accountId,
+      accessToken,
+      campaignId,
+      adsetName: adsetName.trim(),
+      pageId: requestedPageId,
+      pixelId,
+      budgetType,
+      budgetValue,
+      startTime,
+      endTime,
+      deliveryMode,
+      scheduleBlocks,
+      targeting: {
+        age_min: targeting.age_min,
+        age_max: targeting.age_max,
+        genders: targeting.genders,
+        geo_locations: geoLocationsPayload,
+        custom_audiences: targeting.custom_audiences,
+        excluded_custom_audiences: targeting.excluded_custom_audiences,
+        interest_targeting: targeting.interest_targeting,
+        placements: targeting.placements,
+      },
+    });
+
+    if (!createResult.ok) {
+      return NextResponse.json(
+        {
+          error: createResult.error.error,
+          message: createResult.error.message,
+          solution: createResult.error.solution,
+        },
+        { status: createResult.error.statusCode },
+      );
+    }
+
+    const adsetId = createResult.value.adsetId;
+    const transformedAdSet = transformAdSet(createResult.value.graphAdSet);
+
     const formattedAccountId = accountId.startsWith("act_")
       ? accountId
       : `act_${accountId}`;
 
-    const {
-      optimizationGoal,
-      billingEvent,
-      destinationType,
-      promotedObjectType,
-      instagramOnlyPlacements,
-    } = getOptimizationConfig(campaignObjective);
-
-    // Fetch connected Facebook Page (needed for promoted_object and creative).
     const pagesResponse = await metaApiCall<GraphApiPagesResponse>({
       domain: "FACEBOOK",
       method: "GET",
@@ -748,8 +709,6 @@ export async function POST(
       accessToken,
     });
 
-    // Page-first identity: use the admin's chosen Page when provided; otherwise
-    // fall back to the first Page that has a connected Instagram account.
     const connectedPage = requestedPageId?.trim()
       ? pagesResponse.data.find((p) => p.id === requestedPageId.trim())
       : (pagesResponse.data.find((p) => p.instagram_business_account?.id) ??
@@ -758,159 +717,6 @@ export async function POST(
     const pageWithIg = connectedPage?.instagram_business_account?.id
       ? connectedPage
       : undefined;
-
-    if (!connectedPage) {
-      return NextResponse.json(
-        {
-          error: "No Facebook Page found",
-          message:
-            "Nenhuma Página do Facebook encontrada para esta conta Meta. A Página é necessária para criar o conjunto de anúncios.",
-          solution:
-            "Conecte uma Página do Facebook à conta Meta do usuário e tente novamente.",
-        },
-        { status: 400 },
-      );
-    }
-
-    // Build promoted_object based on campaign objective:
-    // - LEADS/ENGAGEMENT/AWARENESS/default → { page_id }
-    // - TRAFFIC (VISIT_INSTAGRAM_PROFILE)  → { page_id, instagram_profile_id }
-    // - SALES (OFFSITE_CONVERSIONS)        → { pixel_id, custom_event_type }
-    let promotedObject: Record<string, string>;
-
-    if (promotedObjectType === "instagram_traffic") {
-      const igAccountId = pageWithIg?.instagram_business_account?.id;
-      if (!igAccountId) {
-        return NextResponse.json(
-          {
-            error: "No Instagram Business Account",
-            message:
-              "Esta campanha de tráfego requer uma conta de Instagram Business conectada à Página do Facebook.",
-            solution:
-              "Conecte uma conta de Instagram Business a uma Página do Facebook e tente novamente.",
-          },
-          { status: 400 },
-        );
-      }
-      promotedObject = {
-        page_id: connectedPage.id,
-        instagram_profile_id: igAccountId,
-      };
-    } else if (promotedObjectType === "pixel_conversion") {
-      // Fetch the first available pixel for this ad account
-      const pixelsResponse = await metaApiCall<GraphApiPixelsResponse>({
-        domain: "FACEBOOK",
-        method: "GET",
-        path: `${formattedAccountId}/adspixels`,
-        params: "fields=id,name&limit=1",
-        accessToken,
-      });
-
-      const pixel = pixelsResponse.data[0];
-      if (!pixel) {
-        return NextResponse.json(
-          {
-            error: "No Meta Pixel found",
-            message:
-              "Esta campanha de vendas requer um Pixel Meta configurado na conta de anúncios.",
-            solution:
-              "Crie ou conecte um Pixel Meta à conta de anúncios e tente novamente.",
-          },
-          { status: 400 },
-        );
-      }
-      promotedObject = {
-        pixel_id: pixel.id,
-        custom_event_type: "PURCHASE",
-      };
-    } else {
-      promotedObject = { page_id: connectedPage.id };
-    }
-
-    // Build targeting – always use Brazil as geo.
-    // OUTCOME_TRAFFIC (VISIT_INSTAGRAM_PROFILE) uses Instagram-only placements.
-    const placementFields = placementsToTargetingFields(
-      instagramOnlyPlacements
-        ? DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE.traffic
-        : DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE.sales,
-    );
-    const metaTargeting: Record<string, unknown> = {
-      geo_locations: geoLocations ?? { countries: ["BR"] },
-      age_min: targeting.age_min ?? 18,
-      age_max: targeting.age_max ?? 65,
-      ...placementFields,
-      targeting_automation: { advantage_audience: 0 },
-      targeting_relaxation_types: { custom_audience: 0 },
-    };
-
-    if (targeting.genders && targeting.genders.length > 0) {
-      metaTargeting.genders = targeting.genders;
-    }
-
-    if (targeting.custom_audiences && targeting.custom_audiences.length > 0) {
-      metaTargeting.custom_audiences = targeting.custom_audiences.map((a) => ({
-        id: a.id,
-      }));
-    }
-
-    if (
-      targeting.excluded_custom_audiences &&
-      targeting.excluded_custom_audiences.length > 0
-    ) {
-      metaTargeting.excluded_custom_audiences =
-        targeting.excluded_custom_audiences.map((a) => ({ id: a.id }));
-    }
-
-    const interestValidation = await validateInterestTargetingForWrite(
-      accessToken,
-      targeting.interest_targeting,
-      "pt-BR",
-    );
-
-    if (!interestValidation.ok) {
-      return NextResponse.json(
-        {
-          error: "Invalid interest targeting",
-          message: interestValidation.message,
-          solution:
-            "Remova interesses inválidos ou indisponíveis e tente novamente.",
-        },
-        { status: 400 },
-      );
-    }
-
-    applyInterestTargetingToMetaTargeting(
-      metaTargeting,
-      interestValidation.value,
-    );
-
-    // Build adset create params
-    const adsetParams = new URLSearchParams({
-      name: adsetName.trim(),
-      campaign_id: campaignId,
-      daily_budget: Math.round(dailyBudget * 100).toString(),
-      billing_event: billingEvent,
-      optimization_goal: optimizationGoal,
-      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
-      targeting: JSON.stringify(metaTargeting),
-      promoted_object: JSON.stringify(promotedObject),
-      status: "ACTIVE",
-    });
-
-    if (destinationType) {
-      adsetParams.set("destination_type", destinationType);
-    }
-
-    const createdAdSet = await metaApiCall<CreateAdSetApiResponse>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: `${formattedAccountId}/adsets`,
-      params: "",
-      body: adsetParams,
-      accessToken,
-    });
-
-    const adsetId = createdAdSet.id;
     const createdAds: Array<{ id: string; creativeId: string }> = [];
     const createdAdCreatives: Array<{ id: string }> = [];
     let leadFormId: string | undefined;
@@ -1039,6 +845,7 @@ export async function POST(
         success: true,
         adsetId,
         adsetName: adsetName.trim(),
+        adset: transformedAdSet,
         ads: createdAds,
         adCreatives: createdAdCreatives,
         adId: createdAds[0]?.id,

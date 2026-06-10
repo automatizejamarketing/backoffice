@@ -15,6 +15,12 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   CampaignStatus,
   EffectiveStatus,
   type Campaign,
@@ -198,6 +204,7 @@ export function CampaignsTable({
   }
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="space-y-3">
       {/* Mobile Cards View */}
       <div className="block sm:hidden space-y-2">
@@ -217,9 +224,10 @@ export function CampaignsTable({
           >
             <div className="flex items-start justify-between gap-2 mb-3">
               <div className="flex items-start gap-1 flex-1 min-w-0">
-                <span className="font-medium text-sm line-clamp-2">
-                  {campaign.name}
-                </span>
+                <TruncatedCampaignName
+                  name={campaign.name}
+                  className="font-medium text-sm line-clamp-2 flex-1"
+                />
                 <NameEditButton
                   entityType="campaign"
                   entityId={campaign.id}
@@ -260,6 +268,7 @@ export function CampaignsTable({
                   entityName={campaign.name}
                   accountId={accountId}
                   userId={userId}
+                  objective={campaign.objective}
                 />
               </div>
             </div>
@@ -344,9 +353,7 @@ export function CampaignsTable({
                       </TableCell>
                       <TableCell className="font-medium text-sm">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="line-clamp-1">
-                            {campaign.name}
-                          </span>
+                          <TruncatedCampaignName name={campaign.name} />
                           <NameEditButton
                             entityType="campaign"
                             entityId={campaign.id}
@@ -378,6 +385,7 @@ export function CampaignsTable({
                             entityName={campaign.name}
                             accountId={accountId}
                             userId={userId}
+                            objective={campaign.objective}
                           />
                         </div>
                       </TableCell>
@@ -445,6 +453,28 @@ export function CampaignsTable({
         </p>
       )}
     </div>
+    </TooltipProvider>
+  );
+}
+
+function TruncatedCampaignName({
+  name,
+  className = "line-clamp-1",
+}: {
+  name?: string | null;
+  className?: string;
+}) {
+  if (!name) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={className}>{name}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-sm">
+        <p className="break-all text-sm">{name}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

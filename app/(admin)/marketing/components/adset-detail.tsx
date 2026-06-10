@@ -254,6 +254,7 @@ export function AdSetDetail({
                   entityName={adSet.name}
                   accountId={accountId}
                   userId={userId}
+                  objective={objective}
                   variant="labeled"
                   onDuplicated={() => {
                     onDuplicated?.();

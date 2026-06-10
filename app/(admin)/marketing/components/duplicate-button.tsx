@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, Copy, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -11,9 +12,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { CampaignObjective } from "@/lib/meta-business/types";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 type DuplicateEntity = "campaign" | "adset" | "ad";
+
+function isSalesObjective(objective?: CampaignObjective): boolean {
+  return (
+    objective === CampaignObjective.OUTCOME_SALES ||
+    objective === CampaignObjective.CONVERSIONS
+  );
+}
 
 const ENTITY_LABEL: Record<DuplicateEntity, string> = {
   campaign: "campanha",
@@ -53,6 +64,12 @@ type DuplicateButtonProps = {
   entityName?: string;
   accountId: string;
   userId: string;
+  /**
+   * Campaign objective. For sales objectives the dialog offers a website-URL
+   * field, used by the server to repair ad copies whose creative lacks the
+   * link Meta now requires (subcode 2446383).
+   */
+  objective?: CampaignObjective;
   onDuplicated?: () => void;
   /** `icon` for table rows, `labeled` for detail headers. */
   variant?: "icon" | "labeled";
@@ -64,6 +81,7 @@ export function DuplicateButton({
   entityName,
   accountId,
   userId,
+  objective,
   onDuplicated,
   variant = "icon",
 }: DuplicateButtonProps) {
@@ -72,22 +90,45 @@ export function DuplicateButton({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState<PartialResult | null>(null);
+  const [promotionUrl, setPromotionUrl] = useState("");
+  const [promotionUrlError, setPromotionUrlError] = useState<string | null>(
+    null,
+  );
 
   const label = ENTITY_LABEL[entityType];
+  const showPromotionUrlField = isSalesObjective(objective);
 
   const resetState = () => {
     setError(null);
     setPartial(null);
+    setPromotionUrl("");
+    setPromotionUrlError(null);
   };
 
   const handleConfirm = async () => {
+    const trimmedUrl = promotionUrl.trim();
+    if (trimmedUrl && !/^https?:\/\/\S+\.\S+/.test(trimmedUrl)) {
+      setPromotionUrlError(
+        "Informe uma URL válida começando com https://",
+      );
+      return;
+    }
+
     setIsSubmitting(true);
-    resetState();
+    setError(null);
+    setPartial(null);
+    setPromotionUrlError(null);
 
     try {
       const response = await fetch(
         `/api/meta-marketing/${accountId}/${ENTITY_API_PATH[entityType]}/${entityId}/duplicate?userId=${userId}`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            trimmedUrl ? { promotionUrl: trimmedUrl } : {},
+          ),
+        },
       );
 
       const data = await response.json();
@@ -101,9 +142,6 @@ export function DuplicateButton({
       const hasPartialFailures =
         failedAdsets.length > 0 || failedAds.length > 0;
 
-      // The duplicate did create the top-level entity, so refresh the cached
-      // lists/details regardless. For partial failures we keep the dialog open
-      // so the user can read the warning before dismissing it.
       void invalidateMarketing();
       onDuplicated?.();
 
@@ -113,6 +151,9 @@ export function DuplicateButton({
           ...(failedAds.length > 0 && { failedAds }),
         });
       } else {
+        toast.success(
+          `"${data.name ?? entityName ?? ""}" duplicado com sucesso`,
+        );
         setOpen(false);
       }
     } catch (err) {
@@ -134,6 +175,8 @@ export function DuplicateButton({
     resetState();
     setOpen(true);
   };
+
+  const capitalizedEntity = label.charAt(0).toUpperCase() + label.slice(1);
 
   return (
     <>
@@ -171,7 +214,9 @@ export function DuplicateButton({
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {partial ? `${label[0].toUpperCase() + label.slice(1)} duplicada com avisos` : `Duplicar ${label}?`}
+              {partial
+                ? `${capitalizedEntity} duplicada com avisos`
+                : `Duplicar ${label}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {partial
@@ -180,15 +225,41 @@ export function DuplicateButton({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
+          {!partial && showPromotionUrlField && (
+            <div className="space-y-1.5">
+              <Label htmlFor="duplicate-promotion-url" className="text-sm">
+                URL do site (opcional)
+              </Label>
+              <Input
+                id="duplicate-promotion-url"
+                type="url"
+                inputMode="url"
+                placeholder="https://seusite.com.br/oferta"
+                value={promotionUrl}
+                disabled={isSubmitting}
+                onChange={(e) => {
+                  setPromotionUrl(e.target.value);
+                  setPromotionUrlError(null);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                A Meta exige uma URL de site em anúncios de vendas. Se os
+                anúncios da cópia falharem por falta de link, informe a URL
+                aqui para tentar reparar automaticamente.
+              </p>
+              {promotionUrlError && (
+                <p className="text-xs text-destructive">{promotionUrlError}</p>
+              )}
+            </div>
+          )}
+
           {error && (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </div>
           )}
 
-          {partial && (
-            <PartialFailuresList partial={partial} />
-          )}
+          {partial && <PartialFailuresList partial={partial} />}
 
           <AlertDialogFooter>
             {partial ? (
@@ -221,15 +292,20 @@ function PartialFailuresList({ partial }: { partial: PartialResult }) {
   const adsetCount = partial.failedAdsets?.length ?? 0;
   const adCount = partial.failedAds?.length ?? 0;
 
+  let summary: string;
+  if (adsetCount > 0 && adCount > 0) {
+    summary = `${adsetCount} conjunto(s) e ${adCount} anúncio(s) não foram copiados`;
+  } else if (adsetCount > 0) {
+    summary = `${adsetCount} conjunto(s) de anúncios não foram copiados`;
+  } else {
+    summary = `${adCount} anúncio(s) não foram copiados`;
+  }
+
   return (
     <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm space-y-2">
       <div className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-400">
         <AlertTriangle className="size-4 shrink-0" />
-        {adsetCount > 0 && adCount > 0
-          ? `${adsetCount} conjunto(s) e ${adCount} anúncio(s) não foram copiados`
-          : adsetCount > 0
-            ? `${adsetCount} conjunto(s) de anúncios não foram copiados`
-            : `${adCount} anúncio(s) não foram copiados`}
+        {summary}
       </div>
       {partial.failedAdsets && partial.failedAdsets.length > 0 && (
         <FailedSection title="Conjuntos" items={partial.failedAdsets} />

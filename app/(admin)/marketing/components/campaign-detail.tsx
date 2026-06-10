@@ -235,6 +235,7 @@ export function CampaignDetail({
                   entityName={campaign.name}
                   accountId={accountId}
                   userId={userId}
+                  objective={campaign.objective}
                   variant="labeled"
                   onDuplicated={() => {
                     onCampaignUpdated?.(campaign);
@@ -442,6 +443,9 @@ export function CampaignDetail({
         campaignId={campaign.id}
         campaignName={campaign.name}
         campaignObjective={campaign.objective}
+        usesCampaignBudget={campaign.usesCampaignBudget}
+        campaignDailyBudget={campaign.dailyBudget}
+        campaignLifetimeBudget={campaign.lifetimeBudget}
         accountId={accountId}
         userId={userId}
         isOpen={isCreateAdSetOpen}
