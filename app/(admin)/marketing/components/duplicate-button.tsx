@@ -19,13 +19,6 @@ import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 type DuplicateEntity = "campaign" | "adset" | "ad";
 
-function isSalesObjective(objective?: CampaignObjective): boolean {
-  return (
-    objective === CampaignObjective.OUTCOME_SALES ||
-    objective === CampaignObjective.CONVERSIONS
-  );
-}
-
 const ENTITY_LABEL: Record<DuplicateEntity, string> = {
   campaign: "campanha",
   adset: "conjunto de anúncios",
@@ -46,10 +39,15 @@ const ENTITY_DETAIL: Record<DuplicateEntity, string> = {
   ad: "Será criada uma cópia do anúncio no mesmo conjunto, mantendo a mesma configuração.",
 };
 
+function isValidPromotionUrl(value: string): boolean {
+  return /^https:\/\/.+/i.test(value.trim());
+}
+
 type DuplicateErrorPayload = {
   message?: string;
   solution?: string;
   orphanIds?: string[];
+  needsPromotionUrl?: boolean;
 };
 
 function formatDuplicateError(
@@ -71,9 +69,9 @@ type DuplicateButtonProps = {
   accountId: string;
   userId: string;
   /**
-   * Campaign objective. For sales objectives the dialog offers a website-URL
-   * field, used by the server to repair ad copies whose creative lacks the
-   * link Meta now requires (subcode 2446383).
+   * Campaign objective. Kept for call-site compatibility; the promotion-URL
+   * field is now shown reactively (only after Meta rejects a copy with subcode
+   * 2446383), so this is no longer used to gate the field.
    */
   objective?: CampaignObjective;
   onDuplicated?: () => void;
@@ -87,7 +85,6 @@ export function DuplicateButton({
   entityName,
   accountId,
   userId,
-  objective,
   onDuplicated,
   variant = "icon",
 }: DuplicateButtonProps) {
@@ -95,32 +92,27 @@ export function DuplicateButton({
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsPromotionUrl, setNeedsPromotionUrl] = useState(false);
   const [promotionUrl, setPromotionUrl] = useState("");
   const [promotionUrlError, setPromotionUrlError] = useState<string | null>(
     null,
   );
 
   const label = ENTITY_LABEL[entityType];
-  const showPromotionUrlField = isSalesObjective(objective);
 
   const resetState = () => {
     setError(null);
+    setNeedsPromotionUrl(false);
     setPromotionUrl("");
     setPromotionUrlError(null);
   };
 
-  const handleConfirm = async () => {
-    const trimmedUrl = promotionUrl.trim();
-    if (trimmedUrl && !/^https?:\/\/\S+\.\S+/.test(trimmedUrl)) {
-      setPromotionUrlError(
-        "Informe uma URL válida começando com https://",
-      );
-      return;
-    }
-
+  const runDuplication = async () => {
     setIsSubmitting(true);
     setError(null);
     setPromotionUrlError(null);
+
+    const trimmedUrl = promotionUrl.trim();
 
     try {
       const response = await fetch(
@@ -129,14 +121,28 @@ export function DuplicateButton({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            trimmedUrl ? { promotionUrl: trimmedUrl } : {},
+            needsPromotionUrl && trimmedUrl ? { promotionUrl: trimmedUrl } : {},
           ),
         },
       );
 
-      const data = await response.json();
+      const data: DuplicateErrorPayload & { name?: string } =
+        await response.json();
 
       if (!response.ok) {
+        // Meta refused a copy because the creative is missing the website URL
+        // sales objectives require. Switch the dialog into the reactive
+        // "ask for URL" mode instead of showing a raw error.
+        if (data?.needsPromotionUrl) {
+          const wasAlreadyAsking = needsPromotionUrl;
+          setNeedsPromotionUrl(true);
+          if (wasAlreadyAsking) {
+            setPromotionUrlError(
+              "Não foi possível concluir com esse link. Verifique o endereço e tente novamente.",
+            );
+          }
+          return;
+        }
         throw new Error(
           formatDuplicateError(data, `Falha ao duplicar ${label}`),
         );
@@ -148,6 +154,7 @@ export function DuplicateButton({
         `"${data.name ?? entityName ?? ""}" duplicado com sucesso`,
       );
       setOpen(false);
+      resetState();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : `Erro ao duplicar ${label}`,
@@ -155,6 +162,23 @@ export function DuplicateButton({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleConfirm = async () => {
+    if (needsPromotionUrl) {
+      const trimmedUrl = promotionUrl.trim();
+      if (!trimmedUrl) {
+        setPromotionUrlError("Informe o link do seu site para continuar.");
+        return;
+      }
+      if (!isValidPromotionUrl(trimmedUrl)) {
+        setPromotionUrlError(
+          "Informe uma URL válida começando com https://",
+        );
+        return;
+      }
+    }
+    await runDuplication();
   };
 
   const handleClose = () => {
@@ -203,21 +227,28 @@ export function DuplicateButton({
       >
         <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
-            <AlertDialogTitle>{`Duplicar ${label}?`}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {needsPromotionUrl
+                ? "Falta o link do seu site"
+                : `Duplicar ${label}?`}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              {`${entityName ? `"${entityName}" — ` : ""}${ENTITY_DETAIL[entityType]} A cópia herda o status do original e o nome recebe o sufixo " - Cópia".`}
+              {needsPromotionUrl
+                ? "A Meta exige um link de destino para concluir a cópia deste anúncio de vendas. Informe o link do seu site (ou da oferta) para continuarmos a duplicação."
+                : `${entityName ? `"${entityName}" — ` : ""}${ENTITY_DETAIL[entityType]} A cópia herda o status do original e o nome recebe o sufixo " - Cópia".`}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          {showPromotionUrlField && (
+          {needsPromotionUrl && (
             <div className="space-y-1.5">
               <Label htmlFor="duplicate-promotion-url" className="text-sm">
-                URL do site (opcional)
+                Link do site
               </Label>
               <Input
                 id="duplicate-promotion-url"
                 type="url"
                 inputMode="url"
+                autoFocus
                 placeholder="https://seusite.com.br/oferta"
                 value={promotionUrl}
                 disabled={isSubmitting}
@@ -227,9 +258,8 @@ export function DuplicateButton({
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                A Meta exige uma URL de site em anúncios de vendas. Se os
-                anúncios da cópia falharem por falta de link, informe a URL
-                aqui para tentar reparar automaticamente.
+                Use um endereço começando com https://. Aplicaremos esse link na
+                cópia e concluiremos a duplicação automaticamente.
               </p>
               {promotionUrlError && (
                 <p className="text-xs text-destructive">{promotionUrlError}</p>
@@ -255,7 +285,7 @@ export function DuplicateButton({
               {isSubmitting && (
                 <Loader2 className="mr-2 size-4 animate-spin" />
               )}
-              Duplicar
+              {needsPromotionUrl ? "Continuar duplicação" : "Duplicar"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

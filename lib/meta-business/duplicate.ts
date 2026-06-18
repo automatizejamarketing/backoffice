@@ -179,6 +179,12 @@ export type DuplicateResult = {
 export class DuplicateAtomicError extends GraphApiError {
   readonly rolledBack: boolean;
   readonly orphanIds?: string[];
+  /**
+   * True when the underlying Meta rejection was the "call to action / website
+   * URL required" error (subcode 2446383). The client uses this to ask the
+   * user for a promotion URL and retry the duplication with it.
+   */
+  readonly needsPromotionUrl?: boolean;
 
   constructor(args: {
     message: string;
@@ -187,6 +193,7 @@ export class DuplicateAtomicError extends GraphApiError {
     rolledBack: boolean;
     orphanIds?: string[];
     isTransient?: boolean;
+    needsPromotionUrl?: boolean;
   }) {
     super({
       statusCode: args.statusCode ?? 502,
@@ -200,6 +207,7 @@ export class DuplicateAtomicError extends GraphApiError {
     });
     this.rolledBack = args.rolledBack;
     this.orphanIds = args.orphanIds;
+    this.needsPromotionUrl = args.needsPromotionUrl;
   }
 }
 
@@ -267,6 +275,11 @@ async function rollbackAndThrow(
     message: `A duplicação falhou e foi revertida. ${originalMessage}`,
     solution: "Corrija o problema indicado e tente duplicar novamente.",
     rolledBack: true,
+    // Only on a clean rollback do we offer the reactive promotion-URL retry:
+    // when objects were orphaned the user must clean those up first, so we
+    // surface the hard error (with orphan IDs) instead.
+    needsPromotionUrl:
+      graphErrorSubcode(cause) === CALL_TO_ACTION_URL_REQUIRED,
   });
 }
 
@@ -274,11 +287,13 @@ async function rollbackAndThrow(
 export function duplicateErrorExtras(error: unknown): {
   rolledBack?: boolean;
   orphanIds?: string[];
+  needsPromotionUrl?: boolean;
 } {
   if (!(error instanceof DuplicateAtomicError)) return {};
   return {
     rolledBack: error.rolledBack,
     ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),
+    ...(error.needsPromotionUrl ? { needsPromotionUrl: true } : {}),
   };
 }
 
