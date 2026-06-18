@@ -45,6 +45,13 @@ const ADVANTAGE_AUDIENCE_FLAG_REQUIRED = 1870227;
 const CALL_TO_ACTION_URL_REQUIRED = 2446383;
 
 /**
+ * Meta subcode 2490392: "You must also select Instagram Explore". Legacy ad
+ * sets can contain `explore_home` without `explore`; `/copies` re-validates
+ * placements and now rejects that combination.
+ */
+const INSTAGRAM_EXPLORE_REQUIRED = 2490392;
+
+/**
  * Actionable guidance appended to Meta errors we can't fix automatically.
  * Keyed by Meta `error_subcode`.
  */
@@ -143,6 +150,11 @@ type CopyResponse = {
 };
 
 type NamedNode = { id: string; name?: string };
+
+type TargetingSpec = Record<string, unknown> & {
+  publisher_platforms?: string[];
+  instagram_positions?: string[];
+};
 
 type CampaignTree = {
   name?: string;
@@ -313,10 +325,74 @@ async function repairAdvantageAudienceFlag(
   }
 }
 
+function addRequiredInstagramExplorePosition(
+  targeting: TargetingSpec,
+): TargetingSpec | null {
+  const publisherPlatforms = targeting.publisher_platforms ?? [];
+  const instagramPositions = targeting.instagram_positions ?? [];
+
+  if (
+    !publisherPlatforms.includes("instagram") ||
+    !instagramPositions.includes("explore_home") ||
+    instagramPositions.includes("explore")
+  ) {
+    return null;
+  }
+
+  return {
+    ...targeting,
+    instagram_positions: [...instagramPositions, "explore"],
+  };
+}
+
+/**
+ * Make the Instagram Explore dependency explicit on the SOURCE ad set so its
+ * copy passes Meta's current placement validation. Meta's Ad Set Copies API
+ * does not expose a targeting override; it only accepts copy controls such as
+ * campaign_id, deep_copy, rename_options and status_option.
+ */
+async function repairInstagramExploreHomePlacement(
+  adsetId: string,
+  accessToken: string,
+): Promise<boolean> {
+  try {
+    const res = await metaApiCall<{
+      targeting?: TargetingSpec;
+    }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: adsetId,
+      params: "fields=targeting",
+      accessToken,
+    });
+
+    const repairedTargeting = addRequiredInstagramExplorePosition(
+      res.targeting ?? {},
+    );
+    if (!repairedTargeting) return false;
+
+    await metaApiCall<{ success?: boolean }>({
+      domain: "FACEBOOK",
+      method: "POST",
+      path: adsetId,
+      params: "",
+      body: new URLSearchParams({
+        targeting: JSON.stringify(repairedTargeting),
+      }),
+      accessToken,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * `copyAdsetInto` with a one-shot self-repair: when Meta refuses the copy
  * because the legacy source ad set lacks the mandatory Advantage audience
- * flag (subcode 1870227), repair the source and retry once.
+ * flag (subcode 1870227), or because `explore_home` lacks its required
+ * `explore` companion placement (subcode 2490392), repair the source and
+ * retry once.
  */
 async function copyAdsetWithRepair(
   sourceAdsetId: string,
@@ -326,11 +402,18 @@ async function copyAdsetWithRepair(
   try {
     return await copyAdsetInto(sourceAdsetId, targetCampaignId, accessToken);
   } catch (err) {
-    if (graphErrorSubcode(err) !== ADVANTAGE_AUDIENCE_FLAG_REQUIRED) throw err;
-    const repaired = await repairAdvantageAudienceFlag(
-      sourceAdsetId,
-      accessToken,
-    );
+    const subcode = graphErrorSubcode(err);
+    let repaired = false;
+    if (subcode === ADVANTAGE_AUDIENCE_FLAG_REQUIRED) {
+      repaired = await repairAdvantageAudienceFlag(sourceAdsetId, accessToken);
+    } else if (subcode === INSTAGRAM_EXPLORE_REQUIRED) {
+      repaired = await repairInstagramExploreHomePlacement(
+        sourceAdsetId,
+        accessToken,
+      );
+    } else {
+      throw err;
+    }
     if (!repaired) throw err;
     return await copyAdsetInto(sourceAdsetId, targetCampaignId, accessToken);
   }
