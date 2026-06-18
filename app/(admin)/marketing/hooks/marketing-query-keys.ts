@@ -116,4 +116,8 @@ export const marketingKeys = {
     [...marketingKeys.all(accountId, userId), "ads", "promotion-link"] as const,
   promotionLink: (accountId: string, userId: string, adId: string) =>
     [...marketingKeys.promotionLinkRoot(accountId, userId), adId] as const,
+
+  // Facebook Pages (ad identity selector)
+  pages: (accountId: string, userId: string) =>
+    ["marketing-pages", accountId, userId] as const,
 };

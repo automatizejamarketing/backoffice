@@ -12,6 +12,12 @@ import { GraphApiError } from "@/lib/meta-business/error";
  * developer-community thread, so the only universally-reliable path is to
  * copy one entity per call.
  *
+ * Duplication is atomic for newly created objects: if any child copy or rename
+ * fails, every object created during the attempt is deleted in reverse order.
+ * Source objects are never modified. The only allowed repair is a non-mutating
+ * ad copy retry via `creative_parameters` when the caller supplies a fallback
+ * promotion URL (subcode 2446383).
+ *
  * For each copy Meta preserves 100% of the configuration (targeting, budget,
  * creative, promoted_object, schedule, ...). We rename the copied tree after
  * the fact to follow the SAME convention used when campaigns/ad sets/ads are
@@ -28,14 +34,6 @@ const STATUS_OPTION = "INHERITED_FROM_SOURCE";
 const NO_RENAME = JSON.stringify({ rename_strategy: "NO_RENAME" });
 
 /**
- * Meta subcode 1870227: "Advantage audience flag is required". Legacy ad sets
- * created before the flag became mandatory have no `targeting_automation` in
- * their targeting spec, and `/copies` re-validates the source spec against
- * today's rules — so the copy is refused even though the original still runs.
- */
-const ADVANTAGE_AUDIENCE_FLAG_REQUIRED = 1870227;
-
-/**
  * Meta subcode 2446383: "Call to action required". Sales objectives now
  * demand an external website URL on the creative; legacy ads created without
  * one fail re-validation on copy. When the caller supplies a fallback
@@ -45,21 +43,16 @@ const ADVANTAGE_AUDIENCE_FLAG_REQUIRED = 1870227;
 const CALL_TO_ACTION_URL_REQUIRED = 2446383;
 
 /**
- * Meta subcode 2490392: "You must also select Instagram Explore". Legacy ad
- * sets can contain `explore_home` without `explore`; `/copies` re-validates
- * placements and now rejects that combination.
- */
-const INSTAGRAM_EXPLORE_REQUIRED = 2490392;
-
-/**
  * Actionable guidance appended to Meta errors we can't fix automatically.
  * Keyed by Meta `error_subcode`.
  */
 const ERROR_HINTS_BY_SUBCODE: Record<number, string> = {
-  // "Call to action required": the sales objective demands an external
-  // website URL on the creative; the user must fix the SOURCE ad's link.
   2446383:
     'Edite o link do anúncio original (botão "Editar link") para definir a URL do site e tente duplicar novamente.',
+  1870227:
+    "Atualize o conjunto de anúncios original no Gerenciador de Anúncios para atender às regras atuais da Meta e tente duplicar novamente.",
+  2490392:
+    "Atualize os posicionamentos do conjunto de anúncios original no Gerenciador de Anúncios (Instagram Explore) e tente duplicar novamente.",
 };
 
 // Cap parallel ad copies inside a single ad set so we don't trigger Meta's
@@ -151,11 +144,6 @@ type CopyResponse = {
 
 type NamedNode = { id: string; name?: string };
 
-type TargetingSpec = Record<string, unknown> & {
-  publisher_platforms?: string[];
-  instagram_positions?: string[];
-};
-
 type CampaignTree = {
   name?: string;
   adsets?: {
@@ -181,16 +169,122 @@ export type DuplicateResult = {
   id: string;
   name: string;
   sourceName: string;
-  /** Adsets that failed to copy. Only present when at least one failed. */
-  failedAdsets?: FailedCopy[];
-  /** Ads that failed to copy. Only present when at least one failed. */
-  failedAds?: FailedCopy[];
 };
 
 /**
- * Run `fn` over `items` with at most `concurrency` workers in flight. Each
- * task is independent — failures do NOT abort the others; instead the caller
- * inspects the per-item `Result`. Preserves input order in the output array.
+ * Thrown when atomic duplication fails. When rollback succeeds, no new objects
+ * remain on Meta. When rollback partially fails, `orphanIds` lists objects
+ * that could not be deleted and require manual cleanup.
+ */
+export class DuplicateAtomicError extends GraphApiError {
+  readonly rolledBack: boolean;
+  readonly orphanIds?: string[];
+
+  constructor(args: {
+    message: string;
+    solution: string;
+    statusCode?: number;
+    rolledBack: boolean;
+    orphanIds?: string[];
+    isTransient?: boolean;
+  }) {
+    super({
+      statusCode: args.statusCode ?? 502,
+      reason: {
+        httpStatusCode: args.statusCode ?? 502,
+        title: "Falha na duplicação",
+        message: args.message,
+        solution: args.solution,
+        isTransient: args.isTransient ?? false,
+      },
+    });
+    this.rolledBack = args.rolledBack;
+    this.orphanIds = args.orphanIds;
+  }
+}
+
+type CreatedObjectKind = "campaign" | "adset" | "ad";
+
+type CreatedObject = {
+  kind: CreatedObjectKind;
+  id: string;
+};
+
+class CreatedObjectsTracker {
+  private readonly objects: CreatedObject[] = [];
+
+  track(kind: CreatedObjectKind, id: string): void {
+    this.objects.push({ kind, id });
+  }
+
+  async rollback(accessToken: string): Promise<string[]> {
+    const failedIds: string[] = [];
+    for (const obj of [...this.objects].reverse()) {
+      const deleted = await deleteMetaObject(obj.id, accessToken);
+      if (!deleted) failedIds.push(obj.id);
+    }
+    return failedIds;
+  }
+}
+
+async function deleteMetaObject(
+  objectId: string,
+  accessToken: string,
+): Promise<boolean> {
+  try {
+    await metaApiCall<{ success?: boolean }>({
+      domain: "FACEBOOK",
+      method: "DELETE",
+      path: objectId,
+      params: "",
+      accessToken,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function rollbackAndThrow(
+  tracker: CreatedObjectsTracker,
+  accessToken: string,
+  cause: unknown,
+): Promise<never> {
+  const orphanIds = await tracker.rollback(accessToken);
+  const originalMessage = errorMessage(cause);
+
+  if (orphanIds.length > 0) {
+    throw new DuplicateAtomicError({
+      message: `${originalMessage} A duplicação foi revertida parcialmente; remova manualmente os objetos órfãos: ${orphanIds.join(", ")}.`,
+      solution:
+        "Remova os objetos listados no Gerenciador de Anúncios e tente duplicar novamente.",
+      rolledBack: false,
+      orphanIds,
+    });
+  }
+
+  throw new DuplicateAtomicError({
+    message: `A duplicação falhou e foi revertida. ${originalMessage}`,
+    solution: "Corrija o problema indicado e tente duplicar novamente.",
+    rolledBack: true,
+  });
+}
+
+/** Extra fields for API error responses after atomic rollback. */
+export function duplicateErrorExtras(error: unknown): {
+  rolledBack?: boolean;
+  orphanIds?: string[];
+} {
+  if (!(error instanceof DuplicateAtomicError)) return {};
+  return {
+    rolledBack: error.rolledBack,
+    ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),
+  };
+}
+
+/**
+ * Run `fn` over `items` with at most `concurrency` workers in flight.
+ * Preserves input order in the output array.
  */
 async function mapWithConcurrency<T, R>(
   items: T[],
@@ -278,145 +372,6 @@ async function copyAdsetInto(
     accessToken,
   });
   return res.copied_adset_id;
-}
-
-/**
- * Make the Advantage audience flag explicit on the SOURCE ad set so its copy
- * passes Meta's current validation. `advantage_audience: 0` (manual audience)
- * preserves the delivery behavior the legacy ad set already has — this is the
- * same repair Ads Manager forces interactively. Returns false when there is
- * nothing to repair (flag already present) or when the repair itself fails,
- * in which case the caller surfaces the original copy error.
- */
-async function repairAdvantageAudienceFlag(
-  adsetId: string,
-  accessToken: string,
-): Promise<boolean> {
-  try {
-    const res = await metaApiCall<{
-      targeting?: Record<string, unknown>;
-    }>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: adsetId,
-      params: "fields=targeting",
-      accessToken,
-    });
-
-    const targeting = res.targeting ?? {};
-    if (targeting["targeting_automation"]) return false;
-
-    await metaApiCall<{ success?: boolean }>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: adsetId,
-      params: "",
-      body: new URLSearchParams({
-        targeting: JSON.stringify({
-          ...targeting,
-          targeting_automation: { advantage_audience: 0 },
-        }),
-      }),
-      accessToken,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function addRequiredInstagramExplorePosition(
-  targeting: TargetingSpec,
-): TargetingSpec | null {
-  const publisherPlatforms = targeting.publisher_platforms ?? [];
-  const instagramPositions = targeting.instagram_positions ?? [];
-
-  if (
-    !publisherPlatforms.includes("instagram") ||
-    !instagramPositions.includes("explore_home") ||
-    instagramPositions.includes("explore")
-  ) {
-    return null;
-  }
-
-  return {
-    ...targeting,
-    instagram_positions: [...instagramPositions, "explore"],
-  };
-}
-
-/**
- * Make the Instagram Explore dependency explicit on the SOURCE ad set so its
- * copy passes Meta's current placement validation. Meta's Ad Set Copies API
- * does not expose a targeting override; it only accepts copy controls such as
- * campaign_id, deep_copy, rename_options and status_option.
- */
-async function repairInstagramExploreHomePlacement(
-  adsetId: string,
-  accessToken: string,
-): Promise<boolean> {
-  try {
-    const res = await metaApiCall<{
-      targeting?: TargetingSpec;
-    }>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: adsetId,
-      params: "fields=targeting",
-      accessToken,
-    });
-
-    const repairedTargeting = addRequiredInstagramExplorePosition(
-      res.targeting ?? {},
-    );
-    if (!repairedTargeting) return false;
-
-    await metaApiCall<{ success?: boolean }>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: adsetId,
-      params: "",
-      body: new URLSearchParams({
-        targeting: JSON.stringify(repairedTargeting),
-      }),
-      accessToken,
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * `copyAdsetInto` with a one-shot self-repair: when Meta refuses the copy
- * because the legacy source ad set lacks the mandatory Advantage audience
- * flag (subcode 1870227), or because `explore_home` lacks its required
- * `explore` companion placement (subcode 2490392), repair the source and
- * retry once.
- */
-async function copyAdsetWithRepair(
-  sourceAdsetId: string,
-  targetCampaignId: string,
-  accessToken: string,
-): Promise<string | undefined> {
-  try {
-    return await copyAdsetInto(sourceAdsetId, targetCampaignId, accessToken);
-  } catch (err) {
-    const subcode = graphErrorSubcode(err);
-    let repaired = false;
-    if (subcode === ADVANTAGE_AUDIENCE_FLAG_REQUIRED) {
-      repaired = await repairAdvantageAudienceFlag(sourceAdsetId, accessToken);
-    } else if (subcode === INSTAGRAM_EXPLORE_REQUIRED) {
-      repaired = await repairInstagramExploreHomePlacement(
-        sourceAdsetId,
-        accessToken,
-      );
-    } else {
-      throw err;
-    }
-    if (!repaired) throw err;
-    return await copyAdsetInto(sourceAdsetId, targetCampaignId, accessToken);
-  }
 }
 
 /**
@@ -547,8 +502,6 @@ async function buildPromotionUrlCreativeParameters(
       return JSON.stringify({ object_story_spec: objectStorySpec });
     }
 
-    // IG-post creatives (source_instagram_media_id) and any other shape:
-    // a top-level call_to_action override carries the link.
     return JSON.stringify({
       call_to_action: withCtaLink(creative.call_to_action, promotionUrl),
     });
@@ -600,16 +553,17 @@ type AdCopyOutcome =
 
 /**
  * Copy every ad in `sourceAds` into `targetAdsetId` with bounded concurrency.
- * Per-ad failures are captured (never thrown) so a single bad ad cannot abort
- * the rest of the duplication.
+ * Tracks each successfully copied ad in `tracker`. Throws on the first failure
+ * after all parallel workers finish so every created ad id is known for rollback.
  */
-async function copyAdsIntoAdset(
+async function copyAdsIntoAdsetStrict(
   sourceAds: NamedNode[],
   targetAdsetId: string,
   accessToken: string,
+  tracker: CreatedObjectsTracker,
   fallbackPromotionUrl?: string,
-): Promise<AdCopyOutcome[]> {
-  return mapWithConcurrency<NamedNode, AdCopyOutcome>(
+): Promise<Array<{ sourceAd: NamedNode; copiedAdId: string }>> {
+  const outcomes = await mapWithConcurrency<NamedNode, AdCopyOutcome>(
     sourceAds,
     AD_COPY_CONCURRENCY,
     async (ad) => {
@@ -627,19 +581,41 @@ async function copyAdsIntoAdset(
             error: "A Meta não retornou o ID do anúncio copiado.",
           };
         }
+        tracker.track("ad", copiedAdId);
         return { ok: true, sourceAd: ad, copiedAdId };
       } catch (err) {
         return { ok: false, sourceAd: ad, error: errorMessage(err) };
       }
     },
   );
+
+  const failure = outcomes.find(
+    (outcome): outcome is Extract<AdCopyOutcome, { ok: false }> => !outcome.ok,
+  );
+  if (failure) {
+    throw new GraphApiError({
+      statusCode: 502,
+      reason: {
+        httpStatusCode: 502,
+        title: "Falha na duplicação",
+        message: failure.error,
+        solution: "Corrija o problema indicado e tente duplicar novamente.",
+        isTransient: false,
+      },
+    });
+  }
+
+  return outcomes.map((outcome) => ({
+    sourceAd: outcome.sourceAd,
+    copiedAdId: (outcome as Extract<AdCopyOutcome, { ok: true }>).copiedAdId,
+  }));
 }
 
 /**
  * Duplicates a campaign (and its full tree: ad sets + ads) one entity at a
  * time, avoiding Meta's sync-copy size limit entirely. Renames the copied
- * tree to follow the creation convention. Per-entity failures are reported
- * back in `failedAdsets` / `failedAds` so the caller can warn the user.
+ * tree to follow the creation convention. Rolls back all newly created objects
+ * if any child copy or rename fails.
  */
 export async function duplicateCampaign(args: {
   accountId: string;
@@ -650,140 +626,110 @@ export async function duplicateCampaign(args: {
 }): Promise<DuplicateResult> {
   const { accountId, campaignId, accessToken, fallbackPromotionUrl } = args;
   const act = formatAccountId(accountId);
+  const tracker = new CreatedObjectsTracker();
 
-  const sourceTree = await getCampaignTree(campaignId, accessToken);
-  const sourceAdsets = sourceTree.adsets?.data ?? [];
+  try {
+    const sourceTree = await getCampaignTree(campaignId, accessToken);
+    const sourceAdsets = sourceTree.adsets?.data ?? [];
 
-  const siblings = await metaApiCall<{ data?: NamedNode[] }>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: `${act}/campaigns`,
-    params: "fields=name&limit=500",
-    accessToken,
-  });
+    const siblings = await metaApiCall<{ data?: NamedNode[] }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${act}/campaigns`,
+      params: "fields=name&limit=500",
+      accessToken,
+    });
 
-  const newName = resolveCopyName(
-    sourceTree.name ?? "Campanha",
-    (siblings.data ?? []).map((c) => c.name ?? ""),
-  );
+    const newName = resolveCopyName(
+      sourceTree.name ?? "Campanha",
+      (siblings.data ?? []).map((c) => c.name ?? ""),
+    );
 
-  // 1) Copy the campaign by itself (no deep_copy → exactly 1 object).
-  const campaignCopy = await metaApiCall<CopyResponse>({
-    domain: "FACEBOOK",
-    method: "POST",
-    path: `${campaignId}/copies`,
-    params: "",
-    body: new URLSearchParams({
-      status_option: STATUS_OPTION,
-      rename_options: NO_RENAME,
-    }),
-    accessToken,
-  });
+    const campaignCopy = await metaApiCall<CopyResponse>({
+      domain: "FACEBOOK",
+      method: "POST",
+      path: `${campaignId}/copies`,
+      params: "",
+      body: new URLSearchParams({
+        status_option: STATUS_OPTION,
+        rename_options: NO_RENAME,
+      }),
+      accessToken,
+    });
 
-  const newCampaignId = campaignCopy.copied_campaign_id;
-  if (!newCampaignId) throw missingCopyIdError("da campanha");
+    const newCampaignId = campaignCopy.copied_campaign_id;
+    if (!newCampaignId) throw missingCopyIdError("da campanha");
+    tracker.track("campaign", newCampaignId);
 
-  // 2) For each source ad set, copy it (1 object), then parallel-copy its
-  //    ads into the freshly copied ad set. Track failures non-fatally.
-  type AdsetCopyState = {
-    sourceAdset: NamedNode;
-    copiedAdsetId: string;
-    adOutcomes: AdCopyOutcome[];
-  };
+    type AdsetCopyState = {
+      sourceAdset: NamedNode;
+      copiedAdsetId: string;
+      copiedAds: Array<{ sourceAd: NamedNode; copiedAdId: string }>;
+    };
 
-  const adsetStates: AdsetCopyState[] = [];
-  const failedAdsets: FailedCopy[] = [];
+    const adsetStates: AdsetCopyState[] = [];
 
-  for (const sa of sourceAdsets) {
-    let copiedAdsetId: string | undefined;
-    try {
-      copiedAdsetId = await copyAdsetWithRepair(
-        sa.id,
+    for (const sourceAdset of sourceAdsets) {
+      const copiedAdsetId = await copyAdsetInto(
+        sourceAdset.id,
         newCampaignId,
         accessToken,
       );
-    } catch (err) {
-      failedAdsets.push({
-        sourceId: sa.id,
-        sourceName: sa.name,
-        error: errorMessage(err),
-      });
-      continue;
+      if (!copiedAdsetId) throw missingCopyIdError("do conjunto");
+      tracker.track("adset", copiedAdsetId);
+
+      const sourceAds =
+        sourceAdset.ads?.data ??
+        (await listAdsetAds(sourceAdset.id, accessToken));
+      const copiedAds = await copyAdsIntoAdsetStrict(
+        sourceAds,
+        copiedAdsetId,
+        accessToken,
+        tracker,
+        fallbackPromotionUrl,
+      );
+      adsetStates.push({ sourceAdset, copiedAdsetId, copiedAds });
     }
-    if (!copiedAdsetId) {
-      failedAdsets.push({
-        sourceId: sa.id,
-        sourceName: sa.name,
-        error: "A Meta não retornou o ID do conjunto copiado.",
-      });
-      continue;
-    }
 
-    const sourceAds = sa.ads?.data ?? (await listAdsetAds(sa.id, accessToken));
-    const adOutcomes = await copyAdsIntoAdset(
-      sourceAds,
-      copiedAdsetId,
-      accessToken,
-      fallbackPromotionUrl,
+    await renameObject(newCampaignId, newName, accessToken);
+
+    const totalAds = adsetStates.reduce(
+      (acc, state) => acc + state.copiedAds.length,
+      0,
     );
-    adsetStates.push({ sourceAdset: sa, copiedAdsetId, adOutcomes });
-  }
-
-  // 3) Rename the whole tree (campaign + adsets + ads) following the creation
-  //    convention. Renames are sequential to keep error reporting simple.
-  await renameObject(newCampaignId, newName, accessToken);
-
-  const totalAds = adsetStates.reduce(
-    (acc, s) => acc + s.adOutcomes.filter((o) => o.ok).length,
-    0,
-  );
-  let adIndex = 0;
-  for (let i = 0; i < adsetStates.length; i += 1) {
-    const state = adsetStates[i];
-    await renameObject(
-      state.copiedAdsetId,
-      `${newName} - Ad Set${childSuffix(adsetStates.length, i)}`,
-      accessToken,
-    );
-
-    for (const outcome of state.adOutcomes) {
-      if (!outcome.ok) continue;
+    let adIndex = 0;
+    for (let i = 0; i < adsetStates.length; i += 1) {
+      const state = adsetStates[i];
       await renameObject(
-        outcome.copiedAdId,
-        `${newName} - Ad${childSuffix(totalAds, adIndex)}`,
+        state.copiedAdsetId,
+        `${newName} - Ad Set${childSuffix(adsetStates.length, i)}`,
         accessToken,
       );
-      adIndex += 1;
+
+      for (const copiedAd of state.copiedAds) {
+        await renameObject(
+          copiedAd.copiedAdId,
+          `${newName} - Ad${childSuffix(totalAds, adIndex)}`,
+          accessToken,
+        );
+        adIndex += 1;
+      }
     }
+
+    return {
+      id: newCampaignId,
+      name: newName,
+      sourceName: sourceTree.name ?? "Campanha",
+    };
+  } catch (err) {
+    return rollbackAndThrow(tracker, accessToken, err);
   }
-
-  const failedAds = adsetStates.flatMap((state) =>
-    state.adOutcomes
-      .filter((o): o is Extract<AdCopyOutcome, { ok: false }> => !o.ok)
-      .map(
-        (o): FailedCopy => ({
-          sourceId: o.sourceAd.id,
-          sourceName: o.sourceAd.name,
-          sourceAdsetId: state.sourceAdset.id,
-          error: o.error,
-        }),
-      ),
-  );
-
-  return {
-    id: newCampaignId,
-    name: newName,
-    sourceName: sourceTree.name ?? "Campanha",
-    ...(failedAdsets.length > 0 && { failedAdsets }),
-    ...(failedAds.length > 0 && { failedAds }),
-  };
 }
 
 /**
  * Duplicates an ad set (with its ads) WITHIN THE SAME campaign, copying the
  * ad set itself and each ad individually so Meta's sync-copy limit is never
- * hit. The source `campaign_id` is read and passed explicitly so the copy
- * lands in the same campaign as the original.
+ * hit. Rolls back the new ad set and ads if any child copy or rename fails.
  */
 export async function duplicateAdSet(args: {
   accountId: string;
@@ -793,81 +739,69 @@ export async function duplicateAdSet(args: {
   fallbackPromotionUrl?: string;
 }): Promise<DuplicateResult> {
   const { adsetId, accessToken, fallbackPromotionUrl } = args;
+  const tracker = new CreatedObjectsTracker();
 
-  const source = await metaApiCall<{ name?: string; campaign_id?: string }>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: adsetId,
-    params: "fields=name,campaign_id",
-    accessToken,
-  });
-
-  if (!source.campaign_id) throw missingCopyIdError("da campanha de origem");
-
-  const [siblings, sourceAds] = await Promise.all([
-    metaApiCall<{ data?: NamedNode[] }>({
+  try {
+    const source = await metaApiCall<{ name?: string; campaign_id?: string }>({
       domain: "FACEBOOK",
       method: "GET",
-      path: `${source.campaign_id}/adsets`,
-      params: "fields=name&limit=500",
+      path: adsetId,
+      params: "fields=name,campaign_id",
       accessToken,
-    }),
-    listAdsetAds(adsetId, accessToken),
-  ]);
+    });
 
-  const newName = resolveCopyName(
-    source.name ?? "Conjunto",
-    (siblings.data ?? []).map((a) => a.name ?? ""),
-  );
+    if (!source.campaign_id) throw missingCopyIdError("da campanha de origem");
 
-  // 1) Copy the ad set itself (no deep_copy → exactly 1 object).
-  const newAdsetId = await copyAdsetWithRepair(
-    adsetId,
-    source.campaign_id,
-    accessToken,
-  );
-  if (!newAdsetId) throw missingCopyIdError("do conjunto");
-
-  // 2) Parallel-copy the ads into the new ad set, tracking failures.
-  const adOutcomes = await copyAdsIntoAdset(
-    sourceAds,
-    newAdsetId,
-    accessToken,
-    fallbackPromotionUrl,
-  );
-
-  // 3) Rename ad set + each successfully copied ad.
-  await renameObject(newAdsetId, newName, accessToken);
-
-  const successfulAdCount = adOutcomes.filter((o) => o.ok).length;
-  let adIndex = 0;
-  for (const outcome of adOutcomes) {
-    if (!outcome.ok) continue;
-    await renameObject(
-      outcome.copiedAdId,
-      `${newName} - Ad${childSuffix(successfulAdCount, adIndex)}`,
-      accessToken,
-    );
-    adIndex += 1;
-  }
-
-  const failedAds = adOutcomes
-    .filter((o): o is Extract<AdCopyOutcome, { ok: false }> => !o.ok)
-    .map(
-      (o): FailedCopy => ({
-        sourceId: o.sourceAd.id,
-        sourceName: o.sourceAd.name,
-        sourceAdsetId: adsetId,
-        error: o.error,
+    const [siblings, sourceAds] = await Promise.all([
+      metaApiCall<{ data?: NamedNode[] }>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: `${source.campaign_id}/adsets`,
+        params: "fields=name&limit=500",
+        accessToken,
       }),
+      listAdsetAds(adsetId, accessToken),
+    ]);
+
+    const newName = resolveCopyName(
+      source.name ?? "Conjunto",
+      (siblings.data ?? []).map((a) => a.name ?? ""),
     );
 
-  return {
-    id: newAdsetId,
-    name: newName,
-    sourceName: source.name ?? "Conjunto",
-    ...(failedAds.length > 0 && { failedAds }),
-  };
+    const newAdsetId = await copyAdsetInto(
+      adsetId,
+      source.campaign_id,
+      accessToken,
+    );
+    if (!newAdsetId) throw missingCopyIdError("do conjunto");
+    tracker.track("adset", newAdsetId);
+
+    const copiedAds = await copyAdsIntoAdsetStrict(
+      sourceAds,
+      newAdsetId,
+      accessToken,
+      tracker,
+      fallbackPromotionUrl,
+    );
+
+    await renameObject(newAdsetId, newName, accessToken);
+
+    for (let i = 0; i < copiedAds.length; i += 1) {
+      await renameObject(
+        copiedAds[i].copiedAdId,
+        `${newName} - Ad${childSuffix(copiedAds.length, i)}`,
+        accessToken,
+      );
+    }
+
+    return {
+      id: newAdsetId,
+      name: newName,
+      sourceName: source.name ?? "Conjunto",
+    };
+  } catch (err) {
+    return rollbackAndThrow(tracker, accessToken, err);
+  }
 }
 
 /**
@@ -882,43 +816,49 @@ export async function duplicateAd(args: {
   fallbackPromotionUrl?: string;
 }): Promise<DuplicateResult> {
   const { adId, accessToken, fallbackPromotionUrl } = args;
+  const tracker = new CreatedObjectsTracker();
 
-  const source = await metaApiCall<{ name?: string; adset_id?: string }>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: adId,
-    params: "fields=name,adset_id",
-    accessToken,
-  });
+  try {
+    const source = await metaApiCall<{ name?: string; adset_id?: string }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: adId,
+      params: "fields=name,adset_id",
+      accessToken,
+    });
 
-  if (!source.adset_id) throw missingCopyIdError("do conjunto de origem");
+    if (!source.adset_id) throw missingCopyIdError("do conjunto de origem");
 
-  const siblings = await metaApiCall<{ data?: NamedNode[] }>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: `${source.adset_id}/ads`,
-    params: "fields=name&limit=500",
-    accessToken,
-  });
+    const siblings = await metaApiCall<{ data?: NamedNode[] }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${source.adset_id}/ads`,
+      params: "fields=name&limit=500",
+      accessToken,
+    });
 
-  const newName = resolveCopyName(
-    source.name ?? "Anúncio",
-    (siblings.data ?? []).map((a) => a.name ?? ""),
-  );
+    const newName = resolveCopyName(
+      source.name ?? "Anúncio",
+      (siblings.data ?? []).map((a) => a.name ?? ""),
+    );
 
-  const newAdId = await copyAdWithRepair(
-    adId,
-    source.adset_id,
-    accessToken,
-    fallbackPromotionUrl,
-  );
-  if (!newAdId) throw missingCopyIdError("do anúncio");
+    const newAdId = await copyAdWithRepair(
+      adId,
+      source.adset_id,
+      accessToken,
+      fallbackPromotionUrl,
+    );
+    if (!newAdId) throw missingCopyIdError("do anúncio");
+    tracker.track("ad", newAdId);
 
-  await renameObject(newAdId, newName, accessToken);
+    await renameObject(newAdId, newName, accessToken);
 
-  return {
-    id: newAdId,
-    name: newName,
-    sourceName: source.name ?? "Anúncio",
-  };
+    return {
+      id: newAdId,
+      name: newName,
+      sourceName: source.name ?? "Anúncio",
+    };
+  } catch (err) {
+    return rollbackAndThrow(tracker, accessToken, err);
+  }
 }

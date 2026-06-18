@@ -8,7 +8,7 @@ import {
   graphErrorToClientError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
-import { duplicateAd } from "@/lib/meta-business/duplicate";
+import { duplicateAd, duplicateErrorExtras } from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
 
 export type DuplicateAdResponse = {
@@ -22,6 +22,8 @@ export type DuplicateErrorResponse = {
   error: string;
   message: string;
   solution?: string;
+  rolledBack?: boolean;
+  orphanIds?: string[];
 };
 
 export type DuplicateAdRequestBody = {
@@ -126,6 +128,7 @@ export async function POST(
         error: clientError.error,
         message: clientError.message,
         solution: clientError.solution,
+        ...duplicateErrorExtras(error),
       },
       { status: errorReturn.statusCode },
     );
