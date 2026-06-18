@@ -81,19 +81,6 @@ type LocationTargetingSectionProps = {
 };
 
 type LocationTargetingTranslator = ReturnType<typeof useLocationTargetingT>;
-const LOCATION_RESULT_ORDER: GeoLocationType[] = [
-  "place",
-  "custom_location",
-  "city",
-  "subcity",
-  "neighborhood",
-  "region",
-  "zip",
-  "geo_market",
-  "electoral_district",
-  "country",
-  "country_group",
-];
 
 function getLocationTypeIcon(type: GeoLocationType) {
   if (type === "country" || type === "region") {
@@ -257,48 +244,23 @@ export function LocationTargetingSection({
     placesSessionToken,
     selectedLocations,
     enabled: open,
+    googleOnly: true,
     locationBias: browserLocationBias,
   });
 
   const { geocodeByKey, isGeocoding, geocodeError } =
     useZipGeocodeForMap(selectedLocations);
 
-  const { metaResults, googleResults } = useMemo(() => {
-    const meta: GeoLocationSearchResult[] = [];
-    const google: GeoLocationSearchResult[] = [];
-
-    for (const result of results) {
-      if (result.source === "google_places") {
-        google.push(result);
-      } else {
-        meta.push(result);
-      }
-    }
+  const googleResults = useMemo(() => {
+    const google = results.filter((result) => result.source === "google_places");
 
     // Prioritize businesses (establishments) above addresses in the Google list.
     google.sort(
       (a, b) => Number(b.is_business ?? false) - Number(a.is_business ?? false),
     );
 
-    return { metaResults: meta, googleResults: google };
+    return google;
   }, [results]);
-
-  const groupedMetaResults = useMemo(() => {
-    const groups = new Map<string, GeoLocationSearchResult[]>();
-
-    for (const result of metaResults) {
-      const key = result.type;
-      const existing = groups.get(key) ?? [];
-      existing.push(result);
-      groups.set(key, existing);
-    }
-
-    return Array.from(groups.entries()).sort(
-      ([left], [right]) =>
-        LOCATION_RESULT_ORDER.indexOf(left as GeoLocationType) -
-        LOCATION_RESULT_ORDER.indexOf(right as GeoLocationType),
-    );
-  }, [metaResults]);
 
   const coordinateLocationsByKey = useMemo(() => {
     const map = new Map<
@@ -337,6 +299,12 @@ export function LocationTargetingSection({
 
   const commitSelectedLocation = (location: GeoLocationSearchResult) => {
     const normalizedLocation = normalizeSelectedGeoLocation(location);
+
+    if (!hasLocationCoordinates(normalizedLocation)) {
+      setPlaceDetailsError(t("placeDetailsError"));
+      return;
+    }
+
     const nextLocations = applyDefaultBrazilLocationRule([
       ...selectedLocations,
       normalizedLocation,
@@ -351,7 +319,6 @@ export function LocationTargetingSection({
 
   const handleSelectLocation = async (location: GeoLocationSearchResult) => {
     if (location.source !== "google_places") {
-      commitSelectedLocation(location);
       return;
     }
 
@@ -370,7 +337,7 @@ export function LocationTargetingSection({
         userId,
       });
 
-      if (!resolvedLocation) {
+      if (!resolvedLocation || !hasLocationCoordinates(resolvedLocation)) {
         setPlaceDetailsError(t("placeDetailsError"));
         return;
       }
@@ -557,42 +524,6 @@ export function LocationTargetingSection({
                   <CommandEmpty>
                     <span className="block">{t("noResults")}</span>
                   </CommandEmpty>
-                  {groupedMetaResults.map(([type, locations]) => (
-                    <CommandGroup
-                      key={type}
-                      heading={getLocationTypeLabel(type as GeoLocationType, t)}
-                    >
-                      {locations.map((location) => {
-                        const Icon = getLocationTypeIcon(location.type);
-
-                        return (
-                          <CommandItem
-                            key={`${location.type}-${location.key}`}
-                            value={`${location.name}-${location.key}`}
-                            onSelect={() => handleSelectLocation(location)}
-                          >
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                              <Icon className="size-4" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {location.name}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {getLocationMeta(location, t)}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
-                            >
-                              {getLocationTypeLabel(location.type, t)}
-                            </Badge>
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  ))}
                   {googleResults.length > 0 ? (
                     <CommandGroup heading={t("googlePlacesGroup")}>
                       {googleResults.map((location) => {
@@ -753,11 +684,7 @@ export function LocationTargetingSection({
                             {t("radiusLabel")}
                           </p>
                           <p className="text-[11px] text-muted-foreground">
-                            {location.type === "custom_location"
-                              ? t("customLocationRadiusHint")
-                              : location.type === "place"
-                                ? t("placeRadiusHint")
-                                : t("cityRadiusHint")}
+                            {t("customLocationRadiusHint")}
                           </p>
                         </div>
                         <div className="flex items-center rounded-lg border border-border/60 bg-background">

@@ -33,6 +33,8 @@ type UseLocationSearchParams = {
   placesSessionToken: string | null;
   selectedLocations: SelectedGeoLocation[];
   enabled?: boolean;
+  /** When true, only Google Places autocomplete is queried (no Meta adgeolocation). */
+  googleOnly?: boolean;
   /**
    * Optional soft bias toward an area (e.g. the browser's geolocation). When
    * omitted, the server falls back to Vercel IP geolocation, then to a
@@ -128,6 +130,24 @@ function mergeGeoLocationSearchResults(
   return merged;
 }
 
+async function fetchGoogleOnlyLocations(
+  searchTerm: string,
+  placesSessionToken: string | null,
+  userId: string | undefined,
+  locationBias?: LocationBiasInput | null,
+): Promise<SearchLocationsResponse> {
+  const googleResult = await fetchGooglePlacesAutocomplete(
+    searchTerm,
+    placesSessionToken,
+    userId,
+    locationBias,
+  );
+
+  return {
+    data: googleResult.data.filter((location) => location.source === "google_places"),
+  };
+}
+
 async function fetchLocations(
   accountId: string,
   userId: string | undefined,
@@ -193,6 +213,7 @@ export function useLocationSearch({
   placesSessionToken,
   selectedLocations,
   enabled = true,
+  googleOnly = false,
   locationBias,
 }: UseLocationSearchParams) {
   const [debouncedSearchTerm] = useDebounceValue(searchTerm, 400);
@@ -200,15 +221,25 @@ export function useLocationSearch({
 
   const query = useQuery({
     queryKey: [
-      "meta-location-search",
+      googleOnly ? "google-location-search" : "meta-location-search",
       accountId,
       userId,
       locale,
       normalizedSearchTerm,
       placesSessionToken,
       locationBias,
+      googleOnly,
     ],
     queryFn: () => {
+      if (googleOnly) {
+        return fetchGoogleOnlyLocations(
+          normalizedSearchTerm,
+          placesSessionToken,
+          userId ?? undefined,
+          locationBias,
+        );
+      }
+
       if (!accountId) {
         throw new Error("Account ID is required");
       }
@@ -222,7 +253,12 @@ export function useLocationSearch({
         locationBias,
       );
     },
-    enabled: enabled && Boolean(accountId) && Boolean(userId) && normalizedSearchTerm.length > 0,
+    enabled:
+      enabled &&
+      normalizedSearchTerm.length > 0 &&
+      (googleOnly
+        ? Boolean(placesSessionToken) && Boolean(userId)
+        : Boolean(accountId) && Boolean(userId)),
     staleTime: 60_000,
   });
 

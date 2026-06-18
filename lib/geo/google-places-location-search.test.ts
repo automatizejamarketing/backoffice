@@ -122,4 +122,53 @@ describe("Google Places location search", () => {
 
     expect(result).toBeNull();
   });
+
+  test("buildGeoLocationsPayload never emits Meta city-like keys", () => {
+    const payload = buildGeoLocationsPayload([
+      {
+        key: "2684440",
+        name: "Campos dos Goytacazes",
+        type: "city",
+        radius: 5,
+        distance_unit: "kilometer",
+      },
+      {
+        key: "2786077",
+        name: "Parque Turf Club",
+        type: "neighborhood",
+        radius: 10,
+        distance_unit: "kilometer",
+      },
+    ]);
+
+    expect(payload?.cities).toBeUndefined();
+    expect(payload?.custom_locations).toBeUndefined();
+  });
+
+  test("buildGeoLocationsPayload preserves small radius for map-dragged custom locations", () => {
+    const payload = buildGeoLocationsPayload([
+      {
+        key: "custom_-21.757728_-41.323490",
+        name: "Centro, Campos dos Goytacazes",
+        type: "custom_location",
+        address_string: "Centro, Campos dos Goytacazes",
+        latitude: -21.757728,
+        longitude: -41.32349,
+        radius: 3,
+        distance_unit: "kilometer",
+      },
+    ]);
+
+    expect(payload?.cities).toBeUndefined();
+    expect(payload?.custom_locations).toEqual([
+      {
+        address_string: "Centro, Campos dos Goytacazes",
+        name: "Centro, Campos dos Goytacazes",
+        latitude: -21.757728,
+        longitude: -41.32349,
+        radius: 3,
+        distance_unit: "kilometer",
+      },
+    ]);
+  });
 });

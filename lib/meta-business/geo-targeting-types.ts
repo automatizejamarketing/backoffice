@@ -175,6 +175,32 @@ export function buildGeoLocationsPayload(
 
   const payload: GeoLocationsPayload = {};
 
+  const appendCustomLocation = (location: SelectedGeoLocation) => {
+    if (!hasLocationCoordinates(location)) {
+      return;
+    }
+
+    payload.custom_locations ??= [];
+    if (
+      !payload.custom_locations.some(
+        (customLocation) =>
+          customLocation.address_string ===
+            (location.address_string ?? location.name) &&
+          customLocation.latitude === location.latitude &&
+          customLocation.longitude === location.longitude,
+      )
+    ) {
+      payload.custom_locations.push({
+        address_string: location.address_string ?? location.name,
+        name: location.name,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        radius: clampRadius(location.radius ?? DEFAULT_CITY_RADIUS_KM),
+        distance_unit: location.distance_unit ?? "kilometer",
+      });
+    }
+  };
+
   for (const location of locations) {
     if (location.type === "country" && location.key) {
       payload.countries ??= [];
@@ -227,41 +253,13 @@ export function buildGeoLocationsPayload(
     }
 
     if (
-      (location.type === "custom_location" || location.type === "place") &&
-      (location.address_string ||
-        (typeof location.latitude === "number" &&
-          typeof location.longitude === "number"))
+      location.type === "custom_location" ||
+      location.type === "place" ||
+      location.type === "city" ||
+      location.type === "subcity" ||
+      location.type === "neighborhood"
     ) {
-      payload.custom_locations ??= [];
-      if (
-        !payload.custom_locations.some(
-          (customLocation) =>
-            customLocation.address_string === location.address_string &&
-            customLocation.latitude === location.latitude &&
-            customLocation.longitude === location.longitude,
-        )
-      ) {
-        payload.custom_locations.push({
-          address_string: location.address_string ?? location.name,
-          name: location.name,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          radius: clampRadius(location.radius ?? DEFAULT_CITY_RADIUS_KM),
-          distance_unit: location.distance_unit ?? "kilometer",
-        });
-      }
-      continue;
-    }
-
-    if (isCityLikeGeoLocation(location) && location.key) {
-      payload.cities ??= [];
-      if (!payload.cities.some((city) => city.key === location.key)) {
-        payload.cities.push({
-          key: location.key,
-          radius: clampRadius(location.radius ?? DEFAULT_CITY_RADIUS_KM),
-          distance_unit: location.distance_unit ?? "kilometer",
-        });
-      }
+      appendCustomLocation(location);
     }
   }
 
