@@ -12,21 +12,31 @@ import { GraphApiError } from "@/lib/meta-business/error";
  * developer-community thread, so the only universally-reliable path is to
  * copy one entity per call.
  *
- * Duplication is atomic for newly created objects: if any child copy or rename
- * fails, every object created during the attempt is deleted in reverse order.
- * Source objects are never modified. The only allowed repair is a non-mutating
- * ad copy retry via `creative_parameters` when the caller supplies a fallback
- * promotion URL (subcode 2446383).
+ * Source objects are NEVER modified. Two non-mutating self-repairs keep copies
+ * succeeding when Meta re-validates legacy config against today's rules:
+ * - Ad set: when native `/copies` is permanently refused (e.g. Explore Home
+ *   without Explore), the ad set is reconstructed via `POST /adsets` with
+ *   sanitized targeting, gated by `validate_only` (see `rebuildAdsetInto`).
+ * - Ad: a copy refused for a deprecated creative bundle (3858504) or a missing
+ *   sales URL (2446383) is retried with `creative_parameters` (see
+ *   `copyAdWithRepair`).
  *
- * For each copy Meta preserves 100% of the configuration (targeting, budget,
- * creative, promoted_object, schedule, ...). We rename the copied tree after
- * the fact to follow the SAME convention used when campaigns/ad sets/ads are
- * created (`<base>`, `<base> - Ad Set`, `<base> - Ad`).
+ * Partial success: ads Meta will never accept for an ad-specific reason
+ * (`SKIPPABLE_AD_SUBCODES`, e.g. copyrighted-music reels) are SKIPPED and
+ * reported, not fatal. An ad set left with zero ads is dropped; if the whole
+ * campaign copies zero ads, it fails and rolls back. Any other failure (a hard
+ * error, or a rename failure) still deletes every object created during the
+ * attempt, in reverse order.
+ *
+ * Otherwise Meta preserves the configuration (targeting, budget, creative,
+ * promoted_object, schedule, ...). We rename the copied tree after the fact to
+ * follow the creation convention (`<base>`, `<base> - Ad Set`, `<base> - Ad`).
  *
  * Constraints enforced here:
  * - Ad set copy is always created in the destination campaign.
  * - Ad copy is always created in the destination ad set.
- * - Status of the copies is inherited from the source (INHERITED_FROM_SOURCE).
+ * - Status of native copies is inherited from the source (INHERITED_FROM_SOURCE);
+ *   a reconstructed ad set is created PAUSED (its ads are copied in right after).
  */
 
 const COPY_MARKER = "Cópia";
@@ -55,11 +65,50 @@ const START_BUFFER_MS = 5 * 60 * 1000;
 const CALL_TO_ACTION_URL_REQUIRED = 2446383;
 
 /**
+ * Meta subcode 2061015: "website URL required" — the same missing-sales-link
+ * problem as 2446383, but raised for other creative shapes (e.g. Instagram-post
+ * boosts). Repaired the same way: reuse the source's existing link, else ask.
+ */
+const WEBSITE_URL_REQUIRED = 2061015;
+
+/** Both "needs a website/sales URL" rejections, repaired by injecting a link. */
+const URL_REQUIRED_SUBCODES = new Set<number>([
+  CALL_TO_ACTION_URL_REQUIRED,
+  WEBSITE_URL_REQUIRED,
+]);
+
+/**
+ * Meta subcode 3858504: the deprecated Advantage+ "standard enhancements"
+ * bundle. Copies of legacy creatives that still carry it are refused; we strip
+ * it (keeping the individual features) via `creative_parameters`.
+ */
+const STANDARD_ENHANCEMENTS_DEPRECATED = 3858504;
+
+/** Ad-copy rejections we can fix non-destructively via `creative_parameters`. */
+const REPAIRABLE_AD_SUBCODES = new Set<number>([
+  CALL_TO_ACTION_URL_REQUIRED,
+  WEBSITE_URL_REQUIRED,
+  STANDARD_ENHANCEMENTS_DEPRECATED,
+]);
+
+/**
+ * Ad-copy rejections Meta will NEVER accept for that specific ad, whatever we
+ * send. The rest of the tree can still be duplicated, so these ads are skipped
+ * and reported instead of failing the whole operation. Keep this list narrow:
+ * only provably-unfixable, ad-specific errors belong here.
+ */
+const SKIPPABLE_AD_SUBCODES = new Set<number>([
+  2875030, // reels using copyrighted music can't be boosted as ads
+]);
+
+/**
  * Actionable guidance appended to Meta errors we can't fix automatically.
  * Keyed by Meta `error_subcode`.
  */
 const ERROR_HINTS_BY_SUBCODE: Record<number, string> = {
   2446383:
+    'Edite o link do anúncio original (botão "Editar link") para definir a URL do site e tente duplicar novamente.',
+  2061015:
     'Edite o link do anúncio original (botão "Editar link") para definir a URL do site e tente duplicar novamente.',
   1870227:
     "Atualize o conjunto de anúncios original no Gerenciador de Anúncios para atender às regras atuais da Meta e tente duplicar novamente.",
@@ -244,10 +293,23 @@ export type FailedCopy = {
   error: string;
 };
 
+/** An ad (or ad set) that was skipped during a partial duplication. */
+export type SkippedItem = {
+  /** Source object id that could not be copied. */
+  sourceId: string;
+  sourceName?: string;
+  /** Meta's own reason (error_user_msg + subcode) for surfacing to the admin. */
+  reason: string;
+};
+
 export type DuplicateResult = {
   id: string;
   name: string;
   sourceName: string;
+  /** Ads Meta refused to copy for an un-fixable, ad-specific reason. */
+  skippedAds?: SkippedItem[];
+  /** Ad sets dropped because every one of their ads was skipped. */
+  skippedAdsets?: SkippedItem[];
 };
 
 /**
@@ -304,6 +366,16 @@ class CreatedObjectsTracker {
     this.objects.push({ kind, id });
   }
 
+  /**
+   * Forget an object after it has been intentionally deleted during a SUCCESSFUL
+   * partial run (a dropped empty ad set), so a later rollback won't try to delete
+   * it again.
+   */
+  untrack(id: string): void {
+    const idx = this.objects.findIndex((o) => o.id === id);
+    if (idx >= 0) this.objects.splice(idx, 1);
+  }
+
   async rollback(accessToken: string): Promise<string[]> {
     const failedIds: string[] = [];
     for (const obj of [...this.objects].reverse()) {
@@ -357,8 +429,7 @@ async function rollbackAndThrow(
     // Only on a clean rollback do we offer the reactive promotion-URL retry:
     // when objects were orphaned the user must clean those up first, so we
     // surface the hard error (with orphan IDs) instead.
-    needsPromotionUrl:
-      graphErrorSubcode(cause) === CALL_TO_ACTION_URL_REQUIRED,
+    needsPromotionUrl: URL_REQUIRED_SUBCODES.has(graphErrorSubcode(cause) ?? -1),
   });
 }
 
@@ -760,8 +831,13 @@ type GraphCtaValue = { link?: string; [key: string]: unknown };
 type GraphCta = { type?: string; value?: GraphCtaValue; [key: string]: unknown };
 
 type GraphCreativeShape = {
+  id?: string;
   call_to_action?: GraphCta;
   source_instagram_media_id?: string;
+  degrees_of_freedom_spec?: {
+    creative_features_spec?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
   object_story_spec?: {
     link_data?: { link?: string; call_to_action?: GraphCta; [key: string]: unknown };
     video_data?: { call_to_action?: GraphCta; [key: string]: unknown };
@@ -782,17 +858,13 @@ function withCtaLink(cta: GraphCta | undefined, link: string): GraphCta {
 }
 
 /**
- * Build the `creative_parameters` JSON that injects `promotionUrl` into the
- * source ad's creative, shaped per creative type (mirrors the shapes handled
- * by the promotion-link edit flow). Overwrites happen at the top level, so
- * nested specs are cloned wholesale with only the link fields changed.
- * Returns null when the source creative can't be inspected.
+ * Fetch the source ad's creative with the fields the repair patches need
+ * (two GETs: ad → creative id → creative). Returns null when it can't be read.
  */
-async function buildPromotionUrlCreativeParameters(
+async function getRepairableCreative(
   sourceAdId: string,
-  promotionUrl: string,
   accessToken: string,
-): Promise<string | null> {
+): Promise<GraphCreativeShape | null> {
   try {
     const ad = await metaApiCall<{ creative?: { id?: string } }>({
       domain: "FACEBOOK",
@@ -803,70 +875,123 @@ async function buildPromotionUrlCreativeParameters(
     });
     const creativeId = ad.creative?.id;
     if (!creativeId) return null;
-
-    const creative = await metaApiCall<GraphCreativeShape>({
+    return await metaApiCall<GraphCreativeShape>({
       domain: "FACEBOOK",
       method: "GET",
       path: creativeId,
       params:
-        "fields=call_to_action,source_instagram_media_id,object_story_spec,asset_feed_spec",
+        "fields=call_to_action,source_instagram_media_id,degrees_of_freedom_spec,object_story_spec,asset_feed_spec",
       accessToken,
-    });
-
-    if (creative.asset_feed_spec?.link_urls?.length) {
-      const assetFeedSpec = JSON.parse(
-        JSON.stringify(creative.asset_feed_spec),
-      ) as NonNullable<GraphCreativeShape["asset_feed_spec"]>;
-      assetFeedSpec.link_urls = assetFeedSpec.link_urls?.map((link) => ({
-        ...link,
-        website_url: promotionUrl,
-      }));
-      return JSON.stringify({ asset_feed_spec: assetFeedSpec });
-    }
-
-    if (creative.object_story_spec?.link_data) {
-      const objectStorySpec = JSON.parse(
-        JSON.stringify(creative.object_story_spec),
-      ) as NonNullable<GraphCreativeShape["object_story_spec"]>;
-      objectStorySpec.link_data = {
-        ...objectStorySpec.link_data,
-        link: promotionUrl,
-        call_to_action: withCtaLink(
-          objectStorySpec.link_data?.call_to_action,
-          promotionUrl,
-        ),
-      };
-      return JSON.stringify({ object_story_spec: objectStorySpec });
-    }
-
-    if (creative.object_story_spec?.video_data) {
-      const objectStorySpec = JSON.parse(
-        JSON.stringify(creative.object_story_spec),
-      ) as NonNullable<GraphCreativeShape["object_story_spec"]>;
-      objectStorySpec.video_data = {
-        ...objectStorySpec.video_data,
-        call_to_action: withCtaLink(
-          objectStorySpec.video_data?.call_to_action,
-          promotionUrl,
-        ),
-      };
-      return JSON.stringify({ object_story_spec: objectStorySpec });
-    }
-
-    return JSON.stringify({
-      call_to_action: withCtaLink(creative.call_to_action, promotionUrl),
     });
   } catch {
     return null;
   }
 }
 
+/** First website URL found anywhere in the creative, or null. */
+function extractCreativeUrl(creative: GraphCreativeShape): string | null {
+  return (
+    creative.object_story_spec?.link_data?.link ??
+    creative.object_story_spec?.link_data?.call_to_action?.value?.link ??
+    creative.object_story_spec?.video_data?.call_to_action?.value?.link ??
+    creative.call_to_action?.value?.link ??
+    creative.asset_feed_spec?.link_urls?.find((l) => l.website_url)?.website_url ??
+    null
+  );
+}
+
 /**
- * `copyAdInto` with a one-shot self-repair: when Meta refuses the copy
- * because the creative lacks the website URL required by sales objectives
- * (subcode 2446383) and the caller provided a fallback promotion URL, retry
- * once with `creative_parameters` injecting the link into the copy. The
- * SOURCE ad is never modified.
+ * Patch that injects `promotionUrl` into the creative, shaped per creative type
+ * (mirrors the promotion-link edit flow). Top-level overwrite, so nested specs
+ * are cloned wholesale with only the link fields changed.
+ */
+function buildPromotionUrlPatch(
+  creative: GraphCreativeShape,
+  promotionUrl: string,
+): Record<string, unknown> {
+  if (creative.asset_feed_spec?.link_urls?.length) {
+    const assetFeedSpec = JSON.parse(
+      JSON.stringify(creative.asset_feed_spec),
+    ) as NonNullable<GraphCreativeShape["asset_feed_spec"]>;
+    assetFeedSpec.link_urls = assetFeedSpec.link_urls?.map((link) => ({
+      ...link,
+      website_url: promotionUrl,
+    }));
+    return { asset_feed_spec: assetFeedSpec };
+  }
+  if (creative.object_story_spec?.link_data) {
+    const objectStorySpec = JSON.parse(
+      JSON.stringify(creative.object_story_spec),
+    ) as NonNullable<GraphCreativeShape["object_story_spec"]>;
+    objectStorySpec.link_data = {
+      ...objectStorySpec.link_data,
+      link: promotionUrl,
+      call_to_action: withCtaLink(
+        objectStorySpec.link_data?.call_to_action,
+        promotionUrl,
+      ),
+    };
+    return { object_story_spec: objectStorySpec };
+  }
+  if (creative.object_story_spec?.video_data) {
+    const objectStorySpec = JSON.parse(
+      JSON.stringify(creative.object_story_spec),
+    ) as NonNullable<GraphCreativeShape["object_story_spec"]>;
+    objectStorySpec.video_data = {
+      ...objectStorySpec.video_data,
+      call_to_action: withCtaLink(
+        objectStorySpec.video_data?.call_to_action,
+        promotionUrl,
+      ),
+    };
+    return { object_story_spec: objectStorySpec };
+  }
+  return { call_to_action: withCtaLink(creative.call_to_action, promotionUrl) };
+}
+
+/**
+ * Patch that removes the deprecated `standard_enhancements` bundle from the
+ * creative's Advantage+ feature spec, keeping the individual features. Returns
+ * null when the bundle isn't present.
+ */
+function buildStripStandardEnhancementsPatch(
+  creative: GraphCreativeShape,
+): Record<string, unknown> | null {
+  const dof = creative.degrees_of_freedom_spec;
+  const feats = dof?.creative_features_spec;
+  if (!feats || !("standard_enhancements" in feats)) return null;
+  const stripped: Record<string, unknown> = { ...feats };
+  delete stripped.standard_enhancements;
+  return { degrees_of_freedom_spec: { ...dof, creative_features_spec: stripped } };
+}
+
+/**
+ * The `creative_parameters` patch for a repairable ad-copy subcode, or null when
+ * it can't be repaired — e.g. a sales URL is required but the source has none
+ * and no fallback was supplied, which then bubbles up as `needsPromotionUrl`.
+ */
+function buildAdRepairPatch(
+  subcode: number,
+  creative: GraphCreativeShape,
+  fallbackPromotionUrl?: string,
+): Record<string, unknown> | null {
+  if (subcode === STANDARD_ENHANCEMENTS_DEPRECATED) {
+    return buildStripStandardEnhancementsPatch(creative);
+  }
+  if (URL_REQUIRED_SUBCODES.has(subcode)) {
+    const url = extractCreativeUrl(creative) ?? fallbackPromotionUrl ?? null;
+    return url ? buildPromotionUrlPatch(creative, url) : null;
+  }
+  return null;
+}
+
+/**
+ * `copyAdInto` with non-mutating self-repair. On a repairable rejection
+ * (deprecated standard enhancements 3858504; missing sales URL 2446383) we read
+ * the source creative once and retry with an accumulating `creative_parameters`
+ * patch — an ad can hit more than one in sequence. The SOURCE ad is never
+ * modified. Unrepairable rejections (including skippable ones like
+ * copyrighted-music reels) bubble up unchanged for the caller to classify.
  */
 async function copyAdWithRepair(
   sourceAdId: string,
@@ -876,44 +1001,63 @@ async function copyAdWithRepair(
 ): Promise<string | undefined> {
   try {
     return await copyAdInto(sourceAdId, targetAdsetId, accessToken);
-  } catch (err) {
-    if (
-      graphErrorSubcode(err) !== CALL_TO_ACTION_URL_REQUIRED ||
-      !fallbackPromotionUrl
-    ) {
-      throw err;
+  } catch (firstErr) {
+    const firstSub = graphErrorSubcode(firstErr);
+    if (firstSub == null || !REPAIRABLE_AD_SUBCODES.has(firstSub)) throw firstErr;
+
+    const creative = await getRepairableCreative(sourceAdId, accessToken);
+    if (!creative) throw firstErr;
+
+    const patch: Record<string, unknown> = {};
+    const applied = new Set<number>();
+    let lastErr: unknown = firstErr;
+
+    for (let attempt = 0; attempt < REPAIRABLE_AD_SUBCODES.size + 1; attempt += 1) {
+      const sub = graphErrorSubcode(lastErr);
+      if (sub == null || !REPAIRABLE_AD_SUBCODES.has(sub) || applied.has(sub)) {
+        throw lastErr;
+      }
+      const repairPatch = buildAdRepairPatch(sub, creative, fallbackPromotionUrl);
+      if (!repairPatch) throw lastErr;
+      Object.assign(patch, repairPatch);
+      applied.add(sub);
+      try {
+        return await copyAdInto(
+          sourceAdId,
+          targetAdsetId,
+          accessToken,
+          JSON.stringify(patch),
+        );
+      } catch (e) {
+        lastErr = e;
+      }
     }
-    const creativeParameters = await buildPromotionUrlCreativeParameters(
-      sourceAdId,
-      fallbackPromotionUrl,
-      accessToken,
-    );
-    if (!creativeParameters) throw err;
-    return await copyAdInto(
-      sourceAdId,
-      targetAdsetId,
-      accessToken,
-      creativeParameters,
-    );
+    throw lastErr;
   }
 }
 
+type CopiedAd = { sourceAd: NamedNode; copiedAdId: string };
+
 type AdCopyOutcome =
-  | { ok: true; sourceAd: NamedNode; copiedAdId: string }
-  | { ok: false; sourceAd: NamedNode; error: string };
+  | { kind: "ok"; sourceAd: NamedNode; copiedAdId: string }
+  | { kind: "skip"; sourceAd: NamedNode; reason: string }
+  | { kind: "fail"; sourceAd: NamedNode; error: unknown };
 
 /**
- * Copy every ad in `sourceAds` into `targetAdsetId` with bounded concurrency.
- * Tracks each successfully copied ad in `tracker`. Throws on the first failure
- * after all parallel workers finish so every created ad id is known for rollback.
+ * Copy every ad in `sourceAds` into `targetAdsetId` with bounded concurrency,
+ * tracking each success for rollback. Ads Meta will never accept for an
+ * ad-specific reason (`SKIPPABLE_AD_SUBCODES`) are skipped and returned in
+ * `skippedAds`. Any OTHER failure rethrows the ORIGINAL Meta error after all
+ * workers finish — so every created id is known for rollback and the subcode is
+ * preserved (e.g. 2446383 → `needsPromotionUrl`).
  */
-async function copyAdsIntoAdsetStrict(
+async function copyAdsIntoAdset(
   sourceAds: NamedNode[],
   targetAdsetId: string,
   accessToken: string,
   tracker: CreatedObjectsTracker,
   fallbackPromotionUrl?: string,
-): Promise<Array<{ sourceAd: NamedNode; copiedAdId: string }>> {
+): Promise<{ copiedAds: CopiedAd[]; skippedAds: SkippedItem[] }> {
   const outcomes = await mapWithConcurrency<NamedNode, AdCopyOutcome>(
     sourceAds,
     AD_COPY_CONCURRENCY,
@@ -926,40 +1070,39 @@ async function copyAdsIntoAdsetStrict(
           fallbackPromotionUrl,
         );
         if (!copiedAdId) {
-          return {
-            ok: false,
-            sourceAd: ad,
-            error: "A Meta não retornou o ID do anúncio copiado.",
-          };
+          return { kind: "fail", sourceAd: ad, error: missingCopyIdError("do anúncio") };
         }
         tracker.track("ad", copiedAdId);
-        return { ok: true, sourceAd: ad, copiedAdId };
+        return { kind: "ok", sourceAd: ad, copiedAdId };
       } catch (err) {
-        return { ok: false, sourceAd: ad, error: errorMessage(err) };
+        const sub = graphErrorSubcode(err);
+        if (sub != null && SKIPPABLE_AD_SUBCODES.has(sub)) {
+          return { kind: "skip", sourceAd: ad, reason: errorMessage(err) };
+        }
+        return { kind: "fail", sourceAd: ad, error: err };
       }
     },
   );
 
   const failure = outcomes.find(
-    (outcome): outcome is Extract<AdCopyOutcome, { ok: false }> => !outcome.ok,
+    (o): o is Extract<AdCopyOutcome, { kind: "fail" }> => o.kind === "fail",
   );
-  if (failure) {
-    throw new GraphApiError({
-      statusCode: 502,
-      reason: {
-        httpStatusCode: 502,
-        title: "Falha na duplicação",
-        message: failure.error,
-        solution: "Corrija o problema indicado e tente duplicar novamente.",
-        isTransient: false,
-      },
-    });
-  }
+  if (failure) throw failure.error;
 
-  return outcomes.map((outcome) => ({
-    sourceAd: outcome.sourceAd,
-    copiedAdId: (outcome as Extract<AdCopyOutcome, { ok: true }>).copiedAdId,
-  }));
+  const copiedAds: CopiedAd[] = [];
+  const skippedAds: SkippedItem[] = [];
+  for (const outcome of outcomes) {
+    if (outcome.kind === "ok") {
+      copiedAds.push({ sourceAd: outcome.sourceAd, copiedAdId: outcome.copiedAdId });
+    } else if (outcome.kind === "skip") {
+      skippedAds.push({
+        sourceId: outcome.sourceAd.id,
+        sourceName: outcome.sourceAd.name,
+        reason: outcome.reason,
+      });
+    }
+  }
+  return { copiedAds, skippedAds };
 }
 
 /**
@@ -1026,6 +1169,8 @@ export async function duplicateCampaign(args: {
     };
 
     const adsetStates: AdsetCopyState[] = [];
+    const skippedAds: SkippedItem[] = [];
+    const skippedAdsets: SkippedItem[] = [];
 
     for (const sourceAdset of sourceAdsets) {
       const copiedAdsetId = await copyOrRebuildAdsetInto({
@@ -1041,14 +1186,43 @@ export async function duplicateCampaign(args: {
       const sourceAds =
         sourceAdset.ads?.data ??
         (await listAdsetAds(sourceAdset.id, accessToken));
-      const copiedAds = await copyAdsIntoAdsetStrict(
+      const { copiedAds, skippedAds: skipped } = await copyAdsIntoAdset(
         sourceAds,
         copiedAdsetId,
         accessToken,
         tracker,
         fallbackPromotionUrl,
       );
+      skippedAds.push(...skipped);
+
+      if (copiedAds.length === 0) {
+        // Every ad in this set was un-copyable → drop the now-empty ad set.
+        await deleteMetaObject(copiedAdsetId, accessToken);
+        tracker.untrack(copiedAdsetId);
+        skippedAdsets.push({
+          sourceId: sourceAdset.id,
+          sourceName: sourceAdset.name,
+          reason: "Todos os anúncios do conjunto são inelegíveis para duplicação.",
+        });
+        continue;
+      }
       adsetStates.push({ sourceAdset, copiedAdsetId, copiedAds });
+    }
+
+    if (adsetStates.length === 0) {
+      // Nothing copyable anywhere — surface a clear reason and roll back.
+      throw new GraphApiError({
+        statusCode: 502,
+        reason: {
+          httpStatusCode: 502,
+          title: "Falha na duplicação",
+          message:
+            "Nenhum anúncio pôde ser copiado: todos os anúncios desta campanha são inelegíveis para duplicação (por exemplo, reels com música protegida por direitos autorais).",
+          solution:
+            "Ajuste a mídia/música dos anúncios de origem no Gerenciador de Anúncios e tente duplicar novamente.",
+          isTransient: false,
+        },
+      });
     }
 
     await renameObject(newCampaignId, newName, accessToken);
@@ -1080,6 +1254,8 @@ export async function duplicateCampaign(args: {
       id: newCampaignId,
       name: newName,
       sourceName: sourceTree.name ?? "Campanha",
+      ...(skippedAds.length ? { skippedAds } : {}),
+      ...(skippedAdsets.length ? { skippedAdsets } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);
@@ -1150,13 +1326,29 @@ export async function duplicateAdSet(args: {
     });
     tracker.track("adset", newAdsetId);
 
-    const copiedAds = await copyAdsIntoAdsetStrict(
+    const { copiedAds, skippedAds } = await copyAdsIntoAdset(
       sourceAds,
       newAdsetId,
       accessToken,
       tracker,
       fallbackPromotionUrl,
     );
+
+    if (copiedAds.length === 0) {
+      // A duplicated ad set with no ads is pointless — fail and roll it back.
+      throw new GraphApiError({
+        statusCode: 502,
+        reason: {
+          httpStatusCode: 502,
+          title: "Falha na duplicação",
+          message:
+            "Nenhum anúncio pôde ser copiado: todos os anúncios deste conjunto são inelegíveis para duplicação (por exemplo, reels com música protegida por direitos autorais).",
+          solution:
+            "Ajuste a mídia/música dos anúncios de origem no Gerenciador de Anúncios e tente duplicar novamente.",
+          isTransient: false,
+        },
+      });
+    }
 
     await renameObject(newAdsetId, newName, accessToken);
 
@@ -1172,6 +1364,7 @@ export async function duplicateAdSet(args: {
       id: newAdsetId,
       name: newName,
       sourceName: source.name ?? "Conjunto",
+      ...(skippedAds.length ? { skippedAds } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);

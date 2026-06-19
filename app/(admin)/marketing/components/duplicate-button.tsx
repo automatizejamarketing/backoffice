@@ -50,6 +50,32 @@ type DuplicateErrorPayload = {
   needsPromotionUrl?: boolean;
 };
 
+type SkippedItem = { sourceId: string; sourceName?: string; reason: string };
+
+type DuplicateSuccessPayload = {
+  name?: string;
+  /** Ads Meta refused to copy (e.g. copyrighted-music reels) — partial success. */
+  skippedAds?: SkippedItem[];
+  /** Ad sets dropped because all their ads were skipped. */
+  skippedAdsets?: SkippedItem[];
+};
+
+/** Short, human summary of what got skipped, for a success-with-warnings toast. */
+function describeSkips(data: DuplicateSuccessPayload): string | null {
+  const ads = data.skippedAds ?? [];
+  const adsets = data.skippedAdsets ?? [];
+  if (ads.length === 0 && adsets.length === 0) return null;
+  const parts: string[] = [];
+  if (ads.length > 0) {
+    parts.push(`${ads.length} anúncio(s) não puderam ser copiados`);
+  }
+  if (adsets.length > 0) {
+    parts.push(`${adsets.length} conjunto(s) sem anúncios elegíveis ignorado(s)`);
+  }
+  const reason = ads[0]?.reason ?? adsets[0]?.reason;
+  return reason ? `${parts.join(" · ")}. ${reason}` : parts.join(" · ");
+}
+
 function formatDuplicateError(
   data: DuplicateErrorPayload,
   fallback: string,
@@ -126,7 +152,7 @@ export function DuplicateButton({
         },
       );
 
-      const data: DuplicateErrorPayload & { name?: string } =
+      const data: DuplicateErrorPayload & DuplicateSuccessPayload =
         await response.json();
 
       if (!response.ok) {
@@ -150,9 +176,16 @@ export function DuplicateButton({
 
       void invalidateMarketing();
       onDuplicated?.();
-      toast.success(
-        `"${data.name ?? entityName ?? ""}" duplicado com sucesso`,
-      );
+      const skipSummary = describeSkips(data);
+      const copyName = data.name ?? entityName ?? "";
+      if (skipSummary) {
+        toast.warning(`"${copyName}" duplicado com avisos`, {
+          description: skipSummary,
+          duration: 12000,
+        });
+      } else {
+        toast.success(`"${copyName}" duplicado com sucesso`);
+      }
       setOpen(false);
       resetState();
     } catch (err) {

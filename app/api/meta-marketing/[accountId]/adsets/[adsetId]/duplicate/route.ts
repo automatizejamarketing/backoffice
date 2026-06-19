@@ -8,7 +8,11 @@ import {
   graphErrorToClientError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
-import { duplicateAdSet, duplicateErrorExtras } from "@/lib/meta-business/duplicate";
+import {
+  duplicateAdSet,
+  duplicateErrorExtras,
+  type SkippedItem,
+} from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
 
 export type DuplicateAdSetResponse = {
@@ -16,6 +20,8 @@ export type DuplicateAdSetResponse = {
   id: string;
   name: string;
   auditLogFailed?: boolean;
+  /** Ads skipped (un-copyable) during a partial duplication. */
+  skippedAds?: SkippedItem[];
 };
 
 export type DuplicateErrorResponse = {
@@ -120,6 +126,7 @@ export async function POST(
         id: result.id,
         name: result.name,
         auditLogFailed,
+        ...(result.skippedAds?.length ? { skippedAds: result.skippedAds } : {}),
       },
       { status: 201 },
     );
