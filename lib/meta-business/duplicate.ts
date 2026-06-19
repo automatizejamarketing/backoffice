@@ -32,6 +32,18 @@ import { GraphApiError } from "@/lib/meta-business/error";
 const COPY_MARKER = "Cópia";
 const STATUS_OPTION = "INHERITED_FROM_SOURCE";
 const NO_RENAME = JSON.stringify({ rename_strategy: "NO_RENAME" });
+const VALIDATE_ONLY = JSON.stringify(["validate_only"]);
+
+/**
+ * Floor for a lifetime ad set's flight window. Meta rejects lifetime ad sets
+ * whose `end_time` is not more than 24h after `start_time` (subcode 1487094);
+ * we use 25h to stay clear of clock skew.
+ */
+const MIN_FLIGHT_MS = 25 * 60 * 60 * 1000;
+/** Fallback flight length when the source window can't be derived. */
+const DEFAULT_FLIGHT_MS = 30 * 24 * 60 * 60 * 1000;
+/** Small buffer so the rebuilt `start_time` is unambiguously in the future. */
+const START_BUFFER_MS = 5 * 60 * 1000;
 
 /**
  * Meta subcode 2446383: "Call to action required". Sales objectives now
@@ -146,6 +158,9 @@ type NamedNode = { id: string; name?: string };
 
 type CampaignTree = {
   name?: string;
+  /** Present (CBO) when the budget lives on the campaign rather than the ad sets. */
+  daily_budget?: string;
+  lifetime_budget?: string;
   adsets?: {
     data?: Array<{
       id: string;
@@ -154,6 +169,70 @@ type CampaignTree = {
     }>;
   };
 };
+
+/**
+ * The subset of ad-set fields a faithful rebuild needs to reproduce. Read back
+ * from the source ad set when native `/copies` is refused (see `rebuildAdsetInto`).
+ */
+type AdsetFull = {
+  name?: string;
+  status?: string;
+  configured_status?: string;
+  billing_event?: string;
+  optimization_goal?: string;
+  optimization_sub_event?: string;
+  destination_type?: string;
+  promoted_object?: Record<string, unknown>;
+  attribution_spec?: unknown;
+  bid_strategy?: string;
+  bid_amount?: number | string;
+  bid_constraints?: unknown;
+  daily_budget?: string;
+  lifetime_budget?: string;
+  start_time?: string;
+  end_time?: string;
+  adset_schedule?: unknown[];
+  is_dynamic_creative?: boolean;
+  targeting?: Record<string, unknown>;
+};
+
+const ADSET_REBUILD_FIELDS = [
+  "name",
+  "configured_status",
+  "billing_event",
+  "optimization_goal",
+  "optimization_sub_event",
+  "destination_type",
+  "promoted_object",
+  "attribution_spec",
+  "bid_strategy",
+  "bid_amount",
+  "bid_constraints",
+  "daily_budget",
+  "lifetime_budget",
+  "start_time",
+  "end_time",
+  "adset_schedule",
+  "is_dynamic_creative",
+  "targeting",
+].join(",");
+
+function hasPositiveMinorUnits(value: unknown): boolean {
+  if (value == null) return false;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+}
+
+/**
+ * Only a permanent (non-transient) Meta rejection should trigger a rebuild. A
+ * transient failure (rate limit, 503) means native `/copies` would likely
+ * succeed on retry, so rebuilding would needlessly trade a faithful native copy
+ * for a reconstructed one. `isTransient` comes from our code/subcode map in
+ * `error.ts` — validation errors (code 100, incl. subcode 2490392) are `false`.
+ */
+function isPermanentGraphFailure(err: unknown): boolean {
+  return err instanceof GraphApiError && err.errorReturn.reason.isTransient === false;
+}
 
 export type FailedCopy = {
   /** Source object id (the one we tried to copy). */
@@ -346,7 +425,8 @@ async function getCampaignTree(
     domain: "FACEBOOK",
     method: "GET",
     path: campaignId,
-    params: "fields=name,adsets.limit(200){id,name,ads.limit(200){id,name}}",
+    params:
+      "fields=name,daily_budget,lifetime_budget,adsets.limit(200){id,name,ads.limit(200){id,name}}",
     accessToken,
   });
 }
@@ -387,6 +467,262 @@ async function copyAdsetInto(
     accessToken,
   });
   return res.copied_adset_id;
+}
+
+/**
+ * Sanitize a Graph-read `targeting` object for re-creation. Meta returns more on
+ * GET than it accepts on POST; we make the minimum changes proven necessary:
+ *
+ * 1. Drop `age_range` — a read-only derived field.
+ * 2. Add `explore` whenever `explore_home` is present without it. Meta now
+ *    enforces (subcode 2490392) that the Instagram *Explore Home* placement
+ *    requires the *Explore* placement too; ad sets created before that rule copy
+ *    fine in Ads Manager but are refused on re-validation. Both are valid
+ *    `instagram_positions` values.
+ *
+ * Everything else (audience names, geo `region_id`/`primary_city_id`,
+ * `flexible_spec`, `advantage_audience`) is preserved verbatim — Meta accepts
+ * its own read-back. The `validate_only` gate in `rebuildAdsetInto` catches any
+ * residual read-only field, so this list can grow as cases surface.
+ */
+function sanitizeTargetingForRebuild(
+  targeting: Record<string, unknown>,
+): Record<string, unknown> {
+  const t = JSON.parse(JSON.stringify(targeting ?? {})) as Record<string, unknown>;
+  delete t.age_range;
+  const positions = t.instagram_positions;
+  if (
+    Array.isArray(positions) &&
+    positions.includes("explore_home") &&
+    !positions.includes("explore")
+  ) {
+    t.instagram_positions = [...positions, "explore"];
+  }
+  return t;
+}
+
+/**
+ * Choose the rebuilt ad set's flight window. A lifetime ad set (own lifetime
+ * budget, or any ad set under a CBO lifetime campaign) MUST have a future
+ * `end_time` (subcode 1487094). When the source window is still in the future we
+ * keep it verbatim; when it has already passed we preserve the original duration
+ * anchored to now (floored to Meta's >24h minimum). Daily-budget ad sets need no
+ * end date — we mirror the wizard's ongoing `end_time=0`.
+ */
+function computeRebuildSchedule(
+  source: AdsetFull,
+  effectiveLifetime: boolean,
+): { start_time?: string; end_time?: string } {
+  if (!effectiveLifetime) return { end_time: "0" };
+
+  const now = Date.now();
+  const srcStart = source.start_time ? Date.parse(source.start_time) : NaN;
+  const srcEnd = source.end_time ? Date.parse(source.end_time) : NaN;
+
+  if (!Number.isNaN(srcEnd) && srcEnd > now + MIN_FLIGHT_MS) {
+    return { start_time: source.start_time, end_time: source.end_time };
+  }
+
+  const duration =
+    !Number.isNaN(srcStart) && !Number.isNaN(srcEnd) && srcEnd > srcStart
+      ? srcEnd - srcStart
+      : DEFAULT_FLIGHT_MS;
+  const start = now + START_BUFFER_MS;
+  const end = start + Math.max(duration, MIN_FLIGHT_MS);
+  return {
+    start_time: new Date(start).toISOString(),
+    end_time: new Date(end).toISOString(),
+  };
+}
+
+/**
+ * Build the `POST act_/adsets` body that faithfully reconstructs `source` inside
+ * `targetCampaignId`, with sanitized targeting and a valid flight window. Budget
+ * and bid are carried ONLY for ABO — under CBO they live on the (already copied)
+ * campaign and Meta rejects ad-set budgets (error 4834002).
+ */
+function buildRebuildAdsetBody(args: {
+  source: AdsetFull;
+  targetCampaignId: string;
+  isCBO: boolean;
+  effectiveLifetime: boolean;
+}): URLSearchParams {
+  const { source, targetCampaignId, isCBO, effectiveLifetime } = args;
+
+  const body = new URLSearchParams({
+    name: source.name ?? "Conjunto",
+    campaign_id: targetCampaignId,
+    billing_event: source.billing_event ?? "IMPRESSIONS",
+    optimization_goal: source.optimization_goal ?? "OFFSITE_CONVERSIONS",
+    targeting: JSON.stringify(sanitizeTargetingForRebuild(source.targeting ?? {})),
+    // Created paused: the duplicated tree is for review before relaunch, and an
+    // ad set can't activate before its ads exist (they are copied in next).
+    status: "PAUSED",
+  });
+
+  if (source.optimization_sub_event && source.optimization_sub_event !== "NONE") {
+    body.set("optimization_sub_event", source.optimization_sub_event);
+  }
+  if (source.destination_type && source.destination_type !== "UNDEFINED") {
+    body.set("destination_type", source.destination_type);
+  }
+  if (source.promoted_object) {
+    const po: Record<string, unknown> = { ...source.promoted_object };
+    delete po.smart_pse_enabled; // read-only
+    body.set("promoted_object", JSON.stringify(po));
+  }
+  if (source.attribution_spec) {
+    body.set("attribution_spec", JSON.stringify(source.attribution_spec));
+  }
+
+  if (!isCBO) {
+    if (source.bid_strategy) body.set("bid_strategy", source.bid_strategy);
+    if (source.bid_amount != null) body.set("bid_amount", String(source.bid_amount));
+    if (source.bid_constraints) {
+      body.set("bid_constraints", JSON.stringify(source.bid_constraints));
+    }
+    if (hasPositiveMinorUnits(source.lifetime_budget)) {
+      body.set("lifetime_budget", String(source.lifetime_budget));
+    } else if (hasPositiveMinorUnits(source.daily_budget)) {
+      body.set("daily_budget", String(source.daily_budget));
+    }
+  }
+
+  const schedule = computeRebuildSchedule(source, effectiveLifetime);
+  if (schedule.start_time) body.set("start_time", schedule.start_time);
+  if (schedule.end_time) body.set("end_time", schedule.end_time);
+
+  if (Array.isArray(source.adset_schedule) && source.adset_schedule.length > 0) {
+    body.set("pacing_type", JSON.stringify(["day_parting"]));
+    body.set("adset_schedule", JSON.stringify(source.adset_schedule));
+  }
+
+  if (source.is_dynamic_creative) body.set("is_dynamic_creative", "true");
+
+  return body;
+}
+
+/**
+ * Fallback when native ad-set `/copies` is permanently refused (e.g. the source
+ * targeting is now invalid by current rules, like Explore Home without Explore).
+ * The `/copies` endpoint can't override targeting and the source can't be edited
+ * (it may belong to an ended campaign), so we reconstruct the ad set instead:
+ * read the source, sanitize, and create it in the target campaign.
+ *
+ * Gated by `validate_only`: if Meta won't accept the reconstructed ad set we
+ * throw the ORIGINAL copy rejection so the caller rolls back exactly as before —
+ * the rebuild can only ever turn a failure into a success, never mask one.
+ * The SOURCE ad set is never modified. Ads are copied in by the caller.
+ */
+async function rebuildAdsetInto(args: {
+  accountId: string;
+  sourceAdsetId: string;
+  targetCampaignId: string;
+  accessToken: string;
+  isCBO: boolean;
+  campaignLifetime: boolean;
+  originalError: unknown;
+}): Promise<string> {
+  const {
+    accountId,
+    sourceAdsetId,
+    targetCampaignId,
+    accessToken,
+    isCBO,
+    campaignLifetime,
+    originalError,
+  } = args;
+  const act = formatAccountId(accountId);
+
+  const source = await metaApiCall<AdsetFull>({
+    domain: "FACEBOOK",
+    method: "GET",
+    path: sourceAdsetId,
+    params: `fields=${ADSET_REBUILD_FIELDS}`,
+    accessToken,
+  });
+
+  const effectiveLifetime = isCBO
+    ? campaignLifetime
+    : hasPositiveMinorUnits(source.lifetime_budget);
+
+  const body = buildRebuildAdsetBody({
+    source,
+    targetCampaignId,
+    isCBO,
+    effectiveLifetime,
+  });
+
+  const validateBody = new URLSearchParams(body);
+  validateBody.set("execution_options", VALIDATE_ONLY);
+  try {
+    await metaApiCall<{ success?: boolean }>({
+      domain: "FACEBOOK",
+      method: "POST",
+      path: `${act}/adsets`,
+      params: "",
+      body: validateBody,
+      accessToken,
+    });
+  } catch {
+    // Couldn't repair into a valid ad set — surface the real copy rejection.
+    throw originalError;
+  }
+
+  const created = await metaApiCall<{ id?: string }>({
+    domain: "FACEBOOK",
+    method: "POST",
+    path: `${act}/adsets`,
+    params: "",
+    body,
+    accessToken,
+  });
+  if (!created.id) throw missingCopyIdError("do conjunto");
+  return created.id;
+}
+
+/**
+ * Copy an ad set natively, falling back to a `validate_only`-gated rebuild when
+ * native `/copies` is permanently refused. Returns the new ad set id.
+ */
+async function copyOrRebuildAdsetInto(args: {
+  accountId: string;
+  sourceAdsetId: string;
+  targetCampaignId: string;
+  accessToken: string;
+  isCBO: boolean;
+  campaignLifetime: boolean;
+}): Promise<string> {
+  const {
+    accountId,
+    sourceAdsetId,
+    targetCampaignId,
+    accessToken,
+    isCBO,
+    campaignLifetime,
+  } = args;
+
+  let copiedAdsetId: string | undefined;
+  try {
+    copiedAdsetId = await copyAdsetInto(
+      sourceAdsetId,
+      targetCampaignId,
+      accessToken,
+    );
+  } catch (copyErr) {
+    if (!isPermanentGraphFailure(copyErr)) throw copyErr;
+    return rebuildAdsetInto({
+      accountId,
+      sourceAdsetId,
+      targetCampaignId,
+      accessToken,
+      isCBO,
+      campaignLifetime,
+      originalError: copyErr,
+    });
+  }
+  if (!copiedAdsetId) throw missingCopyIdError("do conjunto");
+  return copiedAdsetId;
 }
 
 /**
@@ -647,6 +983,13 @@ export async function duplicateCampaign(args: {
     const sourceTree = await getCampaignTree(campaignId, accessToken);
     const sourceAdsets = sourceTree.adsets?.data ?? [];
 
+    // Budget mode of the source campaign decides what a rebuild may set on an
+    // ad set: under CBO the budget/bid live on the (already copied) campaign.
+    const isCBO =
+      hasPositiveMinorUnits(sourceTree.daily_budget) ||
+      hasPositiveMinorUnits(sourceTree.lifetime_budget);
+    const campaignLifetime = hasPositiveMinorUnits(sourceTree.lifetime_budget);
+
     const siblings = await metaApiCall<{ data?: NamedNode[] }>({
       domain: "FACEBOOK",
       method: "GET",
@@ -685,12 +1028,14 @@ export async function duplicateCampaign(args: {
     const adsetStates: AdsetCopyState[] = [];
 
     for (const sourceAdset of sourceAdsets) {
-      const copiedAdsetId = await copyAdsetInto(
-        sourceAdset.id,
-        newCampaignId,
+      const copiedAdsetId = await copyOrRebuildAdsetInto({
+        accountId: act,
+        sourceAdsetId: sourceAdset.id,
+        targetCampaignId: newCampaignId,
         accessToken,
-      );
-      if (!copiedAdsetId) throw missingCopyIdError("do conjunto");
+        isCBO,
+        campaignLifetime,
+      });
       tracker.track("adset", copiedAdsetId);
 
       const sourceAds =
@@ -753,7 +1098,7 @@ export async function duplicateAdSet(args: {
   /** Website URL injected into ad copies whose creative lacks one (sales). */
   fallbackPromotionUrl?: string;
 }): Promise<DuplicateResult> {
-  const { adsetId, accessToken, fallbackPromotionUrl } = args;
+  const { accountId, adsetId, accessToken, fallbackPromotionUrl } = args;
   const tracker = new CreatedObjectsTracker();
 
   try {
@@ -767,7 +1112,7 @@ export async function duplicateAdSet(args: {
 
     if (!source.campaign_id) throw missingCopyIdError("da campanha de origem");
 
-    const [siblings, sourceAds] = await Promise.all([
+    const [siblings, sourceAds, campaign] = await Promise.all([
       metaApiCall<{ data?: NamedNode[] }>({
         domain: "FACEBOOK",
         method: "GET",
@@ -776,19 +1121,33 @@ export async function duplicateAdSet(args: {
         accessToken,
       }),
       listAdsetAds(adsetId, accessToken),
+      metaApiCall<{ daily_budget?: string; lifetime_budget?: string }>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: source.campaign_id,
+        params: "fields=daily_budget,lifetime_budget",
+        accessToken,
+      }),
     ]);
+
+    const isCBO =
+      hasPositiveMinorUnits(campaign.daily_budget) ||
+      hasPositiveMinorUnits(campaign.lifetime_budget);
+    const campaignLifetime = hasPositiveMinorUnits(campaign.lifetime_budget);
 
     const newName = resolveCopyName(
       source.name ?? "Conjunto",
       (siblings.data ?? []).map((a) => a.name ?? ""),
     );
 
-    const newAdsetId = await copyAdsetInto(
-      adsetId,
-      source.campaign_id,
+    const newAdsetId = await copyOrRebuildAdsetInto({
+      accountId,
+      sourceAdsetId: adsetId,
+      targetCampaignId: source.campaign_id,
       accessToken,
-    );
-    if (!newAdsetId) throw missingCopyIdError("do conjunto");
+      isCBO,
+      campaignLifetime,
+    });
     tracker.track("adset", newAdsetId);
 
     const copiedAds = await copyAdsIntoAdsetStrict(
