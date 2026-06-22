@@ -6,6 +6,7 @@ import {
   GraphApiError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { getManagedPageTokens } from "@/lib/meta-business/get-page-tokens";
 import type {
   AdMediaErrorResponse,
   AdMediaItem,
@@ -46,6 +47,7 @@ type GraphTemplateData = {
 };
 
 type GraphObjectStorySpec = {
+  page_id?: string;
   link_data?: GraphLinkData;
   video_data?: GraphVideoData;
   template_data?: GraphTemplateData;
@@ -76,6 +78,9 @@ type GraphCreativeFull = {
   object_story_spec?: GraphObjectStorySpec;
   asset_feed_spec?: GraphAssetFeedSpec;
   source_instagram_media_id?: string;
+  effective_object_story_id?: string;
+  object_story_id?: string;
+  object_id?: string;
 };
 
 type GraphAdImagesResponse = {
@@ -115,6 +120,12 @@ type VideoDraft = {
   videoId: string;
   posterUrl?: string;
   name?: string;
+  /**
+   * Id of the Facebook Page that owns this video, when the ad was sourced from
+   * an existing Page/Instagram post. Page-owned videos can't be read with the
+   * user token (Meta code 10) — they need the owning Page's access token.
+   */
+  owningPageId?: string;
 };
 
 type Draft = ImageDraft | VideoDraft;
@@ -126,13 +137,22 @@ const CREATIVE_FIELDS = [
   "image_hash",
   "thumbnail_url",
   "video_id",
-  "object_story_spec{link_data{picture,image_hash,child_attachments{picture,image_hash,video_id,name,description,link}},video_data{video_id,image_url,image_hash},template_data{picture,image_hash}}",
+  "object_story_spec{page_id,link_data{picture,image_hash,child_attachments{picture,image_hash,video_id,name,description,link}},video_data{video_id,image_url,image_hash},template_data{picture,image_hash}}",
   "asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url}}",
   "source_instagram_media_id",
+  "effective_object_story_id",
+  "object_story_id",
+  "object_id",
 ].join(",");
 
 const VIDEO_FIELDS = "source,picture,permalink_url,status,length,format";
 const ADIMAGE_FIELDS = "hash,url,permalink_url,width,height";
+
+// Shown when a Page/Instagram-owned video can't be resolved to a downloadable
+// source (most commonly because the advertiser doesn't manage the owning Page).
+// Paired with a permalink so the user can still open the original publication.
+const PAGE_OWNED_UNRESOLVED_MESSAGE =
+  "Este vídeo pertence a uma Página/Instagram e não pôde ser baixado por aqui. Você pode abri-lo no Facebook/Instagram pelo link abaixo.";
 
 // Meta's video endpoint returns a generic "unexpected error" for short bursts
 // of transient failures. Retry twice with growing backoff before giving up so
@@ -173,14 +193,69 @@ type VideoFetchError = { __error: true; message: string };
 
 function describeVideoError(err: unknown): string {
   if (err instanceof GraphApiError) {
+    const { data, reason } = err.errorReturn;
+    // Prefer the real Meta message (data.*) over the generic mapped reason, so
+    // an unmapped code (e.g. 10 "Application does not have permission") surfaces
+    // its actual cause instead of the catch-all "erro inesperado".
     return (
-      err.errorReturn.reason.message ??
-      err.errorReturn.reason.title ??
+      data?.errorUserMsg ??
+      data?.message ??
+      reason.message ??
+      reason.title ??
       "Erro desconhecido da Meta."
     );
   }
   if (err instanceof Error) return err.message;
   return "Erro desconhecido.";
+}
+
+/** Page id prefix of a Graph story id formatted `{page_id}_{post_id}`. */
+function pageIdFromStoryId(storyId: string | undefined): string | undefined {
+  const [pageId] = storyId?.split("_") ?? [];
+  return pageId || undefined;
+}
+
+/**
+ * Resolves the Page that owns a creative's media, mirroring the resolution
+ * order used elsewhere for promotion edits (see marketing/promotion-link-edit).
+ * Returns undefined for account-owned creatives (no page backing).
+ */
+function resolveOwningPageId(
+  creative: GraphCreativeFull,
+): string | undefined {
+  return (
+    creative.object_id ??
+    creative.object_story_spec?.page_id ??
+    pageIdFromStoryId(creative.effective_object_story_id) ??
+    pageIdFromStoryId(creative.object_story_id)
+  );
+}
+
+/**
+ * Best-effort public link to view a Page/Instagram-owned video that we can't
+ * resolve to a downloadable source. Prefers the Graph `permalink_url`, then the
+ * canonical post URL from `effective_object_story_id`, then a Page video URL.
+ */
+function buildVideoPermalink(args: {
+  graphPermalink?: string;
+  effectiveObjectStoryId?: string;
+  owningPageId?: string;
+  videoId?: string;
+}): string | undefined {
+  const { graphPermalink, effectiveObjectStoryId, owningPageId, videoId } =
+    args;
+  if (graphPermalink) {
+    return graphPermalink.startsWith("/")
+      ? `https://www.facebook.com${graphPermalink}`
+      : graphPermalink;
+  }
+  if (effectiveObjectStoryId) {
+    return `https://www.facebook.com/${effectiveObjectStoryId}`;
+  }
+  if (owningPageId && videoId) {
+    return `https://www.facebook.com/${owningPageId}/videos/${videoId}`;
+  }
+  return undefined;
 }
 
 function slugify(input: string | undefined, fallback: string): string {
@@ -337,17 +412,40 @@ export async function GET(
       }
     }
 
-    const videoIds: string[] = Array.from(
-      new Set(drafts.filter((d): d is VideoDraft => d.kind === "video").map((d) => d.videoId)),
+    // De-dup video jobs by id, carrying the owning Page (all videos in a
+    // creative share one owning Page, so the first occurrence wins).
+    const videoJobs = new Map<string, { owningPageId?: string }>();
+    for (const d of drafts) {
+      if (d.kind === "video" && !videoJobs.has(d.videoId)) {
+        videoJobs.set(d.videoId, { owningPageId: d.owningPageId });
+      }
+    }
+
+    // Videos sourced from an existing Instagram/Page post are owned by the
+    // Page, not the ad account — the user token can't read them (Meta code 10).
+    // Fetch the managed Pages' tokens once and read those videos with the
+    // owning Page's token. Account-owned videos keep using the user token, so
+    // there's no extra call when nothing is page-owned.
+    const anyPageOwnedVideo = Array.from(videoJobs.values()).some(
+      (job) => job.owningPageId,
     );
+    const pageTokens = anyPageOwnedVideo
+      ? await getManagedPageTokens(accessToken)
+      : new Map<string, string>();
 
     const videoResults = new Map<string, GraphVideoResponse | VideoFetchError>();
-    if (videoIds.length > 0) {
+    if (videoJobs.size > 0) {
+      const jobEntries = Array.from(videoJobs.entries());
       const settled = await Promise.allSettled(
-        videoIds.map((vid) => fetchVideoWithRetry(vid, accessToken)),
+        jobEntries.map(([vid, job]) => {
+          const token =
+            (job.owningPageId && pageTokens.get(job.owningPageId)) ||
+            accessToken;
+          return fetchVideoWithRetry(vid, token);
+        }),
       );
       settled.forEach((res, idx) => {
-        const vid = videoIds[idx];
+        const [vid] = jobEntries[idx];
         if (res.status === "fulfilled") {
           videoResults.set(vid, res.value);
         } else {
@@ -357,6 +455,8 @@ export async function GET(
         }
       });
     }
+
+    const effectiveObjectStoryId = creative.effective_object_story_id;
 
     const items: AdMediaItem[] = [];
     drafts.forEach((draft, idx) => {
@@ -396,6 +496,26 @@ export async function GET(
       const filename = `${baseFilename}${drafts.length > 1 ? `-${idx + 1}` : ""}.mp4`;
 
       if (!videoData || "__error" in videoData) {
+        // Page-owned video we couldn't read (advertiser doesn't manage the
+        // owning Page → code 10). Degrade gracefully: poster + permalink, no
+        // download, with a clear reason instead of the generic error.
+        if (draft.owningPageId) {
+          items.push({
+            key: `vid-${idx}-${draft.videoId}`,
+            kind: "video",
+            previewUrl: draft.posterUrl ?? "",
+            posterUrl: draft.posterUrl,
+            videoStatus: "error",
+            videoErrorMessage: PAGE_OWNED_UNRESOLVED_MESSAGE,
+            permalinkUrl: buildVideoPermalink({
+              effectiveObjectStoryId,
+              owningPageId: draft.owningPageId,
+              videoId: draft.videoId,
+            }),
+            name: draft.name,
+          });
+          return;
+        }
         const detail =
           videoData && "__error" in videoData ? videoData.message : undefined;
         items.push({
@@ -448,6 +568,28 @@ export async function GET(
         return;
       }
 
+      // Resolved the video node but there's no playable source. For page-owned
+      // media (readable for metadata but not for `source`), offer the permalink
+      // instead of a dead-end status message.
+      if (draft.owningPageId) {
+        items.push({
+          key: `vid-${idx}-${draft.videoId}`,
+          kind: "video",
+          previewUrl: poster ?? "",
+          posterUrl: poster,
+          videoStatus: "error",
+          videoErrorMessage: PAGE_OWNED_UNRESOLVED_MESSAGE,
+          permalinkUrl: buildVideoPermalink({
+            graphPermalink: videoData.permalink_url,
+            effectiveObjectStoryId,
+            owningPageId: draft.owningPageId,
+            videoId: draft.videoId,
+          }),
+          name: draft.name,
+        });
+        return;
+      }
+
       items.push({
         key: `vid-${idx}-${draft.videoId}`,
         kind: "video",
@@ -483,6 +625,10 @@ function aggregateDrafts(creative: GraphCreativeFull): {
   drafts: Draft[];
   layout: AdMediaLayout;
 } {
+  // Every video in a creative shares one owning Page (the creative-level
+  // backing Page / Instagram identity), so resolve it once and stamp it on each
+  // video draft.
+  const owningPageId = resolveOwningPageId(creative);
   const linkData = creative.object_story_spec?.link_data;
   const children = linkData?.child_attachments;
 
@@ -495,6 +641,7 @@ function aggregateDrafts(creative: GraphCreativeFull): {
           videoId: c.video_id,
           posterUrl: c.picture,
           name: c.name,
+          owningPageId,
         };
       }
       return {
@@ -519,6 +666,7 @@ function aggregateDrafts(creative: GraphCreativeFull): {
           index: idx,
           videoId: v.video_id,
           posterUrl: v.thumbnail_url,
+          owningPageId,
         });
       }
     });
@@ -547,6 +695,7 @@ function aggregateDrafts(creative: GraphCreativeFull): {
           index: 0,
           videoId: topVideoId,
           posterUrl: videoData?.image_url ?? creative.thumbnail_url ?? creative.image_url,
+          owningPageId,
         },
       ],
       layout: "single_video",

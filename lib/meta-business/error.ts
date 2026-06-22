@@ -152,6 +152,15 @@ const errorMap: Record<string, MappedError> = {
       "Reduza a frequência das requisições e aguarde antes de tentar de novo.",
     isTransient: true,
   },
+  "10": {
+    httpStatusCode: 403,
+    title: "Permissão negada pela Meta",
+    message:
+      "O aplicativo não tem permissão para acessar este recurso com o token atual. Normalmente isso ocorre quando o vídeo pertence a uma Página ou conta do Instagram que não é gerenciada por esta conta.",
+    solution:
+      "Garanta que a Página dona da publicação esteja conectada/gerenciada por esta conta, ou baixe a mídia diretamente pelo Facebook/Instagram.",
+    isTransient: false,
+  },
   "17": {
     httpStatusCode: 429,
     title: "Limite do usuário excedido",

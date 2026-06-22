@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  ExternalLink,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -321,6 +322,17 @@ function MediaSlide({ item, altText }: MediaSlideProps) {
           ? "O vídeo ainda está sendo processado pela Meta. Tente novamente em alguns instantes."
           : item.videoErrorMessage ?? "Não foi possível processar este vídeo."}
       </p>
+      {item.permalinkUrl && (
+        <a
+          href={item.permalinkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          <ExternalLink className="size-4" />
+          Ver no Facebook/Instagram
+        </a>
+      )}
     </div>
   );
 }

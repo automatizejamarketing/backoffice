@@ -15,6 +15,13 @@ export type AdMediaItem = {
   downloadFilename?: string;
   videoStatus?: "ready" | "processing" | "error";
   videoErrorMessage?: string;
+  /**
+   * Link to view the media on Facebook/Instagram. Set on the degraded path when
+   * a Page/Instagram-owned video can't be resolved to a downloadable source
+   * (the advertiser doesn't manage the owning Page), so the user can still open
+   * the original publication.
+   */
+  permalinkUrl?: string;
   name?: string;
 };
 
