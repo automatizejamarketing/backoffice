@@ -7,6 +7,11 @@ import {
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getManagedPageTokens } from "@/lib/meta-business/get-page-tokens";
+import {
+  getUserInstagramTokens,
+  resolveInstagramMedia,
+  type InstagramMediaResolved,
+} from "@/lib/meta-business/get-instagram-media";
 import type {
   AdMediaErrorResponse,
   AdMediaItem,
@@ -48,6 +53,7 @@ type GraphTemplateData = {
 
 type GraphObjectStorySpec = {
   page_id?: string;
+  instagram_user_id?: string;
   link_data?: GraphLinkData;
   video_data?: GraphVideoData;
   template_data?: GraphTemplateData;
@@ -78,6 +84,9 @@ type GraphCreativeFull = {
   object_story_spec?: GraphObjectStorySpec;
   asset_feed_spec?: GraphAssetFeedSpec;
   source_instagram_media_id?: string;
+  effective_instagram_media_id?: string;
+  instagram_permalink_url?: string;
+  instagram_user_id?: string;
   effective_object_story_id?: string;
   object_story_id?: string;
   object_id?: string;
@@ -137,9 +146,12 @@ const CREATIVE_FIELDS = [
   "image_hash",
   "thumbnail_url",
   "video_id",
-  "object_story_spec{page_id,link_data{picture,image_hash,child_attachments{picture,image_hash,video_id,name,description,link}},video_data{video_id,image_url,image_hash},template_data{picture,image_hash}}",
+  "object_story_spec{page_id,instagram_user_id,link_data{picture,image_hash,child_attachments{picture,image_hash,video_id,name,description,link}},video_data{video_id,image_url,image_hash},template_data{picture,image_hash}}",
   "asset_feed_spec{images{hash,url},videos{video_id,thumbnail_url}}",
   "source_instagram_media_id",
+  "effective_instagram_media_id",
+  "instagram_permalink_url",
+  "instagram_user_id",
   "effective_object_story_id",
   "object_story_id",
   "object_id",
@@ -458,6 +470,48 @@ export async function GET(
 
     const effectiveObjectStoryId = creative.effective_object_story_id;
 
+    // Instagram fallback context. Ads built from an IG Reel/post reference an
+    // IG-native video whose Facebook node is unreadable even with the owning
+    // Page's token (code 10 — the media lives on Instagram). When the creative
+    // is IG-sourced and has exactly one video, resolve it via the Instagram
+    // Graph API with the user's IG token (matched to the creative's IG account).
+    const igMediaId =
+      creative.effective_instagram_media_id ??
+      creative.source_instagram_media_id;
+    const igPostUrl = creative.instagram_permalink_url;
+    const creativeIgUserId =
+      creative.instagram_user_id ??
+      creative.object_story_spec?.instagram_user_id;
+
+    const igResolved = new Map<string, InstagramMediaResolved>();
+    const videoDraftsList = drafts.filter(
+      (d): d is VideoDraft => d.kind === "video",
+    );
+    if (igMediaId && videoDraftsList.length === 1) {
+      const onlyVideo = videoDraftsList[0];
+      const fb = videoResults.get(onlyVideo.videoId);
+      const fbReady =
+        !!fb &&
+        !("__error" in fb) &&
+        fb.status?.video_status === "ready" &&
+        !!fb.source;
+      const fbProcessing =
+        !!fb && !("__error" in fb) && fb.status?.video_status === "processing";
+      // Only reach for Instagram when Facebook couldn't hand us a playable
+      // source and the video isn't still processing — keeps every currently
+      // working path (account videos, Page-owned videos) untouched.
+      if (!fbReady && !fbProcessing) {
+        const igTokens = await getUserInstagramTokens(userId);
+        const igToken =
+          (creativeIgUserId && igTokens.byUser.get(creativeIgUserId)) ||
+          igTokens.all[0];
+        if (igToken) {
+          const resolved = await resolveInstagramMedia(igMediaId, igToken);
+          if (resolved?.mediaUrl) igResolved.set(onlyVideo.videoId, resolved);
+        }
+      }
+    }
+
     const items: AdMediaItem[] = [];
     drafts.forEach((draft, idx) => {
       if (draft.kind === "image") {
@@ -492,54 +546,22 @@ export async function GET(
       }
 
       const videoData = videoResults.get(draft.videoId);
+      const igFallback = igResolved.get(draft.videoId);
       const baseFilename = slugify(adShallow.name, adShallow.id ?? adId);
       const filename = `${baseFilename}${drafts.length > 1 ? `-${idx + 1}` : ""}.mp4`;
 
-      if (!videoData || "__error" in videoData) {
-        // Page-owned video we couldn't read (advertiser doesn't manage the
-        // owning Page → code 10). Degrade gracefully: poster + permalink, no
-        // download, with a clear reason instead of the generic error.
-        if (draft.owningPageId) {
-          items.push({
-            key: `vid-${idx}-${draft.videoId}`,
-            kind: "video",
-            previewUrl: draft.posterUrl ?? "",
-            posterUrl: draft.posterUrl,
-            videoStatus: "error",
-            videoErrorMessage: PAGE_OWNED_UNRESOLVED_MESSAGE,
-            permalinkUrl: buildVideoPermalink({
-              effectiveObjectStoryId,
-              owningPageId: draft.owningPageId,
-              videoId: draft.videoId,
-            }),
-            name: draft.name,
-          });
-          return;
-        }
-        const detail =
-          videoData && "__error" in videoData ? videoData.message : undefined;
+      const fbOk =
+        videoData && !("__error" in videoData) ? videoData : undefined;
+      const fbStatus = fbOk?.status?.video_status;
+      const poster = draft.posterUrl ?? fbOk?.picture ?? igFallback?.thumbnailUrl;
+
+      // 1. Facebook resolved a playable source (account-uploaded videos and
+      //    Page-owned regular videos). Unchanged from before.
+      if (fbStatus === "ready" && fbOk?.source) {
         items.push({
           key: `vid-${idx}-${draft.videoId}`,
           kind: "video",
-          previewUrl: draft.posterUrl ?? "",
-          posterUrl: draft.posterUrl,
-          videoStatus: "error",
-          videoErrorMessage: detail
-            ? `Não foi possível obter informações deste vídeo: ${detail}`
-            : "Não foi possível obter informações deste vídeo.",
-          name: draft.name,
-        });
-        return;
-      }
-
-      const status = videoData.status?.video_status;
-      const poster = draft.posterUrl ?? videoData.picture;
-
-      if (status === "ready" && videoData.source) {
-        items.push({
-          key: `vid-${idx}-${draft.videoId}`,
-          kind: "video",
-          previewUrl: videoData.source,
+          previewUrl: fbOk.source,
           posterUrl: poster,
           videoStatus: "ready",
           downloadUrl: buildDownloadUrl({
@@ -547,7 +569,7 @@ export async function GET(
             adId,
             userId,
             kind: "video",
-            url: videoData.source,
+            url: fbOk.source,
             filename,
           }),
           downloadFilename: filename,
@@ -556,7 +578,31 @@ export async function GET(
         return;
       }
 
-      if (status === "processing") {
+      // 2. Instagram fallback resolved a media_url — IG-native Reels whose
+      //    Facebook node is unreadable even with the owning Page's token.
+      if (igFallback?.mediaUrl) {
+        items.push({
+          key: `vid-${idx}-${draft.videoId}`,
+          kind: "video",
+          previewUrl: igFallback.mediaUrl,
+          posterUrl: poster,
+          videoStatus: "ready",
+          downloadUrl: buildDownloadUrl({
+            accountId,
+            adId,
+            userId,
+            kind: "video",
+            url: igFallback.mediaUrl,
+            filename,
+          }),
+          downloadFilename: filename,
+          name: draft.name,
+        });
+        return;
+      }
+
+      // 3. Facebook says the video is still being processed by Meta.
+      if (fbStatus === "processing") {
         items.push({
           key: `vid-${idx}-${draft.videoId}`,
           kind: "video",
@@ -568,10 +614,10 @@ export async function GET(
         return;
       }
 
-      // Resolved the video node but there's no playable source. For page-owned
-      // media (readable for metadata but not for `source`), offer the permalink
-      // instead of a dead-end status message.
-      if (draft.owningPageId) {
+      // 4. Page/Instagram-owned video we couldn't resolve to a source. Degrade
+      //    gracefully: poster + permalink (prefer the real IG post URL), no
+      //    download, with a clear reason instead of the generic error.
+      if (draft.owningPageId || igMediaId) {
         items.push({
           key: `vid-${idx}-${draft.videoId}`,
           kind: "video",
@@ -579,26 +625,34 @@ export async function GET(
           posterUrl: poster,
           videoStatus: "error",
           videoErrorMessage: PAGE_OWNED_UNRESOLVED_MESSAGE,
-          permalinkUrl: buildVideoPermalink({
-            graphPermalink: videoData.permalink_url,
-            effectiveObjectStoryId,
-            owningPageId: draft.owningPageId,
-            videoId: draft.videoId,
-          }),
+          permalinkUrl:
+            igPostUrl ??
+            buildVideoPermalink({
+              graphPermalink: fbOk?.permalink_url,
+              effectiveObjectStoryId,
+              owningPageId: draft.owningPageId,
+              videoId: draft.videoId,
+            }),
           name: draft.name,
         });
         return;
       }
 
+      // 5. Account-owned video that still failed — surface the real Meta error
+      //    (or status) instead of the generic one.
+      const detail =
+        videoData && "__error" in videoData ? videoData.message : undefined;
       items.push({
         key: `vid-${idx}-${draft.videoId}`,
         kind: "video",
         previewUrl: poster ?? "",
         posterUrl: poster,
         videoStatus: "error",
-        videoErrorMessage: status
-          ? `Status do vídeo: ${status}.`
-          : "O vídeo não está pronto para download.",
+        videoErrorMessage: detail
+          ? `Não foi possível obter informações deste vídeo: ${detail}`
+          : fbStatus
+            ? `Status do vídeo: ${fbStatus}.`
+            : "Não foi possível obter informações deste vídeo.",
         name: draft.name,
       });
     });
