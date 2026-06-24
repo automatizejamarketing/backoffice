@@ -8,7 +8,11 @@ import {
   graphErrorToClientError,
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
-import { duplicateAd, duplicateErrorExtras } from "@/lib/meta-business/duplicate";
+import {
+  duplicateAd,
+  duplicateErrorExtras,
+  type RepairedCreativeItem,
+} from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
 
 export type DuplicateAdResponse = {
@@ -16,6 +20,8 @@ export type DuplicateAdResponse = {
   id: string;
   name: string;
   auditLogFailed?: boolean;
+  /** Ads whose creative was adjusted for compatibility (crop, enhancements, link). */
+  repairedCreatives?: RepairedCreativeItem[];
 };
 
 export type DuplicateErrorResponse = {
@@ -115,7 +121,15 @@ export async function POST(
     }
 
     return NextResponse.json(
-      { success: true, id: result.id, name: result.name, auditLogFailed },
+      {
+        success: true,
+        id: result.id,
+        name: result.name,
+        auditLogFailed,
+        ...(result.repairedCreatives?.length
+          ? { repairedCreatives: result.repairedCreatives }
+          : {}),
+      },
       { status: 201 },
     );
   } catch (error) {

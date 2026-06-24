@@ -10,10 +10,20 @@ import {
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
   duplicateCampaign,
+  DuplicateInProgressError,
   duplicateErrorExtras,
   type SkippedItem,
+  type ReplacedInterestsItem,
+  type RepairedCreativeItem,
+  type RebuiltAdsetItem,
 } from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
+
+/**
+ * The async deep-copy fast path polls Meta's request set within the request; allow
+ * up to 60s so larger trees finish before we report "in progress" or fall back.
+ */
+export const maxDuration = 60;
 
 export type DuplicateCampaignResponse = {
   success: boolean;
@@ -24,6 +34,12 @@ export type DuplicateCampaignResponse = {
   skippedAds?: SkippedItem[];
   /** Ad sets dropped because all their ads were skipped. */
   skippedAdsets?: SkippedItem[];
+  /** Deprecated targeting interests swapped for Meta's alternatives during a rebuild. */
+  replacedInterests?: ReplacedInterestsItem[];
+  /** Ads whose creative was adjusted for compatibility (crop, enhancements, link). */
+  repairedCreatives?: RepairedCreativeItem[];
+  /** Ad sets reconstructed instead of natively copied (review config/dates). */
+  rebuiltAdsets?: RebuiltAdsetItem[];
 };
 
 export type DuplicateErrorResponse = {
@@ -34,6 +50,13 @@ export type DuplicateErrorResponse = {
   orphanIds?: string[];
 };
 
+/** Async deep-copy still running on Meta's side when the request budget ran out. */
+export type DuplicateInProgressResponse = {
+  success: boolean;
+  inProgress: boolean;
+  message: string;
+};
+
 export type DuplicateCampaignRequestBody = {
   /** Website URL injected into ad copies whose creative lacks one (sales). */
   promotionUrl?: string;
@@ -42,7 +65,13 @@ export type DuplicateCampaignRequestBody = {
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string; campaignId: string }> },
-): Promise<NextResponse<DuplicateCampaignResponse | DuplicateErrorResponse>> {
+): Promise<
+  NextResponse<
+    | DuplicateCampaignResponse
+    | DuplicateInProgressResponse
+    | DuplicateErrorResponse
+  >
+> {
   enterMetaMutationLog({
     app: "backoffice",
     route: "POST /api/meta-marketing/{accountId}/campaigns/{campaignId}/duplicate",
@@ -135,10 +164,30 @@ export async function POST(
         ...(result.skippedAdsets?.length
           ? { skippedAdsets: result.skippedAdsets }
           : {}),
+        ...(result.replacedInterests?.length
+          ? { replacedInterests: result.replacedInterests }
+          : {}),
+        ...(result.repairedCreatives?.length
+          ? { repairedCreatives: result.repairedCreatives }
+          : {}),
+        ...(result.rebuiltAdsets?.length
+          ? { rebuiltAdsets: result.rebuiltAdsets }
+          : {}),
       },
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof DuplicateInProgressError) {
+      return NextResponse.json(
+        {
+          success: true,
+          inProgress: true,
+          message:
+            "A duplicação está em andamento na Meta e pode levar alguns instantes. Atualize a lista em breve para ver a cópia.",
+        },
+        { status: 202 },
+      );
+    }
     const errorReturn = errorToGraphErrorReturn(error);
     const clientError = graphErrorToClientError(errorReturn);
     console.error("[POST campaign duplicate] Error:", errorReturn);

@@ -14,11 +14,92 @@ export type GraphErrorJSONResponse<T> = {
   error: GraphErrorInfo & T;
 };
 
+/**
+ * Rate-limit timing surfaced from Meta response headers on a throttle/error so
+ * callers can back off the server-suggested amount instead of guessing. All
+ * optional — Meta only sends these on some responses.
+ */
+export type RateLimitInfo = {
+  /** From the `Retry-After` header (seconds → ms). */
+  retryAfterMs?: number;
+  /**
+   * From `estimated_time_to_regain_access` (minutes) in X-Business-Use-Case-Usage,
+   * or `reset_time_duration` (seconds) in X-Ad-Account-Usage, normalized to ms.
+   */
+  estimatedRegainMs?: number;
+};
+
 export type GraphErrorReturn = {
   statusCode: number;
   reason: MappedError;
   data?: GraphErrorInfo;
+  /** Rate-limit timing parsed from response headers (present on some throttles). */
+  rateLimit?: RateLimitInfo;
 };
+
+/**
+ * Parse Meta's rate-limit timing from response headers; `undefined` when none are
+ * present. Used by throttle-aware callers (e.g. campaign duplication) to wait the
+ * server-suggested time before retrying. This adapts to the app's Marketing API
+ * access tier automatically — lower tiers report longer regain times — so callers
+ * don't need to know the tier in advance.
+ *
+ * - `Retry-After`: standard, in seconds.
+ * - `X-Business-Use-Case-Usage`: `{ "<acct>": [{ estimated_time_to_regain_access, ... }] }`, minutes.
+ * - `X-Ad-Account-Usage`: `{ reset_time_duration, ... }`, seconds.
+ */
+export function parseRateLimitHeaders(headers: Headers): RateLimitInfo | undefined {
+  const info: RateLimitInfo = {};
+
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter) {
+    const secs = Number(retryAfter);
+    if (Number.isFinite(secs) && secs >= 0) info.retryAfterMs = secs * 1000;
+  }
+
+  const buc = headers.get("x-business-use-case-usage");
+  if (buc) {
+    try {
+      const parsed = JSON.parse(buc) as Record<
+        string,
+        Array<Record<string, unknown>>
+      >;
+      for (const entries of Object.values(parsed)) {
+        for (const entry of entries ?? []) {
+          const regainMin = Number(entry["estimated_time_to_regain_access"]);
+          if (Number.isFinite(regainMin) && regainMin > 0) {
+            info.estimatedRegainMs = Math.max(
+              info.estimatedRegainMs ?? 0,
+              regainMin * 60_000,
+            );
+          }
+        }
+      }
+    } catch {
+      /* ignore malformed header */
+    }
+  }
+
+  const accUsage = headers.get("x-ad-account-usage");
+  if (accUsage) {
+    try {
+      const parsed = JSON.parse(accUsage) as Record<string, unknown>;
+      const resetSecs = Number(parsed["reset_time_duration"]);
+      if (Number.isFinite(resetSecs) && resetSecs > 0) {
+        info.estimatedRegainMs = Math.max(
+          info.estimatedRegainMs ?? 0,
+          resetSecs * 1000,
+        );
+      }
+    } catch {
+      /* ignore malformed header */
+    }
+  }
+
+  return info.retryAfterMs != null || info.estimatedRegainMs != null
+    ? info
+    : undefined;
+}
 
 /**
  * Custom error class for Graph API errors.

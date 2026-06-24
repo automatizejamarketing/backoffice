@@ -7,6 +7,7 @@ import {
   genericError,
   GraphApiError,
   parseGraphError,
+  parseRateLimitHeaders,
   type GraphErrorReturn,
 } from "./error";
 import { appSecretProofParam, facebookAppSecret } from "./appsecret-proof";
@@ -72,6 +73,9 @@ export async function metaApiCall<T>({
     const durationMs = Date.now() - startedAt;
 
     if (!response.ok) {
+      // Rate-limit timing (Retry-After / estimated_time_to_regain_access) so the
+      // caller can back off the server-suggested amount instead of guessing.
+      const rateLimit = parseRateLimitHeaders(response.headers);
       let json: unknown;
       try {
         json = await response.json();
@@ -88,6 +92,7 @@ export async function metaApiCall<T>({
           statusCode: response.status,
           reason: genericError,
           data: undefined,
+          ...(rateLimit && { rateLimit }),
         });
       }
 
@@ -104,13 +109,17 @@ export async function metaApiCall<T>({
       const errorReturn = parseGraphError(json);
 
       if (errorReturn.data) {
-        throw new GraphApiError(errorReturn);
+        throw new GraphApiError({
+          ...errorReturn,
+          ...(rateLimit && { rateLimit }),
+        });
       }
 
       throw new GraphApiError({
         statusCode: response.status,
         reason: genericError,
         data: undefined,
+        ...(rateLimit && { rateLimit }),
       });
     }
 

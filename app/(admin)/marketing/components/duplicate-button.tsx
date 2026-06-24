@@ -54,10 +54,36 @@ type SkippedItem = { sourceId: string; sourceName?: string; reason: string };
 
 type DuplicateSuccessPayload = {
   name?: string;
+  /** 202 — async deep-copy still running on Meta's side; the user should refresh. */
+  inProgress?: boolean;
+  message?: string;
   /** Ads Meta refused to copy (e.g. copyrighted-music reels) — partial success. */
   skippedAds?: SkippedItem[];
   /** Ad sets dropped because all their ads were skipped. */
   skippedAdsets?: SkippedItem[];
+  /** Deprecated targeting interests swapped for Meta's alternatives (info, not a failure). */
+  replacedInterests?: Array<{
+    sourceAdsetId: string;
+    sourceAdsetName?: string;
+    replacements: Array<{
+      fromId: string;
+      fromName?: string;
+      toId: string;
+      toName?: string;
+    }>;
+  }>;
+  /** Ads whose creative was adjusted for compatibility (crop, enhancements, link). */
+  repairedCreatives?: Array<{
+    sourceAdId: string;
+    sourceAdName?: string;
+    repairs: string[];
+  }>;
+  /** Ad sets reconstructed instead of natively copied (config/dates may differ). */
+  rebuiltAdsets?: Array<{
+    sourceAdsetId: string;
+    sourceAdsetName?: string;
+    scheduleShifted: boolean;
+  }>;
 };
 
 /** Short, human summary of what got skipped, for a success-with-warnings toast. */
@@ -74,6 +100,48 @@ function describeSkips(data: DuplicateSuccessPayload): string | null {
   }
   const reason = ads[0]?.reason ?? adsets[0]?.reason;
   return reason ? `${parts.join(" · ")}. ${reason}` : parts.join(" · ");
+}
+
+/**
+ * Notice for deprecated targeting interests that were auto-swapped for Meta's
+ * recommended alternatives during a rebuild. The user must be told exactly what
+ * changed because it affects ad delivery.
+ */
+function describeReplacedInterests(data: DuplicateSuccessPayload): string | null {
+  const all = (data.replacedInterests ?? []).flatMap((it) => it.replacements);
+  if (all.length === 0) return null;
+  const pairs = Array.from(
+    new Set(all.map((r) => `${r.fromName ?? r.fromId} → ${r.toName ?? r.toId}`)),
+  );
+  const shown = pairs.slice(0, 8).join(", ");
+  const extra = pairs.length > 8 ? ` e mais ${pairs.length - 8}` : "";
+  return `${all.length} interesse(s) de segmentação obsoleto(s) substituído(s) pela recomendação da Meta (afeta a entrega): ${shown}${extra}.`;
+}
+
+const REPAIR_LABELS: Record<string, string> = {
+  "standard-enhancements": "aprimoramentos automáticos",
+  "image-crop": "corte de imagem",
+  "promotion-url": "link de destino",
+};
+
+/** Notice for ads whose creative was non-destructively adjusted for compatibility. */
+function describeRepairedCreatives(data: DuplicateSuccessPayload): string | null {
+  const items = data.repairedCreatives ?? [];
+  if (items.length === 0) return null;
+  const kinds = Array.from(
+    new Set(items.flatMap((it) => it.repairs.map((r) => REPAIR_LABELS[r] ?? r))),
+  );
+  return `${items.length} anúncio(s) com criativo ajustado para compatibilidade com a Meta (${kinds.join(", ")}).`;
+}
+
+/** Notice for ad sets reconstructed (not natively copied) — config/dates may differ. */
+function describeRebuiltAdsets(data: DuplicateSuccessPayload): string | null {
+  const items = data.rebuiltAdsets ?? [];
+  if (items.length === 0) return null;
+  const base = `${items.length} conjunto(s) reconstruído(s) para atender às regras atuais da Meta (revise segmentação e orçamento)`;
+  return items.some((it) => it.scheduleShifted)
+    ? `${base}; as datas foram ajustadas para o futuro pois o período original já passou.`
+    : `${base}.`;
 }
 
 function formatDuplicateError(
@@ -176,12 +244,33 @@ export function DuplicateButton({
 
       void invalidateMarketing();
       onDuplicated?.();
-      const skipSummary = describeSkips(data);
+
+      // 202: the async deep-copy is still finishing on Meta's side. Ask the user to
+      // refresh shortly rather than claim success or show an error.
+      if (data.inProgress) {
+        toast.info(
+          data.message ??
+            "Duplicação em andamento na Meta. Atualize a lista em instantes.",
+          { duration: 12000 },
+        );
+        setOpen(false);
+        resetState();
+        return;
+      }
+
+      const notice = [
+        describeSkips(data),
+        describeRebuiltAdsets(data),
+        describeRepairedCreatives(data),
+        describeReplacedInterests(data),
+      ]
+        .filter(Boolean)
+        .join(" · ");
       const copyName = data.name ?? entityName ?? "";
-      if (skipSummary) {
+      if (notice) {
         toast.warning(`"${copyName}" duplicado com avisos`, {
-          description: skipSummary,
-          duration: 12000,
+          description: notice,
+          duration: 14000,
         });
       } else {
         toast.success(`"${copyName}" duplicado com sucesso`);
