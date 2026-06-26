@@ -40,6 +40,10 @@ export type DuplicateCampaignResponse = {
   repairedCreatives?: RepairedCreativeItem[];
   /** Ad sets reconstructed instead of natively copied (review config/dates). */
   rebuiltAdsets?: RebuiltAdsetItem[];
+  /** Copy's lifetime ad sets given a fresh future flight window (start ~2h, duration kept). */
+  scheduleAdjusted?: boolean;
+  /** A native copy's schedule patch failed, leaving its inherited (possibly past) window. */
+  scheduleAdjustFailed?: boolean;
 };
 
 export type DuplicateErrorResponse = {
@@ -173,6 +177,8 @@ export async function POST(
         ...(result.rebuiltAdsets?.length
           ? { rebuiltAdsets: result.rebuiltAdsets }
           : {}),
+        ...(result.scheduleAdjusted ? { scheduleAdjusted: true } : {}),
+        ...(result.scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
       },
       { status: 201 },
     );

@@ -1244,17 +1244,28 @@ export async function PATCH(
 
           if (inputBudgetType !== "lifetime") continue;
 
-          adSetUpdateOperations.push({
-            adsetId: adSet.id,
-            params: new URLSearchParams({
-              start_time: new Date(
-                input.startTime ?? adSet.start_time!,
-              ).toISOString(),
-              end_time: new Date(
-                input.endTime ?? adSet.end_time!,
-              ).toISOString(),
-            }),
-          });
+          const scheduleParams = buildScheduleUpdateParams(
+            adSet,
+            new Date(input.startTime ?? adSet.start_time!).toISOString(),
+            new Date(input.endTime ?? adSet.end_time!).toISOString(),
+          );
+          if ("error" in scheduleParams) {
+            return NextResponse.json(
+              {
+                error: "Invalid schedule",
+                message: scheduleParams.error,
+                solution:
+                  "Mantenha o início original e altere apenas o término do conjunto.",
+              },
+              { status: 400 },
+            );
+          }
+          if (scheduleParams.size > 0) {
+            adSetUpdateOperations.push({
+              adsetId: adSet.id,
+              params: scheduleParams,
+            });
+          }
         }
       } else {
         for (const adSet of adSetsResponse.data) {
@@ -1276,14 +1287,28 @@ export async function PATCH(
               "lifetime_budget",
               currencyToMinorUnits(input.lifetimeBudget),
             );
-            params.set(
-              "start_time",
+            // Schedule: only send start_time when it truly changed AND the set
+            // hasn't started — Meta rejects start_time on started sets (subcode
+            // 1487057), even when only the end date is being edited.
+            const scheduleParams = buildScheduleUpdateParams(
+              adSet,
               new Date(input.startTime ?? adSet.start_time!).toISOString(),
-            );
-            params.set(
-              "end_time",
               new Date(input.endTime ?? adSet.end_time!).toISOString(),
             );
+            if ("error" in scheduleParams) {
+              return NextResponse.json(
+                {
+                  error: "Invalid schedule",
+                  message: scheduleParams.error,
+                  solution:
+                    "Mantenha o início original e altere apenas o término do conjunto.",
+                },
+                { status: 400 },
+              );
+            }
+            for (const [key, value] of scheduleParams) {
+              params.set(key, value);
+            }
           }
 
           if (params.size > 0) {

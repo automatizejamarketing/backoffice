@@ -23,6 +23,7 @@ import type {
 import {
   dateTimeLocalToMeta,
   getBudgetType,
+  isStartInPast,
   metaDateToDateTimeLocal,
   minorUnitsToCurrencyInput,
   type BudgetType,
@@ -76,6 +77,7 @@ export function CampaignEditDialog({
     return Number.isNaN(parsed) ? null : parsed / 100;
   }, [campaign.lifetimeBudget]);
   const currentBudgetType = getBudgetType(campaign);
+  const campaignAlreadyStarted = isStartInPast(campaign.startTime);
 
   const [selectedMode, setSelectedMode] = useState<CampaignBudgetMode>(
     campaign.budgetMode,
@@ -657,8 +659,14 @@ export function CampaignEditDialog({
                           type="datetime-local"
                           value={startTime}
                           onChange={(e) => setStartTime(e.target.value)}
-                          disabled={isSubmitting}
+                          disabled={isSubmitting || campaignAlreadyStarted}
                         />
+                        {campaignAlreadyStarted && (
+                          <p className="text-xs text-muted-foreground">
+                            A campanha já começou; o início não pode mais ser
+                            alterado. Você ainda pode ajustar o término.
+                          </p>
+                        )}
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="campaignEndTime">
@@ -701,6 +709,7 @@ export function CampaignEditDialog({
                     {adSets.map((adSet) => {
                       const adSetBudgetType =
                         adSetBudgetTypes[adSet.id] ?? getBudgetType(adSet);
+                      const adSetAlreadyStarted = isStartInPast(adSet.startTime);
 
                       return (
                         <div
@@ -819,8 +828,14 @@ export function CampaignEditDialog({
                                         [adSet.id]: e.target.value,
                                       }))
                                     }
-                                    disabled={isSubmitting}
+                                    disabled={isSubmitting || adSetAlreadyStarted}
                                   />
+                                  {adSetAlreadyStarted && (
+                                    <p className="text-xs text-muted-foreground">
+                                      O conjunto já começou; o início não pode
+                                      mais ser alterado. Ajuste apenas o término.
+                                    </p>
+                                  )}
                                 </div>
                                 <div className="space-y-2">
                                   <Label htmlFor={`adset-end-${adSet.id}`}>

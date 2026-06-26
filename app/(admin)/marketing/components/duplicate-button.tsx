@@ -84,6 +84,10 @@ type DuplicateSuccessPayload = {
     sourceAdsetName?: string;
     scheduleShifted: boolean;
   }>;
+  /** Copy's lifetime ad sets given a fresh future window (start ~2h, duration kept). */
+  scheduleAdjusted?: boolean;
+  /** A native copy's schedule patch failed — it kept its inherited (possibly past) window. */
+  scheduleAdjustFailed?: boolean;
 };
 
 /** Short, human summary of what got skipped, for a success-with-warnings toast. */
@@ -134,14 +138,29 @@ function describeRepairedCreatives(data: DuplicateSuccessPayload): string | null
   return `${items.length} anúncio(s) com criativo ajustado para compatibilidade com a Meta (${kinds.join(", ")}).`;
 }
 
-/** Notice for ad sets reconstructed (not natively copied) — config/dates may differ. */
+/** Notice for ad sets reconstructed (not natively copied) — config may differ. */
 function describeRebuiltAdsets(data: DuplicateSuccessPayload): string | null {
   const items = data.rebuiltAdsets ?? [];
   if (items.length === 0) return null;
-  const base = `${items.length} conjunto(s) reconstruído(s) para atender às regras atuais da Meta (revise segmentação e orçamento)`;
-  return items.some((it) => it.scheduleShifted)
-    ? `${base}; as datas foram ajustadas para o futuro pois o período original já passou.`
-    : `${base}.`;
+  return `${items.length} conjunto(s) reconstruído(s) para atender às regras atuais da Meta (revise segmentação e orçamento).`;
+}
+
+/**
+ * Expected info (not a warning): the copy's lifetime ad sets were given a fresh
+ * future flight window — start ~2h out, original duration preserved — instead of
+ * inheriting the source's (often past) window.
+ */
+function describeScheduleAdjusted(data: DuplicateSuccessPayload): string | null {
+  if (!data.scheduleAdjusted) return null;
+  return "Agendamento da cópia ajustado: início programado para daqui ~2h e término ajustado para manter a duração da campanha.";
+}
+
+/** Warning: a copy kept its inherited (possibly past) window because the patch failed. */
+function describeScheduleAdjustFailed(
+  data: DuplicateSuccessPayload,
+): string | null {
+  if (!data.scheduleAdjustFailed) return null;
+  return "Não foi possível ajustar as datas de algum(ns) conjunto(s); revise o início e o término da cópia.";
 }
 
 function formatDuplicateError(
@@ -263,14 +282,22 @@ export function DuplicateButton({
         describeRebuiltAdsets(data),
         describeRepairedCreatives(data),
         describeReplacedInterests(data),
+        describeScheduleAdjustFailed(data),
       ]
         .filter(Boolean)
         .join(" · ");
+      // The deliberate schedule shift is shown as info on the success path —
+      // never as a warning.
+      const scheduleNote = describeScheduleAdjusted(data);
       const copyName = data.name ?? entityName ?? "";
       if (notice) {
         toast.warning(`"${copyName}" duplicado com avisos`, {
-          description: notice,
+          description: scheduleNote ? `${notice} · ${scheduleNote}` : notice,
           duration: 14000,
+        });
+      } else if (scheduleNote) {
+        toast.success(`"${copyName}" duplicado com sucesso`, {
+          description: scheduleNote,
         });
       } else {
         toast.success(`"${copyName}" duplicado com sucesso`);

@@ -53,10 +53,17 @@ const VALIDATE_ONLY = JSON.stringify(["validate_only"]);
  * we use 25h to stay clear of clock skew.
  */
 const MIN_FLIGHT_MS = 25 * 60 * 60 * 1000;
-/** Fallback flight length when the source window can't be derived. */
-const DEFAULT_FLIGHT_MS = 30 * 24 * 60 * 60 * 1000;
-/** Small buffer so the rebuilt `start_time` is unambiguously in the future. */
-const START_BUFFER_MS = 5 * 60 * 1000;
+/**
+ * Fallback flight length when the source window can't be derived. Meta requires a
+ * lifetime flight > 24h; `MIN_FLIGHT_MS` floors the final window above that.
+ */
+const DEFAULT_FLIGHT_MS = 24 * 60 * 60 * 1000;
+/**
+ * How far in the future a duplicated ad set's `start_time` is placed. A 2h buffer
+ * keeps the copy's start editable (Meta locks a start once it has passed — subcode
+ * 1487057) and gives the user room to review before it goes live.
+ */
+const START_BUFFER_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Meta subcode 2446383: "Call to action required". Sales objectives now
@@ -824,6 +831,17 @@ export type DuplicateResult = {
    * the user is told to review the reconstructed ad set.
    */
   rebuiltAdsets?: RebuiltAdsetItem[];
+  /**
+   * The copy's lifetime ad sets were given a fresh future flight window (start ~2h
+   * out, original duration preserved) instead of inheriting the source's — see
+   * `computeFreshFlightWindow`. Surfaced as expected info, not a warning.
+   */
+  scheduleAdjusted?: boolean;
+  /**
+   * At least one native copy's schedule patch failed, so it kept the source's
+   * (possibly past) window — surfaced so the user reviews those dates.
+   */
+  scheduleAdjustFailed?: boolean;
 };
 
 /**
@@ -1219,27 +1237,21 @@ function replaceDeprecatedInterests(
 }
 
 /**
- * Choose the rebuilt ad set's flight window. A lifetime ad set (own lifetime
- * budget, or any ad set under a CBO lifetime campaign) MUST have a future
- * `end_time` (subcode 1487094). When the source window is still in the future we
- * keep it verbatim; when it has already passed we preserve the original duration
- * anchored to now (floored to Meta's >24h minimum). Daily-budget ad sets need no
- * end date — we mirror the wizard's ongoing `end_time=0`.
+ * A duplicated lifetime ad set always gets a FRESH future flight window, anchored
+ * at now + `START_BUFFER_MS` (2h) and preserving the source's original duration
+ * (floored to Meta's >24h minimum; `DEFAULT_FLIGHT_MS` when the source window can't
+ * be derived). Deliberate: a copy of an already-ended/expired campaign must not
+ * inherit a past window — it couldn't deliver, and its start would be locked
+ * (subcode 1487057) — and even a still-future source is re-anchored so every copy
+ * starts ~2h out and stays editable.
  */
-function computeRebuildSchedule(
-  source: AdsetFull,
-  effectiveLifetime: boolean,
-): { start_time?: string; end_time?: string } {
-  if (!effectiveLifetime) return { end_time: "0" };
-
+function computeFreshFlightWindow(source: AdsetFull): {
+  startIso: string;
+  endIso: string;
+} {
   const now = Date.now();
   const srcStart = source.start_time ? Date.parse(source.start_time) : NaN;
   const srcEnd = source.end_time ? Date.parse(source.end_time) : NaN;
-
-  if (!Number.isNaN(srcEnd) && srcEnd > now + MIN_FLIGHT_MS) {
-    return { start_time: source.start_time, end_time: source.end_time };
-  }
-
   const duration =
     !Number.isNaN(srcStart) && !Number.isNaN(srcEnd) && srcEnd > srcStart
       ? srcEnd - srcStart
@@ -1247,9 +1259,59 @@ function computeRebuildSchedule(
   const start = now + START_BUFFER_MS;
   const end = start + Math.max(duration, MIN_FLIGHT_MS);
   return {
-    start_time: new Date(start).toISOString(),
-    end_time: new Date(end).toISOString(),
+    startIso: new Date(start).toISOString(),
+    endIso: new Date(end).toISOString(),
   };
+}
+
+/**
+ * Flight window for a REBUILT ad set. Lifetime sets (own lifetime budget, or any
+ * set under a CBO lifetime campaign) get the fresh future window above; daily sets
+ * need no end date — we mirror the wizard's ongoing `end_time=0`.
+ */
+function computeRebuildSchedule(
+  source: AdsetFull,
+  effectiveLifetime: boolean,
+): { start_time?: string; end_time?: string } {
+  if (!effectiveLifetime) return { end_time: "0" };
+  const { startIso, endIso } = computeFreshFlightWindow(source);
+  return { start_time: startIso, end_time: endIso };
+}
+
+/**
+ * Light-touch schedule reset for a NATIVELY copied lifetime ad set. The copy
+ * inherits the source's (often past/expired) flight verbatim; we move it to the
+ * fresh future window from `computeFreshFlightWindow` — but only set `start_time`
+ * when the source had NOT yet started, because Meta rejects a start edit once an
+ * ad set has started (subcode 1487057); when it already started we move only the
+ * end. Non-fatal: a failed patch leaves the inherited window and returns false so
+ * a copy is never rolled back over a schedule tweak.
+ */
+async function shiftCopiedAdsetSchedule(
+  copiedAdsetId: string,
+  source: AdsetFull,
+  accessToken: string,
+): Promise<boolean> {
+  const { startIso, endIso } = computeFreshFlightWindow(source);
+  const srcStartMs = source.start_time ? Date.parse(source.start_time) : NaN;
+  const sourceStarted = !Number.isNaN(srcStartMs) && srcStartMs <= Date.now();
+  const body = new URLSearchParams({ end_time: endIso });
+  if (!sourceStarted) body.set("start_time", startIso);
+  try {
+    await withMetaRetry(() =>
+      metaApiCall<{ success?: boolean }>({
+        domain: "FACEBOOK",
+        method: "POST",
+        path: copiedAdsetId,
+        params: "",
+        body,
+        accessToken,
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1364,12 +1426,9 @@ async function rebuildAdsetInto(args: {
     ? campaignLifetime
     : hasPositiveMinorUnits(source.lifetime_budget);
 
-  // A lifetime ad set whose source flight window has already passed is given a fresh
-  // FUTURE window (see `computeRebuildSchedule`) — surface that the copy's dates differ.
-  const srcEnd = source.end_time ? Date.parse(source.end_time) : NaN;
-  const scheduleShifted =
-    effectiveLifetime &&
-    (Number.isNaN(srcEnd) || srcEnd <= Date.now() + MIN_FLIGHT_MS);
+  // A rebuilt lifetime ad set is always given a fresh FUTURE window (see
+  // `computeFreshFlightWindow`) — surface that the copy's dates differ from source.
+  const scheduleShifted = effectiveLifetime;
 
   // Working source whose targeting we may rewrite when Meta rejects deprecated
   // interests (1870247) and hands back the alternatives. Bounded loop: each rejection
@@ -1531,8 +1590,10 @@ async function copyOrRebuildAdsetInto(args: {
   replacedInterests: InterestReplacement[];
   /** True when the ad set was RECONSTRUCTED instead of natively copied. */
   rebuilt: boolean;
-  /** True when a past lifetime flight window was moved to the future. */
+  /** True when the copy's lifetime flight window was set fresh (start +2h / end shifted). */
   scheduleShifted: boolean;
+  /** True when a native copy's schedule patch failed and the inherited window was kept. */
+  scheduleShiftFailed: boolean;
 }> {
   const {
     accountId,
@@ -1564,7 +1625,7 @@ async function copyOrRebuildAdsetInto(args: {
       campaignLifetime,
       source,
     });
-    return { ...rebuiltResult, rebuilt: true };
+    return { ...rebuiltResult, rebuilt: true, scheduleShiftFailed: false };
   }
 
   let copiedAdsetId: string | undefined;
@@ -1591,14 +1652,34 @@ async function copyOrRebuildAdsetInto(args: {
       source,
       originalError: copyErr,
     });
-    return { ...rebuiltResult, rebuilt: true };
+    return { ...rebuiltResult, rebuilt: true, scheduleShiftFailed: false };
   }
   if (!copiedAdsetId) throw missingCopyIdError("do conjunto");
+
+  // Light-touch schedule reset on the native copy: give a lifetime copy a fresh
+  // future window so it doesn't inherit a past/expired flight that would force a
+  // manual date edit (and a start it can no longer change — subcode 1487057).
+  const effectiveLifetime = isCBO
+    ? campaignLifetime
+    : hasPositiveMinorUnits(source.lifetime_budget);
+  let scheduleShifted = false;
+  let scheduleShiftFailed = false;
+  if (effectiveLifetime) {
+    const ok = await shiftCopiedAdsetSchedule(
+      copiedAdsetId,
+      source,
+      accessToken,
+    );
+    scheduleShifted = ok;
+    scheduleShiftFailed = !ok;
+  }
+
   return {
     id: copiedAdsetId,
     replacedInterests: [],
     rebuilt: false,
-    scheduleShifted: false,
+    scheduleShifted,
+    scheduleShiftFailed,
   };
 }
 
@@ -2490,6 +2571,8 @@ export async function duplicateCampaign(args: {
     const replacedInterests: ReplacedInterestsItem[] = [];
     const repairedCreatives: RepairedCreativeItem[] = [];
     const rebuiltAdsets: RebuiltAdsetItem[] = [];
+    let scheduleAdjusted = false;
+    let scheduleAdjustFailed = false;
     let copiedAdsetCount = 0;
 
     for (const sourceAdset of sourceAdsets) {
@@ -2498,6 +2581,7 @@ export async function duplicateCampaign(args: {
         replacedInterests: adsetReplacements,
         rebuilt,
         scheduleShifted,
+        scheduleShiftFailed,
       } = await copyOrRebuildAdsetInto({
         accountId: act,
         sourceAdsetId: sourceAdset.id,
@@ -2515,6 +2599,8 @@ export async function duplicateCampaign(args: {
           scheduleShifted,
         });
       }
+      if (scheduleShifted) scheduleAdjusted = true;
+      if (scheduleShiftFailed) scheduleAdjustFailed = true;
       if (adsetReplacements.length > 0) {
         replacedInterests.push({
           sourceAdsetId: sourceAdset.id,
@@ -2589,6 +2675,8 @@ export async function duplicateCampaign(args: {
       ...(replacedInterests.length ? { replacedInterests } : {}),
       ...(repairedCreatives.length ? { repairedCreatives } : {}),
       ...(rebuiltAdsets.length ? { rebuiltAdsets } : {}),
+      ...(scheduleAdjusted ? { scheduleAdjusted: true } : {}),
+      ...(scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);
@@ -2731,6 +2819,7 @@ export async function duplicateAdSet(args: {
       replacedInterests: adsetReplacements,
       rebuilt,
       scheduleShifted,
+      scheduleShiftFailed,
     } = await copyOrRebuildAdsetInto({
       accountId,
       sourceAdsetId: adsetId,
@@ -2802,6 +2891,8 @@ export async function duplicateAdSet(args: {
             ],
           }
         : {}),
+      ...(scheduleShifted ? { scheduleAdjusted: true } : {}),
+      ...(scheduleShiftFailed ? { scheduleAdjustFailed: true } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);

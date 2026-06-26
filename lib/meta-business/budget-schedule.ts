@@ -69,3 +69,9 @@ export function hasMinimumRuntime(startIso: string, endIso: string): boolean {
 export function isEndInFuture(endIso: string): boolean {
   return new Date(endIso).getTime() > Date.now();
 }
+
+export function isStartInPast(startIso: string | null | undefined): boolean {
+  if (!startIso) return false;
+  const t = new Date(startIso).getTime();
+  return Number.isFinite(t) && t <= Date.now();
+}

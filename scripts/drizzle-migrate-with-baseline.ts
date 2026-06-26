@@ -9,18 +9,13 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { config } from "dotenv";
 import postgres from "postgres";
+import { loadAppEnv } from "../lib/env/load-env";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const backofficeRoot = join(scriptDir, "..");
 
-if (existsSync(join(backofficeRoot, ".env"))) {
-  config({ path: join(backofficeRoot, ".env") });
-}
-if (existsSync(join(backofficeRoot, ".env.local"))) {
-  config({ path: join(backofficeRoot, ".env.local"), override: true });
-}
+loadAppEnv(backofficeRoot);
 
 const migrationsFolder = join(backofficeRoot, "lib/db/migrations");
 const journalPath = join(migrationsFolder, "meta/_journal.json");
