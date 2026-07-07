@@ -29,6 +29,9 @@ export default async function UsersPage({
     planPeriod?: string;
     metaStatus?: string;
     consultantId?: string;
+    signupWithin?: string;
+    signupFrom?: string;
+    signupTo?: string;
   }>;
 }) {
   await requirePagePermission("users:manage");
@@ -75,6 +78,17 @@ export default async function UsersPage({
     if (filters.consultantId !== "all") {
       params.set("consultantId", filters.consultantId);
     }
+    if (filters.signupWithin !== "all") {
+      params.set("signupWithin", filters.signupWithin);
+      if (
+        filters.signupWithin === "custom" &&
+        filters.signupFrom &&
+        filters.signupTo
+      ) {
+        params.set("signupFrom", filters.signupFrom);
+        params.set("signupTo", filters.signupTo);
+      }
+    }
     return `/users?${params.toString()}`;
   }
 
@@ -108,6 +122,9 @@ export default async function UsersPage({
           planPeriod: filters.planPeriod,
           metaStatus: filters.metaStatus,
           consultantId: filters.consultantId,
+          signupWithin: filters.signupWithin,
+          signupFrom: filters.signupFrom,
+          signupTo: filters.signupTo,
         }}
         consultants={consultants}
       />

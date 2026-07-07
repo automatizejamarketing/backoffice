@@ -767,6 +767,12 @@ export function AdSetEditDialog({
                   max="65"
                   value={ageMin}
                   onChange={(e) => setAgeMin(e.target.value)}
+                  onInvalid={(e) => {
+                    // Show our own message instead of the browser's native
+                    // (English) constraint bubble, matching every other field.
+                    e.preventDefault();
+                    setError("Idade mínima deve estar entre 13 e 65");
+                  }}
                   disabled={isSubmitting}
                 />
               </div>
@@ -779,6 +785,12 @@ export function AdSetEditDialog({
                   max="65"
                   value={ageMax}
                   onChange={(e) => setAgeMax(e.target.value)}
+                  onInvalid={(e) => {
+                    // Show our own message instead of the browser's native
+                    // (English) constraint bubble, matching every other field.
+                    e.preventDefault();
+                    setError("Idade máxima deve estar entre 13 e 65");
+                  }}
                   disabled={isSubmitting}
                 />
               </div>

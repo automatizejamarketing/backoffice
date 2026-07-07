@@ -6,6 +6,7 @@ export const USER_LIST_MIN_SEARCH_LENGTH = 3;
 
 export const SUBSCRIPTION_STATUS_FILTER_VALUES = [
   "all",
+  "none",
   "active",
   "trialing",
   "past_due",
@@ -29,10 +30,22 @@ export const META_STATUS_FILTER_VALUES = [
   "disconnected",
 ] as const;
 
+// Registration-date ("data de cadastro") window presets. Every value other
+// than "all"/"custom" is a day count parsed with parseInt (e.g. "7d" -> 7).
+export const SIGNUP_WITHIN_FILTER_VALUES = [
+  "all",
+  "3d",
+  "7d",
+  "14d",
+  "30d",
+  "custom",
+] as const;
+
 export type SubscriptionStatusFilter =
   (typeof SUBSCRIPTION_STATUS_FILTER_VALUES)[number];
 export type PlanPeriodFilter = (typeof PLAN_PERIOD_FILTER_VALUES)[number];
 export type MetaStatusFilter = (typeof META_STATUS_FILTER_VALUES)[number];
+export type SignupWithinFilter = (typeof SIGNUP_WITHIN_FILTER_VALUES)[number];
 export type ConsultantFilter = string | "all" | "unassigned";
 
 export type UsersFilterParams = {
@@ -43,6 +56,11 @@ export type UsersFilterParams = {
   planPeriod: PlanPeriodFilter;
   metaStatus: MetaStatusFilter;
   consultantId: ConsultantFilter;
+  signupWithin: SignupWithinFilter;
+  // yyyy-mm-dd (America/Sao_Paulo calendar dates); only populated when
+  // signupWithin === "custom" and both ends form a valid from <= to range.
+  signupFrom: string | null;
+  signupTo: string | null;
 };
 
 type RawUsersFilterParams = {
@@ -53,10 +71,15 @@ type RawUsersFilterParams = {
   planPeriod?: string;
   metaStatus?: string;
   consultantId?: string;
+  signupWithin?: string;
+  signupFrom?: string;
+  signupTo?: string;
 };
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -68,6 +91,22 @@ function includesValue<T extends readonly string[]>(
   value: string | undefined,
 ): value is T[number] {
   return Boolean(value && values.includes(value));
+}
+
+// Validate a yyyy-mm-dd string and confirm it names a real calendar date
+// (rejects e.g. 2026-02-31). Returns the normalized string or null.
+function parseIsoDateString(value: string | undefined): string | null {
+  if (!value || !isoDatePattern.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return value;
 }
 
 export function normalizeUsersFilterParams(
@@ -94,6 +133,28 @@ export function normalizeUsersFilterParams(
         ? raw.consultantId
         : "all";
 
+  // Registration-date window. A "custom" selection is honored only when both
+  // ends are valid dates forming a non-inverted range; otherwise it collapses
+  // to "all" (no date filter) so a malformed URL never silently hides users.
+  let signupWithin: SignupWithinFilter = includesValue(
+    SIGNUP_WITHIN_FILTER_VALUES,
+    raw.signupWithin,
+  )
+    ? raw.signupWithin
+    : "all";
+  let signupFrom: string | null = null;
+  let signupTo: string | null = null;
+  if (signupWithin === "custom") {
+    const from = parseIsoDateString(raw.signupFrom);
+    const to = parseIsoDateString(raw.signupTo);
+    if (from && to && from <= to) {
+      signupFrom = from;
+      signupTo = to;
+    } else {
+      signupWithin = "all";
+    }
+  }
+
   return {
     page: parsePositiveInt(raw.page, 1),
     pageSize,
@@ -111,11 +172,71 @@ export function normalizeUsersFilterParams(
       ? raw.metaStatus
       : "all",
     consultantId,
+    signupWithin,
+    signupFrom,
+    signupTo,
   };
 }
 
 export function subscriptionStatusFromFilter(
   value: SubscriptionStatusFilter,
 ): SubscriptionStatus | null {
-  return value === "all" ? null : value;
+  // Neither "all" (no filter) nor "none" (never-subscribed) is a Stripe status.
+  return value === "all" || value === "none" ? null : value;
+}
+
+// Brazil has run on a fixed UTC-3 with no DST since 2019, so 00:00 in
+// America/Sao_Paulo is always 03:00 UTC on the same calendar date.
+const BRT_START_OF_DAY_UTC_HOUR = 3;
+
+// Start of the given BRT calendar day as a UTC instant. Day/month overflow is
+// normalized by Date.UTC (e.g. day 0 -> last day of the previous month).
+function brtStartOfDayUtc(year: number, month1: number, day: number): Date {
+  return new Date(
+    Date.UTC(year, month1 - 1, day, BRT_START_OF_DAY_UTC_HOUR, 0, 0, 0),
+  );
+}
+
+export type SignupDateRange = { gte?: Date; lt?: Date };
+
+// Translate the registration-date filter into half-open UTC bounds on
+// users.created_at: gte <= created_at < lt. Presets are BRT calendar-day
+// aligned and cover today plus the (N-1) prior days; custom ranges are
+// end-inclusive of the whole `until` day. Returns {} for "all" or an
+// unresolved custom range (i.e. no date filter). Because created_at is
+// nullable and NULL fails every comparison, users with no signup date are
+// naturally excluded from any bounded range.
+export function resolveSignupDateRange(
+  filters: Pick<UsersFilterParams, "signupWithin" | "signupFrom" | "signupTo">,
+  now: Date = new Date(),
+): SignupDateRange {
+  const { signupWithin } = filters;
+  if (signupWithin === "all") return {};
+
+  if (signupWithin === "custom") {
+    if (!filters.signupFrom || !filters.signupTo) return {};
+    const [fromYear, fromMonth, fromDay] = filters.signupFrom
+      .split("-")
+      .map(Number);
+    const [toYear, toMonth, toDay] = filters.signupTo.split("-").map(Number);
+    return {
+      gte: brtStartOfDayUtc(fromYear, fromMonth, fromDay),
+      // end-inclusive: strictly before the start of the day after `until`.
+      lt: brtStartOfDayUtc(toYear, toMonth, toDay + 1),
+    };
+  }
+
+  // Presets like "7d" -> 7 days. Derive today's BRT calendar date from `now`
+  // by shifting the instant back 3h and reading its UTC date parts.
+  const days = Number.parseInt(signupWithin, 10);
+  const brtNow = new Date(
+    now.getTime() - BRT_START_OF_DAY_UTC_HOUR * 60 * 60 * 1000,
+  );
+  return {
+    gte: brtStartOfDayUtc(
+      brtNow.getUTCFullYear(),
+      brtNow.getUTCMonth() + 1,
+      brtNow.getUTCDate() - (days - 1),
+    ),
+  };
 }

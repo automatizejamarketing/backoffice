@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Search } from "lucide-react";
+import { CalendarIcon, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DateRangeDialog } from "@/components/date-range-dialog";
 import {
   DEFAULT_PAGE_SIZE,
   MIN_SEARCH_LENGTH,
@@ -25,13 +26,20 @@ type UsersTableToolbarProps = {
   pageSize: number;
   filters: Pick<
     UsersFilterParams,
-    "subscriptionStatus" | "planPeriod" | "metaStatus" | "consultantId"
+    | "subscriptionStatus"
+    | "planPeriod"
+    | "metaStatus"
+    | "consultantId"
+    | "signupWithin"
+    | "signupFrom"
+    | "signupTo"
   >;
   consultants: Array<{ id: string; email: string; name: string | null }>;
 };
 
 const SUBSCRIPTION_STATUS_LABELS: Record<string, string> = {
   all: "Todas assinaturas",
+  none: "Sem assinatura",
   active: "Ativas",
   trialing: "Em trial",
   past_due: "Pagamento pendente",
@@ -55,6 +63,32 @@ const META_STATUS_LABELS: Record<string, string> = {
   disconnected: "Sem Meta",
 };
 
+const SIGNUP_WITHIN_LABELS: Record<string, string> = {
+  all: "Qualquer cadastro",
+  "3d": "Últimos 3 dias",
+  "7d": "Últimos 7 dias",
+  "14d": "Últimos 14 dias",
+  "30d": "Últimos 30 dias",
+};
+
+// Local-date helpers for the custom signup range (yyyy-mm-dd <-> Date / display).
+function parseLocalDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function formatLocalDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(value: string): string {
+  const [year, month, day] = value.split("-");
+  return `${day}/${month}/${year}`;
+}
+
 export function UsersTableToolbar({
   initialSearch,
   pageSize,
@@ -66,6 +100,7 @@ export function UsersTableToolbar({
   const searchParams = useSearchParams();
 
   const [search, setSearch] = useState(initialSearch);
+  const [isCustomDateOpen, setIsCustomDateOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Avoid issuing a redundant replace() on the first render when the input is
   // initialized from the URL. Only sync after the user actually types.
@@ -134,10 +169,42 @@ export function UsersTableToolbar({
   }
 
   function handleFilterChange(key: string, value: string) {
-    router.push(buildUrl({ [key]: value === "all" ? null : value }), {
-      scroll: false,
-    });
+    const updates: Record<string, string | null> = {
+      [key]: value === "all" ? null : value,
+    };
+    // Never-subscribed users have no plan period; drop it so the two filters
+    // don't AND to an empty result and the disabled control isn't left stale.
+    if (key === "subscriptionStatus" && value === "none") {
+      updates.planPeriod = null;
+    }
+    router.push(buildUrl(updates), { scroll: false });
   }
+
+  function handleSignupWithinChange(value: string) {
+    if (value === "custom") {
+      // Open the picker; the URL only changes once a range is applied.
+      setIsCustomDateOpen(true);
+      return;
+    }
+    router.push(
+      buildUrl({
+        signupWithin: value === "all" ? null : value,
+        signupFrom: null,
+        signupTo: null,
+      }),
+      { scroll: false },
+    );
+  }
+
+  const hasCustomSignupRange =
+    filters.signupWithin === "custom" &&
+    Boolean(filters.signupFrom) &&
+    Boolean(filters.signupTo);
+
+  const signupDisplay =
+    filters.signupWithin === "custom" && filters.signupFrom && filters.signupTo
+      ? `${formatDisplayDate(filters.signupFrom)} - ${formatDisplayDate(filters.signupTo)}`
+      : (SIGNUP_WITHIN_LABELS[filters.signupWithin] ?? "Qualquer cadastro");
 
   return (
     <div className="space-y-3">
@@ -182,6 +249,26 @@ export function UsersTableToolbar({
 
       <div className="flex flex-wrap gap-2">
         <Select
+          value={filters.signupWithin}
+          onValueChange={handleSignupWithinChange}
+        >
+          <SelectTrigger className="h-8 w-[190px]">
+            <CalendarIcon className="mr-2 size-4 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-left">
+              {signupDisplay}
+            </span>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Qualquer cadastro</SelectItem>
+            <SelectItem value="3d">Últimos 3 dias</SelectItem>
+            <SelectItem value="7d">Últimos 7 dias</SelectItem>
+            <SelectItem value="14d">Últimos 14 dias</SelectItem>
+            <SelectItem value="30d">Últimos 30 dias</SelectItem>
+            <SelectItem value="custom">Período personalizado</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
           value={filters.subscriptionStatus}
           onValueChange={(value) =>
             handleFilterChange("subscriptionStatus", value)
@@ -202,6 +289,7 @@ export function UsersTableToolbar({
         <Select
           value={filters.planPeriod}
           onValueChange={(value) => handleFilterChange("planPeriod", value)}
+          disabled={filters.subscriptionStatus === "none"}
         >
           <SelectTrigger className="h-8 w-[150px]">
             <SelectValue />
@@ -251,6 +339,30 @@ export function UsersTableToolbar({
           </SelectContent>
         </Select>
       </div>
+
+      <DateRangeDialog
+        open={isCustomDateOpen}
+        onOpenChange={setIsCustomDateOpen}
+        initialRange={
+          hasCustomSignupRange && filters.signupFrom && filters.signupTo
+            ? {
+                from: parseLocalDate(filters.signupFrom),
+                to: parseLocalDate(filters.signupTo),
+              }
+            : undefined
+        }
+        onApply={(range) => {
+          router.push(
+            buildUrl({
+              signupWithin: "custom",
+              signupFrom: formatLocalDate(range.from),
+              signupTo: formatLocalDate(range.to),
+            }),
+            { scroll: false },
+          );
+        }}
+        disabledAfter={new Date()}
+      />
     </div>
   );
 }

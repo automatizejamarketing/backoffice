@@ -40,6 +40,11 @@ import {
   placementsToTargetingFields,
   type PlacementKey,
 } from "@/lib/meta-business/placements";
+import {
+  type CreateIssue,
+  validateAdvantageAudienceAgeMax,
+  validateGeoLocationsPresent,
+} from "@/lib/meta-business/marketing/update";
 
 type EditAdSetRequestBody = {
   userId: string;
@@ -86,6 +91,8 @@ type EditAdSetErrorResponse = {
   error: string;
   message: string;
   solution?: string;
+  /** Structured problem + suggestion list, mirroring the creation primitives. */
+  issues?: CreateIssue[];
 };
 
 function hasPositiveMinorUnits(value: string | null | undefined): value is string {
@@ -642,10 +649,42 @@ export async function PATCH(
         previous: previousTargeting,
         new: newTargeting,
       };
+
+      // Bake the CONFIRMED Meta business rules locally (reason + suggestion) so a
+      // doomed write never reaches their servers: Advantage+ forbids age_max<65
+      // (subcode 1870189), and an ad set must target at least one location.
+      const effAdvantage = (
+        newTargeting.targeting_automation as
+          | { advantage_audience?: number | boolean }
+          | undefined
+      )?.advantage_audience;
+      const ruleIssues: CreateIssue[] = [
+        ...validateAdvantageAudienceAgeMax({
+          advantageAudience: effAdvantage,
+          ageMax: newTargeting.age_max,
+        }),
+        ...validateGeoLocationsPresent(
+          newTargeting.geo_locations as Record<string, unknown> | undefined,
+        ),
+      ];
+      if (ruleIssues.length) {
+        const first = ruleIssues[0];
+        return NextResponse.json(
+          {
+            error: first.code,
+            message: first.reason,
+            solution: first.suggestion,
+            issues: ruleIssues,
+          },
+          { status: 400 },
+        );
+      }
     }
 
     let appliedToMeta = false;
     let errorMessage: string | undefined;
+    let errorStatus = 500;
+    let errorSolution: string | undefined;
 
     try {
       await metaApiCall<{ success: boolean }>({
@@ -660,6 +699,9 @@ export async function PATCH(
     } catch (metaError) {
       const errorReturn = errorToGraphErrorReturn(metaError);
       errorMessage = `${errorReturn.reason.title}: ${errorReturn.reason.message}`;
+      // Propagate Meta's REAL status (4xx/429/5xx) instead of a blanket 500.
+      errorStatus = errorReturn.statusCode;
+      errorSolution = errorReturn.reason.solution;
     }
 
     let logId: string | undefined;
@@ -721,9 +763,11 @@ export async function PATCH(
         {
           error: "Failed to apply changes to Meta",
           message: errorMessage ?? "Unknown error occurred",
-          solution: "The change was logged but not applied. Please try again.",
+          solution:
+            errorSolution ??
+            "The change was logged but not applied. Please try again.",
         },
-        { status: 500 },
+        { status: errorStatus },
       );
     }
 

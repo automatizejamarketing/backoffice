@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { stripe } from "@/lib/stripe";
+import { createStripeLogger } from "@/lib/observability/stripe-logger";
 import {
   getAffiliateById,
   approveAffiliate,
@@ -9,49 +10,69 @@ import {
 } from "@/lib/affiliate/queries";
 
 export async function POST(request: Request) {
-  try {
-    const authz = await requireBackofficePermissionResponse("affiliates:manage");
-    if (!authz.ok) return authz.response;
+  const authz = await requireBackofficePermissionResponse("affiliates:manage");
+  if (!authz.ok) return authz.response;
 
+  const log = createStripeLogger({
+    route: "/api/affiliates/approve",
+    op: "affiliate.approve",
+    actor: {
+      id: authz.actor.id,
+      email: authz.actor.email,
+      role: authz.actor.role,
+    },
+  });
+
+  let affiliateId: string | undefined;
+
+  try {
     const body = await request.json();
-    const { affiliateId, code } = body as {
-      affiliateId: string;
-      code?: string;
-    };
+    const parsed = body as { affiliateId: string; code?: string };
+    affiliateId = parsed.affiliateId;
+    const code = parsed.code;
 
     if (!affiliateId) {
+      log.step("validation_failed", { reason: "missing_affiliateId" });
       return NextResponse.json(
-        { error: "Missing affiliateId" },
+        { error: "Missing affiliateId", correlationId: log.correlationId },
         { status: 400 },
       );
     }
 
+    log.step("loading_affiliate", { affiliateId });
     const aff = await getAffiliateById(affiliateId);
     if (!aff) {
+      log.step("affiliate_not_found", { affiliateId });
       return NextResponse.json(
-        { error: "Affiliate not found" },
+        { error: "Affiliate not found", correlationId: log.correlationId },
         { status: 404 },
       );
     }
 
     if (aff.status === "approved") {
+      log.step("already_approved", { affiliateId });
       return NextResponse.json(
-        { error: "Affiliate already approved" },
+        { error: "Affiliate already approved", correlationId: log.correlationId },
         { status: 409 },
       );
     }
 
     if (!stripe) {
+      log.step("stripe_not_configured");
       return NextResponse.json(
-        { error: "Stripe is not configured" },
+        { error: "Stripe is not configured", correlationId: log.correlationId },
         { status: 503 },
       );
     }
 
     const couponId = process.env.STRIPE_AFFILIATE_COUPON_ID;
     if (!couponId) {
+      log.step("missing_coupon_env");
       return NextResponse.json(
-        { error: "STRIPE_AFFILIATE_COUPON_ID not configured" },
+        {
+          error: "STRIPE_AFFILIATE_COUPON_ID not configured",
+          correlationId: log.correlationId,
+        },
         { status: 503 },
       );
     }
@@ -59,6 +80,11 @@ export async function POST(request: Request) {
     const finalCode = code?.trim() || aff.code;
 
     if (finalCode !== aff.code) {
+      log.step("updating_code", {
+        affiliateId,
+        oldCode: aff.code,
+        newCode: finalCode,
+      });
       await updateAffiliateCode(affiliateId, finalCode);
       await createAffiliateActionLog(
         affiliateId,
@@ -68,6 +94,11 @@ export async function POST(request: Request) {
       );
     }
 
+    log.step("creating_promotion_code", {
+      affiliateId,
+      code: finalCode.toUpperCase(),
+      couponId,
+    });
     const promotionCode = await stripe.promotionCodes.create({
       promotion: { type: "coupon", coupon: couponId },
       code: finalCode.toUpperCase(),
@@ -77,6 +108,7 @@ export async function POST(request: Request) {
       },
       active: true,
     });
+    log.step("promotion_code_created", { promotionCodeId: promotionCode.id });
 
     await approveAffiliate(
       affiliateId,
@@ -92,11 +124,22 @@ export async function POST(request: Request) {
       { stripe_promotion_code_id: promotionCode.id },
     );
 
-    return NextResponse.json({ success: true, promotionCodeId: promotionCode.id });
+    log.success({ affiliateId, promotionCodeId: promotionCode.id });
+    return NextResponse.json({
+      success: true,
+      promotionCodeId: promotionCode.id,
+      correlationId: log.correlationId,
+    });
   } catch (error) {
-    console.error("Error approving affiliate:", error);
+    const stripeError = log.error(error, { affiliateId });
     return NextResponse.json(
-      { error: "Failed to approve affiliate" },
+      {
+        error: "Failed to approve affiliate",
+        correlationId: log.correlationId,
+        ...(stripeError
+          ? { stripeErrorCode: stripeError.code, message: stripeError.message }
+          : {}),
+      },
       { status: 500 },
     );
   }

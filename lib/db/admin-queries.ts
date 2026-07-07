@@ -7,6 +7,7 @@ import {
   ilike,
   inArray,
   isNull,
+  lt,
   or,
   sql,
 } from "drizzle-orm";
@@ -49,7 +50,10 @@ import {
   type SubscriptionEvent,
   type User,
 } from "./schema";
-import type { UsersFilterParams } from "@/lib/backoffice/users-filters";
+import {
+  resolveSignupDateRange,
+  type UsersFilterParams,
+} from "@/lib/backoffice/users-filters";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 export type ActiveSubscriptionSummary = Pick<
@@ -85,7 +89,13 @@ export type GetAllUsersWithUsageParams = {
   filters?: Partial<
     Pick<
       UsersFilterParams,
-      "subscriptionStatus" | "planPeriod" | "metaStatus" | "consultantId"
+      | "subscriptionStatus"
+      | "planPeriod"
+      | "metaStatus"
+      | "consultantId"
+      | "signupWithin"
+      | "signupFrom"
+      | "signupTo"
     >
   >;
 };
@@ -179,7 +189,16 @@ export async function getAllUsersWithUsage(
     );
   }
 
-  if (
+  if (params.filters?.subscriptionStatus === "none") {
+    // Never-subscribed users: no rows in `subscriptions` at all. Distinct from
+    // a lapsed subscriber, who is still found via the canceled/unpaid/etc.
+    // status filters (that user has a subscription record).
+    conditions.push(sql`NOT EXISTS (
+      SELECT 1
+      FROM subscriptions s
+      WHERE s.user_id = ${user.id}
+    )`);
+  } else if (
     params.filters?.subscriptionStatus &&
     params.filters.subscriptionStatus !== "all"
   ) {
@@ -188,7 +207,13 @@ export async function getAllUsersWithUsage(
     );
   }
 
-  if (params.filters?.planPeriod && params.filters.planPeriod !== "all") {
+  // Plan-period is meaningless for never-subscribed users, so skip it under the
+  // "none" filter (they have no plan) instead of AND-ing to zero rows.
+  if (
+    params.filters?.planPeriod &&
+    params.filters.planPeriod !== "all" &&
+    params.filters.subscriptionStatus !== "none"
+  ) {
     conditions.push(
       sql`${activeSubscriptionPlanTypeSql} LIKE ${`${params.filters.planPeriod}_%`}`,
     );
@@ -229,6 +254,22 @@ export async function getAllUsersWithUsage(
     }
   }
 
+  // Registration-date window (data de cadastro). Bounds are half-open UTC
+  // instants; because created_at is nullable and NULL fails every comparison,
+  // undated legacy users are naturally excluded from any bounded range.
+  const signupRange = resolveSignupDateRange({
+    signupWithin: params.filters?.signupWithin ?? "all",
+    signupFrom: params.filters?.signupFrom ?? null,
+    signupTo: params.filters?.signupTo ?? null,
+  });
+  if (signupRange.gte) {
+    conditions.push(gte(user.createdAt, signupRange.gte));
+  }
+  if (signupRange.lt) {
+    conditions.push(lt(user.createdAt, signupRange.lt));
+  }
+  const signupFilterActive = Boolean(signupRange.gte || signupRange.lt);
+
   const whereFilter = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [usersPage, [totalRow]] = await Promise.all([
@@ -236,7 +277,9 @@ export async function getAllUsersWithUsage(
       .select()
       .from(user)
       .where(whereFilter)
-      .orderBy(desc(user.id))
+      // When filtering by signup date, newest-first is the intuitive order;
+      // otherwise preserve the existing (id-based) ordering of the full list.
+      .orderBy(signupFilterActive ? desc(user.createdAt) : desc(user.id))
       .limit(pageSize)
       .offset(offset),
     db.select({ count: count() }).from(user).where(whereFilter),

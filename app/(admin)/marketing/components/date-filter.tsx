@@ -1,16 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Calendar } from "@/components/ui/calendar";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -18,7 +8,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { CalendarIcon, ChevronDown } from "lucide-react";
-import type { DateRange } from "react-day-picker";
+import { DateRangeDialog } from "@/components/date-range-dialog";
 import { DatePreset } from "@/lib/meta-business/types";
 
 export type DateFilterRange = {
@@ -103,50 +93,15 @@ export function DateFilter({
   onCustomRangeChange,
 }: DateFilterProps) {
   const [isCustomOpen, setIsCustomOpen] = useState(false);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(
-    customRange
-      ? {
-          from: parseLocalDate(customRange.since),
-          to: parseLocalDate(customRange.until),
-        }
-      : undefined,
-  );
 
   const handlePresetChange = (value: string) => {
     if (value === "custom") {
-      if (customRange) {
-        setDateRange({
-          from: parseLocalDate(customRange.since),
-          to: parseLocalDate(customRange.until),
-        });
-      }
       setIsCustomOpen(true);
       return;
     }
 
     onCustomRangeChange?.(null);
     onDatePresetChange?.(value as DatePreset);
-  };
-
-  const handleCustomRangeApply = () => {
-    if (!dateRange?.from || !dateRange?.to) return;
-
-    const since = formatLocalDate(dateRange.from);
-    const until = formatLocalDate(dateRange.to);
-    onCustomRangeChange?.({ since, until });
-    setIsCustomOpen(false);
-  };
-
-  const handleCustomRangeCancel = () => {
-    setIsCustomOpen(false);
-    setDateRange(
-      customRange
-        ? {
-            from: parseLocalDate(customRange.since),
-            to: parseLocalDate(customRange.until),
-          }
-        : undefined,
-    );
   };
 
   const displayValue = customRange
@@ -182,49 +137,25 @@ export function DateFilter({
         </SelectContent>
       </Select>
 
-      <Dialog
+      <DateRangeDialog
         open={isCustomOpen}
-        onOpenChange={(open) => {
-          if (open) {
-            setIsCustomOpen(true);
-          } else {
-            handleCustomRangeCancel();
-          }
+        onOpenChange={setIsCustomOpen}
+        initialRange={
+          customRange
+            ? {
+                from: parseLocalDate(customRange.since),
+                to: parseLocalDate(customRange.until),
+              }
+            : undefined
+        }
+        onApply={(range) => {
+          onCustomRangeChange?.({
+            since: formatLocalDate(range.from),
+            until: formatLocalDate(range.to),
+          });
         }}
-      >
-        <DialogContent className="max-h-[calc(100vh-2rem)] w-fit max-w-[calc(100vw-2rem)] overflow-y-auto p-0">
-          <div className="flex max-h-[calc(100vh-2rem)] flex-col">
-            <DialogHeader className="border-b px-6 py-4">
-              <DialogTitle>Selecionar período personalizado</DialogTitle>
-              <DialogDescription>
-                Escolha a data inicial e final para filtrar os resultados.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="overflow-x-auto px-4 py-4">
-              <Calendar
-                mode="range"
-                selected={dateRange}
-                onSelect={setDateRange}
-                numberOfMonths={2}
-                disabled={{ after: new Date() }}
-              />
-            </div>
-
-            <DialogFooter className="border-t px-6 py-4">
-              <Button variant="outline" onClick={handleCustomRangeCancel}>
-                Cancelar
-              </Button>
-              <Button
-                onClick={handleCustomRangeApply}
-                disabled={!dateRange?.from || !dateRange?.to}
-              >
-                Aplicar
-              </Button>
-            </DialogFooter>
-          </div>
-        </DialogContent>
-      </Dialog>
+        disabledAfter={new Date()}
+      />
     </div>
   );
 }
