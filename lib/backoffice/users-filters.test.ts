@@ -21,6 +21,9 @@ describe("normalizeUsersFilterParams", () => {
       planPeriod: "annual",
       metaStatus: "connected",
       consultantId: "550e8400-e29b-41d4-a716-446655440000",
+      signupWithin: "all",
+      signupFrom: null,
+      signupTo: null,
     }));
   });
 
@@ -43,6 +46,9 @@ describe("normalizeUsersFilterParams", () => {
       planPeriod: "all",
       metaStatus: "all",
       consultantId: "all",
+      signupWithin: "all",
+      signupFrom: null,
+      signupTo: null,
     }));
   });
 });
