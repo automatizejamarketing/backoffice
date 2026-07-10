@@ -9,10 +9,12 @@ import {
   History,
   Megaphone,
   MessageCircle,
+  MessagesSquare,
   UserRound,
 } from "lucide-react";
 import { MarketingWorkspace } from "@/app/(admin)/marketing/components/marketing-workspace";
 import { BusinessHealthBadge } from "@/components/business-health-badge";
+import { ConversationsTab } from "@/components/conversations/conversations-tab";
 import { BusinessRulesSummary } from "@/components/business-rules-summary";
 import { CreditsControl } from "@/components/credits-control";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
@@ -41,6 +43,11 @@ import {
   type BusinessPortfolioItem,
 } from "@/lib/db/business-queries";
 import {
+  getUserConversation,
+  listUserConversations,
+} from "@/lib/db/conversation-queries";
+import { buildTranscript } from "@/lib/backoffice/conversation-transcript";
+import {
   canAccessUserHubTab,
   hasBackofficePermission,
   USER_HUB_TAB_VALUES,
@@ -59,6 +66,7 @@ const TAB_CONFIG: Array<{
   { value: "subscription", label: "Assinatura", icon: CreditCard },
   { value: "business", label: "Business", icon: BriefcaseBusiness },
   { value: "marketing", label: "Marketing", icon: Megaphone },
+  { value: "conversations", label: "Conversas", icon: MessagesSquare },
   { value: "usage", label: "Uso", icon: BarChart3 },
   { value: "content", label: "Conteúdo", icon: FileImage },
   { value: "audit", label: "Auditoria", icon: History },
@@ -108,7 +116,7 @@ export default async function UserDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; conversation?: string }>;
 }) {
   const [{ id }, sp, actor] = await Promise.all([
     params,
@@ -126,7 +134,7 @@ export default async function UserDetailPage({
     if (!canAccessUserHubTab(actor, id, "business")) {
       redirect("/portfolio");
     }
-    if (requestedTab !== "business" && requestedTab !== "marketing") {
+    if (!canAccessUserHubTab(actor, id, requestedTab)) {
       redirect(`/users/${id}?tab=business`);
     }
   } else if (!hasBackofficePermission(actor, "users:manage")) {
@@ -145,11 +153,9 @@ export default async function UserDetailPage({
   }
 
   const isAdminHub = actor.role === "admin";
-  const visibleTabs = isAdminHub
-    ? TAB_CONFIG
-    : TAB_CONFIG.filter(
-        (tab) => tab.value === "business" || tab.value === "marketing",
-      );
+  const visibleTabs = TAB_CONFIG.filter((tab) =>
+    canAccessUserHubTab(actor, id, tab.value),
+  );
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -183,6 +189,7 @@ export default async function UserDetailPage({
     assignedConsultant,
     businessData,
     businessRules,
+    conversations,
   ] =
     await Promise.all([
       isAdminHub && (activeTab === "summary" || activeTab === "usage")
@@ -209,7 +216,22 @@ export default async function UserDetailPage({
       activeTab === "business"
         ? getBusinessOperatingRules()
         : Promise.resolve(null),
+      activeTab === "conversations"
+        ? listUserConversations(id)
+        : Promise.resolve([]),
     ]);
+
+  // The selected conversation defaults to the most recent one. `getUserConversation`
+  // re-checks ownership, so a hand-typed `?conversation=` from another user's
+  // history resolves to null rather than leaking a transcript.
+  const selectedConversationId =
+    activeTab === "conversations"
+      ? (sp.conversation ?? conversations[0]?.id ?? null)
+      : null;
+
+  const selectedConversation = selectedConversationId
+    ? await getUserConversation({ userId: id, conversationId: selectedConversationId })
+    : null;
 
   if ((activeTab === "summary" || activeTab === "usage") && !detailedUser) {
     notFound();
@@ -360,6 +382,17 @@ export default async function UserDetailPage({
           account={businessData}
           rules={businessRules}
           canOpenMarketing={canAccessUserHubTab(actor, id, "marketing")}
+        />
+      )}
+
+      {activeTab === "conversations" && (
+        <ConversationsTab
+          userId={id}
+          conversations={conversations}
+          selectedConversation={selectedConversation?.conversation ?? null}
+          transcript={
+            selectedConversation ? buildTranscript(selectedConversation.events) : []
+          }
         />
       )}
 
