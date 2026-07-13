@@ -119,6 +119,7 @@ export const blobUpload = pgTable("blob_uploads", {
     .references(() => user.id),
   blobUrl: text("blob_url").notNull(),
   pathname: text("pathname"),
+  filename: text("filename"),
   contentType: text("content_type"),
   source: varchar("source", { length: 50 }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
