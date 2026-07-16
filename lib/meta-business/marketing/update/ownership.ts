@@ -34,7 +34,7 @@ export { isSameAccount };
  * it on the fast path and a single `fields=account_id` GET is done here.
  *
  * Fail-open only when Meta returns no `account_id` (can't disprove ownership) or
- * when no account was declared — never silently allow a proven mismatch.
+ * when no account was declared — unless `failClosedWhenOwnerMissing` is set.
  */
 export async function ensureObjectInAccount(args: {
   objectId: string;
@@ -44,6 +44,7 @@ export async function ensureObjectInAccount(args: {
   /** `account_id` from an already-fetched snapshot, if available. */
   snapshotAccountId?: string;
   accessToken: string;
+  failClosedWhenOwnerMissing?: boolean;
 }): Promise<CreateIssue[]> {
   const { objectId, level, expectedAccountId, accessToken } = args;
   // No declared account to check against → nothing to assert (back-compat).
@@ -75,5 +76,17 @@ export async function ensureObjectInAccount(args: {
       ),
     ];
   }
+
+  if (!owner && args.failClosedWhenOwnerMissing) {
+    return [
+      localIssue(
+        level,
+        "OWNERSHIP_UNKNOWN",
+        `Não foi possível confirmar a conta dona do objeto ${objectId}.`,
+        "Verifique o id do objeto e a conta selecionada antes de excluir.",
+      ),
+    ];
+  }
+
   return [];
 }

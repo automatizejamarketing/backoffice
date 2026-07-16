@@ -11,6 +11,7 @@
  */
 
 import { metaApiCall } from "@/lib/meta-business/api";
+import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
 import { uploadAdVideoFromUrl, waitForVideoReady } from "../upload-ad-video";
 import {
@@ -329,21 +330,30 @@ async function resolveAssets(
   creative: AdCreativeInput,
 ): Promise<AdCreativeInput> {
   if (creative.format === "image" && !creative.imageHash && creative.imageUrl) {
+    await assertSafeFetchUrl(creative.imageUrl);
     const { hash } = await uploadImageToAdAccount({ adAccountId: account, accessToken, imageUrl: creative.imageUrl });
     return { ...creative, imageHash: hash };
   }
   if (creative.format === "video" && !creative.videoId && creative.videoUrl) {
+    await assertSafeFetchUrl(creative.videoUrl);
     const { id } = await uploadAdVideoFromUrl(account, accessToken, creative.videoUrl);
     await waitForVideoReady(id, accessToken);
     return { ...creative, videoId: id };
   }
   if (creative.format === "carousel") {
     const cards = await Promise.all(
-      creative.cards.map(async (card) =>
-        !card.imageHash && card.imageUrl
-          ? { ...card, imageHash: (await uploadImageToAdAccount({ adAccountId: account, accessToken, imageUrl: card.imageUrl })).hash }
-          : card,
-      ),
+      creative.cards.map(async (card) => {
+        if (!card.imageHash && card.imageUrl) {
+          await assertSafeFetchUrl(card.imageUrl);
+          const { hash } = await uploadImageToAdAccount({
+            adAccountId: account,
+            accessToken,
+            imageUrl: card.imageUrl,
+          });
+          return { ...card, imageHash: hash };
+        }
+        return card;
+      }),
     );
     return { ...creative, cards };
   }

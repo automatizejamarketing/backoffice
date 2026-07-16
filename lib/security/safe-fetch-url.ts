@@ -1,0 +1,214 @@
+import dns from "node:dns/promises";
+import https from "node:https";
+import net from "node:net";
+
+const MAX_REDIRECTS = 5;
+
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "metadata.goog",
+]);
+
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split(".").map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+    return true;
+  }
+
+  const [a, b] = parts;
+  if (a === 10) {
+    return true;
+  }
+  if (a === 127) {
+    return true;
+  }
+  if (a === 0) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  return false;
+}
+
+function isPrivateIpv6(ip: string): boolean {
+  const normalized = ip.toLowerCase();
+  if (normalized === "::1") {
+    return true;
+  }
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
+    return true;
+  }
+  if (
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isBlockedIp(ip: string): boolean {
+  const version = net.isIP(ip);
+  if (version === 4) {
+    return isPrivateIpv4(ip);
+  }
+  if (version === 6) {
+    return isPrivateIpv6(ip);
+  }
+  return true;
+}
+
+async function resolveHostAddresses(hostname: string): Promise<string[]> {
+  if (net.isIP(hostname)) {
+    return [hostname];
+  }
+
+  const results = await dns.lookup(hostname, { all: true, verbatim: true });
+  return results.map((entry) => entry.address);
+}
+
+/** Validates a URL before server-side fetch (blocks private networks / metadata). */
+export async function assertSafeFetchUrl(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("URL de imagem inválida.");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Somente URLs HTTPS são permitidas para upload de imagem.");
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    BLOCKED_HOSTNAMES.has(hostname) ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".local")
+  ) {
+    throw new Error("Host de imagem não permitido.");
+  }
+
+  const addresses = await resolveHostAddresses(hostname);
+  if (addresses.length === 0) {
+    throw new Error("Não foi possível resolver o host da imagem.");
+  }
+
+  for (const address of addresses) {
+    if (isBlockedIp(address)) {
+      throw new Error("Host de imagem aponta para rede privada ou local.");
+    }
+  }
+
+  return parsed;
+}
+
+type PinnedFetchResult = {
+  status: number;
+  headers: Record<string, string>;
+  body: Buffer;
+};
+
+function fetchPinnedHttps(url: URL, pinnedIp: string): Promise<PinnedFetchResult> {
+  const port = url.port ? Number.parseInt(url.port, 10) : 443;
+
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      {
+        host: pinnedIp,
+        port,
+        servername: url.hostname,
+        path: `${url.pathname}${url.search}`,
+        method: "GET",
+        headers: {
+          Host: url.hostname,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        response.on("end", () => {
+          resolve({
+            status: response.statusCode ?? 0,
+            headers: Object.fromEntries(
+              Object.entries(response.headers).flatMap(([key, value]) => {
+                if (value == null) {
+                  return [];
+                }
+                const normalized = Array.isArray(value) ? value[0] : value;
+                return normalized ? [[key.toLowerCase(), normalized]] : [];
+              }),
+            ),
+            body: Buffer.concat(chunks),
+          });
+        });
+      },
+    );
+
+    request.on("error", reject);
+    request.end();
+  });
+}
+
+function toResponse(result: PinnedFetchResult): Response {
+  const responseHeaders = new Headers();
+  for (const [key, value] of Object.entries(result.headers)) {
+    responseHeaders.set(key, value);
+  }
+
+  return new Response(new Uint8Array(result.body), {
+    status: result.status,
+    headers: responseHeaders,
+  });
+}
+
+/**
+ * Fetches a URL after SSRF validation, pinning to the resolved public IP and
+ * re-validating each redirect hop (redirect: manual).
+ */
+export async function safeFetchUrl(rawUrl: string): Promise<Response> {
+  let currentUrl = rawUrl;
+
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    const parsed = await assertSafeFetchUrl(currentUrl);
+    const addresses = await resolveHostAddresses(parsed.hostname);
+
+    for (const address of addresses) {
+      if (isBlockedIp(address)) {
+        throw new Error("Host de imagem aponta para rede privada ou local.");
+      }
+    }
+
+    const pinnedIp = addresses[0];
+    if (!pinnedIp) {
+      throw new Error("Não foi possível resolver o host da imagem.");
+    }
+
+    const result = await fetchPinnedHttps(parsed, pinnedIp);
+
+    if (result.status >= 300 && result.status < 400) {
+      const location = result.headers.location;
+      if (!location) {
+        throw new Error("Redirect sem destino.");
+      }
+      currentUrl = new URL(location, parsed).toString();
+      continue;
+    }
+
+    return toResponse(result);
+  }
+
+  throw new Error("Muitos redirects ao buscar a URL.");
+}

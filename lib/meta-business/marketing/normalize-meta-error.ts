@@ -1,4 +1,4 @@
-import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
+import { attachCorrelationId } from "@/lib/observability/correlation-id";
 
 /**
  * Centralized error handling for Meta Marketing API responses.
@@ -8,6 +8,7 @@ import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 
 export type CampaignCreationLevel =
   | "audience"
+  | "pixel"
   | "page"
   | "campaign"
   | "adset"
