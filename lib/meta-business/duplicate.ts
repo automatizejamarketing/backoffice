@@ -858,6 +858,23 @@ export type DuplicateProvenCampaignResult = DuplicateResult & {
 };
 
 /**
+ * The adjustments the duplication surfaces to the user after a (partial) success — skipped ads/ad
+ * sets, replaced interests, repaired creatives, rebuilt ad sets and schedule shifts (ADR 0023
+ * ticket 05). Declared ONCE here so the AI-creation result, the publish result and the report
+ * renderer all reference one shape instead of re-listing these seven keys (ticket 06).
+ */
+export type DuplicateProvenCampaignReports = Pick<
+  DuplicateProvenCampaignResult,
+  | "skippedAds"
+  | "skippedAdsets"
+  | "replacedInterests"
+  | "repairedCreatives"
+  | "rebuiltAdsets"
+  | "scheduleAdjusted"
+  | "scheduleAdjustFailed"
+>;
+
+/**
  * Thrown when atomic duplication fails. When rollback succeeds, no new objects
  * remain on Meta. When rollback partially fails, `orphanIds` lists objects
  * that could not be deleted and require manual cleanup.
@@ -1045,8 +1062,43 @@ function splitDailyBudgetCents(totalCents: number, count: number): number[] {
   return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
 }
 
-/** Flight length when a lifetime budget is derived from the user's daily answer (ADR 0022). */
-const AI_DUPLICATE_FLIGHT_DAYS = 7;
+/**
+ * Flight length when a lifetime budget is derived from the user's daily answer (ADR 0022/0023).
+ * The ONE flight constant for proven-campaign duplication — exported so the AI-creation review
+ * shows exactly the flight the engine writes, instead of keeping a second constant that can drift
+ * (ticket 06).
+ */
+export const AI_DUPLICATE_FLIGHT_DAYS = 7;
+
+/**
+ * Budget/flight numbers for a proven-campaign duplication — the SINGLE source of truth used both by
+ * `duplicateProvenCampaign` (what it writes to Meta) and by the AI-creation review (what it shows
+ * the user). Computing them here, once, is what keeps the documented "review == published" invariant
+ * true: the review cannot drift from the engine because both call this (ticket 06).
+ */
+export function computeDuplicationBudget(args: {
+  /** The user's answered budget, per day, in MAJOR units. */
+  dailyBudgetMajor: number;
+  /** How many ad sets carry the budget — ABO splits across them; CBO ignores the split. */
+  adSetCount: number;
+}): {
+  flightDays: number;
+  /** Total per-day budget in MINOR units — what the user answered. */
+  dailyCents: number;
+  /** Per-ad-set daily slices (ABO); sums EXACTLY to `dailyCents`. */
+  slices: number[];
+  /** Total committed across the flight, in MINOR units (dailyCents × flightDays). */
+  lifetimeCents: number;
+} {
+  const dailyCents = Math.round(args.dailyBudgetMajor * 100);
+  const slices = splitDailyBudgetCents(dailyCents, Math.max(1, args.adSetCount));
+  return {
+    flightDays: AI_DUPLICATE_FLIGHT_DAYS,
+    dailyCents,
+    slices,
+    lifetimeCents: dailyCents * AI_DUPLICATE_FLIGHT_DAYS,
+  };
+}
 
 async function patchObjectFields(
   objectId: string,
@@ -2812,7 +2864,6 @@ export async function duplicateProvenCampaign(args: {
 
   const tracker = new CreatedObjectsTracker();
   const limiter = createWriteLimiter(MIN_WRITE_INTERVAL_MS);
-  const dailyBudgetCents = Math.round(dailyBudgetMajor * 100);
 
   try {
     const campaignCopy = await withMetaRetry(() =>
@@ -2951,68 +3002,63 @@ export async function duplicateProvenCampaign(args: {
       });
     }
 
-    // Apply the user's daily budget AFTER the copy — never the source's possibly high budget.
+    // Apply the user's budget AFTER the copy (never the source's possibly high budget) AND publish
+    // ACTIVE in the SAME write on every object that carries a budget — the campaign under CBO, each
+    // ad set under ABO. Merging the budget patch with the status flip halves those writes against the
+    // shared Meta rate-limit and closes the window where a live object could run on the source's
+    // budget (ADR 0001/0023, ticket 06). AI creation publishes ACTIVE even when the source was paused.
+    const budget = computeDuplicationBudget({
+      dailyBudgetMajor,
+      adSetCount: copiedAdSetIds.length,
+    });
+    const freshFlight = () => {
+      const now = Date.now();
+      return {
+        start: new Date(now + START_BUFFER_MS).toISOString(),
+        stop: new Date(
+          now + START_BUFFER_MS + budget.flightDays * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+      };
+    };
+
     if (isCBO) {
+      const campaignFields: Record<string, string> = { status: "ACTIVE" };
       if (campaignLifetime) {
-        const lifetimeCents = dailyBudgetCents * AI_DUPLICATE_FLIGHT_DAYS;
-        const start = new Date(Date.now() + START_BUFFER_MS).toISOString();
-        const stop = new Date(
-          Date.now() + START_BUFFER_MS + AI_DUPLICATE_FLIGHT_DAYS * 24 * 60 * 60 * 1000,
-        ).toISOString();
-        await patchObjectFields(
-          newCampaignId,
-          {
-            lifetime_budget: String(lifetimeCents),
-            start_time: start,
-            stop_time: stop,
-          },
-          accessToken,
-        );
+        const { start, stop } = freshFlight();
+        campaignFields.lifetime_budget = String(budget.lifetimeCents);
+        campaignFields.start_time = start;
+        campaignFields.stop_time = stop;
       } else {
-        await patchObjectFields(
-          newCampaignId,
-          { daily_budget: String(dailyBudgetCents) },
-          accessToken,
-        );
+        campaignFields.daily_budget = String(budget.dailyCents);
+      }
+      await patchObjectFields(newCampaignId, campaignFields, accessToken);
+      // Ad sets under CBO carry no budget of their own — they only need activating.
+      for (const adsetId of copiedAdSetIds) {
+        await setObjectActive(adsetId, accessToken);
       }
     } else {
-      const slices = splitDailyBudgetCents(dailyBudgetCents, copiedAdSetIds.length);
+      // ABO: the campaign carries no budget, so it only needs activating.
+      await setObjectActive(newCampaignId, accessToken);
       for (let i = 0; i < copiedAdSetIds.length; i++) {
         const source = adsetsById.get(copiedFromSourceAdSetIds[i]);
         const hasDayparting =
           Array.isArray(source?.adset_schedule) && source.adset_schedule.length > 0;
         const useLifetime =
           hasDayparting || hasPositiveMinorUnits(source?.lifetime_budget);
+        const adsetFields: Record<string, string> = { status: "ACTIVE" };
         if (useLifetime) {
-          const lifetimeCents = slices[i] * AI_DUPLICATE_FLIGHT_DAYS;
-          const start = new Date(Date.now() + START_BUFFER_MS).toISOString();
-          const stop = new Date(
-            Date.now() + START_BUFFER_MS + AI_DUPLICATE_FLIGHT_DAYS * 24 * 60 * 60 * 1000,
-          ).toISOString();
-          await patchObjectFields(
-            copiedAdSetIds[i],
-            {
-              lifetime_budget: String(lifetimeCents),
-              start_time: start,
-              end_time: stop,
-            },
-            accessToken,
-          );
+          const { start, stop } = freshFlight();
+          adsetFields.lifetime_budget = String(budget.slices[i] * budget.flightDays);
+          adsetFields.start_time = start;
+          adsetFields.end_time = stop;
         } else {
-          await patchObjectFields(
-            copiedAdSetIds[i],
-            { daily_budget: String(slices[i]) },
-            accessToken,
-          );
+          adsetFields.daily_budget = String(budget.slices[i]);
         }
+        await patchObjectFields(copiedAdSetIds[i], adsetFields, accessToken);
       }
     }
 
-    // AI creation publishes ACTIVE — even when the source was paused.
-    await setObjectActive(newCampaignId, accessToken);
-    for (const adsetId of copiedAdSetIds) {
-      await setObjectActive(adsetId, accessToken);
-    }
+    // Ads never carry a budget — activate them last.
     for (const adId of copiedAdIds) {
       await setObjectActive(adId, accessToken);
     }
