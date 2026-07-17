@@ -2742,6 +2742,8 @@ export async function duplicateProvenCampaign(args: {
   accessToken: string;
   /** Source ad ids to copy — each travels with its hosting ad set. */
   keepAdIds: string[];
+  /** Source ad sets to copy even when they host no kept ad (e.g. new-media-only duplication). */
+  alwaysCopyAdSetIds?: string[];
   /** User's daily budget in MAJOR units; applied after copy, never inherited from the source. */
   dailyBudgetMajor: number;
   /** Conventional campaign name (not the chat's "- Cópia" suffix). */
@@ -2753,13 +2755,15 @@ export async function duplicateProvenCampaign(args: {
     campaignId,
     accessToken,
     keepAdIds,
+    alwaysCopyAdSetIds,
     dailyBudgetMajor,
     campaignName,
     fallbackPromotionUrl,
   } = args;
   const act = formatAccountId(accountId);
   const keepSet = new Set(keepAdIds);
-  if (keepSet.size === 0) {
+  const alwaysCopySet = new Set(alwaysCopyAdSetIds ?? []);
+  if (keepSet.size === 0 && alwaysCopySet.size === 0) {
     throw new GraphApiError({
       statusCode: 400,
       reason: {
@@ -2846,7 +2850,8 @@ export async function duplicateProvenCampaign(args: {
         sourceAdset.ads?.data ??
         (await listAdsetAds(sourceAdset.id, accessToken));
       const adsToCopy = sourceAds.filter((ad) => keepSet.has(ad.id));
-      if (adsToCopy.length === 0) continue;
+      const mustCopyShell = alwaysCopySet.has(sourceAdset.id);
+      if (adsToCopy.length === 0 && !mustCopyShell) continue;
 
       const {
         id: copiedAdsetId,
@@ -2881,6 +2886,13 @@ export async function duplicateProvenCampaign(args: {
         });
       }
 
+      if (adsToCopy.length === 0) {
+        copiedAdsetCount += 1;
+        copiedAdSetIds.push(copiedAdsetId);
+        copiedFromSourceAdSetIds.push(sourceAdset.id);
+        continue;
+      }
+
       const {
         copiedAds,
         skippedAds: skipped,
@@ -2900,6 +2912,12 @@ export async function duplicateProvenCampaign(args: {
       repairedCreatives.push(...repaired);
 
       if (copiedAds.length === 0) {
+        if (mustCopyShell) {
+          copiedAdsetCount += 1;
+          copiedAdSetIds.push(copiedAdsetId);
+          copiedFromSourceAdSetIds.push(sourceAdset.id);
+          continue;
+        }
         await deleteMetaObject(copiedAdsetId, accessToken);
         tracker.untrack(copiedAdsetId);
         skippedAdsets.push({
