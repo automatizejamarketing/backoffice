@@ -844,6 +844,12 @@ export type DuplicateResult = {
   scheduleAdjustFailed?: boolean;
 };
 
+export type DuplicateProvenCampaignResult = DuplicateResult & {
+  campaignId: string;
+  adSetIds: string[];
+  adIds: string[];
+};
+
 /**
  * Thrown when atomic duplication fails. When rollback succeeds, no new objects
  * remain on Meta. When rollback partially fails, `orphanIds` lists objects
@@ -1022,6 +1028,38 @@ async function renameObject(
       accessToken,
     }),
   );
+}
+
+/** Split one daily budget across N ad sets so the parts sum exactly to the whole. */
+function splitDailyBudgetCents(totalCents: number, count: number): number[] {
+  const n = Math.max(1, count);
+  const base = Math.floor(totalCents / n);
+  const remainder = totalCents - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
+}
+
+/** Flight length when a lifetime budget is derived from the user's daily answer (ADR 0022). */
+const AI_DUPLICATE_FLIGHT_DAYS = 7;
+
+async function patchObjectFields(
+  objectId: string,
+  fields: Record<string, string>,
+  accessToken: string,
+): Promise<void> {
+  await withMetaRetry(() =>
+    metaApiCall<{ success?: boolean }>({
+      domain: "FACEBOOK",
+      method: "POST",
+      path: objectId,
+      params: "",
+      body: new URLSearchParams(fields),
+      accessToken,
+    }),
+  );
+}
+
+async function setObjectActive(objectId: string, accessToken: string): Promise<void> {
+  await patchObjectFields(objectId, { status: "ACTIVE" }, accessToken);
 }
 
 async function getCampaignTree(
@@ -2221,8 +2259,10 @@ function buildPreemptiveAdPatch(
 function someCreativeNeedsUrl(
   creatives: Map<string, GraphCreativeShape>,
   boostIneligibleMedia?: Map<string, string>,
+  onlyAdIds?: Set<string>,
 ): boolean {
-  for (const creative of creatives.values()) {
+  for (const [adId, creative] of creatives.entries()) {
+    if (onlyAdIds && !onlyAdIds.has(adId)) continue;
     const mediaId = creative.source_instagram_media_id;
     if (mediaId && boostIneligibleMedia?.has(String(mediaId))) continue;
     if (extractCreativeUrl(creative) == null) return true;
@@ -2670,6 +2710,297 @@ export async function duplicateCampaign(args: {
       id: newCampaignId,
       name: newName,
       sourceName,
+      ...(skippedAds.length ? { skippedAds } : {}),
+      ...(skippedAdsets.length ? { skippedAdsets } : {}),
+      ...(replacedInterests.length ? { replacedInterests } : {}),
+      ...(repairedCreatives.length ? { repairedCreatives } : {}),
+      ...(rebuiltAdsets.length ? { rebuiltAdsets } : {}),
+      ...(scheduleAdjusted ? { scheduleAdjusted: true } : {}),
+      ...(scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
+    };
+  } catch (err) {
+    return rollbackAndThrow(tracker, accessToken, err);
+  }
+}
+
+/**
+ * Filtered campaign duplication for AI creation (ADR 0023): copies the campaign shell, then ONLY the
+ * ad sets that host `keepAdIds` and ONLY those ads. The user's daily budget is applied AFTER the
+ * copy; every created object is forced ACTIVE before return. No async deep-copy — the filtered tree
+ * is always entity-by-entity.
+ */
+export async function duplicateProvenCampaign(args: {
+  accountId: string;
+  campaignId: string;
+  accessToken: string;
+  /** Source ad ids to copy — each travels with its hosting ad set. */
+  keepAdIds: string[];
+  /** User's daily budget in MAJOR units; applied after copy, never inherited from the source. */
+  dailyBudgetMajor: number;
+  /** Conventional campaign name (not the chat's "- Cópia" suffix). */
+  campaignName: string;
+  fallbackPromotionUrl?: string;
+}): Promise<DuplicateProvenCampaignResult> {
+  const {
+    accountId,
+    campaignId,
+    accessToken,
+    keepAdIds,
+    dailyBudgetMajor,
+    campaignName,
+    fallbackPromotionUrl,
+  } = args;
+  const act = formatAccountId(accountId);
+  const keepSet = new Set(keepAdIds);
+  if (keepSet.size === 0) {
+    throw new GraphApiError({
+      statusCode: 400,
+      reason: {
+        httpStatusCode: 400,
+        title: "Nada para duplicar",
+        message: "Nenhum anúncio provado foi selecionado para duplicação.",
+        solution: "Escolha ao menos um anúncio provado.",
+        isTransient: false,
+      },
+    });
+  }
+
+  const sourceTree = await getCampaignTree(campaignId, accessToken);
+  assertCopyableCampaignType(sourceTree.smart_promotion_type);
+  const sourceAdsets = sourceTree.adsets?.data ?? [];
+  const isSales = sourceTree.objective === "OUTCOME_SALES";
+  const isCBO =
+    hasPositiveMinorUnits(sourceTree.daily_budget) ||
+    hasPositiveMinorUnits(sourceTree.lifetime_budget);
+  const campaignLifetime = hasPositiveMinorUnits(sourceTree.lifetime_budget);
+
+  const creatives = await fetchCreativesByAdId(
+    sourceAdsets.flatMap((a) => a.ads?.data?.map((ad) => ad.id) ?? []),
+    accessToken,
+  );
+  const boostIneligibleMedia = await fetchBoostIneligibleMedia(
+    collectSourceMediaIds(creatives),
+    accessToken,
+  );
+  if (
+    isSales &&
+    !fallbackPromotionUrl &&
+    someCreativeNeedsUrl(
+      creatives,
+      boostIneligibleMedia,
+      keepSet,
+    )
+  ) {
+    throw promotionUrlRequiredError();
+  }
+
+  const adsetsById = await fetchAdsetsById(
+    sourceAdsets.map((a) => a.id),
+    accessToken,
+  );
+
+  const tracker = new CreatedObjectsTracker();
+  const limiter = createWriteLimiter(MIN_WRITE_INTERVAL_MS);
+  const dailyBudgetCents = Math.round(dailyBudgetMajor * 100);
+
+  try {
+    const campaignCopy = await withMetaRetry(() =>
+      metaApiCall<CopyResponse>({
+        domain: "FACEBOOK",
+        method: "POST",
+        path: `${campaignId}/copies`,
+        params: "",
+        body: new URLSearchParams({
+          status_option: STATUS_OPTION,
+          rename_options: NO_RENAME,
+        }),
+        accessToken,
+      }),
+    );
+
+    const newCampaignId = campaignCopy.copied_campaign_id;
+    if (!newCampaignId) throw missingCopyIdError("da campanha");
+    tracker.track("campaign", newCampaignId);
+
+    const skippedAds: SkippedItem[] = [];
+    const skippedAdsets: SkippedItem[] = [];
+    const replacedInterests: ReplacedInterestsItem[] = [];
+    const repairedCreatives: RepairedCreativeItem[] = [];
+    const rebuiltAdsets: RebuiltAdsetItem[] = [];
+    let scheduleAdjusted = false;
+    let scheduleAdjustFailed = false;
+    let copiedAdsetCount = 0;
+    const copiedAdSetIds: string[] = [];
+    const copiedAdIds: string[] = [];
+    const copiedFromSourceAdSetIds: string[] = [];
+
+    for (const sourceAdset of sourceAdsets) {
+      const sourceAds =
+        sourceAdset.ads?.data ??
+        (await listAdsetAds(sourceAdset.id, accessToken));
+      const adsToCopy = sourceAds.filter((ad) => keepSet.has(ad.id));
+      if (adsToCopy.length === 0) continue;
+
+      const {
+        id: copiedAdsetId,
+        replacedInterests: adsetReplacements,
+        rebuilt,
+        scheduleShifted,
+        scheduleShiftFailed,
+      } = await copyOrRebuildAdsetInto({
+        accountId: act,
+        sourceAdsetId: sourceAdset.id,
+        targetCampaignId: newCampaignId,
+        accessToken,
+        isCBO,
+        campaignLifetime,
+        prefetchedSource: adsetsById.get(sourceAdset.id),
+      });
+      tracker.track("adset", copiedAdsetId);
+      if (rebuilt) {
+        rebuiltAdsets.push({
+          sourceAdsetId: sourceAdset.id,
+          sourceAdsetName: sourceAdset.name,
+          scheduleShifted,
+        });
+      }
+      if (scheduleShifted) scheduleAdjusted = true;
+      if (scheduleShiftFailed) scheduleAdjustFailed = true;
+      if (adsetReplacements.length > 0) {
+        replacedInterests.push({
+          sourceAdsetId: sourceAdset.id,
+          sourceAdsetName: sourceAdset.name,
+          replacements: adsetReplacements,
+        });
+      }
+
+      const {
+        copiedAds,
+        skippedAds: skipped,
+        repairedCreatives: repaired,
+      } = await copyAdsIntoAdset(
+        adsToCopy,
+        copiedAdsetId,
+        accessToken,
+        tracker,
+        limiter,
+        creatives,
+        boostIneligibleMedia,
+        isSales,
+        fallbackPromotionUrl,
+      );
+      skippedAds.push(...skipped);
+      repairedCreatives.push(...repaired);
+
+      if (copiedAds.length === 0) {
+        await deleteMetaObject(copiedAdsetId, accessToken);
+        tracker.untrack(copiedAdsetId);
+        skippedAdsets.push({
+          sourceId: sourceAdset.id,
+          sourceName: sourceAdset.name,
+          reason: "Todos os anúncios selecionados deste conjunto são inelegíveis para duplicação.",
+        });
+        continue;
+      }
+
+      copiedAdsetCount += 1;
+      copiedAdSetIds.push(copiedAdsetId);
+      copiedFromSourceAdSetIds.push(sourceAdset.id);
+      for (const copied of copiedAds) {
+        copiedAdIds.push(copied.copiedAdId);
+      }
+    }
+
+    if (copiedAdsetCount === 0) {
+      throw new GraphApiError({
+        statusCode: 502,
+        reason: {
+          httpStatusCode: 502,
+          title: "Falha na duplicação",
+          message:
+            "Nenhum anúncio pôde ser copiado: todos os anúncios selecionados são inelegíveis para duplicação.",
+          solution:
+            "Ajuste a mídia/música dos anúncios de origem no Gerenciador de Anúncios e tente novamente.",
+          isTransient: false,
+        },
+      });
+    }
+
+    // Apply the user's daily budget AFTER the copy — never the source's possibly high budget.
+    if (isCBO) {
+      if (campaignLifetime) {
+        const lifetimeCents = dailyBudgetCents * AI_DUPLICATE_FLIGHT_DAYS;
+        const start = new Date(Date.now() + START_BUFFER_MS).toISOString();
+        const stop = new Date(
+          Date.now() + START_BUFFER_MS + AI_DUPLICATE_FLIGHT_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        await patchObjectFields(
+          newCampaignId,
+          {
+            lifetime_budget: String(lifetimeCents),
+            start_time: start,
+            stop_time: stop,
+          },
+          accessToken,
+        );
+      } else {
+        await patchObjectFields(
+          newCampaignId,
+          { daily_budget: String(dailyBudgetCents) },
+          accessToken,
+        );
+      }
+    } else {
+      const slices = splitDailyBudgetCents(dailyBudgetCents, copiedAdSetIds.length);
+      for (let i = 0; i < copiedAdSetIds.length; i++) {
+        const source = adsetsById.get(copiedFromSourceAdSetIds[i]);
+        const hasDayparting =
+          Array.isArray(source?.adset_schedule) && source.adset_schedule.length > 0;
+        const useLifetime =
+          hasDayparting || hasPositiveMinorUnits(source?.lifetime_budget);
+        if (useLifetime) {
+          const lifetimeCents = slices[i] * AI_DUPLICATE_FLIGHT_DAYS;
+          const start = new Date(Date.now() + START_BUFFER_MS).toISOString();
+          const stop = new Date(
+            Date.now() + START_BUFFER_MS + AI_DUPLICATE_FLIGHT_DAYS * 24 * 60 * 60 * 1000,
+          ).toISOString();
+          await patchObjectFields(
+            copiedAdSetIds[i],
+            {
+              lifetime_budget: String(lifetimeCents),
+              start_time: start,
+              end_time: stop,
+            },
+            accessToken,
+          );
+        } else {
+          await patchObjectFields(
+            copiedAdSetIds[i],
+            { daily_budget: String(slices[i]) },
+            accessToken,
+          );
+        }
+      }
+    }
+
+    // AI creation publishes ACTIVE — even when the source was paused.
+    await setObjectActive(newCampaignId, accessToken);
+    for (const adsetId of copiedAdSetIds) {
+      await setObjectActive(adsetId, accessToken);
+    }
+    for (const adId of copiedAdIds) {
+      await setObjectActive(adId, accessToken);
+    }
+
+    await renameObject(newCampaignId, campaignName, accessToken);
+
+    return {
+      id: newCampaignId,
+      campaignId: newCampaignId,
+      name: campaignName,
+      sourceName: sourceTree.name ?? "Campanha",
+      adSetIds: copiedAdSetIds,
+      adIds: copiedAdIds,
       ...(skippedAds.length ? { skippedAds } : {}),
       ...(skippedAdsets.length ? { skippedAdsets } : {}),
       ...(replacedInterests.length ? { replacedInterests } : {}),
