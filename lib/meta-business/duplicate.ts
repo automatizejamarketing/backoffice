@@ -844,10 +844,17 @@ export type DuplicateResult = {
   scheduleAdjustFailed?: boolean;
 };
 
+export type CopiedAdSetMapping = {
+  sourceAdSetId: string;
+  copiedAdSetId: string;
+};
+
 export type DuplicateProvenCampaignResult = DuplicateResult & {
   campaignId: string;
   adSetIds: string[];
   adIds: string[];
+  /** Source ad set → copied ad set, in copy order (ADR 0023 ticket 03). */
+  copiedAdSets: CopiedAdSetMapping[];
 };
 
 /**
@@ -3001,6 +3008,10 @@ export async function duplicateProvenCampaign(args: {
       sourceName: sourceTree.name ?? "Campanha",
       adSetIds: copiedAdSetIds,
       adIds: copiedAdIds,
+      copiedAdSets: copiedAdSetIds.map((copiedAdSetId, index) => ({
+        sourceAdSetId: copiedFromSourceAdSetIds[index],
+        copiedAdSetId,
+      })),
       ...(skippedAds.length ? { skippedAds } : {}),
       ...(skippedAdsets.length ? { skippedAdsets } : {}),
       ...(replacedInterests.length ? { replacedInterests } : {}),
