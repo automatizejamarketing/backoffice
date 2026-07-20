@@ -1156,6 +1156,34 @@ export type BackofficeGeneratedPost = InferSelectModel<
 >;
 
 // =============================================
+// Video Templates (Creatomate)
+// =============================================
+
+export type VideoTemplateStatus = "active" | "inactive";
+
+export const videoTemplate = pgTable("video_templates", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  thumbnailUrl: text("thumbnail_url"),
+  videoPreviewUrl: text("video_preview_url"),
+  category: varchar("category", { length: 128 }),
+  position: integer("position").notNull().default(0),
+  status: varchar("status", { enum: ["active", "inactive"] })
+    .$type<VideoTemplateStatus>()
+    .notNull()
+    .default("inactive"),
+  creatomateTemplateId: varchar("creatomate_template_id", { length: 255 }).notNull(),
+  // O nome do elemento de vídeo cru (ex: "Video-1") no template do Creatomate
+  videoSourceKey: varchar("video_source_key", { length: 128 }).notNull().default("Video-1"),
+  maxDuration: integer("max_duration"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type VideoTemplate = InferSelectModel<typeof videoTemplate>;
+
+// =============================================
 // Stripe Subscription Management
 // =============================================
 
