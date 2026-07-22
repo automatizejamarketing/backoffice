@@ -7,6 +7,7 @@ import {
   ilike,
   inArray,
   isNull,
+  like,
   lt,
   or,
   sql,
@@ -20,6 +21,7 @@ import {
   backofficeUser,
   backofficeAuditLog,
   backofficeGeneratedPost,
+  businessManagedCampaignCache,
   campaignEditLog,
   company,
   generatedImage,
@@ -28,6 +30,9 @@ import {
   metaBusinessAccount,
   payment,
   pendingPlanChange,
+  performanceInsight,
+  performanceSnapshot,
+  performanceSnapshotRun,
   post,
   referenceImage,
   subscription,
@@ -36,6 +41,7 @@ import {
   user,
   userCompany,
   userMarketingConsultant,
+  type BillingProvider,
   type CampaignAdSetBudgetChangeData,
   type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
@@ -51,9 +57,16 @@ import {
   type User,
 } from "./schema";
 import {
+  renewalWithinDays,
   resolveSignupDateRange,
   type UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
+import {
+  evaluateBusinessHealth,
+  type BusinessHealthReasonCode,
+} from "@/lib/business/business-health";
+import { getBusinessOperatingRules } from "@/lib/db/business-queries";
+import { PERFORMANCE_DROP_RULEBOOK_VERSION } from "@/lib/performance-drop/constants";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 export type ActiveSubscriptionSummary = Pick<
@@ -64,7 +77,30 @@ export type ActiveSubscriptionSummary = Pick<
   | "currentPeriodEnd"
   | "cancelAtPeriodEnd"
   | "stripeSubscriptionId"
+  | "provider"
 > | null;
+
+export type UserRenewalAlert = {
+  severity: "critical" | "attention";
+  code: BusinessHealthReasonCode;
+  label: string;
+  daysUntilRenewal: number | null;
+  provider: BillingProvider | null;
+  renewalDate: Date | null;
+};
+
+export type UserPerformanceDrop = {
+  hasDrop: boolean;
+  /**
+   * True when the latest performance-drop-v1 snapshot is a real evaluation
+   * (not an error marker).
+   */
+  wasChecked: boolean;
+  /** True when the latest snapshot is a check-failure marker. */
+  checkFailed: boolean;
+  openInsightCount: number;
+  highestSeverity: "critical" | "warning" | null;
+};
 
 export type UserWithUsage = User & {
   postCount: number;
@@ -80,6 +116,10 @@ export type UserWithUsage = User & {
   assignedConsultantId: string | null;
   assignedConsultantEmail: string | null;
   assignedConsultantName: string | null;
+  hasActiveManagedCampaign: boolean;
+  managedCampaignCheckedAt: Date | null;
+  renewalAlert: UserRenewalAlert | null;
+  performanceDrop: UserPerformanceDrop;
 };
 
 export type GetAllUsersWithUsageParams = {
@@ -92,6 +132,10 @@ export type GetAllUsersWithUsageParams = {
       | "subscriptionStatus"
       | "planPeriod"
       | "metaStatus"
+      | "campaignStatus"
+      | "performanceStatus"
+      | "renewalWithin"
+      | "sort"
       | "consultantId"
       | "signupWithin"
       | "signupFrom"
@@ -162,14 +206,107 @@ const activeSubscriptionPlanTypeSql = sql`
   )
 `;
 
+const hasActiveManagedCampaignSql = sql`EXISTS (
+  SELECT 1
+  FROM business_managed_campaign_cache c
+  WHERE c.user_id = ${user.id}
+    AND c.has_active_managed_campaign = true
+)`;
+
+const hasManagedCampaignCheckSql = sql`EXISTS (
+  SELECT 1
+  FROM business_managed_campaign_cache c
+  WHERE c.user_id = ${user.id}
+)`;
+
+const hasPerformanceDropSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_insights pi
+  INNER JOIN performance_snapshot_runs r ON r.id = pi.run_id
+  WHERE pi.user_id = ${user.id}
+    AND pi.status = 'open'
+    AND pi.severity IN ('critical', 'warning')
+    AND pi.rule_id LIKE 'drop.%'
+    AND r.window = 'last_7d'
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+)`;
+
+/**
+ * Latest drop-v1 snapshot is a successful evaluation (not an error marker).
+ * Correlated subquery keeps filter semantics aligned with the list enrichment.
+ */
+const hasPerformanceCheckedSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_snapshots ps
+  INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
+  WHERE ps.user_id = ${user.id}
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    AND COALESCE((ps.metrics->>'error')::boolean, false) = false
+    AND ps.captured_at = (
+      SELECT MAX(ps2.captured_at)
+      FROM performance_snapshots ps2
+      INNER JOIN performance_snapshot_runs r2 ON r2.id = ps2.run_id
+      WHERE ps2.user_id = ${user.id}
+        AND r2.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    )
+)`;
+
+/** Latest drop-v1 snapshot is a per-user check-failure marker. */
+const hasPerformanceCheckErrorSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_snapshots ps
+  INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
+  WHERE ps.user_id = ${user.id}
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    AND COALESCE((ps.metrics->>'error')::boolean, false) = true
+    AND ps.captured_at = (
+      SELECT MAX(ps2.captured_at)
+      FROM performance_snapshots ps2
+      INNER JOIN performance_snapshot_runs r2 ON r2.id = ps2.run_id
+      WHERE ps2.user_id = ${user.id}
+        AND r2.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    )
+)`;
+
+const hasPerformanceSnapshotSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_snapshots ps
+  INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
+  WHERE ps.user_id = ${user.id}
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+)`;
+
+/** Same priority as activeSubscriptionStatusSql, then users.expiration_date. */
+const renewalDateSql = sql`COALESCE(
+  (
+    SELECT s.current_period_end
+    FROM subscriptions s
+    WHERE s.user_id = ${user.id}
+    ORDER BY
+      CASE s.status
+        WHEN 'active' THEN 1
+        WHEN 'trialing' THEN 2
+        WHEN 'past_due' THEN 3
+        WHEN 'unpaid' THEN 4
+        WHEN 'incomplete' THEN 5
+        WHEN 'canceled' THEN 6
+        WHEN 'incomplete_expired' THEN 7
+        ELSE 99
+      END,
+      s.created_at DESC
+    LIMIT 1
+  ),
+  ${user.expirationDate}
+)`;
+
 // Get a paginated list of users with their usage summary.
 //
 // Implementation note: this function used to issue 5 queries per user inside
 // `Promise.all`, which saturated the connection pool and triggered Postgres
-// statement timeouts. It now runs a fixed 6 queries per page regardless of
-// total user count: 1 count + 1 page of users + 4 aggregates scoped to the
-// page's userIds + 1 for subscriptions (still picked in memory via
-// `pickActiveSubscription` so the priority logic stays in one place).
+// statement timeouts. It now runs a fixed set of page-scoped queries:
+// count + users page + usage/company/subscription/meta/consultant/campaign/
+// performance aggregates, plus operating rules for renewal alerts. Active
+// subscription is still picked in memory via `pickActiveSubscription`.
 export async function getAllUsersWithUsage(
   params: GetAllUsersWithUsageParams = {},
 ): Promise<GetAllUsersWithUsageResult> {
@@ -237,6 +374,41 @@ export async function getAllUsersWithUsage(
     )`);
   }
 
+  if (params.filters?.campaignStatus === "active") {
+    conditions.push(hasActiveManagedCampaignSql);
+  } else if (params.filters?.campaignStatus === "inactive") {
+    conditions.push(
+      and(hasManagedCampaignCheckSql, sql`NOT ${hasActiveManagedCampaignSql}`),
+    );
+  } else if (params.filters?.campaignStatus === "unchecked") {
+    conditions.push(sql`NOT ${hasManagedCampaignCheckSql}`);
+  }
+
+  if (params.filters?.performanceStatus === "drop") {
+    conditions.push(hasPerformanceDropSql);
+  } else if (params.filters?.performanceStatus === "no_drop") {
+    conditions.push(
+      and(hasPerformanceCheckedSql, sql`NOT ${hasPerformanceDropSql}`),
+    );
+  } else if (params.filters?.performanceStatus === "error") {
+    conditions.push(hasPerformanceCheckErrorSql);
+  } else if (params.filters?.performanceStatus === "unchecked") {
+    conditions.push(sql`NOT ${hasPerformanceSnapshotSql}`);
+  }
+
+  const renewalDays = renewalWithinDays(params.filters?.renewalWithin ?? "all");
+  if (renewalDays !== null) {
+    const now = new Date();
+    const until = new Date(now.getTime() + renewalDays * 24 * 60 * 60 * 1000);
+    // Bind as ISO strings — raw Date objects stringify to locale text and break
+    // the postgres driver. 0 ≤ daysUntil ≤ N ≈ now ≤ renewalDate ≤ now + N days.
+    conditions.push(
+      sql`${renewalDateSql} IS NOT NULL
+        AND ${renewalDateSql} >= ${now.toISOString()}
+        AND ${renewalDateSql} <= ${until.toISOString()}`,
+    );
+  }
+
   if (params.filters?.consultantId && params.filters.consultantId !== "all") {
     if (params.filters.consultantId === "unassigned") {
       conditions.push(sql`NOT EXISTS (
@@ -269,8 +441,30 @@ export async function getAllUsersWithUsage(
     conditions.push(lt(user.createdAt, signupRange.lt));
   }
   const signupFilterActive = Boolean(signupRange.gte || signupRange.lt);
+  const sort = params.filters?.sort ?? "default";
 
   const whereFilter = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const orderBy =
+    sort === "renewal"
+      ? [
+          sql`CASE WHEN ${renewalDateSql} IS NULL THEN 1 ELSE 0 END`,
+          sql`${renewalDateSql} ASC NULLS LAST`,
+          desc(user.id),
+        ]
+      : sort === "performance"
+        ? [
+            sql`CASE WHEN ${hasPerformanceDropSql} THEN 0 ELSE 1 END`,
+            desc(user.id),
+          ]
+        : sort === "campaign"
+          ? [
+              sql`CASE WHEN ${hasActiveManagedCampaignSql} THEN 0 ELSE 1 END`,
+              desc(user.id),
+            ]
+          : signupFilterActive
+            ? [desc(user.createdAt)]
+            : [desc(user.id)];
 
   const [usersPage, [totalRow]] = await Promise.all([
     db
@@ -279,7 +473,8 @@ export async function getAllUsersWithUsage(
       .where(whereFilter)
       // When filtering by signup date, newest-first is the intuitive order;
       // otherwise preserve the existing (id-based) ordering of the full list.
-      .orderBy(signupFilterActive ? desc(user.createdAt) : desc(user.id))
+      // Explicit sort by performance/campaign elevates flagged users first.
+      .orderBy(...orderBy)
       .limit(pageSize)
       .offset(offset),
     db.select({ count: count() }).from(user).where(whereFilter),
@@ -299,6 +494,10 @@ export async function getAllUsersWithUsage(
     subRows,
     metaRows,
     consultantRows,
+    campaignRows,
+    performanceRows,
+    performanceCheckedRows,
+    operatingRules,
   ] = await Promise.all([
     db
       .select({
@@ -336,6 +535,7 @@ export async function getAllUsersWithUsage(
         currentPeriodEnd: subscription.currentPeriodEnd,
         cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
         stripeSubscriptionId: subscription.stripeSubscriptionId,
+        provider: subscription.provider,
         createdAt: subscription.createdAt,
       })
       .from(subscription)
@@ -371,6 +571,69 @@ export async function getAllUsersWithUsage(
         eq(userMarketingConsultant.consultantId, backofficeUser.id),
       )
       .where(inArray(userMarketingConsultant.userId, userIds)),
+    db
+      .select({
+        userId: businessManagedCampaignCache.userId,
+        hasActiveManagedCampaign:
+          businessManagedCampaignCache.hasActiveManagedCampaign,
+        checkedAt: businessManagedCampaignCache.checkedAt,
+      })
+      .from(businessManagedCampaignCache)
+      .where(inArray(businessManagedCampaignCache.userId, userIds)),
+    db
+      .select({
+        userId: performanceInsight.userId,
+        severity: performanceInsight.severity,
+        openCount: count(),
+      })
+      .from(performanceInsight)
+      .innerJoin(
+        performanceSnapshotRun,
+        eq(performanceInsight.runId, performanceSnapshotRun.id),
+      )
+      .where(
+        and(
+          inArray(performanceInsight.userId, userIds),
+          eq(performanceInsight.status, "open"),
+          inArray(performanceInsight.severity, ["critical", "warning"]),
+          like(performanceInsight.ruleId, "drop.%"),
+          eq(performanceSnapshotRun.window, "last_7d"),
+          eq(
+            performanceSnapshotRun.rulebookVersion,
+            PERFORMANCE_DROP_RULEBOOK_VERSION,
+          ),
+        ),
+      )
+      .groupBy(performanceInsight.userId, performanceInsight.severity),
+    db
+      .select({
+        userId: performanceSnapshot.userId,
+        capturedAt: performanceSnapshot.capturedAt,
+        metrics: performanceSnapshot.metrics,
+      })
+      .from(performanceSnapshot)
+      .innerJoin(
+        performanceSnapshotRun,
+        eq(performanceSnapshot.runId, performanceSnapshotRun.id),
+      )
+      .where(
+        and(
+          inArray(performanceSnapshot.userId, userIds),
+          eq(
+            performanceSnapshotRun.rulebookVersion,
+            PERFORMANCE_DROP_RULEBOOK_VERSION,
+          ),
+          // Latest snapshot per user only — avoid loading full history into JS.
+          sql`${performanceSnapshot.capturedAt} = (
+            SELECT MAX(ps2.captured_at)
+            FROM performance_snapshots ps2
+            INNER JOIN performance_snapshot_runs r2 ON r2.id = ps2.run_id
+            WHERE ps2.user_id = ${performanceSnapshot.userId}
+              AND r2.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+          )`,
+        ),
+      ),
+    getBusinessOperatingRules(),
   ]);
 
   const postCountByUser = new Map<string, number>();
@@ -443,6 +706,80 @@ export async function getAllUsersWithUsage(
     });
   }
 
+  const campaignByUser = new Map<
+    string,
+    { hasActiveManagedCampaign: boolean; managedCampaignCheckedAt: Date | null }
+  >();
+  for (const row of campaignRows) {
+    const current = campaignByUser.get(row.userId) ?? {
+      hasActiveManagedCampaign: false,
+      managedCampaignCheckedAt: null,
+    };
+    current.hasActiveManagedCampaign =
+      current.hasActiveManagedCampaign || row.hasActiveManagedCampaign;
+    if (
+      !current.managedCampaignCheckedAt ||
+      row.checkedAt > current.managedCampaignCheckedAt
+    ) {
+      current.managedCampaignCheckedAt = row.checkedAt;
+    }
+    campaignByUser.set(row.userId, current);
+  }
+
+  const latestPerformanceByUser = new Map<
+    string,
+    { capturedAt: Date; checkFailed: boolean }
+  >();
+  for (const row of performanceCheckedRows) {
+    const metrics = row.metrics as { error?: boolean } | null;
+    const checkFailed = metrics?.error === true;
+    const current = latestPerformanceByUser.get(row.userId);
+    if (!current || row.capturedAt > current.capturedAt) {
+      latestPerformanceByUser.set(row.userId, {
+        capturedAt: row.capturedAt,
+        checkFailed,
+      });
+    }
+  }
+
+  const performanceByUser = new Map<string, UserPerformanceDrop>();
+  for (const [userId, latest] of latestPerformanceByUser) {
+    performanceByUser.set(userId, {
+      hasDrop: false,
+      wasChecked: !latest.checkFailed,
+      checkFailed: latest.checkFailed,
+      openInsightCount: 0,
+      highestSeverity: null,
+    });
+  }
+  for (const row of performanceRows) {
+    const latest = latestPerformanceByUser.get(row.userId);
+    const current = performanceByUser.get(row.userId) ?? {
+      hasDrop: false,
+      wasChecked: latest ? !latest.checkFailed : false,
+      checkFailed: latest?.checkFailed ?? false,
+      openInsightCount: 0,
+      highestSeverity: null,
+    };
+    current.openInsightCount += row.openCount;
+    current.hasDrop = current.openInsightCount > 0;
+    if (
+      row.severity === "critical" ||
+      (row.severity === "warning" && current.highestSeverity !== "critical")
+    ) {
+      current.highestSeverity = row.severity;
+    }
+    performanceByUser.set(row.userId, current);
+  }
+
+  const RENEWAL_REASON_CODES = new Set<BusinessHealthReasonCode>([
+    "expired",
+    "renewal_critical",
+    "renewal_attention",
+    "trial_critical",
+    "trial_attention",
+  ]);
+
   const users: UserWithUsage[] = usersPage.map((u) => {
     const usage = usageByUser.get(u.id);
     const companyInfo = companyByUser.get(u.id);
@@ -450,6 +787,14 @@ export async function getAllUsersWithUsage(
     const activeSub = pickActiveSubscription(userSubs);
     const metaInfo = metaByUser.get(u.id);
     const consultant = consultantByUser.get(u.id);
+    const campaignInfo = campaignByUser.get(u.id);
+    const performanceDrop = performanceByUser.get(u.id) ?? {
+      hasDrop: false,
+      wasChecked: false,
+      checkFailed: false,
+      openInsightCount: 0,
+      highestSeverity: null,
+    };
     const activeSubscription: ActiveSubscriptionSummary = activeSub
       ? {
           id: activeSub.id,
@@ -458,6 +803,35 @@ export async function getAllUsersWithUsage(
           currentPeriodEnd: activeSub.currentPeriodEnd,
           cancelAtPeriodEnd: activeSub.cancelAtPeriodEnd,
           stripeSubscriptionId: activeSub.stripeSubscriptionId,
+          provider: activeSub.provider,
+        }
+      : null;
+
+    const renewalDate =
+      activeSubscription?.currentPeriodEnd ?? u.expirationDate ?? null;
+    const health = evaluateBusinessHealth({
+      referenceDate: new Date(),
+      rules: operatingRules,
+      subscriptionStatus: activeSubscription?.status ?? null,
+      renewalDate,
+      credits: u.credits,
+      onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
+      lastAiUsageAt: null,
+      lastPostAt: null,
+      hasActiveManagedCampaign:
+        campaignInfo?.hasActiveManagedCampaign ?? false,
+    });
+    const renewalReason = health.reasons.find((reason) =>
+      RENEWAL_REASON_CODES.has(reason.code),
+    );
+    const renewalAlert: UserRenewalAlert | null = renewalReason
+      ? {
+          severity: renewalReason.severity,
+          code: renewalReason.code,
+          label: renewalReason.label,
+          daysUntilRenewal: health.daysUntilRenewal,
+          provider: activeSubscription?.provider ?? null,
+          renewalDate,
         }
       : null;
 
@@ -476,6 +850,11 @@ export async function getAllUsersWithUsage(
       assignedConsultantId: consultant?.id ?? null,
       assignedConsultantEmail: consultant?.email ?? null,
       assignedConsultantName: consultant?.name ?? null,
+      hasActiveManagedCampaign:
+        campaignInfo?.hasActiveManagedCampaign ?? false,
+      managedCampaignCheckedAt: campaignInfo?.managedCampaignCheckedAt ?? null,
+      renewalAlert,
+      performanceDrop,
     };
   });
 

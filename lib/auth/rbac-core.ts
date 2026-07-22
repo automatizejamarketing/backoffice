@@ -34,12 +34,25 @@ export const USER_HUB_TAB_VALUES = [
   "subscription",
   "business",
   "marketing",
+  "conversations",
   "usage",
   "content",
   "audit",
 ] as const;
 
 export type UserHubTab = (typeof USER_HUB_TAB_VALUES)[number];
+
+/**
+ * Tabs a `marketing_consultant` may open, for users assigned to them.
+ * `conversations` is here deliberately: the consultant serves the whole account,
+ * so they read the user's Mat history in full — including passages that are not
+ * about marketing (ADR 0018).
+ */
+const CONSULTANT_USER_HUB_TABS: readonly UserHubTab[] = [
+  "business",
+  "marketing",
+  "conversations",
+];
 
 const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   admin: [
@@ -80,7 +93,7 @@ export function canAccessUserHubTab(
 ): boolean {
   if (actor.role === "admin") return true;
   return (
-    (tab === "business" || tab === "marketing") &&
+    CONSULTANT_USER_HUB_TABS.includes(tab) &&
     canAccessMarketingUser(actor, userId)
   );
 }

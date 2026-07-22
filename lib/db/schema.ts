@@ -1,5 +1,6 @@
 import { sql, type InferSelectModel } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   foreignKey,
   index,
@@ -118,6 +119,7 @@ export const blobUpload = pgTable("blob_uploads", {
     .references(() => user.id),
   blobUrl: text("blob_url").notNull(),
   pathname: text("pathname"),
+  filename: text("filename"),
   contentType: text("content_type"),
   source: varchar("source", { length: 50 }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1154,6 +1156,34 @@ export type BackofficeGeneratedPost = InferSelectModel<
 >;
 
 // =============================================
+// Video Templates (Creatomate)
+// =============================================
+
+export type VideoTemplateStatus = "active" | "inactive";
+
+export const videoTemplate = pgTable("video_templates", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  thumbnailUrl: text("thumbnail_url"),
+  videoPreviewUrl: text("video_preview_url"),
+  category: varchar("category", { length: 128 }),
+  position: integer("position").notNull().default(0),
+  status: varchar("status", { enum: ["active", "inactive"] })
+    .$type<VideoTemplateStatus>()
+    .notNull()
+    .default("inactive"),
+  creatomateTemplateId: varchar("creatomate_template_id", { length: 255 }).notNull(),
+  // O nome do elemento de vídeo cru (ex: "Video-1") no template do Creatomate
+  videoSourceKey: varchar("video_source_key", { length: 128 }).notNull().default("Video-1"),
+  maxDuration: integer("max_duration"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type VideoTemplate = InferSelectModel<typeof videoTemplate>;
+
+// =============================================
 // Stripe Subscription Management
 // =============================================
 
@@ -1901,3 +1931,85 @@ export const masterclassMaterial = pgTable(
 );
 
 export type MasterclassMaterial = InferSelectModel<typeof masterclassMaterial>;
+
+/**
+ * Mat conversation history — an append-only log of Eve channel events.
+ * See `../automatize-frontend/docs/adr/0018-mat-conversation-history-as-channel-event-log.md`.
+ *
+ * Mirrored byte-equivalent in `../automatize-frontend/lib/db/schema.ts` (the
+ * frontend writes this history; the backoffice reads it).
+ */
+export type ConversationChannel = "web" | "whatsapp";
+
+export const conversation = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    /**
+     * Deliberately WITHOUT `onDelete: "cascade"`. A conversation is a permanent
+     * record that outlives every product flow: nothing may remove a user while
+     * their conversations exist. The lone sanctioned eraser is the ops script
+     * `automatize-frontend/scripts/delete-user.ts` (ADR 0018).
+     */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    channel: varchar("channel", { length: 16 })
+      .$type<ConversationChannel>()
+      .notNull(),
+    /** Eve runtime session. On WhatsApp, the most recent one (sessions rotate). */
+    eveSessionId: text("eve_session_id"),
+    /** First user text, truncated. Null until the user speaks. */
+    title: text("title"),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    lastEventAt: timestamp("last_event_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userLastEventIdx: index("conversations_user_id_last_event_at_idx").on(
+      table.userId,
+      table.lastEventAt,
+    ),
+    /** web: one conversation per Eve session (widget open → close). */
+    webSessionUnique: uniqueIndex("conversations_web_session_unique")
+      .on(table.eveSessionId)
+      .where(sql`"channel" = 'web'`),
+    /** whatsapp: one continuous thread per user — no invented boundaries. */
+    whatsappUserUnique: uniqueIndex("conversations_whatsapp_user_unique")
+      .on(table.userId)
+      .where(sql`"channel" = 'whatsapp'`),
+  }),
+);
+
+export type Conversation = InferSelectModel<typeof conversation>;
+
+export const conversationEvent = pgTable(
+  "conversation_events",
+  {
+    /**
+     * Insertion order IS transcript order. A serial (not uuid) because Eve's own
+     * `sequence` restarts on every session, so it cannot order a WhatsApp thread
+     * that spans sessions.
+     */
+    id: bigserial("id", { mode: "number" }).primaryKey().notNull(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    turnId: text("turn_id"),
+    /** Eve's per-session `sequence`. Metadata only — never an ordering key. */
+    seq: integer("seq"),
+    /** Eve stream-event type (`message.received`, `action.result`, …). */
+    type: varchar("type", { length: 48 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    /** The payload exceeded the size ceiling and was clipped — never dropped. */
+    truncated: boolean("truncated").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    conversationIdIdx: index("conversation_events_conversation_id_id_idx").on(
+      table.conversationId,
+      table.id,
+    ),
+  }),
+);
+
+export type ConversationEvent = InferSelectModel<typeof conversationEvent>;

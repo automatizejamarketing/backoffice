@@ -1,4 +1,5 @@
 import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
+import { safeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
 import { throwMetaError } from "./meta-error";
 
@@ -50,8 +51,7 @@ export async function uploadImageToAdAccount(params: {
 }): Promise<UploadAdImageResult> {
   const { adAccountId, accessToken, imageUrl } = params;
 
-
-  const sourceResponse = await fetch(imageUrl);
+  const sourceResponse = await safeFetchUrl(imageUrl);
   if (!sourceResponse.ok) {
     throw new Error(
       `[uploadImageToAdAccount] Failed to download source image (${sourceResponse.status}): ${imageUrl}`,

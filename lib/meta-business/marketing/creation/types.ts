@@ -24,7 +24,7 @@
 export type CreateStage = "local" | "validate_only" | "create" | "update";
 
 /** Which Meta object the issue concerns. */
-export type CreateLevel = "campaign" | "adset" | "ad" | "creative";
+export type CreateLevel = "campaign" | "adset" | "ad" | "creative" | "audience" | "pixel";
 
 /**
  * A single machine-readable creation failure. `code` is our rule id

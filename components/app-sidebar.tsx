@@ -138,6 +138,13 @@ export function AppSidebar({
       permission: "masterclass:manage",
     },
     {
+      href: "/video-templates",
+      label: "Templates Vídeo",
+      icon: Image,
+      isActive: pathname.startsWith("/video-templates"),
+      permission: "posts:manage",
+    },
+    {
       href: "/team",
       label: "Equipe",
       icon: Shield,
@@ -149,6 +156,9 @@ export function AppSidebar({
   const navItems = allNavItems.filter((item) => {
     if (item.consultantOnly && actor.role !== "marketing_consultant") {
       return false;
+    }
+    if (item.href === "/video-templates") {
+      return true;
     }
     return item.permission
       ? hasBackofficePermission(actor, item.permission)

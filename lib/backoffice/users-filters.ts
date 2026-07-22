@@ -30,6 +30,31 @@ export const META_STATUS_FILTER_VALUES = [
   "disconnected",
 ] as const;
 
+export const CAMPAIGN_STATUS_FILTER_VALUES = [
+  "all",
+  "active",
+  "inactive",
+  "unchecked",
+] as const;
+
+export const PERFORMANCE_STATUS_FILTER_VALUES = [
+  "all",
+  "drop",
+  "no_drop",
+  "error",
+  "unchecked",
+] as const;
+
+/** Days until renewal window: 0 ≤ daysUntil ≤ N. */
+export const RENEWAL_WITHIN_FILTER_VALUES = ["all", "1d", "3d", "7d"] as const;
+
+export const USERS_SORT_VALUES = [
+  "default",
+  "renewal",
+  "performance",
+  "campaign",
+] as const;
+
 // Registration-date ("data de cadastro") window presets. Every value other
 // than "all"/"custom" is a day count parsed with parseInt (e.g. "7d" -> 7).
 export const SIGNUP_WITHIN_FILTER_VALUES = [
@@ -45,6 +70,13 @@ export type SubscriptionStatusFilter =
   (typeof SUBSCRIPTION_STATUS_FILTER_VALUES)[number];
 export type PlanPeriodFilter = (typeof PLAN_PERIOD_FILTER_VALUES)[number];
 export type MetaStatusFilter = (typeof META_STATUS_FILTER_VALUES)[number];
+export type CampaignStatusFilter =
+  (typeof CAMPAIGN_STATUS_FILTER_VALUES)[number];
+export type PerformanceStatusFilter =
+  (typeof PERFORMANCE_STATUS_FILTER_VALUES)[number];
+export type RenewalWithinFilter =
+  (typeof RENEWAL_WITHIN_FILTER_VALUES)[number];
+export type UsersSort = (typeof USERS_SORT_VALUES)[number];
 export type SignupWithinFilter = (typeof SIGNUP_WITHIN_FILTER_VALUES)[number];
 export type ConsultantFilter = string | "all" | "unassigned";
 
@@ -55,6 +87,10 @@ export type UsersFilterParams = {
   subscriptionStatus: SubscriptionStatusFilter;
   planPeriod: PlanPeriodFilter;
   metaStatus: MetaStatusFilter;
+  campaignStatus: CampaignStatusFilter;
+  performanceStatus: PerformanceStatusFilter;
+  renewalWithin: RenewalWithinFilter;
+  sort: UsersSort;
   consultantId: ConsultantFilter;
   signupWithin: SignupWithinFilter;
   // yyyy-mm-dd (America/Sao_Paulo calendar dates); only populated when
@@ -70,6 +106,10 @@ type RawUsersFilterParams = {
   subscriptionStatus?: string;
   planPeriod?: string;
   metaStatus?: string;
+  campaignStatus?: string;
+  performanceStatus?: string;
+  renewalWithin?: string;
+  sort?: string;
   consultantId?: string;
   signupWithin?: string;
   signupFrom?: string;
@@ -107,6 +147,15 @@ function parseIsoDateString(value: string | undefined): string | null {
     return null;
   }
   return value;
+}
+
+/** Parse "1d" / "3d" / "7d" into day count; null for "all" or invalid. */
+export function renewalWithinDays(
+  value: RenewalWithinFilter,
+): number | null {
+  if (value === "all") return null;
+  const days = Number.parseInt(value, 10);
+  return Number.isFinite(days) && days > 0 ? days : null;
 }
 
 export function normalizeUsersFilterParams(
@@ -171,6 +220,25 @@ export function normalizeUsersFilterParams(
     metaStatus: includesValue(META_STATUS_FILTER_VALUES, raw.metaStatus)
       ? raw.metaStatus
       : "all",
+    campaignStatus: includesValue(
+      CAMPAIGN_STATUS_FILTER_VALUES,
+      raw.campaignStatus,
+    )
+      ? raw.campaignStatus
+      : "all",
+    performanceStatus: includesValue(
+      PERFORMANCE_STATUS_FILTER_VALUES,
+      raw.performanceStatus,
+    )
+      ? raw.performanceStatus
+      : "all",
+    renewalWithin: includesValue(
+      RENEWAL_WITHIN_FILTER_VALUES,
+      raw.renewalWithin,
+    )
+      ? raw.renewalWithin
+      : "all",
+    sort: includesValue(USERS_SORT_VALUES, raw.sort) ? raw.sort : "default",
     consultantId,
     signupWithin,
     signupFrom,
