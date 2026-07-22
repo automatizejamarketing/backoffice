@@ -100,11 +100,17 @@ export function VideoTemplateDialog({
 
   const onSubmit = async (data: FormInputValues) => {
     try {
+      const maxDuration =
+        data.maxDuration === "" || data.maxDuration == null
+          ? null
+          : Number(data.maxDuration);
+
       const res = await fetch("/api/backoffice/video-templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...data,
+          maxDuration,
           videoSourceKey: data.videoSourceKey ?? "Video-1",
           id: template?.id,
         }),

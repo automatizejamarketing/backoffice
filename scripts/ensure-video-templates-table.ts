@@ -27,6 +27,7 @@ async function main() {
       thumbnail_url text,
       video_preview_url text,
       category varchar(128),
+      max_duration integer,
       position integer default 0 not null,
       status varchar default 'inactive' not null,
       creatomate_template_id varchar(255) not null,
@@ -35,6 +36,10 @@ async function main() {
       updated_at timestamp default now() not null
     )
   `)
+
+  await sql.unsafe(
+    `alter table video_templates add column if not exists max_duration integer`,
+  )
 
   await sql.unsafe(
     `create index if not exists video_templates_status_position_idx on video_templates (status, position)`

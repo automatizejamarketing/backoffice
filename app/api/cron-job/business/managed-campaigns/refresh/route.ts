@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { assertCronAuthorized } from "@/lib/auth/cron-auth";
 import { refreshManagedCampaignsBatch } from "@/lib/business/refresh-managed-campaigns-batch";
 
 export const maxDuration = 300;
@@ -9,20 +10,8 @@ export const maxDuration = 300;
  * accounts already checked today.
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret) {
-    console.error("[managed-campaigns-cron] CRON_SECRET is not configured");
-    return NextResponse.json(
-      { error: "CRON_SECRET environment variable is not configured" },
-      { status: 500 },
-    );
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = assertCronAuthorized(request, "[managed-campaigns-cron]");
+  if (!auth.ok) return auth.response;
 
   try {
     const result = await refreshManagedCampaignsBatch({ onlyStale: true });

@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  applyUsersFocusFilter,
-  getUsersFocusFilterKey,
-  normalizeUsersFilterParams,
-} from "./users-filters";
+import { normalizeUsersFilterParams } from "./users-filters";
 
 describe("normalizeUsersFilterParams", () => {
   test("keeps supported user list filters and drops unsupported values", () => {
@@ -85,21 +81,18 @@ describe("normalizeUsersFilterParams", () => {
     expect(filters.renewalWithin).toBe("3d");
     expect(filters.sort).toBe("renewal");
   });
-});
 
-describe("users focus filter", () => {
-  test("encodes renewal focus and clears other dimensions on apply", () => {
-    const applied = applyUsersFocusFilter("renewal:7d");
-    expect(applied.renewalWithin).toBe("7d");
-    expect(applied.performanceStatus).toBe("all");
-    expect(applied.subscriptionStatus).toBe("all");
-    expect(getUsersFocusFilterKey(applied)).toBe("renewal:7d");
+  test("accepts performanceStatus unchecked", () => {
+    const filters = normalizeUsersFilterParams({
+      performanceStatus: "unchecked",
+    });
+    expect(filters.performanceStatus).toBe("unchecked");
   });
 
-  test("applies consultant focus", () => {
-    const id = "550e8400-e29b-41d4-a716-446655440000";
-    const applied = applyUsersFocusFilter(`consultant:${id}`);
-    expect(applied.consultantId).toBe(id);
-    expect(getUsersFocusFilterKey(applied)).toBe(`consultant:${id}`);
+  test("accepts performanceStatus no_drop", () => {
+    const filters = normalizeUsersFilterParams({
+      performanceStatus: "no_drop",
+    });
+    expect(filters.performanceStatus).toBe("no_drop");
   });
 });

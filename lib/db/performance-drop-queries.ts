@@ -1,4 +1,4 @@
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, like, lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   performanceInsight,
@@ -14,10 +14,39 @@ import { wasCapturedOnBusinessDay } from "@/lib/performance-drop/dates";
 import type { PerformanceDropEvaluation } from "@/lib/performance-drop/evaluate";
 import type { AccountWindowPair } from "@/lib/performance-drop/fetch-account-insights";
 
+/** Runs stuck in `running` longer than this are marked failed before a new run. */
+const STUCK_RUN_TIMEOUT_MS = 30 * 60 * 1000;
+
+export async function markStuckPerformanceDropRunsFailed(): Promise<number> {
+  const cutoff = new Date(Date.now() - STUCK_RUN_TIMEOUT_MS);
+  const updated = await db
+    .update(performanceSnapshotRun)
+    .set({
+      status: "failed",
+      completedAt: new Date(),
+      errorMessage: `Timed out: still running after ${STUCK_RUN_TIMEOUT_MS / 60000} minutes`,
+    })
+    .where(
+      and(
+        eq(performanceSnapshotRun.status, "running"),
+        eq(
+          performanceSnapshotRun.rulebookVersion,
+          PERFORMANCE_DROP_RULEBOOK_VERSION,
+        ),
+        lt(performanceSnapshotRun.startedAt, cutoff),
+      ),
+    )
+    .returning({ id: performanceSnapshotRun.id });
+
+  return updated.length;
+}
+
 export async function createPerformanceDropRun(data: {
   triggeredBy: "manual" | "cron" | "script";
   requestedByEmail?: string | null;
 }): Promise<string> {
+  await markStuckPerformanceDropRunsFailed();
+
   const [row] = await db
     .insert(performanceSnapshotRun)
     .values({
@@ -141,8 +170,6 @@ export async function persistPerformanceDropForUser(args: {
   const { runId, userId, pairs, evaluation } = args;
   const capturedAt = new Date();
 
-  await closeOpenPerformanceDropInsights(userId);
-
   // One rollup snapshot per user. Account breakdown lives in payload (avoids
   // Postgres bind limits when a BM has 100+ ad accounts).
   const accountsSummary = pairs.map((pair) => ({
@@ -154,61 +181,139 @@ export async function persistPerformanceDropForUser(args: {
     previousRange: pair.previousRange,
   }));
 
+  return db.transaction(async (tx) => {
+    await tx
+      .update(performanceInsight)
+      .set({
+        status: "resolved",
+        updatedAt: new Date(),
+        reviewNote: "Superseded by newer performance-drop evaluation",
+      })
+      .where(
+        and(
+          eq(performanceInsight.userId, userId),
+          eq(performanceInsight.status, "open"),
+          like(performanceInsight.ruleId, `${PERFORMANCE_DROP_RULE_PREFIX}%`),
+        ),
+      );
+
+    await tx.insert(performanceSnapshot).values({
+      runId,
+      userId,
+      accountId: pairs.length === 1 ? pairs[0]?.accountId : null,
+      entityLevel: "account",
+      entityId: `user:${userId}`,
+      entityName: "Account rollup",
+      window: PERFORMANCE_DROP_WINDOW,
+      metrics: {
+        current: evaluation.current,
+        previous: evaluation.previous,
+        hasDrop: evaluation.hasDrop,
+        severity: evaluation.severity,
+        metric: evaluation.metric,
+        dropRatio: evaluation.dropRatio,
+        dropPercent: evaluation.dropPercent,
+        sampleInsufficient: evaluation.sampleInsufficient,
+        accountCount: pairs.length,
+      },
+      payload: {
+        kind: "performance-drop",
+        rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
+        accounts: accountsSummary,
+        evaluation,
+      },
+      capturedAt,
+    });
+
+    if (!evaluation.hasDrop || !evaluation.severity || !evaluation.ruleId) {
+      return { insightCreated: false };
+    }
+
+    await tx.insert(performanceInsight).values({
+      runId,
+      userId,
+      ruleId: evaluation.ruleId,
+      rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
+      severity: evaluation.severity,
+      confidence: evaluation.sampleInsufficient ? "low" : "medium",
+      entityLevel: "account",
+      entityId: `user:${userId}`,
+      entityName: "Account rollup",
+      actionType: "investigate_drop",
+      title: evaluation.title,
+      evidence: evaluation.evidence,
+      recommendation: evaluation.recommendation,
+      metrics: {
+        current: evaluation.current,
+        previous: evaluation.previous,
+        metric: evaluation.metric,
+        dropRatio: evaluation.dropRatio,
+        dropPercent: evaluation.dropPercent,
+      },
+      status: "open",
+    });
+
+    return { insightCreated: true };
+  });
+}
+
+/**
+ * Persist a same-day check marker after a per-user failure without closing or
+ * opening drop insights (avoids incorrect resolution on transient errors).
+ */
+export async function persistPerformanceDropCheckFailure(args: {
+  runId: string;
+  userId: string;
+  errorMessage: string;
+}): Promise<void> {
+  const { runId, userId, errorMessage } = args;
+  const emptyMetrics = {
+    spend: 0,
+    purchases: 0,
+    purchaseValue: 0,
+    roas: 0,
+  };
+
   await db.insert(performanceSnapshot).values({
     runId,
     userId,
-    accountId: pairs.length === 1 ? pairs[0]?.accountId : null,
+    accountId: null,
     entityLevel: "account",
     entityId: `user:${userId}`,
     entityName: "Account rollup",
     window: PERFORMANCE_DROP_WINDOW,
     metrics: {
-      current: evaluation.current,
-      previous: evaluation.previous,
-      hasDrop: evaluation.hasDrop,
-      severity: evaluation.severity,
-      metric: evaluation.metric,
-      dropRatio: evaluation.dropRatio,
-      dropPercent: evaluation.dropPercent,
-      sampleInsufficient: evaluation.sampleInsufficient,
-      accountCount: pairs.length,
+      current: emptyMetrics,
+      previous: emptyMetrics,
+      hasDrop: false,
+      severity: null,
+      metric: null,
+      dropRatio: null,
+      dropPercent: null,
+      sampleInsufficient: true,
+      accountCount: 0,
+      error: true,
     },
     payload: {
       kind: "performance-drop",
       rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
-      accounts: accountsSummary,
-      evaluation,
+      accounts: [],
+      errorMessage,
+      evaluation: {
+        hasDrop: false,
+        severity: null,
+        metric: null,
+        ruleId: null,
+        dropRatio: null,
+        dropPercent: null,
+        previous: emptyMetrics,
+        current: emptyMetrics,
+        sampleInsufficient: true,
+        title: "Falha ao avaliar queda de performance",
+        evidence: errorMessage,
+        recommendation: "Reexecutar a verificação de performance.",
+      },
     },
-    capturedAt,
+    capturedAt: new Date(),
   });
-
-  if (!evaluation.hasDrop || !evaluation.severity || !evaluation.ruleId) {
-    return { insightCreated: false };
-  }
-
-  await db.insert(performanceInsight).values({
-    runId,
-    userId,
-    ruleId: evaluation.ruleId,
-    rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
-    severity: evaluation.severity,
-    confidence: evaluation.sampleInsufficient ? "low" : "medium",
-    entityLevel: "account",
-    entityId: `user:${userId}`,
-    entityName: "Account rollup",
-    actionType: "investigate_drop",
-    title: evaluation.title,
-    evidence: evaluation.evidence,
-    recommendation: evaluation.recommendation,
-    metrics: {
-      current: evaluation.current,
-      previous: evaluation.previous,
-      metric: evaluation.metric,
-      dropRatio: evaluation.dropRatio,
-      dropPercent: evaluation.dropPercent,
-    },
-    status: "open",
-  });
-
-  return { insightCreated: true };
 }

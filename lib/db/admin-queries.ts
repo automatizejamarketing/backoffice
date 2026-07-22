@@ -31,6 +31,7 @@ import {
   payment,
   pendingPlanChange,
   performanceInsight,
+  performanceSnapshot,
   performanceSnapshotRun,
   post,
   referenceImage,
@@ -65,6 +66,7 @@ import {
   type BusinessHealthReasonCode,
 } from "@/lib/business/business-health";
 import { getBusinessOperatingRules } from "@/lib/db/business-queries";
+import { PERFORMANCE_DROP_RULEBOOK_VERSION } from "@/lib/performance-drop/constants";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 export type ActiveSubscriptionSummary = Pick<
@@ -89,6 +91,8 @@ export type UserRenewalAlert = {
 
 export type UserPerformanceDrop = {
   hasDrop: boolean;
+  /** True when a performance-drop-v1 snapshot exists for this user. */
+  wasChecked: boolean;
   openInsightCount: number;
   highestSeverity: "critical" | "warning" | null;
 };
@@ -219,6 +223,15 @@ const hasPerformanceDropSql = sql`EXISTS (
     AND pi.severity IN ('critical', 'warning')
     AND pi.rule_id LIKE 'drop.%'
     AND r.window = 'last_7d'
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+)`;
+
+const hasPerformanceCheckedSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_snapshots ps
+  INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
+  WHERE ps.user_id = ${user.id}
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
 )`;
 
 /** Same priority as activeSubscriptionStatusSql, then users.expiration_date. */
@@ -332,7 +345,11 @@ export async function getAllUsersWithUsage(
   if (params.filters?.performanceStatus === "drop") {
     conditions.push(hasPerformanceDropSql);
   } else if (params.filters?.performanceStatus === "no_drop") {
-    conditions.push(sql`NOT ${hasPerformanceDropSql}`);
+    conditions.push(
+      and(hasPerformanceCheckedSql, sql`NOT ${hasPerformanceDropSql}`),
+    );
+  } else if (params.filters?.performanceStatus === "unchecked") {
+    conditions.push(sql`NOT ${hasPerformanceCheckedSql}`);
   }
 
   const renewalDays = renewalWithinDays(params.filters?.renewalWithin ?? "all");
@@ -435,6 +452,7 @@ export async function getAllUsersWithUsage(
     consultantRows,
     campaignRows,
     performanceRows,
+    performanceCheckedRows,
     operatingRules,
   ] = await Promise.all([
     db
@@ -536,9 +554,33 @@ export async function getAllUsersWithUsage(
           inArray(performanceInsight.severity, ["critical", "warning"]),
           like(performanceInsight.ruleId, "drop.%"),
           eq(performanceSnapshotRun.window, "last_7d"),
+          eq(
+            performanceSnapshotRun.rulebookVersion,
+            PERFORMANCE_DROP_RULEBOOK_VERSION,
+          ),
         ),
       )
       .groupBy(performanceInsight.userId, performanceInsight.severity),
+    db
+      .select({
+        userId: performanceSnapshot.userId,
+        capturedAt: sql<Date>`MAX(${performanceSnapshot.capturedAt})`,
+      })
+      .from(performanceSnapshot)
+      .innerJoin(
+        performanceSnapshotRun,
+        eq(performanceSnapshot.runId, performanceSnapshotRun.id),
+      )
+      .where(
+        and(
+          inArray(performanceSnapshot.userId, userIds),
+          eq(
+            performanceSnapshotRun.rulebookVersion,
+            PERFORMANCE_DROP_RULEBOOK_VERSION,
+          ),
+        ),
+      )
+      .groupBy(performanceSnapshot.userId),
     getBusinessOperatingRules(),
   ]);
 
@@ -632,13 +674,27 @@ export async function getAllUsersWithUsage(
     campaignByUser.set(row.userId, current);
   }
 
+  const performanceCheckedUserIds = new Set(
+    performanceCheckedRows.map((row) => row.userId),
+  );
+
   const performanceByUser = new Map<string, UserPerformanceDrop>();
+  for (const userId of performanceCheckedUserIds) {
+    performanceByUser.set(userId, {
+      hasDrop: false,
+      wasChecked: true,
+      openInsightCount: 0,
+      highestSeverity: null,
+    });
+  }
   for (const row of performanceRows) {
     const current = performanceByUser.get(row.userId) ?? {
       hasDrop: false,
+      wasChecked: performanceCheckedUserIds.has(row.userId),
       openInsightCount: 0,
       highestSeverity: null,
     };
+    current.wasChecked = true;
     current.openInsightCount += row.openCount;
     current.hasDrop = current.openInsightCount > 0;
     if (
@@ -668,6 +724,7 @@ export async function getAllUsersWithUsage(
     const campaignInfo = campaignByUser.get(u.id);
     const performanceDrop = performanceByUser.get(u.id) ?? {
       hasDrop: false,
+      wasChecked: false,
       openInsightCount: 0,
       highestSeverity: null,
     };

@@ -3,6 +3,8 @@ import https from "node:https";
 import net from "node:net";
 
 const MAX_REDIRECTS = 5;
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_MAX_BODY_BYTES = 25 * 1024 * 1024;
 
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
@@ -119,7 +121,16 @@ type PinnedFetchResult = {
   body: Buffer;
 };
 
-function fetchPinnedHttps(url: URL, pinnedIp: string): Promise<PinnedFetchResult> {
+export type SafeFetchUrlOptions = {
+  timeoutMs?: number;
+  maxBodyBytes?: number;
+};
+
+function fetchPinnedHttps(
+  url: URL,
+  pinnedIp: string,
+  options: { timeoutMs: number; maxBodyBytes: number; signal?: AbortSignal },
+): Promise<PinnedFetchResult> {
   const port = url.port ? Number.parseInt(url.port, 10) : 443;
 
   return new Promise((resolve, reject) => {
@@ -133,10 +144,24 @@ function fetchPinnedHttps(url: URL, pinnedIp: string): Promise<PinnedFetchResult
         headers: {
           Host: url.hostname,
         },
+        signal: options.signal,
       },
       (response) => {
         const chunks: Buffer[] = [];
+        let totalBytes = 0;
+
         response.on("data", (chunk: Buffer) => {
+          totalBytes += chunk.length;
+          if (totalBytes > options.maxBodyBytes) {
+            request.destroy();
+            response.destroy();
+            reject(
+              new Error(
+                `Resposta excede o limite de ${options.maxBodyBytes} bytes.`,
+              ),
+            );
+            return;
+          }
           chunks.push(chunk);
         });
         response.on("end", () => {
@@ -154,9 +179,13 @@ function fetchPinnedHttps(url: URL, pinnedIp: string): Promise<PinnedFetchResult
             body: Buffer.concat(chunks),
           });
         });
+        response.on("error", reject);
       },
     );
 
+    request.setTimeout(options.timeoutMs, () => {
+      request.destroy(new Error("Tempo esgotado ao buscar a URL."));
+    });
     request.on("error", reject);
     request.end();
   });
@@ -178,37 +207,67 @@ function toResponse(result: PinnedFetchResult): Response {
  * Fetches a URL after SSRF validation, pinning to the resolved public IP and
  * re-validating each redirect hop (redirect: manual).
  */
-export async function safeFetchUrl(rawUrl: string): Promise<Response> {
+export async function safeFetchUrl(
+  rawUrl: string,
+  options: SafeFetchUrlOptions = {},
+): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
   let currentUrl = rawUrl;
 
-  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    const parsed = await assertSafeFetchUrl(currentUrl);
-    const addresses = await resolveHostAddresses(parsed.hostname);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
-    for (const address of addresses) {
-      if (isBlockedIp(address)) {
-        throw new Error("Host de imagem aponta para rede privada ou local.");
+  try {
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      if (controller.signal.aborted) {
+        throw new Error("Tempo esgotado ao buscar a URL.");
       }
-    }
 
-    const pinnedIp = addresses[0];
-    if (!pinnedIp) {
-      throw new Error("Não foi possível resolver o host da imagem.");
-    }
+      const parsed = await assertSafeFetchUrl(currentUrl);
+      const addresses = await resolveHostAddresses(parsed.hostname);
 
-    const result = await fetchPinnedHttps(parsed, pinnedIp);
-
-    if (result.status >= 300 && result.status < 400) {
-      const location = result.headers.location;
-      if (!location) {
-        throw new Error("Redirect sem destino.");
+      for (const address of addresses) {
+        if (isBlockedIp(address)) {
+          throw new Error("Host de imagem aponta para rede privada ou local.");
+        }
       }
-      currentUrl = new URL(location, parsed).toString();
-      continue;
+
+      const pinnedIp = addresses[0];
+      if (!pinnedIp) {
+        throw new Error("Não foi possível resolver o host da imagem.");
+      }
+
+      const result = await fetchPinnedHttps(parsed, pinnedIp, {
+        timeoutMs,
+        maxBodyBytes,
+        signal: controller.signal,
+      });
+
+      if (result.status >= 300 && result.status < 400) {
+        const location = result.headers.location;
+        if (!location) {
+          throw new Error("Redirect sem destino.");
+        }
+        currentUrl = new URL(location, parsed).toString();
+        continue;
+      }
+
+      return toResponse(result);
     }
 
-    return toResponse(result);
+    throw new Error("Muitos redirects ao buscar a URL.");
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === "AbortError" || controller.signal.aborted)
+    ) {
+      throw new Error("Tempo esgotado ao buscar a URL.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  throw new Error("Muitos redirects ao buscar a URL.");
 }

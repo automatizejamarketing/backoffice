@@ -14,7 +14,11 @@ const templateSchema = z.object({
   thumbnailUrl: z.string().optional().nullable(),
   videoPreviewUrl: z.string().optional().nullable(),
   category: z.string().optional().nullable(),
-  maxDuration: z.number().int().positive().optional().nullable(),
+  maxDuration: z.preprocess(
+    (value) =>
+      value === "" || value === null || value === undefined ? null : value,
+    z.number().int().positive().nullable().optional(),
+  ),
   status: z.enum(["active", "inactive"]),
 });
 

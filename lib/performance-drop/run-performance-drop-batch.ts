@@ -2,6 +2,7 @@ import {
   completePerformanceDropRun,
   createPerformanceDropRun,
   failPerformanceDropRun,
+  persistPerformanceDropCheckFailure,
   persistPerformanceDropForUser,
   wasPerformanceDropCheckedToday,
 } from "@/lib/db/performance-drop-queries";
@@ -188,6 +189,25 @@ export async function runPerformanceDropBatch(
           errorMessage: null,
         });
       } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Erro ao avaliar queda de performance.";
+
+        try {
+          // Mark checked today without closing open drop insights on failure.
+          await persistPerformanceDropCheckFailure({
+            runId,
+            userId: target.id,
+            errorMessage,
+          });
+        } catch (persistError) {
+          console.error(
+            "[performance-drop] failed to persist error snapshot",
+            persistError,
+          );
+        }
+
         results.push({
           userId: target.id,
           email: target.email,
@@ -197,10 +217,7 @@ export async function runPerformanceDropBatch(
           metric: null,
           dropPercent: null,
           sampleInsufficient: false,
-          errorMessage:
-            error instanceof Error
-              ? error.message
-              : "Erro ao avaliar queda de performance.",
+          errorMessage,
         });
       }
     }

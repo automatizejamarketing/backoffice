@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { assertCronAuthorized } from "@/lib/auth/cron-auth";
 import { runPerformanceDropBatch } from "@/lib/performance-drop/run-performance-drop-batch";
 
 export const maxDuration = 300;
@@ -8,20 +9,8 @@ export const maxDuration = 300;
  * Uses stale-only semantics so mid-day retries skip users already checked today.
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret) {
-    console.error("[performance-drop-cron] CRON_SECRET is not configured");
-    return NextResponse.json(
-      { error: "CRON_SECRET environment variable is not configured" },
-      { status: 500 },
-    );
-  }
-
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = assertCronAuthorized(request, "[performance-drop-cron]");
+  if (!auth.ok) return auth.response;
 
   try {
     const result = await runPerformanceDropBatch({

@@ -183,6 +183,13 @@
       "when": 1790400000000,
       "tag": "0026_blob_uploads_filename",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790500000000,
+      "tag": "0027_video_templates_max_duration",
+      "breakpoints": true
     }
   ]
 }

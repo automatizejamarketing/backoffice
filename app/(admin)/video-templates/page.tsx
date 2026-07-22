@@ -1,3 +1,4 @@
+import { requirePagePermission } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { videoTemplate } from "@/lib/db/schema";
 import { VideoTemplatesClient } from "./components/video-templates-client";
@@ -5,6 +6,8 @@ import { VideoTemplatesClient } from "./components/video-templates-client";
 export const dynamic = "force-dynamic";
 
 export default async function VideoTemplatesPage() {
+  await requirePagePermission("posts:manage");
+
   const templates = await db
     .select()
     .from(videoTemplate)

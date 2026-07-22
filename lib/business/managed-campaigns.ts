@@ -109,6 +109,9 @@ export function isManagedCampaignRunningNow(
   );
 }
 
+/** Hard cap so cron cannot paginate forever when few [AM] matches. */
+const MAX_MANAGED_CAMPAIGN_PAGES = 5;
+
 async function fetchActiveManagedCampaignNames(args: {
   accessToken: string;
   account: FacebookAdAccountBasicInfo;
@@ -117,8 +120,10 @@ async function fetchActiveManagedCampaignNames(args: {
   const names: string[] = [];
   const seen = new Set<string>();
   let after: string | undefined;
+  let pages = 0;
 
   do {
+    pages += 1;
     const params = [
       "fields=id,name,status,effective_status,start_time,stop_time,adsets.limit(200){id,status,effective_status,start_time,end_time}",
       "limit=100",
@@ -148,7 +153,7 @@ async function fetchActiveManagedCampaignNames(args: {
     }
 
     after = page.paging?.next ? page.paging.cursors?.after : undefined;
-  } while (after && names.length < 100);
+  } while (after && names.length < 100 && pages < MAX_MANAGED_CAMPAIGN_PAGES);
 
   return names;
 }
