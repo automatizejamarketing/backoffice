@@ -47,6 +47,28 @@ describe("assertSafeFetchUrl", () => {
     ).rejects.toThrow(/privada|local/i);
   });
 
+  test("rejects 6to4 and Teredo private embeddings", async () => {
+    await expect(
+      assertSafeFetchUrl("https://[2002:7f00:1::1]/image.png"),
+    ).rejects.toThrow(/privada|local/i);
+
+    await expect(
+      assertSafeFetchUrl("https://[2002:a9fe:a9fe::]/latest/meta-data/"),
+    ).rejects.toThrow(/privada|local/i);
+
+    await expect(
+      assertSafeFetchUrl("https://[2002:c0a8:1::]/image.png"),
+    ).rejects.toThrow(/privada|local/i);
+
+    await expect(
+      assertSafeFetchUrl("https://[2001:0:0:0:0:0:7f00:1]/image.png"),
+    ).rejects.toThrow(/privada|local/i);
+
+    await expect(
+      assertSafeFetchUrl("https://[2001::7f00:1]/image.png"),
+    ).rejects.toThrow(/privada|local/i);
+  });
+
   test("rejects CGNAT range", async () => {
     await expect(
       assertSafeFetchUrl("https://100.64.0.1/image.png"),

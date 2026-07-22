@@ -121,7 +121,7 @@ function bytesEqualPrefix(bytes: Uint8Array, prefix: number[]): boolean {
 
 /**
  * When an IPv6 address embeds an IPv4 (mapped / translated / compatible /
- * NAT64), return the dotted IPv4 so private-range checks apply.
+ * NAT64 / 6to4), return the dotted IPv4 so private-range checks apply.
  */
 function ipv4FromEmbeddedIpv6(bytes: Uint8Array): string | null {
   const last32 = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
@@ -144,6 +144,12 @@ function ipv4FromEmbeddedIpv6(bytes: Uint8Array): string | null {
   const isNat64 =
     bytesEqualPrefix(bytes, [0x00, 0x64, 0xff, 0x9b]) &&
     bytes.slice(4, 12).every((byte) => byte === 0);
+  // 2002::/16 6to4 — IPv4 lives in bytes 2–5
+  const is6to4 = bytes[0] === 0x20 && bytes[1] === 0x02;
+
+  if (is6to4) {
+    return `${bytes[2]}.${bytes[3]}.${bytes[4]}.${bytes[5]}`;
+  }
 
   if (ipv4Compatible || ipv4Mapped || ipv4Translated || isNat64) {
     return last32;
@@ -154,6 +160,16 @@ function ipv4FromEmbeddedIpv6(bytes: Uint8Array): string | null {
 function isBlockedIpv6(ip: string): boolean {
   const bytes = ipv6ToBytes(ip);
   if (!bytes) {
+    return true;
+  }
+
+  // Teredo 2001:0000::/32 — client IPv4 is XOR-obfuscated; block the prefix.
+  if (
+    bytes[0] === 0x20 &&
+    bytes[1] === 0x01 &&
+    bytes[2] === 0x00 &&
+    bytes[3] === 0x00
+  ) {
     return true;
   }
 
