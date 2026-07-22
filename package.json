@@ -17,7 +17,11 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/drizzle-migrate-with-baseline.ts",
-    "db:pull": "drizzle-kit introspect"
+    "db:pull": "drizzle-kit introspect",
+    "campaigns:refresh": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts",
+    "campaigns:refresh:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts --stale",
+    "performance:drop:backfill": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts",
+    "performance:drop:backfill:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts --stale"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.57",

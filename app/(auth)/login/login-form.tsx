@@ -109,8 +109,7 @@ export function LoginForm() {
 
         <Button
           type="submit"
-          variant="outline"
-          className="w-full gap-2 border border-zinc-300 bg-white text-zinc-900 shadow-xs ring-0 hover:border-zinc-400 hover:bg-zinc-50 hover:text-zinc-950 hover:shadow-sm"
+          className="w-full gap-2 border border-zinc-900 bg-zinc-900 text-white shadow-sm ring-0 hover:border-zinc-800 hover:bg-zinc-800 hover:text-white"
           size="lg"
           disabled={isSending}
         >

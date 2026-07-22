@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getAppUrl } from "@/lib/auth/app-url";
 import { canBackofficeEmailSignIn } from "@/lib/auth/backoffice-users";
 import {
   createBackofficeMagicLinkToken,
@@ -14,15 +15,6 @@ import { sendBackofficeMagicLinkEmail } from "@/lib/email/backoffice-magic-link-
 const magicLinkLoginSchema = z.object({
   email: z.string().email(),
 });
-
-function getAppUrl(request: Request): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ??
-    process.env.AUTH_URL ??
-    process.env.NEXTAUTH_URL ??
-    new URL(request.url).origin
-  );
-}
 
 export async function POST(request: Request) {
   try {

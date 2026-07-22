@@ -1,6 +1,6 @@
-import { UserHubPage } from "./user-hub-page";
+import { UserHubPage } from "@/app/(admin)/users/[id]/user-hub-page";
 
-export default async function UserDetailPage({
+export default async function EmbedUserDetailPage({
   params,
   searchParams,
 }: {
@@ -11,8 +11,8 @@ export default async function UserDetailPage({
     <UserHubPage
       params={params}
       searchParams={searchParams}
-      basePath="/users"
-      embedded={false}
+      basePath="/embed/users"
+      embedded
     />
   );
 }

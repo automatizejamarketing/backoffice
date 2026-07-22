@@ -199,16 +199,18 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
 function ConversationRow({
   conversation,
   userId,
+  basePath,
   active,
 }: {
   conversation: ConversationListItem;
   userId: string;
+  basePath: string;
   active: boolean;
 }) {
   const Icon = CHANNEL_ICON[conversation.channel];
   return (
     <Link
-      href={`/users/${userId}?tab=conversations&conversation=${conversation.id}`}
+      href={`${basePath}/${userId}?tab=conversations&conversation=${conversation.id}`}
       className={cn(
         "block w-full rounded-lg border px-3 py-2 text-left transition-colors",
         active
@@ -237,11 +239,13 @@ function ConversationRow({
 
 export function ConversationsTab({
   userId,
+  basePath = "/users",
   conversations,
   selectedConversation,
   transcript,
 }: {
   userId: string;
+  basePath?: string;
   conversations: ConversationListItem[];
   selectedConversation: ConversationListItem | null;
   transcript: TranscriptItem[];
@@ -277,6 +281,7 @@ export function ConversationsTab({
               key={conversation.id}
               conversation={conversation}
               userId={userId}
+              basePath={basePath}
               active={conversation.id === selectedConversation?.id}
             />
           ))}

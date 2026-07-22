@@ -30,6 +30,29 @@ export const META_STATUS_FILTER_VALUES = [
   "disconnected",
 ] as const;
 
+export const CAMPAIGN_STATUS_FILTER_VALUES = [
+  "all",
+  "active",
+  "inactive",
+  "unchecked",
+] as const;
+
+export const PERFORMANCE_STATUS_FILTER_VALUES = [
+  "all",
+  "drop",
+  "no_drop",
+] as const;
+
+/** Days until renewal window: 0 ≤ daysUntil ≤ N. */
+export const RENEWAL_WITHIN_FILTER_VALUES = ["all", "1d", "3d", "7d"] as const;
+
+export const USERS_SORT_VALUES = [
+  "default",
+  "renewal",
+  "performance",
+  "campaign",
+] as const;
+
 // Registration-date ("data de cadastro") window presets. Every value other
 // than "all"/"custom" is a day count parsed with parseInt (e.g. "7d" -> 7).
 export const SIGNUP_WITHIN_FILTER_VALUES = [
@@ -45,6 +68,13 @@ export type SubscriptionStatusFilter =
   (typeof SUBSCRIPTION_STATUS_FILTER_VALUES)[number];
 export type PlanPeriodFilter = (typeof PLAN_PERIOD_FILTER_VALUES)[number];
 export type MetaStatusFilter = (typeof META_STATUS_FILTER_VALUES)[number];
+export type CampaignStatusFilter =
+  (typeof CAMPAIGN_STATUS_FILTER_VALUES)[number];
+export type PerformanceStatusFilter =
+  (typeof PERFORMANCE_STATUS_FILTER_VALUES)[number];
+export type RenewalWithinFilter =
+  (typeof RENEWAL_WITHIN_FILTER_VALUES)[number];
+export type UsersSort = (typeof USERS_SORT_VALUES)[number];
 export type SignupWithinFilter = (typeof SIGNUP_WITHIN_FILTER_VALUES)[number];
 export type ConsultantFilter = string | "all" | "unassigned";
 
@@ -55,6 +85,10 @@ export type UsersFilterParams = {
   subscriptionStatus: SubscriptionStatusFilter;
   planPeriod: PlanPeriodFilter;
   metaStatus: MetaStatusFilter;
+  campaignStatus: CampaignStatusFilter;
+  performanceStatus: PerformanceStatusFilter;
+  renewalWithin: RenewalWithinFilter;
+  sort: UsersSort;
   consultantId: ConsultantFilter;
   signupWithin: SignupWithinFilter;
   // yyyy-mm-dd (America/Sao_Paulo calendar dates); only populated when
@@ -70,6 +104,10 @@ type RawUsersFilterParams = {
   subscriptionStatus?: string;
   planPeriod?: string;
   metaStatus?: string;
+  campaignStatus?: string;
+  performanceStatus?: string;
+  renewalWithin?: string;
+  sort?: string;
   consultantId?: string;
   signupWithin?: string;
   signupFrom?: string;
@@ -107,6 +145,161 @@ function parseIsoDateString(value: string | undefined): string | null {
     return null;
   }
   return value;
+}
+
+export function emptyUsersDimensionFilters(): Pick<
+  UsersFilterParams,
+  | "subscriptionStatus"
+  | "planPeriod"
+  | "metaStatus"
+  | "campaignStatus"
+  | "performanceStatus"
+  | "renewalWithin"
+  | "consultantId"
+  | "signupWithin"
+  | "signupFrom"
+  | "signupTo"
+> {
+  return {
+    subscriptionStatus: "all",
+    planPeriod: "all",
+    metaStatus: "all",
+    campaignStatus: "all",
+    performanceStatus: "all",
+    renewalWithin: "all",
+    consultantId: "all",
+    signupWithin: "all",
+    signupFrom: null,
+    signupTo: null,
+  };
+}
+
+/**
+ * Single-select key for the unified filter dropdown. Dimensions are mutually
+ * exclusive in the UI: picking one clears the others.
+ */
+export type UsersFocusFilterKey =
+  | "all"
+  | `renewal:${Exclude<RenewalWithinFilter, "all">}`
+  | `performance:${Exclude<PerformanceStatusFilter, "all">}`
+  | `campaign:${Exclude<CampaignStatusFilter, "all">}`
+  | `meta:${Exclude<MetaStatusFilter, "all">}`
+  | `subscription:${Exclude<SubscriptionStatusFilter, "all">}`
+  | `plan:${Exclude<PlanPeriodFilter, "all">}`
+  | `signup:${Exclude<SignupWithinFilter, "all">}`
+  | `consultant:${string}`;
+
+export function getUsersFocusFilterKey(
+  filters: Pick<
+    UsersFilterParams,
+    | "renewalWithin"
+    | "performanceStatus"
+    | "campaignStatus"
+    | "metaStatus"
+    | "subscriptionStatus"
+    | "planPeriod"
+    | "signupWithin"
+    | "consultantId"
+  >,
+): UsersFocusFilterKey {
+  if (filters.renewalWithin !== "all") {
+    return `renewal:${filters.renewalWithin}`;
+  }
+  if (filters.performanceStatus !== "all") {
+    return `performance:${filters.performanceStatus}`;
+  }
+  if (filters.campaignStatus !== "all") {
+    return `campaign:${filters.campaignStatus}`;
+  }
+  if (filters.metaStatus !== "all") {
+    return `meta:${filters.metaStatus}`;
+  }
+  if (filters.subscriptionStatus !== "all") {
+    return `subscription:${filters.subscriptionStatus}`;
+  }
+  if (filters.planPeriod !== "all") {
+    return `plan:${filters.planPeriod}`;
+  }
+  if (filters.signupWithin !== "all") {
+    return `signup:${filters.signupWithin}`;
+  }
+  if (filters.consultantId !== "all") {
+    return `consultant:${filters.consultantId}`;
+  }
+  return "all";
+}
+
+export function applyUsersFocusFilter(
+  focus: string,
+): ReturnType<typeof emptyUsersDimensionFilters> {
+  const base = emptyUsersDimensionFilters();
+  if (!focus || focus === "all") return base;
+
+  const [group, value] = focus.split(":");
+  if (!group || !value) return base;
+
+  switch (group) {
+    case "renewal":
+      if (includesValue(RENEWAL_WITHIN_FILTER_VALUES, value) && value !== "all") {
+        return { ...base, renewalWithin: value };
+      }
+      return base;
+    case "performance":
+      if (
+        includesValue(PERFORMANCE_STATUS_FILTER_VALUES, value) &&
+        value !== "all"
+      ) {
+        return { ...base, performanceStatus: value };
+      }
+      return base;
+    case "campaign":
+      if (
+        includesValue(CAMPAIGN_STATUS_FILTER_VALUES, value) &&
+        value !== "all"
+      ) {
+        return { ...base, campaignStatus: value };
+      }
+      return base;
+    case "meta":
+      if (includesValue(META_STATUS_FILTER_VALUES, value) && value !== "all") {
+        return { ...base, metaStatus: value };
+      }
+      return base;
+    case "subscription":
+      if (
+        includesValue(SUBSCRIPTION_STATUS_FILTER_VALUES, value) &&
+        value !== "all"
+      ) {
+        return { ...base, subscriptionStatus: value };
+      }
+      return base;
+    case "plan":
+      if (includesValue(PLAN_PERIOD_FILTER_VALUES, value) && value !== "all") {
+        return { ...base, planPeriod: value };
+      }
+      return base;
+    case "signup":
+      if (includesValue(SIGNUP_WITHIN_FILTER_VALUES, value) && value !== "all") {
+        return { ...base, signupWithin: value };
+      }
+      return base;
+    case "consultant":
+      if (value === "unassigned" || uuidPattern.test(value)) {
+        return { ...base, consultantId: value };
+      }
+      return base;
+    default:
+      return base;
+  }
+}
+
+/** Parse "1d" / "3d" / "7d" into day count; null for "all" or invalid. */
+export function renewalWithinDays(
+  value: RenewalWithinFilter,
+): number | null {
+  if (value === "all") return null;
+  const days = Number.parseInt(value, 10);
+  return Number.isFinite(days) && days > 0 ? days : null;
 }
 
 export function normalizeUsersFilterParams(
@@ -171,6 +364,25 @@ export function normalizeUsersFilterParams(
     metaStatus: includesValue(META_STATUS_FILTER_VALUES, raw.metaStatus)
       ? raw.metaStatus
       : "all",
+    campaignStatus: includesValue(
+      CAMPAIGN_STATUS_FILTER_VALUES,
+      raw.campaignStatus,
+    )
+      ? raw.campaignStatus
+      : "all",
+    performanceStatus: includesValue(
+      PERFORMANCE_STATUS_FILTER_VALUES,
+      raw.performanceStatus,
+    )
+      ? raw.performanceStatus
+      : "all",
+    renewalWithin: includesValue(
+      RENEWAL_WITHIN_FILTER_VALUES,
+      raw.renewalWithin,
+    )
+      ? raw.renewalWithin
+      : "all",
+    sort: includesValue(USERS_SORT_VALUES, raw.sort) ? raw.sort : "default",
     consultantId,
     signupWithin,
     signupFrom,
