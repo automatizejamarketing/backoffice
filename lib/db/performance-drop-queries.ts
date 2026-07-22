@@ -14,8 +14,12 @@ import { wasCapturedOnBusinessDay } from "@/lib/performance-drop/dates";
 import type { PerformanceDropEvaluation } from "@/lib/performance-drop/evaluate";
 import type { AccountWindowPair } from "@/lib/performance-drop/fetch-account-insights";
 
-/** Runs stuck in `running` longer than this are marked failed before a new run. */
-const STUCK_RUN_TIMEOUT_MS = 30 * 60 * 1000;
+/**
+ * Runs stuck in `running` longer than this are marked failed before a new run.
+ * Sized just above Vercel cron `maxDuration` (300s) so a killed invocation is
+ * reclaimable on the next create without waiting half an hour.
+ */
+const STUCK_RUN_TIMEOUT_MS = 10 * 60 * 1000;
 
 export async function markStuckPerformanceDropRunsFailed(): Promise<number> {
   const cutoff = new Date(Date.now() - STUCK_RUN_TIMEOUT_MS);

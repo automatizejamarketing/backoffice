@@ -41,6 +41,7 @@ export const PERFORMANCE_STATUS_FILTER_VALUES = [
   "all",
   "drop",
   "no_drop",
+  "error",
   "unchecked",
 ] as const;
 

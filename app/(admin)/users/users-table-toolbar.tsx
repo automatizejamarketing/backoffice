@@ -207,6 +207,7 @@ export function UsersTableToolbar({
           { value: "all", label: "Qualquer" },
           { value: "drop", label: "Com queda 7d" },
           { value: "no_drop", label: "Sem queda 7d" },
+          { value: "error", label: "Erro na checagem" },
           { value: "unchecked", label: "Não verificado" },
         ],
       },

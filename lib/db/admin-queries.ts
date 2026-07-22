@@ -91,8 +91,13 @@ export type UserRenewalAlert = {
 
 export type UserPerformanceDrop = {
   hasDrop: boolean;
-  /** True when a performance-drop-v1 snapshot exists for this user. */
+  /**
+   * True when the latest performance-drop-v1 snapshot is a real evaluation
+   * (not an error marker).
+   */
   wasChecked: boolean;
+  /** True when the latest snapshot is a check-failure marker. */
+  checkFailed: boolean;
   openInsightCount: number;
   highestSeverity: "critical" | "warning" | null;
 };
@@ -226,7 +231,44 @@ const hasPerformanceDropSql = sql`EXISTS (
     AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
 )`;
 
+/**
+ * Latest drop-v1 snapshot is a successful evaluation (not an error marker).
+ * Correlated subquery keeps filter semantics aligned with the list enrichment.
+ */
 const hasPerformanceCheckedSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_snapshots ps
+  INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
+  WHERE ps.user_id = ${user.id}
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    AND COALESCE((ps.metrics->>'error')::boolean, false) = false
+    AND ps.captured_at = (
+      SELECT MAX(ps2.captured_at)
+      FROM performance_snapshots ps2
+      INNER JOIN performance_snapshot_runs r2 ON r2.id = ps2.run_id
+      WHERE ps2.user_id = ${user.id}
+        AND r2.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    )
+)`;
+
+/** Latest drop-v1 snapshot is a per-user check-failure marker. */
+const hasPerformanceCheckErrorSql = sql`EXISTS (
+  SELECT 1
+  FROM performance_snapshots ps
+  INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
+  WHERE ps.user_id = ${user.id}
+    AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    AND COALESCE((ps.metrics->>'error')::boolean, false) = true
+    AND ps.captured_at = (
+      SELECT MAX(ps2.captured_at)
+      FROM performance_snapshots ps2
+      INNER JOIN performance_snapshot_runs r2 ON r2.id = ps2.run_id
+      WHERE ps2.user_id = ${user.id}
+        AND r2.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+    )
+)`;
+
+const hasPerformanceSnapshotSql = sql`EXISTS (
   SELECT 1
   FROM performance_snapshots ps
   INNER JOIN performance_snapshot_runs r ON r.id = ps.run_id
@@ -348,8 +390,10 @@ export async function getAllUsersWithUsage(
     conditions.push(
       and(hasPerformanceCheckedSql, sql`NOT ${hasPerformanceDropSql}`),
     );
+  } else if (params.filters?.performanceStatus === "error") {
+    conditions.push(hasPerformanceCheckErrorSql);
   } else if (params.filters?.performanceStatus === "unchecked") {
-    conditions.push(sql`NOT ${hasPerformanceCheckedSql}`);
+    conditions.push(sql`NOT ${hasPerformanceSnapshotSql}`);
   }
 
   const renewalDays = renewalWithinDays(params.filters?.renewalWithin ?? "all");
@@ -564,7 +608,8 @@ export async function getAllUsersWithUsage(
     db
       .select({
         userId: performanceSnapshot.userId,
-        capturedAt: sql<Date>`MAX(${performanceSnapshot.capturedAt})`,
+        capturedAt: performanceSnapshot.capturedAt,
+        metrics: performanceSnapshot.metrics,
       })
       .from(performanceSnapshot)
       .innerJoin(
@@ -579,8 +624,7 @@ export async function getAllUsersWithUsage(
             PERFORMANCE_DROP_RULEBOOK_VERSION,
           ),
         ),
-      )
-      .groupBy(performanceSnapshot.userId),
+      ),
     getBusinessOperatingRules(),
   ]);
 
@@ -674,27 +718,41 @@ export async function getAllUsersWithUsage(
     campaignByUser.set(row.userId, current);
   }
 
-  const performanceCheckedUserIds = new Set(
-    performanceCheckedRows.map((row) => row.userId),
-  );
+  const latestPerformanceByUser = new Map<
+    string,
+    { capturedAt: Date; checkFailed: boolean }
+  >();
+  for (const row of performanceCheckedRows) {
+    const metrics = row.metrics as { error?: boolean } | null;
+    const checkFailed = metrics?.error === true;
+    const current = latestPerformanceByUser.get(row.userId);
+    if (!current || row.capturedAt > current.capturedAt) {
+      latestPerformanceByUser.set(row.userId, {
+        capturedAt: row.capturedAt,
+        checkFailed,
+      });
+    }
+  }
 
   const performanceByUser = new Map<string, UserPerformanceDrop>();
-  for (const userId of performanceCheckedUserIds) {
+  for (const [userId, latest] of latestPerformanceByUser) {
     performanceByUser.set(userId, {
       hasDrop: false,
-      wasChecked: true,
+      wasChecked: !latest.checkFailed,
+      checkFailed: latest.checkFailed,
       openInsightCount: 0,
       highestSeverity: null,
     });
   }
   for (const row of performanceRows) {
+    const latest = latestPerformanceByUser.get(row.userId);
     const current = performanceByUser.get(row.userId) ?? {
       hasDrop: false,
-      wasChecked: performanceCheckedUserIds.has(row.userId),
+      wasChecked: latest ? !latest.checkFailed : false,
+      checkFailed: latest?.checkFailed ?? false,
       openInsightCount: 0,
       highestSeverity: null,
     };
-    current.wasChecked = true;
     current.openInsightCount += row.openCount;
     current.hasDrop = current.openInsightCount > 0;
     if (
@@ -725,6 +783,7 @@ export async function getAllUsersWithUsage(
     const performanceDrop = performanceByUser.get(u.id) ?? {
       hasDrop: false,
       wasChecked: false,
+      checkFailed: false,
       openInsightCount: 0,
       highestSeverity: null,
     };

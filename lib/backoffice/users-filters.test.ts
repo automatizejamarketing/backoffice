@@ -95,4 +95,11 @@ describe("normalizeUsersFilterParams", () => {
     });
     expect(filters.performanceStatus).toBe("no_drop");
   });
+
+  test("accepts performanceStatus error", () => {
+    const filters = normalizeUsersFilterParams({
+      performanceStatus: "error",
+    });
+    expect(filters.performanceStatus).toBe("error");
+  });
 });

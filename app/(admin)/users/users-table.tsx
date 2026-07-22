@@ -289,6 +289,13 @@ export function UsersTable({ users, search }: UsersTableProps) {
                             ? "Queda crítica"
                             : "Queda 7d"}
                         </Badge>
+                      ) : user.performanceDrop.checkFailed ? (
+                        <Badge
+                          variant="outline"
+                          className="w-fit border-orange-200 bg-orange-50 text-xs text-orange-700 dark:border-orange-900/70 dark:bg-orange-950/40 dark:text-orange-300"
+                        >
+                          Erro na checagem
+                        </Badge>
                       ) : user.performanceDrop.wasChecked ? (
                         <Badge variant="outline" className="w-fit text-xs">
                           Sem queda

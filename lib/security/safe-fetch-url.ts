@@ -12,6 +12,41 @@ const BLOCKED_HOSTNAMES = new Set([
   "metadata.goog",
 ]);
 
+/** Strip brackets Node may keep on `URL.hostname` for IPv6 literals. */
+function normalizeHostname(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
+/** Extract dotted IPv4 from IPv4-mapped IPv6 (`::ffff:127.0.0.1` / `::ffff:7f00:1`). */
+function ipv4FromMappedIpv6(ip: string): string | null {
+  const normalized = normalizeHostname(ip).toLowerCase();
+  const mappedPrefix = "::ffff:";
+  if (!normalized.startsWith(mappedPrefix)) {
+    return null;
+  }
+
+  const rest = normalized.slice(mappedPrefix.length);
+  if (net.isIP(rest) === 4) {
+    return rest;
+  }
+
+  const hex = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!hex?.[1] || !hex[2]) {
+    return null;
+  }
+
+  const hi = Number.parseInt(hex[1], 16);
+  const lo = Number.parseInt(hex[2], 16);
+  if (Number.isNaN(hi) || Number.isNaN(lo)) {
+    return null;
+  }
+
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+}
+
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split(".").map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
@@ -28,6 +63,10 @@ function isPrivateIpv4(ip: string): boolean {
   if (a === 0) {
     return true;
   }
+  // CGNAT / carrier-grade NAT
+  if (a === 100 && b >= 64 && b <= 127) {
+    return true;
+  }
   if (a === 169 && b === 254) {
     return true;
   }
@@ -41,8 +80,13 @@ function isPrivateIpv4(ip: string): boolean {
 }
 
 function isPrivateIpv6(ip: string): boolean {
-  const normalized = ip.toLowerCase();
-  if (normalized === "::1") {
+  const mappedIpv4 = ipv4FromMappedIpv6(ip);
+  if (mappedIpv4) {
+    return isPrivateIpv4(mappedIpv4);
+  }
+
+  const normalized = normalizeHostname(ip).toLowerCase();
+  if (normalized === "::1" || normalized === "::") {
     return true;
   }
   if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
@@ -60,22 +104,29 @@ function isPrivateIpv6(ip: string): boolean {
 }
 
 function isBlockedIp(ip: string): boolean {
-  const version = net.isIP(ip);
+  const normalized = normalizeHostname(ip);
+  const mappedIpv4 = ipv4FromMappedIpv6(normalized);
+  if (mappedIpv4) {
+    return isPrivateIpv4(mappedIpv4);
+  }
+
+  const version = net.isIP(normalized);
   if (version === 4) {
-    return isPrivateIpv4(ip);
+    return isPrivateIpv4(normalized);
   }
   if (version === 6) {
-    return isPrivateIpv6(ip);
+    return isPrivateIpv6(normalized);
   }
   return true;
 }
 
 async function resolveHostAddresses(hostname: string): Promise<string[]> {
-  if (net.isIP(hostname)) {
-    return [hostname];
+  const normalized = normalizeHostname(hostname);
+  if (net.isIP(normalized)) {
+    return [normalized];
   }
 
-  const results = await dns.lookup(hostname, { all: true, verbatim: true });
+  const results = await dns.lookup(normalized, { all: true, verbatim: true });
   return results.map((entry) => entry.address);
 }
 
@@ -92,7 +143,7 @@ export async function assertSafeFetchUrl(rawUrl: string): Promise<URL> {
     throw new Error("Somente URLs HTTPS são permitidas para upload de imagem.");
   }
 
-  const hostname = parsed.hostname.toLowerCase();
+  const hostname = normalizeHostname(parsed.hostname).toLowerCase();
   if (
     BLOCKED_HOSTNAMES.has(hostname) ||
     hostname.endsWith(".localhost") ||
