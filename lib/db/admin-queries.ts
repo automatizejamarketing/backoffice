@@ -623,6 +623,14 @@ export async function getAllUsersWithUsage(
             performanceSnapshotRun.rulebookVersion,
             PERFORMANCE_DROP_RULEBOOK_VERSION,
           ),
+          // Latest snapshot per user only — avoid loading full history into JS.
+          sql`${performanceSnapshot.capturedAt} = (
+            SELECT MAX(ps2.captured_at)
+            FROM performance_snapshots ps2
+            INNER JOIN performance_snapshot_runs r2 ON r2.id = ps2.run_id
+            WHERE ps2.user_id = ${performanceSnapshot.userId}
+              AND r2.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
+          )`,
         ),
       ),
     getBusinessOperatingRules(),

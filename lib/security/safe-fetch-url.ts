@@ -20,33 +20,6 @@ function normalizeHostname(hostname: string): string {
   return hostname;
 }
 
-/** Extract dotted IPv4 from IPv4-mapped IPv6 (`::ffff:127.0.0.1` / `::ffff:7f00:1`). */
-function ipv4FromMappedIpv6(ip: string): string | null {
-  const normalized = normalizeHostname(ip).toLowerCase();
-  const mappedPrefix = "::ffff:";
-  if (!normalized.startsWith(mappedPrefix)) {
-    return null;
-  }
-
-  const rest = normalized.slice(mappedPrefix.length);
-  if (net.isIP(rest) === 4) {
-    return rest;
-  }
-
-  const hex = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (!hex?.[1] || !hex[2]) {
-    return null;
-  }
-
-  const hi = Number.parseInt(hex[1], 16);
-  const lo = Number.parseInt(hex[2], 16);
-  if (Number.isNaN(hi) || Number.isNaN(lo)) {
-    return null;
-  }
-
-  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-}
-
 function isPrivateIpv4(ip: string): boolean {
   const parts = ip.split(".").map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
@@ -79,43 +52,149 @@ function isPrivateIpv4(ip: string): boolean {
   return false;
 }
 
-function isPrivateIpv6(ip: string): boolean {
-  const mappedIpv4 = ipv4FromMappedIpv6(ip);
-  if (mappedIpv4) {
-    return isPrivateIpv4(mappedIpv4);
+/**
+ * Expand an IPv6 literal to 16 bytes. Handles compressed `::` and dotted
+ * IPv4 tails (`::ffff:127.0.0.1`).
+ */
+function ipv6ToBytes(ip: string): Uint8Array | null {
+  let normalized = normalizeHostname(ip).toLowerCase();
+  if (!normalized.includes(":")) {
+    return null;
   }
 
-  const normalized = normalizeHostname(ip).toLowerCase();
-  if (normalized === "::1" || normalized === "::") {
+  const dottedTail = normalized.match(
+    /:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/,
+  );
+  if (dottedTail?.[1]) {
+    const octets = dottedTail[1].split(".").map((part) => Number.parseInt(part, 10));
+    if (
+      octets.length !== 4 ||
+      octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)
+    ) {
+      return null;
+    }
+    const hi = ((octets[0]! << 8) | octets[1]!).toString(16);
+    const lo = ((octets[2]! << 8) | octets[3]!).toString(16);
+    normalized = `${normalized.slice(0, -dottedTail[1].length)}${hi}:${lo}`;
+  }
+
+  if (normalized.includes(":::")) {
+    return null;
+  }
+
+  const sides = normalized.split("::");
+  if (sides.length > 2) {
+    return null;
+  }
+
+  const left = sides[0] ? sides[0].split(":").filter(Boolean) : [];
+  const right = sides[1] ? sides[1].split(":").filter(Boolean) : [];
+  const fill = sides.length === 2 ? 8 - left.length - right.length : 0;
+  if (fill < 0 || (sides.length === 1 && left.length !== 8)) {
+    return null;
+  }
+
+  const hextets = [
+    ...left,
+    ...Array.from({ length: fill }, () => "0"),
+    ...right,
+  ];
+  if (hextets.length !== 8) {
+    return null;
+  }
+
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 8; i += 1) {
+    const value = Number.parseInt(hextets[i] ?? "0", 16);
+    if (Number.isNaN(value) || value < 0 || value > 0xffff) {
+      return null;
+    }
+    bytes[i * 2] = (value >> 8) & 0xff;
+    bytes[i * 2 + 1] = value & 0xff;
+  }
+  return bytes;
+}
+
+function bytesEqualPrefix(bytes: Uint8Array, prefix: number[]): boolean {
+  return prefix.every((value, index) => bytes[index] === value);
+}
+
+/**
+ * When an IPv6 address embeds an IPv4 (mapped / translated / compatible /
+ * NAT64), return the dotted IPv4 so private-range checks apply.
+ */
+function ipv4FromEmbeddedIpv6(bytes: Uint8Array): string | null {
+  const last32 = `${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`;
+
+  // ::/96 IPv4-compatible (deprecated) — first 96 bits zero
+  const ipv4Compatible = bytes.slice(0, 12).every((byte) => byte === 0);
+  // ::ffff:0:0/96 IPv4-mapped
+  const ipv4Mapped =
+    bytes.slice(0, 10).every((byte) => byte === 0) &&
+    bytes[10] === 0xff &&
+    bytes[11] === 0xff;
+  // ::ffff:0:0:0/96 IPv4-translated (`::ffff:0:7f00:1`)
+  const ipv4Translated =
+    bytes.slice(0, 8).every((byte) => byte === 0) &&
+    bytes[8] === 0xff &&
+    bytes[9] === 0xff &&
+    bytes[10] === 0 &&
+    bytes[11] === 0;
+  // 64:ff9b::/96 well-known NAT64 prefix
+  const isNat64 =
+    bytesEqualPrefix(bytes, [0x00, 0x64, 0xff, 0x9b]) &&
+    bytes.slice(4, 12).every((byte) => byte === 0);
+
+  if (ipv4Compatible || ipv4Mapped || ipv4Translated || isNat64) {
+    return last32;
+  }
+  return null;
+}
+
+function isBlockedIpv6(ip: string): boolean {
+  const bytes = ipv6ToBytes(ip);
+  if (!bytes) {
     return true;
   }
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
+
+  const embeddedIpv4 = ipv4FromEmbeddedIpv6(bytes);
+  if (embeddedIpv4) {
+    return isPrivateIpv4(embeddedIpv4);
+  }
+
+  // Unspecified / loopback
+  if (bytes.every((byte) => byte === 0) || (
+    bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1
+  )) {
     return true;
   }
-  if (
-    normalized.startsWith("fe8") ||
-    normalized.startsWith("fe9") ||
-    normalized.startsWith("fea") ||
-    normalized.startsWith("feb")
-  ) {
+
+  // Multicast ff00::/8
+  if (bytes[0] === 0xff) {
     return true;
   }
+
+  // ULA fc00::/7
+  if ((bytes[0]! & 0xfe) === 0xfc) {
+    return true;
+  }
+
+  // Link-local fe80::/10
+  if (bytes[0] === 0xfe && (bytes[1]! & 0xc0) === 0x80) {
+    return true;
+  }
+
   return false;
 }
 
 function isBlockedIp(ip: string): boolean {
   const normalized = normalizeHostname(ip);
-  const mappedIpv4 = ipv4FromMappedIpv6(normalized);
-  if (mappedIpv4) {
-    return isPrivateIpv4(mappedIpv4);
-  }
-
   const version = net.isIP(normalized);
   if (version === 4) {
     return isPrivateIpv4(normalized);
   }
-  if (version === 6) {
-    return isPrivateIpv6(normalized);
+  if (version === 6 || normalized.includes(":")) {
+    return isBlockedIpv6(normalized);
   }
   return true;
 }

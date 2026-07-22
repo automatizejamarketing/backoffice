@@ -117,7 +117,10 @@ export async function failPerformanceDropRun(
     .where(eq(performanceSnapshotRun.id, runId));
 }
 
-/** True when this user already has a drop-v1 snapshot captured today (SP). */
+/**
+ * True when this user already has a successful drop-v1 evaluation today (SP).
+ * Error markers do not count — cron `onlyStale` may retry same-day failures.
+ */
 export async function wasPerformanceDropCheckedToday(
   userId: string,
   referenceDate = new Date(),
@@ -125,6 +128,7 @@ export async function wasPerformanceDropCheckedToday(
   const [row] = await db
     .select({
       capturedAt: performanceSnapshot.capturedAt,
+      metrics: performanceSnapshot.metrics,
     })
     .from(performanceSnapshot)
     .innerJoin(
@@ -143,7 +147,16 @@ export async function wasPerformanceDropCheckedToday(
     .orderBy(desc(performanceSnapshot.capturedAt))
     .limit(1);
 
-  return wasCapturedOnBusinessDay(row?.capturedAt ?? null, referenceDate);
+  if (!row) {
+    return false;
+  }
+
+  const metrics = row.metrics as { error?: boolean } | null;
+  if (metrics?.error === true) {
+    return false;
+  }
+
+  return wasCapturedOnBusinessDay(row.capturedAt, referenceDate);
 }
 
 export async function closeOpenPerformanceDropInsights(
