@@ -9,6 +9,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -23,6 +24,10 @@ import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refr
 import { ManagedCampaignRefreshStaleButton } from "@/components/managed-campaign-refresh-stale-button";
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { hasBackofficePermission } from "@/lib/auth/rbac-core";
+import {
+  filterBusinessPortfolioItems,
+  normalizePortfolioFilterParams,
+} from "@/lib/backoffice/portfolio-filters";
 import {
   getBusinessOperatingRules,
   getBusinessPortfolio,
@@ -93,20 +98,33 @@ function StatCard({
 export default async function PortfolioPage({
   searchParams,
 }: {
-  searchParams: Promise<{ consultantId?: string }>;
+  searchParams: Promise<{
+    consultantId?: string;
+    subscriptionStatus?: string;
+    campaignStatus?: string;
+    q?: string;
+  }>;
 }) {
   const [actor, sp] = await Promise.all([
     requirePagePermission("marketing:read"),
     searchParams,
   ]);
+  const filters = normalizePortfolioFilterParams(sp);
   const consultantId =
-    actor.role === "admin" ? (sp.consultantId ?? "all") : undefined;
+    actor.role === "admin" ? filters.consultantId : undefined;
 
-  const [rules, accounts, consultants] = await Promise.all([
+  const [rules, allAccounts, consultants] = await Promise.all([
     getBusinessOperatingRules(),
     getBusinessPortfolio(actor, { consultantId }),
     actor.role === "admin" ? listActiveMarketingConsultants() : Promise.resolve([]),
   ]);
+
+  const accounts = filterBusinessPortfolioItems(allAccounts, filters);
+  const hasActiveFilters =
+    filters.subscriptionStatus !== "all" ||
+    filters.campaignStatus !== "all" ||
+    filters.search.length > 0 ||
+    (actor.role === "admin" && filters.consultantId !== "all");
 
   const criticalCount = accounts.filter(
     (account) => account.health.status === "critical",
@@ -139,26 +157,6 @@ export default async function PortfolioPage({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {actor.role === "admin" && (
-            <form className="flex items-center gap-2">
-              <select
-                name="consultantId"
-                defaultValue={consultantId}
-                className="h-9 rounded-md border bg-background px-3 text-sm text-foreground"
-              >
-                <option value="all">Todos os consultores</option>
-                <option value="unassigned">Sem consultor</option>
-                {consultants.map((consultant) => (
-                  <option key={consultant.id} value={consultant.id}>
-                    {consultant.name ?? consultant.email}
-                  </option>
-                ))}
-              </select>
-              <Button type="submit" variant="outline" size="sm">
-                Filtrar
-              </Button>
-            </form>
-          )}
           {hasBackofficePermission(actor, "business:manage") && (
             <Button asChild variant="outline" size="sm">
               <Link href="/business-rules">
@@ -173,6 +171,78 @@ export default async function PortfolioPage({
           />
         </div>
       </div>
+
+      <form className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="space-y-1.5 text-sm">
+            <span className="text-muted-foreground">Buscar</span>
+            <Input
+              name="q"
+              defaultValue={filters.search}
+              placeholder="E-mail ou empresa"
+              className="h-9"
+            />
+          </label>
+          <label className="space-y-1.5 text-sm">
+            <span className="text-muted-foreground">Assinatura</span>
+            <select
+              name="subscriptionStatus"
+              defaultValue={filters.subscriptionStatus}
+              className="flex h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+            >
+              <option value="all">Todas</option>
+              <option value="active">Ativos</option>
+              <option value="trialing">Em trial</option>
+              <option value="canceled">Cancelados</option>
+            </select>
+          </label>
+          <label className="space-y-1.5 text-sm">
+            <span className="text-muted-foreground">Campanha [AM]</span>
+            <select
+              name="campaignStatus"
+              defaultValue={filters.campaignStatus}
+              className="flex h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+            >
+              <option value="all">Todas</option>
+              <option value="active">Campanha ativa</option>
+              <option value="inactive">Sem campanha</option>
+            </select>
+          </label>
+          {actor.role === "admin" ? (
+            <label className="space-y-1.5 text-sm">
+              <span className="text-muted-foreground">Consultor</span>
+              <select
+                name="consultantId"
+                defaultValue={filters.consultantId}
+                className="flex h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+              >
+                <option value="all">Todos os consultores</option>
+                <option value="unassigned">Sem consultor</option>
+                {consultants.map((consultant) => (
+                  <option key={consultant.id} value={consultant.id}>
+                    {consultant.name ?? consultant.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="hidden xl:block" />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="submit" size="sm">
+            Filtrar
+          </Button>
+          {hasActiveFilters && (
+            <Button asChild type="button" variant="ghost" size="sm">
+              <Link href="/portfolio">Limpar filtros</Link>
+            </Button>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Mostrando {accounts.length} de {allAccounts.length} clientes
+          </p>
+        </div>
+      </form>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Clientes visíveis" value={accounts.length} icon={BriefcaseBusiness} />
