@@ -1,4 +1,8 @@
 import type { SubscriptionStatus } from "@/lib/db/schema";
+import {
+  normalizeConsultantFilterId,
+  type ConsultantFilterId,
+} from "@/lib/backoffice/filter-params";
 
 export const USER_LIST_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 export const USER_LIST_DEFAULT_PAGE_SIZE = 10;
@@ -78,7 +82,7 @@ export type RenewalWithinFilter =
   (typeof RENEWAL_WITHIN_FILTER_VALUES)[number];
 export type UsersSort = (typeof USERS_SORT_VALUES)[number];
 export type SignupWithinFilter = (typeof SIGNUP_WITHIN_FILTER_VALUES)[number];
-export type ConsultantFilter = string | "all" | "unassigned";
+export type ConsultantFilter = ConsultantFilterId;
 
 export type UsersFilterParams = {
   page: number;
@@ -110,14 +114,11 @@ type RawUsersFilterParams = {
   performanceStatus?: string;
   renewalWithin?: string;
   sort?: string;
-  consultantId?: string;
+  consultantId?: string | string[];
   signupWithin?: string;
   signupFrom?: string;
   signupTo?: string;
 };
-
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -175,12 +176,7 @@ export function normalizeUsersFilterParams(
   const search =
     trimmedSearch.length >= USER_LIST_MIN_SEARCH_LENGTH ? trimmedSearch : "";
 
-  const consultantId =
-    raw.consultantId === "unassigned"
-      ? raw.consultantId
-      : raw.consultantId && uuidPattern.test(raw.consultantId)
-        ? raw.consultantId
-        : "all";
+  const consultantId = normalizeConsultantFilterId(raw.consultantId);
 
   // Registration-date window. A "custom" selection is honored only when both
   // ends are valid dates forming a non-inverted range; otherwise it collapses

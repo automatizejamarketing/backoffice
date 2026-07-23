@@ -7,10 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
 export function ManagedCampaignRefreshStaleButton({
-  consultantId,
   staleCount,
 }: {
-  consultantId?: string;
   staleCount: number;
 }) {
   const router = useRouter();
@@ -19,11 +17,8 @@ export function ManagedCampaignRefreshStaleButton({
   async function refreshStale() {
     setIsRefreshing(true);
     try {
-      const params = new URLSearchParams();
-      if (consultantId) params.set("consultantId", consultantId);
-
       const response = await fetch(
-        `/api/backoffice/business/managed-campaigns/refresh-stale?${params.toString()}`,
+        "/api/backoffice/business/managed-campaigns/refresh-stale",
         { method: "POST" },
       );
       const data = await response.json();

@@ -99,6 +99,35 @@ export async function listActiveMarketingConsultants() {
     .orderBy(asc(backofficeUser.email));
 }
 
+/**
+ * Options for admin consultant filters: active marketing consultants plus
+ * anyone who already has clients assigned (e.g. admins with a carteira).
+ */
+export async function listConsultantsForFilter() {
+  const [roleConsultants, assignedConsultants] = await Promise.all([
+    listActiveMarketingConsultants(),
+    db
+      .selectDistinct({
+        id: backofficeUser.id,
+        email: backofficeUser.email,
+        name: backofficeUser.name,
+      })
+      .from(userMarketingConsultant)
+      .innerJoin(
+        backofficeUser,
+        eq(userMarketingConsultant.consultantId, backofficeUser.id),
+      )
+      .orderBy(asc(backofficeUser.email)),
+  ]);
+
+  const byId = new Map<string, { id: string; email: string; name: string | null }>();
+  for (const consultant of [...roleConsultants, ...assignedConsultants]) {
+    byId.set(consultant.id, consultant);
+  }
+
+  return [...byId.values()].sort((a, b) => a.email.localeCompare(b.email));
+}
+
 export async function getAssignedMarketingConsultant(userId: string) {
   const [assignment] = await db
     .select({
