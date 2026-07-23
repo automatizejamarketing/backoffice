@@ -115,11 +115,15 @@ export default async function PortfolioPage({
 
   const [rules, allAccounts, consultants] = await Promise.all([
     getBusinessOperatingRules(),
-    getBusinessPortfolio(actor, { consultantId }),
+    getBusinessPortfolio(actor),
     actor.role === "admin" ? listConsultantsForFilter() : Promise.resolve([]),
   ]);
 
-  const accounts = filterBusinessPortfolioItems(allAccounts, filters);
+  const accounts = filterBusinessPortfolioItems(allAccounts, {
+    ...filters,
+    consultantId:
+      actor.role === "admin" ? filters.consultantId : "all",
+  });
   const hasActiveFilters =
     filters.subscriptionStatus !== "all" ||
     filters.campaignStatus !== "all" ||
@@ -136,7 +140,7 @@ export default async function PortfolioPage({
     const days = account.health.daysUntilRenewal;
     return days !== null && days >= 0 && days <= rules.renewalAttentionDays;
   }).length;
-  const staleMetaCount = accounts.filter(
+  const staleMetaCount = allAccounts.filter(
     (account) =>
       account.metaAccountName &&
       !wasManagedCampaignCheckedToday(account.managedCampaignCheckedAt),

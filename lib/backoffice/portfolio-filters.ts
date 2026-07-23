@@ -26,6 +26,9 @@ export type PortfolioFilterParams = {
   search: string;
 };
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function isPortfolioSubscriptionStatusFilter(
   value: string,
 ): value is PortfolioSubscriptionStatusFilter {
@@ -48,7 +51,13 @@ export function normalizePortfolioFilterParams(input: {
   campaignStatus?: string;
   q?: string;
 }): PortfolioFilterParams {
-  const consultantId = input.consultantId?.trim() || "all";
+  const consultantIdRaw = input.consultantId?.trim();
+  const consultantId =
+    consultantIdRaw === "unassigned"
+      ? consultantIdRaw
+      : consultantIdRaw && uuidPattern.test(consultantIdRaw)
+        ? consultantIdRaw
+        : "all";
   const subscriptionStatusRaw = input.subscriptionStatus?.trim() || "all";
   const campaignStatusRaw = input.campaignStatus?.trim() || "all";
   const search = input.q?.trim() ?? "";
@@ -71,12 +80,18 @@ export function filterBusinessPortfolioItems(
   items: BusinessPortfolioItem[],
   filters: Pick<
     PortfolioFilterParams,
-    "subscriptionStatus" | "campaignStatus" | "search"
+    "consultantId" | "subscriptionStatus" | "campaignStatus" | "search"
   >,
 ): BusinessPortfolioItem[] {
   const search = filters.search.trim().toLowerCase();
 
   return items.filter((item) => {
+    if (filters.consultantId === "unassigned") {
+      if (item.consultantId != null) return false;
+    } else if (filters.consultantId !== "all") {
+      if (item.consultantId !== filters.consultantId) return false;
+    }
+
     if (filters.subscriptionStatus !== "all") {
       if (item.subscriptionStatus !== filters.subscriptionStatus) {
         return false;
@@ -84,9 +99,14 @@ export function filterBusinessPortfolioItems(
     }
 
     if (filters.campaignStatus === "active") {
-      if (!item.hasActiveManagedCampaign) return false;
+      if (item.hasActiveManagedCampaign !== true) return false;
     } else if (filters.campaignStatus === "inactive") {
-      if (item.hasActiveManagedCampaign) return false;
+      if (
+        item.managedCampaignCheckedAt === null ||
+        item.hasActiveManagedCampaign
+      ) {
+        return false;
+      }
     }
 
     if (search.length > 0) {

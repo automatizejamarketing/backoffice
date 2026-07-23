@@ -59,6 +59,20 @@ describe("normalizePortfolioFilterParams", () => {
       search: "",
     });
   });
+
+  test("validates consultantId like users filters", () => {
+    const validUuid = "550e8400-e29b-41d4-a716-446655440000";
+
+    expect(
+      normalizePortfolioFilterParams({ consultantId: "unassigned" }).consultantId,
+    ).toBe("unassigned");
+    expect(
+      normalizePortfolioFilterParams({ consultantId: validUuid }).consultantId,
+    ).toBe(validUuid);
+    expect(
+      normalizePortfolioFilterParams({ consultantId: "not-a-uuid" }).consultantId,
+    ).toBe("all");
+  });
 });
 
 describe("filterBusinessPortfolioItems", () => {
@@ -76,6 +90,7 @@ describe("filterBusinessPortfolioItems", () => {
       companyName: "Trial Shop",
       subscriptionStatus: "trialing",
       hasActiveManagedCampaign: false,
+      managedCampaignCheckedAt: new Date("2026-01-15"),
     }),
     item({
       userId: "3",
@@ -83,20 +98,31 @@ describe("filterBusinessPortfolioItems", () => {
       companyName: "Ex Cliente",
       subscriptionStatus: "canceled",
       hasActiveManagedCampaign: false,
+      managedCampaignCheckedAt: new Date("2026-01-01"),
+    }),
+    item({
+      userId: "4",
+      userEmail: "never-checked@example.com",
+      companyName: "Nunca Checado",
+      subscriptionStatus: "active",
+      hasActiveManagedCampaign: false,
+      managedCampaignCheckedAt: null,
     }),
   ];
 
   test("filters by subscription status", () => {
     expect(
       filterBusinessPortfolioItems(accounts, {
+        consultantId: "all",
         subscriptionStatus: "active",
         campaignStatus: "all",
         search: "",
       }).map((row) => row.userId),
-    ).toEqual(["1"]);
+    ).toEqual(["1", "4"]);
 
     expect(
       filterBusinessPortfolioItems(accounts, {
+        consultantId: "all",
         subscriptionStatus: "trialing",
         campaignStatus: "all",
         search: "",
@@ -105,6 +131,7 @@ describe("filterBusinessPortfolioItems", () => {
 
     expect(
       filterBusinessPortfolioItems(accounts, {
+        consultantId: "all",
         subscriptionStatus: "canceled",
         campaignStatus: "all",
         search: "",
@@ -115,6 +142,7 @@ describe("filterBusinessPortfolioItems", () => {
   test("filters by campaign status", () => {
     expect(
       filterBusinessPortfolioItems(accounts, {
+        consultantId: "all",
         subscriptionStatus: "all",
         campaignStatus: "active",
         search: "",
@@ -123,6 +151,7 @@ describe("filterBusinessPortfolioItems", () => {
 
     expect(
       filterBusinessPortfolioItems(accounts, {
+        consultantId: "all",
         subscriptionStatus: "all",
         campaignStatus: "inactive",
         search: "",
@@ -130,9 +159,44 @@ describe("filterBusinessPortfolioItems", () => {
     ).toEqual(["2", "3"]);
   });
 
+  test("filters by consultant", () => {
+    const consultantUuid = "550e8400-e29b-41d4-a716-446655440000";
+    const withConsultants = [
+      item({
+        userId: "a",
+        userEmail: "assigned@example.com",
+        consultantId: consultantUuid,
+      }),
+      item({
+        userId: "b",
+        userEmail: "unassigned@example.com",
+        consultantId: null,
+      }),
+    ];
+
+    expect(
+      filterBusinessPortfolioItems(withConsultants, {
+        consultantId: consultantUuid,
+        subscriptionStatus: "all",
+        campaignStatus: "all",
+        search: "",
+      }).map((row) => row.userId),
+    ).toEqual(["a"]);
+
+    expect(
+      filterBusinessPortfolioItems(withConsultants, {
+        consultantId: "unassigned",
+        subscriptionStatus: "all",
+        campaignStatus: "all",
+        search: "",
+      }).map((row) => row.userId),
+    ).toEqual(["b"]);
+  });
+
   test("filters by search text", () => {
     expect(
       filterBusinessPortfolioItems(accounts, {
+        consultantId: "all",
         subscriptionStatus: "all",
         campaignStatus: "all",
         search: "padaria",
