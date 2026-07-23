@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
-import { listActiveMarketingConsultants } from "@/lib/db/backoffice-rbac-queries";
+import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_PAGE_SIZE } from "./constants";
 import { UsersTableToolbar } from "./users-table-toolbar";
@@ -47,7 +47,7 @@ export default async function UsersPage({
         search,
         filters,
       }),
-      listActiveMarketingConsultants(),
+      listConsultantsForFilter(),
     ]);
   const totalPages = Math.max(1, Math.ceil(total / appliedPageSize));
   const currentPage = Math.min(page, totalPages);

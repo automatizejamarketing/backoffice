@@ -32,7 +32,7 @@ import {
   getBusinessOperatingRules,
   getBusinessPortfolio,
 } from "@/lib/db/business-queries";
-import { listActiveMarketingConsultants } from "@/lib/db/backoffice-rbac-queries";
+import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
 import { wasManagedCampaignCheckedToday } from "@/lib/business/managed-campaigns";
 
 export const dynamic = "force-dynamic";
@@ -116,7 +116,7 @@ export default async function PortfolioPage({
   const [rules, allAccounts, consultants] = await Promise.all([
     getBusinessOperatingRules(),
     getBusinessPortfolio(actor, { consultantId }),
-    actor.role === "admin" ? listActiveMarketingConsultants() : Promise.resolve([]),
+    actor.role === "admin" ? listConsultantsForFilter() : Promise.resolve([]),
   ]);
 
   const accounts = filterBusinessPortfolioItems(allAccounts, filters);
@@ -220,7 +220,9 @@ export default async function PortfolioPage({
                 <option value="unassigned">Sem consultor</option>
                 {consultants.map((consultant) => (
                   <option key={consultant.id} value={consultant.id}>
-                    {consultant.name ?? consultant.email}
+                    {consultant.name
+                      ? `${consultant.name} (${consultant.email})`
+                      : consultant.email}
                   </option>
                 ))}
               </select>
