@@ -10,22 +10,16 @@ import {
   getBusinessPortfolio,
 } from "@/lib/db/business-queries";
 
-export async function POST(request: Request) {
+export async function POST() {
   const authz = await requireBackofficePermissionResponse("marketing:read");
   if (!authz.ok) return authz.response;
-
-  const { searchParams } = new URL(request.url);
-  const consultantId =
-    authz.actor.role === "admin"
-      ? (searchParams.get("consultantId") ?? "all")
-      : undefined;
 
   // Consultants keep the portfolio-scoped path (assigned accounts only).
   // Admins use the full Meta-connected batch with stale-today skipping.
   if (authz.actor.role !== "admin") {
     const [rules, portfolio] = await Promise.all([
       getBusinessOperatingRules(),
-      getBusinessPortfolio(authz.actor, { consultantId }),
+      getBusinessPortfolio(authz.actor),
     ]);
     const now = new Date();
     const targets = portfolio.filter(
