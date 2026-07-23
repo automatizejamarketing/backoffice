@@ -73,6 +73,24 @@ describe("normalizePortfolioFilterParams", () => {
       normalizePortfolioFilterParams({ consultantId: "not-a-uuid" }).consultantId,
     ).toBe("all");
   });
+
+  test("handles repeated query params without throwing", () => {
+    const validUuid = "550e8400-e29b-41d4-a716-446655440000";
+
+    expect(
+      normalizePortfolioFilterParams({
+        q: ["  padaria  ", "ignored"],
+        subscriptionStatus: ["active", "trialing"],
+        campaignStatus: ["inactive", "active"],
+        consultantId: [validUuid, "bad"],
+      }),
+    ).toEqual({
+      consultantId: validUuid,
+      subscriptionStatus: "active",
+      campaignStatus: "inactive",
+      search: "padaria",
+    });
+  });
 });
 
 describe("filterBusinessPortfolioItems", () => {

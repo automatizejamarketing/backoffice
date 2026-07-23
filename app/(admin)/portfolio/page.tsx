@@ -99,10 +99,10 @@ export default async function PortfolioPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    consultantId?: string;
-    subscriptionStatus?: string;
-    campaignStatus?: string;
-    q?: string;
+    consultantId?: string | string[];
+    subscriptionStatus?: string | string[];
+    campaignStatus?: string | string[];
+    q?: string | string[];
   }>;
 }) {
   const [actor, sp] = await Promise.all([
@@ -110,8 +110,6 @@ export default async function PortfolioPage({
     searchParams,
   ]);
   const filters = normalizePortfolioFilterParams(sp);
-  const consultantId =
-    actor.role === "admin" ? filters.consultantId : undefined;
 
   const [rules, allAccounts, consultants] = await Promise.all([
     getBusinessOperatingRules(),
@@ -169,10 +167,7 @@ export default async function PortfolioPage({
               </Link>
             </Button>
           )}
-          <ManagedCampaignRefreshStaleButton
-            consultantId={consultantId}
-            staleCount={staleMetaCount}
-          />
+          <ManagedCampaignRefreshStaleButton staleCount={staleMetaCount} />
         </div>
       </div>
 

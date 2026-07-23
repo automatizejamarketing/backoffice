@@ -1,4 +1,8 @@
 import type { BusinessPortfolioItem } from "@/lib/db/business-queries";
+import {
+  firstSearchParam,
+  normalizeConsultantFilterId,
+} from "@/lib/backoffice/filter-params";
 
 export const PORTFOLIO_SUBSCRIPTION_STATUS_FILTER_VALUES = [
   "all",
@@ -26,9 +30,6 @@ export type PortfolioFilterParams = {
   search: string;
 };
 
-const uuidPattern =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 function isPortfolioSubscriptionStatusFilter(
   value: string,
 ): value is PortfolioSubscriptionStatusFilter {
@@ -46,21 +47,17 @@ function isPortfolioCampaignStatusFilter(
 }
 
 export function normalizePortfolioFilterParams(input: {
-  consultantId?: string;
-  subscriptionStatus?: string;
-  campaignStatus?: string;
-  q?: string;
+  consultantId?: string | string[];
+  subscriptionStatus?: string | string[];
+  campaignStatus?: string | string[];
+  q?: string | string[];
 }): PortfolioFilterParams {
-  const consultantIdRaw = input.consultantId?.trim();
-  const consultantId =
-    consultantIdRaw === "unassigned"
-      ? consultantIdRaw
-      : consultantIdRaw && uuidPattern.test(consultantIdRaw)
-        ? consultantIdRaw
-        : "all";
-  const subscriptionStatusRaw = input.subscriptionStatus?.trim() || "all";
-  const campaignStatusRaw = input.campaignStatus?.trim() || "all";
-  const search = input.q?.trim() ?? "";
+  const consultantId = normalizeConsultantFilterId(input.consultantId);
+  const subscriptionStatusRaw =
+    firstSearchParam(input.subscriptionStatus)?.trim() || "all";
+  const campaignStatusRaw =
+    firstSearchParam(input.campaignStatus)?.trim() || "all";
+  const search = firstSearchParam(input.q)?.trim() ?? "";
 
   return {
     consultantId,

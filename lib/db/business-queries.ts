@@ -81,7 +81,6 @@ export type BusinessPortfolioItem = {
 };
 
 export type GetBusinessPortfolioParams = {
-  consultantId?: string;
   userId?: string;
 };
 
@@ -354,12 +353,6 @@ export async function getBusinessPortfolio(
 
   if (actor.role === "marketing_consultant") {
     conditions.push(eq(userMarketingConsultant.consultantId, actor.id));
-  } else if (params.consultantId && params.consultantId !== "all") {
-    if (params.consultantId === "unassigned") {
-      conditions.push(isNull(userMarketingConsultant.consultantId));
-    } else {
-      conditions.push(eq(userMarketingConsultant.consultantId, params.consultantId));
-    }
   }
 
   const baseRows = await db
