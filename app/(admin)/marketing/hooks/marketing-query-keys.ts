@@ -89,8 +89,14 @@ export const marketingKeys = {
     userId: string,
     adsetId: string,
     adsLimit: number,
+    includeConversion: boolean,
   ) =>
-    [...marketingKeys.adsetDetailRoot(accountId, userId), adsetId, adsLimit] as const,
+    [
+      ...marketingKeys.adsetDetailRoot(accountId, userId),
+      adsetId,
+      adsLimit,
+      includeConversion ? "conversion" : "basic",
+    ] as const,
   adsetInsightsRoot: (accountId: string, userId: string) =>
     [...marketingKeys.all(accountId, userId), "adsets", "insights"] as const,
   adsetInsights: (

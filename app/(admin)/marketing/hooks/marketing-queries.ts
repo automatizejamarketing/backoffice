@@ -19,6 +19,7 @@ import {
   type InsightsMetrics,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
+import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 
 import {
   marketingKeys,
@@ -321,25 +322,52 @@ export function useAdSetDetail(
   accountId: string,
   userId: string,
   adsetId: string,
-  options?: { adsLimit?: number; enabled?: boolean },
+  options?: {
+    adsLimit?: number;
+    includeConversion?: boolean;
+    enabled?: boolean;
+  },
 ) {
+  const includeConversion = options?.includeConversion ?? false;
   const adsLimit = options?.adsLimit ?? 1;
-  return useQuery<AdSet | null>({
-    queryKey: marketingKeys.adsetDetail(accountId, userId, adsetId, adsLimit),
+  return useQuery<{
+    adset: AdSet | null;
+    conversion: AdSetConversionDetails | null;
+  }>({
+    queryKey: marketingKeys.adsetDetail(
+      accountId,
+      userId,
+      adsetId,
+      adsLimit,
+      includeConversion,
+    ),
     enabled:
       options?.enabled !== false &&
       Boolean(accountId) &&
       Boolean(userId) &&
       Boolean(adsetId),
     queryFn: async () => {
+      const params = new URLSearchParams({
+        userId,
+        adsLimit: String(adsLimit),
+      });
+      if (includeConversion) {
+        params.set("includeConversion", "1");
+      }
       const response = await fetch(
-        `${basePath(accountId)}/adsets/${adsetId}?adsLimit=${adsLimit}&userId=${userId}`,
+        `${basePath(accountId)}/adsets/${adsetId}?${params}`,
       );
       if (!response.ok) {
         throw new Error("Falha ao buscar conjunto de anúncios");
       }
-      const data = (await response.json()) as { adset?: AdSet };
-      return data.adset ?? null;
+      const data = (await response.json()) as {
+        adset?: AdSet;
+        conversion?: AdSetConversionDetails;
+      };
+      return {
+        adset: data.adset ?? null,
+        conversion: data.conversion ?? null,
+      };
     },
   });
 }
