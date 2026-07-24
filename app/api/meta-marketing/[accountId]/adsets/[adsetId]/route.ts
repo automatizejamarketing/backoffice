@@ -38,8 +38,6 @@ const CONVERSION_ADS_CAP = 200;
 const CONVERSION_ADS_PAGE_SIZE = 50;
 const CONVERSION_CREATIVE_FIELDS =
   "id,call_to_action,object_story_spec,asset_feed_spec";
-const FULL_AD_CREATIVE_FIELDS =
-  "id,name,title,body,image_url,thumbnail_url,effective_object_story_id,call_to_action,object_story_spec,asset_feed_spec";
 
 function buildAdSetDetailFields(
   adsSubquery: string,
@@ -84,43 +82,52 @@ async function fetchAdsForConversion(
   let truncated = false;
 
   while (ads.length < CONVERSION_ADS_CAP) {
-    const limit = Math.min(
-      CONVERSION_ADS_PAGE_SIZE,
-      CONVERSION_ADS_CAP - ads.length,
-    );
-    const params = new URLSearchParams({
-      fields: `id,creative{${CONVERSION_CREATIVE_FIELDS}}`,
-      limit: String(limit),
-    });
-    if (after) {
-      params.set("after", after);
+    try {
+      const limit = Math.min(
+        CONVERSION_ADS_PAGE_SIZE,
+        CONVERSION_ADS_CAP - ads.length,
+      );
+      const params = new URLSearchParams({
+        fields: `id,creative{${CONVERSION_CREATIVE_FIELDS}}`,
+        limit: String(limit),
+      });
+      if (after) {
+        params.set("after", after);
+      }
+
+      const page = await metaApiCall<{
+        data?: GraphApiAd[];
+        paging?: GraphPaging;
+      }>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: `${adsetId}/ads`,
+        params: params.toString(),
+        accessToken,
+      });
+
+      const batch = page.data ?? [];
+      ads.push(...batch);
+
+      const hasNextPage = Boolean(page.paging?.next);
+      after = hasNextPage ? page.paging?.cursors?.after : undefined;
+
+      if (ads.length >= CONVERSION_ADS_CAP) {
+        if (hasNextPage) {
+          truncated = true;
+        }
+        break;
+      }
+
+      if (!hasNextPage || batch.length === 0) {
+        break;
+      }
+    } catch (error) {
+      if (ads.length > 0) {
+        return { ads, truncated: true };
+      }
+      throw error;
     }
-
-    const page = await metaApiCall<{
-      data?: GraphApiAd[];
-      paging?: GraphPaging;
-    }>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: `${adsetId}/ads`,
-      params: params.toString(),
-      accessToken,
-    });
-
-    const batch = page.data ?? [];
-    ads.push(...batch);
-
-    const nextAfter = page.paging?.cursors?.after;
-    if (!nextAfter || batch.length === 0) {
-      break;
-    }
-
-    if (ads.length >= CONVERSION_ADS_CAP) {
-      truncated = true;
-      break;
-    }
-
-    after = nextAfter;
   }
 
   return { ads, truncated };
@@ -166,7 +173,7 @@ export async function GET(
     const adsLimitParam = searchParams.get("adsLimit");
     const adsAfter = searchParams.get("adsAfter");
 
-    let adsLimit = includeConversion ? 25 : 1;
+    let adsLimit = 1;
     if (adsLimitParam) {
       const parsedLimit = Number.parseInt(adsLimitParam, 10);
       if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
@@ -179,8 +186,7 @@ export async function GET(
       adsSubquery = `ads.limit(${adsLimit}).after(${adsAfter})`;
     }
 
-    const creativeFields = includeConversion ? FULL_AD_CREATIVE_FIELDS : "id";
-    const fields = buildAdSetDetailFields(adsSubquery, creativeFields);
+    const fields = buildAdSetDetailFields(adsSubquery, "id");
     const response = await metaApiCall<GraphApiAdSet>({
       domain: "FACEBOOK",
       method: "GET",
@@ -193,48 +199,54 @@ export async function GET(
 
     if (includeConversion) {
       const conversionBase = buildAdSetConversionDetails({ adSet: response });
-      let pixelName: string | undefined;
-      let adsForDestinationUrls: GraphApiAd[] | undefined;
-      let destinationUrlsTruncated = false;
 
-      if (conversionBase.pixelId) {
-        try {
-          const pixel = await metaApiCall<{ id: string; name?: string }>({
+      const pixelPromise = conversionBase.pixelId
+        ? metaApiCall<{ id: string; name?: string }>({
             domain: "FACEBOOK",
             method: "GET",
             path: conversionBase.pixelId,
             params: "fields=id,name",
             accessToken: tokenResult.accessToken,
-          });
-          pixelName = pixel.name?.trim() || pixel.id;
-        } catch (pixelError) {
-          console.warn(
-            "Failed to resolve pixel name for ad set detail:",
-            pixelError,
-          );
-        }
-      }
+          })
+            .then((pixel) => pixel.name?.trim() || pixel.id)
+            .catch((pixelError) => {
+              console.warn(
+                "Failed to resolve pixel name for ad set detail:",
+                pixelError,
+              );
+              return undefined;
+            })
+        : Promise.resolve(undefined);
 
-      try {
-        const adsResult = await fetchAdsForConversion(
-          adsetId,
-          tokenResult.accessToken,
-        );
-        adsForDestinationUrls = adsResult.ads;
-        destinationUrlsTruncated = adsResult.truncated;
-      } catch (adsError) {
-        console.warn(
-          "Failed to paginate ads for conversion URLs:",
-          adsError,
-        );
-        adsForDestinationUrls = response.ads?.data;
-      }
+      const adsPromise = fetchAdsForConversion(
+        adsetId,
+        tokenResult.accessToken,
+      )
+        .then((adsResult) => ({
+          ads: adsResult.ads,
+          truncated: adsResult.truncated,
+        }))
+        .catch((adsError) => {
+          console.warn(
+            "Failed to paginate ads for conversion URLs:",
+            adsError,
+          );
+          return {
+            ads: response.ads?.data,
+            truncated: true as const,
+          };
+        });
+
+      const [pixelName, adsResult] = await Promise.all([
+        pixelPromise,
+        adsPromise,
+      ]);
 
       conversion = buildAdSetConversionDetails({
         adSet: response,
         pixelName,
-        adsForDestinationUrls,
-        destinationUrlsTruncated,
+        adsForDestinationUrls: adsResult.ads,
+        destinationUrlsTruncated: adsResult.truncated,
       });
     }
 

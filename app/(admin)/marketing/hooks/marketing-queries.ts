@@ -329,8 +329,7 @@ export function useAdSetDetail(
   },
 ) {
   const includeConversion = options?.includeConversion ?? false;
-  const adsLimit =
-    options?.adsLimit ?? (includeConversion ? 25 : 1);
+  const adsLimit = options?.adsLimit ?? 1;
   return useQuery<{
     adset: AdSet | null;
     conversion: AdSetConversionDetails | null;
