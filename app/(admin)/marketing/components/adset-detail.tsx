@@ -624,7 +624,8 @@ function AdSetDetailsDialogContent({
             />
             {conversion?.destinationUrlsTruncated && (
               <p className="col-span-full text-xs text-muted-foreground">
-                URLs limitadas aos primeiros 200 anúncios do conjunto.
+                Lista de URLs incompleta — não foi possível carregar todos os
+                anúncios do conjunto.
               </p>
             )}
           </DetailSection>
