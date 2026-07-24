@@ -110,7 +110,7 @@ async function fetchAdsForConversion(
       ads.push(...batch);
 
       const hasNextPage = Boolean(page.paging?.next);
-      after = hasNextPage ? page.paging?.cursors?.after : undefined;
+      const nextCursor = page.paging?.cursors?.after;
 
       if (ads.length >= CONVERSION_ADS_CAP) {
         if (hasNextPage) {
@@ -122,6 +122,15 @@ async function fetchAdsForConversion(
       if (!hasNextPage || batch.length === 0) {
         break;
       }
+
+      // Meta can return paging.next without a usable after cursor; stop rather
+      // than replaying the first page until the cap.
+      if (!nextCursor) {
+        truncated = true;
+        break;
+      }
+
+      after = nextCursor;
     } catch (error) {
       if (ads.length > 0) {
         return { ads, truncated: true };
