@@ -4,6 +4,7 @@ import {
   collectDestinationUrlsFromAds,
   extractPixelIdFromPromotedObject,
 } from "./adset-conversion-details";
+import { extractPromotionUrls } from "./promotion-link-edit";
 import type { GraphApiAd, GraphApiAdSet } from "@/lib/meta-business/types";
 
 describe("extractPixelIdFromPromotedObject", () => {
@@ -16,6 +17,25 @@ describe("extractPixelIdFromPromotedObject", () => {
   test("returns undefined when missing", () => {
     expect(extractPixelIdFromPromotedObject({})).toBeUndefined();
     expect(extractPixelIdFromPromotedObject(undefined)).toBeUndefined();
+  });
+});
+
+describe("extractPromotionUrls", () => {
+  test("collects all asset_feed_spec link_urls", () => {
+    const urls = extractPromotionUrls({
+      id: "c-dynamic",
+      asset_feed_spec: {
+        link_urls: [
+          { website_url: "https://menu.example/a" },
+          { website_url: "https://menu.example/b" },
+        ],
+      },
+    });
+
+    expect(urls).toEqual([
+      "https://menu.example/a",
+      "https://menu.example/b",
+    ]);
   });
 });
 
@@ -52,6 +72,28 @@ describe("collectDestinationUrlsFromAds", () => {
       "https://wa.me/5511999999999",
     ]);
   });
+
+  test("includes multiple link_urls from a dynamic creative", () => {
+    const ads: GraphApiAd[] = [
+      {
+        id: "1",
+        creative: {
+          id: "c1",
+          asset_feed_spec: {
+            link_urls: [
+              { website_url: "https://menu.example/a" },
+              { website_url: "https://menu.example/b" },
+            ],
+          },
+        },
+      },
+    ];
+
+    expect(collectDestinationUrlsFromAds(ads)).toEqual([
+      "https://menu.example/a",
+      "https://menu.example/b",
+    ]);
+  });
 });
 
 describe("buildAdSetConversionDetails", () => {
@@ -81,7 +123,7 @@ describe("buildAdSetConversionDetails", () => {
     expect(
       buildAdSetConversionDetails({
         adSet,
-        pixelNameById: new Map([["999", "Pixel Restaurante"]]),
+        pixelName: "Pixel Restaurante",
       }),
     ).toEqual({
       destinationType: "WEBSITE",
@@ -90,5 +132,19 @@ describe("buildAdSetConversionDetails", () => {
       customEventType: "PURCHASE",
       destinationUrls: ["https://cardapio.example"],
     });
+  });
+
+  test("sets destinationUrlsTruncated when flagged", () => {
+    const adSet = {
+      id: "adset-1",
+      ads: { data: [] },
+    } as GraphApiAdSet;
+
+    expect(
+      buildAdSetConversionDetails({
+        adSet,
+        destinationUrlsTruncated: true,
+      }).destinationUrlsTruncated,
+    ).toBe(true);
   });
 });

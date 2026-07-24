@@ -322,22 +322,41 @@ export function useAdSetDetail(
   accountId: string,
   userId: string,
   adsetId: string,
-  options?: { adsLimit?: number; enabled?: boolean },
+  options?: {
+    adsLimit?: number;
+    includeConversion?: boolean;
+    enabled?: boolean;
+  },
 ) {
-  const adsLimit = options?.adsLimit ?? 25;
+  const includeConversion = options?.includeConversion ?? false;
+  const adsLimit =
+    options?.adsLimit ?? (includeConversion ? 25 : 1);
   return useQuery<{
     adset: AdSet | null;
     conversion: AdSetConversionDetails | null;
   }>({
-    queryKey: marketingKeys.adsetDetail(accountId, userId, adsetId, adsLimit),
+    queryKey: marketingKeys.adsetDetail(
+      accountId,
+      userId,
+      adsetId,
+      adsLimit,
+      includeConversion,
+    ),
     enabled:
       options?.enabled !== false &&
       Boolean(accountId) &&
       Boolean(userId) &&
       Boolean(adsetId),
     queryFn: async () => {
+      const params = new URLSearchParams({
+        userId,
+        adsLimit: String(adsLimit),
+      });
+      if (includeConversion) {
+        params.set("includeConversion", "1");
+      }
       const response = await fetch(
-        `${basePath(accountId)}/adsets/${adsetId}?adsLimit=${adsLimit}&userId=${userId}`,
+        `${basePath(accountId)}/adsets/${adsetId}?${params}`,
       );
       if (!response.ok) {
         throw new Error("Falha ao buscar conjunto de anúncios");

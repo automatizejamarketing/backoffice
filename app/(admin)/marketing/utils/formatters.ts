@@ -369,3 +369,75 @@ export function getOptimizationGoalDescription(
     `Objetivo de otimização: ${optimizationGoal}`
   );
 }
+
+function isInformativeMetaValue(
+  value: string | undefined,
+): value is string {
+  return Boolean(value && value !== "UNDEFINED");
+}
+
+function formatMetaLabelValue(value: string): string {
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function formatDestinationType(
+  value: string | undefined,
+): string | undefined {
+  if (!isInformativeMetaValue(value)) return undefined;
+  const labels: Record<string, string> = {
+    WEBSITE: "Site",
+    APP: "App",
+    MESSENGER: "Messenger",
+    INSTAGRAM_DIRECT: "Instagram Direct",
+    WHATSAPP: "WhatsApp",
+    PHONE_CALL: "Ligação",
+    ON_AD: "No anúncio",
+    ON_POST: "No post",
+    ON_EVENT: "No evento",
+    ON_VIDEO: "No vídeo",
+    ON_PAGE: "Na página",
+    INSTAGRAM_PROFILE: "Perfil do Instagram",
+  };
+  return labels[value] ?? formatMetaLabelValue(value);
+}
+
+export function formatPixelLabel(
+  pixelId: string | undefined,
+  pixelName: string | undefined,
+): string | undefined {
+  if (!pixelId && !pixelName) return undefined;
+  if (pixelName && pixelId && pixelName !== pixelId) {
+    return `${pixelName} (${pixelId})`;
+  }
+  return pixelName ?? pixelId;
+}
+
+export function formatCustomEventType(
+  value: string | undefined,
+): string | undefined {
+  if (!isInformativeMetaValue(value)) return undefined;
+  const labels: Record<string, string> = {
+    PURCHASE: "Purchase",
+    LEAD: "Lead",
+    COMPLETE_REGISTRATION: "Complete Registration",
+    ADD_TO_CART: "Add to Cart",
+    INITIATED_CHECKOUT: "Initiate Checkout",
+    CONTENT_VIEW: "View Content",
+    SEARCH: "Search",
+    ADD_PAYMENT_INFO: "Add Payment Info",
+    ADD_TO_WISHLIST: "Add to Wishlist",
+    CONTACT: "Contact",
+    CUSTOMIZE_PRODUCT: "Customize Product",
+    DONATE: "Donate",
+    FIND_LOCATION: "Find Location",
+    SCHEDULE: "Schedule",
+    START_TRIAL: "Start Trial",
+    SUBMIT_APPLICATION: "Submit Application",
+    SUBSCRIBE: "Subscribe",
+  };
+  return labels[value] ?? formatMetaLabelValue(value);
+}

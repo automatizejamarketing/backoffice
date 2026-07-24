@@ -2,6 +2,7 @@ import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { duplicateAd } from "@/lib/meta-business/duplicate";
 import { GraphApiError } from "@/lib/meta-business/error";
+import type { CreativeWithLinks } from "@/lib/meta-business/types";
 
 type GraphCallToAction = {
   type?: string;
@@ -51,8 +52,6 @@ type GraphCreative = {
     [key: string]: unknown;
   };
 };
-
-export type PromotionLinkCreative = GraphCreative;
 
 type GraphAd = {
   id: string;
@@ -158,17 +157,37 @@ function setCtaLink(
   };
 }
 
-export function extractPromotionUrl(creative: GraphCreative): string | undefined {
-  return (
-    creative.call_to_action?.value?.link ??
-    creative.object_story_spec?.link_data?.call_to_action?.value?.link ??
-    creative.object_story_spec?.link_data?.link ??
-    creative.object_story_spec?.video_data?.call_to_action?.value?.link ??
-    creative.object_story_spec?.template_data?.call_to_action?.value?.link ??
-    creative.object_story_spec?.template_data?.link ??
-    creative.asset_feed_spec?.link_urls?.find((link) => link.website_url)
-      ?.website_url
-  );
+function asNonEmptyUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function extractPromotionUrls(creative: CreativeWithLinks): string[] {
+  const urls: string[] = [];
+  const add = (value: unknown) => {
+    const url = asNonEmptyUrl(value);
+    if (url) urls.push(url);
+  };
+
+  add(creative.call_to_action?.value?.link);
+  add(creative.object_story_spec?.link_data?.call_to_action?.value?.link);
+  add(creative.object_story_spec?.link_data?.link);
+  add(creative.object_story_spec?.video_data?.call_to_action?.value?.link);
+  add(creative.object_story_spec?.template_data?.call_to_action?.value?.link);
+  add(creative.object_story_spec?.template_data?.link);
+
+  for (const link of creative.asset_feed_spec?.link_urls ?? []) {
+    add(link.website_url);
+  }
+
+  return [...new Set(urls)];
+}
+
+export function extractPromotionUrl(
+  creative: CreativeWithLinks,
+): string | undefined {
+  return extractPromotionUrls(creative)[0];
 }
 
 function extractCtaType(creative: GraphCreative): string | undefined {

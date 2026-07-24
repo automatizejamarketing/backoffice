@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
-import { getAdAccountPixels } from "@/lib/meta-business/get-ad-account-pixels";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
   buildAdSetConversionDetails,
@@ -11,7 +10,9 @@ import {
 import type {
   Ad,
   AdSet,
+  GraphApiAd,
   GraphApiAdSet,
+  GraphPaging,
   PaginationInfo,
 } from "@/lib/meta-business/types";
 import {
@@ -33,11 +34,17 @@ export type GetAdSetErrorResponse = {
   solution?: string;
 };
 
-function formatAccountId(accountId: string): string {
-  return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
-}
+const CONVERSION_ADS_CAP = 200;
+const CONVERSION_ADS_PAGE_SIZE = 50;
+const CONVERSION_CREATIVE_FIELDS =
+  "id,call_to_action,object_story_spec,asset_feed_spec";
+const FULL_AD_CREATIVE_FIELDS =
+  "id,name,title,body,image_url,thumbnail_url,effective_object_story_id,call_to_action,object_story_spec,asset_feed_spec";
 
-function buildAdSetDetailFields(adsSubquery: string): string {
+function buildAdSetDetailFields(
+  adsSubquery: string,
+  creativeFields: string,
+): string {
   return [
     "id",
     "name",
@@ -64,8 +71,59 @@ function buildAdSetDetailFields(adsSubquery: string): string {
     "adset_schedule",
     "campaign{id,name,status,effective_status,objective,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,is_adset_budget_sharing_enabled,created_time,updated_time}",
     "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}",
-    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,effective_object_story_id,call_to_action,object_story_spec,asset_feed_spec},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
+    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{${creativeFields}},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
   ].join(",");
+}
+
+async function fetchAdsForConversion(
+  adsetId: string,
+  accessToken: string,
+): Promise<{ ads: GraphApiAd[]; truncated: boolean }> {
+  const ads: GraphApiAd[] = [];
+  let after: string | undefined;
+  let truncated = false;
+
+  while (ads.length < CONVERSION_ADS_CAP) {
+    const limit = Math.min(
+      CONVERSION_ADS_PAGE_SIZE,
+      CONVERSION_ADS_CAP - ads.length,
+    );
+    const params = new URLSearchParams({
+      fields: `id,creative{${CONVERSION_CREATIVE_FIELDS}}`,
+      limit: String(limit),
+    });
+    if (after) {
+      params.set("after", after);
+    }
+
+    const page = await metaApiCall<{
+      data?: GraphApiAd[];
+      paging?: GraphPaging;
+    }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${adsetId}/ads`,
+      params: params.toString(),
+      accessToken,
+    });
+
+    const batch = page.data ?? [];
+    ads.push(...batch);
+
+    const nextAfter = page.paging?.cursors?.after;
+    if (!nextAfter || batch.length === 0) {
+      break;
+    }
+
+    if (ads.length >= CONVERSION_ADS_CAP) {
+      truncated = true;
+      break;
+    }
+
+    after = nextAfter;
+  }
+
+  return { ads, truncated };
 }
 
 export async function GET(
@@ -73,7 +131,7 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<GetAdSetResponse | GetAdSetErrorResponse>> {
   try {
-    const { accountId, adsetId } = await params;
+    const { adsetId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -104,10 +162,11 @@ export async function GET(
       );
     }
 
+    const includeConversion = searchParams.get("includeConversion") === "1";
     const adsLimitParam = searchParams.get("adsLimit");
     const adsAfter = searchParams.get("adsAfter");
 
-    let adsLimit = 25;
+    let adsLimit = includeConversion ? 25 : 1;
     if (adsLimitParam) {
       const parsedLimit = Number.parseInt(adsLimitParam, 10);
       if (!Number.isNaN(parsedLimit) && parsedLimit > 0) {
@@ -120,7 +179,8 @@ export async function GET(
       adsSubquery = `ads.limit(${adsLimit}).after(${adsAfter})`;
     }
 
-    const fields = buildAdSetDetailFields(adsSubquery);
+    const creativeFields = includeConversion ? FULL_AD_CREATIVE_FIELDS : "id";
+    const fields = buildAdSetDetailFields(adsSubquery, creativeFields);
     const response = await metaApiCall<GraphApiAdSet>({
       domain: "FACEBOOK",
       method: "GET",
@@ -129,30 +189,53 @@ export async function GET(
       accessToken: tokenResult.accessToken,
     });
 
-    const conversionBase = buildAdSetConversionDetails({ adSet: response });
-    let conversion = conversionBase;
+    let conversion: AdSetConversionDetails | undefined;
 
-    if (conversionBase.pixelId) {
+    if (includeConversion) {
+      const conversionBase = buildAdSetConversionDetails({ adSet: response });
+      let pixelName: string | undefined;
+      let adsForDestinationUrls: GraphApiAd[] | undefined;
+      let destinationUrlsTruncated = false;
+
+      if (conversionBase.pixelId) {
+        try {
+          const pixel = await metaApiCall<{ id: string; name?: string }>({
+            domain: "FACEBOOK",
+            method: "GET",
+            path: conversionBase.pixelId,
+            params: "fields=id,name",
+            accessToken: tokenResult.accessToken,
+          });
+          pixelName = pixel.name?.trim() || pixel.id;
+        } catch (pixelError) {
+          console.warn(
+            "Failed to resolve pixel name for ad set detail:",
+            pixelError,
+          );
+        }
+      }
+
       try {
-        const pixelsResponse = await getAdAccountPixels(
-          formatAccountId(accountId),
+        const adsResult = await fetchAdsForConversion(
+          adsetId,
           tokenResult.accessToken,
         );
-        const pixelNameById = new Map(
-          (pixelsResponse.data ?? [])
-            .filter((pixel) => Boolean(pixel.id))
-            .map((pixel) => [pixel.id, pixel.name?.trim() || pixel.id] as const),
-        );
-        conversion = buildAdSetConversionDetails({
-          adSet: response,
-          pixelNameById,
-        });
-      } catch (pixelError) {
+        adsForDestinationUrls = adsResult.ads;
+        destinationUrlsTruncated = adsResult.truncated;
+      } catch (adsError) {
         console.warn(
-          "Failed to resolve pixel name for ad set detail:",
-          pixelError,
+          "Failed to paginate ads for conversion URLs:",
+          adsError,
         );
+        adsForDestinationUrls = response.ads?.data;
       }
+
+      conversion = buildAdSetConversionDetails({
+        adSet: response,
+        pixelName,
+        adsForDestinationUrls,
+        destinationUrlsTruncated,
+      });
     }
 
     return NextResponse.json(
@@ -160,7 +243,7 @@ export async function GET(
         adset: transformAdSet(response),
         ads: response.ads?.data?.map(transformAd) ?? [],
         adsPagination: transformPaging(response.ads?.paging),
-        conversion,
+        ...(conversion && { conversion }),
       },
       { status: 200 },
     );

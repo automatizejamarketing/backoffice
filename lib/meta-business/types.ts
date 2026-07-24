@@ -618,6 +618,9 @@ export type GraphApiAd = {
   ad_review_feedback?: GraphApiAdReviewFeedback;
 };
 
+/** Creative fields on Graph API ads that may contain promotion/destination links. */
+export type CreativeWithLinks = NonNullable<GraphApiAd["creative"]>;
+
 /**
  * Ad Creative in camelCase.
  */

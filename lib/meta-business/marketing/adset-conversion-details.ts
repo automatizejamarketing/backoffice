@@ -1,4 +1,6 @@
-import { extractPromotionUrl } from "@/lib/meta-business/marketing/promotion-link-edit";
+import {
+  extractPromotionUrls,
+} from "@/lib/meta-business/marketing/promotion-link-edit";
 import type { GraphApiAd, GraphApiAdSet } from "@/lib/meta-business/types";
 
 export type AdSetConversionDetails = {
@@ -7,6 +9,7 @@ export type AdSetConversionDetails = {
   pixelName?: string;
   customEventType?: string;
   destinationUrls: string[];
+  destinationUrlsTruncated?: boolean;
 };
 
 function asNonEmptyString(value: unknown): string | undefined {
@@ -43,29 +46,29 @@ export function collectDestinationUrlsFromAds(
   for (const ad of ads) {
     const creative = ad.creative;
     if (!creative) continue;
-    const url = extractPromotionUrl(
-      creative as Parameters<typeof extractPromotionUrl>[0],
-    );
-    if (url) urls.add(url);
+    for (const url of extractPromotionUrls(creative)) {
+      urls.add(url);
+    }
   }
   return [...urls];
 }
 
 export function buildAdSetConversionDetails(args: {
   adSet: GraphApiAdSet;
-  pixelNameById?: Map<string, string>;
+  pixelName?: string;
+  adsForDestinationUrls?: GraphApiAd[];
+  destinationUrlsTruncated?: boolean;
 }): AdSetConversionDetails {
   const promotedObject = args.adSet.promoted_object;
   const pixelId = extractPixelIdFromPromotedObject(promotedObject);
-  const pixelName = pixelId
-    ? args.pixelNameById?.get(pixelId)
-    : undefined;
+  const ads = args.adsForDestinationUrls ?? args.adSet.ads?.data;
 
   return {
     destinationType: asNonEmptyString(args.adSet.destination_type),
     pixelId,
-    pixelName,
+    pixelName: args.pixelName,
     customEventType: extractCustomEventTypeFromPromotedObject(promotedObject),
-    destinationUrls: collectDestinationUrlsFromAds(args.adSet.ads?.data),
+    destinationUrls: collectDestinationUrlsFromAds(ads),
+    ...(args.destinationUrlsTruncated && { destinationUrlsTruncated: true }),
   };
 }
