@@ -572,6 +572,44 @@ export type GraphApiAd = {
     image_url?: string;
     thumbnail_url?: string;
     effective_object_story_id?: string;
+    call_to_action?: {
+      type?: string;
+      value?: { link?: string; [key: string]: unknown };
+      [key: string]: unknown;
+    };
+    object_story_spec?: {
+      link_data?: {
+        link?: string;
+        call_to_action?: {
+          type?: string;
+          value?: { link?: string; [key: string]: unknown };
+          [key: string]: unknown;
+        };
+        [key: string]: unknown;
+      };
+      video_data?: {
+        call_to_action?: {
+          type?: string;
+          value?: { link?: string; [key: string]: unknown };
+          [key: string]: unknown;
+        };
+        [key: string]: unknown;
+      };
+      template_data?: {
+        link?: string;
+        call_to_action?: {
+          type?: string;
+          value?: { link?: string; [key: string]: unknown };
+          [key: string]: unknown;
+        };
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    };
+    asset_feed_spec?: {
+      link_urls?: Array<{ website_url?: string; [key: string]: unknown }>;
+      [key: string]: unknown;
+    };
   };
   insights?: {
     data: GraphApiInsights[];
@@ -579,6 +617,9 @@ export type GraphApiAd = {
   issues_info?: GraphApiAdIssuesInfo[];
   ad_review_feedback?: GraphApiAdReviewFeedback;
 };
+
+/** Creative fields on Graph API ads that may contain promotion/destination links. */
+export type CreativeWithLinks = NonNullable<GraphApiAd["creative"]>;
 
 /**
  * Ad Creative in camelCase.
