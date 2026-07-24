@@ -52,6 +52,8 @@ type GraphCreative = {
   };
 };
 
+export type PromotionLinkCreative = GraphCreative;
+
 type GraphAd = {
   id: string;
   name?: string;
@@ -156,7 +158,7 @@ function setCtaLink(
   };
 }
 
-function extractPromotionUrl(creative: GraphCreative): string | undefined {
+export function extractPromotionUrl(creative: GraphCreative): string | undefined {
   return (
     creative.call_to_action?.value?.link ??
     creative.object_story_spec?.link_data?.call_to_action?.value?.link ??

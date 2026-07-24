@@ -56,6 +56,7 @@ import {
   getOptimizationGoalDescription,
 } from "../utils/formatters";
 import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
+import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 import { useAdSetDetail, useAdSetInsights } from "../hooks/marketing-queries";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 
@@ -139,10 +140,11 @@ export function AdSetDetail({
   // Full ad set (with targeting). The /adsets list omits targeting, so the Edit
   // dialog needs this richer payload. Cached and refetched after invalidation.
   const detailQuery = useAdSetDetail(accountId, userId, adSet.id, {
-    adsLimit: 1,
+    adsLimit: 50,
     enabled: isOpen || isDetailsOpen,
   });
-  const detailedAdSet = detailQuery.data ?? null;
+  const detailedAdSet = detailQuery.data?.adset ?? null;
+  const conversionDetails = detailQuery.data?.conversion ?? null;
   const isLoadingDetails = detailQuery.isFetching;
   const detailsError = detailQuery.error
     ? "Não foi possível carregar os detalhes do conjunto."
@@ -511,6 +513,7 @@ export function AdSetDetail({
         <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto p-0">
           <AdSetDetailsDialogContent
             adSet={detailedAdSet ?? adSet}
+            conversion={conversionDetails}
             isLoading={isLoadingDetails}
             error={detailsError}
             onRetry={() => detailQuery.refetch()}
@@ -533,6 +536,7 @@ export function AdSetDetail({
 
 type AdSetDetailsDialogContentProps = {
   adSet: AdSet;
+  conversion: AdSetConversionDetails | null;
   isLoading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -540,6 +544,7 @@ type AdSetDetailsDialogContentProps = {
 
 function AdSetDetailsDialogContent({
   adSet,
+  conversion,
   isLoading,
   error,
   onRetry,
@@ -584,6 +589,32 @@ function AdSetDetailsDialogContent({
         </div>
       ) : (
         <div className="space-y-4 px-5 py-5">
+          <DetailSection title="Conversão e destino">
+            <DetailRow
+              label="Tipo de destino"
+              value={formatDestinationType(conversion?.destinationType)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Pixel"
+              value={formatPixelLabel(
+                conversion?.pixelId,
+                conversion?.pixelName,
+              )}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Evento do pixel"
+              value={formatCustomEventType(conversion?.customEventType)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="URL de destino"
+              values={conversion?.destinationUrls}
+              empty="Não informado"
+            />
+          </DetailSection>
+
           <DetailSection title="Público">
             <DetailRow
               label="Localizações"
@@ -812,6 +843,60 @@ function formatBudgetCents(value: string | undefined): string | undefined {
   if (Number.isNaN(parsed)) return undefined;
 
   return formatCurrency(parsed / 100);
+}
+
+function formatDestinationType(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const labels: Record<string, string> = {
+    WEBSITE: "Site",
+    APP: "App",
+    MESSENGER: "Messenger",
+    INSTAGRAM_DIRECT: "Instagram Direct",
+    WHATSAPP: "WhatsApp",
+    PHONE_CALL: "Ligação",
+    ON_AD: "No anúncio",
+    ON_POST: "No post",
+    ON_EVENT: "No evento",
+    ON_VIDEO: "No vídeo",
+    ON_PAGE: "Na página",
+    INSTAGRAM_PROFILE: "Perfil do Instagram",
+  };
+  return labels[value] ?? formatMetaValue(value);
+}
+
+function formatPixelLabel(
+  pixelId: string | undefined,
+  pixelName: string | undefined,
+): string | undefined {
+  if (!pixelId && !pixelName) return undefined;
+  if (pixelName && pixelId && pixelName !== pixelId) {
+    return `${pixelName} (${pixelId})`;
+  }
+  return pixelName ?? pixelId;
+}
+
+function formatCustomEventType(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const labels: Record<string, string> = {
+    PURCHASE: "Purchase",
+    LEAD: "Lead",
+    COMPLETE_REGISTRATION: "Complete Registration",
+    ADD_TO_CART: "Add to Cart",
+    INITIATED_CHECKOUT: "Initiate Checkout",
+    CONTENT_VIEW: "View Content",
+    SEARCH: "Search",
+    ADD_PAYMENT_INFO: "Add Payment Info",
+    ADD_TO_WISHLIST: "Add to Wishlist",
+    CONTACT: "Contact",
+    CUSTOMIZE_PRODUCT: "Customize Product",
+    DONATE: "Donate",
+    FIND_LOCATION: "Find Location",
+    SCHEDULE: "Schedule",
+    START_TRIAL: "Start Trial",
+    SUBMIT_APPLICATION: "Submit Application",
+    SUBSCRIBE: "Subscribe",
+  };
+  return labels[value] ?? formatMetaValue(value);
 }
 
 function formatTime(dateString: string | null | undefined): string | undefined {

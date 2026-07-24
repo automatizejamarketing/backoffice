@@ -19,6 +19,7 @@ import {
   type InsightsMetrics,
   type PaginationInfo,
 } from "@/lib/meta-business/types";
+import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 
 import {
   marketingKeys,
@@ -323,8 +324,11 @@ export function useAdSetDetail(
   adsetId: string,
   options?: { adsLimit?: number; enabled?: boolean },
 ) {
-  const adsLimit = options?.adsLimit ?? 1;
-  return useQuery<AdSet | null>({
+  const adsLimit = options?.adsLimit ?? 25;
+  return useQuery<{
+    adset: AdSet | null;
+    conversion: AdSetConversionDetails | null;
+  }>({
     queryKey: marketingKeys.adsetDetail(accountId, userId, adsetId, adsLimit),
     enabled:
       options?.enabled !== false &&
@@ -338,8 +342,14 @@ export function useAdSetDetail(
       if (!response.ok) {
         throw new Error("Falha ao buscar conjunto de anúncios");
       }
-      const data = (await response.json()) as { adset?: AdSet };
-      return data.adset ?? null;
+      const data = (await response.json()) as {
+        adset?: AdSet;
+        conversion?: AdSetConversionDetails;
+      };
+      return {
+        adset: data.adset ?? null,
+        conversion: data.conversion ?? null,
+      };
     },
   });
 }

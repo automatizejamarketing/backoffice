@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
+import { getAdAccountPixels } from "@/lib/meta-business/get-ad-account-pixels";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import {
+  buildAdSetConversionDetails,
+  type AdSetConversionDetails,
+} from "@/lib/meta-business/marketing/adset-conversion-details";
 import type {
   Ad,
   AdSet,
@@ -19,6 +24,7 @@ export type GetAdSetResponse = Partial<{
   adset: AdSet;
   ads: Ad[];
   adsPagination: PaginationInfo;
+  conversion: AdSetConversionDetails;
 }>;
 
 export type GetAdSetErrorResponse = {
@@ -26,6 +32,10 @@ export type GetAdSetErrorResponse = {
   message: string;
   solution?: string;
 };
+
+function formatAccountId(accountId: string): string {
+  return accountId.startsWith("act_") ? accountId : `act_${accountId}`;
+}
 
 function buildAdSetDetailFields(adsSubquery: string): string {
   return [
@@ -54,7 +64,7 @@ function buildAdSetDetailFields(adsSubquery: string): string {
     "adset_schedule",
     "campaign{id,name,status,effective_status,objective,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,is_adset_budget_sharing_enabled,created_time,updated_time}",
     "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}",
-    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,effective_object_story_id},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
+    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{id,name,title,body,image_url,thumbnail_url,effective_object_story_id,call_to_action,object_story_spec,asset_feed_spec},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
   ].join(",");
 }
 
@@ -63,7 +73,7 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<GetAdSetResponse | GetAdSetErrorResponse>> {
   try {
-    const { adsetId } = await params;
+    const { accountId, adsetId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -119,11 +129,38 @@ export async function GET(
       accessToken: tokenResult.accessToken,
     });
 
+    const conversionBase = buildAdSetConversionDetails({ adSet: response });
+    let conversion = conversionBase;
+
+    if (conversionBase.pixelId) {
+      try {
+        const pixelsResponse = await getAdAccountPixels(
+          formatAccountId(accountId),
+          tokenResult.accessToken,
+        );
+        const pixelNameById = new Map(
+          (pixelsResponse.data ?? [])
+            .filter((pixel) => Boolean(pixel.id))
+            .map((pixel) => [pixel.id, pixel.name?.trim() || pixel.id] as const),
+        );
+        conversion = buildAdSetConversionDetails({
+          adSet: response,
+          pixelNameById,
+        });
+      } catch (pixelError) {
+        console.warn(
+          "Failed to resolve pixel name for ad set detail:",
+          pixelError,
+        );
+      }
+    }
+
     return NextResponse.json(
       {
         adset: transformAdSet(response),
         ads: response.ads?.data?.map(transformAd) ?? [],
         adsPagination: transformPaging(response.ads?.paging),
+        conversion,
       },
       { status: 200 },
     );
