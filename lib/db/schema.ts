@@ -2,6 +2,7 @@ import { sql, type InferSelectModel } from "drizzle-orm";
 import {
   bigserial,
   boolean,
+  check,
   foreignKey,
   index,
   integer,
@@ -177,6 +178,373 @@ export const masterclassLesson = pgTable(
 );
 
 export type MasterclassLesson = InferSelectModel<typeof masterclassLesson>;
+
+// =============================================
+// Digital Products
+// =============================================
+
+export const PRODUCT_OWNER_VALUES = ["automatize", "expert"] as const;
+export type ProductOwnerType = (typeof PRODUCT_OWNER_VALUES)[number];
+
+export const PRODUCT_STATUS_VALUES = ["draft", "published", "archived"] as const;
+export type ProductStatus = (typeof PRODUCT_STATUS_VALUES)[number];
+
+export const PRODUCT_VISIBILITY_VALUES = ["public", "unlisted"] as const;
+export type ProductVisibility = (typeof PRODUCT_VISIBILITY_VALUES)[number];
+
+export const PRODUCT_PLAN_TIER_VALUES = ["starter", "pro", "premium"] as const;
+export type ProductPlanTier = (typeof PRODUCT_PLAN_TIER_VALUES)[number];
+
+export const PRODUCT_CONTENT_TYPE_VALUES = [
+  "video",
+  "pdf",
+  "file",
+  "external_link",
+] as const;
+export type ProductContentType = (typeof PRODUCT_CONTENT_TYPE_VALUES)[number];
+
+export const expertProfile = pgTable(
+  "expert_profiles",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    displayName: varchar("display_name", { length: 120 }).notNull(),
+    phone: varchar("phone", { length: 20 }),
+    pixKey: varchar("pix_key", { length: 255 }).notNull(),
+    status: varchar("status", { enum: ["active", "inactive"] })
+      .$type<"active" | "inactive">()
+      .notNull()
+      .default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userUnique: unique("expert_profiles_user_id_unique").on(table.userId),
+    statusIdx: index("expert_profiles_status_idx").on(table.status),
+  }),
+);
+
+export type ExpertProfile = InferSelectModel<typeof expertProfile>;
+
+export const product = pgTable(
+  "products",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    ownerType: varchar("owner_type", { enum: [...PRODUCT_OWNER_VALUES] })
+      .$type<ProductOwnerType>()
+      .notNull()
+      .default("automatize"),
+    expertId: uuid("expert_id").references(() => expertProfile.id),
+    slug: varchar("slug", { length: 160 }).notNull(),
+    title: varchar("title", { length: 180 }).notNull(),
+    description: text("description"),
+    coverUrl: text("cover_url"),
+    priceCentavos: integer("price_centavos").notNull().default(0),
+    currency: varchar("currency", { length: 3 }).notNull().default("brl"),
+    expertShareBasisPoints: integer("expert_share_basis_points")
+      .notNull()
+      .default(0),
+    minimumPlanTier: varchar("minimum_plan_tier", {
+      enum: [...PRODUCT_PLAN_TIER_VALUES],
+    }).$type<ProductPlanTier>(),
+    visibility: varchar("visibility", {
+      enum: [...PRODUCT_VISIBILITY_VALUES],
+    })
+      .$type<ProductVisibility>()
+      .notNull()
+      .default("unlisted"),
+    status: varchar("status", { enum: [...PRODUCT_STATUS_VALUES] })
+      .$type<ProductStatus>()
+      .notNull()
+      .default("draft"),
+    salesEnabled: boolean("sales_enabled").notNull().default(true),
+    termsVersion: varchar("terms_version", { length: 40 })
+      .notNull()
+      .default("v1"),
+    legacyMasterclassCourseId: text("legacy_masterclass_course_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    slugUnique: unique("products_slug_unique").on(table.slug),
+    legacyCourseUnique: unique("products_legacy_masterclass_course_unique").on(
+      table.legacyMasterclassCourseId,
+    ),
+    catalogIdx: index("products_catalog_idx").on(
+      table.status,
+      table.visibility,
+      table.salesEnabled,
+    ),
+    expertIdx: index("products_expert_id_idx").on(table.expertId),
+    priceCheck: check("products_price_non_negative", sql`${table.priceCentavos} >= 0`),
+    shareCheck: check(
+      "products_expert_share_range",
+      sql`${table.expertShareBasisPoints} >= 0 AND ${table.expertShareBasisPoints} <= 10000`,
+    ),
+    ownerCheck: check(
+      "products_owner_consistency",
+      sql`(${table.ownerType} = 'automatize' AND ${table.expertId} IS NULL AND ${table.expertShareBasisPoints} = 0) OR (${table.ownerType} = 'expert' AND ${table.expertId} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export type Product = InferSelectModel<typeof product>;
+
+export const productContentItem = pgTable(
+  "product_content_items",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => product.id, { onDelete: "cascade" }),
+    type: varchar("type", { enum: [...PRODUCT_CONTENT_TYPE_VALUES] })
+      .$type<ProductContentType>()
+      .notNull(),
+    title: varchar("title", { length: 180 }).notNull(),
+    description: text("description"),
+    sourceUrl: text("source_url"),
+    blobPathname: text("blob_pathname"),
+    videoProvider: varchar("video_provider", { length: 30 }),
+    filename: text("filename"),
+    mimeType: varchar("mime_type", { length: 160 }),
+    position: integer("position").notNull(),
+    published: boolean("published").notNull().default(true),
+    legacyMasterclassLessonId: text("legacy_masterclass_lesson_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    productPositionUnique: unique("product_content_items_position_unique").on(
+      table.productId,
+      table.position,
+    ),
+    productPublishedIdx: index("product_content_items_product_published_idx").on(
+      table.productId,
+      table.published,
+    ),
+    legacyLessonIdx: index("product_content_items_legacy_lesson_idx").on(
+      table.legacyMasterclassLessonId,
+    ),
+    sourceCheck: check(
+      "product_content_items_source_required",
+      sql`${table.sourceUrl} IS NOT NULL OR ${table.blobPathname} IS NOT NULL`,
+    ),
+  }),
+);
+
+export type ProductContentItem = InferSelectModel<typeof productContentItem>;
+
+export const PRODUCT_ORDER_STATUS_VALUES = [
+  "pending",
+  "approved",
+  "failed",
+  "canceled",
+  "refunded",
+] as const;
+export type ProductOrderStatus = (typeof PRODUCT_ORDER_STATUS_VALUES)[number];
+
+export const productOrder = pgTable(
+  "product_orders",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => product.id),
+    expertIdSnapshot: uuid("expert_id_snapshot").references(
+      () => expertProfile.id,
+    ),
+    userId: uuid("user_id").references(() => user.id),
+    acquisitionKey: varchar("acquisition_key", { length: 255 }).notNull(),
+    buyerName: varchar("buyer_name", { length: 120 }).notNull(),
+    buyerEmail: varchar("buyer_email", { length: 255 }).notNull(),
+    buyerPhone: varchar("buyer_phone", { length: 20 }),
+    productTitleSnapshot: varchar("product_title_snapshot", {
+      length: 180,
+    }).notNull(),
+    priceCentavos: integer("price_centavos").notNull(),
+    currency: varchar("currency", { length: 3 }).notNull().default("brl"),
+    expertShareBasisPoints: integer("expert_share_basis_points")
+      .notNull()
+      .default(0),
+    termsVersion: varchar("terms_version", { length: 40 }).notNull(),
+    termsAcceptedAt: timestamp("terms_accepted_at").notNull(),
+    marketingOptIn: boolean("marketing_opt_in").notNull().default(false),
+    attribution: jsonb("attribution").$type<Record<string, string | null>>(),
+    status: varchar("status", { enum: [...PRODUCT_ORDER_STATUS_VALUES] })
+      .$type<ProductOrderStatus>()
+      .notNull()
+      .default("pending"),
+    approvedAt: timestamp("approved_at"),
+    refundedAt: timestamp("refunded_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    acquisitionKeyUnique: unique("product_orders_acquisition_key_unique").on(
+      table.acquisitionKey,
+    ),
+    productIdx: index("product_orders_product_id_idx").on(table.productId),
+    userIdx: index("product_orders_user_id_idx").on(table.userId),
+    buyerEmailIdx: index("product_orders_buyer_email_idx").on(table.buyerEmail),
+    oneOpenPurchase: uniqueIndex("product_orders_one_open_purchase")
+      .on(table.productId, table.buyerEmail)
+      .where(sql`${table.status} IN ('pending', 'approved')`),
+    statusCreatedIdx: index("product_orders_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+    snapshotCheck: check(
+      "product_orders_snapshot_consistency",
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.expertShareBasisPoints} >= 0 AND ${table.expertShareBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export type ProductOrder = InferSelectModel<typeof productOrder>;
+
+export const productPayment = pgTable(
+  "product_payments",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productOrder.id),
+    provider: varchar("provider", { length: 30 })
+      .notNull()
+      .default("mercadopago"),
+    providerPreferenceId: varchar("provider_preference_id", { length: 255 }),
+    providerPaymentId: varchar("provider_payment_id", { length: 255 }),
+    status: varchar("status", {
+      enum: ["pending", "approved", "failed", "refunded", "charged_back"],
+    })
+      .$type<"pending" | "approved" | "failed" | "refunded" | "charged_back">()
+      .notNull()
+      .default("pending"),
+    grossAmountCentavos: integer("gross_amount_centavos"),
+    netAmountCentavos: integer("net_amount_centavos"),
+    feeAmountCentavos: integer("fee_amount_centavos"),
+    currency: varchar("currency", { length: 3 }).notNull().default("brl"),
+    rawStatus: varchar("raw_status", { length: 80 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    providerPaymentUnique: uniqueIndex(
+      "product_payments_provider_payment_unique",
+    )
+      .on(table.provider, table.providerPaymentId)
+      .where(sql`${table.providerPaymentId} IS NOT NULL`),
+    orderUnique: unique("product_payments_order_id_unique").on(table.orderId),
+    orderIdx: index("product_payments_order_id_idx").on(table.orderId),
+  }),
+);
+
+export type ProductPayment = InferSelectModel<typeof productPayment>;
+
+export const productEntitlement = pgTable(
+  "product_entitlements",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => product.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    orderId: uuid("order_id").references(() => productOrder.id),
+    source: varchar("source", { enum: ["purchase", "free"] })
+      .$type<"purchase" | "free">()
+      .notNull(),
+    grantedAt: timestamp("granted_at").notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => ({
+    activeUnique: uniqueIndex("product_entitlements_active_unique")
+      .on(table.productId, table.userId)
+      .where(sql`${table.revokedAt} IS NULL`),
+    userIdx: index("product_entitlements_user_id_idx").on(table.userId),
+    orderIdx: index("product_entitlements_order_id_idx").on(table.orderId),
+  }),
+);
+
+export type ProductEntitlement = InferSelectModel<typeof productEntitlement>;
+
+export const expertLedgerEntry = pgTable(
+  "expert_ledger_entries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id")
+      .notNull()
+      .references(() => expertProfile.id),
+    orderId: uuid("order_id").references(() => productOrder.id),
+    eventKey: varchar("event_key", { length: 255 }).notNull(),
+    type: varchar("type", {
+      enum: ["sale", "refund", "chargeback", "payout"],
+    })
+      .$type<"sale" | "refund" | "chargeback" | "payout">()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    availableAt: timestamp("available_at"),
+    description: text("description"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique("expert_ledger_entries_event_key_unique").on(
+      table.eventKey,
+    ),
+    expertAvailableIdx: index("expert_ledger_entries_expert_available_idx").on(
+      table.expertId,
+      table.availableAt,
+    ),
+    orderIdx: index("expert_ledger_entries_order_id_idx").on(table.orderId),
+  }),
+);
+
+export type ExpertLedgerEntry = InferSelectModel<typeof expertLedgerEntry>;
+
+export const expertPayoutRequest = pgTable(
+  "expert_payout_requests",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id")
+      .notNull()
+      .references(() => expertProfile.id),
+    amountCentavos: integer("amount_centavos").notNull(),
+    pixKeySnapshot: varchar("pix_key_snapshot", { length: 255 }).notNull(),
+    status: varchar("status", {
+      enum: ["requested", "approved", "paid", "rejected", "canceled"],
+    })
+      .$type<"requested" | "approved" | "paid" | "rejected" | "canceled">()
+      .notNull()
+      .default("requested"),
+    dueAt: timestamp("due_at").notNull(),
+    proofUrl: text("proof_url"),
+    adminEmail: varchar("admin_email", { length: 120 }),
+    reviewedAt: timestamp("reviewed_at"),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    expertStatusIdx: index("expert_payout_requests_expert_status_idx").on(
+      table.expertId,
+      table.status,
+    ),
+    oneOpenRequest: uniqueIndex("expert_payout_requests_one_open")
+      .on(table.expertId)
+      .where(sql`${table.status} IN ('requested', 'approved')`),
+    minimumCheck: check(
+      "expert_payout_requests_minimum_amount",
+      sql`${table.amountCentavos} >= 10000`,
+    ),
+  }),
+);
+
+export type ExpertPayoutRequest = InferSelectModel<
+  typeof expertPayoutRequest
+>;
 
 export const verificationToken = pgTable("verification_tokens", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),

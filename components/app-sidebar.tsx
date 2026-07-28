@@ -76,7 +76,7 @@ export function AppSidebar({
   const isPostsSection = pathname?.startsWith("/posts");
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
   const isTrackableLinksSection = pathname?.startsWith("/trackable-links");
-  const isMasterclassSection = pathname?.startsWith("/masterclass");
+  const isProductsSection = pathname?.startsWith("/products");
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
 
@@ -131,11 +131,11 @@ export function AppSidebar({
       permission: "trackable-links:manage",
     },
     {
-      href: "/masterclass",
-      label: "Masterclass",
+      href: "/products",
+      label: "Produtos",
       icon: GraduationCap,
-      isActive: isMasterclassSection,
-      permission: "masterclass:manage",
+      isActive: isProductsSection,
+      permission: "products:manage",
     },
     {
       href: "/video-templates",

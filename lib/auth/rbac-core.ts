@@ -16,6 +16,7 @@ export type BackofficePermission =
   | "affiliates:manage"
   | "trackable-links:manage"
   | "masterclass:manage"
+  | "products:manage"
   | "team:manage";
 
 export type BackofficeActorSource = "database" | "admin_email_fallback";
@@ -66,6 +67,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "affiliates:manage",
     "trackable-links:manage",
     "masterclass:manage",
+    "products:manage",
     "team:manage",
   ],
   marketing_consultant: ["marketing:read", "marketing:write"],
