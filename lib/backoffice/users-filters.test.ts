@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeUsersFilterParams } from "./users-filters";
+import {
+  normalizeUsersFilterParams,
+  resolveAccessExpirationRange,
+  resolveOperationalExpirationDates,
+  resolveUserFieldFilter,
+} from "./users-filters";
 
 describe("normalizeUsersFilterParams", () => {
   test("keeps supported user list filters and drops unsupported values", () => {
@@ -23,7 +28,8 @@ describe("normalizeUsersFilterParams", () => {
         metaStatus: "connected",
         campaignStatus: "all",
         performanceStatus: "all",
-        renewalWithin: "all",
+        accessExpiration: "all",
+        fieldFilter: null,
         sort: "default",
         consultantId: "550e8400-e29b-41d4-a716-446655440000",
         signupWithin: "all",
@@ -41,7 +47,7 @@ describe("normalizeUsersFilterParams", () => {
       metaStatus: "bad",
       campaignStatus: "bad",
       performanceStatus: "bad",
-      renewalWithin: "bad",
+      accessExpiration: "bad",
       sort: "bad",
       consultantId: "bad",
       page: "-1",
@@ -58,7 +64,8 @@ describe("normalizeUsersFilterParams", () => {
         metaStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
-        renewalWithin: "all",
+        accessExpiration: "all",
+        fieldFilter: null,
         sort: "default",
         consultantId: "all",
         signupWithin: "all",
@@ -68,18 +75,61 @@ describe("normalizeUsersFilterParams", () => {
     );
   });
 
-  test("keeps campaign, performance, renewal and sort filters", () => {
+  test("keeps campaign, performance, access expiration and sort filters", () => {
     const filters = normalizeUsersFilterParams({
       campaignStatus: "active",
       performanceStatus: "drop",
-      renewalWithin: "3d",
+      accessExpiration: "past_7d",
       sort: "renewal",
     });
 
     expect(filters.campaignStatus).toBe("active");
     expect(filters.performanceStatus).toBe("drop");
-    expect(filters.renewalWithin).toBe("3d");
+    expect(filters.accessExpiration).toBe("past_7d");
     expect(filters.sort).toBe("renewal");
+  });
+
+  test("maps legacy renewal links to the equivalent access window", () => {
+    const filters = normalizeUsersFilterParams({ renewalWithin: "3d" });
+    expect(filters.accessExpiration).toBe("next_3d");
+  });
+
+  test("normalizes a date field filter", () => {
+    const filters = normalizeUsersFilterParams({
+      filterField: "expirationDate",
+      filterOperator: "lt",
+      filterValue: "2026-08-04",
+    });
+
+    expect(filters.fieldFilter).toEqual({
+      field: "expirationDate",
+      operator: "lt",
+      value: "2026-08-04",
+    });
+  });
+
+  test("normalizes a numeric field filter", () => {
+    const filters = normalizeUsersFilterParams({
+      filterField: "credits",
+      filterOperator: "gt",
+      filterValue: " 10 ",
+    });
+
+    expect(filters.fieldFilter).toEqual({
+      field: "credits",
+      operator: "gt",
+      value: "10",
+    });
+  });
+
+  test("drops an invalid or incomplete field filter", () => {
+    const filters = normalizeUsersFilterParams({
+      filterField: "expirationDate",
+      filterOperator: "contains",
+      filterValue: "tomorrow",
+    });
+
+    expect(filters.fieldFilter).toBeNull();
   });
 
   test("accepts performanceStatus unchecked", () => {
@@ -101,5 +151,102 @@ describe("normalizeUsersFilterParams", () => {
       performanceStatus: "error",
     });
     expect(filters.performanceStatus).toBe("error");
+  });
+});
+
+describe("resolveAccessExpirationRange", () => {
+  const now = new Date("2026-08-03T15:00:00.000Z");
+
+  test("resolves an upcoming window from expiration_date only", () => {
+    expect(resolveAccessExpirationRange("next_3d", now)).toEqual({
+      gte: now,
+      lt: new Date("2026-08-06T15:00:00.000Z"),
+    });
+  });
+
+  test("resolves a recently expired window", () => {
+    expect(resolveAccessExpirationRange("past_7d", now)).toEqual({
+      gte: new Date("2026-07-27T15:00:00.000Z"),
+      lt: now,
+    });
+  });
+
+  test("supports all expired users and users without an expiration date", () => {
+    expect(resolveAccessExpirationRange("expired", now)).toEqual({ lt: now });
+    expect(resolveAccessExpirationRange("missing", now)).toEqual({
+      isMissing: true,
+    });
+  });
+});
+
+describe("resolveUserFieldFilter", () => {
+  test("resolves date comparisons as Sao Paulo calendar-day bounds", () => {
+    expect(
+      resolveUserFieldFilter({
+        field: "expirationDate",
+        operator: "lt",
+        value: "2026-08-04",
+      }),
+    ).toEqual({
+      field: "expirationDate",
+      lt: new Date("2026-08-04T03:00:00.000Z"),
+    });
+
+    expect(
+      resolveUserFieldFilter({
+        field: "createdAt",
+        operator: "eq",
+        value: "2026-08-04",
+      }),
+    ).toEqual({
+      field: "createdAt",
+      gte: new Date("2026-08-04T03:00:00.000Z"),
+      lt: new Date("2026-08-05T03:00:00.000Z"),
+    });
+
+    expect(
+      resolveUserFieldFilter({
+        field: "expirationDate",
+        operator: "gt",
+        value: "2026-08-04",
+      }),
+    ).toEqual({
+      field: "expirationDate",
+      gte: new Date("2026-08-05T03:00:00.000Z"),
+    });
+  });
+
+  test("resolves numeric comparisons without date conversion", () => {
+    expect(
+      resolveUserFieldFilter({
+        field: "credits",
+        operator: "gt",
+        value: "10",
+      }),
+    ).toEqual({ field: "credits", gt: 10 });
+  });
+});
+
+describe("resolveOperationalExpirationDates", () => {
+  test("uses Sao Paulo calendar dates before and after local midnight", () => {
+    expect(
+      resolveOperationalExpirationDates(
+        new Date("2026-08-03T02:59:59.999Z"),
+      ),
+    ).toEqual({ yesterday: "2026-08-01", today: "2026-08-02" });
+
+    expect(
+      resolveOperationalExpirationDates(
+        new Date("2026-08-03T03:00:00.000Z"),
+      ),
+    ).toEqual({ yesterday: "2026-08-02", today: "2026-08-03" });
+  });
+
+  test("handles month and year boundaries", () => {
+    expect(
+      resolveOperationalExpirationDates(
+        new Date("2026-01-01T15:00:00.000Z"),
+      ),
+    ).toEqual({ yesterday: "2025-12-31", today: "2026-01-01" });
   });
 });

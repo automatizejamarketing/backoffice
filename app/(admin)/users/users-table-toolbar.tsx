@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, Search, X } from "lucide-react";
+import {
+  CircleAlert,
+  Filter,
+  LoaderCircle,
+  Search,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +31,12 @@ import {
   MIN_SEARCH_LENGTH,
   PAGE_SIZE_OPTIONS,
 } from "./constants";
-import type { UsersFilterParams } from "@/lib/backoffice/users-filters";
+import type {
+  UserFieldFilterField,
+  UserFieldFilterOperator,
+  UsersFilterParams,
+} from "@/lib/backoffice/users-filters";
+import type { UserExpirationDayCounts } from "@/lib/db/admin-queries";
 import { cn } from "@/lib/utils";
 
 const DEBOUNCE_MS = 300;
@@ -39,7 +51,8 @@ type UsersTableToolbarProps = {
     | "metaStatus"
     | "campaignStatus"
     | "performanceStatus"
-    | "renewalWithin"
+    | "accessExpiration"
+    | "fieldFilter"
     | "sort"
     | "consultantId"
     | "signupWithin"
@@ -47,21 +60,45 @@ type UsersTableToolbarProps = {
     | "signupTo"
   >;
   consultants: Array<{ id: string; email: string; name: string | null }>;
+  expirationDayCounts?: UserExpirationDayCounts;
 };
 
 const SORT_LABELS: Record<string, string> = {
   default: "Ordenação padrão",
-  renewal: "Priorizar renovação",
+  renewal: "Priorizar expiração",
   performance: "Priorizar queda 7d",
   campaign: "Priorizar campanha ativa",
 };
+
+const FIELD_FILTER_OPTIONS: Array<{
+  value: UserFieldFilterField;
+  label: string;
+  inputType: "date" | "number";
+}> = [
+  {
+    value: "expirationDate",
+    label: "Data de expiração",
+    inputType: "date",
+  },
+  { value: "createdAt", label: "Data de cadastro", inputType: "date" },
+  { value: "credits", label: "Créditos", inputType: "number" },
+];
+
+const FIELD_OPERATOR_OPTIONS: Array<{
+  value: UserFieldFilterOperator;
+  label: string;
+}> = [
+  { value: "lt", label: "Menor que" },
+  { value: "eq", label: "Igual a" },
+  { value: "gt", label: "Maior que" },
+];
 
 type FilterOption = { value: string; label: string };
 
 type FilterSection = {
   key: keyof Pick<
     UsersFilterParams,
-    | "renewalWithin"
+    | "accessExpiration"
     | "performanceStatus"
     | "campaignStatus"
     | "metaStatus"
@@ -131,6 +168,7 @@ export function UsersTableToolbar({
   pageSize,
   filters,
   consultants,
+  expirationDayCounts,
 }: UsersTableToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -139,6 +177,20 @@ export function UsersTableToolbar({
   const [search, setSearch] = useState(initialSearch);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [isCustomDateOpen, setIsCustomDateOpen] = useState(false);
+  const [pendingExpirationDate, setPendingExpirationDate] = useState<
+    string | null
+  >(null);
+  const [isExpirationShortcutPending, startExpirationShortcutTransition] =
+    useTransition();
+  const [fieldFilterField, setFieldFilterField] =
+    useState<UserFieldFilterField>(
+      filters.fieldFilter?.field ?? "expirationDate",
+    );
+  const [fieldFilterOperator, setFieldFilterOperator] =
+    useState<UserFieldFilterOperator>(filters.fieldFilter?.operator ?? "lt");
+  const [fieldFilterValue, setFieldFilterValue] = useState(
+    filters.fieldFilter?.value ?? "",
+  );
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstRunRef = useRef(true);
 
@@ -184,20 +236,54 @@ export function UsersTableToolbar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
+  useEffect(() => {
+    setFieldFilterField(filters.fieldFilter?.field ?? "expirationDate");
+    setFieldFilterOperator(filters.fieldFilter?.operator ?? "lt");
+    setFieldFilterValue(filters.fieldFilter?.value ?? "");
+  }, [filters.fieldFilter]);
+
   const trimmedSearch = search.trim();
   const isBelowMinSearch =
     trimmedSearch.length > 0 && trimmedSearch.length < MIN_SEARCH_LENGTH;
+  const selectedFieldFilter =
+    FIELD_FILTER_OPTIONS.find((option) => option.value === fieldFilterField) ??
+    FIELD_FILTER_OPTIONS[0];
 
   const sections: FilterSection[] = useMemo(
     () => [
       {
-        key: "renewalWithin",
-        label: "Renovação",
+        key: "accessExpiration",
+        label: "Expiração do acesso",
         options: [
           { value: "all", label: "Qualquer" },
-          { value: "1d", label: "Vence em 1 dia" },
-          { value: "3d", label: "Vence em 3 dias" },
-          { value: "7d", label: "Vence em 7 dias" },
+          { value: "next_1d", label: "Expira nas próximas 24h" },
+          { value: "next_3d", label: "Expira nos próximos 3 dias" },
+          { value: "next_7d", label: "Expira nos próximos 7 dias" },
+          { value: "past_3d", label: "Expirou nos últimos 3 dias" },
+          { value: "past_7d", label: "Expirou nos últimos 7 dias" },
+          { value: "past_14d", label: "Expirou nos últimos 14 dias" },
+          { value: "past_30d", label: "Expirou nos últimos 30 dias" },
+          { value: "expired", label: "Já expirou (qualquer data)" },
+          { value: "missing", label: "Sem data de expiração" },
+        ],
+      },
+      {
+        key: "metaStatus",
+        label: "Meta",
+        options: [
+          { value: "all", label: "Qualquer" },
+          { value: "connected", label: "Conectado" },
+          { value: "disconnected", label: "Sem Meta" },
+        ],
+      },
+      {
+        key: "campaignStatus",
+        label: "Campanha",
+        options: [
+          { value: "all", label: "Qualquer" },
+          { value: "active", label: "Campanha ativa" },
+          { value: "inactive", label: "Sem campanha ativa" },
+          { value: "unchecked", label: "Não verificada" },
         ],
       },
       {
@@ -212,27 +298,19 @@ export function UsersTableToolbar({
         ],
       },
       {
-        key: "campaignStatus",
-        label: "Campanha",
+        key: "planPeriod",
+        label: "Plano",
         options: [
           { value: "all", label: "Qualquer" },
-          { value: "active", label: "Campanha ativa" },
-          { value: "inactive", label: "Sem campanha ativa" },
-          { value: "unchecked", label: "Não verificada" },
-        ],
-      },
-      {
-        key: "metaStatus",
-        label: "Meta",
-        options: [
-          { value: "all", label: "Qualquer" },
-          { value: "connected", label: "Conectado" },
-          { value: "disconnected", label: "Sem Meta" },
+          { value: "monthly", label: "Mensal" },
+          { value: "quarterly", label: "Trimestral" },
+          { value: "semiannual", label: "Semestral" },
+          { value: "annual", label: "Anual" },
         ],
       },
       {
         key: "subscriptionStatus",
-        label: "Assinatura",
+        label: "Cobrança",
         options: [
           { value: "all", label: "Qualquer" },
           { value: "active", label: "Ativas" },
@@ -243,17 +321,6 @@ export function UsersTableToolbar({
           { value: "unpaid", label: "Não pagas" },
           { value: "incomplete", label: "Incompletas" },
           { value: "incomplete_expired", label: "Incompletas expiradas" },
-        ],
-      },
-      {
-        key: "planPeriod",
-        label: "Plano",
-        options: [
-          { value: "all", label: "Qualquer" },
-          { value: "monthly", label: "Mensal" },
-          { value: "quarterly", label: "Trimestral" },
-          { value: "semiannual", label: "Semestral" },
-          { value: "annual", label: "Anual" },
         ],
       },
       {
@@ -291,6 +358,63 @@ export function UsersTableToolbar({
     router.push(buildUrl({ pageSize: next }), { scroll: false });
   }
 
+  function handleFieldFilterFieldChange(value: string) {
+    setFieldFilterField(value as UserFieldFilterField);
+    setFieldFilterOperator("lt");
+    setFieldFilterValue("");
+  }
+
+  function applyFieldFilter() {
+    if (!fieldFilterValue.trim()) return;
+    router.push(
+      buildUrl({
+        filterField: fieldFilterField,
+        filterOperator: fieldFilterOperator,
+        filterValue: fieldFilterValue.trim(),
+      }),
+      { scroll: false },
+    );
+  }
+
+  function clearFieldFilter() {
+    setFieldFilterField("expirationDate");
+    setFieldFilterOperator("lt");
+    setFieldFilterValue("");
+    router.push(
+      buildUrl({
+        filterField: null,
+        filterOperator: null,
+        filterValue: null,
+      }),
+      { scroll: false },
+    );
+  }
+
+  function isExpirationShortcutActive(date: string): boolean {
+    return (
+      filters.accessExpiration === "all" &&
+      filters.fieldFilter?.field === "expirationDate" &&
+      filters.fieldFilter.operator === "eq" &&
+      filters.fieldFilter.value === date
+    );
+  }
+
+  function handleExpirationShortcut(date: string) {
+    const isActive = isExpirationShortcutActive(date);
+    setPendingExpirationDate(date);
+    startExpirationShortcutTransition(() => {
+      router.push(
+        buildUrl({
+          accessExpiration: null,
+          filterField: isActive ? null : "expirationDate",
+          filterOperator: isActive ? null : "eq",
+          filterValue: isActive ? null : date,
+        }),
+        { scroll: false },
+      );
+    });
+  }
+
   function handleDimensionChange(
     key: FilterSection["key"],
     value: string,
@@ -318,7 +442,10 @@ export function UsersTableToolbar({
   function clearAllFilters() {
     router.push(
       buildUrl({
-        renewalWithin: null,
+        accessExpiration: null,
+        filterField: null,
+        filterOperator: null,
+        filterValue: null,
         performanceStatus: null,
         campaignStatus: null,
         metaStatus: null,
@@ -374,6 +501,28 @@ export function UsersTableToolbar({
       });
     }
 
+    if (filters.fieldFilter) {
+      const field = FIELD_FILTER_OPTIONS.find(
+        (option) => option.value === filters.fieldFilter?.field,
+      );
+      const operator = FIELD_OPERATOR_OPTIONS.find(
+        (option) => option.value === filters.fieldFilter?.operator,
+      );
+      const value =
+        field?.inputType === "date"
+          ? formatDisplayDate(filters.fieldFilter.value)
+          : filters.fieldFilter.value;
+      chips.push({
+        key: "fieldFilter",
+        label: `${field?.label ?? filters.fieldFilter.field} ${operator?.label.toLowerCase() ?? filters.fieldFilter.operator} ${value}`,
+        clear: {
+          filterField: null,
+          filterOperator: null,
+          filterValue: null,
+        },
+      });
+    }
+
     return chips;
   }, [filters, sections]);
 
@@ -381,6 +530,20 @@ export function UsersTableToolbar({
     filters.signupWithin === "custom" &&
     Boolean(filters.signupFrom) &&
     Boolean(filters.signupTo);
+  const yesterdayShortcutActive = expirationDayCounts
+    ? isExpirationShortcutActive(expirationDayCounts.yesterday.date)
+    : false;
+  const todayShortcutActive = expirationDayCounts
+    ? isExpirationShortcutActive(expirationDayCounts.today.date)
+    : false;
+  const hasActiveExpirationShortcut =
+    yesterdayShortcutActive || todayShortcutActive;
+  const yesterdayShortcutFetching =
+    isExpirationShortcutPending &&
+    pendingExpirationDate === expirationDayCounts?.yesterday.date;
+  const todayShortcutFetching =
+    isExpirationShortcutPending &&
+    pendingExpirationDate === expirationDayCounts?.today.date;
 
   return (
     <div className="space-y-3">
@@ -453,15 +616,130 @@ export function UsersTableToolbar({
                 Limpar tudo
               </Button>
             </div>
+            <div className="mb-4 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-xs font-medium text-foreground">
+                  Filtro por campo
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Combine uma informação, uma condição e um valor
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className="min-w-0 space-y-1 sm:w-[210px]">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Campo
+                  </span>
+                  <Select
+                    value={fieldFilterField}
+                    onValueChange={handleFieldFilterFieldChange}
+                  >
+                    <SelectTrigger
+                      className="h-9 w-full bg-background"
+                      aria-label="Campo do filtro"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FIELD_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="min-w-0 space-y-1 sm:w-[150px]">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Operador
+                  </span>
+                  <Select
+                    value={fieldFilterOperator}
+                    onValueChange={(value) =>
+                      setFieldFilterOperator(value as UserFieldFilterOperator)
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-9 w-full bg-background"
+                      aria-label="Operador do filtro"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FIELD_OPERATOR_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <label className="min-w-0 flex-1 space-y-1 sm:min-w-[170px]">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Valor
+                  </span>
+                  <Input
+                    type={selectedFieldFilter.inputType}
+                    step={
+                      selectedFieldFilter.inputType === "number" ? 1 : undefined
+                    }
+                    value={fieldFilterValue}
+                    onChange={(event) =>
+                      setFieldFilterValue(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") applyFieldFilter();
+                    }}
+                    className="h-9 bg-background"
+                    aria-label={`Valor para ${selectedFieldFilter.label}`}
+                  />
+                </label>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9"
+                  disabled={!fieldFilterValue.trim()}
+                  onClick={applyFieldFilter}
+                >
+                  Aplicar
+                </Button>
+                {filters.fieldFilter ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 px-2 text-muted-foreground"
+                    onClick={clearFieldFilter}
+                  >
+                    Limpar
+                  </Button>
+                ) : null}
+              </div>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               {sections.map((section) => {
                 const current = filters[section.key];
                 return (
-                  <div key={section.key} className="space-y-1">
+                  <div
+                    key={section.key}
+                    className={cn(
+                      "space-y-1",
+                      section.key === "accessExpiration" && "sm:col-span-2",
+                    )}
+                  >
                     <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       {section.label}
                     </p>
-                    <div className="space-y-0.5">
+                    <div
+                      className={cn(
+                        "space-y-0.5",
+                        section.key === "accessExpiration" &&
+                          "sm:grid sm:grid-cols-2 sm:gap-x-3 sm:space-y-0",
+                      )}
+                    >
                       {section.options.map((option) => (
                         <OptionRow
                           key={option.value}
@@ -479,6 +757,64 @@ export function UsersTableToolbar({
             </div>
           </PopoverContent>
         </Popover>
+
+        {expirationDayCounts ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-8 rounded-full border-red-500/50 bg-red-500/10 px-2.5 font-normal text-red-700 transition-all hover:border-red-500/70 hover:bg-red-500/15 hover:text-red-800 disabled:opacity-80 dark:text-red-300 dark:hover:text-red-200",
+                yesterdayShortcutActive &&
+                  "border-red-600 bg-red-600 text-white shadow-sm ring-2 ring-red-500/30 hover:border-red-600 hover:bg-red-600 hover:text-white dark:bg-red-600 dark:text-white dark:hover:bg-red-600 dark:hover:text-white",
+              )}
+              aria-pressed={yesterdayShortcutActive}
+              aria-busy={yesterdayShortcutFetching}
+              disabled={isExpirationShortcutPending}
+              onClick={() =>
+                handleExpirationShortcut(expirationDayCounts.yesterday.date)
+              }
+            >
+              {yesterdayShortcutFetching ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <CircleAlert className="size-3.5" />
+              )}
+              <span className="font-semibold tabular-nums">
+                {expirationDayCounts.yesterday.count}
+              </span>
+              venceram ontem
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(
+                "h-8 rounded-full border-amber-500/55 bg-amber-500/10 px-2.5 font-normal text-amber-800 transition-all hover:border-amber-500/75 hover:bg-amber-500/15 hover:text-amber-900 disabled:opacity-80 dark:text-amber-300 dark:hover:text-amber-200",
+                todayShortcutActive &&
+                  "border-amber-400 bg-amber-400 text-amber-950 shadow-sm ring-2 ring-amber-400/30 hover:border-amber-400 hover:bg-amber-400 hover:text-amber-950 dark:bg-amber-400 dark:text-amber-950 dark:hover:bg-amber-400 dark:hover:text-amber-950",
+              )}
+              aria-pressed={todayShortcutActive}
+              aria-busy={todayShortcutFetching}
+              disabled={isExpirationShortcutPending}
+              onClick={() =>
+                handleExpirationShortcut(expirationDayCounts.today.date)
+              }
+            >
+              {todayShortcutFetching ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <TriangleAlert className="size-3.5" />
+              )}
+              <span className="font-semibold tabular-nums">
+                {expirationDayCounts.today.count}
+              </span>
+              vencem hoje
+            </Button>
+          </>
+        ) : null}
 
         <Select
           value={filters.sort}
@@ -503,25 +839,30 @@ export function UsersTableToolbar({
 
         {activeChips.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            {activeChips.map((chip) => (
-              <Badge
-                key={chip.key}
-                variant="secondary"
-                className="h-7 gap-1 pl-2.5 pr-1 font-normal"
-              >
-                {chip.label}
-                <button
-                  type="button"
-                  aria-label={`Remover filtro ${chip.label}`}
-                  className="rounded-sm p-0.5 hover:bg-muted"
-                  onClick={() =>
-                    router.push(buildUrl(chip.clear), { scroll: false })
-                  }
+            {activeChips
+              .filter(
+                (chip) =>
+                  chip.key !== "fieldFilter" || !hasActiveExpirationShortcut,
+              )
+              .map((chip) => (
+                <Badge
+                  key={chip.key}
+                  variant="secondary"
+                  className="h-7 gap-1 pl-2.5 pr-1 font-normal"
                 >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            ))}
+                  {chip.label}
+                  <button
+                    type="button"
+                    aria-label={`Remover filtro ${chip.label}`}
+                    className="rounded-sm p-0.5 hover:bg-muted"
+                    onClick={() =>
+                      router.push(buildUrl(chip.clear), { scroll: false })
+                    }
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              ))}
           </div>
         ) : null}
       </div>

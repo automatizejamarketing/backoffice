@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
+import {
+  getAllUsersWithUsage,
+  getUserExpirationDayCounts,
+} from "@/lib/db/admin-queries";
 import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_PAGE_SIZE } from "./constants";
@@ -25,6 +28,10 @@ export default async function UsersPage({
     metaStatus?: string;
     campaignStatus?: string;
     performanceStatus?: string;
+    accessExpiration?: string;
+    filterField?: string;
+    filterOperator?: string;
+    filterValue?: string;
     renewalWithin?: string;
     sort?: string;
     consultantId?: string;
@@ -39,7 +46,11 @@ export default async function UsersPage({
   const filters = normalizeUsersFilterParams(sp);
   const { page, pageSize, search } = filters;
 
-  const [{ users, total, pageSize: appliedPageSize }, consultants] =
+  const [
+    { users, total, pageSize: appliedPageSize },
+    consultants,
+    expirationDayCounts,
+  ] =
     await Promise.all([
       getAllUsersWithUsage({
         page,
@@ -48,6 +59,7 @@ export default async function UsersPage({
         filters,
       }),
       listConsultantsForFilter(),
+      getUserExpirationDayCounts(),
     ]);
   const totalPages = Math.max(1, Math.ceil(total / appliedPageSize));
   const currentPage = Math.min(page, totalPages);
@@ -80,8 +92,13 @@ export default async function UsersPage({
     if (filters.performanceStatus !== "all") {
       params.set("performanceStatus", filters.performanceStatus);
     }
-    if (filters.renewalWithin !== "all") {
-      params.set("renewalWithin", filters.renewalWithin);
+    if (filters.accessExpiration !== "all") {
+      params.set("accessExpiration", filters.accessExpiration);
+    }
+    if (filters.fieldFilter) {
+      params.set("filterField", filters.fieldFilter.field);
+      params.set("filterOperator", filters.fieldFilter.operator);
+      params.set("filterValue", filters.fieldFilter.value);
     }
     if (filters.sort !== "default") {
       params.set("sort", filters.sort);
@@ -125,7 +142,8 @@ export default async function UsersPage({
           metaStatus: filters.metaStatus,
           campaignStatus: filters.campaignStatus,
           performanceStatus: filters.performanceStatus,
-          renewalWithin: filters.renewalWithin,
+          accessExpiration: filters.accessExpiration,
+          fieldFilter: filters.fieldFilter,
           sort: filters.sort,
           consultantId: filters.consultantId,
           signupWithin: filters.signupWithin,
@@ -133,6 +151,7 @@ export default async function UsersPage({
           signupTo: filters.signupTo,
         }}
         consultants={consultants}
+        expirationDayCounts={expirationDayCounts}
       />
 
       <UsersTable users={users} search={search} />

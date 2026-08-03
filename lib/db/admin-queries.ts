@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   gte,
+  gt,
   ilike,
   inArray,
   isNull,
@@ -41,7 +42,6 @@ import {
   user,
   userCompany,
   userMarketingConsultant,
-  type BillingProvider,
   type CampaignAdSetBudgetChangeData,
   type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
@@ -57,8 +57,10 @@ import {
   type User,
 } from "./schema";
 import {
-  renewalWithinDays,
+  resolveAccessExpirationRange,
+  resolveOperationalExpirationDates,
   resolveSignupDateRange,
+  resolveUserFieldFilter,
   type UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
 import {
@@ -85,7 +87,6 @@ export type UserRenewalAlert = {
   code: BusinessHealthReasonCode;
   label: string;
   daysUntilRenewal: number | null;
-  provider: BillingProvider | null;
   renewalDate: Date | null;
 };
 
@@ -134,7 +135,8 @@ export type GetAllUsersWithUsageParams = {
       | "metaStatus"
       | "campaignStatus"
       | "performanceStatus"
-      | "renewalWithin"
+      | "accessExpiration"
+      | "fieldFilter"
       | "sort"
       | "consultantId"
       | "signupWithin"
@@ -150,6 +152,61 @@ export type GetAllUsersWithUsageResult = {
   page: number;
   pageSize: number;
 };
+
+export type UserExpirationDayCounts = {
+  yesterday: { date: string; count: number };
+  today: { date: string; count: number };
+};
+
+export async function getUserExpirationDayCounts(
+  now: Date = new Date(),
+): Promise<UserExpirationDayCounts> {
+  const dates = resolveOperationalExpirationDates(now);
+  const yesterdayRange = resolveUserFieldFilter({
+    field: "expirationDate",
+    operator: "eq",
+    value: dates.yesterday,
+  });
+  const todayRange = resolveUserFieldFilter({
+    field: "expirationDate",
+    operator: "eq",
+    value: dates.today,
+  });
+  if (
+    !yesterdayRange.gte ||
+    !(yesterdayRange.lt instanceof Date) ||
+    !todayRange.gte ||
+    !(todayRange.lt instanceof Date)
+  ) {
+    throw new Error("Could not resolve operational expiration date ranges");
+  }
+
+  const [[yesterdayRow], [todayRow]] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(user)
+      .where(
+        and(
+          gte(user.expirationDate, yesterdayRange.gte),
+          lt(user.expirationDate, yesterdayRange.lt),
+        ),
+      ),
+    db
+      .select({ count: count() })
+      .from(user)
+      .where(
+        and(
+          gte(user.expirationDate, todayRange.gte),
+          lt(user.expirationDate, todayRange.lt),
+        ),
+      ),
+  ]);
+
+  return {
+    yesterday: { date: dates.yesterday, count: yesterdayRow?.count ?? 0 },
+    today: { date: dates.today, count: todayRow?.count ?? 0 },
+  };
+}
 
 export type UserHubProfile = Pick<
   User,
@@ -276,29 +333,6 @@ const hasPerformanceSnapshotSql = sql`EXISTS (
     AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
 )`;
 
-/** Same priority as activeSubscriptionStatusSql, then users.expiration_date. */
-const renewalDateSql = sql`COALESCE(
-  (
-    SELECT s.current_period_end
-    FROM subscriptions s
-    WHERE s.user_id = ${user.id}
-    ORDER BY
-      CASE s.status
-        WHEN 'active' THEN 1
-        WHEN 'trialing' THEN 2
-        WHEN 'past_due' THEN 3
-        WHEN 'unpaid' THEN 4
-        WHEN 'incomplete' THEN 5
-        WHEN 'canceled' THEN 6
-        WHEN 'incomplete_expired' THEN 7
-        ELSE 99
-      END,
-      s.created_at DESC
-    LIMIT 1
-  ),
-  ${user.expirationDate}
-)`;
-
 // Get a paginated list of users with their usage summary.
 //
 // Implementation note: this function used to issue 5 queries per user inside
@@ -396,17 +430,43 @@ export async function getAllUsersWithUsage(
     conditions.push(sql`NOT ${hasPerformanceSnapshotSql}`);
   }
 
-  const renewalDays = renewalWithinDays(params.filters?.renewalWithin ?? "all");
-  if (renewalDays !== null) {
-    const now = new Date();
-    const until = new Date(now.getTime() + renewalDays * 24 * 60 * 60 * 1000);
-    // Bind as ISO strings — raw Date objects stringify to locale text and break
-    // the postgres driver. 0 ≤ daysUntil ≤ N ≈ now ≤ renewalDate ≤ now + N days.
-    conditions.push(
-      sql`${renewalDateSql} IS NOT NULL
-        AND ${renewalDateSql} >= ${now.toISOString()}
-        AND ${renewalDateSql} <= ${until.toISOString()}`,
-    );
+  const expirationRange = resolveAccessExpirationRange(
+    params.filters?.accessExpiration ?? "all",
+  );
+  if (expirationRange.isMissing) {
+    conditions.push(isNull(user.expirationDate));
+  } else {
+    if (expirationRange.gte) {
+      conditions.push(gte(user.expirationDate, expirationRange.gte));
+    }
+    if (expirationRange.lt) {
+      conditions.push(lt(user.expirationDate, expirationRange.lt));
+    }
+  }
+
+  if (params.filters?.fieldFilter) {
+    const fieldFilter = resolveUserFieldFilter(params.filters.fieldFilter);
+
+    if (fieldFilter.field === "credits") {
+      if (fieldFilter.gt !== undefined) {
+        conditions.push(gt(user.credits, fieldFilter.gt));
+      } else if (fieldFilter.eq !== undefined) {
+        conditions.push(eq(user.credits, fieldFilter.eq));
+      } else if (typeof fieldFilter.lt === "number") {
+        conditions.push(lt(user.credits, fieldFilter.lt));
+      }
+    } else {
+      const dateColumn =
+        fieldFilter.field === "expirationDate"
+          ? user.expirationDate
+          : user.createdAt;
+      if (fieldFilter.gte) {
+        conditions.push(gte(dateColumn, fieldFilter.gte));
+      }
+      if (fieldFilter.lt instanceof Date) {
+        conditions.push(lt(dateColumn, fieldFilter.lt));
+      }
+    }
   }
 
   if (params.filters?.consultantId && params.filters.consultantId !== "all") {
@@ -448,8 +508,8 @@ export async function getAllUsersWithUsage(
   const orderBy =
     sort === "renewal"
       ? [
-          sql`CASE WHEN ${renewalDateSql} IS NULL THEN 1 ELSE 0 END`,
-          sql`${renewalDateSql} ASC NULLS LAST`,
+          sql`CASE WHEN ${user.expirationDate} IS NULL THEN 1 ELSE 0 END`,
+          sql`${user.expirationDate} ASC NULLS LAST`,
           desc(user.id),
         ]
       : sort === "performance"
@@ -807,8 +867,9 @@ export async function getAllUsersWithUsage(
         }
       : null;
 
-    const renewalDate =
-      activeSubscription?.currentPeriodEnd ?? u.expirationDate ?? null;
+    // Access expiration is the business authority regardless of provider,
+    // subscription status or the provider's current billing period.
+    const renewalDate = u.expirationDate ?? null;
     const health = evaluateBusinessHealth({
       referenceDate: new Date(),
       rules: operatingRules,
@@ -830,7 +891,6 @@ export async function getAllUsersWithUsage(
           code: renewalReason.code,
           label: renewalReason.label,
           daysUntilRenewal: health.daysUntilRenewal,
-          provider: activeSubscription?.provider ?? null,
           renewalDate,
         }
       : null;
