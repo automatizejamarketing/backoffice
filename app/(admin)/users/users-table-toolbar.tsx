@@ -1,8 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Filter, Search, X } from "lucide-react";
+import {
+  CircleAlert,
+  Filter,
+  LoaderCircle,
+  Search,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,6 +177,11 @@ export function UsersTableToolbar({
   const [search, setSearch] = useState(initialSearch);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [isCustomDateOpen, setIsCustomDateOpen] = useState(false);
+  const [pendingExpirationDate, setPendingExpirationDate] = useState<
+    string | null
+  >(null);
+  const [isExpirationShortcutPending, startExpirationShortcutTransition] =
+    useTransition();
   const [fieldFilterField, setFieldFilterField] =
     useState<UserFieldFilterField>(
       filters.fieldFilter?.field ?? "expirationDate",
@@ -389,15 +401,18 @@ export function UsersTableToolbar({
 
   function handleExpirationShortcut(date: string) {
     const isActive = isExpirationShortcutActive(date);
-    router.push(
-      buildUrl({
-        accessExpiration: null,
-        filterField: isActive ? null : "expirationDate",
-        filterOperator: isActive ? null : "eq",
-        filterValue: isActive ? null : date,
-      }),
-      { scroll: false },
-    );
+    setPendingExpirationDate(date);
+    startExpirationShortcutTransition(() => {
+      router.push(
+        buildUrl({
+          accessExpiration: null,
+          filterField: isActive ? null : "expirationDate",
+          filterOperator: isActive ? null : "eq",
+          filterValue: isActive ? null : date,
+        }),
+        { scroll: false },
+      );
+    });
   }
 
   function handleDimensionChange(
@@ -523,6 +538,12 @@ export function UsersTableToolbar({
     : false;
   const hasActiveExpirationShortcut =
     yesterdayShortcutActive || todayShortcutActive;
+  const yesterdayShortcutFetching =
+    isExpirationShortcutPending &&
+    pendingExpirationDate === expirationDayCounts?.yesterday.date;
+  const todayShortcutFetching =
+    isExpirationShortcutPending &&
+    pendingExpirationDate === expirationDayCounts?.today.date;
 
   return (
     <div className="space-y-3">
@@ -744,15 +765,22 @@ export function UsersTableToolbar({
               variant="outline"
               size="sm"
               className={cn(
-                "h-8 rounded-full border-red-500/35 bg-red-500/10 px-2.5 font-normal text-red-700 transition-colors hover:border-red-500/55 hover:bg-red-500/15 hover:text-red-800 dark:text-red-300 dark:hover:text-red-200",
+                "h-8 rounded-full border-red-500/50 bg-red-500/10 px-2.5 font-normal text-red-700 transition-all hover:border-red-500/70 hover:bg-red-500/15 hover:text-red-800 disabled:opacity-80 dark:text-red-300 dark:hover:text-red-200",
                 yesterdayShortcutActive &&
-                  "border-red-500/60 bg-red-500/20 ring-1 ring-red-500/25",
+                  "border-red-600 bg-red-600 text-white shadow-sm ring-2 ring-red-500/30 hover:border-red-600 hover:bg-red-600 hover:text-white dark:bg-red-600 dark:text-white dark:hover:bg-red-600 dark:hover:text-white",
               )}
               aria-pressed={yesterdayShortcutActive}
+              aria-busy={yesterdayShortcutFetching}
+              disabled={isExpirationShortcutPending}
               onClick={() =>
                 handleExpirationShortcut(expirationDayCounts.yesterday.date)
               }
             >
+              {yesterdayShortcutFetching ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <CircleAlert className="size-3.5" />
+              )}
               <span className="font-semibold tabular-nums">
                 {expirationDayCounts.yesterday.count}
               </span>
@@ -764,15 +792,22 @@ export function UsersTableToolbar({
               variant="outline"
               size="sm"
               className={cn(
-                "h-8 rounded-full border-amber-500/40 bg-amber-500/10 px-2.5 font-normal text-amber-800 transition-colors hover:border-amber-500/60 hover:bg-amber-500/15 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200",
+                "h-8 rounded-full border-amber-500/55 bg-amber-500/10 px-2.5 font-normal text-amber-800 transition-all hover:border-amber-500/75 hover:bg-amber-500/15 hover:text-amber-900 disabled:opacity-80 dark:text-amber-300 dark:hover:text-amber-200",
                 todayShortcutActive &&
-                  "border-amber-500/65 bg-amber-500/20 ring-1 ring-amber-500/30",
+                  "border-amber-400 bg-amber-400 text-amber-950 shadow-sm ring-2 ring-amber-400/30 hover:border-amber-400 hover:bg-amber-400 hover:text-amber-950 dark:bg-amber-400 dark:text-amber-950 dark:hover:bg-amber-400 dark:hover:text-amber-950",
               )}
               aria-pressed={todayShortcutActive}
+              aria-busy={todayShortcutFetching}
+              disabled={isExpirationShortcutPending}
               onClick={() =>
                 handleExpirationShortcut(expirationDayCounts.today.date)
               }
             >
+              {todayShortcutFetching ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <TriangleAlert className="size-3.5" />
+              )}
               <span className="font-semibold tabular-nums">
                 {expirationDayCounts.today.count}
               </span>
