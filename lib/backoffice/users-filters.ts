@@ -374,6 +374,34 @@ function brtStartOfDayUtc(year: number, month1: number, day: number): Date {
   );
 }
 
+function formatUtcCalendarDate(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export type OperationalExpirationDates = {
+  yesterday: string;
+  today: string;
+};
+
+/** Calendar dates used by the users-page operational expiration shortcuts. */
+export function resolveOperationalExpirationDates(
+  now: Date = new Date(),
+): OperationalExpirationDates {
+  const brtNow = new Date(
+    now.getTime() - BRT_START_OF_DAY_UTC_HOUR * 60 * 60 * 1000,
+  );
+  const yesterday = new Date(brtNow);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+  return {
+    yesterday: formatUtcCalendarDate(yesterday),
+    today: formatUtcCalendarDate(brtNow),
+  };
+}
+
 export type ResolvedUserFieldFilter = {
   field: UserFieldFilterField;
   gte?: Date;

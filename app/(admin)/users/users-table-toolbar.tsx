@@ -29,6 +29,7 @@ import type {
   UserFieldFilterOperator,
   UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
+import type { UserExpirationDayCounts } from "@/lib/db/admin-queries";
 import { cn } from "@/lib/utils";
 
 const DEBOUNCE_MS = 300;
@@ -52,6 +53,7 @@ type UsersTableToolbarProps = {
     | "signupTo"
   >;
   consultants: Array<{ id: string; email: string; name: string | null }>;
+  expirationDayCounts?: UserExpirationDayCounts;
 };
 
 const SORT_LABELS: Record<string, string> = {
@@ -159,6 +161,7 @@ export function UsersTableToolbar({
   pageSize,
   filters,
   consultants,
+  expirationDayCounts,
 }: UsersTableToolbarProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -375,6 +378,28 @@ export function UsersTableToolbar({
     );
   }
 
+  function isExpirationShortcutActive(date: string): boolean {
+    return (
+      filters.accessExpiration === "all" &&
+      filters.fieldFilter?.field === "expirationDate" &&
+      filters.fieldFilter.operator === "eq" &&
+      filters.fieldFilter.value === date
+    );
+  }
+
+  function handleExpirationShortcut(date: string) {
+    const isActive = isExpirationShortcutActive(date);
+    router.push(
+      buildUrl({
+        accessExpiration: null,
+        filterField: isActive ? null : "expirationDate",
+        filterOperator: isActive ? null : "eq",
+        filterValue: isActive ? null : date,
+      }),
+      { scroll: false },
+    );
+  }
+
   function handleDimensionChange(
     key: FilterSection["key"],
     value: string,
@@ -490,6 +515,14 @@ export function UsersTableToolbar({
     filters.signupWithin === "custom" &&
     Boolean(filters.signupFrom) &&
     Boolean(filters.signupTo);
+  const yesterdayShortcutActive = expirationDayCounts
+    ? isExpirationShortcutActive(expirationDayCounts.yesterday.date)
+    : false;
+  const todayShortcutActive = expirationDayCounts
+    ? isExpirationShortcutActive(expirationDayCounts.today.date)
+    : false;
+  const hasActiveExpirationShortcut =
+    yesterdayShortcutActive || todayShortcutActive;
 
   return (
     <div className="space-y-3">
@@ -704,6 +737,42 @@ export function UsersTableToolbar({
           </PopoverContent>
         </Popover>
 
+        {expirationDayCounts ? (
+          <>
+            <Button
+              type="button"
+              variant={yesterdayShortcutActive ? "secondary" : "outline"}
+              size="sm"
+              className="h-8 rounded-full px-2.5 font-normal"
+              aria-pressed={yesterdayShortcutActive}
+              onClick={() =>
+                handleExpirationShortcut(expirationDayCounts.yesterday.date)
+              }
+            >
+              <span className="font-semibold tabular-nums">
+                {expirationDayCounts.yesterday.count}
+              </span>
+              venceram ontem
+            </Button>
+
+            <Button
+              type="button"
+              variant={todayShortcutActive ? "secondary" : "outline"}
+              size="sm"
+              className="h-8 rounded-full px-2.5 font-normal"
+              aria-pressed={todayShortcutActive}
+              onClick={() =>
+                handleExpirationShortcut(expirationDayCounts.today.date)
+              }
+            >
+              <span className="font-semibold tabular-nums">
+                {expirationDayCounts.today.count}
+              </span>
+              vencem hoje
+            </Button>
+          </>
+        ) : null}
+
         <Select
           value={filters.sort}
           onValueChange={(value) =>
@@ -727,25 +796,30 @@ export function UsersTableToolbar({
 
         {activeChips.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            {activeChips.map((chip) => (
-              <Badge
-                key={chip.key}
-                variant="secondary"
-                className="h-7 gap-1 pl-2.5 pr-1 font-normal"
-              >
-                {chip.label}
-                <button
-                  type="button"
-                  aria-label={`Remover filtro ${chip.label}`}
-                  className="rounded-sm p-0.5 hover:bg-muted"
-                  onClick={() =>
-                    router.push(buildUrl(chip.clear), { scroll: false })
-                  }
+            {activeChips
+              .filter(
+                (chip) =>
+                  chip.key !== "fieldFilter" || !hasActiveExpirationShortcut,
+              )
+              .map((chip) => (
+                <Badge
+                  key={chip.key}
+                  variant="secondary"
+                  className="h-7 gap-1 pl-2.5 pr-1 font-normal"
                 >
-                  <X className="size-3" />
-                </button>
-              </Badge>
-            ))}
+                  {chip.label}
+                  <button
+                    type="button"
+                    aria-label={`Remover filtro ${chip.label}`}
+                    className="rounded-sm p-0.5 hover:bg-muted"
+                    onClick={() =>
+                      router.push(buildUrl(chip.clear), { scroll: false })
+                    }
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              ))}
           </div>
         ) : null}
       </div>

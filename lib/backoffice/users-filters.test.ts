@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   normalizeUsersFilterParams,
   resolveAccessExpirationRange,
+  resolveOperationalExpirationDates,
   resolveUserFieldFilter,
 } from "./users-filters";
 
@@ -223,5 +224,29 @@ describe("resolveUserFieldFilter", () => {
         value: "10",
       }),
     ).toEqual({ field: "credits", gt: 10 });
+  });
+});
+
+describe("resolveOperationalExpirationDates", () => {
+  test("uses Sao Paulo calendar dates before and after local midnight", () => {
+    expect(
+      resolveOperationalExpirationDates(
+        new Date("2026-08-03T02:59:59.999Z"),
+      ),
+    ).toEqual({ yesterday: "2026-08-01", today: "2026-08-02" });
+
+    expect(
+      resolveOperationalExpirationDates(
+        new Date("2026-08-03T03:00:00.000Z"),
+      ),
+    ).toEqual({ yesterday: "2026-08-02", today: "2026-08-03" });
+  });
+
+  test("handles month and year boundaries", () => {
+    expect(
+      resolveOperationalExpirationDates(
+        new Date("2026-01-01T15:00:00.000Z"),
+      ),
+    ).toEqual({ yesterday: "2025-12-31", today: "2026-01-01" });
   });
 });

@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { getAllUsersWithUsage } from "@/lib/db/admin-queries";
+import {
+  getAllUsersWithUsage,
+  getUserExpirationDayCounts,
+} from "@/lib/db/admin-queries";
 import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_PAGE_SIZE } from "./constants";
@@ -43,7 +46,11 @@ export default async function UsersPage({
   const filters = normalizeUsersFilterParams(sp);
   const { page, pageSize, search } = filters;
 
-  const [{ users, total, pageSize: appliedPageSize }, consultants] =
+  const [
+    { users, total, pageSize: appliedPageSize },
+    consultants,
+    expirationDayCounts,
+  ] =
     await Promise.all([
       getAllUsersWithUsage({
         page,
@@ -52,6 +59,7 @@ export default async function UsersPage({
         filters,
       }),
       listConsultantsForFilter(),
+      getUserExpirationDayCounts(),
     ]);
   const totalPages = Math.max(1, Math.ceil(total / appliedPageSize));
   const currentPage = Math.min(page, totalPages);
@@ -143,6 +151,7 @@ export default async function UsersPage({
           signupTo: filters.signupTo,
         }}
         consultants={consultants}
+        expirationDayCounts={expirationDayCounts}
       />
 
       <UsersTable users={users} search={search} />

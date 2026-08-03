@@ -58,6 +58,7 @@ import {
 } from "./schema";
 import {
   resolveAccessExpirationRange,
+  resolveOperationalExpirationDates,
   resolveSignupDateRange,
   resolveUserFieldFilter,
   type UsersFilterParams,
@@ -151,6 +152,61 @@ export type GetAllUsersWithUsageResult = {
   page: number;
   pageSize: number;
 };
+
+export type UserExpirationDayCounts = {
+  yesterday: { date: string; count: number };
+  today: { date: string; count: number };
+};
+
+export async function getUserExpirationDayCounts(
+  now: Date = new Date(),
+): Promise<UserExpirationDayCounts> {
+  const dates = resolveOperationalExpirationDates(now);
+  const yesterdayRange = resolveUserFieldFilter({
+    field: "expirationDate",
+    operator: "eq",
+    value: dates.yesterday,
+  });
+  const todayRange = resolveUserFieldFilter({
+    field: "expirationDate",
+    operator: "eq",
+    value: dates.today,
+  });
+  if (
+    !yesterdayRange.gte ||
+    !(yesterdayRange.lt instanceof Date) ||
+    !todayRange.gte ||
+    !(todayRange.lt instanceof Date)
+  ) {
+    throw new Error("Could not resolve operational expiration date ranges");
+  }
+
+  const [[yesterdayRow], [todayRow]] = await Promise.all([
+    db
+      .select({ count: count() })
+      .from(user)
+      .where(
+        and(
+          gte(user.expirationDate, yesterdayRange.gte),
+          lt(user.expirationDate, yesterdayRange.lt),
+        ),
+      ),
+    db
+      .select({ count: count() })
+      .from(user)
+      .where(
+        and(
+          gte(user.expirationDate, todayRange.gte),
+          lt(user.expirationDate, todayRange.lt),
+        ),
+      ),
+  ]);
+
+  return {
+    yesterday: { date: dates.yesterday, count: yesterdayRow?.count ?? 0 },
+    today: { date: dates.today, count: todayRow?.count ?? 0 },
+  };
+}
 
 export type UserHubProfile = Pick<
   User,
