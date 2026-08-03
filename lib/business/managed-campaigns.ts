@@ -1,4 +1,4 @@
-import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { upsertManagedCampaignCache } from "@/lib/db/business-queries";
 import type { BusinessOperatingRules } from "@/lib/business/business-health";
 import { metaApiCall } from "@/lib/meta-business/api";
@@ -164,9 +164,10 @@ export async function refreshManagedCampaignCacheForUser(
   userId: string,
   rules: Pick<BusinessOperatingRules, "managedCampaignNamePrefix">,
 ): Promise<ManagedCampaignRefreshResult> {
-  const metaAccount = await getUserMetaBusinessAccount(userId);
-  if (!metaAccount) {
-    const errorMessage = "Cliente sem conta Meta conectada.";
+  const tokenResult = await getUserAccessTokenByUserId(userId);
+  if (!tokenResult.success) {
+    const errorMessage =
+      tokenResult.error.message || "Cliente sem conta Meta conectada.";
     await upsertManagedCampaignCache({
       userId,
       adAccountId: META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID,
@@ -183,10 +184,15 @@ export async function refreshManagedCampaignCacheForUser(
     };
   }
 
+  const { accessToken, connection } = tokenResult;
+
   try {
-    const userWithAdAccounts = await getUserWithAdAccounts(
-      metaAccount.accessToken,
-    );
+    const userWithAdAccounts = await getUserWithAdAccounts(accessToken, {
+      tokenKind: connection.tokenKind,
+      bisuAppScopedId: connection.bisuAppScopedId,
+      clientBusinessId: connection.clientBusinessId,
+      connectionName: connection.name,
+    });
     const adAccounts = userWithAdAccounts.adaccounts?.data ?? [];
     const allNames: string[] = [];
     let firstError: string | null = null;
@@ -195,7 +201,7 @@ export async function refreshManagedCampaignCacheForUser(
       await upsertManagedCampaignCache({
         userId,
         adAccountId: META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID,
-        adAccountName: metaAccount.name ?? null,
+        adAccountName: connection.name ?? null,
         hasActiveManagedCampaign: false,
         managedCampaignNames: [],
         errorMessage: null,
@@ -205,7 +211,7 @@ export async function refreshManagedCampaignCacheForUser(
     for (const account of adAccounts) {
       try {
         const names = await fetchActiveManagedCampaignNames({
-          accessToken: metaAccount.accessToken,
+          accessToken,
           account,
           prefix: rules.managedCampaignNamePrefix,
         });
@@ -250,7 +256,7 @@ export async function refreshManagedCampaignCacheForUser(
     await upsertManagedCampaignCache({
       userId,
       adAccountId: META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID,
-      adAccountName: metaAccount.name ?? null,
+      adAccountName: connection.name ?? null,
       hasActiveManagedCampaign: false,
       managedCampaignNames: [],
       errorMessage,

@@ -1,8 +1,9 @@
 import { graphFacebookBaseUrl, graphApiVersion } from "./constant";
 import { appSecretProof, facebookAppSecret } from "./appsecret-proof";
 import { GraphApiError, parseGraphError } from "./error";
+import type { MetaTokenKind } from "./connection-record";
 
-/** Appends appsecret_proof when META_GENERAL_APP_SECRET is set (user-token call). */
+/** Appends appsecret_proof when META_GENERAL_APP_SECRET is set (user/BISU token call). */
 function appendAppSecretProof(
   params: URLSearchParams,
   accessToken: string,
@@ -30,6 +31,8 @@ export type FacebookUserBasicInfo = {
     };
   };
   short_name?: string;
+  client_business_id?: string;
+  token_kind?: MetaTokenKind;
 };
 
 /**
@@ -45,6 +48,7 @@ export type FacebookAdAccountBasicInfo = {
   currency?: string;
   business?: {
     id: string;
+    name?: string;
   };
 };
 
@@ -64,19 +68,20 @@ export type FacebookUserWithAdAccountsResponse = FacebookUserBasicInfo & {
   };
 };
 
-/**
- * Error response from Facebook Graph API
- */
-export type FacebookGraphApiError = {
-  error: {
-    message: string;
-    type: string;
-    code: number;
-    error_subcode?: number;
-    error_user_title?: string;
-    error_user_msg?: string;
-    fbtrace_id: string;
-  };
+export type GetUserWithAdAccountsOptions = {
+  tokenKind?: MetaTokenKind;
+  bisuAppScopedId?: string | null;
+  clientBusinessId?: string | null;
+  connectionName?: string | null;
+};
+
+type AssignedAdAccount = {
+  id: string;
+  account_id?: string;
+  name?: string;
+  account_status?: number;
+  currency?: string;
+  business?: { id: string; name?: string };
 };
 
 const USER_FIELDS = [
@@ -101,6 +106,9 @@ const AD_ACCOUNT_FIELDS = [
   "business{id}",
 ] as const;
 
+const BISU_AD_ACCOUNT_FIELDS =
+  "id,account_id,name,account_status,currency,business{id,name}";
+
 const AD_ACCOUNTS_PAGE_LIMIT = "100";
 
 async function fetchGraphJson<T>(url: string): Promise<T> {
@@ -115,6 +123,32 @@ async function fetchGraphJson<T>(url: string): Promise<T> {
   }
 
   return data as T;
+}
+
+async function paginateGraph<T>(
+  initialUrl: string,
+): Promise<T[]> {
+  const visitedUrls = new Set<string>();
+  const all: T[] = [];
+  let nextUrl = initialUrl;
+
+  while (nextUrl) {
+    if (visitedUrls.has(nextUrl)) {
+      console.warn("Detected repeated pagination URL while fetching Graph edge");
+      break;
+    }
+    visitedUrls.add(nextUrl);
+
+    const page = await fetchGraphJson<{
+      data: T[];
+      paging?: { next?: string };
+    }>(nextUrl);
+
+    all.push(...(page.data ?? []));
+    nextUrl = page.paging?.next ?? "";
+  }
+
+  return all;
 }
 
 async function getFacebookUserProfile(
@@ -171,12 +205,146 @@ async function getAdAccounts(
   };
 }
 
+async function getBisuIdentity(
+  accessToken: string,
+): Promise<{ id: string; clientBusinessId: string }> {
+  const params = new URLSearchParams({
+    fields: "id,client_business_id",
+    access_token: accessToken,
+  });
+  appendAppSecretProof(params, accessToken);
+
+  const data = await fetchGraphJson<{
+    id?: string;
+    client_business_id?: string;
+  }>(`${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`);
+
+  if (!data.id || !data.client_business_id) {
+    throw new Error(
+      "Token is not a Business Integration System User token (missing client_business_id)",
+    );
+  }
+
+  return {
+    id: String(data.id),
+    clientBusinessId: String(data.client_business_id),
+  };
+}
+
+async function getAssignedAdAccounts(
+  bisuAppScopedId: string,
+  accessToken: string,
+): Promise<AssignedAdAccount[]> {
+  const params = new URLSearchParams({
+    fields: BISU_AD_ACCOUNT_FIELDS,
+    limit: AD_ACCOUNTS_PAGE_LIMIT,
+    access_token: accessToken,
+  });
+  appendAppSecretProof(params, accessToken);
+
+  return paginateGraph<AssignedAdAccount>(
+    `${graphFacebookBaseUrl}/${graphApiVersion}/${bisuAppScopedId}/assigned_ad_accounts?${params.toString()}`,
+  );
+}
+
+async function getMeAdAccountsAsAssigned(
+  accessToken: string,
+): Promise<AssignedAdAccount[]> {
+  const params = new URLSearchParams({
+    fields: BISU_AD_ACCOUNT_FIELDS,
+    limit: AD_ACCOUNTS_PAGE_LIMIT,
+    access_token: accessToken,
+  });
+  appendAppSecretProof(params, accessToken);
+
+  return paginateGraph<AssignedAdAccount>(
+    `${graphFacebookBaseUrl}/${graphApiVersion}/me/adaccounts?${params.toString()}`,
+  );
+}
+
+function mergeAssignedAdAccounts(
+  ...lists: AssignedAdAccount[][]
+): AssignedAdAccount[] {
+  const byId = new Map<string, AssignedAdAccount>();
+  for (const list of lists) {
+    for (const account of list) {
+      const key = account.id.startsWith("act_")
+        ? account.id
+        : `act_${account.account_id ?? account.id}`;
+      const existing = byId.get(key);
+      if (!existing) {
+        byId.set(key, account);
+        continue;
+      }
+      byId.set(key, {
+        ...existing,
+        ...account,
+        business: account.business ?? existing.business,
+        name: account.name ?? existing.name,
+      });
+    }
+  }
+  return [...byId.values()];
+}
+
+function assignedToFacebookAdAccounts(
+  accounts: AssignedAdAccount[],
+): FacebookAdAccountBasicInfo[] {
+  return accounts.map((a) => ({
+    id: a.id.startsWith("act_") ? a.id : `act_${a.account_id ?? a.id}`,
+    account_id: a.account_id ?? a.id.replace(/^act_/, ""),
+    name: a.name,
+    account_status: a.account_status,
+    currency: a.currency,
+    business: a.business
+      ? { id: a.business.id, name: a.business.name }
+      : undefined,
+  }));
+}
+
 /**
- * Get user basic info and all accessible ad accounts.
+ * Get user/connection identity and accessible ad accounts.
+ *
+ * - Legacy user tokens: /me + /me/adaccounts
+ * - BISU tokens: identity + me/adaccounts + assigned_ad_accounts
  */
 export async function getUserWithAdAccounts(
-  accessToken: string
+  accessToken: string,
+  options?: GetUserWithAdAccountsOptions,
 ): Promise<FacebookUserWithAdAccountsResponse> {
+  if (options?.tokenKind === "bisu") {
+    const identity =
+      options.bisuAppScopedId && options.clientBusinessId
+        ? {
+            id: options.bisuAppScopedId,
+            clientBusinessId: options.clientBusinessId,
+          }
+        : await getBisuIdentity(accessToken);
+
+    const [assigned, mine] = await Promise.all([
+      getAssignedAdAccounts(identity.id, accessToken).catch((error) => {
+        console.warn("assigned_ad_accounts failed for BISU token", error);
+        return [] as AssignedAdAccount[];
+      }),
+      getMeAdAccountsAsAssigned(accessToken).catch((error) => {
+        console.warn("me/adaccounts failed for BISU token", error);
+        return [] as AssignedAdAccount[];
+      }),
+    ]);
+
+    return {
+      id: identity.id,
+      name: options.connectionName ?? undefined,
+      client_business_id: identity.clientBusinessId,
+      token_kind: "bisu",
+      adaccounts: {
+        data: assignedToFacebookAdAccounts(
+          mergeAssignedAdAccounts(assigned, mine),
+        ),
+      },
+    };
+  }
+
   const [userProfile, adAccounts] = await Promise.all([
     getFacebookUserProfile(accessToken),
     getAdAccounts(accessToken),
@@ -184,6 +352,7 @@ export async function getUserWithAdAccounts(
 
   return {
     ...userProfile,
+    token_kind: "user",
     adaccounts: adAccounts,
   };
 }
