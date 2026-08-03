@@ -791,7 +791,7 @@ export const instagramAccount = pgTable(
 
 export type InstagramAccount = InferSelectModel<typeof instagramAccount>;
 
-// Meta Business Account table for storing Facebook user connections (for Marketing API)
+// Meta Business Account table for storing Facebook/BISU connections (Marketing API)
 export const metaBusinessAccount = pgTable(
   "meta_business_accounts",
   {
@@ -799,10 +799,46 @@ export const metaBusinessAccount = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => user.id),
-    facebookUserId: text("facebook_user_id").notNull(),
+    /** Legacy Facebook person ID (user-token connections). Nullable for BISU. */
+    facebookUserId: text("facebook_user_id"),
+    /** App-scoped BISU / system-user id from /me?fields=id,client_business_id. */
+    bisuAppScopedId: text("bisu_app_scoped_id"),
+    /** Client business portfolio ID from the BISU token. */
+    clientBusinessId: text("client_business_id"),
+    /** Display name: Facebook person (legacy) or business portfolio (BISU). */
     name: text("name"),
     pictureUrl: text("picture_url"),
+    /** `user` = legacy long-lived user token; `bisu` = Business Integration System User. */
+    tokenKind: varchar("token_kind", { length: 16 }).notNull().default("user"),
+    /** Login for Business configuration that issued the token. */
+    configId: text("config_id"),
+    /** Granted scopes snapshot from debug_token (JSON string array). */
+    grantedScopes: jsonb("granted_scopes").$type<string[]>(),
+    /** Assigned ad accounts/pages/tasks snapshot from Graph (JSON). */
+    assignedAssets: jsonb("assigned_assets").$type<{
+      adAccounts?: Array<{
+        id: string;
+        accountId?: string;
+        name?: string;
+        tasks?: string[];
+        businessId?: string;
+      }>;
+      pages?: Array<{
+        id: string;
+        name?: string;
+        tasks?: string[];
+        instagramBusinessAccountId?: string;
+      }>;
+    }>(),
+    /** active | needs_reconnect | degraded_assets */
+    connectionStatus: varchar("connection_status", { length: 32 })
+      .notNull()
+      .default("active"),
+    lastValidatedAt: timestamp("last_validated_at"),
+    lastValidationError: text("last_validation_error"),
+    /** Encrypted (or legacy plaintext) access token. */
     accessToken: text("access_token").notNull(),
+    /** NULL for non-expiring BISU configurations. */
     tokenExpiresAt: timestamp("token_expires_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -812,6 +848,14 @@ export const metaBusinessAccount = pgTable(
     uniqueUserFacebookAccount: unique(
       "meta_business_accounts_user_id_facebook_user_id_unique",
     ).on(table.userId, table.facebookUserId),
+    uniqueUserBisuBusiness: uniqueIndex(
+      "meta_business_accounts_user_bisu_business_uidx",
+    )
+      .on(table.userId, table.clientBusinessId)
+      .where(sql`${table.clientBusinessId} IS NOT NULL`),
+    oneActivePerUser: uniqueIndex("meta_business_accounts_one_active_user_uidx")
+      .on(table.userId)
+      .where(sql`${table.deletedAt} IS NULL`),
   }),
 );
 

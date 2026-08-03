@@ -6,10 +6,8 @@ import {
   persistPerformanceDropForUser,
   wasPerformanceDropCheckedToday,
 } from "@/lib/db/performance-drop-queries";
-import {
-  getUserMetaBusinessAccount,
-  getUsersWithMetaBusinessAccount,
-} from "@/lib/db/admin-queries";
+import { getUsersWithMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { evaluatePerformanceDrop } from "@/lib/performance-drop/evaluate";
 import {
@@ -110,8 +108,8 @@ export async function runPerformanceDropBatch(
       eligible += 1;
 
       try {
-        const metaAccount = await getUserMetaBusinessAccount(target.id);
-        if (!metaAccount?.accessToken) {
+        const tokenResult = await getUserAccessTokenByUserId(target.id);
+        if (!tokenResult.success) {
           results.push({
             userId: target.id,
             email: target.email,
@@ -121,14 +119,19 @@ export async function runPerformanceDropBatch(
             metric: null,
             dropPercent: null,
             sampleInsufficient: true,
-            errorMessage: "Cliente sem conta Meta conectada.",
+            errorMessage:
+              tokenResult.error.message || "Cliente sem conta Meta conectada.",
           });
           continue;
         }
 
-        const userWithAdAccounts = await getUserWithAdAccounts(
-          metaAccount.accessToken,
-        );
+        const { accessToken, connection } = tokenResult;
+        const userWithAdAccounts = await getUserWithAdAccounts(accessToken, {
+          tokenKind: connection.tokenKind,
+          bisuAppScopedId: connection.bisuAppScopedId,
+          clientBusinessId: connection.clientBusinessId,
+          connectionName: connection.name,
+        });
         const adAccounts = userWithAdAccounts.adaccounts?.data ?? [];
 
         if (adAccounts.length === 0) {
@@ -160,7 +163,7 @@ export async function runPerformanceDropBatch(
         for (const account of adAccounts) {
           pairs.push(
             await fetchAccountWindowPair({
-              accessToken: metaAccount.accessToken,
+              accessToken,
               accountId: account.id,
               accountName: account.name ?? null,
             }),
