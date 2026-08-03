@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   gte,
+  gt,
   ilike,
   inArray,
   isNull,
@@ -58,6 +59,7 @@ import {
 import {
   resolveAccessExpirationRange,
   resolveSignupDateRange,
+  resolveUserFieldFilter,
   type UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
 import {
@@ -133,6 +135,7 @@ export type GetAllUsersWithUsageParams = {
       | "campaignStatus"
       | "performanceStatus"
       | "accessExpiration"
+      | "fieldFilter"
       | "sort"
       | "consultantId"
       | "signupWithin"
@@ -382,6 +385,31 @@ export async function getAllUsersWithUsage(
     }
     if (expirationRange.lt) {
       conditions.push(lt(user.expirationDate, expirationRange.lt));
+    }
+  }
+
+  if (params.filters?.fieldFilter) {
+    const fieldFilter = resolveUserFieldFilter(params.filters.fieldFilter);
+
+    if (fieldFilter.field === "credits") {
+      if (fieldFilter.gt !== undefined) {
+        conditions.push(gt(user.credits, fieldFilter.gt));
+      } else if (fieldFilter.eq !== undefined) {
+        conditions.push(eq(user.credits, fieldFilter.eq));
+      } else if (typeof fieldFilter.lt === "number") {
+        conditions.push(lt(user.credits, fieldFilter.lt));
+      }
+    } else {
+      const dateColumn =
+        fieldFilter.field === "expirationDate"
+          ? user.expirationDate
+          : user.createdAt;
+      if (fieldFilter.gte) {
+        conditions.push(gte(dateColumn, fieldFilter.gte));
+      }
+      if (fieldFilter.lt instanceof Date) {
+        conditions.push(lt(dateColumn, fieldFilter.lt));
+      }
     }
   }
 

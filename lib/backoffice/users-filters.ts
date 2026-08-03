@@ -66,6 +66,14 @@ export const ACCESS_EXPIRATION_FILTER_VALUES = [
   "missing",
 ] as const;
 
+export const USER_FIELD_FILTER_VALUES = [
+  "expirationDate",
+  "createdAt",
+  "credits",
+] as const;
+
+export const USER_FIELD_FILTER_OPERATOR_VALUES = ["lt", "eq", "gt"] as const;
+
 export const USERS_SORT_VALUES = [
   "default",
   "renewal",
@@ -94,6 +102,15 @@ export type PerformanceStatusFilter =
   (typeof PERFORMANCE_STATUS_FILTER_VALUES)[number];
 export type AccessExpirationFilter =
   (typeof ACCESS_EXPIRATION_FILTER_VALUES)[number];
+export type UserFieldFilterField =
+  (typeof USER_FIELD_FILTER_VALUES)[number];
+export type UserFieldFilterOperator =
+  (typeof USER_FIELD_FILTER_OPERATOR_VALUES)[number];
+export type UserFieldFilter = {
+  field: UserFieldFilterField;
+  operator: UserFieldFilterOperator;
+  value: string;
+};
 export type UsersSort = (typeof USERS_SORT_VALUES)[number];
 export type SignupWithinFilter = (typeof SIGNUP_WITHIN_FILTER_VALUES)[number];
 export type ConsultantFilter = ConsultantFilterId;
@@ -108,6 +125,7 @@ export type UsersFilterParams = {
   campaignStatus: CampaignStatusFilter;
   performanceStatus: PerformanceStatusFilter;
   accessExpiration: AccessExpirationFilter;
+  fieldFilter: UserFieldFilter | null;
   sort: UsersSort;
   consultantId: ConsultantFilter;
   signupWithin: SignupWithinFilter;
@@ -127,6 +145,9 @@ type RawUsersFilterParams = {
   campaignStatus?: string;
   performanceStatus?: string;
   accessExpiration?: string;
+  filterField?: string;
+  filterOperator?: string;
+  filterValue?: string;
   /** Legacy URL parameter kept so old shared links still resolve. */
   renewalWithin?: string;
   sort?: string;
@@ -223,6 +244,31 @@ function normalizeAccessExpiration(
     : "all";
 }
 
+function normalizeUserFieldFilter(
+  field: string | undefined,
+  operator: string | undefined,
+  value: string | undefined,
+): UserFieldFilter | null {
+  if (
+    !includesValue(USER_FIELD_FILTER_VALUES, field) ||
+    !includesValue(USER_FIELD_FILTER_OPERATOR_VALUES, operator)
+  ) {
+    return null;
+  }
+
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return null;
+
+  if (field === "credits") {
+    const numericValue = Number(trimmedValue);
+    if (!Number.isInteger(numericValue)) return null;
+    return { field, operator, value: String(numericValue) };
+  }
+
+  const dateValue = parseIsoDateString(trimmedValue);
+  return dateValue ? { field, operator, value: dateValue } : null;
+}
+
 export function normalizeUsersFilterParams(
   raw: RawUsersFilterParams,
 ): UsersFilterParams {
@@ -296,6 +342,11 @@ export function normalizeUsersFilterParams(
       raw.accessExpiration,
       raw.renewalWithin,
     ),
+    fieldFilter: normalizeUserFieldFilter(
+      raw.filterField,
+      raw.filterOperator,
+      raw.filterValue,
+    ),
     sort: includesValue(USERS_SORT_VALUES, raw.sort) ? raw.sort : "default",
     consultantId,
     signupWithin,
@@ -321,6 +372,35 @@ function brtStartOfDayUtc(year: number, month1: number, day: number): Date {
   return new Date(
     Date.UTC(year, month1 - 1, day, BRT_START_OF_DAY_UTC_HOUR, 0, 0, 0),
   );
+}
+
+export type ResolvedUserFieldFilter = {
+  field: UserFieldFilterField;
+  gte?: Date;
+  gt?: number;
+  lt?: Date | number;
+  eq?: number;
+};
+
+export function resolveUserFieldFilter(
+  filter: UserFieldFilter,
+): ResolvedUserFieldFilter {
+  if (filter.field === "credits") {
+    const value = Number(filter.value);
+    if (filter.operator === "lt") return { field: filter.field, lt: value };
+    if (filter.operator === "eq") return { field: filter.field, eq: value };
+    return { field: filter.field, gt: value };
+  }
+
+  const [year, month, day] = filter.value.split("-").map(Number);
+  const start = brtStartOfDayUtc(year, month, day);
+  const nextDay = brtStartOfDayUtc(year, month, day + 1);
+
+  if (filter.operator === "lt") return { field: filter.field, lt: start };
+  if (filter.operator === "eq") {
+    return { field: filter.field, gte: start, lt: nextDay };
+  }
+  return { field: filter.field, gte: nextDay };
 }
 
 export type SignupDateRange = { gte?: Date; lt?: Date };

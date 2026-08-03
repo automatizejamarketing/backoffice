@@ -24,7 +24,11 @@ import {
   MIN_SEARCH_LENGTH,
   PAGE_SIZE_OPTIONS,
 } from "./constants";
-import type { UsersFilterParams } from "@/lib/backoffice/users-filters";
+import type {
+  UserFieldFilterField,
+  UserFieldFilterOperator,
+  UsersFilterParams,
+} from "@/lib/backoffice/users-filters";
 import { cn } from "@/lib/utils";
 
 const DEBOUNCE_MS = 300;
@@ -40,6 +44,7 @@ type UsersTableToolbarProps = {
     | "campaignStatus"
     | "performanceStatus"
     | "accessExpiration"
+    | "fieldFilter"
     | "sort"
     | "consultantId"
     | "signupWithin"
@@ -55,6 +60,29 @@ const SORT_LABELS: Record<string, string> = {
   performance: "Priorizar queda 7d",
   campaign: "Priorizar campanha ativa",
 };
+
+const FIELD_FILTER_OPTIONS: Array<{
+  value: UserFieldFilterField;
+  label: string;
+  inputType: "date" | "number";
+}> = [
+  {
+    value: "expirationDate",
+    label: "Data de expiração",
+    inputType: "date",
+  },
+  { value: "createdAt", label: "Data de cadastro", inputType: "date" },
+  { value: "credits", label: "Créditos", inputType: "number" },
+];
+
+const FIELD_OPERATOR_OPTIONS: Array<{
+  value: UserFieldFilterOperator;
+  label: string;
+}> = [
+  { value: "lt", label: "Menor que" },
+  { value: "eq", label: "Igual a" },
+  { value: "gt", label: "Maior que" },
+];
 
 type FilterOption = { value: string; label: string };
 
@@ -139,6 +167,15 @@ export function UsersTableToolbar({
   const [search, setSearch] = useState(initialSearch);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [isCustomDateOpen, setIsCustomDateOpen] = useState(false);
+  const [fieldFilterField, setFieldFilterField] =
+    useState<UserFieldFilterField>(
+      filters.fieldFilter?.field ?? "expirationDate",
+    );
+  const [fieldFilterOperator, setFieldFilterOperator] =
+    useState<UserFieldFilterOperator>(filters.fieldFilter?.operator ?? "lt");
+  const [fieldFilterValue, setFieldFilterValue] = useState(
+    filters.fieldFilter?.value ?? "",
+  );
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstRunRef = useRef(true);
 
@@ -184,9 +221,18 @@ export function UsersTableToolbar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
+  useEffect(() => {
+    setFieldFilterField(filters.fieldFilter?.field ?? "expirationDate");
+    setFieldFilterOperator(filters.fieldFilter?.operator ?? "lt");
+    setFieldFilterValue(filters.fieldFilter?.value ?? "");
+  }, [filters.fieldFilter]);
+
   const trimmedSearch = search.trim();
   const isBelowMinSearch =
     trimmedSearch.length > 0 && trimmedSearch.length < MIN_SEARCH_LENGTH;
+  const selectedFieldFilter =
+    FIELD_FILTER_OPTIONS.find((option) => option.value === fieldFilterField) ??
+    FIELD_FILTER_OPTIONS[0];
 
   const sections: FilterSection[] = useMemo(
     () => [
@@ -297,6 +343,38 @@ export function UsersTableToolbar({
     router.push(buildUrl({ pageSize: next }), { scroll: false });
   }
 
+  function handleFieldFilterFieldChange(value: string) {
+    setFieldFilterField(value as UserFieldFilterField);
+    setFieldFilterOperator("lt");
+    setFieldFilterValue("");
+  }
+
+  function applyFieldFilter() {
+    if (!fieldFilterValue.trim()) return;
+    router.push(
+      buildUrl({
+        filterField: fieldFilterField,
+        filterOperator: fieldFilterOperator,
+        filterValue: fieldFilterValue.trim(),
+      }),
+      { scroll: false },
+    );
+  }
+
+  function clearFieldFilter() {
+    setFieldFilterField("expirationDate");
+    setFieldFilterOperator("lt");
+    setFieldFilterValue("");
+    router.push(
+      buildUrl({
+        filterField: null,
+        filterOperator: null,
+        filterValue: null,
+      }),
+      { scroll: false },
+    );
+  }
+
   function handleDimensionChange(
     key: FilterSection["key"],
     value: string,
@@ -325,6 +403,9 @@ export function UsersTableToolbar({
     router.push(
       buildUrl({
         accessExpiration: null,
+        filterField: null,
+        filterOperator: null,
+        filterValue: null,
         performanceStatus: null,
         campaignStatus: null,
         metaStatus: null,
@@ -380,6 +461,28 @@ export function UsersTableToolbar({
       });
     }
 
+    if (filters.fieldFilter) {
+      const field = FIELD_FILTER_OPTIONS.find(
+        (option) => option.value === filters.fieldFilter?.field,
+      );
+      const operator = FIELD_OPERATOR_OPTIONS.find(
+        (option) => option.value === filters.fieldFilter?.operator,
+      );
+      const value =
+        field?.inputType === "date"
+          ? formatDisplayDate(filters.fieldFilter.value)
+          : filters.fieldFilter.value;
+      chips.push({
+        key: "fieldFilter",
+        label: `${field?.label ?? filters.fieldFilter.field} ${operator?.label.toLowerCase() ?? filters.fieldFilter.operator} ${value}`,
+        clear: {
+          filterField: null,
+          filterOperator: null,
+          filterValue: null,
+        },
+      });
+    }
+
     return chips;
   }, [filters, sections]);
 
@@ -423,6 +526,104 @@ export function UsersTableToolbar({
               ))}
             </SelectContent>
           </Select>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
+        <div className="mb-2 flex items-baseline gap-2">
+          <p className="text-xs font-medium text-foreground">Filtro por campo</p>
+          <p className="text-[11px] text-muted-foreground">
+            Combine uma informação, uma condição e um valor
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+          <div className="min-w-0 space-y-1 sm:w-[220px]">
+            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Campo
+            </span>
+            <Select
+              value={fieldFilterField}
+              onValueChange={handleFieldFilterFieldChange}
+            >
+              <SelectTrigger
+                className="h-9 w-full bg-background"
+                aria-label="Campo do filtro"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FIELD_FILTER_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="min-w-0 space-y-1 sm:w-[160px]">
+            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Operador
+            </span>
+            <Select
+              value={fieldFilterOperator}
+              onValueChange={(value) =>
+                setFieldFilterOperator(value as UserFieldFilterOperator)
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full bg-background"
+                aria-label="Operador do filtro"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FIELD_OPERATOR_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <label className="min-w-0 flex-1 space-y-1 sm:min-w-[180px] sm:max-w-[220px]">
+            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Valor
+            </span>
+            <Input
+              type={selectedFieldFilter.inputType}
+              step={selectedFieldFilter.inputType === "number" ? 1 : undefined}
+              value={fieldFilterValue}
+              onChange={(event) => setFieldFilterValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") applyFieldFilter();
+              }}
+              className="h-9 bg-background"
+              aria-label={`Valor para ${selectedFieldFilter.label}`}
+            />
+          </label>
+
+          <Button
+            type="button"
+            size="sm"
+            className="h-9"
+            disabled={!fieldFilterValue.trim()}
+            onClick={applyFieldFilter}
+          >
+            Aplicar
+          </Button>
+          {filters.fieldFilter ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-9 px-2 text-muted-foreground"
+              onClick={clearFieldFilter}
+            >
+              Limpar
+            </Button>
+          ) : null}
         </div>
       </div>
 

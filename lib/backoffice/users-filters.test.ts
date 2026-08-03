@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   normalizeUsersFilterParams,
   resolveAccessExpirationRange,
+  resolveUserFieldFilter,
 } from "./users-filters";
 
 describe("normalizeUsersFilterParams", () => {
@@ -27,6 +28,7 @@ describe("normalizeUsersFilterParams", () => {
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
+        fieldFilter: null,
         sort: "default",
         consultantId: "550e8400-e29b-41d4-a716-446655440000",
         signupWithin: "all",
@@ -62,6 +64,7 @@ describe("normalizeUsersFilterParams", () => {
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
+        fieldFilter: null,
         sort: "default",
         consultantId: "all",
         signupWithin: "all",
@@ -88,6 +91,44 @@ describe("normalizeUsersFilterParams", () => {
   test("maps legacy renewal links to the equivalent access window", () => {
     const filters = normalizeUsersFilterParams({ renewalWithin: "3d" });
     expect(filters.accessExpiration).toBe("next_3d");
+  });
+
+  test("normalizes a date field filter", () => {
+    const filters = normalizeUsersFilterParams({
+      filterField: "expirationDate",
+      filterOperator: "lt",
+      filterValue: "2026-08-04",
+    });
+
+    expect(filters.fieldFilter).toEqual({
+      field: "expirationDate",
+      operator: "lt",
+      value: "2026-08-04",
+    });
+  });
+
+  test("normalizes a numeric field filter", () => {
+    const filters = normalizeUsersFilterParams({
+      filterField: "credits",
+      filterOperator: "gt",
+      filterValue: " 10 ",
+    });
+
+    expect(filters.fieldFilter).toEqual({
+      field: "credits",
+      operator: "gt",
+      value: "10",
+    });
+  });
+
+  test("drops an invalid or incomplete field filter", () => {
+    const filters = normalizeUsersFilterParams({
+      filterField: "expirationDate",
+      filterOperator: "contains",
+      filterValue: "tomorrow",
+    });
+
+    expect(filters.fieldFilter).toBeNull();
   });
 
   test("accepts performanceStatus unchecked", () => {
@@ -134,5 +175,53 @@ describe("resolveAccessExpirationRange", () => {
     expect(resolveAccessExpirationRange("missing", now)).toEqual({
       isMissing: true,
     });
+  });
+});
+
+describe("resolveUserFieldFilter", () => {
+  test("resolves date comparisons as Sao Paulo calendar-day bounds", () => {
+    expect(
+      resolveUserFieldFilter({
+        field: "expirationDate",
+        operator: "lt",
+        value: "2026-08-04",
+      }),
+    ).toEqual({
+      field: "expirationDate",
+      lt: new Date("2026-08-04T03:00:00.000Z"),
+    });
+
+    expect(
+      resolveUserFieldFilter({
+        field: "createdAt",
+        operator: "eq",
+        value: "2026-08-04",
+      }),
+    ).toEqual({
+      field: "createdAt",
+      gte: new Date("2026-08-04T03:00:00.000Z"),
+      lt: new Date("2026-08-05T03:00:00.000Z"),
+    });
+
+    expect(
+      resolveUserFieldFilter({
+        field: "expirationDate",
+        operator: "gt",
+        value: "2026-08-04",
+      }),
+    ).toEqual({
+      field: "expirationDate",
+      gte: new Date("2026-08-05T03:00:00.000Z"),
+    });
+  });
+
+  test("resolves numeric comparisons without date conversion", () => {
+    expect(
+      resolveUserFieldFilter({
+        field: "credits",
+        operator: "gt",
+        value: "10",
+      }),
+    ).toEqual({ field: "credits", gt: 10 });
   });
 });

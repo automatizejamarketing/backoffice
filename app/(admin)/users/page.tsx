@@ -26,6 +26,9 @@ export default async function UsersPage({
     campaignStatus?: string;
     performanceStatus?: string;
     accessExpiration?: string;
+    filterField?: string;
+    filterOperator?: string;
+    filterValue?: string;
     renewalWithin?: string;
     sort?: string;
     consultantId?: string;
@@ -84,6 +87,11 @@ export default async function UsersPage({
     if (filters.accessExpiration !== "all") {
       params.set("accessExpiration", filters.accessExpiration);
     }
+    if (filters.fieldFilter) {
+      params.set("filterField", filters.fieldFilter.field);
+      params.set("filterOperator", filters.fieldFilter.operator);
+      params.set("filterValue", filters.fieldFilter.value);
+    }
     if (filters.sort !== "default") {
       params.set("sort", filters.sort);
     }
@@ -127,6 +135,7 @@ export default async function UsersPage({
           campaignStatus: filters.campaignStatus,
           performanceStatus: filters.performanceStatus,
           accessExpiration: filters.accessExpiration,
+          fieldFilter: filters.fieldFilter,
           sort: filters.sort,
           consultantId: filters.consultantId,
           signupWithin: filters.signupWithin,
