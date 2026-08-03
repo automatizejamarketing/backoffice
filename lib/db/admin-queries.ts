@@ -41,7 +41,6 @@ import {
   user,
   userCompany,
   userMarketingConsultant,
-  type BillingProvider,
   type CampaignAdSetBudgetChangeData,
   type CampaignAdSetScheduleChangeData,
   type CampaignBudgetModeData,
@@ -57,7 +56,7 @@ import {
   type User,
 } from "./schema";
 import {
-  renewalWithinDays,
+  resolveAccessExpirationRange,
   resolveSignupDateRange,
   type UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
@@ -85,7 +84,6 @@ export type UserRenewalAlert = {
   code: BusinessHealthReasonCode;
   label: string;
   daysUntilRenewal: number | null;
-  provider: BillingProvider | null;
   renewalDate: Date | null;
 };
 
@@ -134,7 +132,7 @@ export type GetAllUsersWithUsageParams = {
       | "metaStatus"
       | "campaignStatus"
       | "performanceStatus"
-      | "renewalWithin"
+      | "accessExpiration"
       | "sort"
       | "consultantId"
       | "signupWithin"
@@ -276,29 +274,6 @@ const hasPerformanceSnapshotSql = sql`EXISTS (
     AND r.rulebook_version = ${PERFORMANCE_DROP_RULEBOOK_VERSION}
 )`;
 
-/** Same priority as activeSubscriptionStatusSql, then users.expiration_date. */
-const renewalDateSql = sql`COALESCE(
-  (
-    SELECT s.current_period_end
-    FROM subscriptions s
-    WHERE s.user_id = ${user.id}
-    ORDER BY
-      CASE s.status
-        WHEN 'active' THEN 1
-        WHEN 'trialing' THEN 2
-        WHEN 'past_due' THEN 3
-        WHEN 'unpaid' THEN 4
-        WHEN 'incomplete' THEN 5
-        WHEN 'canceled' THEN 6
-        WHEN 'incomplete_expired' THEN 7
-        ELSE 99
-      END,
-      s.created_at DESC
-    LIMIT 1
-  ),
-  ${user.expirationDate}
-)`;
-
 // Get a paginated list of users with their usage summary.
 //
 // Implementation note: this function used to issue 5 queries per user inside
@@ -396,17 +371,18 @@ export async function getAllUsersWithUsage(
     conditions.push(sql`NOT ${hasPerformanceSnapshotSql}`);
   }
 
-  const renewalDays = renewalWithinDays(params.filters?.renewalWithin ?? "all");
-  if (renewalDays !== null) {
-    const now = new Date();
-    const until = new Date(now.getTime() + renewalDays * 24 * 60 * 60 * 1000);
-    // Bind as ISO strings — raw Date objects stringify to locale text and break
-    // the postgres driver. 0 ≤ daysUntil ≤ N ≈ now ≤ renewalDate ≤ now + N days.
-    conditions.push(
-      sql`${renewalDateSql} IS NOT NULL
-        AND ${renewalDateSql} >= ${now.toISOString()}
-        AND ${renewalDateSql} <= ${until.toISOString()}`,
-    );
+  const expirationRange = resolveAccessExpirationRange(
+    params.filters?.accessExpiration ?? "all",
+  );
+  if (expirationRange.isMissing) {
+    conditions.push(isNull(user.expirationDate));
+  } else {
+    if (expirationRange.gte) {
+      conditions.push(gte(user.expirationDate, expirationRange.gte));
+    }
+    if (expirationRange.lt) {
+      conditions.push(lt(user.expirationDate, expirationRange.lt));
+    }
   }
 
   if (params.filters?.consultantId && params.filters.consultantId !== "all") {
@@ -448,8 +424,8 @@ export async function getAllUsersWithUsage(
   const orderBy =
     sort === "renewal"
       ? [
-          sql`CASE WHEN ${renewalDateSql} IS NULL THEN 1 ELSE 0 END`,
-          sql`${renewalDateSql} ASC NULLS LAST`,
+          sql`CASE WHEN ${user.expirationDate} IS NULL THEN 1 ELSE 0 END`,
+          sql`${user.expirationDate} ASC NULLS LAST`,
           desc(user.id),
         ]
       : sort === "performance"
@@ -807,8 +783,9 @@ export async function getAllUsersWithUsage(
         }
       : null;
 
-    const renewalDate =
-      activeSubscription?.currentPeriodEnd ?? u.expirationDate ?? null;
+    // Access expiration is the business authority regardless of provider,
+    // subscription status or the provider's current billing period.
+    const renewalDate = u.expirationDate ?? null;
     const health = evaluateBusinessHealth({
       referenceDate: new Date(),
       rules: operatingRules,
@@ -830,7 +807,6 @@ export async function getAllUsersWithUsage(
           code: renewalReason.code,
           label: renewalReason.label,
           daysUntilRenewal: health.daysUntilRenewal,
-          provider: activeSubscription?.provider ?? null,
           renewalDate,
         }
       : null;

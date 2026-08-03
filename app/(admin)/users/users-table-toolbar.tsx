@@ -39,7 +39,7 @@ type UsersTableToolbarProps = {
     | "metaStatus"
     | "campaignStatus"
     | "performanceStatus"
-    | "renewalWithin"
+    | "accessExpiration"
     | "sort"
     | "consultantId"
     | "signupWithin"
@@ -51,7 +51,7 @@ type UsersTableToolbarProps = {
 
 const SORT_LABELS: Record<string, string> = {
   default: "Ordenação padrão",
-  renewal: "Priorizar renovação",
+  renewal: "Priorizar expiração",
   performance: "Priorizar queda 7d",
   campaign: "Priorizar campanha ativa",
 };
@@ -61,7 +61,7 @@ type FilterOption = { value: string; label: string };
 type FilterSection = {
   key: keyof Pick<
     UsersFilterParams,
-    | "renewalWithin"
+    | "accessExpiration"
     | "performanceStatus"
     | "campaignStatus"
     | "metaStatus"
@@ -191,13 +191,38 @@ export function UsersTableToolbar({
   const sections: FilterSection[] = useMemo(
     () => [
       {
-        key: "renewalWithin",
-        label: "Renovação",
+        key: "accessExpiration",
+        label: "Expiração do acesso",
         options: [
           { value: "all", label: "Qualquer" },
-          { value: "1d", label: "Vence em 1 dia" },
-          { value: "3d", label: "Vence em 3 dias" },
-          { value: "7d", label: "Vence em 7 dias" },
+          { value: "next_1d", label: "Expira nas próximas 24h" },
+          { value: "next_3d", label: "Expira nos próximos 3 dias" },
+          { value: "next_7d", label: "Expira nos próximos 7 dias" },
+          { value: "past_3d", label: "Expirou nos últimos 3 dias" },
+          { value: "past_7d", label: "Expirou nos últimos 7 dias" },
+          { value: "past_14d", label: "Expirou nos últimos 14 dias" },
+          { value: "past_30d", label: "Expirou nos últimos 30 dias" },
+          { value: "expired", label: "Já expirou (qualquer data)" },
+          { value: "missing", label: "Sem data de expiração" },
+        ],
+      },
+      {
+        key: "metaStatus",
+        label: "Meta",
+        options: [
+          { value: "all", label: "Qualquer" },
+          { value: "connected", label: "Conectado" },
+          { value: "disconnected", label: "Sem Meta" },
+        ],
+      },
+      {
+        key: "campaignStatus",
+        label: "Campanha",
+        options: [
+          { value: "all", label: "Qualquer" },
+          { value: "active", label: "Campanha ativa" },
+          { value: "inactive", label: "Sem campanha ativa" },
+          { value: "unchecked", label: "Não verificada" },
         ],
       },
       {
@@ -212,27 +237,19 @@ export function UsersTableToolbar({
         ],
       },
       {
-        key: "campaignStatus",
-        label: "Campanha",
+        key: "planPeriod",
+        label: "Plano",
         options: [
           { value: "all", label: "Qualquer" },
-          { value: "active", label: "Campanha ativa" },
-          { value: "inactive", label: "Sem campanha ativa" },
-          { value: "unchecked", label: "Não verificada" },
-        ],
-      },
-      {
-        key: "metaStatus",
-        label: "Meta",
-        options: [
-          { value: "all", label: "Qualquer" },
-          { value: "connected", label: "Conectado" },
-          { value: "disconnected", label: "Sem Meta" },
+          { value: "monthly", label: "Mensal" },
+          { value: "quarterly", label: "Trimestral" },
+          { value: "semiannual", label: "Semestral" },
+          { value: "annual", label: "Anual" },
         ],
       },
       {
         key: "subscriptionStatus",
-        label: "Assinatura",
+        label: "Cobrança",
         options: [
           { value: "all", label: "Qualquer" },
           { value: "active", label: "Ativas" },
@@ -243,17 +260,6 @@ export function UsersTableToolbar({
           { value: "unpaid", label: "Não pagas" },
           { value: "incomplete", label: "Incompletas" },
           { value: "incomplete_expired", label: "Incompletas expiradas" },
-        ],
-      },
-      {
-        key: "planPeriod",
-        label: "Plano",
-        options: [
-          { value: "all", label: "Qualquer" },
-          { value: "monthly", label: "Mensal" },
-          { value: "quarterly", label: "Trimestral" },
-          { value: "semiannual", label: "Semestral" },
-          { value: "annual", label: "Anual" },
         ],
       },
       {
@@ -318,7 +324,7 @@ export function UsersTableToolbar({
   function clearAllFilters() {
     router.push(
       buildUrl({
-        renewalWithin: null,
+        accessExpiration: null,
         performanceStatus: null,
         campaignStatus: null,
         metaStatus: null,
@@ -457,11 +463,23 @@ export function UsersTableToolbar({
               {sections.map((section) => {
                 const current = filters[section.key];
                 return (
-                  <div key={section.key} className="space-y-1">
+                  <div
+                    key={section.key}
+                    className={cn(
+                      "space-y-1",
+                      section.key === "accessExpiration" && "sm:col-span-2",
+                    )}
+                  >
                     <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       {section.label}
                     </p>
-                    <div className="space-y-0.5">
+                    <div
+                      className={cn(
+                        "space-y-0.5",
+                        section.key === "accessExpiration" &&
+                          "sm:grid sm:grid-cols-2 sm:gap-x-3 sm:space-y-0",
+                      )}
+                    >
                       {section.options.map((option) => (
                         <OptionRow
                           key={option.value}

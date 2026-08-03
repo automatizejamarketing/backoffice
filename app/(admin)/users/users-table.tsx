@@ -27,7 +27,13 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value);
 }
 
-function formatRenewalHint(daysUntilRenewal: number | null): string | null {
+function formatExpirationDate(value: Date | string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date(value));
+}
+
+function formatExpirationHint(daysUntilRenewal: number | null): string | null {
   if (daysUntilRenewal === null) return null;
   if (daysUntilRenewal < 0) {
     return `Expirou há ${Math.abs(daysUntilRenewal)}d`;
@@ -64,7 +70,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                 Status
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Renovação
+                Expiração
               </th>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Campanha
@@ -115,15 +121,12 @@ export function UsersTable({ users, search }: UsersTableProps) {
                 );
                 const phoneFormatted = formatBrazilianPhone(user.phone);
                 const whatsappUrl = getWhatsAppUrl(user.phone);
-                const renewalHint = formatRenewalHint(
+                const expirationHint = formatExpirationHint(
                   user.renewalAlert?.daysUntilRenewal ?? null,
                 );
-                const providerLabel = user.renewalAlert?.provider
-                  ? (PROVIDER_LABELS[user.renewalAlert.provider] ??
-                    user.renewalAlert.provider)
-                  : sub?.provider
-                    ? (PROVIDER_LABELS[sub.provider] ?? sub.provider)
-                    : null;
+                const providerLabel = sub?.provider
+                  ? (PROVIDER_LABELS[sub.provider] ?? sub.provider)
+                  : null;
 
                 return (
                   <tr
@@ -235,28 +238,34 @@ export function UsersTable({ users, search }: UsersTableProps) {
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {user.renewalAlert ? (
+                      {user.expirationDate ? (
                         <div className="flex flex-col gap-0.5">
-                          <Badge
-                            variant="outline"
-                            className={
-                              user.renewalAlert.severity === "critical"
-                                ? "w-fit border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
-                                : "w-fit border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
-                            }
-                          >
-                            {user.renewalAlert.label}
-                            {providerLabel ? ` · ${providerLabel}` : ""}
-                          </Badge>
-                          {renewalHint && (
-                            <span className="text-[11px] text-muted-foreground">
-                              {renewalHint}
-                            </span>
-                          )}
+                          <span className="whitespace-nowrap text-sm font-medium text-foreground/80">
+                            {formatExpirationDate(user.expirationDate)}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {user.renewalAlert ? (
+                              <Badge
+                                variant="outline"
+                                className={
+                                  user.renewalAlert.severity === "critical"
+                                    ? "w-fit border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
+                                    : "w-fit border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
+                                }
+                              >
+                                {user.renewalAlert.label}
+                              </Badge>
+                            ) : null}
+                            {expirationHint ? (
+                              <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                                {expirationHint}
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       ) : (
-                        <span className="whitespace-nowrap text-sm text-muted-foreground/60">
-                          —
+                        <span className="whitespace-nowrap text-xs text-muted-foreground/60">
+                          Não definida
                         </span>
                       )}
                     </td>

@@ -25,6 +25,7 @@ export default async function UsersPage({
     metaStatus?: string;
     campaignStatus?: string;
     performanceStatus?: string;
+    accessExpiration?: string;
     renewalWithin?: string;
     sort?: string;
     consultantId?: string;
@@ -80,8 +81,8 @@ export default async function UsersPage({
     if (filters.performanceStatus !== "all") {
       params.set("performanceStatus", filters.performanceStatus);
     }
-    if (filters.renewalWithin !== "all") {
-      params.set("renewalWithin", filters.renewalWithin);
+    if (filters.accessExpiration !== "all") {
+      params.set("accessExpiration", filters.accessExpiration);
     }
     if (filters.sort !== "default") {
       params.set("sort", filters.sort);
@@ -125,7 +126,7 @@ export default async function UsersPage({
           metaStatus: filters.metaStatus,
           campaignStatus: filters.campaignStatus,
           performanceStatus: filters.performanceStatus,
-          renewalWithin: filters.renewalWithin,
+          accessExpiration: filters.accessExpiration,
           sort: filters.sort,
           consultantId: filters.consultantId,
           signupWithin: filters.signupWithin,

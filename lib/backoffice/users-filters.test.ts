@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeUsersFilterParams } from "./users-filters";
+import {
+  normalizeUsersFilterParams,
+  resolveAccessExpirationRange,
+} from "./users-filters";
 
 describe("normalizeUsersFilterParams", () => {
   test("keeps supported user list filters and drops unsupported values", () => {
@@ -23,7 +26,7 @@ describe("normalizeUsersFilterParams", () => {
         metaStatus: "connected",
         campaignStatus: "all",
         performanceStatus: "all",
-        renewalWithin: "all",
+        accessExpiration: "all",
         sort: "default",
         consultantId: "550e8400-e29b-41d4-a716-446655440000",
         signupWithin: "all",
@@ -41,7 +44,7 @@ describe("normalizeUsersFilterParams", () => {
       metaStatus: "bad",
       campaignStatus: "bad",
       performanceStatus: "bad",
-      renewalWithin: "bad",
+      accessExpiration: "bad",
       sort: "bad",
       consultantId: "bad",
       page: "-1",
@@ -58,7 +61,7 @@ describe("normalizeUsersFilterParams", () => {
         metaStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
-        renewalWithin: "all",
+        accessExpiration: "all",
         sort: "default",
         consultantId: "all",
         signupWithin: "all",
@@ -68,18 +71,23 @@ describe("normalizeUsersFilterParams", () => {
     );
   });
 
-  test("keeps campaign, performance, renewal and sort filters", () => {
+  test("keeps campaign, performance, access expiration and sort filters", () => {
     const filters = normalizeUsersFilterParams({
       campaignStatus: "active",
       performanceStatus: "drop",
-      renewalWithin: "3d",
+      accessExpiration: "past_7d",
       sort: "renewal",
     });
 
     expect(filters.campaignStatus).toBe("active");
     expect(filters.performanceStatus).toBe("drop");
-    expect(filters.renewalWithin).toBe("3d");
+    expect(filters.accessExpiration).toBe("past_7d");
     expect(filters.sort).toBe("renewal");
+  });
+
+  test("maps legacy renewal links to the equivalent access window", () => {
+    const filters = normalizeUsersFilterParams({ renewalWithin: "3d" });
+    expect(filters.accessExpiration).toBe("next_3d");
   });
 
   test("accepts performanceStatus unchecked", () => {
@@ -101,5 +109,30 @@ describe("normalizeUsersFilterParams", () => {
       performanceStatus: "error",
     });
     expect(filters.performanceStatus).toBe("error");
+  });
+});
+
+describe("resolveAccessExpirationRange", () => {
+  const now = new Date("2026-08-03T15:00:00.000Z");
+
+  test("resolves an upcoming window from expiration_date only", () => {
+    expect(resolveAccessExpirationRange("next_3d", now)).toEqual({
+      gte: now,
+      lt: new Date("2026-08-06T15:00:00.000Z"),
+    });
+  });
+
+  test("resolves a recently expired window", () => {
+    expect(resolveAccessExpirationRange("past_7d", now)).toEqual({
+      gte: new Date("2026-07-27T15:00:00.000Z"),
+      lt: now,
+    });
+  });
+
+  test("supports all expired users and users without an expiration date", () => {
+    expect(resolveAccessExpirationRange("expired", now)).toEqual({ lt: now });
+    expect(resolveAccessExpirationRange("missing", now)).toEqual({
+      isMissing: true,
+    });
   });
 });

@@ -49,8 +49,22 @@ export const PERFORMANCE_STATUS_FILTER_VALUES = [
   "unchecked",
 ] as const;
 
-/** Days until renewal window: 0 ≤ daysUntil ≤ N. */
-export const RENEWAL_WITHIN_FILTER_VALUES = ["all", "1d", "3d", "7d"] as const;
+/**
+ * Business access windows derived exclusively from users.expiration_date.
+ * Billing provider and subscription status must not affect this filter.
+ */
+export const ACCESS_EXPIRATION_FILTER_VALUES = [
+  "all",
+  "next_1d",
+  "next_3d",
+  "next_7d",
+  "past_3d",
+  "past_7d",
+  "past_14d",
+  "past_30d",
+  "expired",
+  "missing",
+] as const;
 
 export const USERS_SORT_VALUES = [
   "default",
@@ -78,8 +92,8 @@ export type CampaignStatusFilter =
   (typeof CAMPAIGN_STATUS_FILTER_VALUES)[number];
 export type PerformanceStatusFilter =
   (typeof PERFORMANCE_STATUS_FILTER_VALUES)[number];
-export type RenewalWithinFilter =
-  (typeof RENEWAL_WITHIN_FILTER_VALUES)[number];
+export type AccessExpirationFilter =
+  (typeof ACCESS_EXPIRATION_FILTER_VALUES)[number];
 export type UsersSort = (typeof USERS_SORT_VALUES)[number];
 export type SignupWithinFilter = (typeof SIGNUP_WITHIN_FILTER_VALUES)[number];
 export type ConsultantFilter = ConsultantFilterId;
@@ -93,7 +107,7 @@ export type UsersFilterParams = {
   metaStatus: MetaStatusFilter;
   campaignStatus: CampaignStatusFilter;
   performanceStatus: PerformanceStatusFilter;
-  renewalWithin: RenewalWithinFilter;
+  accessExpiration: AccessExpirationFilter;
   sort: UsersSort;
   consultantId: ConsultantFilter;
   signupWithin: SignupWithinFilter;
@@ -112,6 +126,8 @@ type RawUsersFilterParams = {
   metaStatus?: string;
   campaignStatus?: string;
   performanceStatus?: string;
+  accessExpiration?: string;
+  /** Legacy URL parameter kept so old shared links still resolve. */
   renewalWithin?: string;
   sort?: string;
   consultantId?: string | string[];
@@ -150,13 +166,61 @@ function parseIsoDateString(value: string | undefined): string | null {
   return value;
 }
 
-/** Parse "1d" / "3d" / "7d" into day count; null for "all" or invalid. */
-export function renewalWithinDays(
-  value: RenewalWithinFilter,
-): number | null {
-  if (value === "all") return null;
-  const days = Number.parseInt(value, 10);
-  return Number.isFinite(days) && days > 0 ? days : null;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type AccessExpirationRange = {
+  gte?: Date;
+  lt?: Date;
+  isMissing?: boolean;
+};
+
+/**
+ * Resolve an access window without consulting Stripe, Mercado Pago or any
+ * subscription row. Bounds are half-open: gte <= expiration_date < lt.
+ */
+export function resolveAccessExpirationRange(
+  value: AccessExpirationFilter,
+  now: Date = new Date(),
+): AccessExpirationRange {
+  if (value === "all") return {};
+  if (value === "missing") return { isMissing: true };
+  if (value === "expired") return { lt: now };
+
+  const [direction, rawDays] = value.split("_");
+  const days = Number.parseInt(rawDays, 10);
+  if (!Number.isFinite(days) || days <= 0) return {};
+
+  if (direction === "next") {
+    return {
+      gte: now,
+      lt: new Date(now.getTime() + days * DAY_MS),
+    };
+  }
+
+  return {
+    gte: new Date(now.getTime() - days * DAY_MS),
+    lt: now,
+  };
+}
+
+function normalizeAccessExpiration(
+  accessExpiration: string | undefined,
+  legacyRenewalWithin: string | undefined,
+): AccessExpirationFilter {
+  if (
+    includesValue(ACCESS_EXPIRATION_FILTER_VALUES, accessExpiration)
+  ) {
+    return accessExpiration;
+  }
+
+  const legacyMap: Record<string, AccessExpirationFilter> = {
+    "1d": "next_1d",
+    "3d": "next_3d",
+    "7d": "next_7d",
+  };
+  return legacyRenewalWithin
+    ? (legacyMap[legacyRenewalWithin] ?? "all")
+    : "all";
 }
 
 export function normalizeUsersFilterParams(
@@ -228,12 +292,10 @@ export function normalizeUsersFilterParams(
     )
       ? raw.performanceStatus
       : "all",
-    renewalWithin: includesValue(
-      RENEWAL_WITHIN_FILTER_VALUES,
+    accessExpiration: normalizeAccessExpiration(
+      raw.accessExpiration,
       raw.renewalWithin,
-    )
-      ? raw.renewalWithin
-      : "all",
+    ),
     sort: includesValue(USERS_SORT_VALUES, raw.sort) ? raw.sort : "default",
     consultantId,
     signupWithin,
