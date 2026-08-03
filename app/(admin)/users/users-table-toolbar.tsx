@@ -529,104 +529,6 @@ export function UsersTableToolbar({
         </div>
       </div>
 
-      <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
-        <div className="mb-2 flex items-baseline gap-2">
-          <p className="text-xs font-medium text-foreground">Filtro por campo</p>
-          <p className="text-[11px] text-muted-foreground">
-            Combine uma informação, uma condição e um valor
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="min-w-0 space-y-1 sm:w-[220px]">
-            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Campo
-            </span>
-            <Select
-              value={fieldFilterField}
-              onValueChange={handleFieldFilterFieldChange}
-            >
-              <SelectTrigger
-                className="h-9 w-full bg-background"
-                aria-label="Campo do filtro"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FIELD_FILTER_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="min-w-0 space-y-1 sm:w-[160px]">
-            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Operador
-            </span>
-            <Select
-              value={fieldFilterOperator}
-              onValueChange={(value) =>
-                setFieldFilterOperator(value as UserFieldFilterOperator)
-              }
-            >
-              <SelectTrigger
-                className="h-9 w-full bg-background"
-                aria-label="Operador do filtro"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FIELD_OPERATOR_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <label className="min-w-0 flex-1 space-y-1 sm:min-w-[180px] sm:max-w-[220px]">
-            <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Valor
-            </span>
-            <Input
-              type={selectedFieldFilter.inputType}
-              step={selectedFieldFilter.inputType === "number" ? 1 : undefined}
-              value={fieldFilterValue}
-              onChange={(event) => setFieldFilterValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") applyFieldFilter();
-              }}
-              className="h-9 bg-background"
-              aria-label={`Valor para ${selectedFieldFilter.label}`}
-            />
-          </label>
-
-          <Button
-            type="button"
-            size="sm"
-            className="h-9"
-            disabled={!fieldFilterValue.trim()}
-            onClick={applyFieldFilter}
-          >
-            Aplicar
-          </Button>
-          {filters.fieldFilter ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-9 px-2 text-muted-foreground"
-              onClick={clearFieldFilter}
-            >
-              Limpar
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
       <div className="flex flex-wrap items-center gap-2">
         <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
           <PopoverTrigger asChild>
@@ -659,6 +561,109 @@ export function UsersTableToolbar({
               >
                 Limpar tudo
               </Button>
+            </div>
+            <div className="mb-4 rounded-lg border border-border/70 bg-muted/20 p-2.5">
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-xs font-medium text-foreground">
+                  Filtro por campo
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Combine uma informação, uma condição e um valor
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className="min-w-0 space-y-1 sm:w-[210px]">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Campo
+                  </span>
+                  <Select
+                    value={fieldFilterField}
+                    onValueChange={handleFieldFilterFieldChange}
+                  >
+                    <SelectTrigger
+                      className="h-9 w-full bg-background"
+                      aria-label="Campo do filtro"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FIELD_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="min-w-0 space-y-1 sm:w-[150px]">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Operador
+                  </span>
+                  <Select
+                    value={fieldFilterOperator}
+                    onValueChange={(value) =>
+                      setFieldFilterOperator(value as UserFieldFilterOperator)
+                    }
+                  >
+                    <SelectTrigger
+                      className="h-9 w-full bg-background"
+                      aria-label="Operador do filtro"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FIELD_OPERATOR_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <label className="min-w-0 flex-1 space-y-1 sm:min-w-[170px]">
+                  <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Valor
+                  </span>
+                  <Input
+                    type={selectedFieldFilter.inputType}
+                    step={
+                      selectedFieldFilter.inputType === "number" ? 1 : undefined
+                    }
+                    value={fieldFilterValue}
+                    onChange={(event) =>
+                      setFieldFilterValue(event.target.value)
+                    }
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") applyFieldFilter();
+                    }}
+                    className="h-9 bg-background"
+                    aria-label={`Valor para ${selectedFieldFilter.label}`}
+                  />
+                </label>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9"
+                  disabled={!fieldFilterValue.trim()}
+                  onClick={applyFieldFilter}
+                >
+                  Aplicar
+                </Button>
+                {filters.fieldFilter ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 px-2 text-muted-foreground"
+                    onClick={clearFieldFilter}
+                  >
+                    Limpar
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               {sections.map((section) => {
