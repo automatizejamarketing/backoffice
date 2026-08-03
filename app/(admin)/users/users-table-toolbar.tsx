@@ -741,9 +741,13 @@ export function UsersTableToolbar({
           <>
             <Button
               type="button"
-              variant={yesterdayShortcutActive ? "secondary" : "outline"}
+              variant="outline"
               size="sm"
-              className="h-8 rounded-full px-2.5 font-normal"
+              className={cn(
+                "h-8 rounded-full border-red-500/35 bg-red-500/10 px-2.5 font-normal text-red-700 transition-colors hover:border-red-500/55 hover:bg-red-500/15 hover:text-red-800 dark:text-red-300 dark:hover:text-red-200",
+                yesterdayShortcutActive &&
+                  "border-red-500/60 bg-red-500/20 ring-1 ring-red-500/25",
+              )}
               aria-pressed={yesterdayShortcutActive}
               onClick={() =>
                 handleExpirationShortcut(expirationDayCounts.yesterday.date)
@@ -757,9 +761,13 @@ export function UsersTableToolbar({
 
             <Button
               type="button"
-              variant={todayShortcutActive ? "secondary" : "outline"}
+              variant="outline"
               size="sm"
-              className="h-8 rounded-full px-2.5 font-normal"
+              className={cn(
+                "h-8 rounded-full border-amber-500/40 bg-amber-500/10 px-2.5 font-normal text-amber-800 transition-colors hover:border-amber-500/60 hover:bg-amber-500/15 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200",
+                todayShortcutActive &&
+                  "border-amber-500/65 bg-amber-500/20 ring-1 ring-amber-500/30",
+              )}
               aria-pressed={todayShortcutActive}
               onClick={() =>
                 handleExpirationShortcut(expirationDayCounts.today.date)
