@@ -269,6 +269,7 @@ export default async function PortfolioPage({
               <TableHead>Renovação</TableHead>
               <TableHead>Créditos</TableHead>
               <TableHead>Campanha [AM]</TableHead>
+              <TableHead>Playbook</TableHead>
               <TableHead>Status Meta</TableHead>
               {actor.role === "admin" && <TableHead>Consultor</TableHead>}
               <TableHead className="text-right">Ações</TableHead>
@@ -278,7 +279,7 @@ export default async function PortfolioPage({
             {accounts.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={actor.role === "admin" ? 10 : 9}
+                  colSpan={actor.role === "admin" ? 11 : 10}
                   className="py-10 text-center text-sm text-muted-foreground"
                 >
                   Nenhum cliente encontrado para este filtro.
@@ -381,6 +382,35 @@ export default async function PortfolioPage({
                       <p className="mt-1 max-w-44 truncate text-xs text-red-600">
                         {account.managedCampaignError}
                       </p>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {account.playbookInsights.openCount > 0 ? (
+                      <Link
+                        href={`/users/${account.userId}?tab=marketing`}
+                        className="inline-flex"
+                      >
+                        <Badge
+                          variant="outline"
+                          className={
+                            account.playbookInsights.highestSeverity ===
+                            "critical"
+                              ? "border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
+                              : account.playbookInsights.highestSeverity ===
+                                  "warning"
+                                ? "border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
+                                : "text-xs"
+                          }
+                        >
+                          {account.playbookInsights.openCount === 1
+                            ? "1 sugestão"
+                            : `${account.playbookInsights.openCount} sugestões`}
+                        </Badge>
+                      </Link>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs">
+                        Sem sugestões
+                      </Badge>
                     )}
                   </TableCell>
                   <TableCell>
