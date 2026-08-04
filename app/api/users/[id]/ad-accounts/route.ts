@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
-import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { GraphApiError, graphErrorToClientError } from "@/lib/meta-business/error";
@@ -38,24 +38,31 @@ export async function GET(
     const authz = await requireMarketingUserAccessResponse(userId);
     if (!authz.ok) return authz.response;
 
-    // Get user's Meta Business Account from database
-    const metaAccount = await getUserMetaBusinessAccount(userId);
+    const tokenResult = await getUserAccessTokenByUserId(userId);
 
-    if (!metaAccount) {
+    if (!tokenResult.success) {
+      const { error } = tokenResult;
       return NextResponse.json(
         {
-          error: "No connected account",
-          message: "User does not have a connected Meta Business Account",
-          solution: "User needs to connect their Facebook account first",
+          error: error.error,
+          message: error.message,
+          solution: error.solution,
+          needsReconnect: error.needsReconnect,
+          ...(error.needsReconnect ? { reconnect: buildReconnectInfo() } : {}),
         },
-        { status: 404 }
+        { status: error.statusCode },
       );
     }
 
-    // Fetch ad accounts using the user's stored token
-    const userWithAdAccounts = await getUserWithAdAccounts(
-      metaAccount.accessToken
-    );
+    const { accessToken, connection } = tokenResult;
+
+    // Fetch ad accounts using the decrypted token (+ BISU listing when needed)
+    const userWithAdAccounts = await getUserWithAdAccounts(accessToken, {
+      tokenKind: connection.tokenKind,
+      bisuAppScopedId: connection.bisuAppScopedId,
+      clientBusinessId: connection.clientBusinessId,
+      connectionName: connection.name,
+    });
 
     const adAccounts = userWithAdAccounts.adaccounts?.data ?? [];
 

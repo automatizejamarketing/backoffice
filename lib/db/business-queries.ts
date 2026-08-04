@@ -34,6 +34,7 @@ import {
   type BusinessOperatingRules,
   type BusinessRuleChange,
 } from "@/lib/business/business-health";
+import { getPlaybookInsightSummariesForUsers } from "@/lib/db/playbook-insights-queries";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 export type BusinessOperatingRulesRecord = BusinessOperatingRules & {
@@ -50,6 +51,11 @@ export type BusinessRuleChangeLogItem = {
   oldValue: string | null;
   newValue: string;
   createdAt: Date;
+};
+
+export type BusinessPortfolioPlaybookInsights = {
+  openCount: number;
+  highestSeverity: "critical" | "warning" | "info" | null;
 };
 
 export type BusinessPortfolioItem = {
@@ -77,11 +83,11 @@ export type BusinessPortfolioItem = {
   managedCampaignNames: string[];
   managedCampaignCheckedAt: Date | null;
   managedCampaignError: string | null;
+  playbookInsights: BusinessPortfolioPlaybookInsights;
   health: BusinessHealthEvaluation;
 };
 
 export type GetBusinessPortfolioParams = {
-  consultantId?: string;
   userId?: string;
 };
 
@@ -354,12 +360,6 @@ export async function getBusinessPortfolio(
 
   if (actor.role === "marketing_consultant") {
     conditions.push(eq(userMarketingConsultant.consultantId, actor.id));
-  } else if (params.consultantId && params.consultantId !== "all") {
-    if (params.consultantId === "unassigned") {
-      conditions.push(isNull(userMarketingConsultant.consultantId));
-    } else {
-      conditions.push(eq(userMarketingConsultant.consultantId, params.consultantId));
-    }
   }
 
   const baseRows = await db
@@ -396,6 +396,7 @@ export async function getBusinessPortfolio(
     postRows,
     metaRows,
     campaignRows,
+    playbookSummaries,
   ] = await Promise.all([
     db
       .select({
@@ -454,6 +455,7 @@ export async function getBusinessPortfolio(
       .select()
       .from(businessManagedCampaignCache)
       .where(inArray(businessManagedCampaignCache.userId, userIds)),
+    getPlaybookInsightSummariesForUsers(userIds),
   ]);
 
   const companyByUser = new Map<
@@ -596,6 +598,10 @@ export async function getBusinessPortfolio(
       managedCampaignCheckedAt:
         campaignInfo?.managedCampaignCheckedAt ?? null,
       managedCampaignError: campaignInfo?.managedCampaignError ?? null,
+      playbookInsights: playbookSummaries.get(row.userId) ?? {
+        openCount: 0,
+        highestSeverity: null,
+      },
       health,
     };
   });

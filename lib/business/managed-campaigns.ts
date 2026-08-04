@@ -1,4 +1,4 @@
-import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { upsertManagedCampaignCache } from "@/lib/db/business-queries";
 import type { BusinessOperatingRules } from "@/lib/business/business-health";
 import { metaApiCall } from "@/lib/meta-business/api";
@@ -109,6 +109,9 @@ export function isManagedCampaignRunningNow(
   );
 }
 
+/** Hard cap so cron cannot paginate forever when few [AM] matches. */
+const MAX_MANAGED_CAMPAIGN_PAGES = 5;
+
 async function fetchActiveManagedCampaignNames(args: {
   accessToken: string;
   account: FacebookAdAccountBasicInfo;
@@ -117,8 +120,10 @@ async function fetchActiveManagedCampaignNames(args: {
   const names: string[] = [];
   const seen = new Set<string>();
   let after: string | undefined;
+  let pages = 0;
 
   do {
+    pages += 1;
     const params = [
       "fields=id,name,status,effective_status,start_time,stop_time,adsets.limit(200){id,status,effective_status,start_time,end_time}",
       "limit=100",
@@ -148,37 +153,65 @@ async function fetchActiveManagedCampaignNames(args: {
     }
 
     after = page.paging?.next ? page.paging.cursors?.after : undefined;
-  } while (after && names.length < 100);
+  } while (after && names.length < 100 && pages < MAX_MANAGED_CAMPAIGN_PAGES);
 
   return names;
 }
+
+const META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID = "__meta_check__";
 
 export async function refreshManagedCampaignCacheForUser(
   userId: string,
   rules: Pick<BusinessOperatingRules, "managedCampaignNamePrefix">,
 ): Promise<ManagedCampaignRefreshResult> {
-  const metaAccount = await getUserMetaBusinessAccount(userId);
-  if (!metaAccount) {
+  const tokenResult = await getUserAccessTokenByUserId(userId);
+  if (!tokenResult.success) {
+    const errorMessage =
+      tokenResult.error.message || "Cliente sem conta Meta conectada.";
+    await upsertManagedCampaignCache({
+      userId,
+      adAccountId: META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID,
+      adAccountName: null,
+      hasActiveManagedCampaign: false,
+      managedCampaignNames: [],
+      errorMessage,
+    });
     return {
       checkedAccounts: 0,
       hasActiveManagedCampaign: false,
       managedCampaignNames: [],
-      errorMessage: "Cliente sem conta Meta conectada.",
+      errorMessage,
     };
   }
 
+  const { accessToken, connection } = tokenResult;
+
   try {
-    const userWithAdAccounts = await getUserWithAdAccounts(
-      metaAccount.accessToken,
-    );
+    const userWithAdAccounts = await getUserWithAdAccounts(accessToken, {
+      tokenKind: connection.tokenKind,
+      bisuAppScopedId: connection.bisuAppScopedId,
+      clientBusinessId: connection.clientBusinessId,
+      connectionName: connection.name,
+    });
     const adAccounts = userWithAdAccounts.adaccounts?.data ?? [];
     const allNames: string[] = [];
     let firstError: string | null = null;
 
+    if (adAccounts.length === 0) {
+      await upsertManagedCampaignCache({
+        userId,
+        adAccountId: META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID,
+        adAccountName: connection.name ?? null,
+        hasActiveManagedCampaign: false,
+        managedCampaignNames: [],
+        errorMessage: null,
+      });
+    }
+
     for (const account of adAccounts) {
       try {
         const names = await fetchActiveManagedCampaignNames({
-          accessToken: metaAccount.accessToken,
+          accessToken,
           account,
           prefix: rules.managedCampaignNamePrefix,
         });
@@ -214,14 +247,25 @@ export async function refreshManagedCampaignCacheForUser(
       errorMessage: firstError,
     };
   } catch (error) {
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : "Erro ao buscar contas de anúncio na Meta.";
+    // Persist a checkedAt row so the UI leaves "Não verificado" even when the
+    // Meta token is expired / the ad-account listing fails entirely.
+    await upsertManagedCampaignCache({
+      userId,
+      adAccountId: META_CHECK_PLACEHOLDER_AD_ACCOUNT_ID,
+      adAccountName: connection.name ?? null,
+      hasActiveManagedCampaign: false,
+      managedCampaignNames: [],
+      errorMessage,
+    });
     return {
       checkedAccounts: 0,
       hasActiveManagedCampaign: false,
       managedCampaignNames: [],
-      errorMessage:
-        error instanceof Error
-          ? error.message
-          : "Erro ao buscar contas de anúncio na Meta.",
+      errorMessage,
     };
   }
 }

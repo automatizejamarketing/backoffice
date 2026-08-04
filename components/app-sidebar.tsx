@@ -76,7 +76,7 @@ export function AppSidebar({
   const isPostsSection = pathname?.startsWith("/posts");
   const isAffiliatesSection = pathname?.startsWith("/affiliates");
   const isTrackableLinksSection = pathname?.startsWith("/trackable-links");
-  const isMasterclassSection = pathname?.startsWith("/masterclass");
+  const isProductsSection = pathname?.startsWith("/products");
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
 
@@ -131,11 +131,18 @@ export function AppSidebar({
       permission: "trackable-links:manage",
     },
     {
-      href: "/masterclass",
-      label: "Masterclass",
+      href: "/products",
+      label: "Produtos",
       icon: GraduationCap,
-      isActive: isMasterclassSection,
-      permission: "masterclass:manage",
+      isActive: isProductsSection,
+      permission: "products:manage",
+    },
+    {
+      href: "/video-templates",
+      label: "Templates Vídeo",
+      icon: Image,
+      isActive: pathname.startsWith("/video-templates"),
+      permission: "posts:manage",
     },
     {
       href: "/team",
@@ -149,6 +156,9 @@ export function AppSidebar({
   const navItems = allNavItems.filter((item) => {
     if (item.consultantOnly && actor.role !== "marketing_consultant") {
       return false;
+    }
+    if (item.href === "/video-templates") {
+      return true;
     }
     return item.permission
       ? hasBackofficePermission(actor, item.permission)

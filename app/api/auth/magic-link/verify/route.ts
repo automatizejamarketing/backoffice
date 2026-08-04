@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { getAppUrl } from "@/lib/auth/app-url";
 import { canBackofficeEmailSignIn } from "@/lib/auth/backoffice-users";
 import {
   hashBackofficeMagicLinkToken,
@@ -12,15 +13,6 @@ import {
 } from "@/lib/auth/magic-session";
 import { db } from "@/lib/db";
 import { backofficeMagicLink } from "@/lib/db/schema";
-
-function getAppUrl(request: Request): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ??
-    process.env.AUTH_URL ??
-    process.env.NEXTAUTH_URL ??
-    new URL(request.url).origin
-  );
-}
 
 function redirectToLogin(request: Request, error: string) {
   const loginUrl = new URL("/login", getAppUrl(request));

@@ -54,8 +54,12 @@ import {
   translateStatus,
   getOptimizationGoalLabel,
   getOptimizationGoalDescription,
+  formatDestinationType,
+  formatPixelLabel,
+  formatCustomEventType,
 } from "../utils/formatters";
 import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
+import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 import { useAdSetDetail, useAdSetInsights } from "../hooks/marketing-queries";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 
@@ -136,15 +140,20 @@ export function AdSetDetail({
     setCustomRange(resolved.customRange);
   }, [isOpen, parentDatePreset, parentCustomRange]);
 
-  // Full ad set (with targeting). The /adsets list omits targeting, so the Edit
-  // dialog needs this richer payload. Cached and refetched after invalidation.
-  const detailQuery = useAdSetDetail(accountId, userId, adSet.id, {
+  // Targeting for Edit — lightweight fetch (no conversion enrichment).
+  const editDetailQuery = useAdSetDetail(accountId, userId, adSet.id, {
     adsLimit: 1,
-    enabled: isOpen || isDetailsOpen,
+    enabled: isOpen,
   });
-  const detailedAdSet = detailQuery.data ?? null;
-  const isLoadingDetails = detailQuery.isFetching;
-  const detailsError = detailQuery.error
+  const conversionDetailQuery = useAdSetDetail(accountId, userId, adSet.id, {
+    includeConversion: true,
+    enabled: isDetailsOpen,
+  });
+  const detailedAdSet = editDetailQuery.data?.adset ?? null;
+  const conversionDetails = conversionDetailQuery.data?.conversion ?? null;
+  const isLoadingDetails = editDetailQuery.isFetching;
+  const isLoadingConversion = conversionDetailQuery.isFetching;
+  const detailsError = conversionDetailQuery.error
     ? "Não foi possível carregar os detalhes do conjunto."
     : null;
 
@@ -510,10 +519,13 @@ export function AdSetDetail({
       <Dialog open={isDetailsOpen} onOpenChange={handleDetailsOpenChange}>
         <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto p-0">
           <AdSetDetailsDialogContent
-            adSet={detailedAdSet ?? adSet}
-            isLoading={isLoadingDetails}
+            adSet={
+              conversionDetailQuery.data?.adset ?? detailedAdSet ?? adSet
+            }
+            conversion={conversionDetails}
+            isLoading={isLoadingConversion}
             error={detailsError}
-            onRetry={() => detailQuery.refetch()}
+            onRetry={() => conversionDetailQuery.refetch()}
           />
         </DialogContent>
       </Dialog>
@@ -533,6 +545,7 @@ export function AdSetDetail({
 
 type AdSetDetailsDialogContentProps = {
   adSet: AdSet;
+  conversion: AdSetConversionDetails | null;
   isLoading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -540,6 +553,7 @@ type AdSetDetailsDialogContentProps = {
 
 function AdSetDetailsDialogContent({
   adSet,
+  conversion,
   isLoading,
   error,
   onRetry,
@@ -584,6 +598,38 @@ function AdSetDetailsDialogContent({
         </div>
       ) : (
         <div className="space-y-4 px-5 py-5">
+          <DetailSection title="Conversão e destino">
+            <DetailRow
+              label="Tipo de destino"
+              value={formatDestinationType(conversion?.destinationType)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Pixel"
+              value={formatPixelLabel(
+                conversion?.pixelId,
+                conversion?.pixelName,
+              )}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="Evento do pixel"
+              value={formatCustomEventType(conversion?.customEventType)}
+              empty="Não informado"
+            />
+            <DetailRow
+              label="URL de destino"
+              values={conversion?.destinationUrls}
+              empty="Não informado"
+            />
+            {conversion?.destinationUrlsTruncated && (
+              <p className="col-span-full text-xs text-muted-foreground">
+                Lista de URLs incompleta — não foi possível carregar todos os
+                anúncios do conjunto.
+              </p>
+            )}
+          </DetailSection>
+
           <DetailSection title="Público">
             <DetailRow
               label="Localizações"

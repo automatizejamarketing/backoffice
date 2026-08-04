@@ -35,6 +35,7 @@ import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
 import { MarketingUsersPicker } from "./marketing-users-picker";
 import { MetricColumnsSelector } from "./metric-columns-selector";
+import { PlaybookInsightsPanel } from "./playbook-insights-panel";
 import { useMetricColumnPreferences } from "../hooks/use-metric-column-preferences";
 import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
 import { getMetricLabel } from "../utils/metric-formatters";
@@ -326,6 +327,8 @@ export function MarketingWorkspace({
                   </div>
                 )}
               </div>
+
+              <PlaybookInsightsPanel userId={selectedUser.id} />
 
               {metaAccount && (
                 <div className="space-y-2">
