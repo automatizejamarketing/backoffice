@@ -1265,18 +1265,12 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
     .select({
       date: cohortDate,
       newUsers: sql<number>`COUNT(*)::integer`,
-      activated: sql<number>`COUNT(*) FILTER (
+      metaConnected: sql<number>`COUNT(*) FILTER (
         WHERE EXISTS (
           SELECT 1
           FROM meta_business_accounts mba
           WHERE mba.user_id = ${cohortUserId}
             AND mba.deleted_at IS NULL
-        )
-        AND EXISTS (
-          SELECT 1
-          FROM business_managed_campaign_cache campaign
-          WHERE campaign.user_id = ${cohortUserId}
-            AND campaign.has_active_managed_campaign = true
         )
       )::integer`,
       paid: sql<number>`COUNT(*) FILTER (
@@ -1313,9 +1307,9 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
       (row): DailyConversionCohort => ({
         date: row.date,
         newUsers: Number(row.newUsers),
-        activated: Number(row.activated),
-        paid: Number(row.paid),
         onboardingCompleted: Number(row.onboardingCompleted),
+        metaConnected: Number(row.metaConnected),
+        paid: Number(row.paid),
       }),
     ),
     window,

@@ -147,12 +147,12 @@ function DailyCohortTable({ data }: { data: DailyConversionCohort[] }) {
         <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur">
           <TableRow className="hover:bg-transparent">
             <TableHead className="h-10">Dia de entrada</TableHead>
-            <TableHead className="h-10 text-right">Entraram</TableHead>
-            <TableHead className="h-10 text-right">Ativaram</TableHead>
-            <TableHead className="h-10 text-right">Pagaram</TableHead>
+            <TableHead className="h-10 text-right">Criaram conta</TableHead>
             <TableHead className="h-10 text-right">
-              Onboarding completo
+              Terminaram onboarding
             </TableHead>
+            <TableHead className="h-10 text-right">Conectaram Meta</TableHead>
+            <TableHead className="h-10 text-right">Pagaram</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -166,10 +166,18 @@ function DailyCohortTable({ data }: { data: DailyConversionCohort[] }) {
               </TableCell>
               <TableCell className="py-3 text-right">
                 <span className="font-mono tabular-nums">
-                  {formatNumber(row.activated)}
+                  {formatNumber(row.onboardingCompleted)}
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  ({rowRate(row.activated, row.newUsers)})
+                  ({rowRate(row.onboardingCompleted, row.newUsers)})
+                </span>
+              </TableCell>
+              <TableCell className="py-3 text-right">
+                <span className="font-mono tabular-nums">
+                  {formatNumber(row.metaConnected)}
+                </span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  ({rowRate(row.metaConnected, row.newUsers)})
                 </span>
               </TableCell>
               <TableCell className="py-3 text-right">
@@ -178,14 +186,6 @@ function DailyCohortTable({ data }: { data: DailyConversionCohort[] }) {
                 </span>
                 <span className="ml-2 text-xs text-muted-foreground">
                   ({rowRate(row.paid, row.newUsers)})
-                </span>
-              </TableCell>
-              <TableCell className="py-3 text-right">
-                <span className="font-mono tabular-nums">
-                  {formatNumber(row.onboardingCompleted)}
-                </span>
-                <span className="ml-2 text-xs text-muted-foreground">
-                  ({rowRate(row.onboardingCompleted, row.newUsers)})
                 </span>
               </TableCell>
             </TableRow>
@@ -271,7 +271,7 @@ export default async function DashboardPage({
         <div className="flex flex-col overflow-hidden rounded-xl border bg-card shadow-xs lg:flex-row">
           <JourneyStage
             step={1}
-            label="Entraram"
+            label="Criaram conta"
             value={summary.newUsers}
             rate={100}
             icon={CircleUserRound}
@@ -281,30 +281,30 @@ export default async function DashboardPage({
           <JourneyConnector />
           <JourneyStage
             step={2}
-            label="Ativaram"
-            value={summary.activated}
-            rate={summary.activationRate}
-            icon={PlugZap}
-            description="Conectaram a Meta e possuem ao menos uma campanha ativa."
+            label="Terminaram onboarding"
+            value={summary.onboardingCompleted}
+            rate={summary.onboardingRate}
+            icon={CheckCircle2}
+            description="Concluíram o onboarding de uma empresa vinculada."
           />
           <JourneyConnector />
           <JourneyStage
             step={3}
+            label="Conectaram Meta"
+            value={summary.metaConnected}
+            rate={summary.metaConnectionRate}
+            icon={PlugZap}
+            description="Possuem uma conta Meta conectada e disponível."
+          />
+          <JourneyConnector />
+          <JourneyStage
+            step={4}
             label="Pagaram"
             value={summary.paid}
             rate={summary.paidRate}
             icon={BadgeCheck}
             description="Têm ao menos um pagamento aprovado; trials não contam."
             emphasis
-          />
-          <JourneyConnector />
-          <JourneyStage
-            step={4}
-            label="Onboarding completo"
-            value={summary.onboardingCompleted}
-            rate={summary.onboardingRate}
-            icon={CheckCircle2}
-            description="Concluíram o onboarding de uma empresa vinculada."
           />
         </div>
       </section>
@@ -361,9 +361,9 @@ export default async function DashboardPage({
       <aside className="flex items-start gap-2.5 rounded-lg border border-dashed bg-muted/20 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
         <Info className="mt-0.5 size-3.5 shrink-0" />
         <p>
-          Ativação, pagamento e onboarding mostram o estado atual dos usuários
-          que entraram no período — não o dia em que cada marco aconteceu. A
-          campanha usa o último estado sincronizado no Backoffice.
+          Onboarding, conexão com a Meta e pagamento mostram o estado atual dos
+          usuários que criaram conta no período — não o dia em que cada marco
+          aconteceu.
         </p>
       </aside>
     </div>

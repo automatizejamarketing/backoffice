@@ -6,17 +6,17 @@ import {
 export type DailyConversionCohort = {
   date: string;
   newUsers: number;
-  activated: number;
-  paid: number;
   onboardingCompleted: number;
+  metaConnected: number;
+  paid: number;
 };
 
 export type ConversionWindow = DashboardDateWindow;
 
 export type ConversionSummary = Omit<DailyConversionCohort, "date"> & {
-  activationRate: number;
-  paidRate: number;
   onboardingRate: number;
+  metaConnectionRate: number;
+  paidRate: number;
 };
 
 export function fillDailyConversionCohorts(
@@ -35,9 +35,9 @@ export function fillDailyConversionCohorts(
       rowsByDate.get(date) ?? {
         date,
         newUsers: 0,
-        activated: 0,
-        paid: 0,
         onboardingCompleted: 0,
+        metaConnected: 0,
+        paid: 0,
       },
     );
   }
@@ -56,21 +56,21 @@ export function summarizeConversionCohorts(
   const totals = rows.reduce(
     (acc, row) => ({
       newUsers: acc.newUsers + row.newUsers,
-      activated: acc.activated + row.activated,
-      paid: acc.paid + row.paid,
       onboardingCompleted:
         acc.onboardingCompleted + row.onboardingCompleted,
+      metaConnected: acc.metaConnected + row.metaConnected,
+      paid: acc.paid + row.paid,
     }),
-    { newUsers: 0, activated: 0, paid: 0, onboardingCompleted: 0 },
+    { newUsers: 0, onboardingCompleted: 0, metaConnected: 0, paid: 0 },
   );
 
   return {
     ...totals,
-    activationRate: percentage(totals.activated, totals.newUsers),
-    paidRate: percentage(totals.paid, totals.newUsers),
     onboardingRate: percentage(
       totals.onboardingCompleted,
       totals.newUsers,
     ),
+    metaConnectionRate: percentage(totals.metaConnected, totals.newUsers),
+    paidRate: percentage(totals.paid, totals.newUsers),
   };
 }

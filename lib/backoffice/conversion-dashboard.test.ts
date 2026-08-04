@@ -12,9 +12,9 @@ describe("conversion dashboard", () => {
           {
             date: "2026-08-02",
             newUsers: 4,
-            activated: 2,
-            paid: 1,
             onboardingCompleted: 3,
+            metaConnected: 2,
+            paid: 1,
           },
         ],
         { fromDate: "2026-08-01", throughDate: "2026-08-03" },
@@ -23,23 +23,23 @@ describe("conversion dashboard", () => {
       {
         date: "2026-08-01",
         newUsers: 0,
-        activated: 0,
-        paid: 0,
         onboardingCompleted: 0,
+        metaConnected: 0,
+        paid: 0,
       },
       {
         date: "2026-08-02",
         newUsers: 4,
-        activated: 2,
-        paid: 1,
         onboardingCompleted: 3,
+        metaConnected: 2,
+        paid: 1,
       },
       {
         date: "2026-08-03",
         newUsers: 0,
-        activated: 0,
-        paid: 0,
         onboardingCompleted: 0,
+        metaConnected: 0,
+        paid: 0,
       },
     ]);
   });
@@ -50,26 +50,26 @@ describe("conversion dashboard", () => {
         {
           date: "2026-08-01",
           newUsers: 3,
-          activated: 2,
-          paid: 1,
           onboardingCompleted: 2,
+          metaConnected: 2,
+          paid: 1,
         },
         {
           date: "2026-08-02",
           newUsers: 5,
-          activated: 1,
-          paid: 2,
           onboardingCompleted: 4,
+          metaConnected: 1,
+          paid: 2,
         },
       ]),
     ).toEqual({
       newUsers: 8,
-      activated: 3,
-      paid: 3,
       onboardingCompleted: 6,
-      activationRate: 37.5,
-      paidRate: 37.5,
+      metaConnected: 3,
+      paid: 3,
       onboardingRate: 75,
+      metaConnectionRate: 37.5,
+      paidRate: 37.5,
     });
   });
 });

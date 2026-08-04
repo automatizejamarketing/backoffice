@@ -19,20 +19,20 @@ import type { DailyConversionCohort } from "@/lib/backoffice/conversion-dashboar
 
 const chartConfig = {
   newUsers: {
-    label: "Entraram",
+    label: "Criaram conta",
     color: "var(--chart-1)",
   },
-  activated: {
-    label: "Ativaram",
+  onboardingCompleted: {
+    label: "Terminaram onboarding",
+    color: "var(--chart-3)",
+  },
+  metaConnected: {
+    label: "Conectaram Meta",
     color: "var(--chart-2)",
   },
   paid: {
     label: "Pagaram",
     color: "var(--chart-4)",
-  },
-  onboardingCompleted: {
-    label: "Onboarding completo",
-    color: "var(--chart-3)",
   },
 } satisfies ChartConfig;
 
@@ -111,8 +111,16 @@ export function ConversionTrendChart({
         />
         <Line
           type="linear"
-          dataKey="activated"
-          stroke="var(--color-activated)"
+          dataKey="onboardingCompleted"
+          stroke="var(--color-onboardingCompleted)"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4 }}
+        />
+        <Line
+          type="linear"
+          dataKey="metaConnected"
+          stroke="var(--color-metaConnected)"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}
@@ -122,15 +130,6 @@ export function ConversionTrendChart({
           dataKey="paid"
           stroke="var(--color-paid)"
           strokeWidth={2.5}
-          dot={false}
-          activeDot={{ r: 4 }}
-        />
-        <Line
-          type="linear"
-          dataKey="onboardingCompleted"
-          stroke="var(--color-onboardingCompleted)"
-          strokeWidth={2}
-          strokeDasharray="5 4"
           dot={false}
           activeDot={{ r: 4 }}
         />
