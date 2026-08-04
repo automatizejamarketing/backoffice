@@ -31,6 +31,10 @@ import {
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { ConversionTrendChart } from "./conversion-trend-chart";
 import { DashboardDateFilter } from "./dashboard-date-filter";
+import {
+  DashboardFetchingIndicator,
+  DashboardNavigationProvider,
+} from "./dashboard-navigation-feedback";
 
 export const dynamic = "force-dynamic";
 
@@ -237,19 +241,24 @@ export default async function DashboardPage({
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-8">
-      <header className="space-y-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="size-1.5 rounded-full bg-chart-3" />
-            Conversão por coorte de entrada
+      <DashboardNavigationProvider>
+        <header className="space-y-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-chart-3" />
+              Conversão por coorte de entrada
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                Do cadastro ao cliente
+              </h1>
+              <DashboardFetchingIndicator />
+            </div>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            Do cadastro ao cliente
-          </h1>
-        </div>
 
-        <DashboardDateFilter basePath="/" window={window} />
-      </header>
+          <DashboardDateFilter basePath="/" window={window} />
+        </header>
+      </DashboardNavigationProvider>
 
       <section aria-labelledby="journey-title" className="space-y-3">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
