@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   Link2,
   LogOut,
+  Mail,
+  WalletCards,
   Settings2,
   Shield,
   Users,
@@ -42,6 +44,7 @@ import {
   type BackofficeActor,
   type BackofficePermission,
 } from "@/lib/auth/rbac-core";
+import { canAccessFinance } from "@/lib/auth/finance-access";
 import { cn } from "@/lib/utils";
 
 type User = {
@@ -71,6 +74,8 @@ export function AppSidebar({
   const { setOpenMobile } = useSidebar();
 
   const isDashboard = pathname === "/";
+  const isFinanceSection = pathname?.startsWith("/finance");
+  const isEmailsSection = pathname?.startsWith("/emails");
   const isPortfolioSection = pathname?.startsWith("/portfolio");
   const isUsersSection = pathname?.startsWith("/users");
   const isPostsSection = pathname?.startsWith("/posts");
@@ -87,6 +92,13 @@ export function AppSidebar({
       icon: LayoutDashboard,
       isActive: isDashboard,
       permission: "dashboard:view",
+    },
+    {
+      href: "/finance",
+      label: "Financeiro",
+      icon: WalletCards,
+      isActive: isFinanceSection,
+      permission: "finance:view",
     },
     {
       href: "/portfolio",
@@ -108,6 +120,13 @@ export function AppSidebar({
       icon: Users,
       isActive: isUsersSection,
       permission: "users:manage",
+    },
+    {
+      href: "/emails",
+      label: "Emails",
+      icon: Mail,
+      isActive: isEmailsSection,
+      permission: "emails:view",
     },
     {
       href: "/posts",
@@ -157,8 +176,11 @@ export function AppSidebar({
     if (item.consultantOnly && actor.role !== "marketing_consultant") {
       return false;
     }
+    if (item.href === "/finance" && !canAccessFinance(actor.email)) {
+      return false;
+    }
     if (item.href === "/video-templates") {
-      return true;
+      return actor.role !== "finance_viewer";
     }
     return item.permission
       ? hasBackofficePermission(actor, item.permission)
@@ -172,7 +194,13 @@ export function AppSidebar({
           <div className="flex flex-row items-center justify-between">
             <Link
               className="flex flex-row items-center rounded-md hover:bg-muted transition-colors p-2"
-              href={actor.role === "marketing_consultant" ? "/portfolio" : "/"}
+              href={
+                actor.role === "marketing_consultant"
+                  ? "/portfolio"
+                  : actor.role === "finance_viewer"
+                    ? "/finance"
+                    : "/"
+              }
               onClick={() => {
                 setOpenMobile(false);
               }}
@@ -251,7 +279,12 @@ export function AppSidebar({
               >
                 <div className="px-2 py-1.5">
                   <p className="text-sm font-medium">
-                    {user.name ?? (actor.role === "admin" ? "Admin" : "Consultor")}
+                    {user.name ??
+                      (actor.role === "admin"
+                        ? "Admin"
+                        : actor.role === "finance_viewer"
+                          ? "Financeiro"
+                          : "Consultor")}
                   </p>
                   <p className="text-xs text-muted-foreground">{user.email}</p>
                 </div>

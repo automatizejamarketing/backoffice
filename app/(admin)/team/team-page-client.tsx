@@ -63,6 +63,7 @@ type TeamPageClientProps = {
 const ROLE_LABEL: Record<BackofficeRole, string> = {
   admin: "Admin",
   marketing_consultant: "Consultor de marketing",
+  finance_viewer: "Somente financeiro",
 };
 
 export function TeamPageClient({ initialUsers }: TeamPageClientProps) {

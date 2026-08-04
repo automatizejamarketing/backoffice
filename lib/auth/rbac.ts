@@ -75,7 +75,9 @@ export async function requirePagePermission(
 ): Promise<BackofficeActor> {
   const actor = await getCurrentBackofficeActor();
   if (!actor) redirect("/login");
-  if (!hasBackofficePermission(actor, permission)) redirect(deniedRedirect);
+  if (!hasBackofficePermission(actor, permission)) {
+    redirect(actor.role === "finance_viewer" ? "/finance" : deniedRedirect);
+  }
   return actor;
 }
 

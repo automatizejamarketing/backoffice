@@ -1,12 +1,15 @@
 export const BACKOFFICE_ROLE_VALUES = [
   "admin",
   "marketing_consultant",
+  "finance_viewer",
 ] as const;
 
 export type BackofficeRole = (typeof BACKOFFICE_ROLE_VALUES)[number];
 
 export type BackofficePermission =
   | "dashboard:view"
+  | "finance:view"
+  | "emails:view"
   | "users:manage"
   | "billing:manage"
   | "posts:manage"
@@ -19,7 +22,10 @@ export type BackofficePermission =
   | "products:manage"
   | "team:manage";
 
-export type BackofficeActorSource = "database" | "admin_email_fallback";
+export type BackofficeActorSource =
+  | "database"
+  | "admin_email_fallback"
+  | "finance_email_fallback";
 
 export type BackofficeActor = {
   id: string;
@@ -58,6 +64,8 @@ const CONSULTANT_USER_HUB_TABS: readonly UserHubTab[] = [
 const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   admin: [
     "dashboard:view",
+    "finance:view",
+    "emails:view",
     "users:manage",
     "billing:manage",
     "posts:manage",
@@ -71,6 +79,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "team:manage",
   ],
   marketing_consultant: ["marketing:read", "marketing:write"],
+  finance_viewer: ["finance:view"],
 };
 
 export function hasBackofficePermission(

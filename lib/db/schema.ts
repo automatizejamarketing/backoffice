@@ -57,7 +57,9 @@ export const backofficeUser = pgTable("backoffice_users", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   email: varchar("email", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 100 }),
-  role: varchar("role", { enum: ["admin", "marketing_consultant"] })
+  role: varchar("role", {
+    enum: ["admin", "marketing_consultant", "finance_viewer"],
+  })
     .$type<BackofficeRole>()
     .notNull()
     .default("marketing_consultant"),

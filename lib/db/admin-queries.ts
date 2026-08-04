@@ -7,6 +7,7 @@ import {
   gt,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   like,
   lt,
@@ -70,6 +71,13 @@ import {
 import { getBusinessOperatingRules } from "@/lib/db/business-queries";
 import { PERFORMANCE_DROP_RULEBOOK_VERSION } from "@/lib/performance-drop/constants";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import {
+  fillDailyConversionCohorts,
+  summarizeConversionCohorts,
+  type DailyConversionCohort,
+} from "@/lib/backoffice/conversion-dashboard";
+import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
+import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 
 export type ActiveSubscriptionSummary = Pick<
   Subscription,
@@ -133,6 +141,7 @@ export type GetAllUsersWithUsageParams = {
       | "subscriptionStatus"
       | "planPeriod"
       | "metaStatus"
+      | "activationStatus"
       | "campaignStatus"
       | "performanceStatus"
       | "accessExpiration"
@@ -406,6 +415,17 @@ export async function getAllUsersWithUsage(
       WHERE mba.user_id = ${user.id}
         AND mba.deleted_at IS NULL
     )`);
+  }
+
+  if (params.filters?.activationStatus === "pending") {
+    conditions.push(
+      and(
+        eq(user.authProvider, "credentials"),
+        isNull(user.emailVerified),
+      ),
+    );
+  } else if (params.filters?.activationStatus === "active") {
+    conditions.push(isNotNull(user.emailVerified));
   }
 
   if (params.filters?.campaignStatus === "active") {
@@ -1230,6 +1250,131 @@ export async function getDashboardStats() {
     totalRequests: totalUsage?.totalRequests ?? 0,
     totalPosts: postCount?.count ?? 0,
     completedOnboarding: completedOnboarding?.count ?? 0,
+  };
+}
+
+export async function getConversionDashboard(window: DashboardDateWindow) {
+  // users.created_at stores UTC instants in a timestamp column. Shifting three
+  // hours keeps cohort grouping aligned with the same BRT bounds used below.
+  const cohortDate = sql<string>`to_char(${user.createdAt} - interval '3 hours', 'YYYY-MM-DD')`;
+  // Drizzle omits the outer table qualifier when a schema column is embedded
+  // inside a correlated raw subquery. This is a static identifier, not input.
+  const cohortUserId = sql.raw('"users"."id"');
+
+  const rows = await db
+    .select({
+      date: cohortDate,
+      newUsers: sql<number>`COUNT(*)::integer`,
+      activated: sql<number>`COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM meta_business_accounts mba
+          WHERE mba.user_id = ${cohortUserId}
+            AND mba.deleted_at IS NULL
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM business_managed_campaign_cache campaign
+          WHERE campaign.user_id = ${cohortUserId}
+            AND campaign.has_active_managed_campaign = true
+        )
+      )::integer`,
+      paid: sql<number>`COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM payments successful_payment
+          WHERE successful_payment.user_id = ${cohortUserId}
+            AND successful_payment.status = 'succeeded'
+        )
+      )::integer`,
+      onboardingCompleted: sql<number>`COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM user_companies membership
+          INNER JOIN companies linked_company
+            ON linked_company.id = membership.company_id
+          WHERE membership.user_id = ${cohortUserId}
+            AND linked_company.onboarding_completed = true
+        )
+      )::integer`,
+    })
+    .from(user)
+    .where(
+      and(
+        gte(user.createdAt, window.gte),
+        lt(user.createdAt, window.lt),
+      ),
+    )
+    .groupBy(cohortDate)
+    .orderBy(cohortDate);
+
+  const daily = fillDailyConversionCohorts(
+    rows.map(
+      (row): DailyConversionCohort => ({
+        date: row.date,
+        newUsers: Number(row.newUsers),
+        activated: Number(row.activated),
+        paid: Number(row.paid),
+        onboardingCompleted: Number(row.onboardingCompleted),
+      }),
+    ),
+    window,
+  );
+
+  return {
+    window,
+    daily,
+    summary: summarizeConversionCohorts(daily),
+  };
+}
+
+export async function getFinanceDashboard(window: DashboardDateWindow) {
+  const { getStripeSettlements } = await import(
+    "@/lib/backoffice/stripe-finance-settlement"
+  );
+  const [activePlans, periodPayments] = await Promise.all([
+    db
+      .select({
+        provider: subscription.provider,
+        planType: subscription.planType,
+      })
+      .from(subscription)
+      .where(eq(subscription.status, "active")),
+    db
+      .select({
+        id: payment.id,
+        provider: payment.provider,
+        amount: payment.amount,
+        grossAmount: payment.grossAmount,
+        netAmount: payment.netAmount,
+        feeAmount: payment.feeAmount,
+        stripeInvoiceId: payment.stripeInvoiceId,
+      })
+      .from(payment)
+      .where(
+        and(
+          eq(payment.status, "succeeded"),
+          gte(payment.paidAt, window.gte),
+          lt(payment.paidAt, window.lt),
+        ),
+      ),
+  ]);
+
+  const stripeSettlements = await getStripeSettlements(
+    periodPayments.flatMap((item) =>
+      item.provider === "stripe" && item.stripeInvoiceId
+        ? [item.stripeInvoiceId]
+        : [],
+    ),
+  );
+
+  return {
+    window,
+    summary: summarizeFinanceDashboard(
+      activePlans,
+      periodPayments,
+      stripeSettlements,
+    ),
   };
 }
 
