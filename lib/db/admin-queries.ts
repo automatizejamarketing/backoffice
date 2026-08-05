@@ -76,7 +76,10 @@ import {
   summarizeConversionCohorts,
   type DailyConversionCohort,
 } from "@/lib/backoffice/conversion-dashboard";
-import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
+import {
+  summarizeFinanceCustomers,
+  summarizeFinanceDashboard,
+} from "@/lib/backoffice/finance-dashboard";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 
 export type ActiveSubscriptionSummary = Pick<
@@ -1326,7 +1329,9 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
   const { getStripeSettlements } = await import(
     "@/lib/backoffice/stripe-finance-settlement"
   );
-  const [activePlans, periodPayments, customerStatusRows] = await Promise.all([
+  const financeUserId = sql.raw('"users"."id"');
+  const referenceDate = new Date();
+  const [activePlans, periodPayments, customerRows] = await Promise.all([
     db
       .select({
         provider: subscription.provider,
@@ -1354,21 +1359,20 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
       ),
     db
       .select({
-        activePaying: sql<number>`count(*) filter (
-          where ${activeSubscriptionStatusSql} = 'active'
-            and exists (
-              select 1
-              from payments p
-              where p.user_id = ${user.id}
-                and p.status = 'succeeded'
-            )
+        expirationDate: user.expirationDate,
+        hasApprovedPayment: sql<boolean>`exists (
+          select 1
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
         )`,
-        trial: sql<number>`count(*) filter (
-          where ${activeSubscriptionStatusSql} = 'trialing'
-        )`,
-        canceled: sql<number>`count(*) filter (
-          where ${activeSubscriptionStatusSql} = 'canceled'
-        )`,
+        canceled: sql<boolean>`coalesce((
+          select s.status = 'canceled' or s.cancel_at_period_end = true
+          from subscriptions s
+          where s.user_id = ${financeUserId}
+          order by s.created_at desc
+          limit 1
+        ), false)`,
       })
       .from(user),
   ]);
@@ -1380,7 +1384,10 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         : [],
     ),
   );
-  const customerStatus = customerStatusRows[0];
+  const customerStatus = summarizeFinanceCustomers(
+    customerRows,
+    referenceDate,
+  );
 
   return {
     window,
@@ -1388,11 +1395,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
       activePlans,
       periodPayments,
       stripeSettlements,
-      {
-        activePaying: Number(customerStatus?.activePaying ?? 0),
-        trial: Number(customerStatus?.trial ?? 0),
-        canceled: Number(customerStatus?.canceled ?? 0),
-      },
+      customerStatus,
     ),
   };
 }

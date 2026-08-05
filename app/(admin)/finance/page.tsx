@@ -152,7 +152,7 @@ export default async function FinancePage({
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-8">
       <DashboardNavigationProvider>
-        <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+        <header className="space-y-6">
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -170,7 +170,73 @@ export default async function FinancePage({
             </p>
           </div>
 
-          <DashboardDateFilter basePath="/finance" window={window} />
+          <section aria-labelledby="customer-status-title" className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 id="customer-status-title" className="text-sm font-semibold">
+                Situação atual da base
+              </h2>
+              <p className="text-[11px] text-muted-foreground">
+                Estes números não mudam com o período selecionado.
+              </p>
+            </div>
+
+            <dl className="grid overflow-hidden rounded-xl border bg-card shadow-xs divide-y md:grid-cols-4 md:divide-x md:divide-y-0">
+              <div className="p-5 md:px-4 xl:p-5">
+                <dt className="text-xs font-medium text-muted-foreground">
+                  Clientes pagantes
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                  {formatNumber(summary.customers.activePaying)}
+                </dd>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Pagamento aprovado e acesso vigente.
+                </p>
+              </div>
+              <div className="p-5 md:px-4 xl:p-5">
+                <dt className="text-xs font-medium text-muted-foreground">
+                  Em trial
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                  {formatNumber(summary.customers.trial)}
+                </dd>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Acesso vigente sem pagamento aprovado.
+                </p>
+              </div>
+              <div className="p-5 md:px-4 xl:p-5">
+                <dt className="text-xs font-medium text-muted-foreground">
+                  Cancelados
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                  {formatNumber(summary.customers.canceled)}
+                </dd>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Cancelamento efetivo ou agendado na assinatura mais recente.
+                </p>
+              </div>
+              <div className="p-5 md:px-4 xl:p-5">
+                <dt className="text-xs font-medium text-muted-foreground">
+                  Expirados
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                  {formatNumber(summary.customers.expired)}
+                </dd>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Pagamento aprovado e acesso já vencido.
+                </p>
+              </div>
+            </dl>
+          </section>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold">Período financeiro</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Aplica-se ao valor recebido e aos pagamentos abaixo.
+              </p>
+            </div>
+            <DashboardDateFilter basePath="/finance" window={window} />
+          </div>
         </header>
       </DashboardNavigationProvider>
 
@@ -211,55 +277,6 @@ export default async function FinancePage({
             </div>
           </dl>
         </div>
-
-        <dl className="grid divide-y border-t md:grid-cols-4 md:divide-x md:divide-y-0">
-          <div className="p-5 md:px-4 xl:p-5">
-            <dt className="text-xs font-medium text-muted-foreground">
-              Clientes pagantes
-            </dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-              {formatNumber(summary.customers.activePaying)}
-            </dd>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Assinatura ativa e ao menos uma compra aprovada.
-            </p>
-          </div>
-          <div className="p-5 md:px-4 xl:p-5">
-            <dt className="text-xs font-medium text-muted-foreground">
-              Em trial
-            </dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-              {formatNumber(summary.customers.trial)}
-            </dd>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Clientes no período de teste.
-            </p>
-          </div>
-          <div className="p-5 md:px-4 xl:p-5">
-            <dt className="text-xs font-medium text-muted-foreground">
-              Cancelados
-            </dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-              {formatNumber(summary.customers.canceled)}
-            </dd>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Clientes com assinatura cancelada.
-            </p>
-          </div>
-          <div className="p-5 md:px-4 xl:p-5">
-            <dt className="text-xs font-medium text-muted-foreground">
-              Ticket médio líquido
-            </dt>
-            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-              {formatBRLFromCentavos(
-                summary.receipts.averageNetTicketCentavos,
-              )}
-            </dd>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              Média dos pagamentos no período selecionado.
-            </p>
-          </div>
-        </dl>
 
         <div className="border-t p-5 sm:p-6">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">

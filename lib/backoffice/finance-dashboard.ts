@@ -27,6 +27,13 @@ export type FinanceCustomerStatus = {
   activePaying: number;
   trial: number;
   canceled: number;
+  expired: number;
+};
+
+export type FinanceCustomerRow = {
+  expirationDate: Date | null;
+  hasApprovedPayment: boolean;
+  canceled: boolean;
 };
 
 export type FinanceProvider = "card" | "pix" | "manual";
@@ -73,6 +80,41 @@ function emptyProviderSummary(
     netCentavos: 0,
     netCoveragePayments: 0,
   };
+}
+
+export function summarizeFinanceCustomers(
+  customers: FinanceCustomerRow[],
+  referenceDate: Date,
+): FinanceCustomerStatus {
+  const summary: FinanceCustomerStatus = {
+    activePaying: 0,
+    trial: 0,
+    canceled: 0,
+    expired: 0,
+  };
+  const referenceTime = referenceDate.getTime();
+
+  for (const customer of customers) {
+    const expirationTime = customer.expirationDate?.getTime();
+    const hasActiveAccess =
+      expirationTime !== undefined && expirationTime > referenceTime;
+    const hasExpiredAccess =
+      expirationTime !== undefined && expirationTime < referenceTime;
+
+    if (customer.hasApprovedPayment && hasActiveAccess) {
+      summary.activePaying += 1;
+    } else if (!customer.hasApprovedPayment && hasActiveAccess) {
+      summary.trial += 1;
+    } else if (customer.hasApprovedPayment && hasExpiredAccess) {
+      summary.expired += 1;
+    }
+
+    if (customer.canceled) {
+      summary.canceled += 1;
+    }
+  }
+
+  return summary;
 }
 
 export function summarizeFinanceDashboard(
