@@ -154,6 +154,52 @@ describe("finance payments summaries", () => {
     expect(amounts.automatizeNetCentavos).toBe(9500);
   });
 
+  test("ignores expert ledger when automatize owns the product", () => {
+    const amounts = resolveProductPaymentAmounts({
+      id: "pp4",
+      orderId: "o4",
+      productTitle: "Coprodução Automatize",
+      buyerName: "Luiza",
+      buyerEmail: "luiza@example.com",
+      approvedAt: new Date("2026-08-02T12:00:00Z"),
+      createdAt: new Date("2026-08-02T11:00:00Z"),
+      providerPaymentId: "999",
+      grossAmountCentavos: 10000,
+      netAmountCentavos: 9500,
+      feeAmountCentavos: 500,
+      priceCentavos: 10000,
+      ownerType: "automatize",
+      expertShareBasisPoints: 6000,
+      expertRevenueCentavos: 5700,
+    });
+
+    expect(amounts.revenueKind).toBe("coproducao");
+    expect(amounts.automatizeNetCentavos).toBe(9500);
+  });
+
+  test("falls back to basis points when ledger exceeds gateway net", () => {
+    const amounts = resolveProductPaymentAmounts({
+      id: "pp5",
+      orderId: "o5",
+      productTitle: "Curso expert",
+      buyerName: "Pedro",
+      buyerEmail: "pedro@example.com",
+      approvedAt: new Date("2026-08-02T12:00:00Z"),
+      createdAt: new Date("2026-08-02T11:00:00Z"),
+      providerPaymentId: "1000",
+      grossAmountCentavos: 8799,
+      netAmountCentavos: 8614,
+      feeAmountCentavos: 185,
+      priceCentavos: 8799,
+      ownerType: "expert",
+      expertShareBasisPoints: 9500,
+      expertRevenueCentavos: 9000,
+    });
+
+    expect(amounts.expertRevenueCentavos).toBe(8183);
+    expect(amounts.automatizeNetCentavos).toBe(431);
+  });
+
   test("derives expert share from basis points when ledger is missing", () => {
     const amounts = resolveProductPaymentAmounts({
       id: "pp3",

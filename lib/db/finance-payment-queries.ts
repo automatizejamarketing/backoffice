@@ -111,18 +111,16 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       priceCentavos: productOrder.priceCentavos,
       ownerType: product.ownerType,
       expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
-      expertRevenueCentavos: expertLedgerEntry.amountCentavos,
+      expertRevenueCentavos: sql<number>`(
+          select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
+          from ${expertLedgerEntry}
+          where ${expertLedgerEntry.orderId} = ${productOrder.id}
+            and ${expertLedgerEntry.type} = 'sale'
+        )`,
     })
     .from(productPayment)
     .innerJoin(productOrder, eq(productPayment.orderId, productOrder.id))
     .innerJoin(product, eq(productOrder.productId, product.id))
-    .leftJoin(
-      expertLedgerEntry,
-      and(
-        eq(expertLedgerEntry.orderId, productOrder.id),
-        eq(expertLedgerEntry.type, "sale"),
-      ),
-    )
     .where(
       and(
         eq(productPayment.status, "approved"),
@@ -134,7 +132,21 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
     .orderBy(desc(productOrder.approvedAt));
 
   return {
-    rows: rows satisfies FinanceProductPaymentRow[],
-    summary: summarizeProductPayments(rows),
+    rows: rows.map(
+      (row): FinanceProductPaymentRow => ({
+        ...row,
+        expertRevenueCentavos:
+          row.expertRevenueCentavos > 0 ? row.expertRevenueCentavos : null,
+      }),
+    ),
+    summary: summarizeProductPayments(
+      rows.map(
+        (row): FinanceProductPaymentRow => ({
+          ...row,
+          expertRevenueCentavos:
+            row.expertRevenueCentavos > 0 ? row.expertRevenueCentavos : null,
+        }),
+      ),
+    ),
   };
 }

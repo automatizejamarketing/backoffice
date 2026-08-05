@@ -238,15 +238,24 @@ export function resolveProductPaymentAmounts(
   const fee = payment.feeAmountCentavos;
   const gatewayNet =
     payment.netAmountCentavos ?? (fee !== null ? gross - fee : gross);
-  const expertRevenue =
-    payment.expertRevenueCentavos ??
-    (payment.expertShareBasisPoints > 0
+  const revenueKind = payment.ownerType === "automatize" ? "coproducao" : "taxa";
+  const derivedExpertRevenue =
+    payment.expertShareBasisPoints > 0
       ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
-      : 0);
-  const automatizeNet = calculateAutomatizeNetRevenueCentavos(
-    gatewayNet,
-    expertRevenue,
-  );
+      : 0;
+  const ledgerExpertRevenue = payment.expertRevenueCentavos;
+  const expertRevenue =
+    ledgerExpertRevenue !== null &&
+    ledgerExpertRevenue <= gatewayNet
+      ? ledgerExpertRevenue
+      : derivedExpertRevenue;
+  const automatizeNet =
+    revenueKind === "coproducao"
+      ? gatewayNet
+      : calculateAutomatizeNetRevenueCentavos(
+          gatewayNet,
+          Math.min(expertRevenue, gatewayNet),
+        );
 
   return {
     grossCentavos: gross,
@@ -254,7 +263,7 @@ export function resolveProductPaymentAmounts(
     gatewayNetCentavos: gatewayNet,
     expertRevenueCentavos: expertRevenue,
     automatizeNetCentavos: automatizeNet,
-    revenueKind: payment.ownerType === "automatize" ? "coproducao" : "taxa",
+    revenueKind,
   };
 }
 
