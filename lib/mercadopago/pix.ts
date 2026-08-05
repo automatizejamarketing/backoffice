@@ -155,22 +155,36 @@ export async function createOrReuseBackofficePixLink({
     .limit(1);
 
   if (existing) {
-    if (existing.adminEmail !== adminEmail) {
+    const linkForPix =
+      existing.initPoint.startsWith("http://") ||
+      existing.initPoint.startsWith("https://")
+        ? { ...existing, mercadopagoPaymentId: null }
+        : existing;
+
+    if (linkForPix.adminEmail !== adminEmail) {
       const [updated] = await db
         .update(mercadopagoPaymentLink)
         .set({ adminEmail, updatedAt: now })
-        .where(eq(mercadopagoPaymentLink.id, existing.id))
+        .where(eq(mercadopagoPaymentLink.id, linkForPix.id))
         .returning();
 
       const resolved = await resolvePixCopyPasteCode(
-        updated ?? existing,
+        updated ?? linkForPix,
         targetUser.email,
       );
-      return { ...resolved.link, reused: true, pixCopyPasteCode: resolved.pixCopyPasteCode };
+      return {
+        ...resolved.link,
+        reused: true,
+        pixCopyPasteCode: resolved.pixCopyPasteCode,
+      };
     }
 
-    const resolved = await resolvePixCopyPasteCode(existing, targetUser.email);
-    return { ...resolved.link, reused: true, pixCopyPasteCode: resolved.pixCopyPasteCode };
+    const resolved = await resolvePixCopyPasteCode(linkForPix, targetUser.email);
+    return {
+      ...resolved.link,
+      reused: true,
+      pixCopyPasteCode: resolved.pixCopyPasteCode,
+    };
   }
 
   const id = randomUUID();

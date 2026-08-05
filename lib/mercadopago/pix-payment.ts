@@ -34,9 +34,13 @@ function toBRLUnitAmount(amountCentavos: number): number {
   return Number((amountCentavos / 100).toFixed(2));
 }
 
+function isPendingPixPayment(status: string | undefined): boolean {
+  return status === "pending" || status === "in_process";
+}
+
 async function fetchMercadoPagoPixPayment(
   paymentId: string,
-): Promise<MercadoPagoPixPaymentResponse> {
+): Promise<MercadoPagoPixPaymentResponse | null> {
   const response = await fetch(
     `https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`,
     {
@@ -47,8 +51,16 @@ async function fetchMercadoPagoPixPayment(
     },
   );
 
+  if (response.status === 404) {
+    return null;
+  }
+
   if (!response.ok) {
-    throw new Error(await response.text());
+    const body = await response.text();
+    if (body.toLowerCase().includes("payment not found")) {
+      return null;
+    }
+    throw new Error(body);
   }
 
   return (await response.json()) as MercadoPagoPixPaymentResponse;
@@ -62,6 +74,7 @@ async function createMercadoPagoPixPayment({
   amountCentavos,
   expiresAt,
   notificationUrl,
+  idempotencySuffix,
 }: {
   linkId: string;
   userId: string;
@@ -70,13 +83,16 @@ async function createMercadoPagoPixPayment({
   amountCentavos: number;
   expiresAt: Date;
   notificationUrl: string;
+  idempotencySuffix?: string;
 }): Promise<PixCopyPasteDetails> {
   const response = await fetch("https://api.mercadopago.com/v1/payments", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${getPixPaymentAccessToken()}`,
       "Content-Type": "application/json",
-      "X-Idempotency-Key": `pix-link:${linkId}`,
+      "X-Idempotency-Key": idempotencySuffix
+        ? `pix-link:${linkId}:${idempotencySuffix}`
+        : `pix-link:${linkId}`,
     },
     body: JSON.stringify({
       transaction_amount: toBRLUnitAmount(amountCentavos),
@@ -124,11 +140,14 @@ export async function ensurePixCopyPasteCode({
     const existingPayment = await fetchMercadoPagoPixPayment(
       link.mercadopagoPaymentId,
     );
-    const pixCopyPasteCode = extractPixCopyPasteCode(existingPayment);
+    const pixCopyPasteCode = existingPayment
+      ? extractPixCopyPasteCode(existingPayment)
+      : null;
+
     if (
+      existingPayment &&
       pixCopyPasteCode &&
-      (existingPayment.status === "pending" ||
-        existingPayment.status === "in_process")
+      isPendingPixPayment(existingPayment.status)
     ) {
       return {
         paymentId: link.mercadopagoPaymentId,
@@ -145,5 +164,6 @@ export async function ensurePixCopyPasteCode({
     amountCentavos: link.amount,
     expiresAt: link.expiresAt,
     notificationUrl,
+    idempotencySuffix: link.mercadopagoPaymentId ? "retry" : undefined,
   });
 }
