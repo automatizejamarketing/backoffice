@@ -11,9 +11,14 @@ test("formatMercadoPagoPixError translates known Pix availability errors", () =>
   );
 });
 
-test("formatMercadoPagoPixError keeps unknown messages", () => {
-  assert.equal(
-    formatMercadoPagoPixError("Erro customizado"),
-    "Erro customizado",
+test("formatMercadoPagoPixError parses Mercado Pago JSON errors", () => {
+  assert.match(
+    formatMercadoPagoPixError(
+      JSON.stringify({
+        message: "Unauthorized use of live credentials",
+        cause: [{ description: "Unauthorized use of live credentials" }],
+      }),
+    ),
+    /permissão para criar pagamentos Pix/,
   );
 });

@@ -228,7 +228,7 @@ async function createPreference({
 
 export type BackofficePixLinkResult = MercadoPagoPaymentLink & {
   reused: boolean;
-  pixCopyPasteCode: string;
+  pixCopyPasteCode: string | null;
 };
 
 async function attachPixCopyPasteCode(
@@ -236,34 +236,47 @@ async function attachPixCopyPasteCode(
   email: string,
   reused: boolean,
 ): Promise<BackofficePixLinkResult> {
-  const pixDetails = await ensurePixCopyPasteCode({
-    link,
-    email,
-    notificationUrl: getMercadoPagoWebhookUrl(),
-  });
+  try {
+    const pixDetails = await ensurePixCopyPasteCode({
+      link,
+      email,
+      notificationUrl: getMercadoPagoWebhookUrl(),
+    });
 
-  if (pixDetails.paymentId !== link.mercadopagoPaymentId) {
-    const [updated] = await db
-      .update(mercadopagoPaymentLink)
-      .set({
-        mercadopagoPaymentId: pixDetails.paymentId,
-        updatedAt: new Date(),
-      })
-      .where(eq(mercadopagoPaymentLink.id, link.id))
-      .returning();
+    if (pixDetails.paymentId !== link.mercadopagoPaymentId) {
+      const [updated] = await db
+        .update(mercadopagoPaymentLink)
+        .set({
+          mercadopagoPaymentId: pixDetails.paymentId,
+          updatedAt: new Date(),
+        })
+        .where(eq(mercadopagoPaymentLink.id, link.id))
+        .returning();
+
+      return {
+        ...(updated ?? link),
+        reused,
+        pixCopyPasteCode: pixDetails.pixCopyPasteCode,
+      };
+    }
 
     return {
-      ...(updated ?? link),
+      ...link,
       reused,
       pixCopyPasteCode: pixDetails.pixCopyPasteCode,
     };
-  }
+  } catch (error) {
+    console.warn(
+      "Mercado Pago Pix copy-paste code unavailable; returning checkout link only.",
+      error,
+    );
 
-  return {
-    ...link,
-    reused,
-    pixCopyPasteCode: pixDetails.pixCopyPasteCode,
-  };
+    return {
+      ...link,
+      reused,
+      pixCopyPasteCode: null,
+    };
+  }
 }
 
 export async function createOrReuseBackofficePixLink({

@@ -79,6 +79,7 @@ export async function POST(
       },
       reused: link.reused,
       emailed: body.sendEmail === true,
+      pixCopyPasteUnavailable: !link.pixCopyPasteCode,
     });
   } catch (error) {
     const message =

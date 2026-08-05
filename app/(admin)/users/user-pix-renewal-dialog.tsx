@@ -107,6 +107,7 @@ export function UserPixRenewalDialog({
       const json = (await response.json()) as {
         link?: PixLinkView;
         reused?: boolean;
+        pixCopyPasteUnavailable?: boolean;
         error?: string;
       };
 
@@ -116,9 +117,21 @@ export function UserPixRenewalDialog({
 
       setLink(json.link);
       setReused(json.reused === true);
-      toast.success(
-        json.reused ? "Link Pix reutilizado" : "Link Pix gerado com sucesso",
-      );
+      if (json.link.pixCopyPasteCode) {
+        toast.success(
+          json.reused ? "Link Pix reutilizado" : "Link Pix gerado com sucesso",
+        );
+      } else {
+        toast.success(
+          json.reused
+            ? "Link Pix reutilizado"
+            : "Link Pix gerado com sucesso",
+          {
+            description:
+              "Código copia e cola indisponível nesta conta MP. Use o link ou QR do checkout.",
+          },
+        );
+      }
     } catch (error) {
       const message =
         error instanceof Error

@@ -5,11 +5,28 @@ const PIX_ERROR_MESSAGES: Record<string, string> = {
     "Token do Mercado Pago não está configurado no backoffice.",
   "Usuário tem assinatura Stripe ativa.":
     "Este usuário possui assinatura Stripe ativa.",
+  "Unauthorized use of live credentials":
+    "O token do Mercado Pago não tem permissão para criar pagamentos Pix via API. O link de checkout ainda pode ser usado.",
 };
 
-export function formatMercadoPagoPixError(message: string): string {
+function parseMercadoPagoErrorMessage(message: string): string {
   const trimmed = message.trim();
-  if (!trimmed) return "Não foi possível gerar o link Pix.";
+  if (!trimmed.startsWith("{")) return trimmed;
 
-  return PIX_ERROR_MESSAGES[trimmed] ?? trimmed;
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      message?: string;
+      cause?: Array<{ description?: string }>;
+    };
+    return parsed.cause?.[0]?.description ?? parsed.message ?? trimmed;
+  } catch {
+    return trimmed;
+  }
+}
+
+export function formatMercadoPagoPixError(message: string): string {
+  const parsedMessage = parseMercadoPagoErrorMessage(message);
+  if (!parsedMessage) return "Não foi possível gerar o link Pix.";
+
+  return PIX_ERROR_MESSAGES[parsedMessage] ?? parsedMessage;
 }
