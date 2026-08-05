@@ -1,9 +1,7 @@
 import type { DatePreset, TimeIncrement } from "@/lib/meta-business/types";
 import type { CampaignObjectiveFilter } from "@/lib/meta-business/campaign-objectives";
-import type {
-  CampaignSortMetric,
-  SortOrder,
-} from "@/lib/meta-business/campaign-sort";
+import type { SortOrder } from "@/lib/meta-business/campaign-sort";
+import type { CampaignMetricId } from "../utils/campaign-metrics";
 
 /**
  * Shared, hierarchical React Query keys for the backoffice Meta Marketing flows.
@@ -19,7 +17,7 @@ export type CampaignListFilters = {
   since?: string | null;
   until?: string | null;
   objectiveFilter?: CampaignObjectiveFilter;
-  sortMetric?: CampaignSortMetric | null;
+  sortMetric?: CampaignMetricId | null;
   sortOrder?: SortOrder;
 };
 
@@ -29,6 +27,8 @@ export type AdSetListFilters = {
   since?: string | null;
   until?: string | null;
   cursor?: string | null;
+  sortMetric?: CampaignMetricId | null;
+  sortOrder?: SortOrder;
 };
 
 export type AdListFilters = {
@@ -37,6 +37,8 @@ export type AdListFilters = {
   since?: string | null;
   until?: string | null;
   cursor?: string | null;
+  sortMetric?: CampaignMetricId | null;
+  sortOrder?: SortOrder;
 };
 
 export type InsightsRange = {

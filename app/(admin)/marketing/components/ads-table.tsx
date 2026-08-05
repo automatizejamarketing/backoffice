@@ -22,6 +22,7 @@ import {
   type Ad,
   type CampaignObjective,
 } from "@/lib/meta-business/types";
+import type { SortOrder } from "@/lib/meta-business/campaign-sort";
 import {
   resolveCampaignTableMetrics,
   type CampaignMetricId,
@@ -55,6 +56,8 @@ type AdsTableProps = {
   datePreset?: DatePreset | null;
   customRange?: { since: string; until: string } | null;
   selectedMetricIds?: CampaignMetricId[] | null;
+  sortMetric?: CampaignMetricId | null;
+  sortOrder?: SortOrder;
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
@@ -69,6 +72,8 @@ export function AdsTable({
   datePreset,
   customRange,
   selectedMetricIds,
+  sortMetric = null,
+  sortOrder = "desc",
   onAdClick,
   onMediaClick,
 }: AdsTableProps) {
@@ -102,12 +107,23 @@ export function AdsTable({
       since: customRange?.since ?? null,
       until: customRange?.until ?? null,
       cursor: cursor ?? null,
+      sortMetric,
+      sortOrder,
     },
   );
 
   const ads = data?.data ?? [];
   const pagination = data?.pagination ?? null;
   const isInitialLoading = isPending;
+
+  const filterSignature = `${datePreset ?? ""}|${customRange?.since ?? ""}|${
+    customRange?.until ?? ""
+  }|${sortMetric ?? ""}|${sortOrder}`;
+  const [lastFilterSignature, setLastFilterSignature] = useState(filterSignature);
+  if (lastFilterSignature !== filterSignature) {
+    setLastFilterSignature(filterSignature);
+    setCursor(undefined);
+  }
 
   const toggleStatus = useToggleAdStatus(accountId, userId);
 

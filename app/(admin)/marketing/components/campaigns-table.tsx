@@ -27,10 +27,7 @@ import {
   type DatePreset,
 } from "@/lib/meta-business/types";
 import type { CampaignObjectiveFilter } from "@/lib/meta-business/campaign-objectives";
-import type {
-  CampaignSortMetric,
-  SortOrder,
-} from "@/lib/meta-business/campaign-sort";
+import type { SortOrder } from "@/lib/meta-business/campaign-sort";
 import {
   resolveCampaignTableMetrics,
   type CampaignMetricId,
@@ -59,7 +56,7 @@ type CampaignsTableProps = {
   /** Objective filter, owned by the parent toolbar (default `"all"`). */
   objectiveFilter: CampaignObjectiveFilter;
   /** Metric to sort by, or `null` for the default status order. */
-  sortMetric: CampaignSortMetric | null;
+  sortMetric: CampaignMetricId | null;
   sortOrder: SortOrder;
   selectedMetricIds?: CampaignMetricId[] | null;
 };

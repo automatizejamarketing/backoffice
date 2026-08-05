@@ -28,9 +28,35 @@ import {
   type CampaignListFilters,
   type InsightsRange,
 } from "./marketing-query-keys";
+import { sortMarketingItems } from "../utils/sort-marketing-items";
 
 const INSIGHTS_STALE_TIME = 5 * 60 * 1000;
 const MAX_CAMPAIGNS = 500;
+const FETCH_ALL_PAGE_LIMIT = 100;
+
+async function fetchAllPaginated<T>(
+  buildUrl: (after?: string) => string,
+): Promise<T[]> {
+  const collected: T[] = [];
+  let after: string | undefined;
+
+  do {
+    const response = await fetch(buildUrl(after));
+    if (!response.ok) {
+      throw new Error("Falha ao buscar dados");
+    }
+    const payload = (await response.json()) as {
+      data?: T[];
+      pagination?: PaginationInfo | null;
+    };
+    collected.push(...(payload.data ?? []));
+    after = payload.pagination?.hasNextPage
+      ? payload.pagination.nextCursor ?? undefined
+      : undefined;
+  } while (after);
+
+  return collected;
+}
 
 function basePath(accountId: string): string {
   return `/api/meta-marketing/${accountId}`;
@@ -74,32 +100,29 @@ export function useCampaigns(
 
       let combined: Campaign[];
 
-      if (filters.sortMetric) {
-        // Metric sort: a single Meta-ranked list (active/paused interleaved).
-        const params = new URLSearchParams(baseParams);
-        params.set("sortMetric", filters.sortMetric);
-        params.set("sortOrder", filters.sortOrder ?? "desc");
-        const response = await fetch(`${basePath(accountId)}/campaigns?${params}`);
-        if (!response.ok) throw new Error("Falha ao buscar campanhas");
-        const data = (await response.json()) as { data?: Campaign[] };
-        combined = data.data ?? [];
-      } else {
-        // Default: status order — all ACTIVE first, then all PAUSED.
-        const activeParams = new URLSearchParams(baseParams);
-        activeParams.set("effectiveStatus", "ACTIVE");
-        const pausedParams = new URLSearchParams(baseParams);
-        pausedParams.set("effectiveStatus", "PAUSED");
+      // Default: status order — all ACTIVE first, then all PAUSED.
+      const activeParams = new URLSearchParams(baseParams);
+      activeParams.set("effectiveStatus", "ACTIVE");
+      const pausedParams = new URLSearchParams(baseParams);
+      pausedParams.set("effectiveStatus", "PAUSED");
 
-        const [activeRes, pausedRes] = await Promise.all([
-          fetch(`${basePath(accountId)}/campaigns?${activeParams}`),
-          fetch(`${basePath(accountId)}/campaigns?${pausedParams}`),
-        ]);
-        if (!activeRes.ok || !pausedRes.ok) {
-          throw new Error("Falha ao buscar campanhas");
-        }
-        const activeData = (await activeRes.json()) as { data?: Campaign[] };
-        const pausedData = (await pausedRes.json()) as { data?: Campaign[] };
-        combined = [...(activeData.data ?? []), ...(pausedData.data ?? [])];
+      const [activeRes, pausedRes] = await Promise.all([
+        fetch(`${basePath(accountId)}/campaigns?${activeParams}`),
+        fetch(`${basePath(accountId)}/campaigns?${pausedParams}`),
+      ]);
+      if (!activeRes.ok || !pausedRes.ok) {
+        throw new Error("Falha ao buscar campanhas");
+      }
+      const activeData = (await activeRes.json()) as { data?: Campaign[] };
+      const pausedData = (await pausedRes.json()) as { data?: Campaign[] };
+      combined = [...(activeData.data ?? []), ...(pausedData.data ?? [])];
+
+      if (filters.sortMetric) {
+        combined = sortMarketingItems(
+          combined,
+          filters.sortMetric,
+          filters.sortOrder ?? "desc",
+        );
       }
 
       return { data: combined.slice(0, MAX_CAMPAIGNS), pagination: null };
@@ -145,33 +168,53 @@ export function useAdSets(
     queryKey: marketingKeys.adsetList(accountId, userId, filters),
     enabled: options?.enabled !== false && Boolean(accountId) && Boolean(userId),
     queryFn: async () => {
-      const baseParams = new URLSearchParams({ limit: "25", userId });
-      if (filters.cursor) baseParams.set("after", filters.cursor);
+      const baseParams = new URLSearchParams({ userId });
       if (filters.campaignId) baseParams.set("campaignId", filters.campaignId);
       appendDateRange(baseParams, filters);
 
-      // `effective_status` cascades: a paused campaign reports its ad sets as
-      // CAMPAIGN_PAUSED, so the "paused" bucket must include that value.
-      const activeParams = new URLSearchParams(baseParams);
-      activeParams.set("effectiveStatus", "ACTIVE");
-      const pausedParams = new URLSearchParams(baseParams);
-      pausedParams.set("effectiveStatus", "PAUSED,CAMPAIGN_PAUSED");
+      const fetchAllForStatus = async (effectiveStatus: string) =>
+        fetchAllPaginated<AdSet>((after) => {
+          const params = new URLSearchParams(baseParams);
+          params.set("effectiveStatus", effectiveStatus);
+          params.set("limit", String(FETCH_ALL_PAGE_LIMIT));
+          if (after) params.set("after", after);
+          return `${basePath(accountId)}/adsets?${params}`;
+        });
 
-      const [activeRes, pausedRes] = await Promise.all([
-        fetch(`${basePath(accountId)}/adsets?${activeParams}`),
-        fetch(`${basePath(accountId)}/adsets?${pausedParams}`),
-      ]);
-      if (!activeRes.ok || !pausedRes.ok) {
-        throw new Error("Falha ao buscar conjuntos de anúncios");
+      const fetchPageForStatus = async (effectiveStatus: string) => {
+        const params = new URLSearchParams(baseParams);
+        params.set("effectiveStatus", effectiveStatus);
+        params.set("limit", "25");
+        if (filters.cursor) params.set("after", filters.cursor);
+        const response = await fetch(`${basePath(accountId)}/adsets?${params}`);
+        if (!response.ok) {
+          throw new Error("Falha ao buscar conjuntos de anúncios");
+        }
+        return (await response.json()) as {
+          data?: AdSet[];
+          pagination?: PaginationInfo;
+        };
+      };
+
+      if (filters.sortMetric) {
+        const [activeItems, pausedItems] = await Promise.all([
+          fetchAllForStatus("ACTIVE"),
+          fetchAllForStatus("PAUSED,CAMPAIGN_PAUSED"),
+        ]);
+        return {
+          data: sortMarketingItems(
+            [...activeItems, ...pausedItems],
+            filters.sortMetric,
+            filters.sortOrder ?? "desc",
+          ),
+          pagination: null,
+        };
       }
-      const activeData = (await activeRes.json()) as {
-        data?: AdSet[];
-        pagination?: PaginationInfo;
-      };
-      const pausedData = (await pausedRes.json()) as {
-        data?: AdSet[];
-        pagination?: PaginationInfo;
-      };
+
+      const [activeData, pausedData] = await Promise.all([
+        fetchPageForStatus("ACTIVE"),
+        fetchPageForStatus("PAUSED,CAMPAIGN_PAUSED"),
+      ]);
 
       return {
         data: [...(activeData.data ?? []), ...(pausedData.data ?? [])],
@@ -206,10 +249,32 @@ export function useAds(
     queryKey: marketingKeys.adList(accountId, userId, filters),
     enabled: options?.enabled !== false && Boolean(accountId) && Boolean(userId),
     queryFn: async () => {
-      const params = new URLSearchParams({ limit: "25", userId });
+      const baseParams = new URLSearchParams({
+        limit: String(FETCH_ALL_PAGE_LIMIT),
+        userId,
+      });
+      if (filters.adSetId) baseParams.set("adsetId", filters.adSetId);
+      appendDateRange(baseParams, filters);
+
+      if (filters.sortMetric) {
+        const allAds = await fetchAllPaginated<Ad>((after) => {
+          const params = new URLSearchParams(baseParams);
+          if (after) params.set("after", after);
+          return `${basePath(accountId)}/ads?${params}`;
+        });
+        return {
+          data: sortMarketingItems(
+            allAds,
+            filters.sortMetric,
+            filters.sortOrder ?? "desc",
+          ),
+          pagination: null,
+        };
+      }
+
+      const params = new URLSearchParams(baseParams);
+      params.set("limit", "25");
       if (filters.cursor) params.set("after", filters.cursor);
-      if (filters.adSetId) params.set("adsetId", filters.adSetId);
-      appendDateRange(params, filters);
 
       const response = await fetch(`${basePath(accountId)}/ads?${params}`);
       if (!response.ok) {

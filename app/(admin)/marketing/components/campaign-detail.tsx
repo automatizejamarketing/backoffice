@@ -45,6 +45,8 @@ import {
   type CampaignMetricId,
 } from "../utils/campaign-metrics";
 import { getMetricLabel } from "../utils/metric-formatters";
+import type { SortOrder } from "@/lib/meta-business/campaign-sort";
+import { MarketingSortPopover } from "./marketing-sort-popover";
 
 type CampaignDetailProps = {
   campaign: Campaign;
@@ -112,6 +114,10 @@ export function CampaignDetail({
   const [selectedAdSet, setSelectedAdSet] = useState<AdSet | null>(null);
   const [isAdSetDetailOpen, setIsAdSetDetailOpen] = useState(false);
   const [isCreateAdSetOpen, setIsCreateAdSetOpen] = useState(false);
+  const [adSetSortMetric, setAdSetSortMetric] = useState<CampaignMetricId | null>(
+    null,
+  );
+  const [adSetSortOrder, setAdSetSortOrder] = useState<SortOrder>("desc");
 
   useEffect(() => {
     setCampaign(campaignProp);
@@ -397,9 +403,17 @@ export function CampaignDetail({
 
             <section>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Conjuntos de Anúncios
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Conjuntos de Anúncios
+                  </p>
+                  <MarketingSortPopover
+                    sortMetric={adSetSortMetric}
+                    sortOrder={adSetSortOrder}
+                    onSortMetricChange={setAdSetSortMetric}
+                    onSortOrderChange={setAdSetSortOrder}
+                  />
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
@@ -418,6 +432,8 @@ export function CampaignDetail({
                 datePreset={datePreset}
                 customRange={customRange}
                 selectedMetricIds={selectedMetricIds}
+                sortMetric={adSetSortMetric}
+                sortOrder={adSetSortOrder}
                 onAdSetClick={handleAdSetClick}
               />
             </section>
