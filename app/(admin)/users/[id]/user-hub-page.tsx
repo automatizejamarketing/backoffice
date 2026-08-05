@@ -15,6 +15,7 @@ import {
 import { MarketingWorkspace } from "@/app/(admin)/marketing/components/marketing-workspace";
 import { BusinessHealthBadge } from "@/components/business-health-badge";
 import { ConversationsTab } from "@/components/conversations/conversations-tab";
+import { CopyEmailButton } from "@/components/copy-email-button";
 import { BusinessRulesSummary } from "@/components/business-rules-summary";
 import { CreditsControl } from "@/components/credits-control";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
@@ -277,9 +278,12 @@ export async function UserHubPage({
             </div>
           )}
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-bold text-foreground">
-              {profile.email}
-            </h1>
+            <div className="flex min-w-0 items-center gap-1">
+              <h1 className="min-w-0 truncate text-2xl font-bold text-foreground">
+                {profile.email}
+              </h1>
+              <CopyEmailButton email={profile.email} />
+            </div>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {profile.companyName && (
                 <Badge variant="secondary">{profile.companyName}</Badge>
