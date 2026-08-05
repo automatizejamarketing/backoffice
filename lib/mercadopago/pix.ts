@@ -13,7 +13,6 @@ import {
   type PlanType,
 } from "@/lib/db/schema";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
-import { ensurePixCopyPasteCode } from "@/lib/mercadopago/pix-payment";
 
 const PIX_LINK_VALIDITY_DAYS = 7;
 const PIX_AVAILABILITY_CACHE_MS = 60 * 60 * 1000;
@@ -22,7 +21,6 @@ let pixAvailabilityCheckedAt = 0;
 
 function getAccessToken(): string {
   const token =
-    process.env.MERCADOPAGO_SUBSCRIPTION_ACCESS_TOKEN ??
     process.env.MERCADOPAGO_ACCESS_TOKEN ??
     process.env.MERCADO_PAGO_ACCESS_TOKEN;
   if (!token) {
@@ -228,56 +226,7 @@ async function createPreference({
 
 export type BackofficePixLinkResult = MercadoPagoPaymentLink & {
   reused: boolean;
-  pixCopyPasteCode: string | null;
 };
-
-async function attachPixCopyPasteCode(
-  link: MercadoPagoPaymentLink,
-  email: string,
-  reused: boolean,
-): Promise<BackofficePixLinkResult> {
-  try {
-    const pixDetails = await ensurePixCopyPasteCode({
-      link,
-      email,
-      notificationUrl: getMercadoPagoWebhookUrl(),
-    });
-
-    if (pixDetails.paymentId !== link.mercadopagoPaymentId) {
-      const [updated] = await db
-        .update(mercadopagoPaymentLink)
-        .set({
-          mercadopagoPaymentId: pixDetails.paymentId,
-          updatedAt: new Date(),
-        })
-        .where(eq(mercadopagoPaymentLink.id, link.id))
-        .returning();
-
-      return {
-        ...(updated ?? link),
-        reused,
-        pixCopyPasteCode: pixDetails.pixCopyPasteCode,
-      };
-    }
-
-    return {
-      ...link,
-      reused,
-      pixCopyPasteCode: pixDetails.pixCopyPasteCode,
-    };
-  } catch (error) {
-    console.warn(
-      "Mercado Pago Pix copy-paste code unavailable; returning checkout link only.",
-      error,
-    );
-
-    return {
-      ...link,
-      reused,
-      pixCopyPasteCode: null,
-    };
-  }
-}
 
 export async function createOrReuseBackofficePixLink({
   userId,
@@ -325,13 +274,6 @@ export async function createOrReuseBackofficePixLink({
     .limit(1);
 
   if (existing) {
-    const [targetUser] = await db
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1);
-    if (!targetUser) throw new Error("Usuário não encontrado.");
-
     if (existing.adminEmail !== adminEmail) {
       const [updated] = await db
         .update(mercadopagoPaymentLink)
@@ -339,10 +281,10 @@ export async function createOrReuseBackofficePixLink({
         .where(eq(mercadopagoPaymentLink.id, existing.id))
         .returning();
 
-      return attachPixCopyPasteCode(updated ?? existing, targetUser.email, true);
+      return { ...(updated ?? existing), reused: true };
     }
 
-    return attachPixCopyPasteCode(existing, targetUser.email, true);
+    return { ...existing, reused: true };
   }
 
   const [targetUser] = await db
@@ -381,7 +323,7 @@ export async function createOrReuseBackofficePixLink({
     .returning();
 
   if (!created) throw new Error("Falha ao salvar link Pix.");
-  return attachPixCopyPasteCode(created, targetUser.email, false);
+  return { ...created, reused: false };
 }
 
 export async function sendBackofficePixLinkEmail({

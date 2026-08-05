@@ -70,7 +70,6 @@ export async function POST(
         currency: link.currency,
         preferenceId: link.preferenceId,
         initPoint: link.initPoint,
-        pixCopyPasteCode: link.pixCopyPasteCode,
         status: link.status,
         source: link.source,
         adminEmail: link.adminEmail,
@@ -79,7 +78,6 @@ export async function POST(
       },
       reused: link.reused,
       emailed: body.sendEmail === true,
-      pixCopyPasteUnavailable: !link.pixCopyPasteCode,
     });
   } catch (error) {
     const message =

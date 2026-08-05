@@ -46,17 +46,14 @@ function buildPixWhatsAppMessage(link: PixLinkView): string {
   const planName = PLAN_DEFINITIONS[link.planType].name;
   const amount = formatMoney(link.amount, link.currency);
   const expiresAt = formatDateTime(link.expiresAt);
-  const lines = [
+
+  return [
     `Olá! Segue o Pix para renovar seu plano ${planName} (${amount}):`,
-  ];
-
-  if (link.pixCopyPasteCode) {
-    lines.push("", "Código Pix (copia e cola):", link.pixCopyPasteCode);
-  }
-
-  lines.push("", "Ou pague pelo link:", link.initPoint, "", `Válido até ${expiresAt}.`);
-
-  return lines.join("\n");
+    "",
+    link.initPoint,
+    "",
+    `Válido até ${expiresAt}.`,
+  ].join("\n");
 }
 
 export function UserPixRenewalDialog({
@@ -107,7 +104,6 @@ export function UserPixRenewalDialog({
       const json = (await response.json()) as {
         link?: PixLinkView;
         reused?: boolean;
-        pixCopyPasteUnavailable?: boolean;
         error?: string;
       };
 
@@ -117,21 +113,9 @@ export function UserPixRenewalDialog({
 
       setLink(json.link);
       setReused(json.reused === true);
-      if (json.link.pixCopyPasteCode) {
-        toast.success(
-          json.reused ? "Link Pix reutilizado" : "Link Pix gerado com sucesso",
-        );
-      } else {
-        toast.success(
-          json.reused
-            ? "Link Pix reutilizado"
-            : "Link Pix gerado com sucesso",
-          {
-            description:
-              "Código copia e cola indisponível nesta conta MP. Use o link ou QR do checkout.",
-          },
-        );
-      }
+      toast.success(
+        json.reused ? "Link Pix reutilizado" : "Link Pix gerado com sucesso",
+      );
     } catch (error) {
       const message =
         error instanceof Error
@@ -154,17 +138,7 @@ export function UserPixRenewalDialog({
     }
   }
 
-  async function copyPixCode() {
-    if (!link?.pixCopyPasteCode) return;
-    try {
-      await navigator.clipboard.writeText(link.pixCopyPasteCode);
-      toast.success("Código Pix copiado");
-    } catch {
-      toast.error("Não foi possível copiar. Selecione o código manualmente.");
-    }
-  }
-
-  const qrCodeValue = link?.pixCopyPasteCode ?? link?.initPoint ?? "";
+  const qrCodeValue = link?.initPoint ?? "";
 
   const whatsappUrl =
     link && userPhone
@@ -193,9 +167,7 @@ export function UserPixRenewalDialog({
             <div className="flex flex-col items-center gap-3 rounded-lg border bg-white p-4">
               <QRCode value={qrCodeValue} size={192} />
               <p className="text-center text-xs text-muted-foreground">
-                {link.pixCopyPasteCode
-                  ? "Escaneie o QR code ou copie o código Pix abaixo"
-                  : "Escaneie para abrir o checkout Pix no Mercado Pago"}
+                Escaneie para abrir o checkout Pix no Mercado Pago
               </p>
             </div>
 
@@ -212,21 +184,6 @@ export function UserPixRenewalDialog({
                 {formatDateTime(link.expiresAt)}
               </p>
             </div>
-
-            {link.pixCopyPasteCode ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-foreground">
-                  Código Pix (copia e cola)
-                </p>
-                <textarea
-                  readOnly
-                  value={link.pixCopyPasteCode}
-                  onFocus={(event) => event.currentTarget.select()}
-                  className="min-h-24 w-full resize-none rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs"
-                  aria-label="Código Pix copia e cola"
-                />
-              </div>
-            ) : null}
 
             <div className="space-y-2">
               <p className="text-xs font-medium text-foreground">
@@ -283,17 +240,7 @@ export function UserPixRenewalDialog({
                   Abrir checkout
                 </a>
               </Button>
-              {link.pixCopyPasteCode ? (
-                <Button type="button" onClick={() => void copyPixCode()}>
-                  <Copy className="size-4" />
-                  Copiar código Pix
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant={link.pixCopyPasteCode ? "outline" : "default"}
-                onClick={() => void copyPixLink()}
-              >
+              <Button type="button" onClick={() => void copyPixLink()}>
                 <Copy className="size-4" />
                 Copiar link
               </Button>
