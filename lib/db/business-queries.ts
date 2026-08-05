@@ -323,13 +323,6 @@ export async function upsertManagedCampaignCache(data: {
   return row;
 }
 
-function pickRenewalDate(item: {
-  expirationDate: Date | null;
-  activeSubscription: Pick<Subscription, "currentPeriodEnd"> | null;
-}): Date | null {
-  return item.activeSubscription?.currentPeriodEnd ?? item.expirationDate;
-}
-
 function compareBusinessItems(
   a: BusinessPortfolioItem,
   b: BusinessPortfolioItem,
@@ -551,10 +544,10 @@ export async function getBusinessPortfolio(
     const metaInfo = metaByUser.get(row.userId);
     const campaignInfo = campaignByUser.get(row.userId);
     const expirationDate = asDate(row.expirationDate);
-    const renewalDate = pickRenewalDate({
-      expirationDate,
-      activeSubscription,
-    });
+    // users.expiration_date is the single business authority for access.
+    // Provider periods remain useful billing metadata, but must not replace it
+    // in operational health and renewal decisions.
+    const renewalDate = expirationDate;
 
     const health = evaluateBusinessHealth({
       referenceDate: new Date(),
