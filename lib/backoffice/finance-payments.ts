@@ -46,6 +46,11 @@ export function describeAutomatizePaymentSequence(paymentNumber: number): {
   };
 }
 
+export type ProductFinancialModel =
+  | "legacy_net_split"
+  | "platform_fee_coproduction"
+  | "platform_fee_coproduction_v2";
+
 export type FinanceProductPaymentRow = {
   id: string;
   orderId: string;
@@ -54,12 +59,21 @@ export type FinanceProductPaymentRow = {
   buyerEmail: string;
   approvedAt: Date | null;
   createdAt: Date;
+  provider: string;
   providerPaymentId: string | null;
+  paymentMethodId: string | null;
+  paymentTypeId: string | null;
   grossAmountCentavos: number | null;
   netAmountCentavos: number | null;
   feeAmountCentavos: number | null;
   priceCentavos: number;
   ownerType: ProductOwnerType;
+  financialModel: ProductFinancialModel;
+  platformFeeBasisPoints: number | null;
+  platformFeeGrossCentavos: number | null;
+  automatizeCoproductionRevenueCentavos: number | null;
+  automatizeProductRevenueCentavos: number | null;
+  automatizeTotalNetRevenueCentavos: number | null;
   expertShareBasisPoints: number;
   expertRevenueCentavos: number | null;
 };
@@ -69,6 +83,7 @@ export type FinanceProductPaymentAmounts = {
   feeCentavos: number | null;
   gatewayNetCentavos: number;
   expertRevenueCentavos: number;
+  platformFeeGrossCentavos: number | null;
   automatizeNetCentavos: number;
   revenueKind: "coproducao" | "taxa";
 };
@@ -230,6 +245,140 @@ export function summarizeAutomatizePayments(
   return summary;
 }
 
+function usesPlatformFeeFinancialModel(
+  financialModel: ProductFinancialModel,
+): boolean {
+  return (
+    financialModel === "platform_fee_coproduction" ||
+    financialModel === "platform_fee_coproduction_v2"
+  );
+}
+
+export function resolveProductPlatformFeeGrossCentavos(
+  payment: Pick<
+    FinanceProductPaymentRow,
+    | "grossAmountCentavos"
+    | "priceCentavos"
+    | "financialModel"
+    | "platformFeeBasisPoints"
+    | "platformFeeGrossCentavos"
+  >,
+): number | null {
+  if (!usesPlatformFeeFinancialModel(payment.financialModel)) {
+    return null;
+  }
+
+  if (payment.platformFeeGrossCentavos !== null) {
+    return payment.platformFeeGrossCentavos;
+  }
+
+  if (payment.platformFeeBasisPoints === null) {
+    return null;
+  }
+
+  const gross = payment.grossAmountCentavos ?? payment.priceCentavos ?? 0;
+  return Math.round((gross * payment.platformFeeBasisPoints) / 10_000);
+}
+
+export function describeProductPaymentProvider(
+  payment: Pick<
+    FinanceProductPaymentRow,
+    "provider" | "paymentMethodId" | "paymentTypeId" | "providerPaymentId"
+  >,
+): { methodLabel: string; referenceLabel: string | null } {
+  const isPix =
+    payment.paymentMethodId?.toLowerCase() === "pix" ||
+    payment.paymentTypeId?.toLowerCase() === "bank_transfer";
+
+  if (payment.provider === "stripe") {
+    return {
+      methodLabel: "Cartão",
+      referenceLabel: payment.providerPaymentId
+        ? `Stripe ${payment.providerPaymentId}`
+        : null,
+    };
+  }
+
+  if (payment.provider === "mercadopago" || isPix) {
+    return {
+      methodLabel: "PIX",
+      referenceLabel: payment.providerPaymentId
+        ? `MP ${payment.providerPaymentId}`
+        : null,
+    };
+  }
+
+  if (payment.paymentTypeId === "credit_card") {
+    return {
+      methodLabel: "Cartão",
+      referenceLabel: payment.providerPaymentId ?? null,
+    };
+  }
+
+  return {
+    methodLabel: payment.paymentMethodId ?? payment.provider ?? "—",
+    referenceLabel: payment.providerPaymentId,
+  };
+}
+
+export function resolveAutomatizeProductNetCentavos(
+  payment: Pick<
+    FinanceProductPaymentRow,
+    | "grossAmountCentavos"
+    | "priceCentavos"
+    | "feeAmountCentavos"
+    | "ownerType"
+    | "financialModel"
+    | "platformFeeBasisPoints"
+    | "platformFeeGrossCentavos"
+    | "automatizeCoproductionRevenueCentavos"
+    | "automatizeProductRevenueCentavos"
+    | "automatizeTotalNetRevenueCentavos"
+    | "expertShareBasisPoints"
+    | "expertRevenueCentavos"
+    | "netAmountCentavos"
+  >,
+  gatewayNet: number,
+): number {
+  if (payment.automatizeTotalNetRevenueCentavos !== null) {
+    return payment.automatizeTotalNetRevenueCentavos;
+  }
+
+  if (usesPlatformFeeFinancialModel(payment.financialModel)) {
+    const gross = payment.grossAmountCentavos ?? payment.priceCentavos ?? 0;
+    const platformFee =
+      payment.platformFeeGrossCentavos ??
+      (payment.platformFeeBasisPoints !== null
+        ? Math.round((gross * payment.platformFeeBasisPoints) / 10_000)
+        : 0);
+    const automatizeGross =
+      platformFee +
+      (payment.automatizeCoproductionRevenueCentavos ?? 0) +
+      (payment.automatizeProductRevenueCentavos ?? 0);
+
+    return automatizeGross - (payment.feeAmountCentavos ?? 0);
+  }
+
+  if (payment.ownerType === "automatize") {
+    return gatewayNet;
+  }
+
+  const derivedExpertRevenue =
+    payment.expertShareBasisPoints > 0
+      ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
+      : 0;
+  const ledgerExpertRevenue = payment.expertRevenueCentavos;
+  const expertRevenue =
+    ledgerExpertRevenue !== null && ledgerExpertRevenue <= gatewayNet
+      ? ledgerExpertRevenue
+      : derivedExpertRevenue;
+
+  return calculateAutomatizeNetRevenueCentavos(
+    gatewayNet,
+    Math.min(expertRevenue, gatewayNet),
+  );
+}
+
 export function resolveProductPaymentAmounts(
   payment: FinanceProductPaymentRow,
 ): FinanceProductPaymentAmounts {
@@ -249,19 +398,19 @@ export function resolveProductPaymentAmounts(
     ledgerExpertRevenue <= gatewayNet
       ? ledgerExpertRevenue
       : derivedExpertRevenue;
-  const automatizeNet =
-    revenueKind === "coproducao"
-      ? gatewayNet
-      : calculateAutomatizeNetRevenueCentavos(
-          gatewayNet,
-          Math.min(expertRevenue, gatewayNet),
-        );
+  const automatizeNet = resolveAutomatizeProductNetCentavos(
+    payment,
+    gatewayNet,
+  );
+  const platformFeeGrossCentavos =
+    resolveProductPlatformFeeGrossCentavos(payment);
 
   return {
     grossCentavos: gross,
     feeCentavos: fee,
     gatewayNetCentavos: gatewayNet,
     expertRevenueCentavos: expertRevenue,
+    platformFeeGrossCentavos,
     automatizeNetCentavos: automatizeNet,
     revenueKind,
   };

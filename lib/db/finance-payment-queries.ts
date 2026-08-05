@@ -104,12 +104,24 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       buyerEmail: productOrder.buyerEmail,
       approvedAt: productOrder.approvedAt,
       createdAt: productOrder.createdAt,
+      provider: productPayment.provider,
       providerPaymentId: productPayment.providerPaymentId,
+      paymentMethodId: productPayment.paymentMethodId,
+      paymentTypeId: productPayment.paymentTypeId,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,
       priceCentavos: productOrder.priceCentavos,
       ownerType: product.ownerType,
+      financialModel: productOrder.financialModel,
+      platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
+      platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
+      automatizeCoproductionRevenueCentavos:
+        productPayment.automatizeCoproductionRevenueCentavos,
+      automatizeProductRevenueCentavos:
+        productPayment.automatizeProductRevenueCentavos,
+      automatizeTotalNetRevenueCentavos:
+        productPayment.automatizeTotalNetRevenueCentavos,
       expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
       expertRevenueCentavos: sql<number>`(
           select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer

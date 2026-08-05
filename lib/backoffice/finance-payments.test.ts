@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   describeAutomatizePaymentSequence,
+  describeProductPaymentProvider,
   resolveAutomatizePaymentAmounts,
   resolveProductPaymentAmounts,
   summarizeAutomatizePayments,
@@ -25,6 +26,33 @@ const automatizePaymentFixture = {
   mercadopagoPaymentId: null,
   description: null,
   paymentNumber: 1,
+};
+
+const productPaymentFixture = {
+  id: "pp1",
+  orderId: "o1",
+  productTitle: "Curso expert",
+  buyerName: "Maria",
+  buyerEmail: "maria@example.com",
+  approvedAt: new Date("2026-08-02T12:00:00Z"),
+  createdAt: new Date("2026-08-02T11:00:00Z"),
+  provider: "mercadopago",
+  providerPaymentId: "123",
+  paymentMethodId: null,
+  paymentTypeId: null,
+  grossAmountCentavos: 20000,
+  netAmountCentavos: 19000,
+  feeAmountCentavos: 1000,
+  priceCentavos: 20000,
+  ownerType: "expert" as const,
+  financialModel: "legacy_net_split" as const,
+  platformFeeBasisPoints: null,
+  platformFeeGrossCentavos: null,
+  automatizeCoproductionRevenueCentavos: null,
+  automatizeProductRevenueCentavos: null,
+  automatizeTotalNetRevenueCentavos: null,
+  expertShareBasisPoints: 9000,
+  expertRevenueCentavos: 17100,
 };
 
 describe("finance payments summaries", () => {
@@ -106,25 +134,7 @@ describe("finance payments summaries", () => {
   });
 
   test("summarizes product payments using automatize net after expert share", () => {
-    const summary = summarizeProductPayments([
-      {
-        id: "pp1",
-        orderId: "o1",
-        productTitle: "Curso expert",
-        buyerName: "Maria",
-        buyerEmail: "maria@example.com",
-        approvedAt: new Date("2026-08-02T12:00:00Z"),
-        createdAt: new Date("2026-08-02T11:00:00Z"),
-        providerPaymentId: "123",
-        grossAmountCentavos: 20000,
-        netAmountCentavos: 19000,
-        feeAmountCentavos: 1000,
-        priceCentavos: 20000,
-        ownerType: "expert",
-        expertShareBasisPoints: 9000,
-        expertRevenueCentavos: 17100,
-      },
-    ]);
+    const summary = summarizeProductPayments([productPaymentFixture]);
 
     expect(summary.count).toBe(1);
     expect(summary.grossCentavos).toBe(20000);
@@ -133,13 +143,12 @@ describe("finance payments summaries", () => {
 
   test("keeps full gateway net for automatize-owned products", () => {
     const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
       id: "pp2",
       orderId: "o2",
       productTitle: "Curso Automatize",
       buyerName: "João",
       buyerEmail: "joao@example.com",
-      approvedAt: new Date("2026-08-02T12:00:00Z"),
-      createdAt: new Date("2026-08-02T11:00:00Z"),
       providerPaymentId: "456",
       grossAmountCentavos: 10000,
       netAmountCentavos: 9500,
@@ -156,13 +165,12 @@ describe("finance payments summaries", () => {
 
   test("ignores expert ledger when automatize owns the product", () => {
     const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
       id: "pp4",
       orderId: "o4",
       productTitle: "Coprodução Automatize",
       buyerName: "Luiza",
       buyerEmail: "luiza@example.com",
-      approvedAt: new Date("2026-08-02T12:00:00Z"),
-      createdAt: new Date("2026-08-02T11:00:00Z"),
       providerPaymentId: "999",
       grossAmountCentavos: 10000,
       netAmountCentavos: 9500,
@@ -179,19 +187,17 @@ describe("finance payments summaries", () => {
 
   test("falls back to basis points when ledger exceeds gateway net", () => {
     const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
       id: "pp5",
       orderId: "o5",
       productTitle: "Curso expert",
       buyerName: "Pedro",
       buyerEmail: "pedro@example.com",
-      approvedAt: new Date("2026-08-02T12:00:00Z"),
-      createdAt: new Date("2026-08-02T11:00:00Z"),
       providerPaymentId: "1000",
       grossAmountCentavos: 8799,
       netAmountCentavos: 8614,
       feeAmountCentavos: 185,
       priceCentavos: 8799,
-      ownerType: "expert",
       expertShareBasisPoints: 9500,
       expertRevenueCentavos: 9000,
     });
@@ -202,19 +208,17 @@ describe("finance payments summaries", () => {
 
   test("derives expert share from basis points when ledger is missing", () => {
     const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
       id: "pp3",
       orderId: "o3",
       productTitle: "Curso expert",
       buyerName: "Ana",
       buyerEmail: "ana@example.com",
-      approvedAt: new Date("2026-08-02T12:00:00Z"),
-      createdAt: new Date("2026-08-02T11:00:00Z"),
       providerPaymentId: "789",
       grossAmountCentavos: 8799,
       netAmountCentavos: 8614,
       feeAmountCentavos: 185,
       priceCentavos: 8799,
-      ownerType: "expert",
       expertShareBasisPoints: 9500,
       expertRevenueCentavos: null,
     });
@@ -222,6 +226,45 @@ describe("finance payments summaries", () => {
     expect(amounts.revenueKind).toBe("taxa");
     expect(amounts.expertRevenueCentavos).toBe(8183);
     expect(amounts.automatizeNetCentavos).toBe(431);
+  });
+
+  test("uses platform fee net for v2 expert products instead of legacy split", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
+      id: "pp6",
+      orderId: "o6",
+      productTitle: "Produto do JP",
+      buyerName: "Cliente",
+      buyerEmail: "cliente@example.com",
+      providerPaymentId: "2000",
+      grossAmountCentavos: 1000,
+      netAmountCentavos: 921,
+      feeAmountCentavos: 79,
+      priceCentavos: 1000,
+      financialModel: "platform_fee_coproduction_v2",
+      platformFeeBasisPoints: 500,
+      platformFeeGrossCentavos: 50,
+      automatizeTotalNetRevenueCentavos: -29,
+      expertShareBasisPoints: 10000,
+      expertRevenueCentavos: 950,
+    });
+
+    expect(amounts.automatizeNetCentavos).toBe(-29);
+    expect(amounts.platformFeeGrossCentavos).toBe(50);
+  });
+
+  test("labels stripe product payments as card with stripe reference", () => {
+    expect(
+      describeProductPaymentProvider({
+        provider: "stripe",
+        paymentMethodId: "card",
+        paymentTypeId: null,
+        providerPaymentId: "pi_123",
+      }),
+    ).toEqual({
+      methodLabel: "Cartão",
+      referenceLabel: "Stripe pi_123",
+    });
   });
 
   test("resolves manual automatize payments without fee as full net", () => {

@@ -12,6 +12,7 @@ import {
   resolveAutomatizePaymentAmounts,
   resolveProductPaymentAmounts,
   describeAutomatizePaymentSequence,
+  describeProductPaymentProvider,
   type FinanceAutomatizePaymentRow,
   type FinancePaymentsNetBreakdown,
   type FinancePaymentsSummary,
@@ -295,8 +296,11 @@ function ProductPaymentsTable({
           <TableHead>Produto</TableHead>
           <TableHead>Comprador</TableHead>
           <TableHead>Receita</TableHead>
-          <TableHead>Pagamento</TableHead>
+          <TableHead>Meio</TableHead>
+          <TableHead>Referência</TableHead>
           <TableHead className="text-right">Bruto</TableHead>
+          <TableHead className="text-right">Taxa gateway</TableHead>
+          <TableHead className="text-right">Taxa Automatize</TableHead>
           <TableHead className="text-right">{PRODUCT_NET_LABEL}</TableHead>
         </TableRow>
       </TableHeader>
@@ -304,7 +308,7 @@ function ProductPaymentsTable({
         {payments.length === 0 ? (
           <TableRow>
             <TableCell
-              colSpan={7}
+              colSpan={10}
               className="h-28 text-center text-muted-foreground"
             >
               Nenhuma venda aprovada neste período.
@@ -313,6 +317,7 @@ function ProductPaymentsTable({
         ) : (
           payments.map((payment) => {
             const amounts = resolveProductPaymentAmounts(payment);
+            const provider = describeProductPaymentProvider(payment);
 
             return (
               <TableRow key={payment.id}>
@@ -333,13 +338,24 @@ function ProductPaymentsTable({
                       : "Taxa plataforma"}
                   </Badge>
                 </TableCell>
-                <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                  {payment.providerPaymentId
-                    ? `MP ${payment.providerPaymentId}`
-                    : "—"}
+                <TableCell>
+                  <Badge variant="outline">{provider.methodLabel}</Badge>
+                </TableCell>
+                <TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">
+                  {provider.referenceLabel ?? "—"}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                   {formatBRLFromCentavos(amounts.grossCentavos)}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                  {amounts.feeCentavos !== null
+                    ? formatBRLFromCentavos(amounts.feeCentavos)
+                    : "—"}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                  {amounts.platformFeeGrossCentavos !== null
+                    ? formatBRLFromCentavos(amounts.platformFeeGrossCentavos)
+                    : "—"}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                   {formatBRLFromCentavos(amounts.automatizeNetCentavos)}
