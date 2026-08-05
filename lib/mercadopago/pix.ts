@@ -12,22 +12,11 @@ import {
   type MercadoPagoPaymentLink,
   type PlanType,
 } from "@/lib/db/schema";
+import { ensurePixCopyPasteCode } from "@/lib/mercadopago/pix-payment";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 
 const PIX_LINK_VALIDITY_DAYS = 7;
-const PIX_AVAILABILITY_CACHE_MS = 60 * 60 * 1000;
 const resend = new Resend(process.env.RESEND_API_KEY);
-let pixAvailabilityCheckedAt = 0;
-
-function getAccessToken(): string {
-  const token =
-    process.env.MERCADOPAGO_ACCESS_TOKEN ??
-    process.env.MERCADO_PAGO_ACCESS_TOKEN;
-  if (!token) {
-    throw new Error("MERCADOPAGO_ACCESS_TOKEN is not configured");
-  }
-  return token;
-}
 
 function getFrontendAppUrl(): string {
   return (
@@ -50,12 +39,6 @@ function getMercadoPagoWebhookUrl(): string {
   return `${getFrontendAppUrl()}/api/mercadopago/webhook`;
 }
 
-function getCheckoutReturnBaseUrl(): string {
-  return (
-    process.env.MERCADOPAGO_CHECKOUT_RETURN_BASE_URL ?? getFrontendAppUrl()
-  ).replace(/\/$/, "");
-}
-
 function getFromAddress(): string {
   const configured = process.env.RESEND_FROM_EMAIL;
   if (configured) return configured;
@@ -68,8 +51,6 @@ function getFromAddress(): string {
 }
 
 function getPixPlanAmountCentavos(planType: PlanType): number {
-  // Business rule: the reduced Pix amount is only a local developer shortcut.
-  // Preview/staging/production must always charge the real plan commitment.
   if (process.env.NODE_ENV === "development") {
     const testAmount = Number(process.env.MERCADOPAGO_PIX_TEST_AMOUNT_CENTAVOS);
     if (Number.isInteger(testAmount) && testAmount > 0) return testAmount;
@@ -82,151 +63,44 @@ function getPixCommitmentMonths(planType: PlanType): 1 | 3 | 6 | 12 {
   return getCommitmentMonths(planType);
 }
 
-function toBRLUnitAmount(amountCentavos: number): number {
-  return Number((amountCentavos / 100).toFixed(2));
-}
-
-async function assertPixAvailable(): Promise<void> {
-  const now = Date.now();
-  if (now - pixAvailabilityCheckedAt < PIX_AVAILABILITY_CACHE_MS) return;
-
-  const response = await fetch(
-    "https://api.mercadopago.com/v1/payment_methods",
-    {
-      headers: {
-        Authorization: `Bearer ${getAccessToken()}`,
-        "Content-Type": "application/json",
-      },
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  const methods = (await response.json()) as Array<{
-    id?: string;
-    payment_type_id?: string;
-    status?: string;
-  }>;
-  const pixAvailable = methods.some(
-    (method) =>
-      method.status === "active" &&
-      (method.id === "pix" || method.payment_type_id === "bank_transfer"),
-  );
-
-  if (!pixAvailable) {
-    throw new Error(
-      "Pix is not enabled for this Mercado Pago account. Register a Pix key or use credentials from an account with Pix enabled.",
-    );
-  }
-
-  pixAvailabilityCheckedAt = now;
-}
-
-async function createPreference({
-  linkId,
-  userId,
-  email,
-  planType,
-  amountCentavos,
-  expiresAt,
-}: {
-  linkId: string;
-  userId: string;
-  email: string;
-  planType: PlanType;
-  amountCentavos: number;
-  expiresAt: Date;
-}): Promise<{ preferenceId: string; initPoint: string }> {
-  await assertPixAvailable();
-
-  const returnUrl = getCheckoutReturnBaseUrl();
-  const response = await fetch(
-    "https://api.mercadopago.com/checkout/preferences",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getAccessToken()}`,
-        "Content-Type": "application/json",
-        "X-Idempotency-Key": linkId,
-      },
-      body: JSON.stringify({
-        items: [
-          {
-            id: `automatize-${planType}`,
-            title: `Automatize ${PLAN_DEFINITIONS[planType].name}`,
-            quantity: 1,
-            unit_price: toBRLUnitAmount(amountCentavos),
-            currency_id: "BRL",
-          },
-        ],
-        payer: { email },
-        external_reference: linkId,
-        notification_url: getMercadoPagoWebhookUrl(),
-        date_of_expiration: expiresAt.toISOString(),
-        back_urls: {
-          success: `${returnUrl}/app/assinatura?pix_status=success`,
-          failure: `${returnUrl}/app/assinatura?pix_status=failure`,
-          pending: `${returnUrl}/app/assinatura?pix_status=pending`,
-        },
-        auto_return: "approved",
-        metadata: {
-          payment_link_id: linkId,
-          user_id: userId,
-          plan_type: planType,
-          amount_centavos: amountCentavos,
-          source: "backoffice",
-        },
-        payment_methods: {
-          excluded_payment_methods: [
-            { id: "visa" },
-            { id: "master" },
-            { id: "amex" },
-            { id: "elo" },
-            { id: "hipercard" },
-            { id: "debvisa" },
-            { id: "debmaster" },
-            { id: "bolbradesco" },
-            { id: "pec" },
-            { id: "debelo" },
-            { id: "atm" },
-            { id: "paypalec" },
-          ],
-          excluded_payment_types: [
-            { id: "ticket" },
-            { id: "atm" },
-            { id: "credit_card" },
-            { id: "debit_card" },
-            { id: "paypalec" },
-          ],
-          default_payment_method_id: "pix",
-          installments: 1,
-        },
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  const preference = (await response.json()) as {
-    id?: string;
-    init_point?: string;
-    sandbox_init_point?: string;
-  };
-  const preferenceId = preference.id;
-  const initPoint = preference.init_point ?? preference.sandbox_init_point;
-  if (!preferenceId || !initPoint) {
-    throw new Error("Mercado Pago preference response is missing checkout URL");
-  }
-  return { preferenceId, initPoint };
-}
-
 export type BackofficePixLinkResult = MercadoPagoPaymentLink & {
   reused: boolean;
+  pixCopyPasteCode: string;
 };
+
+async function resolvePixCopyPasteCode(
+  link: MercadoPagoPaymentLink,
+  email: string,
+): Promise<{ link: MercadoPagoPaymentLink; pixCopyPasteCode: string }> {
+  const pixDetails = await ensurePixCopyPasteCode({
+    link,
+    email,
+    notificationUrl: getMercadoPagoWebhookUrl(),
+  });
+
+  if (pixDetails.paymentId !== link.mercadopagoPaymentId) {
+    const [updated] = await db
+      .update(mercadopagoPaymentLink)
+      .set({
+        mercadopagoPaymentId: pixDetails.paymentId,
+        preferenceId: pixDetails.paymentId,
+        initPoint: pixDetails.pixCopyPasteCode,
+        updatedAt: new Date(),
+      })
+      .where(eq(mercadopagoPaymentLink.id, link.id))
+      .returning();
+
+    return {
+      link: updated ?? link,
+      pixCopyPasteCode: pixDetails.pixCopyPasteCode,
+    };
+  }
+
+  return {
+    link,
+    pixCopyPasteCode: pixDetails.pixCopyPasteCode,
+  };
+}
 
 export async function createOrReuseBackofficePixLink({
   userId,
@@ -256,6 +130,13 @@ export async function createOrReuseBackofficePixLink({
     throw new Error("Usuário tem assinatura Stripe ativa.");
   }
 
+  const [targetUser] = await db
+    .select({ id: user.id, email: user.email })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (!targetUser) throw new Error("Usuário não encontrado.");
+
   const amount = getPixPlanAmountCentavos(planType);
   const now = new Date();
   const [existing] = await db
@@ -281,29 +162,19 @@ export async function createOrReuseBackofficePixLink({
         .where(eq(mercadopagoPaymentLink.id, existing.id))
         .returning();
 
-      return { ...(updated ?? existing), reused: true };
+      const resolved = await resolvePixCopyPasteCode(
+        updated ?? existing,
+        targetUser.email,
+      );
+      return { ...resolved.link, reused: true, pixCopyPasteCode: resolved.pixCopyPasteCode };
     }
 
-    return { ...existing, reused: true };
+    const resolved = await resolvePixCopyPasteCode(existing, targetUser.email);
+    return { ...resolved.link, reused: true, pixCopyPasteCode: resolved.pixCopyPasteCode };
   }
-
-  const [targetUser] = await db
-    .select({ id: user.id, email: user.email })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  if (!targetUser) throw new Error("Usuário não encontrado.");
 
   const id = randomUUID();
   const expiresAt = addDays(now, PIX_LINK_VALIDITY_DAYS);
-  const preference = await createPreference({
-    linkId: id,
-    userId,
-    email: targetUser.email,
-    planType,
-    amountCentavos: amount,
-    expiresAt,
-  });
 
   const [created] = await db
     .insert(mercadopagoPaymentLink)
@@ -313,8 +184,8 @@ export async function createOrReuseBackofficePixLink({
       planType,
       amount,
       currency: "brl",
-      preferenceId: preference.preferenceId,
-      initPoint: preference.initPoint,
+      preferenceId: id,
+      initPoint: "",
       status: "pending",
       source: "backoffice",
       adminEmail,
@@ -322,18 +193,26 @@ export async function createOrReuseBackofficePixLink({
     })
     .returning();
 
-  if (!created) throw new Error("Falha ao salvar link Pix.");
-  return { ...created, reused: false };
+  if (!created) throw new Error("Falha ao salvar Pix.");
+
+  const resolved = await resolvePixCopyPasteCode(created, targetUser.email);
+  return {
+    ...resolved.link,
+    reused: false,
+    pixCopyPasteCode: resolved.pixCopyPasteCode,
+  };
 }
 
 export async function sendBackofficePixLinkEmail({
   to,
   name,
   link,
+  pixCopyPasteCode,
 }: {
   to: string;
   name: string;
   link: MercadoPagoPaymentLink;
+  pixCopyPasteCode: string;
 }) {
   const plan = PLAN_DEFINITIONS[link.planType];
   const months = getPixCommitmentMonths(link.planType);
@@ -348,17 +227,17 @@ export async function sendBackofficePixLinkEmail({
     {
       from: getFromAddress(),
       to: [to],
-      subject: `Link Pix para assinar ${plan.name}`,
+      subject: `Pix para renovar ${plan.name}`,
       html: `
         <div style="font-family:Arial,sans-serif;line-height:1.5;color:#111">
           <p>Olá, ${name}.</p>
-          <p>Segue o link para pagar o plano <strong>${plan.name}</strong> via Pix pelo Mercado Pago.</p>
+          <p>Segue o Pix para pagar o plano <strong>${plan.name}</strong>.</p>
           <p>Período contratado: ${months} ${months === 1 ? "mês" : "meses"}.</p>
-          <p><a href="${link.initPoint}" style="display:inline-block;background:#4C49BE;color:#fff;padding:12px 18px;border-radius:8px;text-decoration:none">Pagar com Pix</a></p>
-          <p style="font-size:12px;color:#666">O link vence em ${expiresAt}.</p>
+          <p style="font-family:monospace;font-size:12px;word-break:break-all;background:#f4f4f5;padding:12px;border-radius:8px">${pixCopyPasteCode}</p>
+          <p style="font-size:12px;color:#666">O Pix vence em ${expiresAt}.</p>
         </div>
       `,
-      text: `Olá, ${name}. Pague o plano ${plan.name} via Pix pelo Mercado Pago: ${link.initPoint}. O link vence em ${expiresAt}.`,
+      text: `Olá, ${name}. Pix para ${plan.name}:\n\n${pixCopyPasteCode}\n\nVálido até ${expiresAt}.`,
     },
     { idempotencyKey: `backoffice-pix-link:${link.id}` },
   );

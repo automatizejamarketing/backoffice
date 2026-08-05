@@ -56,6 +56,7 @@ export async function POST(
         to: targetUser.email,
         name: targetUser.name ?? targetUser.email,
         link,
+        pixCopyPasteCode: link.pixCopyPasteCode,
       });
     }
 
@@ -70,6 +71,8 @@ export async function POST(
         currency: link.currency,
         preferenceId: link.preferenceId,
         initPoint: link.initPoint,
+        pixCopyPasteCode: link.pixCopyPasteCode,
+        mercadopagoPaymentId: link.mercadopagoPaymentId,
         status: link.status,
         source: link.source,
         adminEmail: link.adminEmail,

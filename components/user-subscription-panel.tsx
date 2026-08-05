@@ -174,6 +174,10 @@ export function UserSubscriptionPanel({
     currency: link.currency,
     preferenceId: link.preferenceId,
     initPoint: link.initPoint,
+    pixCopyPasteCode: link.initPoint.startsWith("000201")
+      ? link.initPoint
+      : undefined,
+    mercadopagoPaymentId: link.mercadopagoPaymentId,
     status: link.status,
     source: link.source,
     adminEmail: link.adminEmail,

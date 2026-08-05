@@ -23,6 +23,8 @@ export type PixLinkView = {
   currency: string;
   preferenceId: string;
   initPoint: string;
+  pixCopyPasteCode?: string;
+  mercadopagoPaymentId?: string | null;
   status: string;
   source: string;
   adminEmail: string | null;
@@ -85,12 +87,14 @@ export function MercadoPagoPixActions({
       router.refresh();
 
       if (sendEmail) {
-        toast.success(json.reused ? "Link Pix reenviado" : "Link Pix enviado");
+        toast.success(json.reused ? "Pix reenviado" : "Pix enviado");
       } else {
-        await navigator.clipboard.writeText(link.initPoint);
-        toast.success(
-          json.reused ? "Link Pix copiado" : "Link Pix criado e copiado",
-        );
+        const code = link.pixCopyPasteCode?.trim();
+        if (!code) {
+          throw new Error("Pix sem código copia e cola. Gere novamente.");
+        }
+        await navigator.clipboard.writeText(code);
+        toast.success(json.reused ? "Pix copiado" : "Pix criado e copiado");
       }
     } catch (error) {
       toast.error(
@@ -102,8 +106,13 @@ export function MercadoPagoPixActions({
   }
 
   async function copyExisting(link: PixLinkView) {
-    await navigator.clipboard.writeText(link.initPoint);
-    toast.success("Link Pix copiado");
+    const code = link.pixCopyPasteCode?.trim();
+    if (!code) {
+      toast.error("Gere um Pix novo para copiar o código.");
+      return;
+    }
+    await navigator.clipboard.writeText(code);
+    toast.success("Código Pix copiado");
   }
 
   return (

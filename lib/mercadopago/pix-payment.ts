@@ -22,7 +22,6 @@ export type PixCopyPasteDetails = {
 
 function getPixPaymentAccessToken(): string {
   const token =
-    process.env.MERCADOPAGO_SUBSCRIPTION_ACCESS_TOKEN ??
     process.env.MERCADOPAGO_ACCESS_TOKEN ??
     process.env.MERCADO_PAGO_ACCESS_TOKEN;
   if (!token) {

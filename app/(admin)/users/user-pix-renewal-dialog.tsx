@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, Loader2 } from "lucide-react";
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
 import type { PixLinkView } from "@/components/mercadopago-pix-actions";
@@ -17,7 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -46,11 +45,12 @@ function buildPixWhatsAppMessage(link: PixLinkView): string {
   const planName = PLAN_DEFINITIONS[link.planType].name;
   const amount = formatMoney(link.amount, link.currency);
   const expiresAt = formatDateTime(link.expiresAt);
+  const code = link.pixCopyPasteCode ?? "";
 
   return [
     `Olá! Segue o Pix para renovar seu plano ${planName} (${amount}):`,
     "",
-    link.initPoint,
+    code,
     "",
     `Válido até ${expiresAt}.`,
   ].join("\n");
@@ -92,7 +92,7 @@ export function UserPixRenewalDialog({
     setPlanType(currentPlanType ?? "monthly_pro");
   }, [open, currentPlanType]);
 
-  async function generatePixLink() {
+  async function generatePix() {
     setIsGenerating(true);
     setErrorMessage(null);
     try {
@@ -107,15 +107,13 @@ export function UserPixRenewalDialog({
         error?: string;
       };
 
-      if (!response.ok || !json.link) {
-        throw new Error(json.error ?? "Falha ao gerar link Pix");
+      if (!response.ok || !json.link?.pixCopyPasteCode) {
+        throw new Error(json.error ?? "Falha ao gerar Pix");
       }
 
       setLink(json.link);
       setReused(json.reused === true);
-      toast.success(
-        json.reused ? "Link Pix reutilizado" : "Link Pix gerado com sucesso",
-      );
+      toast.success(json.reused ? "Pix reutilizado" : "Pix gerado");
     } catch (error) {
       const message =
         error instanceof Error
@@ -128,17 +126,15 @@ export function UserPixRenewalDialog({
     }
   }
 
-  async function copyPixLink() {
-    if (!link) return;
+  async function copyPixCode() {
+    if (!link?.pixCopyPasteCode) return;
     try {
-      await navigator.clipboard.writeText(link.initPoint);
-      toast.success("Link copiado");
+      await navigator.clipboard.writeText(link.pixCopyPasteCode);
+      toast.success("Código Pix copiado");
     } catch {
-      toast.error("Não foi possível copiar. Selecione o link manualmente.");
+      toast.error("Não foi possível copiar. Selecione o código manualmente.");
     }
   }
-
-  const qrCodeValue = link?.initPoint ?? "";
 
   const whatsappUrl =
     link && userPhone
@@ -151,8 +147,8 @@ export function UserPixRenewalDialog({
         <DialogHeader>
           <DialogTitle>Pix para renovação</DialogTitle>
           <DialogDescription>
-            Gere o checkout Pix do Mercado Pago para {userEmail}. Envie o link
-            ou o QR code para o cliente concluir o pagamento.
+            Gere um Pix único para {userEmail}. O cliente paga escaneando o QR
+            ou colando o código no app do banco.
           </DialogDescription>
         </DialogHeader>
 
@@ -162,12 +158,12 @@ export function UserPixRenewalDialog({
           <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {errorMessage}
           </p>
-        ) : link ? (
+        ) : link?.pixCopyPasteCode ? (
           <div className="space-y-4">
             <div className="flex flex-col items-center gap-3 rounded-lg border bg-white p-4">
-              <QRCode value={qrCodeValue} size={192} />
+              <QRCode value={link.pixCopyPasteCode} size={192} />
               <p className="text-center text-xs text-muted-foreground">
-                Escaneie para abrir o checkout Pix no Mercado Pago
+                Escaneie ou copie o código Pix abaixo
               </p>
             </div>
 
@@ -187,14 +183,14 @@ export function UserPixRenewalDialog({
 
             <div className="space-y-2">
               <p className="text-xs font-medium text-foreground">
-                Link do checkout
+                Pix copia e cola
               </p>
-              <Input
+              <textarea
                 readOnly
-                value={link.initPoint}
+                value={link.pixCopyPasteCode}
                 onFocus={(event) => event.currentTarget.select()}
-                className="font-mono text-xs"
-                aria-label="Link Pix do Mercado Pago"
+                className="min-h-24 w-full resize-none rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs"
+                aria-label="Código Pix copia e cola"
               />
             </div>
           </div>
@@ -220,10 +216,14 @@ export function UserPixRenewalDialog({
         )}
 
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
-          {link ? (
+          {link?.pixCopyPasteCode ? (
             <>
               {whatsappUrl ? (
-                <Button type="button" asChild className="bg-[#25D366] hover:bg-[#20bd5a]">
+                <Button
+                  type="button"
+                  asChild
+                  className="bg-[#25D366] hover:bg-[#20bd5a]"
+                >
                   <a
                     href={whatsappUrl}
                     target="_blank"
@@ -234,15 +234,9 @@ export function UserPixRenewalDialog({
                   </a>
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" asChild>
-                <a href={link.initPoint} target="_blank" rel="noreferrer">
-                  <ExternalLink className="size-4" />
-                  Abrir checkout
-                </a>
-              </Button>
-              <Button type="button" onClick={() => void copyPixLink()}>
+              <Button type="button" onClick={() => void copyPixCode()}>
                 <Copy className="size-4" />
-                Copiar link
+                Copiar código Pix
               </Button>
             </>
           ) : (
@@ -257,7 +251,7 @@ export function UserPixRenewalDialog({
               </Button>
               <Button
                 type="button"
-                onClick={() => void generatePixLink()}
+                onClick={() => void generatePix()}
                 disabled={!!disabledReason || isGenerating}
               >
                 {isGenerating ? (
