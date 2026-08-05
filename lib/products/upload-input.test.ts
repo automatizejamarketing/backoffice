@@ -24,6 +24,30 @@ describe("product upload input", () => {
     );
   });
 
+  it("accepts a raster expert profile image", () => {
+    const input = parseProductUploadInput({
+      kind: "expert-avatar",
+      filename: "Foto do expert.jpg",
+      contentType: "image/jpeg",
+      size: 320_000,
+    });
+
+    assert.deepEqual(input, {
+      kind: "expert-avatar",
+      filename: "Foto do expert.jpg",
+      contentType: "image/jpeg",
+      size: 320_000,
+      productId: null,
+    });
+    assert.equal(
+      createProductAssetObjectKey(
+        input,
+        "00000000-0000-4000-8000-000000000002",
+      ),
+      "r2/expert-avatars/00000000-0000-4000-8000-000000000002-foto-do-expert.jpg",
+    );
+  });
+
   it("requires the product id for private content", () => {
     assert.throws(
       () =>

@@ -3,6 +3,7 @@ import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { productExistsAdmin } from "@/lib/db/product-queries";
 import {
   createProductAssetObjectKey,
+  getExpertAvatarAssetUrl,
   getProductCoverAssetUrl,
   parseProductUploadInput,
 } from "@/lib/products/upload-input";
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     }
     const objectKey = createProductAssetObjectKey(input, crypto.randomUUID());
     const cacheControl =
-      input.kind === "cover"
+      input.kind === "cover" || input.kind === "expert-avatar"
         ? "public, max-age=31536000, immutable"
         : "private, no-store";
     const uploadUrl = await createProductAssetUploadUrl({
@@ -35,7 +36,11 @@ export async function POST(request: Request) {
       uploadUrl,
       objectKey,
       assetUrl:
-        input.kind === "cover" ? getProductCoverAssetUrl(objectKey) : null,
+        input.kind === "cover"
+          ? getProductCoverAssetUrl(objectKey)
+          : input.kind === "expert-avatar"
+            ? getExpertAvatarAssetUrl(objectKey)
+            : null,
       headers: {
         "content-type": input.contentType,
         "cache-control": cacheControl,
