@@ -1,21 +1,8 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
-import type {
-  DashboardDatePreset,
-  DashboardDateWindow,
-} from "@/lib/backoffice/dashboard-date-range";
+import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import { useDashboardNavigation } from "./dashboard-navigation-feedback";
-
-const presets: Array<{
-  value: Exclude<DashboardDatePreset, "custom">;
-  label: string;
-}> = [
-  { value: "this_month", label: "Este mês" },
-  { value: "last_30_days", label: "Últimos 30 dias" },
-  { value: "last_month", label: "Mês passado" },
-];
 
 function parseCalendarDate(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
@@ -38,44 +25,16 @@ export function DashboardDateFilter({
 }) {
   const { navigate } = useDashboardNavigation();
 
-  function applyPreset(preset: Exclude<DashboardDatePreset, "custom">) {
-    navigate(
-      preset === "last_30_days" ? basePath : `${basePath}?range=${preset}`,
-    );
-  }
-
   return (
-    <nav
-      aria-label="Período dos dados"
-      className="flex w-full flex-wrap items-center gap-1 rounded-lg border bg-muted/30 p-1 sm:w-fit"
-    >
-      {presets.map((preset) => (
-        <Button
-          key={preset.value}
-          type="button"
-          size="sm"
-          variant={window.preset === preset.value ? "secondary" : "ghost"}
-          className="h-8 px-3 text-xs shadow-none"
-          aria-pressed={window.preset === preset.value}
-          onClick={() => applyPreset(preset.value)}
-        >
-          {preset.label}
-        </Button>
-      ))}
+    <nav aria-label="Período dos dados" className="w-full sm:w-auto">
       <DateRangePicker
-        date={
-          window.preset === "custom"
-            ? {
-                from: parseCalendarDate(window.fromDate),
-                to: parseCalendarDate(window.throughDate),
-              }
-            : undefined
-        }
+        date={{
+          from: parseCalendarDate(window.fromDate),
+          to: parseCalendarDate(window.throughDate),
+        }}
         disabledAfter={new Date()}
-        placeholder="Personalizado"
-        active={window.preset === "custom"}
-        triggerVariant={window.preset === "custom" ? "secondary" : "ghost"}
-        className="h-8 max-w-56 px-3 text-xs shadow-none"
+        placeholder="Selecionar período"
+        className="h-9 w-full px-3 text-xs shadow-none sm:w-[220px]"
         onDateChange={({ from, to }) => {
           if (!from || !to) return;
           const params = new URLSearchParams({

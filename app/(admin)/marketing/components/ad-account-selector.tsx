@@ -46,7 +46,7 @@ export function AdAccountSelector({
         }
       }}
     >
-      <SelectTrigger className="w-full min-w-[200px] max-w-[400px] sm:min-w-[280px]">
+      <SelectTrigger className="w-full min-w-[200px] max-w-[400px] py-2 data-[size=default]:h-14 sm:min-w-[280px] [&>span]:line-clamp-none">
         {selectedAccount ? (
           // <div className="flex items-center gap-2 flex-1 min-w-0">
           //   {/* Rounded badge with initial (not circular) */}

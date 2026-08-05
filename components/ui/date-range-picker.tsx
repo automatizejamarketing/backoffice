@@ -1,7 +1,13 @@
 "use client";
 
 import { useMemo, useState, type ComponentProps } from "react";
-import { format, startOfMonth, subDays, subMonths } from "date-fns";
+import {
+  format,
+  isSameDay,
+  startOfMonth,
+  subDays,
+  subMonths,
+} from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import type { DateRange } from "react-day-picker";
@@ -46,22 +52,27 @@ export function DateRangePicker({
 
   const presets = useMemo<DatePreset[]>(() => {
     const today = disabledAfter;
-    const yesterday = subDays(today, 1);
 
     return [
-      { label: "Hoje", range: { from: today, to: today } },
-      { label: "Ontem", range: { from: yesterday, to: yesterday } },
       {
-        label: "Últimos 7 dias",
-        range: { from: subDays(today, 6), to: today },
+        label: "Este mês",
+        range: { from: startOfMonth(today), to: today },
       },
       {
         label: "Últimos 30 dias",
         range: { from: subDays(today, 29), to: today },
       },
       {
-        label: "Este mês",
-        range: { from: startOfMonth(today), to: today },
+        label: "Últimos 3 meses",
+        range: { from: subMonths(today, 3), to: today },
+      },
+      {
+        label: "Últimos 6 meses",
+        range: { from: subMonths(today, 6), to: today },
+      },
+      {
+        label: "Últimos 12 meses",
+        range: { from: subMonths(today, 12), to: today },
       },
       {
         label: "Mês passado",
@@ -85,6 +96,17 @@ export function DateRangePicker({
     if (!range?.from) return placeholder;
     if (!range.to) return format(range.from, "dd/MM/yy");
     return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
+  }
+
+  function isSelectedPreset(preset: DatePreset) {
+    return Boolean(
+      draftRange?.from &&
+        draftRange.to &&
+        preset.range.from &&
+        preset.range.to &&
+        isSameDay(draftRange.from, preset.range.from) &&
+        isSameDay(draftRange.to, preset.range.to),
+    );
   }
 
   return (
@@ -118,14 +140,15 @@ export function DateRangePicker({
         align="start"
       >
         <div className="flex flex-col sm:flex-row">
-          <div className="grid grid-cols-2 gap-1 border-b p-2 sm:w-36 sm:grid-cols-1 sm:border-r sm:border-b-0">
+          <div className="grid grid-cols-2 content-start gap-1 border-b p-2 sm:w-40 sm:grid-cols-1 sm:border-r sm:border-b-0">
             {presets.map((preset) => (
               <Button
                 key={preset.label}
                 type="button"
-                variant="ghost"
+                variant={isSelectedPreset(preset) ? "secondary" : "ghost"}
                 size="sm"
                 className="h-8 justify-start px-2 text-xs font-normal"
+                aria-pressed={isSelectedPreset(preset)}
                 onClick={() => applyRange(preset.range)}
               >
                 {preset.label}
@@ -151,7 +174,7 @@ export function DateRangePicker({
             }}
             disabled={{ after: disabledAfter }}
             locale={ptBR}
-            className="bg-background p-2"
+            className="mx-auto bg-background p-2"
           />
         </div>
       </PopoverContent>
