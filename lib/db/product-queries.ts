@@ -15,6 +15,7 @@ import {
 } from "./schema";
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
+import { parseExpertAdminInput } from "@/lib/products/expert-input";
 import {
   canTransitionPayout,
   type ExpertPayoutStatus,
@@ -43,6 +44,7 @@ export async function createExpert(input: {
   pixKey: string;
 }) {
   const email = input.email.trim().toLowerCase();
+  const values = parseExpertAdminInput(input);
   const [appUser] = await db
     .select()
     .from(user)
@@ -53,12 +55,20 @@ export async function createExpert(input: {
     .insert(expertProfile)
     .values({
       userId: appUser.id,
-      displayName: input.displayName.trim(),
-      phone: input.phone?.replace(/\D/g, "") || null,
-      pixKey: input.pixKey.trim(),
+      ...values,
     })
     .returning();
   return created;
+}
+
+export async function updateExpert(id: string, input: unknown) {
+  const values = parseExpertAdminInput(input);
+  const [updated] = await db
+    .update(expertProfile)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(expertProfile.id, id))
+    .returning();
+  return updated ?? null;
 }
 
 export async function listProductsAdmin() {

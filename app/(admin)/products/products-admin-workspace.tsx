@@ -1,10 +1,15 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive,
+  BookOpen,
   Check,
+  CircleCheck,
+  Copy,
   Loader2,
+  MoreHorizontal,
   Pencil,
   Plus,
   RefreshCcw,
@@ -15,9 +20,45 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  formatBrazilianPhone,
+  formatBrazilianPhoneInput,
+} from "@/lib/phone";
+import {
+  getProductOwnerSelectionValue,
+  parseProductOwnerSelection,
+} from "@/lib/products/owner-selection";
+import {
+  formatBrlCurrencyFromCentavos,
+  formatBrlCurrencyInput,
+  parseBrlCurrencyToCentavos,
+} from "@/lib/products/currency-input";
 
 type Expert = {
   id: string;
@@ -25,7 +66,7 @@ type Expert = {
   email: string;
   phone: string | null;
   pixKey: string;
-  status: string;
+  status: "active" | "inactive";
 };
 
 type Product = {
@@ -98,6 +139,20 @@ type ProductFormState = {
   termsVersion: string;
 };
 
+type ExpertFormState = {
+  displayName: string;
+  phone: string;
+  pixKey: string;
+  status: Expert["status"];
+};
+
+const emptyExpert: ExpertFormState = {
+  displayName: "",
+  phone: "",
+  pixKey: "",
+  status: "active",
+};
+
 const emptyProduct: ProductFormState = {
   ownerType: "automatize",
   expertId: "",
@@ -105,7 +160,7 @@ const emptyProduct: ProductFormState = {
   slug: "",
   description: "",
   coverUrl: "",
-  priceReais: "0",
+  priceReais: "",
   expertSharePercent: "0",
   minimumPlanTier: "",
   visibility: "unlisted" as const,
@@ -125,6 +180,12 @@ const emptyContent = {
   mimeType: null as string | null,
   position: "1",
   published: true,
+};
+
+const productStatusLabel: Record<Product["status"], string> = {
+  draft: "Rascunho",
+  published: "Publicado",
+  archived: "Arquivado",
 };
 
 function money(value: number) {
@@ -151,9 +212,18 @@ export function ProductsAdminWorkspace() {
   const [productForm, setProductForm] = useState(emptyProduct);
   const [contentForm, setContentForm] = useState(emptyContent);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [contentDialogOpen, setContentDialogOpen] = useState(false);
   const [editingContentId, setEditingContentId] = useState<string | null>(null);
+  const [expertPhone, setExpertPhone] = useState("");
+  const [editingExpertId, setEditingExpertId] = useState<string | null>(null);
+  const [expertDialogOpen, setExpertDialogOpen] = useState(false);
+  const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
+  const [creatingExpert, setCreatingExpert] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
 
   const selectedProduct = useMemo(
     () => products.find((row) => row.product.id === selectedProductId)?.product,
@@ -224,7 +294,7 @@ export function ProductsAdminWorkspace() {
     const payload = {
       ...productForm,
       expertId: productForm.expertId || null,
-      priceCentavos: Math.round(Number(productForm.priceReais.replace(",", ".")) * 100),
+      priceCentavos: parseBrlCurrencyToCentavos(productForm.priceReais),
       expertSharePercent: Number(productForm.expertSharePercent.replace(",", ".")),
       minimumPlanTier: productForm.minimumPlanTier || null,
     };
@@ -241,9 +311,20 @@ export function ProductsAdminWorkspace() {
     setLoading(false);
     if (!response.ok) return toast.error(await readError(response));
     toast.success(editingProductId ? "Produto atualizado." : "Produto criado.");
+    closeProductDialog();
+    await loadAll();
+  }
+
+  function closeProductDialog() {
+    setProductDialogOpen(false);
     setEditingProductId(null);
     setProductForm(emptyProduct);
-    await loadAll();
+  }
+
+  function createProduct() {
+    setEditingProductId(null);
+    setProductForm(emptyProduct);
+    setProductDialogOpen(true);
   }
 
   function editProduct(row: Product) {
@@ -255,7 +336,7 @@ export function ProductsAdminWorkspace() {
       slug: row.slug,
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
-      priceReais: String(row.priceCentavos / 100).replace(".", ","),
+      priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
       expertSharePercent: String(row.expertShareBasisPoints / 100).replace(".", ","),
       minimumPlanTier: row.minimumPlanTier ?? "",
       visibility: row.visibility,
@@ -263,7 +344,47 @@ export function ProductsAdminWorkspace() {
       salesEnabled: row.salesEnabled,
       termsVersion: row.termsVersion,
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setProductDialogOpen(true);
+  }
+
+  function manageContent(productId: string) {
+    setSelectedProductId(productId);
+    setEditingContentId(null);
+    setContentForm(emptyContent);
+    setFile(null);
+    setFileInputKey((current) => current + 1);
+    setContentDialogOpen(true);
+  }
+
+  function closeContentDialog() {
+    setContentDialogOpen(false);
+    setEditingContentId(null);
+    setContentForm(emptyContent);
+    setFile(null);
+    setFileInputKey((current) => current + 1);
+  }
+
+  function changeContentType(type: Content["type"]) {
+    setContentForm({ ...contentForm, type });
+    if (!["pdf", "file"].includes(type)) {
+      setFile(null);
+      setFileInputKey((current) => current + 1);
+    }
+  }
+
+  function changeContentSourceUrl(sourceUrl: string) {
+    setContentForm({ ...contentForm, sourceUrl });
+    if (sourceUrl) {
+      setFile(null);
+      setFileInputKey((current) => current + 1);
+    }
+  }
+
+  function changeContentFile(selectedFile: File | null) {
+    setFile(selectedFile);
+    if (selectedFile) {
+      setContentForm({ ...contentForm, sourceUrl: "" });
+    }
   }
 
   async function archiveProduct(id: string) {
@@ -271,6 +392,36 @@ export function ProductsAdminWorkspace() {
     if (!response.ok) return toast.error(await readError(response));
     toast.success("Produto arquivado.");
     await loadAll();
+  }
+
+  async function publishProduct(row: Product) {
+    setPublishingProductId(row.id);
+    try {
+      const response = await fetch(`/api/products/admin/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ownerType: row.ownerType,
+          expertId: row.expertId,
+          title: row.title,
+          slug: row.slug,
+          description: row.description,
+          coverUrl: row.coverUrl,
+          priceCentavos: row.priceCentavos,
+          expertSharePercent: row.expertShareBasisPoints / 100,
+          minimumPlanTier: row.minimumPlanTier,
+          visibility: row.visibility,
+          status: "published",
+          salesEnabled: row.salesEnabled,
+          termsVersion: row.termsVersion,
+        }),
+      });
+      if (!response.ok) return toast.error(await readError(response));
+      toast.success("Produto publicado.");
+      await loadAll();
+    } finally {
+      setPublishingProductId(null);
+    }
   }
 
   async function saveContent(event: React.FormEvent) {
@@ -281,18 +432,31 @@ export function ProductsAdminWorkspace() {
       | { pathname: string; filename: string; mimeType: string }
       | undefined;
     if (file) {
-      const form = new FormData();
-      form.set("file", file);
-      form.set("productId", selectedProductId);
-      const uploadResponse = await fetch("/api/products/admin/uploads", {
-        method: "POST",
-        body: form,
-      });
-      if (!uploadResponse.ok) {
+      try {
+        const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+        const blob = await upload(
+          `products/${selectedProductId}/${crypto.randomUUID()}-${safeFilename}`,
+          file,
+          {
+            access: "private",
+            handleUploadUrl: "/api/products/admin/uploads",
+            clientPayload: JSON.stringify({ productId: selectedProductId }),
+            multipart: file.size > 4 * 1024 * 1024,
+          },
+        );
+        uploaded = {
+          pathname: blob.pathname,
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+        };
+      } catch (error) {
         setLoading(false);
-        return toast.error(await readError(uploadResponse));
+        return toast.error(
+          error instanceof Error
+            ? error.message
+            : "Não foi possível enviar o arquivo.",
+        );
       }
-      uploaded = await uploadResponse.json();
     }
     const usesSourceUrl = !uploaded && contentForm.sourceUrl.trim().length > 0;
     const payload = {
@@ -355,16 +519,70 @@ export function ProductsAdminWorkspace() {
 
   async function createExpert(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/products/admin/experts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(Object.fromEntries(form)),
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setCreatingExpert(true);
+    try {
+      const response = await fetch("/api/products/admin/experts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.fromEntries(form)),
+      });
+      if (!response.ok) return toast.error(await readError(response));
+      formElement.reset();
+      setExpertPhone("");
+      toast.success("Expert vinculado.");
+      await loadAll();
+    } finally {
+      setCreatingExpert(false);
+    }
+  }
+
+  function editExpert(expert: Expert) {
+    setEditingExpertId(expert.id);
+    setExpertForm({
+      displayName: expert.displayName,
+      phone: formatBrazilianPhoneInput(expert.phone),
+      pixKey: expert.pixKey,
+      status: expert.status,
     });
+    setExpertDialogOpen(true);
+  }
+
+  function closeExpertDialog() {
+    setExpertDialogOpen(false);
+    setEditingExpertId(null);
+    setExpertForm(emptyExpert);
+  }
+
+  async function saveExpert(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingExpertId) return;
+
+    setLoading(true);
+    const response = await fetch(
+      `/api/products/admin/experts/${editingExpertId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(expertForm),
+      },
+    );
+    setLoading(false);
     if (!response.ok) return toast.error(await readError(response));
-    event.currentTarget.reset();
-    toast.success("Expert vinculado.");
+
+    toast.success("Expert atualizado.");
+    closeExpertDialog();
     await loadAll();
+  }
+
+  async function copyPixKey(pixKey: string) {
+    try {
+      await navigator.clipboard.writeText(pixKey);
+      toast.success("Chave Pix copiada.");
+    } catch {
+      toast.error("Não foi possível copiar a chave Pix.");
+    }
   }
 
   async function refundOrder(id: string) {
@@ -419,103 +637,112 @@ export function ProductsAdminWorkspace() {
 
         <TabsContent value="products" className="space-y-6 pt-4">
           <Card>
-            <CardHeader>
-              <CardTitle>{editingProductId ? "Editar produto" : "Novo produto"}</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <CardTitle>Produtos</CardTitle>
+              <Button size="sm" onClick={createProduct}>
+                <Plus className="size-4" />
+                Novo produto
+              </Button>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={saveProduct} className="grid gap-4 md:grid-cols-3">
-                <Field label="Título"><Input value={productForm.title} onChange={(e) => setProductForm({ ...productForm, title: e.target.value })} required /></Field>
-                <Field label="Slug"><Input value={productForm.slug} onChange={(e) => setProductForm({ ...productForm, slug: e.target.value })} placeholder="gerado pelo título" /></Field>
-                <Field label="Preço (R$)"><Input inputMode="decimal" value={productForm.priceReais} onChange={(e) => setProductForm({ ...productForm, priceReais: e.target.value })} required /></Field>
-                <Field label="Proprietário">
-                  <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.ownerType} onChange={(e) => setProductForm({ ...productForm, ownerType: e.target.value as "automatize" | "expert" })}>
-                    <option value="automatize">Automatize</option><option value="expert">Expert</option>
-                  </select>
-                </Field>
-                <Field label="Expert">
-                  <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.expertId} disabled={productForm.ownerType !== "expert"} onChange={(e) => setProductForm({ ...productForm, expertId: e.target.value })}>
-                    <option value="">Selecione</option>{experts.map((expert) => <option key={expert.id} value={expert.id}>{expert.displayName}</option>)}
-                  </select>
-                </Field>
-                <Field label="Participação do expert (%)"><Input inputMode="decimal" disabled={productForm.ownerType !== "expert"} value={productForm.expertSharePercent} onChange={(e) => setProductForm({ ...productForm, expertSharePercent: e.target.value })} /></Field>
-                <Field label="Incluído a partir do plano">
-                  <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.minimumPlanTier} onChange={(e) => setProductForm({ ...productForm, minimumPlanTier: e.target.value })}>
-                    <option value="">Não incluir</option><option value="starter">Starter</option><option value="pro">Pro</option><option value="premium">Premium</option>
-                  </select>
-                </Field>
-                <Field label="Visibilidade"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.visibility} onChange={(e) => setProductForm({ ...productForm, visibility: e.target.value as "public" | "unlisted" })}><option value="unlisted">Não listado</option><option value="public">Público</option></select></Field>
-                <Field label="Status"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.status} onChange={(e) => setProductForm({ ...productForm, status: e.target.value as Product["status"] })}><option value="draft">Rascunho</option><option value="published">Publicado</option><option value="archived">Arquivado</option></select></Field>
-                <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
-                <Field label="Capa (URL)"><Input value={productForm.coverUrl} onChange={(e) => setProductForm({ ...productForm, coverUrl: e.target.value })} /></Field>
-                <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
-                <div className="flex gap-2 md:col-span-3">
-                  <Button type="submit" disabled={loading}>{editingProductId ? <Check className="size-4" /> : <Plus className="size-4" />}{editingProductId ? "Salvar alterações" : "Criar produto"}</Button>
-                  {editingProductId ? <Button type="button" variant="ghost" onClick={() => { setEditingProductId(null); setProductForm(emptyProduct); }}>Cancelar</Button> : null}
+            <CardContent className="divide-y p-0">
+              {products.map(({ product: row, expertName }) => (
+                <div key={row.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-medium">{row.title}</p>
+                      <Badge variant="outline">{productStatusLabel[row.status]}</Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">{expertName ?? "Automatize"} · {money(row.priceCentavos)}</p>
+                  </div>
+                  <div className="hidden flex-wrap gap-2 lg:flex">
+                    {row.status === "draft" ? (
+                      <Button type="button" size="sm" onClick={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
+                        {publishingProductId === row.id ? <Loader2 className="size-3.5 animate-spin" /> : <CircleCheck className="size-3.5" />}
+                        {publishingProductId === row.id ? "Publicando..." : "Publicar"}
+                      </Button>
+                    ) : null}
+                    <Button type="button" size="sm" variant="outline" onClick={() => manageContent(row.id)}><BookOpen className="size-3.5" /> Conteúdos</Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => editProduct(row)}><Pencil className="size-3.5" /> Editar</Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => void archiveProduct(row.id)}><Archive className="size-3.5" /> Arquivar</Button>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" size="icon" variant="outline" className="self-end sm:self-auto lg:hidden" aria-label={`Ações de ${row.title}`} title="Ações">
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      {row.status === "draft" ? (
+                        <DropdownMenuItem onSelect={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
+                          {publishingProductId === row.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
+                          {publishingProductId === row.id ? "Publicando..." : "Publicar"}
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem onSelect={() => manageContent(row.id)}>
+                        <BookOpen /> Conteúdos
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => editProduct(row)}>
+                        <Pencil /> Editar
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => void archiveProduct(row.id)}>
+                        <Archive /> Arquivar
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              </form>
+              ))}
             </CardContent>
           </Card>
-
-          <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-            <Card>
-              <CardHeader><CardTitle>Produtos</CardTitle></CardHeader>
-              <CardContent className="divide-y p-0">
-                {products.map(({ product: row, expertName }) => (
-                  <button key={row.id} type="button" onClick={() => setSelectedProductId(row.id)} className={`w-full px-5 py-4 text-left hover:bg-muted/50 ${selectedProductId === row.id ? "bg-primary/5" : ""}`}>
-                    <div className="flex items-start justify-between gap-3"><div><p className="font-medium">{row.title}</p><p className="text-xs text-muted-foreground">{expertName ?? "Automatize"} · {money(row.priceCentavos)}</p></div><Badge variant="outline">{row.status}</Badge></div>
-                    <div className="mt-3 flex gap-2"><Button type="button" size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); editProduct(row); }}><Pencil className="size-3.5" /> Editar</Button><Button type="button" size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); void archiveProduct(row.id); }}><Archive className="size-3.5" /> Arquivar</Button></div>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader><CardTitle>Conteúdos {selectedProduct ? `· ${selectedProduct.title}` : ""}</CardTitle></CardHeader>
-              <CardContent className="space-y-6">
-                {selectedProduct ? (
-                  <>
-                    <form onSubmit={saveContent} className="grid gap-4 md:grid-cols-2">
-                      <Field label="Tipo"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={contentForm.type} onChange={(e) => setContentForm({ ...contentForm, type: e.target.value as Content["type"] })}><option value="video">Vídeo</option><option value="pdf">PDF</option><option value="file">Arquivo</option><option value="external_link">Link externo</option></select></Field>
-                      <Field label="Título"><Input value={contentForm.title} onChange={(e) => setContentForm({ ...contentForm, title: e.target.value })} required /></Field>
-                      <Field label="URL / ID do vídeo"><Input value={contentForm.sourceUrl} onChange={(e) => setContentForm({ ...contentForm, sourceUrl: e.target.value })} disabled={!!file} /></Field>
-                      {contentForm.type === "video" ? (
-                        <Field label="Hospedagem do vídeo">
-                          <select
-                            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                            value={contentForm.videoProvider}
-                            onChange={(event) =>
-                              setContentForm({
-                                ...contentForm,
-                                videoProvider: event.target.value,
-                              })
-                            }
-                          >
-                            <option value="youtube">YouTube</option>
-                            <option value="vimeo">Vimeo</option>
-                            <option value="external">URL incorporável</option>
-                          </select>
-                        </Field>
-                      ) : null}
-                      <Field label="Posição"><Input type="number" min="1" value={contentForm.position} onChange={(e) => setContentForm({ ...contentForm, position: e.target.value })} /></Field>
-                      <Field label="Arquivo privado"><Input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /></Field>
-                      <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={contentForm.published} onChange={(event) => setContentForm({ ...contentForm, published: event.target.checked })} /> Publicado</label>
-                      <div className="flex gap-2 md:col-span-2"><Button type="submit" disabled={loading}>{file ? <Upload className="size-4" /> : <Plus className="size-4" />}{editingContentId ? "Salvar conteúdo" : "Adicionar conteúdo"}</Button>{editingContentId ? <Button type="button" variant="ghost" onClick={() => { setEditingContentId(null); setContentForm(emptyContent); }}>Cancelar</Button> : null}</div>
-                    </form>
-                    <div className="divide-y rounded-lg border">
-                      {content.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between gap-4 px-4 py-3"><div><p className="font-medium">{item.position}. {item.title}</p><p className="text-xs text-muted-foreground">{item.type} · {item.published ? "publicado" : "rascunho"}</p></div><div className="flex gap-1"><Button size="icon" variant="ghost" onClick={() => editContent(item)}><Pencil className="size-4" /></Button><Button size="icon" variant="ghost" onClick={() => void removeContent(item.id)}><Trash2 className="size-4" /></Button></div></div>
-                      ))}
-                    </div>
-                  </>
-                ) : <p className="text-muted-foreground">Selecione um produto.</p>}
-              </CardContent>
-            </Card>
-          </div>
         </TabsContent>
 
         <TabsContent value="experts" className="space-y-6 pt-4">
-          <Card><CardHeader><CardTitle>Vincular expert</CardTitle></CardHeader><CardContent><form onSubmit={createExpert} className="grid gap-4 md:grid-cols-4"><Field label="E-mail do usuário"><Input name="email" type="email" required /></Field><Field label="Nome público"><Input name="displayName" required /></Field><Field label="WhatsApp"><Input name="phone" /></Field><Field label="Chave Pix"><Input name="pixKey" required /></Field><div className="md:col-span-4"><Button type="submit"><Plus className="size-4" /> Vincular expert</Button></div></form></CardContent></Card>
-          <Card><CardHeader><CardTitle>Experts</CardTitle></CardHeader><CardContent className="divide-y p-0">{experts.map((expert) => <div key={expert.id} className="grid gap-2 px-5 py-4 sm:grid-cols-3"><div><p className="font-medium">{expert.displayName}</p><p className="text-sm text-muted-foreground">{expert.email}</p></div><span>{expert.phone ?? "Sem WhatsApp"}</span><span className="font-mono text-sm">{expert.pixKey}</span></div>)}</CardContent></Card>
+          <Card><CardHeader><CardTitle>Vincular expert</CardTitle></CardHeader><CardContent><form onSubmit={createExpert} className="grid gap-4 md:grid-cols-4"><Field label="E-mail do usuário"><Input name="email" type="email" required /></Field><Field label="Nome público"><Input name="displayName" required /></Field><Field label="WhatsApp"><Input name="phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={15} placeholder="(11) 99999-9999" value={expertPhone} onChange={(event) => setExpertPhone(formatBrazilianPhoneInput(event.target.value))} /></Field><Field label="Chave Pix"><Input name="pixKey" required /></Field><div className="md:col-span-4"><Button type="submit" disabled={creatingExpert}>{creatingExpert ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{creatingExpert ? "Vinculando..." : "Vincular expert"}</Button></div></form></CardContent></Card>
+          <Card>
+            <CardHeader><CardTitle>Experts</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              <Table className="min-w-[860px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Expert</TableHead>
+                    <TableHead className="w-[170px]">WhatsApp</TableHead>
+                    <TableHead className="w-[280px]">Chave Pix</TableHead>
+                    <TableHead className="w-[100px]">Status</TableHead>
+                    <TableHead className="w-[110px] text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {experts.map((expert) => (
+                    <TableRow key={expert.id}>
+                      <TableCell>
+                        <p className="font-medium">{expert.displayName}</p>
+                        <p className="text-sm text-muted-foreground">{expert.email}</p>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {formatBrazilianPhone(expert.phone) ?? "Sem WhatsApp"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <span className="truncate font-mono text-sm" title={expert.pixKey}>{expert.pixKey}</span>
+                          <Button type="button" size="icon" variant="ghost" className="size-8 shrink-0" title="Copiar chave Pix" aria-label="Copiar chave Pix" onClick={() => void copyPixKey(expert.pixKey)}>
+                            <Copy className="size-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button type="button" size="sm" variant="outline" onClick={() => editExpert(expert)}>
+                          <Pencil className="size-3.5" /> Editar
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="orders" className="pt-4">
@@ -526,6 +753,170 @@ export function ProductsAdminWorkspace() {
           <Card><CardHeader><CardTitle>Repasses</CardTitle></CardHeader><CardContent className="divide-y p-0">{payouts.map((payout) => <div key={payout.id} className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"><div><p className="font-medium">{payout.expertName} · {money(payout.amountCentavos)}</p><p className="font-mono text-xs text-muted-foreground">Pix: {payout.pixKeySnapshot}</p><p className="text-xs text-muted-foreground">Prazo: {new Date(payout.dueAt).toLocaleDateString("pt-BR")}</p></div><Badge variant="outline">{payout.status}</Badge><div className="flex flex-wrap gap-2">{payout.status === "requested" ? <><Button size="sm" variant="outline" onClick={() => void updatePayout(payout.id, "approved")}>Aprovar</Button><Button size="sm" variant="ghost" onClick={() => void updatePayout(payout.id, "rejected")}>Rejeitar</Button></> : null}{payout.status === "approved" ? <Button size="sm" onClick={() => void updatePayout(payout.id, "paid")}>Registrar pagamento</Button> : null}</div></div>)}</CardContent></Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={productDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeProductDialog();
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{editingProductId ? "Editar produto" : "Novo produto"}</DialogTitle>
+            <DialogDescription>
+              {editingProductId
+                ? "Atualize os dados comerciais e de acesso deste produto."
+                : "Cadastre os dados comerciais e defina quem terá acesso ao produto."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveProduct} className="grid gap-4 md:grid-cols-2">
+            <Field label="Título"><Input value={productForm.title} onChange={(e) => setProductForm({ ...productForm, title: e.target.value })} required /></Field>
+            <Field label="Slug"><Input value={productForm.slug} onChange={(e) => setProductForm({ ...productForm, slug: e.target.value })} placeholder="gerado pelo título" /></Field>
+            <Field label="Preço (R$)"><Input inputMode="numeric" maxLength={18} placeholder="R$ 0,00" value={productForm.priceReais} onChange={(e) => setProductForm({ ...productForm, priceReais: formatBrlCurrencyInput(e.target.value) })} required /></Field>
+            <Field label="Proprietário">
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={getProductOwnerSelectionValue(productForm.ownerType, productForm.expertId)}
+                onChange={(event) => setProductForm({ ...productForm, ...parseProductOwnerSelection(event.target.value) })}
+              >
+                <option value="automatize">Automatize</option>
+                {experts.map((expert) => (
+                  <option key={expert.id} value={`expert:${expert.id}`}>
+                    {expert.displayName}{expert.status === "inactive" ? " (inativo)" : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Participação do expert (%)"><Input inputMode="decimal" disabled={productForm.ownerType !== "expert"} value={productForm.expertSharePercent} onChange={(e) => setProductForm({ ...productForm, expertSharePercent: e.target.value })} /></Field>
+            <Field label="Incluído a partir do plano">
+              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.minimumPlanTier} onChange={(e) => setProductForm({ ...productForm, minimumPlanTier: e.target.value })}>
+                <option value="">Não incluir</option><option value="starter">Starter</option><option value="pro">Pro</option><option value="premium">Premium</option>
+              </select>
+            </Field>
+            <Field label="Visibilidade"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.visibility} onChange={(e) => setProductForm({ ...productForm, visibility: e.target.value as "public" | "unlisted" })}><option value="unlisted">Não listado</option><option value="public">Público</option></select></Field>
+            <Field label="Status"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.status} onChange={(e) => setProductForm({ ...productForm, status: e.target.value as Product["status"] })}><option value="draft">Rascunho</option><option value="published">Publicado</option><option value="archived">Arquivado</option></select></Field>
+            <Field label="Capa (URL)"><Input value={productForm.coverUrl} onChange={(e) => setProductForm({ ...productForm, coverUrl: e.target.value })} /></Field>
+            <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
+            <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
+            <DialogFooter className="md:col-span-2">
+              <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
+              <Button type="submit" disabled={loading}>{editingProductId ? <Check className="size-4" /> : <Plus className="size-4" />}{editingProductId ? "Salvar alterações" : "Criar produto"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={expertDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeExpertDialog();
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar expert</DialogTitle>
+            <DialogDescription>
+              Atualize os dados de contato, recebimento e disponibilidade.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveExpert} className="grid gap-4">
+            <Field label="Nome público">
+              <Input value={expertForm.displayName} onChange={(event) => setExpertForm({ ...expertForm, displayName: event.target.value })} required />
+            </Field>
+            <Field label="WhatsApp">
+              <Input type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={15} placeholder="(11) 99999-9999" value={expertForm.phone} onChange={(event) => setExpertForm({ ...expertForm, phone: formatBrazilianPhoneInput(event.target.value) })} />
+            </Field>
+            <Field label="Chave Pix">
+              <Input value={expertForm.pixKey} onChange={(event) => setExpertForm({ ...expertForm, pixKey: event.target.value })} required />
+            </Field>
+            <Field label="Status">
+              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={expertForm.status} onChange={(event) => setExpertForm({ ...expertForm, status: event.target.value as Expert["status"] })}>
+                <option value="active">Ativo</option>
+                <option value="inactive">Inativo</option>
+              </select>
+            </Field>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeExpertDialog}>Cancelar</Button>
+              <Button type="submit" disabled={loading}>
+                <Check className="size-4" /> Salvar alterações
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={contentDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeContentDialog();
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Conteúdos {selectedProduct ? `· ${selectedProduct.title}` : ""}</DialogTitle>
+            <DialogDescription>
+              Organize as aulas, arquivos e links disponíveis neste produto.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedProduct ? (
+            <div className="space-y-6">
+              <form onSubmit={saveContent} className="grid gap-4 md:grid-cols-2">
+                <Field label="Tipo"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={contentForm.type} onChange={(e) => changeContentType(e.target.value as Content["type"])}><option value="video">Vídeo</option><option value="pdf">PDF</option><option value="file">Arquivo</option><option value="external_link">Link externo</option></select></Field>
+                <Field label="Título"><Input value={contentForm.title} onChange={(e) => setContentForm({ ...contentForm, title: e.target.value })} required /></Field>
+                <Field label={contentForm.type === "video" ? "URL / ID do vídeo" : contentForm.type === "pdf" ? "Link do Google Drive" : "URL externa"}>
+                  <Input
+                    type={contentForm.type === "video" ? "text" : "url"}
+                    value={contentForm.sourceUrl}
+                    onChange={(e) => changeContentSourceUrl(e.target.value)}
+                    placeholder={contentForm.type === "pdf" ? "https://drive.google.com/file/d/.../view" : undefined}
+                  />
+                  {contentForm.type === "pdf" ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Use um link com acesso “Qualquer pessoa com o link” ou envie o PDF abaixo.
+                    </p>
+                  ) : null}
+                </Field>
+                {contentForm.type === "video" ? (
+                  <Field label="Hospedagem do vídeo">
+                    <select
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={contentForm.videoProvider}
+                      onChange={(event) =>
+                        setContentForm({
+                          ...contentForm,
+                          videoProvider: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="youtube">YouTube</option>
+                      <option value="vimeo">Vimeo</option>
+                      <option value="external">URL incorporável</option>
+                    </select>
+                  </Field>
+                ) : null}
+                <Field label="Posição"><Input type="number" min="1" value={contentForm.position} onChange={(e) => setContentForm({ ...contentForm, position: e.target.value })} /></Field>
+                {contentForm.type === "pdf" || contentForm.type === "file" ? (
+                  <Field label={contentForm.type === "pdf" ? "Ou envie o PDF" : "Arquivo privado"}>
+                    <Input
+                      key={fileInputKey}
+                      type="file"
+                      accept={contentForm.type === "pdf" ? "application/pdf,.pdf" : undefined}
+                      onChange={(e) => changeContentFile(e.target.files?.[0] ?? null)}
+                    />
+                  </Field>
+                ) : null}
+                <label className="flex items-center gap-3 text-sm"><input type="checkbox" checked={contentForm.published} onChange={(event) => setContentForm({ ...contentForm, published: event.target.checked })} /> Publicado</label>
+                <div className="flex gap-2 md:col-span-2"><Button type="submit" disabled={loading}>{loading ? <Loader2 className="size-4 animate-spin" /> : file ? <Upload className="size-4" /> : <Plus className="size-4" />}{loading ? (file ? "Enviando arquivo..." : "Salvando...") : editingContentId ? "Salvar conteúdo" : "Adicionar conteúdo"}</Button>{editingContentId ? <Button type="button" variant="ghost" onClick={() => { setEditingContentId(null); setContentForm(emptyContent); }}>Cancelar</Button> : null}</div>
+              </form>
+              <div className="divide-y rounded-lg border">
+                {content.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between gap-4 px-4 py-3"><div><p className="font-medium">{item.position}. {item.title}</p><p className="text-xs text-muted-foreground">{item.type} · {item.published ? "publicado" : "rascunho"}</p></div><div className="flex gap-1"><Button size="icon" variant="ghost" onClick={() => editContent(item)}><Pencil className="size-4" /></Button><Button size="icon" variant="ghost" onClick={() => void removeContent(item.id)}><Trash2 className="size-4" /></Button></div></div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

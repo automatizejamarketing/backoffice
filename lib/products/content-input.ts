@@ -14,6 +14,18 @@ const contentSchema = z.object({
   published: z.boolean().optional().default(true),
 });
 
+function isGoogleDriveUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      ["drive.google.com", "docs.google.com"].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function parseProductContentInput(input: unknown) {
   const parsed = contentSchema.parse(input);
   const sourceUrl = parsed.sourceUrl || null;
@@ -33,6 +45,9 @@ export function parseProductContentInput(input: unknown) {
     !sourceUrl.startsWith("https://")
   ) {
     throw new Error("Arquivos externos devem usar HTTPS");
+  }
+  if (parsed.type === "pdf" && sourceUrl && !isGoogleDriveUrl(sourceUrl)) {
+    throw new Error("Informe um link válido do Google Drive para o PDF");
   }
 
   return {

@@ -11,6 +11,39 @@ function digitsOnly(value: string | null | undefined): string {
   return value.replace(/\D/g, "");
 }
 
+export function normalizeBrazilianPhone(
+  value: string | null | undefined,
+): string | null {
+  const digits = digitsOnly(value);
+  if (!digits) return null;
+  return digits.length > 11 && digits.startsWith("55")
+    ? digits.slice(2)
+    : digits;
+}
+
+/**
+ * Apply a progressive mask while a Brazilian phone number is being typed.
+ * Accepts pasted values with or without the +55 country code.
+ */
+export function formatBrazilianPhoneInput(
+  value: string | null | undefined,
+): string {
+  const digits = (normalizeBrazilianPhone(value) ?? "").slice(0, 11);
+
+  if (!digits) return "";
+  if (digits.length < 3) return `(${digits}`;
+
+  const areaCode = digits.slice(0, 2);
+  const phone = digits.slice(2);
+  const prefixLength = digits.length === 11 ? 5 : 4;
+
+  if (phone.length <= prefixLength) {
+    return `(${areaCode}) ${phone}`;
+  }
+
+  return `(${areaCode}) ${phone.slice(0, prefixLength)}-${phone.slice(prefixLength)}`;
+}
+
 /**
  * Format a Brazilian phone number for display.
  *
