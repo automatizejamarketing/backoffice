@@ -35,4 +35,11 @@ describe("getWhatsAppUrl", () => {
   it("returns null for missing phone", () => {
     assert.equal(getWhatsAppUrl(null), null);
   });
+
+  it("appends a pre-filled message when provided", () => {
+    assert.equal(
+      getWhatsAppUrl("11999998888", "Olá!"),
+      "https://wa.me/5511999998888?text=Ol%C3%A1!",
+    );
+  });
 });

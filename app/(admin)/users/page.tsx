@@ -11,6 +11,7 @@ import { UsersTableToolbar } from "./users-table-toolbar";
 import { UsersTable } from "./users-table";
 import { normalizeUsersFilterParams } from "@/lib/backoffice/users-filters";
 import { requirePagePermission } from "@/lib/auth/rbac";
+import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import {
   UsersFetchingIndicator,
   UsersNavigationProvider,
@@ -45,7 +46,8 @@ export default async function UsersPage({
     signupTo?: string;
   }>;
 }) {
-  await requirePagePermission("users:manage");
+  const actor = await requirePagePermission("users:manage");
+  const canManageBilling = hasBackofficePermission(actor, "billing:manage");
 
   const sp = await searchParams;
   const filters = normalizeUsersFilterParams(sp);
@@ -167,7 +169,11 @@ export default async function UsersPage({
           expirationDayCounts={expirationDayCounts}
         />
 
-        <UsersTable users={users} search={search} />
+        <UsersTable
+          users={users}
+          search={search}
+          canManageBilling={canManageBilling}
+        />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-muted-foreground">

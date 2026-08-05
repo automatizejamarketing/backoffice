@@ -23,6 +23,7 @@ export type PixLinkView = {
   currency: string;
   preferenceId: string;
   initPoint: string;
+  pixCopyPasteCode?: string | null;
   status: string;
   source: string;
   adminEmail: string | null;

@@ -60,6 +60,7 @@
     "react-dom": "19.2.3",
     "react-hook-form": "^7.62.0",
     "react-leaflet": "^5.0.0",
+    "react-qr-code": "^2.2.0",
     "recharts": "^3.7.0",
     "resend": "^6.12.3",
     "shadcn": "^3.6.2",

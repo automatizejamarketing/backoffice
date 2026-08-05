@@ -17,7 +17,8 @@ import {
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
-import { Columns3, MessageCircle } from "lucide-react";
+import { Columns3 } from "lucide-react";
+import { WhatsAppIcon } from "@/components/whatsapp-icon";
 import { canManageUserActivation } from "@/lib/backoffice/user-activation-policy";
 import { cn } from "@/lib/utils";
 import { UsersTableShell } from "./users-table-shell";
@@ -97,9 +98,14 @@ function formatExpirationHint(daysUntilRenewal: number | null): string | null {
 type UsersTableProps = {
   users: UserWithUsage[];
   search: string;
+  canManageBilling: boolean;
 };
 
-export function UsersTable({ users, search }: UsersTableProps) {
+export function UsersTable({
+  users,
+  search,
+  canManageBilling,
+}: UsersTableProps) {
   const [rows, setRows] = useState(users);
   const [visibleColumns, setVisibleColumns] = useState<OptionalColumnId[]>(
     ALL_OPTIONAL_COLUMNS,
@@ -347,10 +353,10 @@ export function UsersTable({ users, search }: UsersTableProps) {
                             href={whatsappUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-foreground/80 hover:text-[#25D366] hover:underline"
                             aria-label={`Abrir conversa no WhatsApp com ${phoneFormatted}`}
                           >
-                            <MessageCircle className="size-3.5 text-emerald-600" />
+                            <WhatsAppIcon className="size-3.5" />
                             {phoneFormatted}
                           </a>
                         ) : (
@@ -529,7 +535,10 @@ export function UsersTable({ users, search }: UsersTableProps) {
                       <UserActivationActions
                         userId={user.id}
                         userEmail={user.email}
+                        userPhone={user.phone}
                         activationAvailable={canManageUserActivation(user)}
+                        activeSubscription={user.activeSubscription}
+                        canManageBilling={canManageBilling}
                         onActivated={(emailVerified) => {
                           setRows((current) =>
                             current.map((row) =>

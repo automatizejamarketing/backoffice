@@ -8,6 +8,7 @@ import {
   createOrReuseBackofficePixLink,
   sendBackofficePixLinkEmail,
 } from "@/lib/mercadopago/pix";
+import { formatMercadoPagoPixError } from "@/lib/mercadopago/pix-errors";
 
 function isPlanType(value: unknown): value is PlanType {
   return (
@@ -69,6 +70,7 @@ export async function POST(
         currency: link.currency,
         preferenceId: link.preferenceId,
         initPoint: link.initPoint,
+        pixCopyPasteCode: link.pixCopyPasteCode,
         status: link.status,
         source: link.source,
         adminEmail: link.adminEmail,
@@ -83,6 +85,9 @@ export async function POST(
       error instanceof Error ? error.message : "Failed to create Pix link";
     const status = message.includes("Stripe ativa") ? 409 : 500;
     console.error("Error creating backoffice Pix link:", error);
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: formatMercadoPagoPixError(message) },
+      { status },
+    );
   }
 }

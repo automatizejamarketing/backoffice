@@ -74,9 +74,14 @@ export function formatBrazilianPhone(
  */
 export function getWhatsAppUrl(
   value: string | null | undefined,
+  message?: string | null,
 ): string | null {
   const digits = normalizeBrazilianPhone(value);
   if (!digits || (digits.length !== 10 && digits.length !== 11)) return null;
 
-  return `https://wa.me/55${digits}`;
+  const base = `https://wa.me/55${digits}`;
+  const trimmedMessage = message?.trim();
+  if (!trimmedMessage) return base;
+
+  return `${base}?text=${encodeURIComponent(trimmedMessage)}`;
 }

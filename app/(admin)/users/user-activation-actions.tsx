@@ -1,7 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, KeyRound, Loader2, MoreHorizontal, ShieldCheck } from "lucide-react";
+import {
+  Copy,
+  KeyRound,
+  Loader2,
+  MoreHorizontal,
+  QrCode,
+  ShieldCheck,
+} from "lucide-react";
+import type { ActiveSubscriptionSummary } from "@/lib/db/admin-queries";
+import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
+import { UserPixRenewalDialog } from "./user-pix-renewal-dialog";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -41,20 +51,29 @@ type ActivationLink = {
 export function UserActivationActions({
   userId,
   userEmail,
+  userPhone,
   activationAvailable,
+  activeSubscription,
+  canManageBilling,
   onActivated,
 }: {
   userId: string;
   userEmail: string;
+  userPhone?: string | null;
   activationAvailable: boolean;
+  activeSubscription: ActiveSubscriptionSummary;
+  canManageBilling: boolean;
   onActivated: (emailVerified: string) => void;
 }) {
   const [isCreatingLink, setIsCreatingLink] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pixDialogOpen, setPixDialogOpen] = useState(false);
   const [activationLink, setActivationLink] = useState<ActivationLink | null>(
     null,
   );
+  const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
+  const currentPlanType = activeSubscription?.planType ?? null;
 
   async function createActivationLink() {
     setIsCreatingLink(true);
@@ -156,6 +175,23 @@ export function UserActivationActions({
             <ShieldCheck />
             Ativar conta
           </DropdownMenuItem>
+          {canManageBilling ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!!pixDisabledReason}
+                onSelect={() => setPixDialogOpen(true)}
+              >
+                <QrCode />
+                Gerar Pix para renovação
+              </DropdownMenuItem>
+              {pixDisabledReason ? (
+                <p className="px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                  {pixDisabledReason}
+                </p>
+              ) : null}
+            </>
+          ) : null}
           {!activationAvailable ? (
             <p className="px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
               Esta conta já está ativa ou usa acesso pelo Google.
@@ -163,6 +199,16 @@ export function UserActivationActions({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <UserPixRenewalDialog
+        open={pixDialogOpen}
+        onOpenChange={setPixDialogOpen}
+        userId={userId}
+        userEmail={userEmail}
+        userPhone={userPhone}
+        currentPlanType={currentPlanType}
+        disabledReason={pixDisabledReason}
+      />
 
       <Dialog
         open={Boolean(activationLink)}

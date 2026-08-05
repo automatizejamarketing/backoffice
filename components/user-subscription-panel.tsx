@@ -26,6 +26,7 @@ import {
 import type { UserSubscriptionDetails } from "@/lib/db/admin-queries";
 import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
+import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
 import {
   describeUpcomingChange,
   formatPlanLabel,
@@ -165,11 +166,7 @@ export function UserSubscriptionPanel({
     activeSubscription,
     payments,
   );
-  const pixDisabledReason =
-    activeSubscription?.provider === "stripe" &&
-    ["active", "trialing", "past_due"].includes(activeSubscription.status)
-      ? "Pix bloqueado: este usuário possui assinatura Stripe ativa."
-      : null;
+  const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
   const pixLinks: PixLinkView[] = mercadopagoPaymentLinks.map((link) => ({
     id: link.id,
     planType: link.planType,
