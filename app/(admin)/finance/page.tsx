@@ -8,6 +8,7 @@ import {
 } from "@/lib/backoffice/dashboard-date-range";
 import { getFinanceDashboard } from "@/lib/db/admin-queries";
 import { DashboardDateFilter } from "../dashboard-date-filter";
+import { DashboardNavigationProvider } from "../dashboard-navigation-feedback";
 
 export const dynamic = "force-dynamic";
 
@@ -147,23 +148,25 @@ export default async function FinancePage({
 
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-8">
-      <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-        <div className="max-w-2xl">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            Receita recorrente e caixa
+      <DashboardNavigationProvider>
+        <header className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              Receita recorrente e caixa
+            </div>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              Financeiro
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Acompanhe o MRR atual e quanto entrou líquido em cada meio de
+              pagamento no período selecionado.
+            </p>
           </div>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-            Financeiro
-          </h1>
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Acompanhe o MRR atual e quanto entrou líquido em cada meio de
-            pagamento no período selecionado.
-          </p>
-        </div>
 
-        <DashboardDateFilter basePath="/finance" window={window} />
-      </header>
+          <DashboardDateFilter basePath="/finance" window={window} />
+        </header>
+      </DashboardNavigationProvider>
 
       <section className="overflow-hidden rounded-xl border bg-card shadow-xs">
         <div className="p-5 sm:p-6">
