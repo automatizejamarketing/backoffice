@@ -23,11 +23,8 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import type { Ad } from "@/lib/meta-business/types";
-import type {
-  AdMediaItem,
-  AdMediaLayout,
-  GetAdMediaResponse,
-} from "@/lib/meta-business/ad-media-types";
+import type { AdMediaItem } from "@/lib/meta-business/ad-media-types";
+import { useAdMedia } from "../hooks/use-ad-media";
 
 type AdMediaPreviewDialogProps = {
   open: boolean;
@@ -78,52 +75,21 @@ type AdMediaContentProps = {
   userId: string;
 };
 
-type LoadState =
-  | { phase: "loading" }
-  | { phase: "ready"; items: AdMediaItem[]; layout: AdMediaLayout }
-  | { phase: "error"; message: string };
-
 function AdMediaContent({ ad, accountId, userId }: AdMediaContentProps) {
-  const [loadState, setLoadState] = useState<LoadState>({ phase: "loading" });
+  const { data, isLoading, isError, error, refetch } = useAdMedia(
+    accountId,
+    userId,
+    ad.id,
+    true,
+  );
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    const ac = new AbortController();
+    setCurrentIndex(0);
+  }, [ad.id]);
 
-    fetch(
-      `/api/meta-marketing/${accountId}/ads/${ad.id}/media?userId=${encodeURIComponent(userId)}`,
-      { signal: ac.signal },
-    )
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.message ?? "Falha ao carregar mídia.");
-        }
-        return res.json() as Promise<GetAdMediaResponse>;
-      })
-      .then((data) => {
-        if (ac.signal.aborted) return;
-        setLoadState({
-          phase: "ready",
-          items: data.items,
-          layout: data.layout,
-        });
-        setCurrentIndex(0);
-      })
-      .catch((err: unknown) => {
-        if (ac.signal.aborted) return;
-        const message =
-          err instanceof Error ? err.message : "Falha ao carregar mídia.";
-        console.error("Error fetching ad media:", err);
-        setLoadState({ phase: "error", message });
-      });
-
-    return () => ac.abort();
-  }, [ad.id, accountId, userId, reloadKey]);
-
-  const items = loadState.phase === "ready" ? loadState.items : [];
-  const layout = loadState.phase === "ready" ? loadState.layout : "unknown";
+  const items = data?.items ?? [];
+  const layout = data?.layout ?? "unknown";
   const hasMultiple = items.length > 1;
   const current = items[currentIndex];
 
@@ -157,9 +123,11 @@ function AdMediaContent({ ad, accountId, userId }: AdMediaContentProps) {
   };
 
   const handleRetry = () => {
-    setLoadState({ phase: "loading" });
-    setReloadKey((k) => k + 1);
+    void refetch();
   };
+
+  const errorMessage =
+    error instanceof Error ? error.message : "Falha ao carregar mídia.";
 
   return (
     <div
@@ -167,14 +135,14 @@ function AdMediaContent({ ad, accountId, userId }: AdMediaContentProps) {
       tabIndex={-1}
       onKeyDown={handleKeyDown}
     >
-      {loadState.phase === "loading" ? (
+      {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
-      ) : loadState.phase === "error" ? (
+      ) : isError ? (
         <div className="flex flex-col items-center gap-3 py-12 text-center">
           <AlertCircle className="size-6 text-destructive" />
-          <p className="text-sm text-destructive">{loadState.message}</p>
+          <p className="text-sm text-destructive">{errorMessage}</p>
           <Button variant="outline" size="sm" onClick={handleRetry}>
             Tentar novamente
           </Button>

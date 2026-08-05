@@ -41,7 +41,7 @@ export function UserDetailSheet({
             </div>
             {userId ? (
               <Button asChild variant="outline" size="sm" className="shrink-0">
-                <Link href={`/users/${userId}`} target="_blank">
+                <Link href={`/users/${userId}?tab=marketing`} target="_blank">
                   Abrir página
                   <ExternalLink className="size-3.5" />
                 </Link>
@@ -54,7 +54,7 @@ export function UserDetailSheet({
           <iframe
             key={userId}
             title={`Detalhes de ${userEmail ?? "cliente"}`}
-            src={`/embed/users/${userId}`}
+            src={`/embed/users/${userId}?tab=marketing`}
             className="h-full min-h-0 w-full flex-1 border-0 bg-background"
           />
         ) : null}

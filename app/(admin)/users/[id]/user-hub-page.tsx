@@ -136,7 +136,15 @@ export async function UserHubPage({
     redirect("/login");
   }
 
-  const requestedTab = isUserHubTab(sp.tab) ? sp.tab : "summary";
+  if (!sp.tab) {
+    const params = new URLSearchParams({ tab: "marketing" });
+    if (sp.conversation) {
+      params.set("conversation", sp.conversation);
+    }
+    redirect(`${userBasePath}?${params.toString()}`);
+  }
+
+  const requestedTab = isUserHubTab(sp.tab) ? sp.tab : "marketing";
 
   if (actor.role === "marketing_consultant") {
     if (!canAccessUserHubTab(actor, id, "business")) {

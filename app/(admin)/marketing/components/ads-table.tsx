@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, ImageOff, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAds, useToggleAdStatus } from "../hooks/marketing-queries";
 import { Switch } from "@/components/ui/switch";
@@ -37,6 +37,7 @@ import { EditCreativeButton } from "./edit-creative-button";
 import { IssuesIcon } from "./issues-icon";
 import { NameEditButton } from "./name-edit-button";
 import { PromotionLinkEditDialog } from "./promotion-link-edit-dialog";
+import { AdThumbnailPreview } from "./ad-thumbnail-preview";
 
 type AdsTableProps = {
   accountId: string;
@@ -213,8 +214,10 @@ export function AdsTable({
           >
             <div className="flex gap-3">
               <div onClick={(e) => e.stopPropagation()}>
-                <AdThumbnailButton
+                <AdThumbnailPreview
                   ad={ad}
+                  accountId={accountId}
+                  userId={userId}
                   size="sm"
                   onClick={onMediaClick ? () => onMediaClick(ad) : undefined}
                   disabled={!onMediaClick}
@@ -373,8 +376,10 @@ export function AdsTable({
                         )}
                       </TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
-                        <AdThumbnailButton
+                        <AdThumbnailPreview
                           ad={ad}
+                          accountId={accountId}
+                          userId={userId}
                           size="sm"
                           onClick={onMediaClick ? () => onMediaClick(ad) : undefined}
                           disabled={!onMediaClick}
@@ -467,68 +472,6 @@ export function AdsTable({
         </div>
       )}
     </div>
-  );
-}
-
-type AdThumbnailButtonProps = {
-  ad: Ad;
-  size?: "sm" | "md" | "lg";
-  onClick?: () => void;
-  disabled?: boolean;
-};
-
-function AdThumbnailButton({
-  ad,
-  size = "sm",
-  onClick,
-  disabled,
-}: AdThumbnailButtonProps) {
-  const [imageError, setImageError] = useState(false);
-
-  const sizeClasses = {
-    sm: "size-10",
-    md: "size-16",
-    lg: "size-24",
-  };
-
-  const imageUrl = ad.creative?.thumbnailUrl ?? ad.creative?.imageUrl;
-  const fallback = !imageUrl || imageError;
-  const interactive = !disabled && !!onClick;
-
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick?.();
-      }}
-      disabled={disabled}
-      aria-label={
-        interactive
-          ? `Ver mídia do anúncio ${ad.name ?? ""}`.trim()
-          : undefined
-      }
-      className={cn(
-        sizeClasses[size],
-        "rounded border border-border overflow-hidden shrink-0 relative p-0 bg-muted",
-        interactive
-          ? "cursor-pointer transition-all hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          : "cursor-default",
-      )}
-    >
-      {fallback ? (
-        <div className="size-full flex items-center justify-center">
-          <ImageOff className="size-4 text-muted-foreground" />
-        </div>
-      ) : (
-        <img
-          src={imageUrl}
-          alt={ad.name ?? "Ad preview"}
-          className="size-full object-cover"
-          onError={() => setImageError(true)}
-        />
-      )}
-    </button>
   );
 }
 
