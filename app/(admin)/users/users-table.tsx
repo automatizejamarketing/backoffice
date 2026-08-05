@@ -551,6 +551,18 @@ export function UsersTable({
                             ),
                           );
                         }}
+                        onSubscriptionUpdated={(updatedSubscription) => {
+                          setRows((current) =>
+                            current.map((row) =>
+                              row.id === user.id
+                                ? {
+                                    ...row,
+                                    activeSubscription: updatedSubscription,
+                                  }
+                                : row,
+                            ),
+                          );
+                        }}
                       />
                     </td>
                   </tr>
