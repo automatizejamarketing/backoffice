@@ -20,10 +20,19 @@ export type PixCopyPasteDetails = {
   pixCopyPasteCode: string;
 };
 
+function collectPixPaymentAccessTokens(): string[] {
+  const tokens = [
+    process.env.MERCADOPAGO_SUBSCRIPTION_ACCESS_TOKEN,
+    process.env.MERCADOPAGO_FRONTEND_ACCESS_TOKEN,
+    process.env.MERCADOPAGO_ACCESS_TOKEN,
+    process.env.MERCADO_PAGO_ACCESS_TOKEN,
+  ].filter((token): token is string => Boolean(token?.trim()));
+
+  return [...new Set(tokens)];
+}
+
 function getPixPaymentAccessToken(): string {
-  const token =
-    process.env.MERCADOPAGO_ACCESS_TOKEN ??
-    process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  const [token] = collectPixPaymentAccessTokens();
   if (!token) {
     throw new Error("MERCADOPAGO_ACCESS_TOKEN is not configured");
   }
@@ -41,29 +50,33 @@ function isPendingPixPayment(status: string | undefined): boolean {
 async function fetchMercadoPagoPixPayment(
   paymentId: string,
 ): Promise<MercadoPagoPixPaymentResponse | null> {
-  const response = await fetch(
-    `https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${getPixPaymentAccessToken()}`,
+  for (const token of collectPixPaymentAccessTokens()) {
+    const response = await fetch(
+      `https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
       },
-      cache: "no-store",
-    },
-  );
+    );
 
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    const body = await response.text();
-    if (body.toLowerCase().includes("payment not found")) {
-      return null;
+    if (response.status === 404) {
+      continue;
     }
-    throw new Error(body);
+
+    if (!response.ok) {
+      const body = await response.text();
+      if (body.toLowerCase().includes("payment not found")) {
+        continue;
+      }
+      throw new Error(body);
+    }
+
+    return (await response.json()) as MercadoPagoPixPaymentResponse;
   }
 
-  return (await response.json()) as MercadoPagoPixPaymentResponse;
+  return null;
 }
 
 async function createMercadoPagoPixPayment({

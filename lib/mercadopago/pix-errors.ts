@@ -6,7 +6,7 @@ const PIX_ERROR_MESSAGES: Record<string, string> = {
   "Usuário tem assinatura Stripe ativa.":
     "Este usuário possui assinatura Stripe ativa.",
   "Unauthorized use of live credentials":
-    "O token do Mercado Pago não tem permissão para criar pagamentos Pix via API. Habilite o escopo payment no app do Mercado Pago.",
+    "Conta Mercado Pago sem permissão para Pix via API. Use MERCADOPAGO_SUBSCRIPTION_ACCESS_TOKEN (conta de assinaturas).",
   "Payment not found":
     "Pagamento Pix anterior expirou ou é inválido. Tente gerar novamente.",
 };
