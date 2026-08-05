@@ -1,12 +1,27 @@
 import { z } from "zod";
 
+const internalCoverUrl = z.string().refine((value) => {
+  if (!value.startsWith("/api/products/assets?")) return false;
+  const url = new URL(value, "https://automatize.internal");
+  const key = url.searchParams.get("key");
+  return (
+    url.pathname === "/api/products/assets" &&
+    url.searchParams.size === 1 &&
+    Boolean(key?.startsWith("r2/product-covers/") && !key.includes(".."))
+  );
+}, "URL interna de capa inválida");
+
 const schema = z.object({
   ownerType: z.enum(["automatize", "expert"]).default("automatize"),
   expertId: z.string().uuid().optional().nullable(),
   title: z.string().trim().min(2).max(180),
   slug: z.string().trim().optional().default(""),
   description: z.string().trim().max(5_000).optional().nullable(),
-  coverUrl: z.string().url().optional().nullable().or(z.literal("")),
+  coverUrl: z
+    .union([z.string().url(), internalCoverUrl])
+    .optional()
+    .nullable()
+    .or(z.literal("")),
   priceCentavos: z.number().int().min(0),
   expertSharePercent: z.number().min(0).max(100).default(0),
   minimumPlanTier: z.enum(["starter", "pro", "premium"]).optional().nullable(),

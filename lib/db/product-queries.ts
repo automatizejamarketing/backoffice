@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   expertLedgerEntry,
@@ -20,6 +20,7 @@ import {
   canTransitionPayout,
   type ExpertPayoutStatus,
 } from "@/lib/products/payout";
+import { calculateAutomatizeNetRevenueCentavos } from "@/lib/products/finance";
 
 export async function listExperts() {
   return db
@@ -72,20 +73,97 @@ export async function updateExpert(id: string, input: unknown) {
 }
 
 export async function listProductsAdmin() {
-  return db
-    .select({
-      product,
-      expertName: expertProfile.displayName,
-    })
-    .from(product)
-    .leftJoin(expertProfile, eq(product.expertId, expertProfile.id))
-    .orderBy(desc(product.createdAt));
+  const [products, paymentSummaries, expertSummaries] = await Promise.all([
+    db
+      .select({
+        product,
+        expertName: expertProfile.displayName,
+      })
+      .from(product)
+      .leftJoin(expertProfile, eq(product.expertId, expertProfile.id))
+      .orderBy(desc(product.createdAt)),
+    db
+      .select({
+        productId: productOrder.productId,
+        grossRevenueCentavos: sql<string>`coalesce(sum(coalesce(${productPayment.grossAmountCentavos}, 0)), 0)`,
+        netRevenueCentavos: sql<string>`coalesce(sum(coalesce(${productPayment.netAmountCentavos}, ${productPayment.grossAmountCentavos}, 0)), 0)`,
+      })
+      .from(productOrder)
+      .innerJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+      .where(
+        and(
+          eq(productOrder.status, "approved"),
+          eq(productPayment.status, "approved"),
+        ),
+      )
+      .groupBy(productOrder.productId),
+    db
+      .select({
+        productId: productOrder.productId,
+        expertRevenueCentavos: sql<string>`coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)`,
+      })
+      .from(expertLedgerEntry)
+      .innerJoin(productOrder, eq(productOrder.id, expertLedgerEntry.orderId))
+      .innerJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+      .where(
+        and(
+          eq(expertLedgerEntry.type, "sale"),
+          eq(productOrder.status, "approved"),
+          eq(productPayment.status, "approved"),
+        ),
+      )
+      .groupBy(productOrder.productId),
+  ]);
+
+  const expertRevenueByProduct = new Map(
+    expertSummaries.map((summary) => [
+      summary.productId,
+      Number(summary.expertRevenueCentavos),
+    ]),
+  );
+  const financialsByProduct = new Map(
+    paymentSummaries.map((summary) => {
+      const grossRevenueCentavos = Number(summary.grossRevenueCentavos);
+      const netRevenueCentavos = Number(summary.netRevenueCentavos);
+      const expertRevenueCentavos =
+        expertRevenueByProduct.get(summary.productId) ?? 0;
+
+      return [
+        summary.productId,
+        {
+          grossRevenueCentavos,
+          automatizeNetRevenueCentavos:
+            calculateAutomatizeNetRevenueCentavos(
+              netRevenueCentavos,
+              expertRevenueCentavos,
+            ),
+        },
+      ] as const;
+    }),
+  );
+
+  return products.map((row) => ({
+    ...row,
+    ...(financialsByProduct.get(row.product.id) ?? {
+      grossRevenueCentavos: 0,
+      automatizeNetRevenueCentavos: 0,
+    }),
+  }));
 }
 
 export async function createProductAdmin(input: unknown) {
   const values = parseProductAdminInput(input);
   const [created] = await db.insert(product).values(values).returning();
   return created;
+}
+
+export async function productExistsAdmin(id: string) {
+  const [row] = await db
+    .select({ id: product.id })
+    .from(product)
+    .where(eq(product.id, id))
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function updateProductAdmin(id: string, input: unknown) {

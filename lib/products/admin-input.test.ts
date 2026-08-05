@@ -44,4 +44,30 @@ describe("product admin input", () => {
         expertSharePercent: 35,
       }), /expert/);
   });
+
+  it("accepts an internal R2-backed product cover URL", () => {
+    const parsed = parseProductAdminInput({
+      ownerType: "automatize",
+      title: "Produto",
+      priceCentavos: 1000,
+      coverUrl:
+        "/api/products/assets?key=r2%2Fproduct-covers%2Fcover-123.webp",
+    });
+
+    assert.equal(
+      parsed.coverUrl,
+      "/api/products/assets?key=r2%2Fproduct-covers%2Fcover-123.webp",
+    );
+  });
+
+  it("rejects arbitrary relative cover paths", () => {
+    assert.throws(() =>
+      parseProductAdminInput({
+        ownerType: "automatize",
+        title: "Produto",
+        priceCentavos: 1000,
+        coverUrl: "/api/private/secrets",
+      }),
+    );
+  });
 });

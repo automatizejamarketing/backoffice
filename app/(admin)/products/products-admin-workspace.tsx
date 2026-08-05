@@ -1,6 +1,5 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive,
@@ -188,11 +187,26 @@ const productStatusLabel: Record<Product["status"], string> = {
   archived: "Arquivado",
 };
 
+const orderStatusLabel: Record<string, string> = {
+  pending: "Pendente",
+  approved: "Aprovado",
+  failed: "Falhou",
+  refunded: "Reembolsado",
+  canceled: "Cancelado",
+};
+
 function money(value: number) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
     currency: "BRL",
   }).format(value / 100);
+}
+
+function dateTime(value: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 async function readError(response: Response) {
@@ -202,8 +216,47 @@ async function readError(response: Response) {
   return payload?.error ?? "Operação não concluída.";
 }
 
+async function uploadProductAsset(
+  file: File,
+  input: { kind: "cover"; productId?: never } | { kind: "content"; productId: string },
+) {
+  const contentType = file.type || "application/octet-stream";
+  const prepareResponse = await fetch("/api/products/admin/uploads", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...input,
+      filename: file.name,
+      contentType,
+      size: file.size,
+    }),
+  });
+  if (!prepareResponse.ok) throw new Error(await readError(prepareResponse));
+
+  const prepared = (await prepareResponse.json()) as {
+    uploadUrl: string;
+    objectKey: string;
+    assetUrl: string | null;
+    headers: Record<string, string>;
+  };
+  const uploadResponse = await fetch(prepared.uploadUrl, {
+    method: "PUT",
+    headers: prepared.headers,
+    body: file,
+  });
+  if (!uploadResponse.ok) {
+    throw new Error("Não foi possível enviar o arquivo para o armazenamento.");
+  }
+  return prepared;
+}
+
 export function ProductsAdminWorkspace() {
-  const [products, setProducts] = useState<Array<{ product: Product; expertName: string | null }>>([]);
+  const [products, setProducts] = useState<Array<{
+    product: Product;
+    expertName: string | null;
+    grossRevenueCentavos: number;
+    automatizeNetRevenueCentavos: number;
+  }>>([]);
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -222,6 +275,8 @@ export function ProductsAdminWorkspace() {
   const [creatingExpert, setCreatingExpert] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverInputKey, setCoverInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
 
@@ -291,44 +346,65 @@ export function ProductsAdminWorkspace() {
   async function saveProduct(event: React.FormEvent) {
     event.preventDefault();
     setLoading(true);
-    const payload = {
-      ...productForm,
-      expertId: productForm.expertId || null,
-      priceCentavos: parseBrlCurrencyToCentavos(productForm.priceReais),
-      expertSharePercent: Number(productForm.expertSharePercent.replace(",", ".")),
-      minimumPlanTier: productForm.minimumPlanTier || null,
-    };
-    const response = await fetch(
-      editingProductId
-        ? `/api/products/admin/${editingProductId}`
-        : "/api/products/admin",
-      {
-        method: editingProductId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
-    setLoading(false);
-    if (!response.ok) return toast.error(await readError(response));
-    toast.success(editingProductId ? "Produto atualizado." : "Produto criado.");
-    closeProductDialog();
-    await loadAll();
+    try {
+      let coverUrl = productForm.coverUrl;
+      if (coverFile) {
+        const uploadedCover = await uploadProductAsset(coverFile, {
+          kind: "cover",
+        });
+        coverUrl = uploadedCover.assetUrl ?? "";
+      }
+      const payload = {
+        ...productForm,
+        coverUrl,
+        expertId: productForm.expertId || null,
+        priceCentavos: parseBrlCurrencyToCentavos(productForm.priceReais),
+        expertSharePercent: Number(productForm.expertSharePercent.replace(",", ".")),
+        minimumPlanTier: productForm.minimumPlanTier || null,
+      };
+      const response = await fetch(
+        editingProductId
+          ? `/api/products/admin/${editingProductId}`
+          : "/api/products/admin",
+        {
+          method: editingProductId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      toast.success(editingProductId ? "Produto atualizado." : "Produto criado.");
+      closeProductDialog();
+      await loadAll();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Não foi possível salvar o produto.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   function closeProductDialog() {
     setProductDialogOpen(false);
     setEditingProductId(null);
     setProductForm(emptyProduct);
+    setCoverFile(null);
+    setCoverInputKey((current) => current + 1);
   }
 
   function createProduct() {
     setEditingProductId(null);
     setProductForm(emptyProduct);
+    setCoverFile(null);
+    setCoverInputKey((current) => current + 1);
     setProductDialogOpen(true);
   }
 
   function editProduct(row: Product) {
     setEditingProductId(row.id);
+    setCoverFile(null);
+    setCoverInputKey((current) => current + 1);
     setProductForm({
       ownerType: row.ownerType,
       expertId: row.expertId ?? "",
@@ -433,19 +509,12 @@ export function ProductsAdminWorkspace() {
       | undefined;
     if (file) {
       try {
-        const safeFilename = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
-        const blob = await upload(
-          `products/${selectedProductId}/${crypto.randomUUID()}-${safeFilename}`,
-          file,
-          {
-            access: "private",
-            handleUploadUrl: "/api/products/admin/uploads",
-            clientPayload: JSON.stringify({ productId: selectedProductId }),
-            multipart: file.size > 4 * 1024 * 1024,
-          },
-        );
+        const uploadedFile = await uploadProductAsset(file, {
+          kind: "content",
+          productId: selectedProductId,
+        });
         uploaded = {
-          pathname: blob.pathname,
+          pathname: uploadedFile.objectKey,
           filename: file.name,
           mimeType: file.type || "application/octet-stream",
         };
@@ -644,54 +713,74 @@ export function ProductsAdminWorkspace() {
                 Novo produto
               </Button>
             </CardHeader>
-            <CardContent className="divide-y p-0">
-              {products.map(({ product: row, expertName }) => (
-                <div key={row.id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate font-medium">{row.title}</p>
-                      <Badge variant="outline">{productStatusLabel[row.status]}</Badge>
-                    </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{expertName ?? "Automatize"} · {money(row.priceCentavos)}</p>
-                  </div>
-                  <div className="hidden flex-wrap gap-2 lg:flex">
-                    {row.status === "draft" ? (
-                      <Button type="button" size="sm" onClick={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
-                        {publishingProductId === row.id ? <Loader2 className="size-3.5 animate-spin" /> : <CircleCheck className="size-3.5" />}
-                        {publishingProductId === row.id ? "Publicando..." : "Publicar"}
-                      </Button>
-                    ) : null}
-                    <Button type="button" size="sm" variant="outline" onClick={() => manageContent(row.id)}><BookOpen className="size-3.5" /> Conteúdos</Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => editProduct(row)}><Pencil className="size-3.5" /> Editar</Button>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => void archiveProduct(row.id)}><Archive className="size-3.5" /> Arquivar</Button>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button type="button" size="icon" variant="outline" className="self-end sm:self-auto lg:hidden" aria-label={`Ações de ${row.title}`} title="Ações">
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-44">
-                      {row.status === "draft" ? (
-                        <DropdownMenuItem onSelect={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
-                          {publishingProductId === row.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
-                          {publishingProductId === row.id ? "Publicando..." : "Publicar"}
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem onSelect={() => manageContent(row.id)}>
-                        <BookOpen /> Conteúdos
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => editProduct(row)}>
-                        <Pencil /> Editar
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => void archiveProduct(row.id)}>
-                        <Archive /> Arquivar
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              ))}
+            <CardContent className="p-0">
+              <Table className="min-w-[1180px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Produto</TableHead>
+                    <TableHead>Proprietário</TableHead>
+                    <TableHead className="text-right">Preço</TableHead>
+                    <TableHead className="text-right">Faturamento bruto</TableHead>
+                    <TableHead className="text-right">Líquido Automatize</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {products.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
+                        Nenhum produto cadastrado.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    products.map(({ product: row, expertName, grossRevenueCentavos, automatizeNetRevenueCentavos }) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="max-w-[320px] font-medium">
+                          <span className="block truncate" title={row.title}>{row.title}</span>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">{expertName ?? "Automatize"}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
+                        <TableCell><Badge variant="outline">{productStatusLabel[row.status]}</Badge></TableCell>
+                        <TableCell className="text-right">
+                          <div className="hidden justify-end gap-2 xl:flex">
+                            {row.status === "draft" ? (
+                              <Button type="button" size="sm" onClick={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
+                                {publishingProductId === row.id ? <Loader2 className="size-3.5 animate-spin" /> : <CircleCheck className="size-3.5" />}
+                                {publishingProductId === row.id ? "Publicando..." : "Publicar"}
+                              </Button>
+                            ) : null}
+                            <Button type="button" size="sm" variant="outline" onClick={() => manageContent(row.id)}><BookOpen className="size-3.5" /> Conteúdos</Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => editProduct(row)}><Pencil className="size-3.5" /> Editar</Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => void archiveProduct(row.id)}><Archive className="size-3.5" /> Arquivar</Button>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button type="button" size="icon" variant="outline" className="ml-auto xl:hidden" aria-label={`Ações de ${row.title}`} title="Ações">
+                                <MoreHorizontal className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              {row.status === "draft" ? (
+                                <DropdownMenuItem onSelect={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
+                                  {publishingProductId === row.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
+                                  {publishingProductId === row.id ? "Publicando..." : "Publicar"}
+                                </DropdownMenuItem>
+                              ) : null}
+                              <DropdownMenuItem onSelect={() => manageContent(row.id)}><BookOpen /> Conteúdos</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => editProduct(row)}><Pencil /> Editar</DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => void archiveProduct(row.id)}><Archive /> Arquivar</DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>
@@ -746,7 +835,87 @@ export function ProductsAdminWorkspace() {
         </TabsContent>
 
         <TabsContent value="orders" className="pt-4">
-          <Card><CardHeader><CardTitle>Vendas</CardTitle></CardHeader><CardContent className="divide-y p-0">{orders.map((order) => <div key={order.id} className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_1fr_auto_auto] lg:items-center"><div><p className="font-medium">{order.productTitle}</p><p className="text-sm text-muted-foreground">{order.buyerName} · {order.buyerEmail}</p></div><div><p>{money(order.priceCentavos)}</p>{order.netAmountCentavos !== null ? <p className="text-xs text-muted-foreground">Líquido {money(order.netAmountCentavos)}</p> : null}</div><Badge variant="outline">{order.status}</Badge>{order.status === "approved" ? <Button size="sm" variant="destructive" onClick={() => void refundOrder(order.id)}>Reembolsar</Button> : null}</div>)}</CardContent></Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Vendas</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table className="min-w-[1040px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Produto</TableHead>
+                    <TableHead>Comprador</TableHead>
+                    <TableHead>Data</TableHead>
+                    <TableHead>Pagamento</TableHead>
+                    <TableHead className="text-right">Bruto</TableHead>
+                    <TableHead className="text-right">Líquido</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {orders.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={8}
+                        className="h-28 text-center text-muted-foreground"
+                      >
+                        Nenhuma venda registrada.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    orders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell className="font-medium">
+                          {order.productTitle}
+                        </TableCell>
+                        <TableCell>
+                          <p className="font-medium">{order.buyerName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {order.buyerEmail}
+                          </p>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-muted-foreground">
+                          {dateTime(order.createdAt)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                          {order.providerPaymentId
+                            ? `MP ${order.providerPaymentId}`
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {money(order.priceCentavos)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.netAmountCentavos !== null
+                            ? money(order.netAmountCentavos)
+                            : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {orderStatusLabel[order.status] ?? order.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {order.status === "approved" ? (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => void refundOrder(order.id)}
+                            >
+                              Reembolsar
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="payouts" className="pt-4">
@@ -795,12 +964,29 @@ export function ProductsAdminWorkspace() {
             </Field>
             <Field label="Visibilidade"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.visibility} onChange={(e) => setProductForm({ ...productForm, visibility: e.target.value as "public" | "unlisted" })}><option value="unlisted">Não listado</option><option value="public">Público</option></select></Field>
             <Field label="Status"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.status} onChange={(e) => setProductForm({ ...productForm, status: e.target.value as Product["status"] })}><option value="draft">Rascunho</option><option value="published">Publicado</option><option value="archived">Arquivado</option></select></Field>
-            <Field label="Capa (URL)"><Input value={productForm.coverUrl} onChange={(e) => setProductForm({ ...productForm, coverUrl: e.target.value })} /></Field>
+            <Field label="Imagem de capa">
+              <Input
+                key={coverInputKey}
+                type="file"
+                accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                onChange={(event) => setCoverFile(event.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {coverFile
+                  ? coverFile.name
+                  : productForm.coverUrl
+                    ? "Uma capa já está cadastrada. Envie outra para substituí-la."
+                    : "JPG, PNG, WebP, GIF ou AVIF de até 10 MB."}
+              </p>
+            </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
             <DialogFooter className="md:col-span-2">
               <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
-              <Button type="submit" disabled={loading}>{editingProductId ? <Check className="size-4" /> : <Plus className="size-4" />}{editingProductId ? "Salvar alterações" : "Criar produto"}</Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? <Loader2 className="size-4 animate-spin" /> : editingProductId ? <Check className="size-4" /> : <Plus className="size-4" />}
+                {loading ? "Salvando..." : editingProductId ? "Salvar alterações" : "Criar produto"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

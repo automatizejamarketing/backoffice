@@ -15,3 +15,12 @@ O backoffice é responsável por:
 
 Ele não inicia assinatura, não calcula acesso por plano e não executa Split
 Payments.
+
+## Armazenamento de arquivos
+
+Novas capas, PDFs e arquivos são enviados diretamente para um bucket privado do
+Cloudflare R2 por uma URL assinada de cinco minutos. O backoffice usa credencial
+de leitura e escrita limitada ao bucket; o frontend usa outra credencial,
+somente de leitura. Ambos precisam de `CLOUDFLARE_R2_ACCOUNT_ID`,
+`PRODUCT_ASSETS_R2_BUCKET`, `PRODUCT_ASSETS_R2_ACCESS_KEY_ID` e
+`PRODUCT_ASSETS_R2_SECRET_ACCESS_KEY`.
