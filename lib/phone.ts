@@ -75,8 +75,8 @@ export function formatBrazilianPhone(
 export function getWhatsAppUrl(
   value: string | null | undefined,
 ): string | null {
-  const digits = digitsOnly(value);
-  if (digits.length !== 10 && digits.length !== 11) return null;
+  const digits = normalizeBrazilianPhone(value);
+  if (!digits || (digits.length !== 10 && digits.length !== 11)) return null;
 
   return `https://wa.me/55${digits}`;
 }
