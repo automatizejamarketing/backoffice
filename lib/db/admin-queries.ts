@@ -73,13 +73,16 @@ import { PERFORMANCE_DROP_RULEBOOK_VERSION } from "@/lib/performance-drop/consta
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 import {
   fillDailyConversionCohorts,
+  summarizeCohortOutcomes,
   summarizeConversionCohorts,
   type DailyConversionCohort,
 } from "@/lib/backoffice/conversion-dashboard";
+import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
 import {
-  summarizeFinanceCustomers,
-  summarizeFinanceDashboard,
-} from "@/lib/backoffice/finance-dashboard";
+  listCustomerBaseStatusUsers,
+  summarizeCustomerBaseStatus,
+  type CustomerBaseCategory,
+} from "@/lib/backoffice/customer-base-status";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 
 export type ActiveSubscriptionSummary = Pick<
@@ -1318,20 +1321,107 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
     window,
   );
 
+  const summary = summarizeConversionCohorts(daily);
+
+  const [cohortOutcomes] = await db
+    .select({
+      trial: sql<number>`COUNT(*) FILTER (
+        WHERE ${user.expirationDate} IS NOT NULL
+          AND ${user.expirationDate} > NOW()
+          AND NOT EXISTS (
+            SELECT 1
+            FROM payments cohort_payment
+            WHERE cohort_payment.user_id = ${cohortUserId}
+              AND cohort_payment.status = 'succeeded'
+          )
+      )::integer`,
+      churn: sql<number>`COUNT(*) FILTER (
+        WHERE ${user.expirationDate} IS NOT NULL
+          AND ${user.expirationDate} < NOW()
+          AND EXISTS (
+            SELECT 1
+            FROM payments cohort_payment
+            WHERE cohort_payment.user_id = ${cohortUserId}
+              AND cohort_payment.status = 'succeeded'
+          )
+      )::integer`,
+    })
+    .from(user)
+    .where(
+      and(
+        gte(user.createdAt, window.gte),
+        lt(user.createdAt, window.lt),
+      ),
+    );
+
   return {
     window,
     daily,
-    summary: summarizeConversionCohorts(daily),
+    summary,
+    outcomes: summarizeCohortOutcomes(
+      Number(cohortOutcomes?.trial ?? 0),
+      Number(cohortOutcomes?.churn ?? 0),
+      summary.newUsers,
+    ),
   };
+}
+
+export async function fetchCustomerBaseRows() {
+  const financeUserId = sql.raw('"users"."id"');
+
+  return db
+    .select({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      phone: user.phone,
+      expirationDate: user.expirationDate,
+      totalPaidCentavos: sql<number>`coalesce((
+          select sum(p.amount)::integer
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
+        ), 0)`,
+      hasApprovedPayment: sql<boolean>`exists (
+          select 1
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
+        )`,
+      scheduledCancel: sql<boolean>`coalesce((
+          select s.cancel_at_period_end = true or s.status = 'canceled'
+          from subscriptions s
+          where s.user_id = ${financeUserId}
+          order by s.created_at desc
+          limit 1
+        ), false)`,
+      lastPaymentProvider: sql<"stripe" | "mercadopago" | "manual" | null>`(
+          select p.provider
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
+          order by p.paid_at desc nulls last, p.created_at desc
+          limit 1
+        )`,
+    })
+    .from(user);
+}
+
+export async function getCustomerBaseStatus() {
+  const customerRows = await fetchCustomerBaseRows();
+  return summarizeCustomerBaseStatus(customerRows, new Date());
+}
+
+export async function getCustomerBaseStatusUsers(category: CustomerBaseCategory) {
+  const customerRows = await fetchCustomerBaseRows();
+  return listCustomerBaseStatusUsers(customerRows, category, new Date());
 }
 
 export async function getFinanceDashboard(window: DashboardDateWindow) {
   const { getStripeSettlements } = await import(
     "@/lib/backoffice/stripe-finance-settlement"
   );
-  const financeUserId = sql.raw('"users"."id"');
-  const referenceDate = new Date();
-  const [activePlans, periodPayments, customerRows] = await Promise.all([
+  const [activePlans, periodPayments] = await Promise.all([
     db
       .select({
         provider: subscription.provider,
@@ -1357,24 +1447,6 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
           lt(payment.paidAt, window.lt),
         ),
       ),
-    db
-      .select({
-        expirationDate: user.expirationDate,
-        hasApprovedPayment: sql<boolean>`exists (
-          select 1
-          from payments p
-          where p.user_id = ${financeUserId}
-            and p.status = 'succeeded'
-        )`,
-        canceled: sql<boolean>`coalesce((
-          select s.status = 'canceled' or s.cancel_at_period_end = true
-          from subscriptions s
-          where s.user_id = ${financeUserId}
-          order by s.created_at desc
-          limit 1
-        ), false)`,
-      })
-      .from(user),
   ]);
 
   const stripeSettlements = await getStripeSettlements(
@@ -1384,10 +1456,6 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         : [],
     ),
   );
-  const customerStatus = summarizeFinanceCustomers(
-    customerRows,
-    referenceDate,
-  );
 
   return {
     window,
@@ -1395,7 +1463,6 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
       activePlans,
       periodPayments,
       stripeSettlements,
-      customerStatus,
     ),
   };
 }

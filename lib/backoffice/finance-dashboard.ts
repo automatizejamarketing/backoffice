@@ -23,19 +23,6 @@ export type StripeSettlement = {
   feeAmount: number;
 };
 
-export type FinanceCustomerStatus = {
-  activePaying: number;
-  trial: number;
-  canceled: number;
-  expired: number;
-};
-
-export type FinanceCustomerRow = {
-  expirationDate: Date | null;
-  hasApprovedPayment: boolean;
-  canceled: boolean;
-};
-
 export type FinanceProvider = "card" | "pix" | "manual";
 
 export type FinanceProviderSummary = {
@@ -51,7 +38,6 @@ export type FinanceDashboardSummary = {
   mrrCentavos: number;
   activeSubscriptions: number;
   mrrByProvider: Record<FinanceProvider, number>;
-  customers: FinanceCustomerStatus;
   receipts: {
     payments: number;
     grossCentavos: number;
@@ -82,46 +68,10 @@ function emptyProviderSummary(
   };
 }
 
-export function summarizeFinanceCustomers(
-  customers: FinanceCustomerRow[],
-  referenceDate: Date,
-): FinanceCustomerStatus {
-  const summary: FinanceCustomerStatus = {
-    activePaying: 0,
-    trial: 0,
-    canceled: 0,
-    expired: 0,
-  };
-  const referenceTime = referenceDate.getTime();
-
-  for (const customer of customers) {
-    const expirationTime = customer.expirationDate?.getTime();
-    const hasActiveAccess =
-      expirationTime !== undefined && expirationTime > referenceTime;
-    const hasExpiredAccess =
-      expirationTime !== undefined && expirationTime < referenceTime;
-
-    if (customer.hasApprovedPayment && hasActiveAccess) {
-      summary.activePaying += 1;
-    } else if (!customer.hasApprovedPayment && hasActiveAccess) {
-      summary.trial += 1;
-    } else if (customer.hasApprovedPayment && hasExpiredAccess) {
-      summary.expired += 1;
-    }
-
-    if (customer.canceled) {
-      summary.canceled += 1;
-    }
-  }
-
-  return summary;
-}
-
 export function summarizeFinanceDashboard(
   activePlans: ActivePlanForMrr[],
   payments: PaymentForFinance[],
   stripeSettlements: StripeSettlement[],
-  customers: FinanceCustomerStatus,
 ): FinanceDashboardSummary {
   const mrrByProvider: Record<FinanceProvider, number> = {
     card: 0,
@@ -183,7 +133,6 @@ export function summarizeFinanceDashboard(
     ),
     activeSubscriptions: activePlans.length,
     mrrByProvider,
-    customers,
     receipts: {
       payments: providerValues.reduce((sum, item) => sum + item.payments, 0),
       grossCentavos: providerValues.reduce(

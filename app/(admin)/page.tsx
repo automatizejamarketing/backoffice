@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/table";
 import {
   getConversionDashboard,
+  getCustomerBaseStatus,
   getDashboardStats,
 } from "@/lib/db/admin-queries";
 import type { DailyConversionCohort } from "@/lib/backoffice/conversion-dashboard";
@@ -35,6 +36,7 @@ import {
   DashboardFetchingIndicator,
   DashboardNavigationProvider,
 } from "./dashboard-navigation-feedback";
+import { CustomerBaseStatusPanel } from "./customer-base-status";
 
 export const dynamic = "force-dynamic";
 
@@ -210,12 +212,13 @@ export default async function DashboardPage({
     searchParams,
   ]);
   const selectedWindow = resolveDashboardDateWindow(sp);
-  const [conversion, stats] = await Promise.all([
+  const [conversion, stats, customerBaseStatus] = await Promise.all([
     getConversionDashboard(selectedWindow),
     getDashboardStats(),
+    getCustomerBaseStatus(),
   ]);
 
-  const { summary, daily, window } = conversion;
+  const { summary, daily, window, outcomes } = conversion;
   const platformStats = [
     {
       label: "Ativos com IA · 7 dias",
@@ -255,6 +258,8 @@ export default async function DashboardPage({
               <DashboardFetchingIndicator />
             </div>
           </div>
+
+          <CustomerBaseStatusPanel status={customerBaseStatus} />
 
           <DashboardDateFilter basePath="/" window={window} />
         </header>
@@ -315,6 +320,43 @@ export default async function DashboardPage({
             description="Têm ao menos um pagamento aprovado; trials não contam."
             emphasis
           />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+            <p className="text-xs font-medium text-muted-foreground">
+              Em trial hoje
+            </p>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <strong className="text-2xl font-semibold tracking-tight tabular-nums">
+                {formatNumber(outcomes.trial)}
+              </strong>
+              <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                {formatPercentage(outcomes.trialRate)} dos cadastros
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Cadastraram no período e ainda têm acesso vigente sem pagamento
+              aprovado.
+            </p>
+          </div>
+          <div className="rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+            <p className="text-xs font-medium text-muted-foreground">
+              Churnearam
+            </p>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <strong className="text-2xl font-semibold tracking-tight tabular-nums">
+                {formatNumber(outcomes.churn)}
+              </strong>
+              <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                {formatPercentage(outcomes.churnRate)} dos cadastros
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              Cadastraram no período, pagaram ao menos uma vez e já perderam o
+              acesso.
+            </p>
+          </div>
         </div>
       </section>
 

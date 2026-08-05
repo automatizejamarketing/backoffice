@@ -3,6 +3,7 @@ import {
   bigserial,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -2186,6 +2187,34 @@ export const trackableLinkClick = pgTable("trackable_link_clicks", {
 });
 
 export type TrackableLinkClick = InferSelectModel<typeof trackableLinkClick>;
+
+export const customerBaseDailySnapshot = pgTable(
+  "customer_base_daily_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    snapshotDate: date("snapshot_date").notNull(),
+    activePaying: integer("active_paying").notNull(),
+    trial: integer("trial").notNull(),
+    churnTotal: integer("churn_total").notNull(),
+    churnCard: integer("churn_card").notNull(),
+    churnPix: integer("churn_pix").notNull(),
+    scheduledCancel: integer("scheduled_cancel").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    snapshotDateUnique: uniqueIndex(
+      "customer_base_daily_snapshots_snapshot_date_unique",
+    ).on(table.snapshotDate),
+    snapshotDateIdx: index("customer_base_daily_snapshots_snapshot_date_idx").on(
+      table.snapshotDate,
+    ),
+  }),
+);
+
+export type CustomerBaseDailySnapshot = InferSelectModel<
+  typeof customerBaseDailySnapshot
+>;
 
 // =============================================
 // Performance Insights + Masterclass extras

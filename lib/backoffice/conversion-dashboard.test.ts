@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   fillDailyConversionCohorts,
+  summarizeCohortOutcomes,
   summarizeConversionCohorts,
 } from "./conversion-dashboard";
 
@@ -70,6 +71,15 @@ describe("conversion dashboard", () => {
       onboardingRate: 75,
       metaConnectionRate: 37.5,
       paidRate: 37.5,
+    });
+  });
+
+  test("summarizes cohort trial and churn rates", () => {
+    expect(summarizeCohortOutcomes(2, 1, 8)).toEqual({
+      trial: 2,
+      churn: 1,
+      trialRate: 25,
+      churnRate: 12.5,
     });
   });
 });

@@ -28,7 +28,7 @@ function firstValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function formatBrtCalendarDate(date: Date): string {
+export function formatBrtCalendarDate(date: Date): string {
   const shifted = new Date(
     date.getTime() - BRT_START_OF_DAY_UTC_HOUR * 60 * 60 * 1000,
   );

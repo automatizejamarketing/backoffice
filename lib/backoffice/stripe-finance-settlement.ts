@@ -16,7 +16,7 @@ async function fetchStripeSettlement(
   if (!stripe) return null;
 
   const invoice = await stripe.invoices.retrieve(invoiceId, {
-    expand: ["payments.data.payment.payment_intent"],
+    expand: ["payments.data.payment.payment_intent", "charge"],
   });
   const paidInvoicePayment =
     invoice.payments?.data.find((item) => item.status === "paid") ??
@@ -26,7 +26,10 @@ async function fetchStripeSettlement(
     paymentIntent && typeof paymentIntent !== "string"
       ? paymentIntent
       : null;
-  const latestCharge = expandedIntent?.latest_charge;
+  let latestCharge = expandedIntent?.latest_charge;
+  if (!latestCharge) {
+    latestCharge = invoice.charge ?? null;
+  }
   if (!latestCharge) return null;
 
   const charge =

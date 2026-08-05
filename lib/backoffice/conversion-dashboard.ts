@@ -19,6 +19,26 @@ export type ConversionSummary = Omit<DailyConversionCohort, "date"> & {
   paidRate: number;
 };
 
+export type CohortOutcomeSummary = {
+  trial: number;
+  churn: number;
+  trialRate: number;
+  churnRate: number;
+};
+
+export function summarizeCohortOutcomes(
+  trial: number,
+  churn: number,
+  newUsers: number,
+): CohortOutcomeSummary {
+  return {
+    trial,
+    churn,
+    trialRate: percentage(trial, newUsers),
+    churnRate: percentage(churn, newUsers),
+  };
+}
+
 export function fillDailyConversionCohorts(
   rows: DailyConversionCohort[],
   window: Pick<ConversionWindow, "fromDate" | "throughDate">,
