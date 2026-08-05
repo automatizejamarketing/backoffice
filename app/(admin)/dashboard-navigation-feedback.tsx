@@ -70,7 +70,7 @@ export function DashboardFetchingIndicator() {
       {isFetching ? (
         <>
           <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-          <span className="sr-only">Atualizando conversão</span>
+          <span className="sr-only">Atualizando dados</span>
         </>
       ) : null}
     </span>

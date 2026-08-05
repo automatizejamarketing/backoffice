@@ -8,7 +8,10 @@ import {
 } from "@/lib/backoffice/dashboard-date-range";
 import { getFinanceDashboard } from "@/lib/db/admin-queries";
 import { DashboardDateFilter } from "../dashboard-date-filter";
-import { DashboardNavigationProvider } from "../dashboard-navigation-feedback";
+import {
+  DashboardFetchingIndicator,
+  DashboardNavigationProvider,
+} from "../dashboard-navigation-feedback";
 
 export const dynamic = "force-dynamic";
 
@@ -155,9 +158,12 @@ export default async function FinancePage({
               <span className="size-1.5 rounded-full bg-emerald-500" />
               Receita recorrente e caixa
             </div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-              Financeiro
-            </h1>
+            <div className="mt-2 flex items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                Financeiro
+              </h1>
+              <DashboardFetchingIndicator />
+            </div>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               Acompanhe o MRR atual e quanto entrou líquido em cada meio de
               pagamento no período selecionado.
@@ -205,6 +211,55 @@ export default async function FinancePage({
             </div>
           </dl>
         </div>
+
+        <dl className="grid divide-y border-t md:grid-cols-4 md:divide-x md:divide-y-0">
+          <div className="p-5 md:px-4 xl:p-5">
+            <dt className="text-xs font-medium text-muted-foreground">
+              Clientes pagantes
+            </dt>
+            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+              {formatNumber(summary.customers.activePaying)}
+            </dd>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Assinatura ativa e ao menos uma compra aprovada.
+            </p>
+          </div>
+          <div className="p-5 md:px-4 xl:p-5">
+            <dt className="text-xs font-medium text-muted-foreground">
+              Em trial
+            </dt>
+            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+              {formatNumber(summary.customers.trial)}
+            </dd>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Clientes no período de teste.
+            </p>
+          </div>
+          <div className="p-5 md:px-4 xl:p-5">
+            <dt className="text-xs font-medium text-muted-foreground">
+              Cancelados
+            </dt>
+            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+              {formatNumber(summary.customers.canceled)}
+            </dd>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Clientes com assinatura cancelada.
+            </p>
+          </div>
+          <div className="p-5 md:px-4 xl:p-5">
+            <dt className="text-xs font-medium text-muted-foreground">
+              Ticket médio líquido
+            </dt>
+            <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+              {formatBRLFromCentavos(
+                summary.receipts.averageNetTicketCentavos,
+              )}
+            </dd>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+              Média dos pagamentos no período selecionado.
+            </p>
+          </div>
+        </dl>
 
         <div className="border-t p-5 sm:p-6">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">

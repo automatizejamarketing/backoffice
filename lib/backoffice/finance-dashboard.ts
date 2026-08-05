@@ -23,6 +23,12 @@ export type StripeSettlement = {
   feeAmount: number;
 };
 
+export type FinanceCustomerStatus = {
+  activePaying: number;
+  trial: number;
+  canceled: number;
+};
+
 export type FinanceProvider = "card" | "pix" | "manual";
 
 export type FinanceProviderSummary = {
@@ -38,12 +44,14 @@ export type FinanceDashboardSummary = {
   mrrCentavos: number;
   activeSubscriptions: number;
   mrrByProvider: Record<FinanceProvider, number>;
+  customers: FinanceCustomerStatus;
   receipts: {
     payments: number;
     grossCentavos: number;
     feeCentavos: number;
     netCentavos: number;
     netCoveragePayments: number;
+    averageNetTicketCentavos: number;
     providers: Record<FinanceProvider, FinanceProviderSummary>;
   };
 };
@@ -71,6 +79,7 @@ export function summarizeFinanceDashboard(
   activePlans: ActivePlanForMrr[],
   payments: PaymentForFinance[],
   stripeSettlements: StripeSettlement[],
+  customers: FinanceCustomerStatus,
 ): FinanceDashboardSummary {
   const mrrByProvider: Record<FinanceProvider, number> = {
     card: 0,
@@ -116,6 +125,14 @@ export function summarizeFinanceDashboard(
   }
 
   const providerValues = Object.values(providers);
+  const netCentavos = providerValues.reduce(
+    (sum, item) => sum + item.netCentavos,
+    0,
+  );
+  const netCoveragePayments = providerValues.reduce(
+    (sum, item) => sum + item.netCoveragePayments,
+    0,
+  );
 
   return {
     mrrCentavos: Object.values(mrrByProvider).reduce(
@@ -124,6 +141,7 @@ export function summarizeFinanceDashboard(
     ),
     activeSubscriptions: activePlans.length,
     mrrByProvider,
+    customers,
     receipts: {
       payments: providerValues.reduce((sum, item) => sum + item.payments, 0),
       grossCentavos: providerValues.reduce(
@@ -134,14 +152,12 @@ export function summarizeFinanceDashboard(
         (sum, item) => sum + item.feeCentavos,
         0,
       ),
-      netCentavos: providerValues.reduce(
-        (sum, item) => sum + item.netCentavos,
-        0,
-      ),
-      netCoveragePayments: providerValues.reduce(
-        (sum, item) => sum + item.netCoveragePayments,
-        0,
-      ),
+      netCentavos,
+      netCoveragePayments,
+      averageNetTicketCentavos:
+        netCoveragePayments === 0
+          ? 0
+          : Math.round(netCentavos / netCoveragePayments),
       providers,
     },
   };

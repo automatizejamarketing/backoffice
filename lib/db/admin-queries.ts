@@ -1326,7 +1326,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
   const { getStripeSettlements } = await import(
     "@/lib/backoffice/stripe-finance-settlement"
   );
-  const [activePlans, periodPayments] = await Promise.all([
+  const [activePlans, periodPayments, customerStatusRows] = await Promise.all([
     db
       .select({
         provider: subscription.provider,
@@ -1352,6 +1352,25 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
           lt(payment.paidAt, window.lt),
         ),
       ),
+    db
+      .select({
+        activePaying: sql<number>`count(*) filter (
+          where ${activeSubscriptionStatusSql} = 'active'
+            and exists (
+              select 1
+              from payments p
+              where p.user_id = ${user.id}
+                and p.status = 'succeeded'
+            )
+        )`,
+        trial: sql<number>`count(*) filter (
+          where ${activeSubscriptionStatusSql} = 'trialing'
+        )`,
+        canceled: sql<number>`count(*) filter (
+          where ${activeSubscriptionStatusSql} = 'canceled'
+        )`,
+      })
+      .from(user),
   ]);
 
   const stripeSettlements = await getStripeSettlements(
@@ -1361,6 +1380,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         : [],
     ),
   );
+  const customerStatus = customerStatusRows[0];
 
   return {
     window,
@@ -1368,6 +1388,11 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
       activePlans,
       periodPayments,
       stripeSettlements,
+      {
+        activePaying: Number(customerStatus?.activePaying ?? 0),
+        trial: Number(customerStatus?.trial ?? 0),
+        canceled: Number(customerStatus?.canceled ?? 0),
+      },
     ),
   };
 }

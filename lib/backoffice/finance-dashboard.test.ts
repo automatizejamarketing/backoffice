@@ -40,17 +40,20 @@ describe("finance dashboard", () => {
             netAmount: 47_678,
           },
         ],
+        { activePaying: 11, trial: 4, canceled: 7 },
       ),
     ).toEqual({
       mrrCentavos: 99_100,
       activeSubscriptions: 3,
       mrrByProvider: { card: 19_700, pix: 49_700, manual: 29_700 },
+      customers: { activePaying: 11, trial: 4, canceled: 7 },
       receipts: {
         payments: 2,
         grossCentavos: 79_400,
         feeCentavos: 2_316,
         netCentavos: 77_084,
         netCoveragePayments: 2,
+        averageNetTicketCentavos: 38_542,
         providers: {
           card: {
             provider: "card",
@@ -96,6 +99,7 @@ describe("finance dashboard", () => {
         },
       ],
       [],
+      { activePaying: 0, trial: 0, canceled: 0 },
     );
 
     expect(result.receipts).toMatchObject({
@@ -104,6 +108,7 @@ describe("finance dashboard", () => {
       feeCentavos: 0,
       netCentavos: 0,
       netCoveragePayments: 0,
+      averageNetTicketCentavos: 0,
     });
   });
 });
