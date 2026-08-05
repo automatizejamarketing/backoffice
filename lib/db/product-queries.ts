@@ -9,6 +9,7 @@ import {
   product,
   productContentItem,
   productEntitlement,
+  productFinancialSetting,
   productOrder,
   productPayment,
   user,
@@ -21,6 +22,32 @@ import {
   type ExpertPayoutStatus,
 } from "@/lib/products/payout";
 import { calculateAutomatizeNetRevenueCentavos } from "@/lib/products/finance";
+import { parseProductFinancialSettingsInput } from "@/lib/products/financial-settings";
+
+export async function getProductFinancialSettings() {
+  const [settings] = await db
+    .select()
+    .from(productFinancialSetting)
+    .where(eq(productFinancialSetting.id, "default"))
+    .limit(1);
+
+  return {
+    platformFeeBasisPoints: settings?.platformFeeBasisPoints ?? 500,
+  };
+}
+
+export async function updateProductFinancialSettings(input: unknown) {
+  const values = parseProductFinancialSettingsInput(input);
+  const [settings] = await db
+    .insert(productFinancialSetting)
+    .values({ id: "default", ...values, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: productFinancialSetting.id,
+      set: { ...values, updatedAt: new Date() },
+    })
+    .returning();
+  return settings;
+}
 
 export async function listExperts() {
   return db
@@ -28,6 +55,7 @@ export async function listExperts() {
       id: expertProfile.id,
       userId: expertProfile.userId,
       displayName: expertProfile.displayName,
+      profileImageUrl: expertProfile.profileImageUrl,
       email: user.email,
       phone: expertProfile.phone,
       pixKey: expertProfile.pixKey,
@@ -41,6 +69,7 @@ export async function listExperts() {
 export async function createExpert(input: {
   email: string;
   displayName: string;
+  profileImageUrl?: string | null;
   phone?: string | null;
   pixKey: string;
 }) {
@@ -252,6 +281,34 @@ export async function listProductOrders() {
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,
+      paymentMethodId: productPayment.paymentMethodId,
+      paymentTypeId: productPayment.paymentTypeId,
+      providerReleaseAt: productPayment.providerReleaseAt,
+      platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
+      platformGatewayNetRevenueCentavos:
+        productPayment.platformGatewayNetRevenueCentavos,
+      ownerExpertReceivableCentavos:
+        productPayment.ownerExpertReceivableCentavos,
+      coproducerExpertReceivableCentavos:
+        productPayment.coproducerExpertReceivableCentavos,
+      automatizeCoproductionRevenueCentavos:
+        productPayment.automatizeCoproductionRevenueCentavos,
+      automatizeProductRevenueCentavos:
+        productPayment.automatizeProductRevenueCentavos,
+      automatizeTotalNetRevenueCentavos:
+        productPayment.automatizeTotalNetRevenueCentavos,
+      expertAvailableAt: sql<Date | null>`(
+        select min(${expertLedgerEntry.availableAt})
+        from ${expertLedgerEntry}
+        where ${expertLedgerEntry.orderId} = ${productOrder.id}
+          and ${expertLedgerEntry.type} = 'sale'
+      )`,
+      expertLedgerAmountCentavos: sql<number | null>`(
+        select sum(${expertLedgerEntry.amountCentavos})
+        from ${expertLedgerEntry}
+        where ${expertLedgerEntry.orderId} = ${productOrder.id}
+          and ${expertLedgerEntry.type} = 'sale'
+      )`,
     })
     .from(productOrder)
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
@@ -382,7 +439,7 @@ export async function applyFullProductRefund(
       .where(eq(productOrder.id, order.id))
       .returning();
 
-    const [sale] = await tx
+    const sales = await tx
       .select()
       .from(expertLedgerEntry)
       .where(
@@ -390,15 +447,14 @@ export async function applyFullProductRefund(
           eq(expertLedgerEntry.orderId, order.id),
           eq(expertLedgerEntry.type, "sale"),
         ),
-      )
-      .limit(1);
-    if (sale) {
+      );
+    for (const sale of sales) {
       await tx
         .insert(expertLedgerEntry)
         .values({
           expertId: sale.expertId,
           orderId: order.id,
-          eventKey: `product-refund:${order.id}:${eventSuffix}`,
+          eventKey: `product-refund:${order.id}:${sale.id}:${eventSuffix}`,
           type: "refund",
           amountCentavos: -sale.amountCentavos,
           availableAt: now,

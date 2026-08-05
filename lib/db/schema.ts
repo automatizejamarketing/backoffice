@@ -213,6 +213,7 @@ export const expertProfile = pgTable(
       .notNull()
       .references(() => user.id),
     displayName: varchar("display_name", { length: 120 }).notNull(),
+    profileImageUrl: text("profile_image_url"),
     phone: varchar("phone", { length: 20 }),
     pixKey: varchar("pix_key", { length: 255 }).notNull(),
     status: varchar("status", { enum: ["active", "inactive"] })
@@ -230,6 +231,27 @@ export const expertProfile = pgTable(
 
 export type ExpertProfile = InferSelectModel<typeof expertProfile>;
 
+export const productFinancialSetting = pgTable(
+  "product_financial_settings",
+  {
+    id: varchar("id", { length: 32 }).primaryKey().notNull().default("default"),
+    platformFeeBasisPoints: integer("platform_fee_basis_points")
+      .notNull()
+      .default(500),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    platformFeeCheck: check(
+      "product_financial_settings_platform_fee_range",
+      sql`${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000`,
+    ),
+  }),
+);
+
+export type ProductFinancialSetting = InferSelectModel<
+  typeof productFinancialSetting
+>;
+
 export const product = pgTable(
   "products",
   {
@@ -245,7 +267,19 @@ export const product = pgTable(
     coverUrl: text("cover_url"),
     priceCentavos: integer("price_centavos").notNull().default(0),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
-    expertShareBasisPoints: integer("expert_share_basis_points")
+    platformFeeBasisPointsOverride: integer(
+      "platform_fee_basis_points_override",
+    ),
+    ownerExpertShareBasisPoints: integer("expert_share_basis_points")
+      .notNull()
+      .default(0),
+    coproducerType: varchar("coproducer_type", {
+      enum: [...PRODUCT_OWNER_VALUES],
+    }).$type<ProductOwnerType>(),
+    coproducerExpertId: uuid("coproducer_expert_id").references(
+      () => expertProfile.id,
+    ),
+    coproducerShareBasisPoints: integer("coproducer_share_basis_points")
       .notNull()
       .default(0),
     minimumPlanTier: varchar("minimum_plan_tier", {
@@ -280,14 +314,21 @@ export const product = pgTable(
       table.salesEnabled,
     ),
     expertIdx: index("products_expert_id_idx").on(table.expertId),
+    coproducerExpertIdx: index("products_coproducer_expert_id_idx").on(
+      table.coproducerExpertId,
+    ),
     priceCheck: check("products_price_non_negative", sql`${table.priceCentavos} >= 0`),
+    platformFeeOverrideCheck: check(
+      "products_platform_fee_override_range",
+      sql`${table.platformFeeBasisPointsOverride} IS NULL OR (${table.platformFeeBasisPointsOverride} >= 0 AND ${table.platformFeeBasisPointsOverride} <= 10000)`,
+    ),
     shareCheck: check(
       "products_expert_share_range",
-      sql`${table.expertShareBasisPoints} >= 0 AND ${table.expertShareBasisPoints} <= 10000`,
+      sql`${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000`,
     ),
     ownerCheck: check(
       "products_owner_consistency",
-      sql`(${table.ownerType} = 'automatize' AND ${table.expertId} IS NULL AND ${table.expertShareBasisPoints} = 0) OR (${table.ownerType} = 'expert' AND ${table.expertId} IS NOT NULL)`,
+      sql`(${table.ownerType} = 'automatize' AND ${table.expertId} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerType} IS NULL AND ${table.coproducerExpertId} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.ownerType} = 'expert' AND ${table.expertId} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerType} IS NULL AND ${table.coproducerExpertId} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerType} = 'automatize' AND ${table.coproducerExpertId} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerType} = 'expert' AND ${table.coproducerExpertId} IS NOT NULL AND ${table.coproducerExpertId} <> ${table.expertId} AND ${table.coproducerShareBasisPoints} > 0)))`,
     ),
   }),
 );
@@ -357,6 +398,12 @@ export const productOrder = pgTable(
     expertIdSnapshot: uuid("expert_id_snapshot").references(
       () => expertProfile.id,
     ),
+    coproducerTypeSnapshot: varchar("coproducer_type_snapshot", {
+      enum: [...PRODUCT_OWNER_VALUES],
+    }).$type<ProductOwnerType>(),
+    coproducerExpertIdSnapshot: uuid("coproducer_expert_id_snapshot").references(
+      () => expertProfile.id,
+    ),
     userId: uuid("user_id").references(() => user.id),
     acquisitionKey: varchar("acquisition_key", { length: 255 }).notNull(),
     buyerName: varchar("buyer_name", { length: 120 }).notNull(),
@@ -367,7 +414,17 @@ export const productOrder = pgTable(
     }).notNull(),
     priceCentavos: integer("price_centavos").notNull(),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
-    expertShareBasisPoints: integer("expert_share_basis_points")
+    financialModel: varchar("financial_model", {
+      enum: ["legacy_net_split", "platform_fee_coproduction", "platform_fee_coproduction_v2"],
+    })
+      .$type<"legacy_net_split" | "platform_fee_coproduction" | "platform_fee_coproduction_v2">()
+      .notNull()
+      .default("legacy_net_split"),
+    platformFeeBasisPoints: integer("platform_fee_basis_points"),
+    ownerExpertShareBasisPoints: integer("expert_share_basis_points")
+      .notNull()
+      .default(0),
+    coproducerShareBasisPoints: integer("coproducer_share_basis_points")
       .notNull()
       .default(0),
     termsVersion: varchar("terms_version", { length: 40 }).notNull(),
@@ -399,7 +456,7 @@ export const productOrder = pgTable(
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
-      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.expertShareBasisPoints} >= 0 AND ${table.expertShareBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)`,
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))))`,
     ),
   }),
 );
@@ -427,6 +484,27 @@ export const productPayment = pgTable(
     grossAmountCentavos: integer("gross_amount_centavos"),
     netAmountCentavos: integer("net_amount_centavos"),
     feeAmountCentavos: integer("fee_amount_centavos"),
+    paymentMethodId: varchar("payment_method_id", { length: 80 }),
+    paymentTypeId: varchar("payment_type_id", { length: 80 }),
+    providerReleaseAt: timestamp("provider_release_at"),
+    platformFeeGrossCentavos: integer("platform_fee_gross_centavos"),
+    platformGatewayNetRevenueCentavos: integer(
+      "platform_gateway_net_revenue_centavos",
+    ),
+    coproductionBaseCentavos: integer("coproduction_base_centavos"),
+    ownerExpertReceivableCentavos: integer("expert_receivable_centavos"),
+    coproducerExpertReceivableCentavos: integer(
+      "coproducer_expert_receivable_centavos",
+    ),
+    automatizeCoproductionRevenueCentavos: integer(
+      "automatize_coproduction_revenue_centavos",
+    ),
+    automatizeProductRevenueCentavos: integer(
+      "automatize_product_revenue_centavos",
+    ),
+    automatizeTotalNetRevenueCentavos: integer(
+      "automatize_total_net_revenue_centavos",
+    ),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     rawStatus: varchar("raw_status", { length: 80 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),

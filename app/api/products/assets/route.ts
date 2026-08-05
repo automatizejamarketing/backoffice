@@ -8,7 +8,8 @@ export async function GET(request: Request) {
 
   const objectKey = new URL(request.url).searchParams.get("key");
   if (
-    !objectKey?.startsWith("r2/product-covers/") ||
+    (!objectKey?.startsWith("r2/product-covers/") &&
+      !objectKey?.startsWith("r2/expert-avatars/")) ||
     objectKey.includes("..")
   ) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });

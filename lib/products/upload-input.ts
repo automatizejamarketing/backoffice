@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const MAX_COVER_SIZE = 10 * 1024 * 1024;
+const MAX_EXPERT_AVATAR_SIZE = 5 * 1024 * 1024;
 export const MAX_PRODUCT_FILE_SIZE = 50 * 1024 * 1024;
 
 const coverContentTypes = [
@@ -46,6 +47,13 @@ const uploadSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     ...baseFields,
+    kind: z.literal("expert-avatar"),
+    contentType: z.enum(coverContentTypes, {
+      errorMap: () => ({ message: "Formato de imagem não permitido" }),
+    }),
+  }),
+  z.object({
+    ...baseFields,
     kind: z.literal("content"),
     productId: z
       .string({ required_error: "Produto inválido" })
@@ -68,6 +76,13 @@ export type ProductUploadInput =
       productId: null;
     }
   | {
+      kind: "expert-avatar";
+      filename: string;
+      contentType: string;
+      size: number;
+      productId: null;
+    }
+  | {
       kind: "content";
       filename: string;
       contentType: string;
@@ -78,12 +93,18 @@ export type ProductUploadInput =
 export function parseProductUploadInput(input: unknown): ProductUploadInput {
   const parsed = uploadSchema.parse(input);
   const maximumSize =
-    parsed.kind === "cover" ? MAX_COVER_SIZE : MAX_PRODUCT_FILE_SIZE;
+    parsed.kind === "cover"
+      ? MAX_COVER_SIZE
+      : parsed.kind === "expert-avatar"
+        ? MAX_EXPERT_AVATAR_SIZE
+        : MAX_PRODUCT_FILE_SIZE;
   if (parsed.size > maximumSize) {
     throw new Error(
       parsed.kind === "cover"
         ? "A imagem deve ter no máximo 10 MB."
-        : "O arquivo deve ter no máximo 50 MB.",
+        : parsed.kind === "expert-avatar"
+          ? "A foto do expert deve ter no máximo 5 MB."
+          : "O arquivo deve ter no máximo 50 MB.",
     );
   }
 
@@ -112,11 +133,15 @@ export function createProductAssetObjectKey(
   objectId: string,
 ) {
   const filename = `${objectId}-${safeFilename(input.filename)}`;
-  return input.kind === "cover"
-    ? `r2/product-covers/${filename}`
-    : `r2/products/${input.productId}/${filename}`;
+  if (input.kind === "cover") return `r2/product-covers/${filename}`;
+  if (input.kind === "expert-avatar") return `r2/expert-avatars/${filename}`;
+  return `r2/products/${input.productId}/${filename}`;
 }
 
 export function getProductCoverAssetUrl(objectKey: string) {
+  return `/api/products/assets?key=${encodeURIComponent(objectKey)}`;
+}
+
+export function getExpertAvatarAssetUrl(objectKey: string) {
   return `/api/products/assets?key=${encodeURIComponent(objectKey)}`;
 }

@@ -12,6 +12,7 @@ import {
   Pencil,
   Plus,
   RefreshCcw,
+  Settings2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -58,10 +59,15 @@ import {
   formatBrlCurrencyInput,
   parseBrlCurrencyToCentavos,
 } from "@/lib/products/currency-input";
+import {
+  formatPercentageInput,
+  parsePercentageInput,
+} from "@/lib/products/percentage-input";
 
 type Expert = {
   id: string;
   displayName: string;
+  profileImageUrl: string | null;
   email: string;
   phone: string | null;
   pixKey: string;
@@ -77,7 +83,11 @@ type Product = {
   description: string | null;
   coverUrl: string | null;
   priceCentavos: number;
-  expertShareBasisPoints: number;
+  platformFeeBasisPointsOverride: number | null;
+  ownerExpertShareBasisPoints: number;
+  coproducerType: "automatize" | "expert" | null;
+  coproducerExpertId: string | null;
+  coproducerShareBasisPoints: number;
   minimumPlanTier: "starter" | "pro" | "premium" | null;
   visibility: "public" | "unlisted";
   status: "draft" | "published" | "archived";
@@ -109,7 +119,19 @@ type Order = {
   status: string;
   createdAt: string;
   providerPaymentId: string | null;
+  paymentMethodId: string | null;
+  paymentTypeId: string | null;
   netAmountCentavos: number | null;
+  feeAmountCentavos: number | null;
+  platformFeeGrossCentavos: number | null;
+  platformGatewayNetRevenueCentavos: number | null;
+  ownerExpertReceivableCentavos: number | null;
+  coproducerExpertReceivableCentavos: number | null;
+  automatizeCoproductionRevenueCentavos: number | null;
+  automatizeProductRevenueCentavos: number | null;
+  automatizeTotalNetRevenueCentavos: number | null;
+  expertAvailableAt: string | null;
+  expertLedgerAmountCentavos: number | null;
 };
 
 type Payout = {
@@ -130,7 +152,12 @@ type ProductFormState = {
   description: string;
   coverUrl: string;
   priceReais: string;
-  expertSharePercent: string;
+  useCustomPlatformFee: boolean;
+  platformFeePercentOverride: string;
+  hasCoproduction: boolean;
+  coproducerType: "automatize" | "expert";
+  coproducerExpertId: string;
+  coproducerSharePercent: string;
   minimumPlanTier: string;
   visibility: "public" | "unlisted";
   status: Product["status"];
@@ -140,6 +167,7 @@ type ProductFormState = {
 
 type ExpertFormState = {
   displayName: string;
+  profileImageUrl: string | null;
   phone: string;
   pixKey: string;
   status: Expert["status"];
@@ -147,6 +175,7 @@ type ExpertFormState = {
 
 const emptyExpert: ExpertFormState = {
   displayName: "",
+  profileImageUrl: null,
   phone: "",
   pixKey: "",
   status: "active",
@@ -160,7 +189,12 @@ const emptyProduct: ProductFormState = {
   description: "",
   coverUrl: "",
   priceReais: "",
-  expertSharePercent: "0",
+  useCustomPlatformFee: false,
+  platformFeePercentOverride: "",
+  hasCoproduction: false,
+  coproducerType: "automatize",
+  coproducerExpertId: "",
+  coproducerSharePercent: "",
   minimumPlanTier: "",
   visibility: "unlisted" as const,
   status: "draft" as const,
@@ -209,6 +243,56 @@ function dateTime(value: string) {
   }).format(new Date(value));
 }
 
+function paymentMethod(order: Order) {
+  if (
+    order.paymentMethodId?.toLowerCase() === "pix" ||
+    order.paymentTypeId?.toLowerCase() === "bank_transfer"
+  ) {
+    return "Pix";
+  }
+  if (order.paymentTypeId === "credit_card") return "Cartão";
+  return order.paymentMethodId ?? "—";
+}
+
+function ExpertAvatar({
+  name,
+  src,
+  size = "sm",
+}: {
+  name: string;
+  src: string | null;
+  size?: "sm" | "lg";
+}) {
+  const sizeClass = size === "lg" ? "size-20 text-xl" : "size-10 text-sm";
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return (
+    <div
+      className={`${sizeClass} shrink-0 overflow-hidden rounded-full border bg-muted`}
+      aria-label={src ? undefined : `Sem foto para ${name}`}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`Foto de ${name}`}
+          className="size-full object-cover"
+        />
+      ) : (
+        <span className="flex size-full items-center justify-center font-semibold text-muted-foreground">
+          {initials || "EX"}
+        </span>
+      )}
+    </div>
+  );
+}
+
 async function readError(response: Response) {
   const payload = (await response.json().catch(() => null)) as {
     error?: string;
@@ -218,7 +302,10 @@ async function readError(response: Response) {
 
 async function uploadProductAsset(
   file: File,
-  input: { kind: "cover"; productId?: never } | { kind: "content"; productId: string },
+  input:
+    | { kind: "cover"; productId?: never }
+    | { kind: "expert-avatar"; productId?: never }
+    | { kind: "content"; productId: string },
 ) {
   const contentType = file.type || "application/octet-stream";
   const prepareResponse = await fetch("/api/products/admin/uploads", {
@@ -272,6 +359,9 @@ export function ProductsAdminWorkspace() {
   const [editingExpertId, setEditingExpertId] = useState<string | null>(null);
   const [expertDialogOpen, setExpertDialogOpen] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
+  const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
+  const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
+  const [expertImageInputKey, setExpertImageInputKey] = useState(0);
   const [creatingExpert, setCreatingExpert] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -279,36 +369,85 @@ export function ProductsAdminWorkspace() {
   const [coverInputKey, setCoverInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
+  const [platformFeePercent, setPlatformFeePercent] = useState("5");
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const selectedProduct = useMemo(
     () => products.find((row) => row.product.id === selectedProductId)?.product,
     [products, selectedProductId],
   );
+  const ownerExpertSharePercent = productForm.hasCoproduction
+    ? Math.max(
+        0,
+        100 - parsePercentageInput(productForm.coproducerSharePercent),
+      )
+    : 100;
+
+  function changeProductOwner(value: string) {
+    const owner = parseProductOwnerSelection(value);
+    setProductForm((current) => ({
+      ...current,
+      ...owner,
+      hasCoproduction:
+        owner.ownerType === "expert" ? current.hasCoproduction : false,
+      coproducerType:
+        owner.ownerType === "expert" ? current.coproducerType : "automatize",
+      coproducerExpertId:
+        owner.ownerType === "expert" &&
+        current.coproducerExpertId !== owner.expertId
+          ? current.coproducerExpertId
+          : "",
+      coproducerSharePercent:
+        owner.ownerType === "expert" ? current.coproducerSharePercent : "",
+    }));
+  }
+
+  function changeCoproducer(value: string) {
+    if (value === "automatize") {
+      setProductForm((current) => ({
+        ...current,
+        coproducerType: "automatize",
+        coproducerExpertId: "",
+      }));
+      return;
+    }
+    setProductForm((current) => ({
+      ...current,
+      coproducerType: "expert",
+      coproducerExpertId: value.replace("expert:", ""),
+    }));
+  }
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
+          fetch("/api/products/admin/settings", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextSettings] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
+          settingsResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
+      setPlatformFeePercent(
+        String(nextSettings.platformFeeBasisPoints / 100).replace(".", ","),
+      );
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -318,6 +457,32 @@ export function ProductsAdminWorkspace() {
       setLoading(false);
     }
   }, []);
+
+  async function saveFinancialSettings(event: React.FormEvent) {
+    event.preventDefault();
+    setSavingSettings(true);
+    try {
+      const response = await fetch("/api/products/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platformFeePercent: Number(platformFeePercent.replace(",", ".")),
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      toast.success("Taxa da plataforma atualizada para novas vendas.");
+      setSettingsDialogOpen(false);
+      await loadAll();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível atualizar a taxa.",
+      );
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -359,7 +524,13 @@ export function ProductsAdminWorkspace() {
         coverUrl,
         expertId: productForm.expertId || null,
         priceCentavos: parseBrlCurrencyToCentavos(productForm.priceReais),
-        expertSharePercent: Number(productForm.expertSharePercent.replace(",", ".")),
+        platformFeePercentOverride: productForm.useCustomPlatformFee
+          ? parsePercentageInput(productForm.platformFeePercentOverride)
+          : null,
+        coproducerExpertId: productForm.coproducerExpertId || null,
+        coproducerSharePercent: parsePercentageInput(
+          productForm.coproducerSharePercent,
+        ),
         minimumPlanTier: productForm.minimumPlanTier || null,
       };
       const response = await fetch(
@@ -413,7 +584,22 @@ export function ProductsAdminWorkspace() {
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
-      expertSharePercent: String(row.expertShareBasisPoints / 100).replace(".", ","),
+      useCustomPlatformFee: row.platformFeeBasisPointsOverride !== null,
+      platformFeePercentOverride:
+        row.platformFeeBasisPointsOverride === null
+          ? ""
+          : formatPercentageInput(
+              String(row.platformFeeBasisPointsOverride / 100).replace(".", ","),
+            ),
+      hasCoproduction: row.coproducerType !== null,
+      coproducerType: row.coproducerType ?? "automatize",
+      coproducerExpertId: row.coproducerExpertId ?? "",
+      coproducerSharePercent:
+        row.coproducerType === null
+          ? ""
+          : formatPercentageInput(
+              String(row.coproducerShareBasisPoints / 100).replace(".", ","),
+            ),
       minimumPlanTier: row.minimumPlanTier ?? "",
       visibility: row.visibility,
       status: row.status,
@@ -484,7 +670,14 @@ export function ProductsAdminWorkspace() {
           description: row.description,
           coverUrl: row.coverUrl,
           priceCentavos: row.priceCentavos,
-          expertSharePercent: row.expertShareBasisPoints / 100,
+          platformFeePercentOverride:
+            row.platformFeeBasisPointsOverride === null
+              ? null
+              : row.platformFeeBasisPointsOverride / 100,
+          hasCoproduction: row.coproducerType !== null,
+          coproducerType: row.coproducerType,
+          coproducerExpertId: row.coproducerExpertId,
+          coproducerSharePercent: row.coproducerShareBasisPoints / 100,
           minimumPlanTier: row.minimumPlanTier,
           visibility: row.visibility,
           status: "published",
@@ -592,16 +785,33 @@ export function ProductsAdminWorkspace() {
     const form = new FormData(formElement);
     setCreatingExpert(true);
     try {
+      const selectedImage = form.get("profileImage");
+      const payload = Object.fromEntries(form);
+      delete payload.profileImage;
+      const profileImageUrl =
+        selectedImage instanceof File && selectedImage.size > 0
+          ? (
+              await uploadProductAsset(selectedImage, {
+                kind: "expert-avatar",
+              })
+            ).assetUrl
+          : null;
       const response = await fetch("/api/products/admin/experts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(Object.fromEntries(form)),
+        body: JSON.stringify({ ...payload, profileImageUrl }),
       });
       if (!response.ok) return toast.error(await readError(response));
       formElement.reset();
       setExpertPhone("");
       toast.success("Expert vinculado.");
       await loadAll();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível vincular o expert.",
+      );
     } finally {
       setCreatingExpert(false);
     }
@@ -609,8 +819,12 @@ export function ProductsAdminWorkspace() {
 
   function editExpert(expert: Expert) {
     setEditingExpertId(expert.id);
+    setExpertImageFile(null);
+    setExpertImagePreviewUrl(expert.profileImageUrl);
+    setExpertImageInputKey((current) => current + 1);
     setExpertForm({
       displayName: expert.displayName,
+      profileImageUrl: expert.profileImageUrl,
       phone: formatBrazilianPhoneInput(expert.phone),
       pixKey: expert.pixKey,
       status: expert.status,
@@ -622,6 +836,32 @@ export function ProductsAdminWorkspace() {
     setExpertDialogOpen(false);
     setEditingExpertId(null);
     setExpertForm(emptyExpert);
+    setExpertImageFile(null);
+    if (expertImagePreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(expertImagePreviewUrl);
+    }
+    setExpertImagePreviewUrl(null);
+    setExpertImageInputKey((current) => current + 1);
+  }
+
+  function selectExpertImage(file: File | null) {
+    if (expertImagePreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(expertImagePreviewUrl);
+    }
+    setExpertImageFile(file);
+    setExpertImagePreviewUrl(
+      file ? URL.createObjectURL(file) : expertForm.profileImageUrl,
+    );
+  }
+
+  function removeExpertImage() {
+    if (expertImagePreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(expertImagePreviewUrl);
+    }
+    setExpertImageFile(null);
+    setExpertImagePreviewUrl(null);
+    setExpertImageInputKey((current) => current + 1);
+    setExpertForm((current) => ({ ...current, profileImageUrl: null }));
   }
 
   async function saveExpert(event: React.FormEvent<HTMLFormElement>) {
@@ -629,20 +869,36 @@ export function ProductsAdminWorkspace() {
     if (!editingExpertId) return;
 
     setLoading(true);
-    const response = await fetch(
-      `/api/products/admin/experts/${editingExpertId}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(expertForm),
-      },
-    );
-    setLoading(false);
-    if (!response.ok) return toast.error(await readError(response));
+    try {
+      const profileImageUrl = expertImageFile
+        ? (
+            await uploadProductAsset(expertImageFile, {
+              kind: "expert-avatar",
+            })
+          ).assetUrl
+        : expertForm.profileImageUrl;
+      const response = await fetch(
+        `/api/products/admin/experts/${editingExpertId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...expertForm, profileImageUrl }),
+        },
+      );
+      if (!response.ok) return toast.error(await readError(response));
 
-    toast.success("Expert atualizado.");
-    closeExpertDialog();
-    await loadAll();
+      toast.success("Expert atualizado.");
+      closeExpertDialog();
+      await loadAll();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível atualizar o expert.",
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function copyPixKey(pixKey: string) {
@@ -708,10 +964,16 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <CardTitle>Produtos</CardTitle>
-              <Button size="sm" onClick={createProduct}>
-                <Plus className="size-4" />
-                Novo produto
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" onClick={() => setSettingsDialogOpen(true)}>
+                  <Settings2 className="size-4" />
+                  Taxa {platformFeePercent}%
+                </Button>
+                <Button size="sm" onClick={createProduct}>
+                  <Plus className="size-4" />
+                  Novo produto
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <Table className="min-w-[1180px]">
@@ -786,7 +1048,27 @@ export function ProductsAdminWorkspace() {
         </TabsContent>
 
         <TabsContent value="experts" className="space-y-6 pt-4">
-          <Card><CardHeader><CardTitle>Vincular expert</CardTitle></CardHeader><CardContent><form onSubmit={createExpert} className="grid gap-4 md:grid-cols-4"><Field label="E-mail do usuário"><Input name="email" type="email" required /></Field><Field label="Nome público"><Input name="displayName" required /></Field><Field label="WhatsApp"><Input name="phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={15} placeholder="(11) 99999-9999" value={expertPhone} onChange={(event) => setExpertPhone(formatBrazilianPhoneInput(event.target.value))} /></Field><Field label="Chave Pix"><Input name="pixKey" required /></Field><div className="md:col-span-4"><Button type="submit" disabled={creatingExpert}>{creatingExpert ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}{creatingExpert ? "Vinculando..." : "Vincular expert"}</Button></div></form></CardContent></Card>
+          <Card>
+            <CardHeader><CardTitle>Vincular expert</CardTitle></CardHeader>
+            <CardContent>
+              <form onSubmit={createExpert} className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                <Field label="E-mail do usuário"><Input name="email" type="email" required /></Field>
+                <Field label="Nome público"><Input name="displayName" required /></Field>
+                <Field label="WhatsApp"><Input name="phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={15} placeholder="(11) 99999-9999" value={expertPhone} onChange={(event) => setExpertPhone(formatBrazilianPhoneInput(event.target.value))} /></Field>
+                <Field label="Chave Pix"><Input name="pixKey" required /></Field>
+                <Field label="Foto de perfil">
+                  <Input name="profileImage" type="file" accept="image/avif,image/gif,image/jpeg,image/png,image/webp" />
+                  <p className="text-xs leading-5 text-muted-foreground">Opcional · imagem de até 5 MB.</p>
+                </Field>
+                <div className="md:col-span-2 xl:col-span-5">
+                  <Button type="submit" disabled={creatingExpert}>
+                    {creatingExpert ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                    {creatingExpert ? "Vinculando..." : "Vincular expert"}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader><CardTitle>Experts</CardTitle></CardHeader>
             <CardContent className="p-0">
@@ -804,8 +1086,13 @@ export function ProductsAdminWorkspace() {
                   {experts.map((expert) => (
                     <TableRow key={expert.id}>
                       <TableCell>
-                        <p className="font-medium">{expert.displayName}</p>
-                        <p className="text-sm text-muted-foreground">{expert.email}</p>
+                        <div className="flex items-center gap-3">
+                          <ExpertAvatar name={expert.displayName} src={expert.profileImageUrl} />
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{expert.displayName}</p>
+                            <p className="truncate text-sm text-muted-foreground">{expert.email}</p>
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         {formatBrazilianPhone(expert.phone) ?? "Sem WhatsApp"}
@@ -840,7 +1127,7 @@ export function ProductsAdminWorkspace() {
               <CardTitle>Vendas</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1040px]">
+              <Table className="min-w-[1640px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Produto</TableHead>
@@ -848,7 +1135,12 @@ export function ProductsAdminWorkspace() {
                     <TableHead>Data</TableHead>
                     <TableHead>Pagamento</TableHead>
                     <TableHead className="text-right">Bruto</TableHead>
-                    <TableHead className="text-right">Líquido</TableHead>
+                    <TableHead className="text-right">Custo MP</TableHead>
+                    <TableHead className="text-right">Taxa plataforma</TableHead>
+                    <TableHead className="text-right">Expert</TableHead>
+                    <TableHead className="text-right">Coprodução Automatize</TableHead>
+                    <TableHead className="text-right">Líquido Automatize</TableHead>
+                    <TableHead>Liberação do expert</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -857,7 +1149,7 @@ export function ProductsAdminWorkspace() {
                   {orders.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={8}
+                        colSpan={13}
                         className="h-28 text-center text-muted-foreground"
                       >
                         Nenhuma venda registrada.
@@ -879,16 +1171,50 @@ export function ProductsAdminWorkspace() {
                           {dateTime(order.createdAt)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                          {order.providerPaymentId
-                            ? `MP ${order.providerPaymentId}`
-                            : "—"}
+                          <p>{paymentMethod(order)}</p>
+                          <p>{order.providerPaymentId ? `MP ${order.providerPaymentId}` : "—"}</p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {money(order.priceCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.netAmountCentavos !== null
-                            ? money(order.netAmountCentavos)
+                          {order.feeAmountCentavos !== null
+                            ? money(order.feeAmountCentavos)
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.platformFeeGrossCentavos !== null ? money(order.platformFeeGrossCentavos) : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.ownerExpertReceivableCentavos !== null ||
+                          order.coproducerExpertReceivableCentavos !== null
+                            ? money(
+                                (order.ownerExpertReceivableCentavos ?? 0) +
+                                  (order.coproducerExpertReceivableCentavos ?? 0),
+                              )
+                            : order.expertLedgerAmountCentavos !== null
+                              ? money(order.expertLedgerAmountCentavos)
+                              : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.automatizeCoproductionRevenueCentavos !== null
+                            ? money(order.automatizeCoproductionRevenueCentavos)
+                            : order.automatizeProductRevenueCentavos !== null
+                              ? money(order.automatizeProductRevenueCentavos)
+                              : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.automatizeTotalNetRevenueCentavos !== null
+                            ? money(order.automatizeTotalNetRevenueCentavos)
+                            : order.netAmountCentavos !== null
+                              ? money(order.netAmountCentavos - (order.expertLedgerAmountCentavos ?? 0))
+                              : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-muted-foreground">
+                          {order.expertAvailableAt
+                            ? paymentMethod(order) === "Pix"
+                              ? "Na aprovação"
+                              : dateTime(order.expertAvailableAt)
                             : "—"}
                         </TableCell>
                         <TableCell>
@@ -924,6 +1250,42 @@ export function ProductsAdminWorkspace() {
       </Tabs>
 
       <Dialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Taxa da plataforma</DialogTitle>
+            <DialogDescription>
+              Aplicada somente às novas vendas. O custo do Mercado Pago é absorvido pelo Automatize dentro desta receita.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={saveFinancialSettings} className="grid gap-4">
+            <Field label="Taxa sobre o valor bruto (%)">
+              <Input
+                inputMode="decimal"
+                value={platformFeePercent}
+                onChange={(event) => setPlatformFeePercent(event.target.value)}
+                required
+              />
+              <p className="text-xs text-muted-foreground">
+                Padrão: 5%. Em uma venda de R$ 100,00, R$ 5,00 são a receita de gateway antes do custo do Mercado Pago.
+              </p>
+            </Field>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setSettingsDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={savingSettings}>
+                {savingSettings ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                {savingSettings ? "Salvando..." : "Salvar taxa"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={productDialogOpen}
         onOpenChange={(open) => {
           if (!open) closeProductDialog();
@@ -946,7 +1308,7 @@ export function ProductsAdminWorkspace() {
               <select
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={getProductOwnerSelectionValue(productForm.ownerType, productForm.expertId)}
-                onChange={(event) => setProductForm({ ...productForm, ...parseProductOwnerSelection(event.target.value) })}
+                onChange={(event) => changeProductOwner(event.target.value)}
               >
                 <option value="automatize">Automatize</option>
                 {experts.map((expert) => (
@@ -956,7 +1318,142 @@ export function ProductsAdminWorkspace() {
                 ))}
               </select>
             </Field>
-            <Field label="Participação do expert (%)"><Input inputMode="decimal" disabled={productForm.ownerType !== "expert"} value={productForm.expertSharePercent} onChange={(e) => setProductForm({ ...productForm, expertSharePercent: e.target.value })} /></Field>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Taxa da plataforma</p>
+                  <p className="text-xs text-muted-foreground">
+                    {productForm.useCustomPlatformFee
+                      ? "Esta taxa será usada somente nas novas vendas deste produto."
+                      : `Herdando a taxa global atual de ${platformFeePercent}%.`}
+                  </p>
+                </div>
+                <label className="flex shrink-0 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={productForm.useCustomPlatformFee}
+                    onChange={(event) =>
+                      setProductForm((current) => ({
+                        ...current,
+                        useCustomPlatformFee: event.target.checked,
+                        platformFeePercentOverride: event.target.checked
+                          ? formatPercentageInput(platformFeePercent)
+                          : "",
+                      }))
+                    }
+                  />
+                  Personalizar taxa
+                </label>
+              </div>
+              {productForm.useCustomPlatformFee ? (
+                <Field label="Taxa deste produto">
+                  <Input
+                    inputMode="decimal"
+                    placeholder="Ex.: 8%"
+                    value={productForm.platformFeePercentOverride}
+                    onChange={(event) =>
+                      setProductForm((current) => ({
+                        ...current,
+                        platformFeePercentOverride: formatPercentageInput(
+                          event.target.value,
+                        ),
+                      }))
+                    }
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    O percentual fica congelado no pedido quando a venda é criada.
+                  </p>
+                </Field>
+              ) : null}
+            </div>
+            {productForm.ownerType === "expert" ? (
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">Coprodução</p>
+                    <p className="text-xs text-muted-foreground">
+                      O proprietário recebe 100% da base enquanto esta opção estiver desativada.
+                    </p>
+                  </div>
+                  <label className="flex shrink-0 items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={productForm.hasCoproduction}
+                      onChange={(event) =>
+                        setProductForm((current) => ({
+                          ...current,
+                          hasCoproduction: event.target.checked,
+                          coproducerType: "automatize",
+                          coproducerExpertId: "",
+                          coproducerSharePercent: "",
+                        }))
+                      }
+                    />
+                    Tem coprodução
+                  </label>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field label="Participação do proprietário">
+                    <Input
+                      value={formatPercentageInput(
+                        String(ownerExpertSharePercent).replace(".", ","),
+                      )}
+                      readOnly
+                      aria-readonly="true"
+                      className="bg-muted/40"
+                    />
+                  </Field>
+
+                  {productForm.hasCoproduction ? (
+                    <>
+                      <Field label="Coprodutor">
+                        <select
+                          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                          value={
+                            productForm.coproducerType === "automatize"
+                              ? "automatize"
+                              : `expert:${productForm.coproducerExpertId}`
+                          }
+                          onChange={(event) => changeCoproducer(event.target.value)}
+                          required
+                        >
+                          <option value="automatize">Automatize</option>
+                          {experts
+                            .filter((expert) => expert.id !== productForm.expertId)
+                            .map((expert) => (
+                              <option key={expert.id} value={`expert:${expert.id}`}>
+                                {expert.displayName}
+                                {expert.status === "inactive" ? " (inativo)" : ""}
+                              </option>
+                            ))}
+                        </select>
+                      </Field>
+                      <Field label="Participação do coprodutor">
+                        <Input
+                          inputMode="decimal"
+                          placeholder="Ex.: 40%"
+                          value={productForm.coproducerSharePercent}
+                          onChange={(event) =>
+                            setProductForm((current) => ({
+                              ...current,
+                              coproducerSharePercent: formatPercentageInput(
+                                event.target.value,
+                              ),
+                            }))
+                          }
+                          required
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Aplicado sobre o valor bruto após a taxa da plataforma.
+                        </p>
+                      </Field>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <Field label="Incluído a partir do plano">
               <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.minimumPlanTier} onChange={(e) => setProductForm({ ...productForm, minimumPlanTier: e.target.value })}>
                 <option value="">Não incluir</option><option value="starter">Starter</option><option value="pro">Pro</option><option value="premium">Premium</option>
@@ -1006,6 +1503,31 @@ export function ProductsAdminWorkspace() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={saveExpert} className="grid gap-4">
+            <div className="flex items-center gap-4 rounded-lg border p-4">
+              <ExpertAvatar
+                name={expertForm.displayName || "Expert"}
+                src={expertImagePreviewUrl}
+                size="lg"
+              />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor="expert-profile-image">Foto de perfil</Label>
+                <Input
+                  key={expertImageInputKey}
+                  id="expert-profile-image"
+                  type="file"
+                  accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                  onChange={(event) => selectExpertImage(event.target.files?.[0] ?? null)}
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">JPG, PNG, WebP, GIF ou AVIF de até 5 MB.</p>
+                  {expertImagePreviewUrl ? (
+                    <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={removeExpertImage}>
+                      <Trash2 className="size-3.5" /> Remover foto
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
             <Field label="Nome público">
               <Input value={expertForm.displayName} onChange={(event) => setExpertForm({ ...expertForm, displayName: event.target.value })} required />
             </Field>
@@ -1024,7 +1546,8 @@ export function ProductsAdminWorkspace() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeExpertDialog}>Cancelar</Button>
               <Button type="submit" disabled={loading}>
-                <Check className="size-4" /> Salvar alterações
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                {loading ? "Salvando..." : "Salvar alterações"}
               </Button>
             </DialogFooter>
           </form>

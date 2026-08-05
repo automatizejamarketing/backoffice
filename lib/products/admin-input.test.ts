@@ -10,7 +10,7 @@ describe("product admin input", () => {
         title: "  Oferta que vende ",
         slug: " Oferta que vende ",
         priceCentavos: 12900,
-        expertSharePercent: 35,
+        hasCoproduction: false,
         visibility: "public",
         status: "published",
         salesEnabled: true,
@@ -21,7 +21,11 @@ describe("product admin input", () => {
         title: "Oferta que vende",
         slug: "oferta-que-vende",
         expertId: null,
-        expertShareBasisPoints: 0,
+        ownerExpertShareBasisPoints: 0,
+        coproducerType: null,
+        coproducerExpertId: null,
+        coproducerShareBasisPoints: 0,
+        platformFeeBasisPointsOverride: null,
         priceCentavos: 12900,
         description: null,
         coverUrl: null,
@@ -34,15 +38,96 @@ describe("product admin input", () => {
     );
   });
 
-  it("requires an expert and valid revenue share for expert products", () => {
+  it("requires an expert for expert products", () => {
     assert.throws(() =>
       parseProductAdminInput({
         ownerType: "expert",
         title: "Produto",
         slug: "produto",
         priceCentavos: 1000,
-        expertSharePercent: 35,
+        hasCoproduction: false,
       }), /expert/);
+  });
+
+  it("gives the owner expert 100% when coproduction is disabled", () => {
+    const parsed = parseProductAdminInput({
+      ownerType: "expert",
+      expertId: "11111111-1111-4111-8111-111111111111",
+      title: "Produto",
+      priceCentavos: 1000,
+      hasCoproduction: false,
+    });
+
+    assert.equal(parsed.ownerExpertShareBasisPoints, 10_000);
+    assert.equal(parsed.coproducerType, null);
+    assert.equal(parsed.coproducerExpertId, null);
+    assert.equal(parsed.coproducerShareBasisPoints, 0);
+  });
+
+  it("supports Automatize as the optional coproducer", () => {
+    const parsed = parseProductAdminInput({
+      ownerType: "expert",
+      expertId: "11111111-1111-4111-8111-111111111111",
+      title: "Produto",
+      priceCentavos: 1000,
+      hasCoproduction: true,
+      coproducerType: "automatize",
+      coproducerSharePercent: 40,
+    });
+
+    assert.equal(parsed.ownerExpertShareBasisPoints, 6_000);
+    assert.equal(parsed.coproducerType, "automatize");
+    assert.equal(parsed.coproducerExpertId, null);
+    assert.equal(parsed.coproducerShareBasisPoints, 4_000);
+  });
+
+  it("supports another expert as coproducer and rejects the owner", () => {
+    const input = {
+      ownerType: "expert" as const,
+      expertId: "11111111-1111-4111-8111-111111111111",
+      title: "Produto",
+      priceCentavos: 1000,
+      hasCoproduction: true,
+      coproducerType: "expert" as const,
+      coproducerExpertId: "22222222-2222-4222-8222-222222222222",
+      coproducerSharePercent: 40,
+    };
+
+    const parsed = parseProductAdminInput(input);
+    assert.equal(parsed.ownerExpertShareBasisPoints, 6_000);
+    assert.equal(parsed.coproducerType, "expert");
+    assert.equal(parsed.coproducerExpertId, input.coproducerExpertId);
+
+    assert.throws(
+      () => parseProductAdminInput({ ...input, coproducerExpertId: input.expertId }),
+      /diferente do proprietário/,
+    );
+  });
+
+  it("accepts an optional product platform fee override", () => {
+    const inherited = parseProductAdminInput({
+      ownerType: "automatize",
+      title: "Produto herdado",
+      priceCentavos: 1000,
+      platformFeePercentOverride: null,
+    });
+    const customized = parseProductAdminInput({
+      ownerType: "automatize",
+      title: "Produto personalizado",
+      priceCentavos: 1000,
+      platformFeePercentOverride: 3.5,
+    });
+
+    assert.equal(inherited.platformFeeBasisPointsOverride, null);
+    assert.equal(customized.platformFeeBasisPointsOverride, 350);
+    assert.throws(() =>
+      parseProductAdminInput({
+        ownerType: "automatize",
+        title: "Produto inválido",
+        priceCentavos: 1000,
+        platformFeePercentOverride: 101,
+      }),
+    );
   });
 
   it("accepts an internal R2-backed product cover URL", () => {
