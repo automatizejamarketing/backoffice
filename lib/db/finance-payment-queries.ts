@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNotNull, lt } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import {
   summarizeAutomatizePayments,
@@ -25,6 +25,7 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
     .select({
       id: payment.id,
       paidAt: payment.paidAt,
+      createdAt: payment.createdAt,
       userId: payment.userId,
       userEmail: user.email,
       planType: payment.planType,
@@ -37,6 +38,22 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
       stripeInvoiceId: payment.stripeInvoiceId,
       mercadopagoPaymentId: payment.mercadopagoPaymentId,
       description: payment.description,
+      paymentNumber: sql<number>`(
+          select count(*)::integer + 1
+          from payments earlier_payment
+          where earlier_payment.user_id = ${payment.userId}
+            and earlier_payment.status = 'succeeded'
+            and (
+              coalesce(earlier_payment.paid_at, earlier_payment.created_at)
+                < coalesce(${payment.paidAt}, ${payment.createdAt})
+              or (
+                coalesce(earlier_payment.paid_at, earlier_payment.created_at)
+                  = coalesce(${payment.paidAt}, ${payment.createdAt})
+                and (earlier_payment.created_at, earlier_payment.id)
+                  < (${payment.createdAt}, ${payment.id})
+              )
+            )
+        )`,
     })
     .from(payment)
     .innerJoin(user, eq(payment.userId, user.id))
@@ -58,8 +75,21 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
   );
 
   return {
-    rows: rows satisfies FinanceAutomatizePaymentRow[],
-    summary: summarizeAutomatizePayments(rows, stripeSettlements),
+    rows: rows.map(
+      (row): FinanceAutomatizePaymentRow => ({
+        ...row,
+        paymentNumber: Number(row.paymentNumber),
+      }),
+    ),
+    summary: summarizeAutomatizePayments(
+      rows.map(
+        (row): FinanceAutomatizePaymentRow => ({
+          ...row,
+          paymentNumber: Number(row.paymentNumber),
+        }),
+      ),
+      stripeSettlements,
+    ),
     stripeSettlements,
   };
 }
@@ -80,7 +110,7 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       feeAmountCentavos: productPayment.feeAmountCentavos,
       priceCentavos: productOrder.priceCentavos,
       ownerType: product.ownerType,
-      expertShareBasisPoints: productOrder.expertShareBasisPoints,
+      expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
       expertRevenueCentavos: expertLedgerEntry.amountCentavos,
     })
     .from(productPayment)

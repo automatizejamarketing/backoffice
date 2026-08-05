@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  describeAutomatizePaymentSequence,
   resolveAutomatizePaymentAmounts,
   resolveProductPaymentAmounts,
   summarizeAutomatizePayments,
@@ -7,27 +8,29 @@ import {
   listAutomatizePaymentNetGaps,
 } from "./finance-payments";
 
+const automatizePaymentFixture = {
+  id: "p1",
+  paidAt: new Date("2026-08-01T12:00:00Z"),
+  createdAt: new Date("2026-08-01T12:00:00Z"),
+  userId: "u1",
+  userEmail: "a@example.com",
+  planType: "pro" as const,
+  provider: "stripe" as const,
+  amount: 10000,
+  grossAmount: null,
+  netAmount: null,
+  feeAmount: null,
+  currency: "brl",
+  stripeInvoiceId: "inv_1",
+  mercadopagoPaymentId: null,
+  description: null,
+  paymentNumber: 1,
+};
+
 describe("finance payments summaries", () => {
   test("summarizes automatize payments with stripe settlement overrides", () => {
     const summary = summarizeAutomatizePayments(
-      [
-        {
-          id: "p1",
-          paidAt: new Date("2026-08-01T12:00:00Z"),
-          userId: "u1",
-          userEmail: "a@example.com",
-          planType: "pro",
-          provider: "stripe",
-          amount: 10000,
-          grossAmount: null,
-          netAmount: null,
-          feeAmount: null,
-          currency: "brl",
-          stripeInvoiceId: "inv_1",
-          mercadopagoPaymentId: null,
-          description: null,
-        },
-      ],
+      [automatizePaymentFixture],
       [
         {
           invoiceId: "inv_1",
@@ -42,6 +45,64 @@ describe("finance payments summaries", () => {
     expect(summary.grossCentavos).toBe(10000);
     expect(summary.netCentavos).toBe(9500);
     expect(summary.feeCentavos).toBe(500);
+    expect(summary.netBreakdown).toEqual({
+      newSubscriptionNetCentavos: 9500,
+      renewalNetCentavos: 0,
+      newSubscriptionCount: 1,
+      renewalCount: 0,
+    });
+  });
+
+  test("splits automatize net between new subscriptions and renewals", () => {
+    const summary = summarizeAutomatizePayments(
+      [
+        automatizePaymentFixture,
+        {
+          ...automatizePaymentFixture,
+          id: "p2",
+          paymentNumber: 2,
+          amount: 5000,
+          stripeInvoiceId: "inv_2",
+        },
+        {
+          ...automatizePaymentFixture,
+          id: "p3",
+          userId: "u2",
+          userEmail: "b@example.com",
+          paymentNumber: 1,
+          amount: 3000,
+          stripeInvoiceId: "inv_3",
+        },
+      ],
+      [
+        {
+          invoiceId: "inv_1",
+          grossAmount: 10000,
+          netAmount: 9500,
+          feeAmount: 500,
+        },
+        {
+          invoiceId: "inv_2",
+          grossAmount: 5000,
+          netAmount: 4800,
+          feeAmount: 200,
+        },
+        {
+          invoiceId: "inv_3",
+          grossAmount: 3000,
+          netAmount: 2900,
+          feeAmount: 100,
+        },
+      ],
+    );
+
+    expect(summary.netCentavos).toBe(17200);
+    expect(summary.netBreakdown).toEqual({
+      newSubscriptionNetCentavos: 12400,
+      renewalNetCentavos: 4800,
+      newSubscriptionCount: 2,
+      renewalCount: 1,
+    });
   });
 
   test("summarizes product payments using automatize net after expert share", () => {
@@ -152,36 +213,23 @@ describe("finance payments summaries", () => {
     const gaps = listAutomatizePaymentNetGaps(
       [
         {
+          ...automatizePaymentFixture,
           id: "p1",
-          paidAt: new Date("2026-08-01T12:00:00Z"),
-          userId: "u1",
-          userEmail: "a@example.com",
-          planType: "pro",
           provider: "mercadopago",
           amount: 9900,
-          grossAmount: null,
-          netAmount: null,
-          feeAmount: null,
-          currency: "brl",
           stripeInvoiceId: null,
           mercadopagoPaymentId: "12345",
-          description: null,
+          paymentNumber: 2,
         },
         {
+          ...automatizePaymentFixture,
           id: "p2",
           paidAt: new Date("2026-08-02T12:00:00Z"),
+          createdAt: new Date("2026-08-02T12:00:00Z"),
           userId: "u2",
           userEmail: "b@example.com",
-          planType: "pro",
-          provider: "stripe",
-          amount: 10000,
-          grossAmount: null,
-          netAmount: null,
-          feeAmount: null,
-          currency: "brl",
           stripeInvoiceId: "inv_missing",
-          mercadopagoPaymentId: null,
-          description: null,
+          paymentNumber: 1,
         },
       ],
       [],
@@ -190,5 +238,18 @@ describe("finance payments summaries", () => {
     expect(gaps).toHaveLength(2);
     expect(gaps[0]?.reason).toBe("mercadopago_fees_pending");
     expect(gaps[1]?.reason).toBe("stripe_settlement_unavailable");
+  });
+
+  test("describes first payment as new subscription and later as renewal", () => {
+    expect(describeAutomatizePaymentSequence(1)).toEqual({
+      paymentNumber: 1,
+      kind: "new_subscription",
+      badgeLabel: "Assinatura nova",
+    });
+    expect(describeAutomatizePaymentSequence(3)).toEqual({
+      paymentNumber: 3,
+      kind: "renewal",
+      badgeLabel: "Renovação",
+    });
   });
 });

@@ -119,6 +119,12 @@ export default async function FinancePage({
                   netCentavos: 0,
                   feeCentavos: 0,
                   netCoveragePayments: 0,
+                  netBreakdown: {
+                    newSubscriptionNetCentavos: 0,
+                    renewalNetCentavos: 0,
+                    newSubscriptionCount: 0,
+                    renewalCount: 0,
+                  },
                 })
               : (productPayments?.summary ?? {
                   count: 0,

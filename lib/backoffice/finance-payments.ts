@@ -8,6 +8,7 @@ import type { StripeSettlement } from "./finance-dashboard";
 export type FinanceAutomatizePaymentRow = {
   id: string;
   paidAt: Date | null;
+  createdAt: Date;
   userId: string;
   userEmail: string;
   planType: PlanType;
@@ -20,7 +21,30 @@ export type FinanceAutomatizePaymentRow = {
   stripeInvoiceId: string | null;
   mercadopagoPaymentId: string | null;
   description: string | null;
+  paymentNumber: number;
 };
+
+export type AutomatizePaymentSequenceKind = "new_subscription" | "renewal";
+
+export function describeAutomatizePaymentSequence(paymentNumber: number): {
+  paymentNumber: number;
+  kind: AutomatizePaymentSequenceKind;
+  badgeLabel: string;
+} {
+  if (paymentNumber <= 1) {
+    return {
+      paymentNumber: 1,
+      kind: "new_subscription",
+      badgeLabel: "Assinatura nova",
+    };
+  }
+
+  return {
+    paymentNumber,
+    kind: "renewal",
+    badgeLabel: "Renovação",
+  };
+}
 
 export type FinanceProductPaymentRow = {
   id: string;
@@ -49,12 +73,20 @@ export type FinanceProductPaymentAmounts = {
   revenueKind: "coproducao" | "taxa";
 };
 
+export type FinancePaymentsNetBreakdown = {
+  newSubscriptionNetCentavos: number;
+  renewalNetCentavos: number;
+  newSubscriptionCount: number;
+  renewalCount: number;
+};
+
 export type FinancePaymentsSummary = {
   count: number;
   grossCentavos: number;
   netCentavos: number;
   feeCentavos: number;
   netCoveragePayments: number;
+  netBreakdown?: FinancePaymentsNetBreakdown;
 };
 
 export type FinancePaymentNetGapReason =
@@ -156,6 +188,12 @@ export function summarizeAutomatizePayments(
     netCentavos: 0,
     feeCentavos: 0,
     netCoveragePayments: 0,
+    netBreakdown: {
+      newSubscriptionNetCentavos: 0,
+      renewalNetCentavos: 0,
+      newSubscriptionCount: 0,
+      renewalCount: 0,
+    },
   };
 
   for (const payment of payments) {
@@ -166,6 +204,7 @@ export function summarizeAutomatizePayments(
       payment,
       stripeSettlement,
     );
+    const isNewSubscription = payment.paymentNumber <= 1;
 
     summary.count += 1;
     summary.grossCentavos += gross;
@@ -173,6 +212,18 @@ export function summarizeAutomatizePayments(
     if (net !== null) {
       summary.netCentavos += net;
       summary.netCoveragePayments += 1;
+
+      if (isNewSubscription) {
+        summary.netBreakdown!.newSubscriptionNetCentavos += net;
+        summary.netBreakdown!.newSubscriptionCount += 1;
+      } else {
+        summary.netBreakdown!.renewalNetCentavos += net;
+        summary.netBreakdown!.renewalCount += 1;
+      }
+    } else if (isNewSubscription) {
+      summary.netBreakdown!.newSubscriptionCount += 1;
+    } else {
+      summary.netBreakdown!.renewalCount += 1;
     }
   }
 

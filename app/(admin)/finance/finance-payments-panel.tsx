@@ -11,7 +11,9 @@ import {
 import {
   resolveAutomatizePaymentAmounts,
   resolveProductPaymentAmounts,
+  describeAutomatizePaymentSequence,
   type FinanceAutomatizePaymentRow,
+  type FinancePaymentsNetBreakdown,
   type FinancePaymentsSummary,
   type FinanceProductPaymentRow,
   type FinancePaymentNetGap,
@@ -45,6 +47,64 @@ type FinancePaymentsPanelProps = {
 const PRODUCT_NET_LABEL = "Líquido Automatize";
 const PRODUCT_NET_HELP =
   "Coprodução quando o produto é nosso; taxa da plataforma quando o produto é de expert.";
+
+function NetSubscriptionBreakdown({
+  newSubscriptionNetCentavos,
+  renewalNetCentavos,
+  newSubscriptionCount,
+  renewalCount,
+}: FinancePaymentsNetBreakdown) {
+  const hasNet = newSubscriptionNetCentavos + renewalNetCentavos > 0;
+  const barNew = hasNet ? newSubscriptionNetCentavos : newSubscriptionCount;
+  const barRenewal = hasNet ? renewalNetCentavos : renewalCount;
+  const barTotal = barNew + barRenewal;
+
+  if (barTotal === 0) {
+    return null;
+  }
+
+  const newShare = Math.round((barNew / barTotal) * 1000) / 10;
+  const renewalShare = Math.round((barRenewal / barTotal) * 1000) / 10;
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+        {barNew > 0 ? (
+          <div
+            className="h-full bg-chart-1"
+            style={{ width: `${newShare}%` }}
+            title={`Novos: ${newShare}%`}
+          />
+        ) : null}
+        {barRenewal > 0 ? (
+          <div
+            className="h-full bg-emerald-500/80"
+            style={{ width: `${renewalShare}%` }}
+            title={`Renovações: ${renewalShare}%`}
+          />
+        ) : null}
+      </div>
+      <div className="flex items-center justify-between gap-3 text-[11px] tabular-nums text-muted-foreground">
+        <span>
+          Novos{" "}
+          <span className="font-medium text-foreground">
+            {formatBRLFromCentavos(newSubscriptionNetCentavos)}
+          </span>
+          <span className="ml-1">
+            ({formatFinanceNumber(newSubscriptionCount)})
+          </span>
+        </span>
+        <span>
+          Renovações{" "}
+          <span className="font-medium text-foreground">
+            {formatBRLFromCentavos(renewalNetCentavos)}
+          </span>
+          <span className="ml-1">({formatFinanceNumber(renewalCount)})</span>
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function FinancePaymentsPanel({
   source,
@@ -84,6 +144,9 @@ export function FinancePaymentsPanel({
             <p className="mt-1 text-2xl font-semibold tabular-nums tracking-tight">
               {formatBRLFromCentavos(summary.netCentavos)}
             </p>
+            {source === "automatize" && summary.netBreakdown ? (
+              <NetSubscriptionBreakdown {...summary.netBreakdown} />
+            ) : null}
             {source === "produtos" ? (
               <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                 {PRODUCT_NET_HELP}
@@ -136,6 +199,7 @@ function AutomatizePaymentsTable({
           <TableHead>Data</TableHead>
           <TableHead>Cliente</TableHead>
           <TableHead>Plano</TableHead>
+          <TableHead>Pagamento</TableHead>
           <TableHead>Meio</TableHead>
           <TableHead>Referência</TableHead>
           <TableHead className="text-right">Bruto</TableHead>
@@ -146,7 +210,7 @@ function AutomatizePaymentsTable({
         {payments.length === 0 ? (
           <TableRow>
             <TableCell
-              colSpan={7}
+              colSpan={8}
               className="h-28 text-center text-muted-foreground"
             >
               Nenhum pagamento aprovado neste período.
@@ -165,6 +229,9 @@ function AutomatizePaymentsTable({
               payment.mercadopagoPaymentId ??
               payment.stripeInvoiceId ??
               payment.description;
+            const sequence = describeAutomatizePaymentSequence(
+              payment.paymentNumber,
+            );
 
             return (
               <TableRow key={payment.id}>
@@ -180,6 +247,18 @@ function AutomatizePaymentsTable({
                   </Link>
                 </TableCell>
                 <TableCell>{formatPlanLabel(payment.planType)}</TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      sequence.kind === "new_subscription"
+                        ? "default"
+                        : "secondary"
+                    }
+                    className="text-[10px]"
+                  >
+                    {sequence.badgeLabel}
+                  </Badge>
+                </TableCell>
                 <TableCell>
                   <Badge variant="outline">
                     {PROVIDER_LABELS[payment.provider] ?? payment.provider}
