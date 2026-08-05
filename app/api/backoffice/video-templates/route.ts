@@ -4,6 +4,7 @@ import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { videoTemplate } from "@/lib/db/schema";
 import { z } from "zod";
+import { videoTemplatePreviewService } from "@/lib/creatomate/preview-service";
 
 const templateSchema = z.object({
   id: z.string().optional(),
@@ -66,12 +67,37 @@ export async function POST(req: Request) {
           status: data.status,
         })
         .returning();
-        
-      return NextResponse.json(created);
+
+      // Generate preview automatically if not provided
+      let previewError: string | undefined;
+      if (!data.thumbnailUrl && !data.videoPreviewUrl) {
+        const preview = await videoTemplatePreviewService.generatePreview({
+          templateId: data.creatomateTemplateId,
+          videoSourceKey: data.videoSourceKey,
+        });
+
+        if (preview.success && preview.videoPreviewUrl) {
+          const [updated] = await db
+            .update(videoTemplate)
+            .set({
+              videoPreviewUrl: preview.videoPreviewUrl,
+              thumbnailUrl: preview.thumbnailUrl ?? null,
+              updatedAt: new Date(),
+            })
+            .where(eq(videoTemplate.id, created.id))
+            .returning();
+          return NextResponse.json({ ...updated, previewError: null });
+        } else {
+          previewError = preview.error ?? "Failed to generate preview";
+        }
+      }
+
+      return NextResponse.json({ ...created, previewError });
     }
-  } catch (error: any) {
+  } catch (error) {
     console.error("Video Template error:", error);
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -88,9 +114,38 @@ export async function DELETE(req: Request) {
     }
 
     await db.delete(videoTemplate).where(eq(videoTemplate.id, id));
-    
+
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
+export async function GET(req: Request) {
+  const permission = await requireBackofficePermissionResponse("posts:manage");
+  if (!permission.ok) return permission.response;
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const templateId = searchParams.get("templateId");
+    const action = searchParams.get("action");
+
+    if (!templateId) {
+      return NextResponse.json({ error: "Missing templateId" }, { status: 400 });
+    }
+
+    if (action === "fetch-thumbnail") {
+      const thumbnail = await videoTemplatePreviewService.getTemplateThumbnail(templateId);
+      if (thumbnail) {
+        return NextResponse.json({ thumbnailUrl: thumbnail });
+      }
+      return NextResponse.json({ thumbnailUrl: null }, { status: 404 });
+    }
+
+    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

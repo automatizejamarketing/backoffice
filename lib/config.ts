@@ -11,7 +11,7 @@ export const ADMIN_EMAILS = [
   "lucashaddad@infinitegrowth.com.br",
   "christian.gomesss09@gmail.com",
   "viniciusferreira@infinitegrowth.com.br",
-  // Add more admin emails here
+  "barretonovaes.vilas@gmail.com",
 ] as const;
 
 export function isAdminEmail(email: string | null | undefined): boolean {
