@@ -466,7 +466,7 @@ export default function ReferralPayoutsPage() {
                         <p>Pedido em {formatDate(row.createdAt)}</p>
                         {row.reviewedAt && (
                           <p className="text-xs">
-                            Decidido {formatDate(row.reviewedAt)} por{" "}
+                            Revisado {formatDate(row.reviewedAt)} por{" "}
                             {row.adminEmail ?? "—"}
                           </p>
                         )}

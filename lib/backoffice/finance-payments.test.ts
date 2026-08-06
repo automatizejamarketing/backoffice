@@ -15,7 +15,7 @@ const automatizePaymentFixture = {
   createdAt: new Date("2026-08-01T12:00:00Z"),
   userId: "u1",
   userEmail: "a@example.com",
-  planType: "pro" as const,
+  planType: "monthly_pro" as const,
   provider: "stripe" as const,
   amount: 10000,
   grossAmount: null,

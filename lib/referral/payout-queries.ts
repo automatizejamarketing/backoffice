@@ -194,10 +194,16 @@ export async function decideReferralPayout({
       .update(referralPayoutRequest)
       .set({
         status,
-        adminEmail,
+        // `admin_email` e `reviewed_at` guardam a PRIMEIRA revisão — quem
+        // olhou o pedido e decidiu — e não a última escrita. Sobrescrever a
+        // cada decisão apagava o aprovador no instante do pagamento, e é
+        // justamente o par aprovador/pagador que torna o repasse auditável.
+        // Quem pagou está no `created_by` do Lançamento e em
+        // `referral_admin_actions`, que registra toda decisão, uma linha cada.
+        adminEmail: request.adminEmail ?? adminEmail,
+        reviewedAt: request.reviewedAt ?? now,
         proofUrl: status === "paid" ? proofUrl!.trim() : request.proofUrl,
         denialReason: status === "denied" ? (reason ?? null) : request.denialReason,
-        reviewedAt: now,
         paidAt: status === "paid" ? now : request.paidAt,
         updatedAt: now,
       })
