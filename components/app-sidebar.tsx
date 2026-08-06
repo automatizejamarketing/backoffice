@@ -79,7 +79,7 @@ export function AppSidebar({
   const isPortfolioSection = pathname?.startsWith("/portfolio");
   const isUsersSection = pathname?.startsWith("/users");
   const isPostsSection = pathname?.startsWith("/posts");
-  const isAffiliatesSection = pathname?.startsWith("/affiliates");
+  const isReferralsSection = pathname?.startsWith("/referrals");
   const isTrackableLinksSection = pathname?.startsWith("/trackable-links");
   const isProductsSection = pathname?.startsWith("/products");
   const isTeamSection = pathname?.startsWith("/team");
@@ -136,10 +136,14 @@ export function AppSidebar({
       permission: "posts:manage",
     },
     {
-      href: "/affiliates",
+      // Programa v2 (`referral_*`), o único vivo desde o cutover (ticket 15,
+      // ADR 0024). A entrada do v1 saiu daqui junto com o runtime dele: as
+      // tabelas antigas continuam no banco, mas não há mais tela que escreva
+      // nelas — deixar o atalho na navegação convidaria exatamente essa escrita.
+      href: "/referrals",
       label: "Afiliados",
       icon: Handshake,
-      isActive: isAffiliatesSection,
+      isActive: isReferralsSection,
       permission: "affiliates:manage",
     },
     {

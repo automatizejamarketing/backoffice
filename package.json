@@ -18,6 +18,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/drizzle-migrate-with-baseline.ts",
     "db:pull": "drizzle-kit introspect",
+    "referral:verify-staging": "APP_ENV=staging bun scripts/verify-referral-approval-staging.ts",
     "campaigns:refresh": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts",
     "campaigns:refresh:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts --stale",
     "performance:drop:backfill": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts",
