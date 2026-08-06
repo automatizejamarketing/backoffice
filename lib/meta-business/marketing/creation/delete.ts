@@ -14,13 +14,13 @@ export async function deleteMetaObject(
   accessToken: string,
 ): Promise<boolean> {
   try {
-    await metaApiCall<{ success?: boolean }>({
+    const result = await metaApiCall<{ success?: boolean }>({
       method: "DELETE",
       path: id,
       params: "",
       accessToken,
     });
-    return true;
+    return result.success === true;
   } catch {
     return false;
   }

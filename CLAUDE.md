@@ -144,9 +144,16 @@ and commit **both** projects in the same commit. `bun run sync:meta:check` repor
 writing. The file may carry code only the frontend calls (the ADR 0022/0023 AI-creation path) —
 that is accepted: identical bytes are what keeps the two duplication engines from diverging.
 
-`lib/meta-business/marketing/{creation,update}/` and `create-adset-in-existing-campaign.ts` follow
-the same frontend-first mirror policy, with import paths normalized
-(`@/lib/meta-business/marketing/` → `@/lib/meta-business/`); see `meta-primitives-parity.test.ts`.
+`lib/meta-business/marketing/{creation,update}/`, `create-adset-in-existing-campaign.ts`,
+`normalize-meta-error.ts` and `lib/meta-business/get-instagram-connected-page.ts` follow the same
+frontend-first mirror policy, with import paths normalized (`@/lib/meta-business/marketing/` →
+`@/lib/meta-business/`); see `meta-primitives-parity.test.ts`. `sync:meta` writes these too — it
+applies the rewrite for you, so never hand-copy them.
+
+`get-instagram-connected-page.ts` lives at this project's **flattened** `lib/meta-business/` root
+(the frontend keeps it under `marketing/`) precisely because that is where the rewritten import
+resolves. It exports more than this project calls; that dead code is the accepted price of the
+mirror.
 
 ### shadcn/ui setup
 
@@ -190,6 +197,7 @@ Do not paste secrets from `.env*` files into commits or external docs.
 - Do NOT run `bun run db:push` against staging/production or any shared DB. It skips the migrations journal and breaks the baseline contract.
 - Do NOT change `lib/db/schema.ts` without mirroring the edit in `../automatize-frontend/lib/db/schema.ts` and generating migrations in the owning project.
 - Do NOT edit `lib/meta-business/duplicate.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — this one is a byte-identical mirror.
+- Do NOT edit the other mirrored Meta sources here either (`marketing/{creation,update}/*`, `marketing/create-adset-in-existing-campaign.ts`, `marketing/normalize-meta-error.ts`, `get-instagram-connected-page.ts`). Same rule: edit the frontend's copy, run `bun run sync:meta` there, commit both projects together.
 - Do NOT use `npm`, `yarn`, or `pnpm`. Bun only.
 - Do NOT add an email to `ADMIN_EMAILS` without the user explicitly approving it — it is an access-control list.
 - Do NOT flip `postgres-js` back to `prepare: true` in `lib/db/index.ts`. It was set to `false` intentionally to fix a stale-row bug on repeated UPDATEs.
