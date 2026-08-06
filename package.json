@@ -27,6 +27,7 @@
     "@ai-sdk/gateway": "^3.0.57",
     "@aws-sdk/client-s3": "^3.1103.0",
     "@aws-sdk/s3-request-presigner": "^3.1103.0",
+    "@bprogress/next": "^3.2.12",
     "@hookform/resolvers": "^5.2.2",
     "@hugeicons/core-free-icons": "^3.1.0",
     "@hugeicons/react": "^1.1.4",
