@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import type { PlanType } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS, PLAN_TYPES } from "@/lib/stripe/plans";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 function formatMoney(amountCents: number, currency: string): string {
   return new Intl.NumberFormat("pt-BR", {
@@ -35,10 +36,7 @@ function formatMoney(amountCents: number, currency: string): string {
 }
 
 function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 function buildPixWhatsAppMessage(link: PixLinkView): string {

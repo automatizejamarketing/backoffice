@@ -1,3 +1,8 @@
+import {
+  formatChartDateInSaoPaulo,
+  formatNumericDateInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
+
 /**
  * Format a number as currency (BRL)
  */
@@ -98,11 +103,7 @@ export function formatDate(dateString: string | null | undefined): string {
   }
 
   try {
-    return new Date(dateString).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+    return formatNumericDateInSaoPaulo(dateString, "-");
   } catch {
     return "-";
   }
@@ -117,10 +118,7 @@ export function formatChartDate(dateString: string | null | undefined): string {
   }
 
   try {
-    return new Date(dateString).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "short",
-    });
+    return formatChartDateInSaoPaulo(dateString, "-");
   } catch {
     return "-";
   }

@@ -17,6 +17,7 @@ import {
   summarizeEmailHistory,
   type EmailDeliveryStatus,
 } from "@/lib/backoffice/email-history-model";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 export const dynamic = "force-dynamic";
 
@@ -51,11 +52,7 @@ function statusVariant(
 }
 
 function formatSentAt(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date(value));
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 function Metric({

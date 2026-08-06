@@ -27,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { formatDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 type RecoveryMode = "retry" | "mark_paid_oob";
 
@@ -52,12 +53,7 @@ function formatMoney(amountCents: number, currency: string): string {
 }
 
 function formatDateTime(value: Date | string): string {
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(d);
+  return formatDateTimeInSaoPaulo(value);
 }
 
 const STATUS_LABELS: Record<"past_due" | "unpaid", string> = {

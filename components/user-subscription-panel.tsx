@@ -32,6 +32,10 @@ import {
   formatPlanLabel,
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
+import {
+  formatDateInSaoPaulo,
+  formatDateTimeInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   subscribed: "Assinatura iniciada",
@@ -66,20 +70,11 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 function formatDate(value: Date | string | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(d);
+  return formatDateInSaoPaulo(value);
 }
 
 function formatDateTime(value: Date | string | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(d);
+  return formatDateTimeInSaoPaulo(value);
 }
 
 function formatMoney(amountCents: number, currency: string): string {

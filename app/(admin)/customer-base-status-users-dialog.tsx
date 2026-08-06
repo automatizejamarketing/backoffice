@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ExternalLink, Users } from "lucide-react";
 import type { CustomerBaseCategory } from "@/lib/backoffice/customer-base-status";
 import { formatBRLFromCentavos } from "@/lib/backoffice/finance-format";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { BillingProvider } from "@/lib/db/schema";
 import { getWhatsAppUrl } from "@/lib/phone";
 import { CopyEmailButton } from "@/components/copy-email-button";
@@ -53,10 +54,7 @@ const PROVIDER_LABELS: Record<BillingProvider, string> = {
 function formatExpiration(value: string | null) {
   if (!value) return "—";
 
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 function PaymentCell({ user }: { user: CustomerBaseStatusUser }) {

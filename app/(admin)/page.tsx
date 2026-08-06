@@ -37,6 +37,10 @@ import {
   DashboardNavigationProvider,
 } from "./dashboard-navigation-feedback";
 import { CustomerBaseStatusPanel } from "./customer-base-status";
+import {
+  formatInSaoPaulo,
+  parseCalendarDate,
+} from "@/lib/backoffice/datetime-format";
 
 export const dynamic = "force-dynamic";
 
@@ -63,18 +67,12 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
-function parseCalendarDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day, 12));
-}
-
 function formatCalendarDate(value: string, includeYear = false) {
-  return new Intl.DateTimeFormat("pt-BR", {
+  return formatInSaoPaulo(parseCalendarDate(value), {
     day: "2-digit",
     month: includeYear ? "short" : "2-digit",
     year: includeYear ? "numeric" : undefined,
-    timeZone: "America/Sao_Paulo",
-  }).format(parseCalendarDate(value));
+  });
 }
 
 function rowRate(value: number, total: number) {

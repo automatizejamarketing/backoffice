@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { BusinessOperatingRules } from "@/lib/business/business-health";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 type RulesState = BusinessOperatingRules & {
   id: string;
@@ -41,10 +42,7 @@ const FIELD_LABELS: Record<string, string> = {
 function formatDate(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+  return formatShortDateTimeInSaoPaulo(date);
 }
 
 export function BusinessRulesPageClient({

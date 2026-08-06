@@ -56,6 +56,11 @@ import {
 } from "@/lib/auth/rbac-core";
 import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
+import {
+  formatDateTimeInSaoPaulo,
+  formatShortDateInSaoPaulo,
+  formatShortDateTimeInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
 import { cn } from "@/lib/utils";
 
 const TAB_CONFIG: Array<{
@@ -186,12 +191,7 @@ export async function UserHubPage({
     return new Intl.NumberFormat("pt-BR").format(value);
   };
 
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
-  };
+  const formatDate = (date: Date) => formatDateTimeInSaoPaulo(date);
 
   const phoneFormatted = formatBrazilianPhone(profile.phone);
   const whatsappUrl = getWhatsAppUrl(profile.phone);
@@ -688,22 +688,11 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 }
 
 function formatShortDate(value: Date | string | null) {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-  }).format(date);
+  return formatShortDateInSaoPaulo(value);
 }
 
 function formatShortDateTime(value: Date | string | null) {
-  if (!value) return "Nunca";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "Nunca";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 function formatActivity(value: Date | null) {

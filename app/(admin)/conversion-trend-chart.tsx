@@ -16,6 +16,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import type { DailyConversionCohort } from "@/lib/backoffice/conversion-dashboard";
+import { formatCalendarDateLabel } from "@/lib/backoffice/datetime-format";
 
 const chartConfig = {
   newUsers: {
@@ -42,13 +43,7 @@ function formatShortDate(value: string) {
 }
 
 function formatLongDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "long",
-    year: "numeric",
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date(Date.UTC(year, month - 1, day, 12)));
+  return formatCalendarDateLabel(value);
 }
 
 export function ConversionTrendChart({

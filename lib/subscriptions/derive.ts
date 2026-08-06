@@ -5,6 +5,7 @@ import type {
   SubscriptionStatus,
 } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
+import { formatNumericDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 const STATUS_PRIORITY: Record<SubscriptionStatus, number> = {
   active: 6,
@@ -187,11 +188,5 @@ export function describeUpcomingChange(
 }
 
 function formatShortDate(value: Date | string): string {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  }).format(date);
+  return formatNumericDateInSaoPaulo(value);
 }

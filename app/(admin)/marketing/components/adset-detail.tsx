@@ -58,6 +58,7 @@ import {
   formatPixelLabel,
   formatCustomEventType,
 } from "../utils/formatters";
+import { formatTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
 import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 import { useAdSetDetail, useAdSetInsights } from "../hooks/marketing-queries";
@@ -883,10 +884,7 @@ function formatTime(dateString: string | null | undefined): string | undefined {
   const date = new Date(dateString);
   if (Number.isNaN(date.getTime())) return undefined;
 
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatTimeInSaoPaulo(date);
 }
 
 function formatAgeRange(

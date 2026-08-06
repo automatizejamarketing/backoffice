@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/posts/post-type-badge";
 import { PostComparison } from "@/components/posts/post-comparison";
 import { GeneratePostDialog } from "@/components/posts/generate-post-dialog";
+import { formatDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 type SourcePost = {
   id: string;
@@ -47,10 +48,7 @@ type BackofficePostDetail = {
 };
 
 function formatDate(date: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(date));
+  return formatDateTimeInSaoPaulo(date);
 }
 
 export function BackofficePostDetailClient({

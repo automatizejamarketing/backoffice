@@ -26,15 +26,18 @@ import type {
   ConversationListItem,
 } from "@/lib/db/conversation-queries";
 import { cn } from "@/lib/utils";
+import {
+  formatDateTimeInSaoPaulo,
+  formatTimeInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
 
-const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
-  dateStyle: "medium",
-  timeStyle: "short",
-});
+function formatDateTime(value: Date | string) {
+  return formatDateTimeInSaoPaulo(value);
+}
 
-const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
-  timeStyle: "short",
-});
+function formatTime(value: Date | string) {
+  return formatTimeInSaoPaulo(value);
+}
 
 const CHANNEL_LABEL: Record<ConversationChannel, string> = {
   web: "App",
@@ -123,7 +126,7 @@ function ActionCard({ item }: { item: Extract<TranscriptItem, { kind: "action" }
           </Badge>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {timeFormatter.format(item.at)}
+          {formatTime(item.at)}
         </span>
       </div>
 
@@ -152,7 +155,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
           <div className="max-w-[80%] rounded-lg rounded-br-sm bg-primary px-4 py-2 text-sm text-primary-foreground">
             <p className="whitespace-pre-wrap break-words">{item.text}</p>
             <p className="mt-1 text-right text-[10px] opacity-70">
-              {timeFormatter.format(item.at)}
+              {formatTime(item.at)}
             </p>
           </div>
         </div>
@@ -164,7 +167,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
           <div className="max-w-[80%] rounded-lg rounded-bl-sm bg-muted px-4 py-2 text-sm text-foreground">
             <p className="whitespace-pre-wrap break-words">{item.text}</p>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Mat • {timeFormatter.format(item.at)}
+              Mat • {formatTime(item.at)}
             </p>
           </div>
         </div>
@@ -176,7 +179,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
     case "client-context":
       return (
         <div className="px-1">
-          <Collapsible label={`contexto do app • ${timeFormatter.format(item.at)}`}>
+          <Collapsible label={`contexto do app • ${formatTime(item.at)}`}>
             {formatJson(item.data)}
           </Collapsible>
         </div>
@@ -187,7 +190,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
         <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
           <AlertTriangle className="size-4 shrink-0" />
           <span>{item.message}</span>
-          <span className="ml-auto opacity-70">{timeFormatter.format(item.at)}</span>
+          <span className="ml-auto opacity-70">{formatTime(item.at)}</span>
         </div>
       );
 
@@ -231,7 +234,7 @@ function ConversationRow({
         {conversation.title ?? "(sem mensagem do usuário)"}
       </p>
       <p className="mt-0.5 text-[11px] text-muted-foreground">
-        {dateTimeFormatter.format(conversation.lastEventAt)}
+        {formatDateTime(conversation.lastEventAt)}
       </p>
     </Link>
   );
@@ -300,8 +303,8 @@ export function ConversationsTab({
           </CardTitle>
           {selectedConversation && (
             <p className="text-xs text-muted-foreground">
-              Início {dateTimeFormatter.format(selectedConversation.startedAt)} • última
-              atividade {dateTimeFormatter.format(selectedConversation.lastEventAt)}
+              Início {formatDateTime(selectedConversation.startedAt)} • última
+              atividade {formatDateTime(selectedConversation.lastEventAt)}
             </p>
           )}
         </CardHeader>

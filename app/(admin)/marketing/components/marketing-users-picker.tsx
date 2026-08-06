@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DataTablePagination } from "@/components/posts/data-table-pagination";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 type MarketingUser = {
   id: string;
@@ -123,12 +124,7 @@ export function MarketingUsersPicker({
     trimmedEmail.length > 0 && trimmedEmail.length < MIN_SEARCH_LENGTH;
 
   function formatDate(dateStr: string) {
-    const date = new Date(dateStr);
-    if (Number.isNaN(date.getTime())) return "—";
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    }).format(date);
+    return formatShortDateTimeInSaoPaulo(dateStr);
   }
 
   return (

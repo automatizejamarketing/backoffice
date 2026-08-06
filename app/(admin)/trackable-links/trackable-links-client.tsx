@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { formatDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -223,7 +224,7 @@ export function TrackableLinksClient({
                       {l.signups}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {new Date(l.createdAt).toLocaleDateString("pt-BR")}
+                      {formatDateInSaoPaulo(l.createdAt)}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">

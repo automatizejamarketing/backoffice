@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useCallback, use } from "react";
 import Link from "next/link";
+import {
+  formatDateInSaoPaulo,
+  formatShortDateTimeInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -248,10 +252,7 @@ export default function AffiliateDetailPage({
     }).format(cents / 100);
 
   const formatDateTime = (dateStr: string) =>
-    new Date(dateStr).toLocaleString("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
+    formatShortDateTimeInSaoPaulo(dateStr);
 
   const formatActionDetails = (log: ActionLog): string | null => {
     if (!log.details) return null;
@@ -367,7 +368,7 @@ export default function AffiliateDetailPage({
             <div>
               <p className="text-sm text-muted-foreground">Criado em</p>
               <p className="font-medium">
-                {new Date(affiliate.createdAt).toLocaleDateString("pt-BR")}
+                {formatDateInSaoPaulo(affiliate.createdAt)}
               </p>
             </div>
             {affiliate.approvedBy && (
@@ -556,7 +557,7 @@ export default function AffiliateDetailPage({
                         <Badge variant={badge.variant}>{badge.label}</Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(conv.createdAt).toLocaleDateString("pt-BR")}
+                        {formatDateInSaoPaulo(conv.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
                         {conv.status !== "paid" && conv.status !== "rejected" && (

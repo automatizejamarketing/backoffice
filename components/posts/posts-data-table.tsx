@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "./post-type-badge";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 const linkBtnClass =
   "inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium hover:bg-muted transition-all";
@@ -30,10 +31,7 @@ type PostRow = {
 };
 
 function formatDate(date: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(date));
+  return formatShortDateTimeInSaoPaulo(date);
 }
 
 export function PostsDataTable<T extends PostRow>({

@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/schema";
 import { ensurePixCopyPasteCode } from "@/lib/mercadopago/pix-payment";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
+import { formatInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 const PIX_LINK_VALIDITY_DAYS = 7;
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -230,11 +231,10 @@ export async function sendBackofficePixLinkEmail({
 }) {
   const plan = PLAN_DEFINITIONS[link.planType];
   const months = getPixCommitmentMonths(link.planType);
-  const expiresAt = link.expiresAt.toLocaleDateString("pt-BR", {
+  const expiresAt = formatInSaoPaulo(link.expiresAt, {
     day: "2-digit",
     month: "long",
     year: "numeric",
-    timeZone: "America/Sao_Paulo",
   });
 
   const { error } = await resend.emails.send(

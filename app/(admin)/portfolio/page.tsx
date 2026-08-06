@@ -34,26 +34,19 @@ import {
 } from "@/lib/db/business-queries";
 import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
 import { wasManagedCampaignCheckedToday } from "@/lib/business/managed-campaigns";
+import {
+  formatShortDateInSaoPaulo,
+  formatShortDateTimeInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
 
 export const dynamic = "force-dynamic";
 
 function formatDate(value: Date | string | null) {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-  }).format(date);
+  return formatShortDateInSaoPaulo(value);
 }
 
 function formatDateTime(value: Date | string | null) {
-  if (!value) return "Nunca";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "Nunca";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 function formatActivity(value: Date | null) {

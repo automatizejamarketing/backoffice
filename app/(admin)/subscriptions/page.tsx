@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { formatDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Loader2, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -222,13 +223,11 @@ export default function SubscriptionsPage() {
                       </TableCell>
                       <TableCell>
                         {sub.user.expirationDate
-                          ? new Date(
-                              sub.user.expirationDate,
-                            ).toLocaleDateString("pt-BR")
+                          ? formatDateInSaoPaulo(sub.user.expirationDate)
                           : "-"}
                       </TableCell>
                       <TableCell>
-                        {new Date(sub.createdAt).toLocaleDateString("pt-BR")}
+                        {formatDateInSaoPaulo(sub.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button

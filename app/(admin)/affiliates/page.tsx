@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { formatDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -356,7 +357,7 @@ export default function AffiliatesPage() {
                       </TableCell>
                       <TableCell>{aff.commissionRate}%</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {new Date(aff.createdAt).toLocaleDateString("pt-BR")}
+                        {formatDateInSaoPaulo(aff.createdAt)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">

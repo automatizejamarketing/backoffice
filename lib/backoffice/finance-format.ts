@@ -1,3 +1,9 @@
+import {
+  formatCalendarDateLabel,
+  formatDateTimeInSaoPaulo,
+  parseCalendarDate,
+} from "@/lib/backoffice/datetime-format";
+
 export function formatFinanceNumber(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value);
 }
@@ -19,25 +25,7 @@ export function formatBRLFromCentavos(value: number) {
 }
 
 export function formatFinanceDateTime(value: Date | string | null | undefined) {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return formatDateTimeInSaoPaulo(value);
 }
 
-export function parseCalendarDate(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day, 12));
-}
-
-export function formatCalendarDateLabel(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "America/Sao_Paulo",
-  }).format(parseCalendarDate(value));
-}
+export { formatCalendarDateLabel, parseCalendarDate };

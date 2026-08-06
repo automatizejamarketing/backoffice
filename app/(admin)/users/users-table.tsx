@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { UserWithUsage } from "@/lib/db/admin-queries";
+import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -81,9 +82,7 @@ function formatNumber(value: number) {
 }
 
 function formatExpirationDate(value: Date | string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-  }).format(new Date(value));
+  return formatCalendarDayInSaoPaulo(value);
 }
 
 function formatExpirationHint(daysUntilRenewal: number | null): string | null {

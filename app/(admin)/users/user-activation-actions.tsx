@@ -17,6 +17,7 @@ import {
   getStripeCancellationExpirationDate,
 } from "@/lib/backoffice/stripe-subscription-cancel-policy";
 import { formatPlanLabel } from "@/lib/subscriptions/derive";
+import { formatDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { UserPixRenewalDialog } from "./user-pix-renewal-dialog";
 import { toast } from "sonner";
 import {
@@ -94,11 +95,7 @@ export function UserActivationActions({
 
   function formatCancellationDate(value: Date | null): string {
     if (!value) return "a data de expiração do período atual";
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "long",
-      timeStyle: "short",
-      timeZone: "America/Sao_Paulo",
-    }).format(value);
+    return formatDateTimeInSaoPaulo(value);
   }
 
   async function cancelStripeSubscription() {
