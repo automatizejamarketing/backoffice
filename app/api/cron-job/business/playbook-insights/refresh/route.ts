@@ -33,6 +33,14 @@ export async function GET(request: NextRequest) {
       insightsCreated: result.insightsCreated,
       campaignsEvaluated: result.campaignsEvaluated,
       errorCount: result.errorCount,
+      // First failures help diagnose Graph rejects without dumping full batch.
+      sampleErrors: result.results
+        .filter((row) => row.errorMessage)
+        .slice(0, 5)
+        .map((row) => ({
+          email: row.email,
+          errorMessage: row.errorMessage,
+        })),
     });
   } catch (error) {
     console.error("[playbook-insights-cron] failed", error);

@@ -74,17 +74,13 @@ export async function fetchCampaignMetricsForAccount(args: {
   }>({
     method: "GET",
     path: `${accountId}/campaigns`,
+    // Campaign effective_status enum does not include COMPLETED (ad-level).
+    // Passing invalid values makes Meta reject the whole request for every user.
     params: [
       "fields=id,name,status,effective_status,updated_time,insights.date_preset(last_30d){spend,impressions,purchase_roas,actions,action_values}",
       `limit=${limit}`,
       `effective_status=${encodeURIComponent(
-        JSON.stringify([
-          "ACTIVE",
-          "PAUSED",
-          "COMPLETED",
-          "ARCHIVED",
-          "CAMPAIGN_PAUSED",
-        ]),
+        JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED"]),
       )}`,
     ].join("&"),
     accessToken: args.accessToken,
