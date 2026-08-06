@@ -282,9 +282,11 @@ export function AppSidebar({
                     {user.name ??
                       (actor.role === "admin"
                         ? "Admin"
-                        : actor.role === "finance_viewer"
-                          ? "Financeiro"
-                          : "Consultor")}
+                        : actor.role === "dev"
+                          ? "Dev"
+                          : actor.role === "finance_viewer"
+                            ? "Financeiro"
+                            : "Consultor")}
                   </p>
                   <p className="text-xs text-muted-foreground">{user.email}</p>
                 </div>

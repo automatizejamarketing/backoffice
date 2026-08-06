@@ -168,7 +168,7 @@ export async function UserHubPage({
     notFound();
   }
 
-  const isAdminHub = actor.role === "admin";
+  const isAdminHub = actor.role === "admin" || actor.role === "dev";
   const visibleTabs = TAB_CONFIG.filter((tab) =>
     canAccessUserHubTab(actor, id, tab.value),
   );

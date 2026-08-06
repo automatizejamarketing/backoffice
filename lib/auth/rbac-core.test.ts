@@ -28,6 +28,13 @@ const financeViewer: BackofficeActor = {
   source: "finance_email_fallback",
 };
 
+const dev: BackofficeActor = {
+  id: "dev-1",
+  email: "dev@example.com",
+  role: "dev",
+  source: "database",
+};
+
 describe("hasBackofficePermission", () => {
   test("allows admins to use every known permission", () => {
     expect(hasBackofficePermission(admin, "users:manage")).toBe(true);
@@ -51,6 +58,17 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(financeViewer, "emails:view")).toBe(false);
     expect(hasBackofficePermission(financeViewer, "marketing:read")).toBe(false);
   });
+
+  test("gives dev technical access without finance, billing, or team", () => {
+    expect(hasBackofficePermission(dev, "dashboard:view")).toBe(true);
+    expect(hasBackofficePermission(dev, "users:manage")).toBe(true);
+    expect(hasBackofficePermission(dev, "products:manage")).toBe(true);
+    expect(hasBackofficePermission(dev, "marketing:write")).toBe(true);
+    expect(hasBackofficePermission(dev, "finance:view")).toBe(false);
+    expect(hasBackofficePermission(dev, "billing:manage")).toBe(false);
+    expect(hasBackofficePermission(dev, "team:manage")).toBe(false);
+    expect(hasBackofficePermission(dev, "business:manage")).toBe(false);
+  });
 });
 
 describe("canAccessMarketingUser", () => {
@@ -64,6 +82,10 @@ describe("canAccessMarketingUser", () => {
 
   test("blocks consultants from unassigned customer users", () => {
     expect(canAccessMarketingUser(consultant, "user-3")).toBe(false);
+  });
+
+  test("allows devs to access any customer user", () => {
+    expect(canAccessMarketingUser(dev, "any-user")).toBe(true);
   });
 });
 
@@ -88,5 +110,11 @@ describe("canAccessUserHubTab", () => {
   test("blocks consultants from unassigned user hub tabs", () => {
     expect(canAccessUserHubTab(consultant, "user-3", "business")).toBe(false);
     expect(canAccessUserHubTab(consultant, "user-3", "marketing")).toBe(false);
+  });
+
+  test("allows devs to access every user hub tab", () => {
+    expect(canAccessUserHubTab(dev, "any-user", "summary")).toBe(true);
+    expect(canAccessUserHubTab(dev, "any-user", "subscription")).toBe(true);
+    expect(canAccessUserHubTab(dev, "any-user", "audit")).toBe(true);
   });
 });
