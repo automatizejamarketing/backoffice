@@ -297,9 +297,19 @@ export default async function PortfolioPage({
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {account.userEmail}
-                        </p>
+                        <div className="flex min-w-0 items-baseline gap-1.5">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {account.userEmail}
+                          </p>
+                          {account.playbookInsights.openCount > 0 ? (
+                            <span
+                              className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70"
+                              title={`${account.playbookInsights.openCount} sugestões do playbook`}
+                            >
+                              · {account.playbookInsights.openCount}
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="truncate text-xs text-muted-foreground">
                           {account.companyName ?? "Empresa não informada"}
                         </p>
@@ -388,29 +398,17 @@ export default async function PortfolioPage({
                     {account.playbookInsights.openCount > 0 ? (
                       <Link
                         href={`/users/${account.userId}?tab=marketing`}
-                        className="inline-flex"
+                        className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                        title="Ver sugestões do playbook"
                       >
-                        <Badge
-                          variant="outline"
-                          className={
-                            account.playbookInsights.highestSeverity ===
-                            "critical"
-                              ? "border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
-                              : account.playbookInsights.highestSeverity ===
-                                  "warning"
-                                ? "border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
-                                : "text-xs"
-                          }
-                        >
-                          {account.playbookInsights.openCount === 1
-                            ? "1 sugestão"
-                            : `${account.playbookInsights.openCount} sugestões`}
-                        </Badge>
+                        {account.playbookInsights.openCount === 1
+                          ? "1 sugestão"
+                          : `${account.playbookInsights.openCount} sugestões`}
                       </Link>
                     ) : (
-                      <Badge variant="secondary" className="text-xs">
-                        Sem sugestões
-                      </Badge>
+                      <span className="text-[11px] text-muted-foreground/40">
+                        —
+                      </span>
                     )}
                   </TableCell>
                   <TableCell>
