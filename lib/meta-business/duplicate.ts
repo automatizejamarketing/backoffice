@@ -2,6 +2,20 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
 
 /**
+ * MIRRORED FILE — `automatize-frontend` and `backoffice` must hold BYTE-IDENTICAL copies.
+ *
+ * The admin panel duplicates the very same live campaigns the user dashboard does; the two
+ * must behave identically or an admin-side duplication spends money differently from a
+ * user-side one. The frontend is authoritative. After editing THIS file:
+ *
+ *     cd automatize-frontend && bun run sync:meta   # writes ../backoffice's copy
+ *
+ * and commit BOTH projects together — a frontend-only feature landing here (ADR 0022/0023's
+ * AI creation path did exactly this) leaves the backoffice on stale duplication logic.
+ * `tests/meta-duplicate-parity.test.ts` fails while the two drift.
+ */
+
+/**
  * Native Meta `/copies` duplication, orchestrated entity-by-entity.
  *
  * We deliberately DO NOT use `deep_copy=true` on campaign or ad set copies.
@@ -38,12 +52,17 @@ import { GraphApiError } from "@/lib/meta-business/error";
  * Constraints enforced here:
  * - Ad set copy is always created in the destination campaign.
  * - Ad copy is always created in the destination ad set.
- * - Status of native copies is inherited from the source (INHERITED_FROM_SOURCE);
- *   a reconstructed ad set is created PAUSED (its ads are copied in right after).
+ * - Dashboard/agent native copies inherit status from the source
+ *   (`INHERITED_FROM_SOURCE`). AI proven-campaign builds stay PAUSED until the
+ *   publish orchestrator activates the completed tree (budget/children ready).
+ * - A reconstructed ad set is always created PAUSED (its ads are copied next).
  */
 
 const COPY_MARKER = "Cópia";
+/** Default for dashboard / agent native `/copies` — Active source → Active copy. */
 const STATUS_OPTION = "INHERITED_FROM_SOURCE";
+/** AI proven-campaign path: build paused, then activate after budget is applied. */
+const AI_BUILD_STATUS_OPTION = "PAUSED";
 const NO_RENAME = JSON.stringify({ rename_strategy: "NO_RENAME" });
 const VALIDATE_ONLY = JSON.stringify(["validate_only"]);
 
@@ -855,6 +874,11 @@ export type DuplicateProvenCampaignResult = DuplicateResult & {
   adIds: string[];
   /** Source ad set → copied ad set, in copy order (ADR 0023 ticket 03). */
   copiedAdSets: CopiedAdSetMapping[];
+  /** Fields committed together with the final ACTIVE transition. */
+  activationFields: {
+    campaign: Record<string, string>;
+    adSets: Record<string, Record<string, string>>;
+  };
 };
 
 /**
@@ -1100,27 +1124,6 @@ export function computeDuplicationBudget(args: {
   };
 }
 
-async function patchObjectFields(
-  objectId: string,
-  fields: Record<string, string>,
-  accessToken: string,
-): Promise<void> {
-  await withMetaRetry(() =>
-    metaApiCall<{ success?: boolean }>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: objectId,
-      params: "",
-      body: new URLSearchParams(fields),
-      accessToken,
-    }),
-  );
-}
-
-async function setObjectActive(objectId: string, accessToken: string): Promise<void> {
-  await patchObjectFields(objectId, { status: "ACTIVE" }, accessToken);
-}
-
 async function getCampaignTree(
   campaignId: string,
   accessToken: string,
@@ -1157,6 +1160,7 @@ async function copyAdsetInto(
   sourceAdsetId: string,
   targetCampaignId: string,
   accessToken: string,
+  statusOption = STATUS_OPTION,
 ): Promise<string | undefined> {
   const res = await withMetaRetry(() =>
     metaApiCall<CopyResponse>({
@@ -1166,7 +1170,7 @@ async function copyAdsetInto(
       params: "",
       body: new URLSearchParams({
         campaign_id: targetCampaignId,
-        status_option: STATUS_OPTION,
+        status_option: statusOption,
         rename_options: NO_RENAME,
       }),
       accessToken,
@@ -1680,6 +1684,8 @@ async function copyOrRebuildAdsetInto(args: {
   accessToken: string;
   isCBO: boolean;
   campaignLifetime: boolean;
+  /** Override Meta `status_option` (AI proven path passes PAUSED). */
+  statusOption?: string;
   /** Pre-read source (from a bulk `?ids=` read); avoids a per-ad-set GET. */
   prefetchedSource?: AdsetFull;
 }): Promise<{
@@ -1731,6 +1737,7 @@ async function copyOrRebuildAdsetInto(args: {
       sourceAdsetId,
       targetCampaignId,
       accessToken,
+      args.statusOption,
     );
   } catch (copyErr) {
     // Only rebuild for a permanent failure the rebuild can actually fix. Transient
@@ -1790,10 +1797,11 @@ async function copyAdInto(
   targetAdsetId: string,
   accessToken: string,
   creativeParameters?: string,
+  statusOption = STATUS_OPTION,
 ): Promise<string | undefined> {
   const body = new URLSearchParams({
     adset_id: targetAdsetId,
-    status_option: STATUS_OPTION,
+    status_option: statusOption,
     rename_options: NO_RENAME,
   });
   if (creativeParameters) {
@@ -2367,10 +2375,13 @@ async function copyAdWithRepair(
     prefetchedCreative?: GraphCreativeShape | null;
     /** Campaign is a SALES objective — gates pre-emptive URL injection. */
     isSales?: boolean;
+    /** Override Meta `status_option` (AI proven path passes PAUSED). */
+    statusOption?: string;
   },
 ): Promise<{ copiedAdId: string | undefined; repairs: CreativeRepairLabel[] }> {
   const fallbackPromotionUrl = opts?.fallbackPromotionUrl;
   const prefetched = opts?.prefetchedCreative ?? null;
+  const statusOption = opts?.statusOption;
 
   // Pre-emptive patch from the pre-fetched creative (avoids a doomed first copy).
   const pre = prefetched
@@ -2389,6 +2400,7 @@ async function copyAdWithRepair(
       targetAdsetId,
       accessToken,
       Object.keys(patch).length ? JSON.stringify(patch) : undefined,
+      statusOption,
     );
     return { copiedAdId, repairs: [...repairs] };
   } catch (firstErr) {
@@ -2426,6 +2438,7 @@ async function copyAdWithRepair(
           targetAdsetId,
           accessToken,
           JSON.stringify(patch),
+          statusOption,
         );
         return { copiedAdId, repairs: [...repairs] };
       } catch (e) {
@@ -2461,6 +2474,7 @@ async function copyAdsIntoAdset(
   boostIneligibleMedia: Map<string, string>,
   isSales: boolean,
   fallbackPromotionUrl?: string,
+  statusOption = STATUS_OPTION,
 ): Promise<{
   copiedAds: CopiedAd[];
   skippedAds: SkippedItem[];
@@ -2488,6 +2502,7 @@ async function copyAdsIntoAdset(
             fallbackPromotionUrl,
             prefetchedCreative: creatives.get(ad.id) ?? null,
             isSales,
+            statusOption,
           }),
         );
         if (!copiedAdId) {
@@ -2873,7 +2888,7 @@ export async function duplicateProvenCampaign(args: {
         path: `${campaignId}/copies`,
         params: "",
         body: new URLSearchParams({
-          status_option: STATUS_OPTION,
+          status_option: AI_BUILD_STATUS_OPTION,
           rename_options: NO_RENAME,
         }),
         accessToken,
@@ -2917,6 +2932,7 @@ export async function duplicateProvenCampaign(args: {
         accessToken,
         isCBO,
         campaignLifetime,
+        statusOption: AI_BUILD_STATUS_OPTION,
         prefetchedSource: adsetsById.get(sourceAdset.id),
       });
       tracker.track("adset", copiedAdsetId);
@@ -2958,6 +2974,7 @@ export async function duplicateProvenCampaign(args: {
         boostIneligibleMedia,
         isSales,
         fallbackPromotionUrl,
+        AI_BUILD_STATUS_OPTION,
       );
       skippedAds.push(...skipped);
       repairedCreatives.push(...repaired);
@@ -3002,11 +3019,9 @@ export async function duplicateProvenCampaign(args: {
       });
     }
 
-    // Apply the user's budget AFTER the copy (never the source's possibly high budget) AND publish
-    // ACTIVE in the SAME write on every object that carries a budget — the campaign under CBO, each
-    // ad set under ABO. Merging the budget patch with the status flip halves those writes against the
-    // shared Meta rate-limit and closes the window where a live object could run on the source's
-    // budget (ADR 0001/0023, ticket 06). AI creation publishes ACTIVE even when the source was paused.
+    // Prepare the user's budget while the whole duplicated tree remains PAUSED.
+    // The AI publish orchestrator commits these fields together with the final
+    // leaves-to-root ACTIVE transition after all work has succeeded.
     const budget = computeDuplicationBudget({
       dailyBudgetMajor,
       adSetCount: copiedAdSetIds.length,
@@ -3021,31 +3036,26 @@ export async function duplicateProvenCampaign(args: {
       };
     };
 
+    const campaignActivationFields: Record<string, string> = {};
+    const adSetActivationFields: Record<string, Record<string, string>> = {};
+
     if (isCBO) {
-      const campaignFields: Record<string, string> = { status: "ACTIVE" };
       if (campaignLifetime) {
         const { start, stop } = freshFlight();
-        campaignFields.lifetime_budget = String(budget.lifetimeCents);
-        campaignFields.start_time = start;
-        campaignFields.stop_time = stop;
+        campaignActivationFields.lifetime_budget = String(budget.lifetimeCents);
+        campaignActivationFields.start_time = start;
+        campaignActivationFields.stop_time = stop;
       } else {
-        campaignFields.daily_budget = String(budget.dailyCents);
-      }
-      await patchObjectFields(newCampaignId, campaignFields, accessToken);
-      // Ad sets under CBO carry no budget of their own — they only need activating.
-      for (const adsetId of copiedAdSetIds) {
-        await setObjectActive(adsetId, accessToken);
+        campaignActivationFields.daily_budget = String(budget.dailyCents);
       }
     } else {
-      // ABO: the campaign carries no budget, so it only needs activating.
-      await setObjectActive(newCampaignId, accessToken);
       for (let i = 0; i < copiedAdSetIds.length; i++) {
         const source = adsetsById.get(copiedFromSourceAdSetIds[i]);
         const hasDayparting =
           Array.isArray(source?.adset_schedule) && source.adset_schedule.length > 0;
         const useLifetime =
           hasDayparting || hasPositiveMinorUnits(source?.lifetime_budget);
-        const adsetFields: Record<string, string> = { status: "ACTIVE" };
+        const adsetFields: Record<string, string> = {};
         if (useLifetime) {
           const { start, stop } = freshFlight();
           adsetFields.lifetime_budget = String(budget.slices[i] * budget.flightDays);
@@ -3054,13 +3064,8 @@ export async function duplicateProvenCampaign(args: {
         } else {
           adsetFields.daily_budget = String(budget.slices[i]);
         }
-        await patchObjectFields(copiedAdSetIds[i], adsetFields, accessToken);
+        adSetActivationFields[copiedAdSetIds[i]] = adsetFields;
       }
-    }
-
-    // Ads never carry a budget — activate them last.
-    for (const adId of copiedAdIds) {
-      await setObjectActive(adId, accessToken);
     }
 
     await renameObject(newCampaignId, campaignName, accessToken);
@@ -3076,6 +3081,10 @@ export async function duplicateProvenCampaign(args: {
         sourceAdSetId: copiedFromSourceAdSetIds[index],
         copiedAdSetId,
       })),
+      activationFields: {
+        campaign: campaignActivationFields,
+        adSets: adSetActivationFields,
+      },
       ...(skippedAds.length ? { skippedAds } : {}),
       ...(skippedAdsets.length ? { skippedAdsets } : {}),
       ...(replacedInterests.length ? { replacedInterests } : {}),
