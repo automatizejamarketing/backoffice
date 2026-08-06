@@ -178,7 +178,7 @@ export default async function PortfolioPage({
             <Input
               name="q"
               defaultValue={filters.search}
-              placeholder="E-mail ou empresa"
+              placeholder="E-mail, empresa ou telefone"
               className="h-9"
             />
           </label>

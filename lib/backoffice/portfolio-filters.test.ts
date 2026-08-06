@@ -221,4 +221,24 @@ describe("filterBusinessPortfolioItems", () => {
       }).map((row) => row.userId),
     ).toEqual(["1"]);
   });
+
+  test("filters by phone with country code", () => {
+    const withPhone = [
+      item({
+        userId: "phone-1",
+        userEmail: "sem-nome@example.com",
+        userPhone: "21992448787",
+        companyName: null,
+      }),
+    ];
+
+    expect(
+      filterBusinessPortfolioItems(withPhone, {
+        consultantId: "all",
+        subscriptionStatus: "all",
+        campaignStatus: "all",
+        search: "5521992448787",
+      }).map((row) => row.userId),
+    ).toEqual(["phone-1"]);
+  });
 });

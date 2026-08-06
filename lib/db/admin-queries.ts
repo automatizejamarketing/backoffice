@@ -78,6 +78,7 @@ import {
   type DailyConversionCohort,
 } from "@/lib/backoffice/conversion-dashboard";
 import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
+import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
 import {
   listCustomerBaseStatusUsers,
   summarizeCustomerBaseStatus,
@@ -367,12 +368,7 @@ export async function getAllUsersWithUsage(
   const conditions = [];
 
   if (trimmedSearch.length >= MIN_SEARCH_LENGTH) {
-    conditions.push(
-      or(
-        ilike(user.email, `%${trimmedSearch}%`),
-        ilike(user.name, `%${trimmedSearch}%`),
-      ),
-    );
+    conditions.push(buildUserListSearchCondition(trimmedSearch));
   }
 
   if (params.filters?.subscriptionStatus === "none") {

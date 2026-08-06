@@ -3,6 +3,7 @@ import {
   firstSearchParam,
   normalizeConsultantFilterId,
 } from "@/lib/backoffice/filter-params";
+import { matchesPortfolioSearch } from "@/lib/backoffice/user-search";
 
 export const PORTFOLIO_SUBSCRIPTION_STATUS_FILTER_VALUES = [
   "all",
@@ -80,8 +81,6 @@ export function filterBusinessPortfolioItems(
     "consultantId" | "subscriptionStatus" | "campaignStatus" | "search"
   >,
 ): BusinessPortfolioItem[] {
-  const search = filters.search.trim().toLowerCase();
-
   return items.filter((item) => {
     if (filters.consultantId === "unassigned") {
       if (item.consultantId != null) return false;
@@ -106,16 +105,11 @@ export function filterBusinessPortfolioItems(
       }
     }
 
-    if (search.length > 0) {
-      const haystack = [
-        item.userEmail,
-        item.companyName ?? "",
-        item.consultantEmail ?? "",
-        item.consultantName ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(search)) return false;
+    if (
+      filters.search.trim().length > 0 &&
+      !matchesPortfolioSearch(item, filters.search)
+    ) {
+      return false;
     }
 
     return true;

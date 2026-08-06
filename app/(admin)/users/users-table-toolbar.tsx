@@ -571,11 +571,11 @@ export function UsersTableToolbar({
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
-              placeholder="Buscar por email ou nome..."
+              placeholder="Buscar por email, nome, telefone ou empresa..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9 pl-9 text-sm"
-              aria-label="Buscar usuários por email ou nome"
+              aria-label="Buscar usuários por email, nome, telefone ou empresa"
             />
           </div>
           {isBelowMinSearch && (
