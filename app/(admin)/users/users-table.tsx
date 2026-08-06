@@ -1,12 +1,65 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import type { UserWithUsage } from "@/lib/db/admin-queries";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   formatPlanLabel,
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
-import { MessageCircle } from "lucide-react";
+import { Columns3 } from "lucide-react";
+import { WhatsAppIcon } from "@/components/whatsapp-icon";
+import { canManageUserActivation } from "@/lib/backoffice/user-activation-policy";
+import { cn } from "@/lib/utils";
 import { UsersTableShell } from "./users-table-shell";
+import { UserActivationActions } from "./user-activation-actions";
+
+const COLUMN_STORAGE_KEY = "automatize-backoffice.users-columns.v1";
+
+const OPTIONAL_COLUMNS = [
+  { id: "company", label: "Empresa" },
+  { id: "phone", label: "Telefone" },
+  { id: "plan", label: "Plano" },
+  { id: "status", label: "Status" },
+  { id: "expiration", label: "Expiração" },
+  { id: "campaign", label: "Campanha" },
+  { id: "performance", label: "Performance 7d" },
+  { id: "marketing", label: "Marketing" },
+  { id: "consultant", label: "Consultor" },
+  { id: "posts", label: "Posts" },
+  { id: "requests", label: "Requisições IA" },
+  { id: "tokens", label: "Tokens" },
+  { id: "cost", label: "Custo" },
+] as const;
+
+type OptionalColumnId = (typeof OPTIONAL_COLUMNS)[number]["id"];
+
+const ALL_OPTIONAL_COLUMNS = OPTIONAL_COLUMNS.map((column) => column.id);
+const HIDDEN_COLUMN_CLASSES: Record<OptionalColumnId, string> = {
+  company: "[&_[data-column='company']]:hidden",
+  phone: "[&_[data-column='phone']]:hidden",
+  plan: "[&_[data-column='plan']]:hidden",
+  status: "[&_[data-column='status']]:hidden",
+  expiration: "[&_[data-column='expiration']]:hidden",
+  campaign: "[&_[data-column='campaign']]:hidden",
+  performance: "[&_[data-column='performance']]:hidden",
+  marketing: "[&_[data-column='marketing']]:hidden",
+  consultant: "[&_[data-column='consultant']]:hidden",
+  posts: "[&_[data-column='posts']]:hidden",
+  requests: "[&_[data-column='requests']]:hidden",
+  tokens: "[&_[data-column='tokens']]:hidden",
+  cost: "[&_[data-column='cost']]:hidden",
+};
 
 const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Cartão",
@@ -45,64 +98,167 @@ function formatExpirationHint(daysUntilRenewal: number | null): string | null {
 type UsersTableProps = {
   users: UserWithUsage[];
   search: string;
+  canManageBilling: boolean;
 };
 
-export function UsersTable({ users, search }: UsersTableProps) {
+export function UsersTable({
+  users,
+  search,
+  canManageBilling,
+}: UsersTableProps) {
+  const [rows, setRows] = useState(users);
+  const [visibleColumns, setVisibleColumns] = useState<OptionalColumnId[]>(
+    ALL_OPTIONAL_COLUMNS,
+  );
+
+  useEffect(() => {
+    setRows(users);
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(COLUMN_STORAGE_KEY) ?? "null",
+      ) as unknown;
+      if (!Array.isArray(stored)) return;
+      const validColumns = ALL_OPTIONAL_COLUMNS.filter((column) =>
+        stored.includes(column),
+      );
+      setVisibleColumns(validColumns);
+    } catch {
+      localStorage.removeItem(COLUMN_STORAGE_KEY);
+    }
+  }, []);
+
+  function setColumnVisible(column: OptionalColumnId, visible: boolean) {
+    setVisibleColumns((current) => {
+      const next = visible
+        ? ALL_OPTIONAL_COLUMNS.filter(
+            (candidate) =>
+              candidate === column || current.includes(candidate),
+          )
+        : current.filter((candidate) => candidate !== column);
+      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function showAllColumns() {
+    localStorage.removeItem(COLUMN_STORAGE_KEY);
+    setVisibleColumns(ALL_OPTIONAL_COLUMNS);
+  }
+
+  const hiddenColumnClasses = ALL_OPTIONAL_COLUMNS.filter(
+    (column) => !visibleColumns.includes(column),
+  ).map((column) => HIDDEN_COLUMN_CLASSES[column]);
+
   return (
     <UsersTableShell>
-      <div className="overflow-x-auto rounded-lg border border-border bg-card">
-        <table className="w-full min-w-[1880px]">
+      <div className="mb-2 flex items-center justify-end gap-2">
+        <span className="text-xs text-muted-foreground">
+          {visibleColumns.length + 2} colunas visíveis
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5">
+              <Columns3 className="size-3.5" />
+              Colunas
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Mostrar na tabela</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {OPTIONAL_COLUMNS.map((column) => (
+              <DropdownMenuCheckboxItem
+                key={column.id}
+                checked={visibleColumns.includes(column.id)}
+                onCheckedChange={(checked) =>
+                  setColumnVisible(column.id, checked === true)
+                }
+                onSelect={(event) => event.preventDefault()}
+              >
+                {column.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 w-full justify-start text-xs"
+              onClick={showAllColumns}
+              disabled={visibleColumns.length === ALL_OPTIONAL_COLUMNS.length}
+            >
+              Mostrar todas
+            </Button>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div
+        className={cn(
+          "overflow-x-auto rounded-lg border border-border bg-card",
+          hiddenColumnClasses,
+        )}
+      >
+        <table className="w-full min-w-max">
           <thead className="border-b border-border bg-muted/50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Usuário
               </th>
-              <th className="w-[320px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th
+                data-column="company"
+                className="w-[320px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
+              >
                 Empresa
               </th>
-              <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="phone" className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Telefone
               </th>
-              <th className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="plan" className="whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Plano
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="status" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Status
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="expiration" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Expiração
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="campaign" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Campanha
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="performance" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Performance 7d
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="marketing" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Marketing
               </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="consultant" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Consultor
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="posts" className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Posts
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="requests" className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Requisições IA
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="tokens" className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Tokens
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <th data-column="cost" className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Custo
+              </th>
+              <th className="w-14 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Ações
               </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {users.length === 0 ? (
+            {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={14}
+                  colSpan={visibleColumns.length + 2}
                   className="px-4 py-8 text-center text-sm text-muted-foreground"
                 >
                   {search
@@ -111,7 +267,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                 </td>
               </tr>
             ) : (
-              users.map((user) => {
+              rows.map((user) => {
                 const sub = user.activeSubscription;
                 const badge = getStatusBadgeProps(
                   sub?.status ?? null,
@@ -133,7 +289,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                     key={user.id}
                     data-user-id={user.id}
                     data-user-email={user.email}
-                    className="cursor-pointer transition-colors hover:bg-muted/50"
+                    className="group cursor-pointer transition-colors hover:bg-muted/50"
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -148,12 +304,19 @@ export function UsersTable({ users, search }: UsersTableProps) {
                             {user.email.charAt(0).toUpperCase()}
                           </div>
                         )}
-                        <span className="text-sm font-medium text-foreground hover:underline">
-                          {user.email}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="block text-sm font-medium text-foreground hover:underline">
+                            {user.email}
+                          </span>
+                          {canManageUserActivation(user) ? (
+                            <span className="mt-0.5 block text-[11px] text-amber-700 dark:text-amber-300">
+                              Ativação pendente
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </td>
-                    <td className="w-[320px] px-4 py-3">
+                    <td data-column="company" className="w-[320px] px-4 py-3">
                       <div className="flex min-w-0 flex-col items-start gap-1">
                         {user.companyName ? (
                           <span
@@ -180,6 +343,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                       </div>
                     </td>
                     <td
+                      data-column="phone"
                       className="whitespace-nowrap px-4 py-3"
                       data-user-row-ignore
                     >
@@ -189,10 +353,10 @@ export function UsersTable({ users, search }: UsersTableProps) {
                             href={whatsappUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-foreground/80 hover:text-[#25D366] hover:underline"
                             aria-label={`Abrir conversa no WhatsApp com ${phoneFormatted}`}
                           >
-                            <MessageCircle className="size-3.5 text-emerald-600" />
+                            <WhatsAppIcon className="size-3.5" />
                             {phoneFormatted}
                           </a>
                         ) : (
@@ -206,7 +370,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3">
+                    <td data-column="plan" className="whitespace-nowrap px-4 py-3">
                       {sub ? (
                         <span className="whitespace-nowrap text-sm text-foreground/80">
                           {formatPlanLabel(sub.planType)}
@@ -222,7 +386,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-column="status" className="px-4 py-3">
                       <div className="flex flex-col gap-0.5">
                         <Badge
                           variant={badge.variant}
@@ -237,7 +401,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-column="expiration" className="px-4 py-3">
                       {user.expirationDate ? (
                         <div className="flex flex-col gap-0.5">
                           <span className="whitespace-nowrap text-sm font-medium text-foreground/80">
@@ -269,7 +433,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-column="campaign" className="px-4 py-3">
                       {user.hasActiveManagedCampaign ? (
                         <Badge variant="default" className="w-fit text-xs">
                           Campanha ativa
@@ -284,7 +448,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-column="performance" className="px-4 py-3">
                       {user.performanceDrop.hasDrop ? (
                         <Badge
                           variant="outline"
@@ -315,7 +479,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-column="marketing" className="px-4 py-3">
                       {user.hasMetaBusinessAccount ? (
                         <div className="inline-flex flex-col items-start gap-1">
                           <Badge variant="default" className="w-fit text-xs">
@@ -333,7 +497,7 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td data-column="consultant" className="px-4 py-3">
                       {user.assignedConsultantEmail ? (
                         <div className="flex max-w-[220px] flex-col">
                           <span className="truncate text-sm text-foreground/80">
@@ -352,17 +516,54 @@ export function UsersTable({ users, search }: UsersTableProps) {
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-foreground/80">
+                    <td data-column="posts" className="px-4 py-3 text-right text-sm text-foreground/80">
                       {formatNumber(user.postCount)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-foreground/80">
+                    <td data-column="requests" className="px-4 py-3 text-right text-sm text-foreground/80">
                       {formatNumber(user.requestCount)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm text-foreground/80">
+                    <td data-column="tokens" className="px-4 py-3 text-right text-sm text-foreground/80">
                       {formatNumber(user.totalTokens)}
                     </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-foreground">
+                    <td data-column="cost" className="px-4 py-3 text-right text-sm font-medium text-foreground">
                       {formatCurrency(user.totalCost)}
+                    </td>
+                    <td
+                      data-user-row-ignore
+                      className="px-3 py-3 text-right"
+                    >
+                      <UserActivationActions
+                        userId={user.id}
+                        userEmail={user.email}
+                        userPhone={user.phone}
+                        activationAvailable={canManageUserActivation(user)}
+                        activeSubscription={user.activeSubscription}
+                        canManageBilling={canManageBilling}
+                        onActivated={(emailVerified) => {
+                          setRows((current) =>
+                            current.map((row) =>
+                              row.id === user.id
+                                ? {
+                                    ...row,
+                                    emailVerified: new Date(emailVerified),
+                                  }
+                                : row,
+                            ),
+                          );
+                        }}
+                        onSubscriptionUpdated={(updatedSubscription) => {
+                          setRows((current) =>
+                            current.map((row) =>
+                              row.id === user.id
+                                ? {
+                                    ...row,
+                                    activeSubscription: updatedSubscription,
+                                  }
+                                : row,
+                            ),
+                          );
+                        }}
+                      />
                     </td>
                   </tr>
                 );

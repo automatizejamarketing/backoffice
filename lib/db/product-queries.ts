@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   expertLedgerEntry,
@@ -9,16 +9,45 @@ import {
   product,
   productContentItem,
   productEntitlement,
+  productFinancialSetting,
   productOrder,
   productPayment,
   user,
 } from "./schema";
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
+import { parseExpertAdminInput } from "@/lib/products/expert-input";
 import {
   canTransitionPayout,
   type ExpertPayoutStatus,
 } from "@/lib/products/payout";
+import { calculateAutomatizeNetRevenueCentavos } from "@/lib/products/finance";
+import { parseProductFinancialSettingsInput } from "@/lib/products/financial-settings";
+
+export async function getProductFinancialSettings() {
+  const [settings] = await db
+    .select()
+    .from(productFinancialSetting)
+    .where(eq(productFinancialSetting.id, "default"))
+    .limit(1);
+
+  return {
+    platformFeeBasisPoints: settings?.platformFeeBasisPoints ?? 500,
+  };
+}
+
+export async function updateProductFinancialSettings(input: unknown) {
+  const values = parseProductFinancialSettingsInput(input);
+  const [settings] = await db
+    .insert(productFinancialSetting)
+    .values({ id: "default", ...values, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: productFinancialSetting.id,
+      set: { ...values, updatedAt: new Date() },
+    })
+    .returning();
+  return settings;
+}
 
 export async function listExperts() {
   return db
@@ -26,6 +55,7 @@ export async function listExperts() {
       id: expertProfile.id,
       userId: expertProfile.userId,
       displayName: expertProfile.displayName,
+      profileImageUrl: expertProfile.profileImageUrl,
       email: user.email,
       phone: expertProfile.phone,
       pixKey: expertProfile.pixKey,
@@ -39,10 +69,12 @@ export async function listExperts() {
 export async function createExpert(input: {
   email: string;
   displayName: string;
+  profileImageUrl?: string | null;
   phone?: string | null;
   pixKey: string;
 }) {
   const email = input.email.trim().toLowerCase();
+  const values = parseExpertAdminInput(input);
   const [appUser] = await db
     .select()
     .from(user)
@@ -53,29 +85,114 @@ export async function createExpert(input: {
     .insert(expertProfile)
     .values({
       userId: appUser.id,
-      displayName: input.displayName.trim(),
-      phone: input.phone?.replace(/\D/g, "") || null,
-      pixKey: input.pixKey.trim(),
+      ...values,
     })
     .returning();
   return created;
 }
 
+export async function updateExpert(id: string, input: unknown) {
+  const values = parseExpertAdminInput(input);
+  const [updated] = await db
+    .update(expertProfile)
+    .set({ ...values, updatedAt: new Date() })
+    .where(eq(expertProfile.id, id))
+    .returning();
+  return updated ?? null;
+}
+
 export async function listProductsAdmin() {
-  return db
-    .select({
-      product,
-      expertName: expertProfile.displayName,
-    })
-    .from(product)
-    .leftJoin(expertProfile, eq(product.expertId, expertProfile.id))
-    .orderBy(desc(product.createdAt));
+  const [products, paymentSummaries, expertSummaries] = await Promise.all([
+    db
+      .select({
+        product,
+        expertName: expertProfile.displayName,
+      })
+      .from(product)
+      .leftJoin(expertProfile, eq(product.expertId, expertProfile.id))
+      .orderBy(desc(product.createdAt)),
+    db
+      .select({
+        productId: productOrder.productId,
+        grossRevenueCentavos: sql<string>`coalesce(sum(coalesce(${productPayment.grossAmountCentavos}, 0)), 0)`,
+        netRevenueCentavos: sql<string>`coalesce(sum(coalesce(${productPayment.netAmountCentavos}, ${productPayment.grossAmountCentavos}, 0)), 0)`,
+      })
+      .from(productOrder)
+      .innerJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+      .where(
+        and(
+          eq(productOrder.status, "approved"),
+          eq(productPayment.status, "approved"),
+        ),
+      )
+      .groupBy(productOrder.productId),
+    db
+      .select({
+        productId: productOrder.productId,
+        expertRevenueCentavos: sql<string>`coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)`,
+      })
+      .from(expertLedgerEntry)
+      .innerJoin(productOrder, eq(productOrder.id, expertLedgerEntry.orderId))
+      .innerJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+      .where(
+        and(
+          eq(expertLedgerEntry.type, "sale"),
+          eq(productOrder.status, "approved"),
+          eq(productPayment.status, "approved"),
+        ),
+      )
+      .groupBy(productOrder.productId),
+  ]);
+
+  const expertRevenueByProduct = new Map(
+    expertSummaries.map((summary) => [
+      summary.productId,
+      Number(summary.expertRevenueCentavos),
+    ]),
+  );
+  const financialsByProduct = new Map(
+    paymentSummaries.map((summary) => {
+      const grossRevenueCentavos = Number(summary.grossRevenueCentavos);
+      const netRevenueCentavos = Number(summary.netRevenueCentavos);
+      const expertRevenueCentavos =
+        expertRevenueByProduct.get(summary.productId) ?? 0;
+
+      return [
+        summary.productId,
+        {
+          grossRevenueCentavos,
+          automatizeNetRevenueCentavos:
+            calculateAutomatizeNetRevenueCentavos(
+              netRevenueCentavos,
+              expertRevenueCentavos,
+            ),
+        },
+      ] as const;
+    }),
+  );
+
+  return products.map((row) => ({
+    ...row,
+    ...(financialsByProduct.get(row.product.id) ?? {
+      grossRevenueCentavos: 0,
+      automatizeNetRevenueCentavos: 0,
+    }),
+  }));
 }
 
 export async function createProductAdmin(input: unknown) {
   const values = parseProductAdminInput(input);
   const [created] = await db.insert(product).values(values).returning();
   return created;
+}
+
+export async function productExistsAdmin(id: string) {
+  const [row] = await db
+    .select({ id: product.id })
+    .from(product)
+    .where(eq(product.id, id))
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function updateProductAdmin(id: string, input: unknown) {
@@ -164,6 +281,34 @@ export async function listProductOrders() {
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,
+      paymentMethodId: productPayment.paymentMethodId,
+      paymentTypeId: productPayment.paymentTypeId,
+      providerReleaseAt: productPayment.providerReleaseAt,
+      platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
+      platformGatewayNetRevenueCentavos:
+        productPayment.platformGatewayNetRevenueCentavos,
+      ownerExpertReceivableCentavos:
+        productPayment.ownerExpertReceivableCentavos,
+      coproducerExpertReceivableCentavos:
+        productPayment.coproducerExpertReceivableCentavos,
+      automatizeCoproductionRevenueCentavos:
+        productPayment.automatizeCoproductionRevenueCentavos,
+      automatizeProductRevenueCentavos:
+        productPayment.automatizeProductRevenueCentavos,
+      automatizeTotalNetRevenueCentavos:
+        productPayment.automatizeTotalNetRevenueCentavos,
+      expertAvailableAt: sql<Date | null>`(
+        select min(${expertLedgerEntry.availableAt})
+        from ${expertLedgerEntry}
+        where ${expertLedgerEntry.orderId} = ${productOrder.id}
+          and ${expertLedgerEntry.type} = 'sale'
+      )`,
+      expertLedgerAmountCentavos: sql<number | null>`(
+        select sum(${expertLedgerEntry.amountCentavos})
+        from ${expertLedgerEntry}
+        where ${expertLedgerEntry.orderId} = ${productOrder.id}
+          and ${expertLedgerEntry.type} = 'sale'
+      )`,
     })
     .from(productOrder)
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
@@ -294,7 +439,7 @@ export async function applyFullProductRefund(
       .where(eq(productOrder.id, order.id))
       .returning();
 
-    const [sale] = await tx
+    const sales = await tx
       .select()
       .from(expertLedgerEntry)
       .where(
@@ -302,15 +447,14 @@ export async function applyFullProductRefund(
           eq(expertLedgerEntry.orderId, order.id),
           eq(expertLedgerEntry.type, "sale"),
         ),
-      )
-      .limit(1);
-    if (sale) {
+      );
+    for (const sale of sales) {
       await tx
         .insert(expertLedgerEntry)
         .values({
           expertId: sale.expertId,
           orderId: order.id,
-          eventKey: `product-refund:${order.id}:${eventSuffix}`,
+          eventKey: `product-refund:${order.id}:${sale.id}:${eventSuffix}`,
           type: "refund",
           amountCentavos: -sale.amountCentavos,
           availableAt: now,

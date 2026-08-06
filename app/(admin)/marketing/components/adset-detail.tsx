@@ -62,6 +62,8 @@ import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest
 import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 import { useAdSetDetail, useAdSetInsights } from "../hooks/marketing-queries";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
+import type { SortOrder } from "@/lib/meta-business/campaign-sort";
+import { MarketingSortPopover } from "./marketing-sort-popover";
 
 type AdSetDetailProps = {
   adSet: AdSet;
@@ -103,6 +105,10 @@ export function AdSetDetail({
   const [historyRefreshTrigger, setHistoryRefreshTrigger] = useState(0);
   const [isCreateAdOpen, setIsCreateAdOpen] = useState(false);
   const [selectedAdForMedia, setSelectedAdForMedia] = useState<Ad | null>(null);
+  const [adSortMetric, setAdSortMetric] = useState<CampaignMetricId | null>(
+    "purchaseRoas",
+  );
+  const [adSortOrder, setAdSortOrder] = useState<SortOrder>("desc");
 
   useEffect(() => {
     setAdSet(adSetProp);
@@ -450,9 +456,18 @@ export function AdSetDetail({
 
             <section>
               <div className="mb-3 flex items-center justify-between gap-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Anúncios
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Anúncios
+                  </p>
+                  <MarketingSortPopover
+                    sortMetric={adSortMetric}
+                    sortOrder={adSortOrder}
+                    onSortMetricChange={setAdSortMetric}
+                    onSortOrderChange={setAdSortOrder}
+                    emphasizeSales
+                  />
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
@@ -472,6 +487,8 @@ export function AdSetDetail({
                 datePreset={datePreset}
                 customRange={customRange}
                 selectedMetricIds={selectedMetricIds}
+                sortMetric={adSortMetric}
+                sortOrder={adSortOrder}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
               />
             </section>

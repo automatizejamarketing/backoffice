@@ -11,6 +11,10 @@
     {
       "path": "/api/cron-job/business/playbook-insights/refresh",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron-job/customer-base/daily-snapshot",
+      "schedule": "0 12 * * *"
     }
   ]
 }

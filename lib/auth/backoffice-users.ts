@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "@/lib/config";
+import { canAccessFinance } from "@/lib/auth/finance-access";
 import { db } from "@/lib/db";
 import { backofficeUser, userMarketingConsultant } from "@/lib/db/schema";
 import type {
@@ -63,9 +64,22 @@ export async function getBackofficeActorByEmail(
       };
     }
 
-    if (!dbUser?.active) return null;
+    if (!dbUser) {
+      return canAccessFinance(normalizedEmail)
+        ? {
+            id: `finance:${normalizedEmail}`,
+            email: normalizedEmail,
+            role: "finance_viewer",
+            source: "finance_email_fallback",
+          }
+        : null;
+    }
+    if (!dbUser.active) return null;
 
     const role = dbUser.role as BackofficeRole;
+    if (role === "finance_viewer" && !canAccessFinance(normalizedEmail)) {
+      return null;
+    }
     return {
       id: dbUser.id,
       email: dbUser.email,
@@ -84,6 +98,14 @@ export async function getBackofficeActorByEmail(
         email: normalizedEmail,
         role: "admin",
         source: "admin_email_fallback",
+      };
+    }
+    if (canAccessFinance(normalizedEmail) && isMissingBackofficeTable(error)) {
+      return {
+        id: `finance:${normalizedEmail}`,
+        email: normalizedEmail,
+        role: "finance_viewer",
+        source: "finance_email_fallback",
       };
     }
     throw error;

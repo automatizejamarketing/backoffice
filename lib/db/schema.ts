@@ -3,6 +3,7 @@ import {
   bigserial,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -57,7 +58,9 @@ export const backofficeUser = pgTable("backoffice_users", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   email: varchar("email", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 100 }),
-  role: varchar("role", { enum: ["admin", "marketing_consultant"] })
+  role: varchar("role", {
+    enum: ["admin", "marketing_consultant", "finance_viewer"],
+  })
     .$type<BackofficeRole>()
     .notNull()
     .default("marketing_consultant"),
@@ -211,6 +214,7 @@ export const expertProfile = pgTable(
       .notNull()
       .references(() => user.id),
     displayName: varchar("display_name", { length: 120 }).notNull(),
+    profileImageUrl: text("profile_image_url"),
     phone: varchar("phone", { length: 20 }),
     pixKey: varchar("pix_key", { length: 255 }).notNull(),
     status: varchar("status", { enum: ["active", "inactive"] })
@@ -228,6 +232,27 @@ export const expertProfile = pgTable(
 
 export type ExpertProfile = InferSelectModel<typeof expertProfile>;
 
+export const productFinancialSetting = pgTable(
+  "product_financial_settings",
+  {
+    id: varchar("id", { length: 32 }).primaryKey().notNull().default("default"),
+    platformFeeBasisPoints: integer("platform_fee_basis_points")
+      .notNull()
+      .default(500),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    platformFeeCheck: check(
+      "product_financial_settings_platform_fee_range",
+      sql`${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000`,
+    ),
+  }),
+);
+
+export type ProductFinancialSetting = InferSelectModel<
+  typeof productFinancialSetting
+>;
+
 export const product = pgTable(
   "products",
   {
@@ -243,7 +268,19 @@ export const product = pgTable(
     coverUrl: text("cover_url"),
     priceCentavos: integer("price_centavos").notNull().default(0),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
-    expertShareBasisPoints: integer("expert_share_basis_points")
+    platformFeeBasisPointsOverride: integer(
+      "platform_fee_basis_points_override",
+    ),
+    ownerExpertShareBasisPoints: integer("expert_share_basis_points")
+      .notNull()
+      .default(0),
+    coproducerType: varchar("coproducer_type", {
+      enum: [...PRODUCT_OWNER_VALUES],
+    }).$type<ProductOwnerType>(),
+    coproducerExpertId: uuid("coproducer_expert_id").references(
+      () => expertProfile.id,
+    ),
+    coproducerShareBasisPoints: integer("coproducer_share_basis_points")
       .notNull()
       .default(0),
     minimumPlanTier: varchar("minimum_plan_tier", {
@@ -278,14 +315,21 @@ export const product = pgTable(
       table.salesEnabled,
     ),
     expertIdx: index("products_expert_id_idx").on(table.expertId),
+    coproducerExpertIdx: index("products_coproducer_expert_id_idx").on(
+      table.coproducerExpertId,
+    ),
     priceCheck: check("products_price_non_negative", sql`${table.priceCentavos} >= 0`),
+    platformFeeOverrideCheck: check(
+      "products_platform_fee_override_range",
+      sql`${table.platformFeeBasisPointsOverride} IS NULL OR (${table.platformFeeBasisPointsOverride} >= 0 AND ${table.platformFeeBasisPointsOverride} <= 10000)`,
+    ),
     shareCheck: check(
       "products_expert_share_range",
-      sql`${table.expertShareBasisPoints} >= 0 AND ${table.expertShareBasisPoints} <= 10000`,
+      sql`${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000`,
     ),
     ownerCheck: check(
       "products_owner_consistency",
-      sql`(${table.ownerType} = 'automatize' AND ${table.expertId} IS NULL AND ${table.expertShareBasisPoints} = 0) OR (${table.ownerType} = 'expert' AND ${table.expertId} IS NOT NULL)`,
+      sql`(${table.ownerType} = 'automatize' AND ${table.expertId} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerType} IS NULL AND ${table.coproducerExpertId} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.ownerType} = 'expert' AND ${table.expertId} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerType} IS NULL AND ${table.coproducerExpertId} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerType} = 'automatize' AND ${table.coproducerExpertId} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerType} = 'expert' AND ${table.coproducerExpertId} IS NOT NULL AND ${table.coproducerExpertId} <> ${table.expertId} AND ${table.coproducerShareBasisPoints} > 0)))`,
     ),
   }),
 );
@@ -355,6 +399,12 @@ export const productOrder = pgTable(
     expertIdSnapshot: uuid("expert_id_snapshot").references(
       () => expertProfile.id,
     ),
+    coproducerTypeSnapshot: varchar("coproducer_type_snapshot", {
+      enum: [...PRODUCT_OWNER_VALUES],
+    }).$type<ProductOwnerType>(),
+    coproducerExpertIdSnapshot: uuid("coproducer_expert_id_snapshot").references(
+      () => expertProfile.id,
+    ),
     userId: uuid("user_id").references(() => user.id),
     acquisitionKey: varchar("acquisition_key", { length: 255 }).notNull(),
     buyerName: varchar("buyer_name", { length: 120 }).notNull(),
@@ -365,7 +415,17 @@ export const productOrder = pgTable(
     }).notNull(),
     priceCentavos: integer("price_centavos").notNull(),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
-    expertShareBasisPoints: integer("expert_share_basis_points")
+    financialModel: varchar("financial_model", {
+      enum: ["legacy_net_split", "platform_fee_coproduction", "platform_fee_coproduction_v2"],
+    })
+      .$type<"legacy_net_split" | "platform_fee_coproduction" | "platform_fee_coproduction_v2">()
+      .notNull()
+      .default("legacy_net_split"),
+    platformFeeBasisPoints: integer("platform_fee_basis_points"),
+    ownerExpertShareBasisPoints: integer("expert_share_basis_points")
+      .notNull()
+      .default(0),
+    coproducerShareBasisPoints: integer("coproducer_share_basis_points")
       .notNull()
       .default(0),
     termsVersion: varchar("terms_version", { length: 40 }).notNull(),
@@ -397,7 +457,7 @@ export const productOrder = pgTable(
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
-      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.expertShareBasisPoints} >= 0 AND ${table.expertShareBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)`,
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))))`,
     ),
   }),
 );
@@ -425,6 +485,27 @@ export const productPayment = pgTable(
     grossAmountCentavos: integer("gross_amount_centavos"),
     netAmountCentavos: integer("net_amount_centavos"),
     feeAmountCentavos: integer("fee_amount_centavos"),
+    paymentMethodId: varchar("payment_method_id", { length: 80 }),
+    paymentTypeId: varchar("payment_type_id", { length: 80 }),
+    providerReleaseAt: timestamp("provider_release_at"),
+    platformFeeGrossCentavos: integer("platform_fee_gross_centavos"),
+    platformGatewayNetRevenueCentavos: integer(
+      "platform_gateway_net_revenue_centavos",
+    ),
+    coproductionBaseCentavos: integer("coproduction_base_centavos"),
+    ownerExpertReceivableCentavos: integer("expert_receivable_centavos"),
+    coproducerExpertReceivableCentavos: integer(
+      "coproducer_expert_receivable_centavos",
+    ),
+    automatizeCoproductionRevenueCentavos: integer(
+      "automatize_coproduction_revenue_centavos",
+    ),
+    automatizeProductRevenueCentavos: integer(
+      "automatize_product_revenue_centavos",
+    ),
+    automatizeTotalNetRevenueCentavos: integer(
+      "automatize_total_net_revenue_centavos",
+    ),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     rawStatus: varchar("raw_status", { length: 80 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1742,6 +1823,12 @@ export type PendingPlanChange = InferSelectModel<typeof pendingPlanChange>;
 // Payments table - payment history records
 export type PaymentStatus = "succeeded" | "failed" | "pending" | "refunded";
 
+// How a settled payment was reversed. `refund` is money the merchant gave back;
+// `chargeback` is money the card network pulled back after a dispute. Both are
+// recorded here, on the payment, because the affiliate program reads reversals
+// from `payments` and never from a gateway SDK (ADR 0025).
+export type PaymentReversalKind = "refund" | "chargeback";
+
 export const payment = pgTable(
   "payments",
   {
@@ -1781,6 +1868,14 @@ export const payment = pgTable(
     description: text("description"),
     failureReason: text("failure_reason"),
     paidAt: timestamp("paid_at"),
+    // Reversal, in centavos. Always written even when it equals the gross,
+    // because it is what lets an anomalous PARTIAL refund be detected — the
+    // business policy is that a refund is always total.
+    refundedAmount: integer("refunded_amount"),
+    refundedAt: timestamp("refunded_at"),
+    reversalKind: varchar("reversal_kind", {
+      enum: ["refund", "chargeback"],
+    }).$type<PaymentReversalKind>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
@@ -2075,6 +2170,639 @@ export const affiliateConversion = pgTable("affiliate_conversions", {
 export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
 
 // =============================================
+// Programa de afiliados v2 — namespace `referral_*`
+//
+// Deliberadamente separado das tabelas do v1 acima (`affiliates`,
+// `affiliate_clicks`, `affiliate_conversions`, `affiliate_action_logs`) e da
+// coluna `users.referred_by_affiliate_id`, que permanecem no banco intactas e
+// sem uso. Lendo o banco, o prefixo é o que diz qual conjunto está vivo
+// (ADR 0024). Nenhum dado do v1 é migrado ou reinterpretado.
+//
+// Dinheiro é sempre centavos em `integer`. Manter byte-equivalente com o
+// `lib/db/schema.ts` do projeto irmão — os dois descrevem o mesmo Postgres.
+// =============================================
+
+export const REFERRAL_ATTRIBUTION_MODEL_VALUES = ["last_click"] as const;
+export type ReferralAttributionModel =
+  (typeof REFERRAL_ATTRIBUTION_MODEL_VALUES)[number];
+
+export const REFERRAL_AFFILIATE_STATUS_VALUES = [
+  "pending",
+  "approved",
+  "rejected",
+  "blocked",
+] as const;
+export type ReferralAffiliateStatus =
+  (typeof REFERRAL_AFFILIATE_STATUS_VALUES)[number];
+
+export const REFERRAL_TAX_DOCUMENT_TYPE_VALUES = ["cpf", "cnpj"] as const;
+export type ReferralTaxDocumentType =
+  (typeof REFERRAL_TAX_DOCUMENT_TYPE_VALUES)[number];
+
+export const REFERRAL_AGREEMENT_FORMAT_VALUES = [
+  "percentage",
+  "fixed",
+] as const;
+export type ReferralAgreementFormat =
+  (typeof REFERRAL_AGREEMENT_FORMAT_VALUES)[number];
+
+// Só aceita `net`. A base de cálculo é global e é o líquido: a empresa nunca
+// paga comissão sobre dinheiro que não entrou (ADR 0026). O campo existe para
+// tornar a decisão legível no banco, não para ser configurado.
+export const REFERRAL_CALCULATION_BASE_VALUES = ["net"] as const;
+export type ReferralCalculationBase =
+  (typeof REFERRAL_CALCULATION_BASE_VALUES)[number];
+
+export const REFERRAL_AGREEMENT_DURATION_VALUES = [
+  "lifetime",
+  "n_cycles",
+  "first_sale",
+] as const;
+export type ReferralAgreementDuration =
+  (typeof REFERRAL_AGREEMENT_DURATION_VALUES)[number];
+
+export const REFERRAL_ATTRIBUTION_OUTCOME_VALUES = [
+  "won",
+  "lost_last_click",
+  "lost_permanent_link",
+  "lost_existing_account",
+  "lost_self_referral",
+] as const;
+export type ReferralAttributionOutcome =
+  (typeof REFERRAL_ATTRIBUTION_OUTCOME_VALUES)[number];
+
+export const REFERRAL_EVENT_KIND_VALUES = [
+  "sale",
+  "renewal",
+  "reversal",
+] as const;
+export type ReferralEventKind = (typeof REFERRAL_EVENT_KIND_VALUES)[number];
+
+export const REFERRAL_EVENT_STATUS_VALUES = [
+  "awaiting_settlement",
+  "settled",
+  "ignored",
+] as const;
+export type ReferralEventStatus = (typeof REFERRAL_EVENT_STATUS_VALUES)[number];
+
+export const REFERRAL_COMMISSION_STATUS_VALUES = [
+  "foreseen",
+  "approved",
+  "paid",
+  "reversed",
+  "rejected",
+] as const;
+export type ReferralCommissionStatus =
+  (typeof REFERRAL_COMMISSION_STATUS_VALUES)[number];
+
+export const REFERRAL_LEDGER_ENTRY_TYPE_VALUES = [
+  "commission",
+  "reversal",
+  "payout",
+  "write_off",
+] as const;
+export type ReferralLedgerEntryType =
+  (typeof REFERRAL_LEDGER_ENTRY_TYPE_VALUES)[number];
+
+export const REFERRAL_PAYOUT_STATUS_VALUES = [
+  "requested",
+  "approved",
+  "paid",
+  "denied",
+  "cancelled",
+] as const;
+export type ReferralPayoutStatus =
+  (typeof REFERRAL_PAYOUT_STATUS_VALUES)[number];
+
+export const REFERRAL_ADMIN_ACTION_VALUES = [
+  "affiliate_approved",
+  "affiliate_rejected",
+  "affiliate_blocked",
+  "affiliate_reactivated",
+  "agreement_created",
+  "agreement_renegotiated",
+  "payout_approved",
+  "payout_paid",
+  "payout_denied",
+  "balance_written_off",
+] as const;
+export type ReferralAdminActionType =
+  (typeof REFERRAL_ADMIN_ACTION_VALUES)[number];
+
+/** Snapshot da regra que produziu uma Comissão. Nunca reprecificado. */
+export type ReferralAgreementSnapshot = {
+  format: ReferralAgreementFormat;
+  percentageBps: number | null;
+  fixedAmountCentavos: number | null;
+  calculationBase: ReferralCalculationBase;
+  duration: ReferralAgreementDuration;
+  durationCycles: number | null;
+};
+
+/**
+ * Configuração do Programa — versionada, com exatamente uma linha vigente
+ * (índice único parcial). Janela de atribuição, carência e mínimo de saque são
+ * globais e nunca termos de um acordo individual. Cada Atribuição grava a
+ * versão vigente, que é o que mantém o histórico explicável quando a política
+ * muda.
+ */
+export const referralProgramConfig = pgTable(
+  "referral_program_config",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    version: integer("version").notNull(),
+    attributionWindowDays: integer("attribution_window_days").notNull(),
+    waitingPeriodDays: integer("waiting_period_days").notNull(),
+    minPayoutCentavos: integer("min_payout_centavos").notNull(),
+    attributionModel: varchar("attribution_model", {
+      enum: [...REFERRAL_ATTRIBUTION_MODEL_VALUES],
+    })
+      .$type<ReferralAttributionModel>()
+      .notNull()
+      .default("last_click"),
+    effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+    supersededAt: timestamp("superseded_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    versionUnique: unique("referral_program_config_version_unique").on(
+      table.version,
+    ),
+    oneCurrent: uniqueIndex("referral_program_config_one_current")
+      .on(sql`((${table.supersededAt} IS NULL))`)
+      .where(sql`${table.supersededAt} IS NULL`),
+  }),
+);
+
+export type ReferralProgramConfig = InferSelectModel<
+  typeof referralProgramConfig
+>;
+
+/**
+ * Afiliado — sempre lastreado numa conta de usuário, mas nunca obrigado a ser
+ * assinante. Carrega exatamente um código, gerado no v2 (nenhuma string do v1
+ * é portada). O documento fiscal é nulo até o primeiro saque.
+ */
+export const referralAffiliate = pgTable(
+  "referral_affiliates",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id)
+      .unique(),
+    code: varchar("code", { length: 32 }).notNull().unique(),
+    status: varchar("status", {
+      enum: [...REFERRAL_AFFILIATE_STATUS_VALUES],
+    })
+      .$type<ReferralAffiliateStatus>()
+      .notNull()
+      .default("pending"),
+    taxDocument: varchar("tax_document", { length: 20 }),
+    taxDocumentType: varchar("tax_document_type", {
+      enum: [...REFERRAL_TAX_DOCUMENT_TYPE_VALUES],
+    }).$type<ReferralTaxDocumentType>(),
+    requestedAt: timestamp("requested_at").notNull().defaultNow(),
+    approvedBy: varchar("approved_by", { length: 120 }),
+    approvedAt: timestamp("approved_at"),
+    rejectedBy: varchar("rejected_by", { length: 120 }),
+    rejectedAt: timestamp("rejected_at"),
+    rejectionReason: text("rejection_reason"),
+    blockedBy: varchar("blocked_by", { length: 120 }),
+    blockedAt: timestamp("blocked_at"),
+    blockReason: text("block_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    statusIdx: index("referral_affiliates_status_idx").on(table.status),
+  }),
+);
+
+export type ReferralAffiliate = InferSelectModel<typeof referralAffiliate>;
+
+/**
+ * Acordo de Comissão — formato, valor e duração, e nada mais: carência e base
+ * de cálculo são globais. Um acordo vigente por afiliado, garantido por índice
+ * único parcial. Acordos superados nunca são apagados, porque são o que
+ * explica as comissões passadas.
+ */
+export const referralAgreement = pgTable(
+  "referral_agreements",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    format: varchar("format", {
+      enum: [...REFERRAL_AGREEMENT_FORMAT_VALUES],
+    })
+      .$type<ReferralAgreementFormat>()
+      .notNull(),
+    percentageBps: integer("percentage_bps"),
+    fixedAmountCentavos: integer("fixed_amount_centavos"),
+    calculationBase: varchar("calculation_base", {
+      enum: [...REFERRAL_CALCULATION_BASE_VALUES],
+    })
+      .$type<ReferralCalculationBase>()
+      .notNull()
+      .default("net"),
+    duration: varchar("duration", {
+      enum: [...REFERRAL_AGREEMENT_DURATION_VALUES],
+    })
+      .$type<ReferralAgreementDuration>()
+      .notNull()
+      .default("lifetime"),
+    durationCycles: integer("duration_cycles"),
+    effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+    supersededAt: timestamp("superseded_at"),
+    createdBy: varchar("created_by", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    oneCurrentPerAffiliate: uniqueIndex("referral_agreements_one_current")
+      .on(table.affiliateId)
+      .where(sql`${table.supersededAt} IS NULL`),
+    affiliateIdx: index("referral_agreements_affiliate_effective_idx").on(
+      table.affiliateId,
+      table.effectiveFrom,
+    ),
+    formatCheck: check(
+      "referral_agreements_format_value",
+      sql`(${table.format} = 'percentage' AND ${table.percentageBps} IS NOT NULL AND ${table.fixedAmountCentavos} IS NULL)
+        OR (${table.format} = 'fixed' AND ${table.fixedAmountCentavos} IS NOT NULL AND ${table.percentageBps} IS NULL)`,
+    ),
+    durationCheck: check(
+      "referral_agreements_duration_cycles",
+      sql`(${table.duration} = 'n_cycles' AND ${table.durationCycles} IS NOT NULL AND ${table.durationCycles} > 0)
+        OR (${table.duration} <> 'n_cycles' AND ${table.durationCycles} IS NULL)`,
+    ),
+  }),
+);
+
+export type ReferralAgreement = InferSelectModel<typeof referralAgreement>;
+
+/**
+ * Indicado — conta cuja origem foi congelada no cadastro. Aponta
+ * explicitamente para o acordo que a rege, e não por data: é este campo que a
+ * renegociação reescreve, ou não, por escolha do operador. O vínculo com o
+ * afiliado é permanente.
+ */
+export const referralCustomer = pgTable(
+  "referral_customers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id)
+      .unique(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => referralAgreement.id),
+    signedUpAt: timestamp("signed_up_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateIdx: index("referral_customers_affiliate_idx").on(
+      table.affiliateId,
+    ),
+    agreementIdx: index("referral_customers_agreement_idx").on(
+      table.agreementId,
+    ),
+  }),
+);
+
+export type ReferralCustomer = InferSelectModel<typeof referralCustomer>;
+
+/**
+ * Clique — uma chegada carregando o código do afiliado na URL. Toda chegada
+ * conta; o parâmetro é limpo da URL depois da captura. O `visitor_id` anônimo
+ * é o que liga o clique ao cadastro que ele produziu.
+ */
+export const referralClick = pgTable(
+  "referral_clicks",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    visitorId: uuid("visitor_id").notNull(),
+    ipHash: varchar("ip_hash", { length: 64 }),
+    userAgent: text("user_agent"),
+    referrerUrl: text("referrer_url"),
+    landingUrl: text("landing_url"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    visitorIdx: index("referral_clicks_visitor_created_idx").on(
+      table.visitorId,
+      table.createdAt,
+    ),
+    affiliateIdx: index("referral_clicks_affiliate_created_idx").on(
+      table.affiliateId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type ReferralClick = InferSelectModel<typeof referralClick>;
+
+/**
+ * Atribuição — uma linha por toque, vencedor e perdedores, cada um com o
+ * motivo da derrota e a versão da configuração vigente. `customer_id` só é
+ * preenchido no toque vencedor: um toque que perdeu para conta já existente
+ * não produz Indicado nenhum. O índice parcial garante um único vencedor por
+ * conta.
+ */
+export const referralAttribution = pgTable(
+  "referral_attributions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: uuid("customer_id").references(() => referralCustomer.id),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    clickId: uuid("click_id")
+      .notNull()
+      .references(() => referralClick.id),
+    outcome: varchar("outcome", {
+      enum: [...REFERRAL_ATTRIBUTION_OUTCOME_VALUES],
+    })
+      .$type<ReferralAttributionOutcome>()
+      .notNull(),
+    reason: text("reason"),
+    configVersion: integer("config_version").notNull(),
+    resolvedAt: timestamp("resolved_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    oneWinnerPerUser: uniqueIndex("referral_attributions_one_winner")
+      .on(table.userId)
+      .where(sql`${table.outcome} = 'won'`),
+    userIdx: index("referral_attributions_user_idx").on(table.userId),
+    affiliateOutcomeIdx: index(
+      "referral_attributions_affiliate_outcome_idx",
+    ).on(table.affiliateId, table.outcome),
+  }),
+);
+
+export type ReferralAttribution = InferSelectModel<typeof referralAttribution>;
+
+/**
+ * Evento Comissionável — uma fatura de assinatura paga, de qualquer gateway,
+ * derivada de `payments` e nunca de um SDK. Idempotente por `event_key`, que
+ * deriva da identidade do pagamento no provedor (e não de `payments.id`,
+ * porque a mesma linha muda de `failed` para `succeeded` num Smart Retry).
+ * Sem líquido o evento fica em `awaiting_settlement` e não produz Comissão
+ * nenhuma — o CHECK abaixo é o que impede um evento liquidado sem líquido.
+ */
+export const referralCommissionableEvent = pgTable(
+  "referral_commissionable_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payment.id),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => referralCustomer.id),
+    eventKey: varchar("event_key", { length: 255 }).notNull(),
+    kind: varchar("kind", {
+      enum: [...REFERRAL_EVENT_KIND_VALUES],
+    })
+      .$type<ReferralEventKind>()
+      .notNull(),
+    status: varchar("status", {
+      enum: [...REFERRAL_EVENT_STATUS_VALUES],
+    })
+      .$type<ReferralEventStatus>()
+      .notNull()
+      .default("awaiting_settlement"),
+    grossCentavos: integer("gross_centavos").notNull(),
+    netCentavos: integer("net_centavos"),
+    occurredAt: timestamp("occurred_at").notNull(),
+    settledAt: timestamp("settled_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique(
+      "referral_commissionable_events_event_key_unique",
+    ).on(table.eventKey),
+    paymentIdx: index("referral_commissionable_events_payment_idx").on(
+      table.paymentId,
+    ),
+    customerIdx: index("referral_commissionable_events_customer_idx").on(
+      table.customerId,
+    ),
+    statusOccurredIdx: index(
+      "referral_commissionable_events_status_occurred_idx",
+    ).on(table.status, table.occurredAt),
+    settledNeedsNet: check(
+      "referral_commissionable_events_settled_needs_net",
+      sql`${table.status} <> 'settled' OR ${table.netCentavos} IS NOT NULL`,
+    ),
+  }),
+);
+
+export type ReferralCommissionableEvent = InferSelectModel<
+  typeof referralCommissionableEvent
+>;
+
+/**
+ * Comissão — o valor devido por um Evento Comissionável, com o snapshot da
+ * regra que o produziu. Percentual incide sobre o líquido. Ciclo de vida:
+ * `foreseen` → `approved` → `paid`, com `reversed` e `rejected` alcançáveis de
+ * qualquer ponto.
+ */
+export const referralCommission = pgTable(
+  "referral_commissions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => referralCommissionableEvent.id),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => referralAgreement.id),
+    agreementSnapshot: jsonb("agreement_snapshot")
+      .$type<ReferralAgreementSnapshot>()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    status: varchar("status", {
+      enum: [...REFERRAL_COMMISSION_STATUS_VALUES],
+    })
+      .$type<ReferralCommissionStatus>()
+      .notNull()
+      .default("foreseen"),
+    releasesAt: timestamp("releases_at").notNull(),
+    releasedAt: timestamp("released_at"),
+    reversedAt: timestamp("reversed_at"),
+    rejectedAt: timestamp("rejected_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventUnique: unique("referral_commissions_event_unique").on(table.eventId),
+    affiliateStatusIdx: index("referral_commissions_affiliate_status_idx").on(
+      table.affiliateId,
+      table.status,
+    ),
+    releaseIdx: index("referral_commissions_status_releases_idx").on(
+      table.status,
+      table.releasesAt,
+    ),
+    amountCheck: check(
+      "referral_commissions_amount_non_negative",
+      sql`${table.amountCentavos} >= 0`,
+    ),
+  }),
+);
+
+export type ReferralCommission = InferSelectModel<typeof referralCommission>;
+
+/**
+ * Solicitação de Saque. Duas travas vivem no banco, não na aplicação: um
+ * pedido aberto (`requested | approved`) por afiliado, e o mínimo de R$100.
+ * Uma corrida de requisições não pode pagar em dobro, e essa garantia é do
+ * Postgres. Guarda o snapshot do documento fiscal usado no momento do pedido.
+ */
+export const referralPayoutRequest = pgTable(
+  "referral_payout_requests",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    amountCentavos: integer("amount_centavos").notNull(),
+    taxDocumentSnapshot: varchar("tax_document_snapshot", {
+      length: 20,
+    }).notNull(),
+    taxDocumentTypeSnapshot: varchar("tax_document_type_snapshot", {
+      enum: [...REFERRAL_TAX_DOCUMENT_TYPE_VALUES],
+    })
+      .$type<ReferralTaxDocumentType>()
+      .notNull(),
+    status: varchar("status", {
+      enum: [...REFERRAL_PAYOUT_STATUS_VALUES],
+    })
+      .$type<ReferralPayoutStatus>()
+      .notNull()
+      .default("requested"),
+    adminEmail: varchar("admin_email", { length: 120 }),
+    proofUrl: text("proof_url"),
+    denialReason: text("denial_reason"),
+    reviewedAt: timestamp("reviewed_at"),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateStatusIdx: index(
+      "referral_payout_requests_affiliate_status_idx",
+    ).on(table.affiliateId, table.status),
+    oneOpenRequest: uniqueIndex("referral_payout_requests_one_open")
+      .on(table.affiliateId)
+      .where(sql`${table.status} IN ('requested', 'approved')`),
+    minimumCheck: check(
+      "referral_payout_requests_minimum_amount",
+      sql`${table.amountCentavos} >= 10000`,
+    ),
+  }),
+);
+
+export type ReferralPayoutRequest = InferSelectModel<
+  typeof referralPayoutRequest
+>;
+
+/**
+ * Lançamento — espelha `expert_ledger_entries`, o padrão já provado no repo:
+ * valor com sinal, tipo, `event_key` único para idempotência e origem
+ * rastreável. Nunca sofre `UPDATE`: uma correção é um lançamento oposto.
+ *
+ * `available_at` carrega a carência (nulo = disponível imediatamente, como um
+ * saque pago ou uma baixa). `customer_id` é o que faz um lançamento de
+ * reversão dizer qual indicado o originou, para que um débito no extrato
+ * nunca seja um mistério.
+ */
+export const referralLedgerEntry = pgTable(
+  "referral_ledger_entries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    type: varchar("type", {
+      enum: [...REFERRAL_LEDGER_ENTRY_TYPE_VALUES],
+    })
+      .$type<ReferralLedgerEntryType>()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    eventKey: varchar("event_key", { length: 255 }).notNull(),
+    commissionId: uuid("commission_id").references(() => referralCommission.id),
+    payoutRequestId: uuid("payout_request_id").references(
+      () => referralPayoutRequest.id,
+    ),
+    customerId: uuid("customer_id").references(() => referralCustomer.id),
+    availableAt: timestamp("available_at"),
+    description: text("description"),
+    createdBy: varchar("created_by", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique("referral_ledger_entries_event_key_unique").on(
+      table.eventKey,
+    ),
+    affiliateAvailableIdx: index(
+      "referral_ledger_entries_affiliate_available_idx",
+    ).on(table.affiliateId, table.availableAt),
+    commissionIdx: index("referral_ledger_entries_commission_idx").on(
+      table.commissionId,
+    ),
+    payoutIdx: index("referral_ledger_entries_payout_idx").on(
+      table.payoutRequestId,
+    ),
+  }),
+);
+
+export type ReferralLedgerEntry = InferSelectModel<typeof referralLedgerEntry>;
+
+/** Log de ação administrativa do programa — quem fez, em quem, e o quê. */
+export const referralAdminAction = pgTable(
+  "referral_admin_actions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    adminEmail: varchar("admin_email", { length: 120 }).notNull(),
+    action: varchar("action", {
+      enum: [...REFERRAL_ADMIN_ACTION_VALUES],
+    })
+      .$type<ReferralAdminActionType>()
+      .notNull(),
+    reason: text("reason"),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateCreatedIdx: index(
+      "referral_admin_actions_affiliate_created_idx",
+    ).on(table.affiliateId, table.createdAt),
+  }),
+);
+
+export type ReferralAdminAction = InferSelectModel<typeof referralAdminAction>;
+
+// =============================================
 // Trackable Links (Links Rastreáveis)
 // =============================================
 
@@ -2106,6 +2834,34 @@ export const trackableLinkClick = pgTable("trackable_link_clicks", {
 });
 
 export type TrackableLinkClick = InferSelectModel<typeof trackableLinkClick>;
+
+export const customerBaseDailySnapshot = pgTable(
+  "customer_base_daily_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    snapshotDate: date("snapshot_date").notNull(),
+    activePaying: integer("active_paying").notNull(),
+    trial: integer("trial").notNull(),
+    churnTotal: integer("churn_total").notNull(),
+    churnCard: integer("churn_card").notNull(),
+    churnPix: integer("churn_pix").notNull(),
+    scheduledCancel: integer("scheduled_cancel").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    snapshotDateUnique: uniqueIndex(
+      "customer_base_daily_snapshots_snapshot_date_unique",
+    ).on(table.snapshotDate),
+    snapshotDateIdx: index("customer_base_daily_snapshots_snapshot_date_idx").on(
+      table.snapshotDate,
+    ),
+  }),
+);
+
+export type CustomerBaseDailySnapshot = InferSelectModel<
+  typeof customerBaseDailySnapshot
+>;
 
 // =============================================
 // Performance Insights + Masterclass extras

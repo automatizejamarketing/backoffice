@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowDownUp, ArrowUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,10 +23,9 @@ import {
   OBJECTIVE_GROUP_ORDER,
 } from "@/lib/meta-business/campaign-objectives";
 import {
-  type CampaignSortMetric,
   type SortOrder,
-  CAMPAIGN_SORT_OPTIONS,
 } from "@/lib/meta-business/campaign-sort";
+import type { CampaignMetricId } from "../utils/campaign-metrics";
 import { AdAccountSelector } from "./ad-account-selector";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { CampaignDetail } from "./campaign-detail";
@@ -35,6 +33,7 @@ import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
 import { MarketingUsersPicker } from "./marketing-users-picker";
 import { MetricColumnsSelector } from "./metric-columns-selector";
+import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
 import { useMetricColumnPreferences } from "../hooks/use-metric-column-preferences";
 import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
@@ -90,7 +89,7 @@ export function MarketingWorkspace({
   // Campaign list filter/sort controls (rendered next to the date filter).
   const [objectiveFilter, setObjectiveFilter] =
     useState<CampaignObjectiveFilter>("all");
-  const [sortMetric, setSortMetric] = useState<CampaignSortMetric | null>(null);
+  const [sortMetric, setSortMetric] = useState<CampaignMetricId | null>("purchaseRoas");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const { selectedMetricIds, setSelectedMetricIds } =
     useMetricColumnPreferences();
@@ -376,7 +375,15 @@ export function MarketingWorkspace({
       {selectedAccountId && selectedUser && (
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-            <CardTitle>Campanhas</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle>Campanhas</CardTitle>
+              <MarketingSortPopover
+                sortMetric={sortMetric}
+                sortOrder={sortOrder}
+                onSortMetricChange={setSortMetric}
+                onSortOrderChange={setSortOrder}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <Select
                 value={objectiveFilter}
@@ -395,52 +402,6 @@ export function MarketingWorkspace({
                   ))}
                 </SelectContent>
               </Select>
-
-              <Select
-                value={sortMetric ?? "status"}
-                onValueChange={(value) =>
-                  setSortMetric(
-                    value === "status" ? null : (value as CampaignSortMetric),
-                  )
-                }
-              >
-                <SelectTrigger className="w-[170px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="status">Status (padrão)</SelectItem>
-                  {CAMPAIGN_SORT_OPTIONS.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Button
-                variant="outline"
-                size="icon"
-                disabled={!sortMetric}
-                onClick={() =>
-                  setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))
-                }
-                title={
-                  !sortMetric
-                    ? "Selecione uma métrica para ordenar"
-                    : sortOrder === "desc"
-                      ? "Maior para menor"
-                      : "Menor para maior"
-                }
-                aria-label="Inverter ordenação"
-              >
-                {!sortMetric ? (
-                  <ArrowDownUp className="size-4" />
-                ) : sortOrder === "desc" ? (
-                  <ArrowDown className="size-4" />
-                ) : (
-                  <ArrowUp className="size-4" />
-                )}
-              </Button>
 
               <MetricColumnsSelector
                 selectedMetricIds={selectedMetricIds}

@@ -1,34 +1,66 @@
-import { put } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
+import { productExistsAdmin } from "@/lib/db/product-queries";
+import {
+  createProductAssetObjectKey,
+  getExpertAvatarAssetUrl,
+  getProductCoverAssetUrl,
+  parseProductUploadInput,
+} from "@/lib/products/upload-input";
+import { createProductAssetUploadUrl } from "@/lib/storage/product-assets-r2";
 
 export async function POST(request: Request) {
   const authz = await requireBackofficePermissionResponse("products:manage");
   if (!authz.ok) return authz.response;
-  const form = await request.formData();
-  const file = form.get("file");
-  const productId = form.get("productId");
-  if (!(file instanceof File) || typeof productId !== "string") {
-    return NextResponse.json({ error: "Arquivo inválido" }, { status: 422 });
-  }
-  if (file.size > MAX_FILE_SIZE) {
+
+  try {
+    const input = parseProductUploadInput(await request.json());
+    if (
+      input.kind === "content" &&
+      (!input.productId || !(await productExistsAdmin(input.productId)))
+    ) {
+      return NextResponse.json({ error: "Produto não encontrado" }, { status: 404 });
+    }
+    const objectKey = createProductAssetObjectKey(input, crypto.randomUUID());
+    const cacheControl =
+      input.kind === "cover" || input.kind === "expert-avatar"
+        ? "public, max-age=31536000, immutable"
+        : "private, no-store";
+    const uploadUrl = await createProductAssetUploadUrl({
+      objectKey,
+      contentType: input.contentType,
+      cacheControl,
+    });
+
+    return NextResponse.json({
+      uploadUrl,
+      objectKey,
+      assetUrl:
+        input.kind === "cover"
+          ? getProductCoverAssetUrl(objectKey)
+          : input.kind === "expert-avatar"
+            ? getExpertAvatarAssetUrl(objectKey)
+            : null,
+      headers: {
+        "content-type": input.contentType,
+        "cache-control": cacheControl,
+      },
+      expiresInSeconds: 5 * 60,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Não foi possível preparar o envio do arquivo.";
     return NextResponse.json(
-      { error: "O arquivo deve ter no máximo 50 MB" },
-      { status: 413 },
+      { error: message },
+      {
+        status:
+          message ===
+          "O armazenamento R2 dos produtos não está configurado neste ambiente."
+            ? 503
+            : 400,
+      },
     );
   }
-  const pathname = `products/${productId}/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-  const blob = await put(pathname, file, {
-    access: "private",
-    addRandomSuffix: false,
-    contentType: file.type || "application/octet-stream",
-  });
-  return NextResponse.json({
-    pathname: blob.pathname,
-    filename: file.name,
-    mimeType: file.type || "application/octet-stream",
-  });
 }
-

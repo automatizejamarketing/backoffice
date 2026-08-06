@@ -18,6 +18,10 @@ import {
   type RecoveryError,
   type RecoveryMode,
 } from "@/lib/backoffice/payment-recovery";
+import {
+  cancelStripeSubscriptionAtPeriodEndWithAudit,
+  type CancelStripeSubscriptionError,
+} from "@/lib/backoffice/stripe-subscription-cancel";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
@@ -288,6 +292,15 @@ function isRecoveryMode(value: unknown): value is RecoveryMode {
   return value === "retry" || value === "mark_paid_oob";
 }
 
+const CANCEL_STRIPE_ERROR_TO_STATUS: Record<CancelStripeSubscriptionError, number> =
+  {
+    stripe_not_configured: 500,
+    user_not_found: 404,
+    no_stripe_subscription: 400,
+    already_scheduled: 409,
+    stripe_error: 502,
+  };
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ userId: string }> },
@@ -301,6 +314,30 @@ export async function POST(
       action?: string;
       mode?: string;
     };
+
+    if (body.action === "cancel_stripe_subscription") {
+      const result = await cancelStripeSubscriptionAtPeriodEndWithAudit({
+        userId,
+        adminEmail: authz.actor.email,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(
+          { error: result.error, message: result.message },
+          { status: CANCEL_STRIPE_ERROR_TO_STATUS[result.error] },
+        );
+      }
+
+      revalidatePath("/users");
+      revalidatePath(`/users/${userId}`);
+      revalidatePath(`/subscriptions/${userId}`);
+
+      return NextResponse.json({
+        success: true,
+        cancelAt: result.cancelAt,
+        cancelAtPeriodEnd: result.cancelAtPeriodEnd,
+      });
+    }
 
     if (body.action !== "recover_payment") {
       return NextResponse.json(

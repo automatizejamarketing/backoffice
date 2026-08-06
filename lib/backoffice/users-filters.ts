@@ -34,6 +34,12 @@ export const META_STATUS_FILTER_VALUES = [
   "disconnected",
 ] as const;
 
+export const ACCOUNT_ACTIVATION_FILTER_VALUES = [
+  "all",
+  "pending",
+  "active",
+] as const;
+
 export const CAMPAIGN_STATUS_FILTER_VALUES = [
   "all",
   "active",
@@ -96,6 +102,8 @@ export type SubscriptionStatusFilter =
   (typeof SUBSCRIPTION_STATUS_FILTER_VALUES)[number];
 export type PlanPeriodFilter = (typeof PLAN_PERIOD_FILTER_VALUES)[number];
 export type MetaStatusFilter = (typeof META_STATUS_FILTER_VALUES)[number];
+export type AccountActivationFilter =
+  (typeof ACCOUNT_ACTIVATION_FILTER_VALUES)[number];
 export type CampaignStatusFilter =
   (typeof CAMPAIGN_STATUS_FILTER_VALUES)[number];
 export type PerformanceStatusFilter =
@@ -122,6 +130,7 @@ export type UsersFilterParams = {
   subscriptionStatus: SubscriptionStatusFilter;
   planPeriod: PlanPeriodFilter;
   metaStatus: MetaStatusFilter;
+  activationStatus: AccountActivationFilter;
   campaignStatus: CampaignStatusFilter;
   performanceStatus: PerformanceStatusFilter;
   accessExpiration: AccessExpirationFilter;
@@ -142,6 +151,7 @@ type RawUsersFilterParams = {
   subscriptionStatus?: string;
   planPeriod?: string;
   metaStatus?: string;
+  activationStatus?: string;
   campaignStatus?: string;
   performanceStatus?: string;
   accessExpiration?: string;
@@ -325,6 +335,12 @@ export function normalizeUsersFilterParams(
       : "all",
     metaStatus: includesValue(META_STATUS_FILTER_VALUES, raw.metaStatus)
       ? raw.metaStatus
+      : "all",
+    activationStatus: includesValue(
+      ACCOUNT_ACTIVATION_FILTER_VALUES,
+      raw.activationStatus,
+    )
+      ? raw.activationStatus
       : "all",
     campaignStatus: includesValue(
       CAMPAIGN_STATUS_FILTER_VALUES,

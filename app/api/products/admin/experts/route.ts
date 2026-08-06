@@ -14,6 +14,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     email?: string;
     displayName?: string;
+    profileImageUrl?: string | null;
     phone?: string;
     pixKey?: string;
   };
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
       await createExpert({
         email: body.email,
         displayName: body.displayName,
+        profileImageUrl: body.profileImageUrl,
         phone: body.phone,
         pixKey: body.pixKey,
       }),
@@ -37,4 +39,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

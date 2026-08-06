@@ -21,11 +21,20 @@ const consultant: BackofficeActor = {
   assignedUserIds: ["user-1", "user-2"],
 };
 
+const financeViewer: BackofficeActor = {
+  id: "finance-1",
+  email: "finance@example.com",
+  role: "finance_viewer",
+  source: "finance_email_fallback",
+};
+
 describe("hasBackofficePermission", () => {
   test("allows admins to use every known permission", () => {
     expect(hasBackofficePermission(admin, "users:manage")).toBe(true);
     expect(hasBackofficePermission(admin, "marketing:write")).toBe(true);
     expect(hasBackofficePermission(admin, "team:manage")).toBe(true);
+    expect(hasBackofficePermission(admin, "finance:view")).toBe(true);
+    expect(hasBackofficePermission(admin, "emails:view")).toBe(true);
   });
 
   test("limits marketing consultants to marketing portfolio access", () => {
@@ -33,6 +42,14 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(consultant, "marketing:write")).toBe(true);
     expect(hasBackofficePermission(consultant, "users:manage")).toBe(false);
     expect(hasBackofficePermission(consultant, "billing:manage")).toBe(false);
+  });
+
+  test("limits finance viewers to the financial area", () => {
+    expect(hasBackofficePermission(financeViewer, "finance:view")).toBe(true);
+    expect(hasBackofficePermission(financeViewer, "dashboard:view")).toBe(false);
+    expect(hasBackofficePermission(financeViewer, "users:manage")).toBe(false);
+    expect(hasBackofficePermission(financeViewer, "emails:view")).toBe(false);
+    expect(hasBackofficePermission(financeViewer, "marketing:read")).toBe(false);
   });
 });
 

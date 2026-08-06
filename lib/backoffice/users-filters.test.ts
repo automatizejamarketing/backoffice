@@ -13,6 +13,7 @@ describe("normalizeUsersFilterParams", () => {
       subscriptionStatus: "past_due",
       planPeriod: "annual",
       metaStatus: "connected",
+      activationStatus: "pending",
       consultantId: "550e8400-e29b-41d4-a716-446655440000",
       page: "2",
       pageSize: "20",
@@ -26,6 +27,7 @@ describe("normalizeUsersFilterParams", () => {
         subscriptionStatus: "past_due",
         planPeriod: "annual",
         metaStatus: "connected",
+        activationStatus: "pending",
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
@@ -45,6 +47,7 @@ describe("normalizeUsersFilterParams", () => {
       subscriptionStatus: "bad",
       planPeriod: "bad",
       metaStatus: "bad",
+      activationStatus: "bad",
       campaignStatus: "bad",
       performanceStatus: "bad",
       accessExpiration: "bad",
@@ -62,6 +65,7 @@ describe("normalizeUsersFilterParams", () => {
         subscriptionStatus: "all",
         planPeriod: "all",
         metaStatus: "all",
+        activationStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
@@ -87,6 +91,14 @@ describe("normalizeUsersFilterParams", () => {
     expect(filters.performanceStatus).toBe("drop");
     expect(filters.accessExpiration).toBe("past_7d");
     expect(filters.sort).toBe("renewal");
+  });
+
+  test("keeps the pending account activation filter", () => {
+    const filters = normalizeUsersFilterParams({
+      activationStatus: "pending",
+    });
+
+    expect(filters.activationStatus).toBe("pending");
   });
 
   test("maps legacy renewal links to the equivalent access window", () => {

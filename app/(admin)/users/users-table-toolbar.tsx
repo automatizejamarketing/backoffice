@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   CircleAlert,
   Filter,
@@ -38,6 +38,7 @@ import type {
 } from "@/lib/backoffice/users-filters";
 import type { UserExpirationDayCounts } from "@/lib/db/admin-queries";
 import { cn } from "@/lib/utils";
+import { useUsersNavigation } from "./users-navigation-feedback";
 
 const DEBOUNCE_MS = 300;
 
@@ -49,6 +50,7 @@ type UsersTableToolbarProps = {
     | "subscriptionStatus"
     | "planPeriod"
     | "metaStatus"
+    | "activationStatus"
     | "campaignStatus"
     | "performanceStatus"
     | "accessExpiration"
@@ -102,6 +104,7 @@ type FilterSection = {
     | "performanceStatus"
     | "campaignStatus"
     | "metaStatus"
+    | "activationStatus"
     | "subscriptionStatus"
     | "planPeriod"
     | "signupWithin"
@@ -170,7 +173,7 @@ export function UsersTableToolbar({
   consultants,
   expirationDayCounts,
 }: UsersTableToolbarProps) {
-  const router = useRouter();
+  const { isFetching, navigate } = useUsersNavigation();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -180,8 +183,6 @@ export function UsersTableToolbar({
   const [pendingExpirationDate, setPendingExpirationDate] = useState<
     string | null
   >(null);
-  const [isExpirationShortcutPending, startExpirationShortcutTransition] =
-    useTransition();
   const [fieldFilterField, setFieldFilterField] =
     useState<UserFieldFilterField>(
       filters.fieldFilter?.field ?? "expirationDate",
@@ -208,6 +209,14 @@ export function UsersTableToolbar({
     return qs ? `${pathname}?${qs}` : pathname;
   }
 
+  function navigateWithFeedback(
+    href: string,
+    options: { replace?: boolean; scroll?: boolean } = { scroll: false },
+  ) {
+    setPendingExpirationDate(null);
+    navigate(href, options);
+  }
+
   useEffect(() => {
     if (isFirstRunRef.current) {
       isFirstRunRef.current = false;
@@ -223,9 +232,10 @@ export function UsersTableToolbar({
       clearTimeout(debounceRef.current);
     }
     debounceRef.current = setTimeout(() => {
-      router.replace(buildUrl({ q: trimmed.length === 0 ? null : trimmed }), {
-        scroll: false,
-      });
+      navigateWithFeedback(
+        buildUrl({ q: trimmed.length === 0 ? null : trimmed }),
+        { replace: true, scroll: false },
+      );
     }, DEBOUNCE_MS);
 
     return () => {
@@ -349,13 +359,22 @@ export function UsersTableToolbar({
           })),
         ],
       },
+      {
+        key: "activationStatus",
+        label: "Ativação da conta",
+        options: [
+          { value: "all", label: "Qualquer" },
+          { value: "pending", label: "Não ativou" },
+          { value: "active", label: "Ativou" },
+        ],
+      },
     ],
     [consultants],
   );
 
   function handlePageSizeChange(value: string) {
     const next = Number.parseInt(value, 10) === DEFAULT_PAGE_SIZE ? null : value;
-    router.push(buildUrl({ pageSize: next }), { scroll: false });
+    navigateWithFeedback(buildUrl({ pageSize: next }));
   }
 
   function handleFieldFilterFieldChange(value: string) {
@@ -366,7 +385,7 @@ export function UsersTableToolbar({
 
   function applyFieldFilter() {
     if (!fieldFilterValue.trim()) return;
-    router.push(
+    navigateWithFeedback(
       buildUrl({
         filterField: fieldFilterField,
         filterOperator: fieldFilterOperator,
@@ -380,7 +399,7 @@ export function UsersTableToolbar({
     setFieldFilterField("expirationDate");
     setFieldFilterOperator("lt");
     setFieldFilterValue("");
-    router.push(
+    navigateWithFeedback(
       buildUrl({
         filterField: null,
         filterOperator: null,
@@ -402,17 +421,15 @@ export function UsersTableToolbar({
   function handleExpirationShortcut(date: string) {
     const isActive = isExpirationShortcutActive(date);
     setPendingExpirationDate(date);
-    startExpirationShortcutTransition(() => {
-      router.push(
-        buildUrl({
-          accessExpiration: null,
-          filterField: isActive ? null : "expirationDate",
-          filterOperator: isActive ? null : "eq",
-          filterValue: isActive ? null : date,
-        }),
-        { scroll: false },
-      );
-    });
+    navigate(
+      buildUrl({
+        accessExpiration: null,
+        filterField: isActive ? null : "expirationDate",
+        filterOperator: isActive ? null : "eq",
+        filterValue: isActive ? null : date,
+      }),
+      { scroll: false },
+    );
   }
 
   function handleDimensionChange(
@@ -436,11 +453,11 @@ export function UsersTableToolbar({
       updates.signupTo = null;
     }
 
-    router.push(buildUrl(updates), { scroll: false });
+    navigateWithFeedback(buildUrl(updates));
   }
 
   function clearAllFilters() {
-    router.push(
+    navigateWithFeedback(
       buildUrl({
         accessExpiration: null,
         filterField: null,
@@ -449,6 +466,7 @@ export function UsersTableToolbar({
         performanceStatus: null,
         campaignStatus: null,
         metaStatus: null,
+        activationStatus: null,
         subscriptionStatus: null,
         planPeriod: null,
         consultantId: null,
@@ -539,10 +557,10 @@ export function UsersTableToolbar({
   const hasActiveExpirationShortcut =
     yesterdayShortcutActive || todayShortcutActive;
   const yesterdayShortcutFetching =
-    isExpirationShortcutPending &&
+    isFetching &&
     pendingExpirationDate === expirationDayCounts?.yesterday.date;
   const todayShortcutFetching =
-    isExpirationShortcutPending &&
+    isFetching &&
     pendingExpirationDate === expirationDayCounts?.today.date;
 
   return (
@@ -771,7 +789,7 @@ export function UsersTableToolbar({
               )}
               aria-pressed={yesterdayShortcutActive}
               aria-busy={yesterdayShortcutFetching}
-              disabled={isExpirationShortcutPending}
+              disabled={isFetching}
               onClick={() =>
                 handleExpirationShortcut(expirationDayCounts.yesterday.date)
               }
@@ -798,7 +816,7 @@ export function UsersTableToolbar({
               )}
               aria-pressed={todayShortcutActive}
               aria-busy={todayShortcutFetching}
-              disabled={isExpirationShortcutPending}
+              disabled={isFetching}
               onClick={() =>
                 handleExpirationShortcut(expirationDayCounts.today.date)
               }
@@ -819,7 +837,7 @@ export function UsersTableToolbar({
         <Select
           value={filters.sort}
           onValueChange={(value) =>
-            router.push(
+            navigateWithFeedback(
               buildUrl({ sort: value === "default" ? null : value }),
               { scroll: false },
             )
@@ -856,7 +874,7 @@ export function UsersTableToolbar({
                     aria-label={`Remover filtro ${chip.label}`}
                     className="rounded-sm p-0.5 hover:bg-muted"
                     onClick={() =>
-                      router.push(buildUrl(chip.clear), { scroll: false })
+                      navigateWithFeedback(buildUrl(chip.clear))
                     }
                   >
                     <X className="size-3" />
@@ -879,7 +897,7 @@ export function UsersTableToolbar({
             : undefined
         }
         onApply={(range) => {
-          router.push(
+          navigateWithFeedback(
             buildUrl({
               signupWithin: "custom",
               signupFrom: formatLocalDate(range.from),
