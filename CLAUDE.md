@@ -6,7 +6,7 @@ Guidance for Claude Code when working directly inside `backoffice/`. This is the
 
 Internal admin panel for AutomatizeJa / Automatize Marketing. It reads and writes the **same Postgres database** as `../automatize-frontend/`, so every schema change here must be mirrored there (see Database workflow below). Stack: Next.js 16 (App Router, React 19), Drizzle ORM, NextAuth v5 (Google-only), Tailwind v4 + shadcn/ui, `@tanstack/react-query`, `next-intl`, Stripe SDK, Vercel AI Gateway, Vercel Blob, postgres-js. Portuguese (pt-BR) is the default UI language. Path alias `@/*` maps to the project root.
 
-Runs on **port 3001** so it can be developed alongside `automatize-frontend` (port 3000) against the same DB.
+Runs on **port 3006** so it can be developed alongside `automatize-frontend` (port 3000) against the same DB.
 
 ## Package manager
 
@@ -17,17 +17,26 @@ Runs on **port 3001** so it can be developed alongside `automatize-frontend` (po
 All commands assume cwd is `backoffice/`.
 
 ```bash
-bun dev                  # Next.js dev server on port 3001
+bun dev                  # Next.js dev server on port 3006
 bun run build            # next build
-bun run start            # next start -p 3001
+bun run start            # next start -p 3006
 bun run lint             # eslint (eslint-config-next flat config in eslint.config.mjs)
+bun test                 # full suite — see "Running the tests" below
 bun run db:generate      # drizzle-kit generate — creates a migration from schema.ts diff
 bun run db:migrate       # CUSTOM — runs scripts/drizzle-migrate-with-baseline.ts (see below)
 bun run db:push          # drizzle-kit push — DO NOT run against shared/prod DBs
 bun run db:pull          # drizzle-kit introspect
 ```
 
-There is no test script. Lint actually works (unlike the sibling frontend which has no lint script).
+There is no `test` script — `bun test` above is bun's built-in runner, not a `package.json` entry. Lint actually works (unlike the sibling frontend, which has no lint script).
+
+### Running the tests
+
+**A bare `bun test`, from `backoffice/`.** Nothing narrower runs the whole suite.
+
+The suites are written against `node:test` and live in two places: `tests/` (the contract and parity suites mirrored with the frontend) and colocated `*.test.ts` next to the code under `lib/`. `bun test tests/` silently skips every colocated one — that is most of the suite.
+
+Do NOT reach for `node --test`: this project has no `tsx` installed, so nothing executes the TypeScript. Bun's discovery skips dot-directories, which keeps the full tree copies under `.claude/worktrees/` out of the run — don't widen it with globs that reach into them.
 
 ### Why `db:migrate` is a custom script
 
