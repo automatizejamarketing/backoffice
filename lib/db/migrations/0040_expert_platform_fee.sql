@@ -123,4 +123,3 @@ ALTER TABLE "product_orders"
       )
     )
   );
-
