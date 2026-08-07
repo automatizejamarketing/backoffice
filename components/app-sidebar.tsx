@@ -1,5 +1,8 @@
 "use client";
 
+import { WhatsappIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import type { ComponentType } from "react";
 import {
   Briefcase,
   ChevronUp,
@@ -10,7 +13,6 @@ import {
   Link2,
   LogOut,
   Mail,
-  MessageCircle,
   WalletCards,
   Settings2,
   Shield,
@@ -58,11 +60,21 @@ type User = {
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof LayoutDashboard;
+  icon: ComponentType<{ className?: string }>;
   isActive: boolean;
   permission?: BackofficePermission;
   consultantOnly?: boolean;
 };
+
+function WhatsappNavIcon({ className }: { className?: string }) {
+  return (
+    <HugeiconsIcon
+      icon={WhatsappIcon}
+      strokeWidth={2}
+      className={className}
+    />
+  );
+}
 
 export function AppSidebar({
   user,
@@ -133,7 +145,7 @@ export function AppSidebar({
     {
       href: "/whatsapp",
       label: "WhatsApp",
-      icon: MessageCircle,
+      icon: WhatsappNavIcon,
       isActive: isWhatsappSection,
       permission: "whatsapp:view",
     },
