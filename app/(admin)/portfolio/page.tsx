@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   BriefcaseBusiness,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Settings2,
 } from "lucide-react";
@@ -25,15 +27,15 @@ import { ManagedCampaignRefreshStaleButton } from "@/components/managed-campaign
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import {
-  filterBusinessPortfolioItems,
   normalizePortfolioFilterParams,
+  PORTFOLIO_DEFAULT_PAGE_SIZE,
 } from "@/lib/backoffice/portfolio-filters";
 import {
+  countStaleManagedCampaignAccounts,
   getBusinessOperatingRules,
-  getBusinessPortfolio,
+  getBusinessPortfolioPage,
 } from "@/lib/db/business-queries";
 import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
-import { wasManagedCampaignCheckedToday } from "@/lib/business/managed-campaigns";
 import {
   formatShortDateInSaoPaulo,
   formatShortDateTimeInSaoPaulo,
@@ -96,6 +98,8 @@ export default async function PortfolioPage({
     subscriptionStatus?: string | string[];
     campaignStatus?: string | string[];
     q?: string | string[];
+    page?: string | string[];
+    pageSize?: string | string[];
   }>;
 }) {
   const [actor, sp] = await Promise.all([
@@ -104,17 +108,20 @@ export default async function PortfolioPage({
   ]);
   const filters = normalizePortfolioFilterParams(sp);
 
-  const [rules, allAccounts, consultants] = await Promise.all([
+  const [rules, portfolioPage, consultants, staleMetaCount] = await Promise.all([
     getBusinessOperatingRules(),
-    getBusinessPortfolio(actor),
+    getBusinessPortfolioPage(actor, filters),
     actor.role === "admin" ? listConsultantsForFilter() : Promise.resolve([]),
+    countStaleManagedCampaignAccounts(actor),
   ]);
 
-  const accounts = filterBusinessPortfolioItems(allAccounts, {
-    ...filters,
-    consultantId:
-      actor.role === "admin" ? filters.consultantId : "all",
-  });
+  const accounts = portfolioPage.items;
+  const { total, page, pageSize } = portfolioPage;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasPrevious = page > 1;
+  const hasNext = page < totalPages;
+  const statsArePartial = total > accounts.length;
+
   const hasActiveFilters =
     filters.subscriptionStatus !== "all" ||
     filters.campaignStatus !== "all" ||
@@ -131,11 +138,25 @@ export default async function PortfolioPage({
     const days = account.health.daysUntilRenewal;
     return days !== null && days >= 0 && days <= rules.renewalAttentionDays;
   }).length;
-  const staleMetaCount = allAccounts.filter(
-    (account) =>
-      account.metaAccountName &&
-      !wasManagedCampaignCheckedToday(account.managedCampaignCheckedAt),
-  ).length;
+
+  function buildPageHref(targetPage: number): string {
+    const params = new URLSearchParams();
+    if (filters.search) params.set("q", filters.search);
+    if (filters.subscriptionStatus !== "all") {
+      params.set("subscriptionStatus", filters.subscriptionStatus);
+    }
+    if (filters.campaignStatus !== "all") {
+      params.set("campaignStatus", filters.campaignStatus);
+    }
+    if (actor.role === "admin" && filters.consultantId !== "all") {
+      params.set("consultantId", filters.consultantId);
+    }
+    if (pageSize !== PORTFOLIO_DEFAULT_PAGE_SIZE) {
+      params.set("pageSize", String(pageSize));
+    }
+    params.set("page", String(targetPage));
+    return `/portfolio?${params.toString()}`;
+  }
 
   return (
     <div className="min-w-0 space-y-6">
@@ -233,17 +254,30 @@ export default async function PortfolioPage({
             </Button>
           )}
           <p className="text-xs text-muted-foreground">
-            Mostrando {accounts.length} de {allAccounts.length} clientes
+            Mostrando {(page - 1) * pageSize + (accounts.length > 0 ? 1 : 0)}–
+            {(page - 1) * pageSize + accounts.length} de {total} clientes
           </p>
         </div>
       </form>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Clientes visíveis" value={accounts.length} icon={BriefcaseBusiness} />
-        <StatCard label="Críticos" value={criticalCount} icon={AlertTriangle} />
-        <StatCard label="Em atenção" value={attentionCount} icon={Clock3} />
+        <StatCard label="Clientes visíveis" value={total} icon={BriefcaseBusiness} />
         <StatCard
-          label={`Renovação até ${rules.renewalAttentionDays}d`}
+          label={statsArePartial ? "Críticos (página)" : "Críticos"}
+          value={criticalCount}
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label={statsArePartial ? "Em atenção (página)" : "Em atenção"}
+          value={attentionCount}
+          icon={Clock3}
+        />
+        <StatCard
+          label={
+            statsArePartial
+              ? `Renovação até ${rules.renewalAttentionDays}d (página)`
+              : `Renovação até ${rules.renewalAttentionDays}d`
+          }
           value={renewalCount}
           icon={CheckCircle2}
         />
@@ -443,6 +477,40 @@ export default async function PortfolioPage({
           </TableBody>
         </Table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            Página {page} de {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              aria-disabled={!hasPrevious}
+              className={!hasPrevious ? "pointer-events-none opacity-50" : ""}
+            >
+              <Link href={hasPrevious ? buildPageHref(page - 1) : "#"}>
+                <ChevronLeft className="size-4" />
+                Anterior
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              aria-disabled={!hasNext}
+              className={!hasNext ? "pointer-events-none opacity-50" : ""}
+            >
+              <Link href={hasNext ? buildPageHref(page + 1) : "#"}>
+                Próxima
+                <ChevronRight className="size-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

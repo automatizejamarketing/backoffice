@@ -57,6 +57,8 @@ describe("normalizePortfolioFilterParams", () => {
       subscriptionStatus: "all",
       campaignStatus: "all",
       search: "",
+      page: 1,
+      pageSize: 50,
     });
   });
 
@@ -89,6 +91,8 @@ describe("normalizePortfolioFilterParams", () => {
       subscriptionStatus: "active",
       campaignStatus: "inactive",
       search: "padaria",
+      page: 1,
+      pageSize: 50,
     });
   });
 });
