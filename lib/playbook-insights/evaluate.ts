@@ -11,7 +11,11 @@ import {
   PLAYBOOK_RULE_STALLED,
   PLAYBOOK_STALLED_DAYS,
 } from "./constants";
-import type { CampaignMetricsRow, PlaybookEvaluationResult } from "./types";
+import type {
+  CampaignMetricsRow,
+  PlaybookEvaluationResult,
+  PlaybookInsightCandidate,
+} from "./types";
 
 function daysSince(now: Date, iso: string | null): number | null {
   if (!iso) return null;
