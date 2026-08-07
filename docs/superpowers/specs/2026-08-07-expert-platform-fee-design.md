@@ -4,8 +4,8 @@
 
 Substituir a taxa percentual configurável por produto por uma taxa composta,
 configurada por expert. O padrão comercial é **5,49% + R$0,39** por aquisição
-paga. Produtos próprios do Automatize continuam usando uma configuração global
-equivalente. A mudança só afeta novas aquisições; vendas anteriores preservam
+paga. Produtos próprios do Automatize não pagam essa taxa; sua receita líquida
+é o valor bruto menos o custo efetivo do gateway. A mudança só afeta novas aquisições; vendas anteriores preservam
 integralmente seus snapshots financeiros.
 
 Este documento cobre os dois repositórios que compartilham o domínio:
@@ -19,7 +19,7 @@ Este documento cobre os dois repositórios que compartilham o domínio:
 - Todo Produto de Expert usa a taxa vigente do Expert proprietário no momento
   em que a Aquisição é criada.
 - A taxa não pode ser configurada ou substituída no Produto.
-- Todo Produto próprio do Automatize usa a configuração global vigente.
+- Todo Produto próprio do Automatize usa taxa percentual e fixa iguais a zero.
 - Produto gratuito gera Taxa da Plataforma igual a zero.
 - Em uma Aquisição paga, a taxa é:
 
@@ -33,8 +33,8 @@ Este documento cobre os dois repositórios que compartilham o domínio:
   pode ficar negativa. O valor não é transferido aos Experts.
 - A coprodução permanece independente: os percentuais do proprietário e do
   coprodutor são aplicados sobre a Base de Coprodução.
-- Alterações futuras na taxa do Expert ou na configuração global só afetam
-  Aquisições criadas depois da alteração.
+- Alterações futuras na taxa do Expert só afetam Aquisições criadas depois da
+  alteração.
 
 ## Modelo de dados e migração
 
@@ -42,11 +42,6 @@ Adicionar em `expert_profiles`:
 
 - `platform_fee_basis_points integer not null default 549`;
 - `platform_fee_fixed_centavos integer not null default 39`.
-
-Adicionar em `product_financial_settings`:
-
-- `platform_fee_fixed_centavos integer not null default 39`;
-- alterar o valor global existente para `549` basis points e `39` centavos.
 
 Adicionar em `product_orders`:
 
@@ -56,6 +51,9 @@ Introduzir o modelo financeiro `platform_fee_coproduction_v3`. Novas
 Aquisições v3 exigem percentual e parcela fixa válidos. Modelos legados e v2
 continuam válidos sem parcela fixa; `null` nesses pedidos históricos equivale a
 zero apenas para leitura e recomposição histórica.
+
+A tabela `product_financial_settings` permanece apenas para compatibilidade com
+pedidos e versões anteriores; o fluxo v3 não a consulta.
 
 A migration preenche todos os Experts existentes com `549` e `39`. Ela não
 reescreve pedidos, pagamentos, ledgers ou repasses anteriores. A coluna
@@ -77,7 +75,8 @@ Na criação da Aquisição:
 
 1. Carregar Produto e proprietário.
 2. Se o proprietário for um Expert, carregar a taxa do `expert_profiles`.
-3. Se o proprietário for o Automatize, carregar `product_financial_settings`.
+3. Se o proprietário for o Automatize, resolver `0` basis points e `0`
+   centavos sem consultar configuração externa.
 4. Congelar percentual e parcela fixa no `product_orders`.
 5. Gerar o checkout usando o preço bruto sem alterar o valor cobrado do
    comprador.
@@ -101,10 +100,10 @@ aberto quando houver erro.
 
 Na criação e edição de Produto, remover o controle de taxa customizada. O
 formulário apenas informa que o Produto herda a taxa do Expert proprietário ou,
-quando próprio, a taxa global do Automatize.
+quando próprio, não paga Taxa da Plataforma.
 
-A configuração global continua disponível no backoffice com os mesmos dois
-campos, destinada apenas aos Produtos do Automatize.
+A configuração global antiga deixa de aparecer no backoffice porque não é
+consultada por novas Aquisições.
 
 ## APIs e validação
 
@@ -144,7 +143,8 @@ depois do deploy.
   Expert proprietário.
 - Dois Produtos do mesmo Expert usam a mesma configuração.
 - Alterar a taxa do Expert não modifica pedido já criado.
-- Produto do Automatize usa a configuração global.
+- Produto do Automatize usa taxa zero e registra como receita líquida o bruto
+  menos o custo do provedor.
 - Produto gratuito gera taxa zero.
 - R$100,00 com 5,49% + R$0,39 gera taxa de R$5,88 e Base de Coprodução de
   R$94,12.
