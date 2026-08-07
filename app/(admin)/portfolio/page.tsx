@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   BriefcaseBusiness,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Settings2,
 } from "lucide-react";
@@ -25,35 +27,28 @@ import { ManagedCampaignRefreshStaleButton } from "@/components/managed-campaign
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import {
-  filterBusinessPortfolioItems,
   normalizePortfolioFilterParams,
+  PORTFOLIO_DEFAULT_PAGE_SIZE,
 } from "@/lib/backoffice/portfolio-filters";
 import {
+  countStaleManagedCampaignAccounts,
   getBusinessOperatingRules,
-  getBusinessPortfolio,
+  getBusinessPortfolioPage,
 } from "@/lib/db/business-queries";
 import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
-import { wasManagedCampaignCheckedToday } from "@/lib/business/managed-campaigns";
+import {
+  formatShortDateInSaoPaulo,
+  formatShortDateTimeInSaoPaulo,
+} from "@/lib/backoffice/datetime-format";
 
 export const dynamic = "force-dynamic";
 
 function formatDate(value: Date | string | null) {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-  }).format(date);
+  return formatShortDateInSaoPaulo(value);
 }
 
 function formatDateTime(value: Date | string | null) {
-  if (!value) return "Nunca";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "Nunca";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 function formatActivity(value: Date | null) {
@@ -103,6 +98,8 @@ export default async function PortfolioPage({
     subscriptionStatus?: string | string[];
     campaignStatus?: string | string[];
     q?: string | string[];
+    page?: string | string[];
+    pageSize?: string | string[];
   }>;
 }) {
   const [actor, sp] = await Promise.all([
@@ -111,17 +108,20 @@ export default async function PortfolioPage({
   ]);
   const filters = normalizePortfolioFilterParams(sp);
 
-  const [rules, allAccounts, consultants] = await Promise.all([
+  const [rules, portfolioPage, consultants, staleMetaCount] = await Promise.all([
     getBusinessOperatingRules(),
-    getBusinessPortfolio(actor),
+    getBusinessPortfolioPage(actor, filters),
     actor.role === "admin" ? listConsultantsForFilter() : Promise.resolve([]),
+    countStaleManagedCampaignAccounts(actor),
   ]);
 
-  const accounts = filterBusinessPortfolioItems(allAccounts, {
-    ...filters,
-    consultantId:
-      actor.role === "admin" ? filters.consultantId : "all",
-  });
+  const accounts = portfolioPage.items;
+  const { total, page, pageSize } = portfolioPage;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasPrevious = page > 1;
+  const hasNext = page < totalPages;
+  const statsArePartial = total > accounts.length;
+
   const hasActiveFilters =
     filters.subscriptionStatus !== "all" ||
     filters.campaignStatus !== "all" ||
@@ -138,11 +138,25 @@ export default async function PortfolioPage({
     const days = account.health.daysUntilRenewal;
     return days !== null && days >= 0 && days <= rules.renewalAttentionDays;
   }).length;
-  const staleMetaCount = allAccounts.filter(
-    (account) =>
-      account.metaAccountName &&
-      !wasManagedCampaignCheckedToday(account.managedCampaignCheckedAt),
-  ).length;
+
+  function buildPageHref(targetPage: number): string {
+    const params = new URLSearchParams();
+    if (filters.search) params.set("q", filters.search);
+    if (filters.subscriptionStatus !== "all") {
+      params.set("subscriptionStatus", filters.subscriptionStatus);
+    }
+    if (filters.campaignStatus !== "all") {
+      params.set("campaignStatus", filters.campaignStatus);
+    }
+    if (actor.role === "admin" && filters.consultantId !== "all") {
+      params.set("consultantId", filters.consultantId);
+    }
+    if (pageSize !== PORTFOLIO_DEFAULT_PAGE_SIZE) {
+      params.set("pageSize", String(pageSize));
+    }
+    params.set("page", String(targetPage));
+    return `/portfolio?${params.toString()}`;
+  }
 
   return (
     <div className="min-w-0 space-y-6">
@@ -178,7 +192,7 @@ export default async function PortfolioPage({
             <Input
               name="q"
               defaultValue={filters.search}
-              placeholder="E-mail ou empresa"
+              placeholder="E-mail, empresa ou telefone"
               className="h-9"
             />
           </label>
@@ -240,17 +254,30 @@ export default async function PortfolioPage({
             </Button>
           )}
           <p className="text-xs text-muted-foreground">
-            Mostrando {accounts.length} de {allAccounts.length} clientes
+            Mostrando {(page - 1) * pageSize + (accounts.length > 0 ? 1 : 0)}–
+            {(page - 1) * pageSize + accounts.length} de {total} clientes
           </p>
         </div>
       </form>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Clientes visíveis" value={accounts.length} icon={BriefcaseBusiness} />
-        <StatCard label="Críticos" value={criticalCount} icon={AlertTriangle} />
-        <StatCard label="Em atenção" value={attentionCount} icon={Clock3} />
+        <StatCard label="Clientes visíveis" value={total} icon={BriefcaseBusiness} />
         <StatCard
-          label={`Renovação até ${rules.renewalAttentionDays}d`}
+          label={statsArePartial ? "Críticos (página)" : "Críticos"}
+          value={criticalCount}
+          icon={AlertTriangle}
+        />
+        <StatCard
+          label={statsArePartial ? "Em atenção (página)" : "Em atenção"}
+          value={attentionCount}
+          icon={Clock3}
+        />
+        <StatCard
+          label={
+            statsArePartial
+              ? `Renovação até ${rules.renewalAttentionDays}d (página)`
+              : `Renovação até ${rules.renewalAttentionDays}d`
+          }
           value={renewalCount}
           icon={CheckCircle2}
         />
@@ -297,9 +324,19 @@ export default async function PortfolioPage({
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">
-                          {account.userEmail}
-                        </p>
+                        <div className="flex min-w-0 items-baseline gap-1.5">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {account.userEmail}
+                          </p>
+                          {account.playbookInsights.openCount > 0 ? (
+                            <span
+                              className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70"
+                              title={`${account.playbookInsights.openCount} sugestões do playbook`}
+                            >
+                              · {account.playbookInsights.openCount}
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="truncate text-xs text-muted-foreground">
                           {account.companyName ?? "Empresa não informada"}
                         </p>
@@ -388,29 +425,17 @@ export default async function PortfolioPage({
                     {account.playbookInsights.openCount > 0 ? (
                       <Link
                         href={`/users/${account.userId}?tab=marketing`}
-                        className="inline-flex"
+                        className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                        title="Ver sugestões do playbook"
                       >
-                        <Badge
-                          variant="outline"
-                          className={
-                            account.playbookInsights.highestSeverity ===
-                            "critical"
-                              ? "border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
-                              : account.playbookInsights.highestSeverity ===
-                                  "warning"
-                                ? "border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
-                                : "text-xs"
-                          }
-                        >
-                          {account.playbookInsights.openCount === 1
-                            ? "1 sugestão"
-                            : `${account.playbookInsights.openCount} sugestões`}
-                        </Badge>
+                        {account.playbookInsights.openCount === 1
+                          ? "1 sugestão"
+                          : `${account.playbookInsights.openCount} sugestões`}
                       </Link>
                     ) : (
-                      <Badge variant="secondary" className="text-xs">
-                        Sem sugestões
-                      </Badge>
+                      <span className="text-[11px] text-muted-foreground/40">
+                        —
+                      </span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -452,6 +477,40 @@ export default async function PortfolioPage({
           </TableBody>
         </Table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">
+            Página {page} de {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              aria-disabled={!hasPrevious}
+              className={!hasPrevious ? "pointer-events-none opacity-50" : ""}
+            >
+              <Link href={hasPrevious ? buildPageHref(page - 1) : "#"}>
+                <ChevronLeft className="size-4" />
+                Anterior
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              aria-disabled={!hasNext}
+              className={!hasNext ? "pointer-events-none opacity-50" : ""}
+            >
+              <Link href={hasNext ? buildPageHref(page + 1) : "#"}>
+                Próxima
+                <ChevronRight className="size-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { formatNumericDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 interface ExpirationDateControlProps {
   userId: string;
@@ -68,11 +69,7 @@ export function ExpirationDateControl({
 
   const formatDate = (date: Date | null): string => {
     if (!date) return "Sem data de expiração";
-    return new Date(date).toLocaleDateString("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
+    return formatNumericDateInSaoPaulo(date);
   };
 
   const getBadgeVariant = (): "default" | "destructive" | "secondary" => {

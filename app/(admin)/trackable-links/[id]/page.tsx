@@ -19,13 +19,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { formatDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
+
 export const dynamic = "force-dynamic";
 
 function formatDate(d: Date | null): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("pt-BR", {
-    timeZone: "America/Sao_Paulo",
-  });
+  return formatDateInSaoPaulo(d);
 }
 
 export default async function TrackableLinkDetailPage({

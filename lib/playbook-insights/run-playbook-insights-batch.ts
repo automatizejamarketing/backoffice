@@ -5,11 +5,29 @@ import {
   failPlaybookInsightsRun,
   persistPlaybookInsightsForUser,
 } from "@/lib/db/playbook-insights-queries";
+import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE } from "@/lib/playbook-insights/constants";
 import { evaluatePlaybookInsights } from "@/lib/playbook-insights/evaluate";
 import { fetchCampaignMetricsForAccount } from "@/lib/playbook-insights/fetch-campaign-metrics";
+
+function formatBatchError(error: unknown): string {
+  if (error instanceof GraphApiError) {
+    const graphMessage = error.errorReturn.data?.message;
+    const code = error.errorReturn.data?.code;
+    const parts = [error.message];
+    if (graphMessage && graphMessage !== error.message) {
+      parts.push(graphMessage);
+    }
+    if (code !== undefined) {
+      parts.push(`code=${code}`);
+    }
+    return parts.join(" | ");
+  }
+  if (error instanceof Error) return error.message;
+  return "Unknown evaluation error";
+}
 
 export type PlaybookInsightsBatchResult = {
   runId: string;
@@ -154,8 +172,7 @@ export async function runPlaybookInsightsBatch(
           email: target.email,
           insightsCreated: 0,
           campaignsEvaluated: 0,
-          errorMessage:
-            error instanceof Error ? error.message : "Unknown evaluation error",
+          errorMessage: formatBatchError(error),
         });
       }
     }

@@ -5,6 +5,7 @@ import { AlertCircle, CheckCircle2, History } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AdSetEditLogWithAdmin } from "@/lib/db/admin-queries";
+import { formatDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { formatCurrency } from "../utils/formatters";
 
 type AdSetEditHistoryProps = {
@@ -20,13 +21,7 @@ type GetEditHistoryResponse = {
 
 function formatDate(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatDateTimeInSaoPaulo(d);
 }
 
 function formatBudgetChange(

@@ -4,6 +4,10 @@ import {
   normalizeConsultantFilterId,
 } from "@/lib/backoffice/filter-params";
 
+export const PORTFOLIO_DEFAULT_PAGE_SIZE = 50;
+export const PORTFOLIO_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+import { matchesPortfolioSearch } from "@/lib/backoffice/user-search";
+
 export const PORTFOLIO_SUBSCRIPTION_STATUS_FILTER_VALUES = [
   "all",
   "active",
@@ -28,6 +32,8 @@ export type PortfolioFilterParams = {
   subscriptionStatus: PortfolioSubscriptionStatusFilter;
   campaignStatus: PortfolioCampaignStatusFilter;
   search: string;
+  page: number;
+  pageSize: number;
 };
 
 function isPortfolioSubscriptionStatusFilter(
@@ -51,6 +57,8 @@ export function normalizePortfolioFilterParams(input: {
   subscriptionStatus?: string | string[];
   campaignStatus?: string | string[];
   q?: string | string[];
+  page?: string | string[];
+  pageSize?: string | string[];
 }): PortfolioFilterParams {
   const consultantId = normalizeConsultantFilterId(input.consultantId);
   const subscriptionStatusRaw =
@@ -58,6 +66,17 @@ export function normalizePortfolioFilterParams(input: {
   const campaignStatusRaw =
     firstSearchParam(input.campaignStatus)?.trim() || "all";
   const search = firstSearchParam(input.q)?.trim() ?? "";
+  const pageRaw = Number.parseInt(firstSearchParam(input.page) ?? "1", 10);
+  const pageSizeRaw = Number.parseInt(
+    firstSearchParam(input.pageSize) ?? String(PORTFOLIO_DEFAULT_PAGE_SIZE),
+    10,
+  );
+  const page = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+  const pageSize = PORTFOLIO_PAGE_SIZE_OPTIONS.includes(
+    pageSizeRaw as (typeof PORTFOLIO_PAGE_SIZE_OPTIONS)[number],
+  )
+    ? pageSizeRaw
+    : PORTFOLIO_DEFAULT_PAGE_SIZE;
 
   return {
     consultantId,
@@ -70,6 +89,8 @@ export function normalizePortfolioFilterParams(input: {
       ? campaignStatusRaw
       : "all",
     search,
+    page,
+    pageSize,
   };
 }
 
@@ -80,8 +101,6 @@ export function filterBusinessPortfolioItems(
     "consultantId" | "subscriptionStatus" | "campaignStatus" | "search"
   >,
 ): BusinessPortfolioItem[] {
-  const search = filters.search.trim().toLowerCase();
-
   return items.filter((item) => {
     if (filters.consultantId === "unassigned") {
       if (item.consultantId != null) return false;
@@ -106,16 +125,11 @@ export function filterBusinessPortfolioItems(
       }
     }
 
-    if (search.length > 0) {
-      const haystack = [
-        item.userEmail,
-        item.companyName ?? "",
-        item.consultantEmail ?? "",
-        item.consultantName ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(search)) return false;
+    if (
+      filters.search.trim().length > 0 &&
+      !matchesPortfolioSearch(item, filters.search)
+    ) {
+      return false;
     }
 
     return true;

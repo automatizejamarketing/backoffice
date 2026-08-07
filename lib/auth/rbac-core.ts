@@ -1,5 +1,6 @@
 export const BACKOFFICE_ROLE_VALUES = [
   "admin",
+  "dev",
   "marketing_consultant",
   "finance_viewer",
 ] as const;
@@ -10,6 +11,7 @@ export type BackofficePermission =
   | "dashboard:view"
   | "finance:view"
   | "emails:view"
+  | "whatsapp:view"
   | "users:manage"
   | "billing:manage"
   | "posts:manage"
@@ -45,6 +47,7 @@ export const USER_HUB_TAB_VALUES = [
   "usage",
   "content",
   "audit",
+  "whatsapp",
 ] as const;
 
 export type UserHubTab = (typeof USER_HUB_TAB_VALUES)[number];
@@ -66,6 +69,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "dashboard:view",
     "finance:view",
     "emails:view",
+    "whatsapp:view",
     "users:manage",
     "billing:manage",
     "posts:manage",
@@ -78,9 +82,25 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "products:manage",
     "team:manage",
   ],
+  dev: [
+    "dashboard:view",
+    "emails:view",
+    "whatsapp:view",
+    "users:manage",
+    "posts:manage",
+    "marketing:read",
+    "marketing:write",
+    "trackable-links:manage",
+    "masterclass:manage",
+    "products:manage",
+  ],
   marketing_consultant: ["marketing:read", "marketing:write"],
   finance_viewer: ["finance:view"],
 };
+
+function hasFullUserAccess(actor: BackofficeActor): boolean {
+  return actor.role === "admin" || actor.role === "dev";
+}
 
 export function hasBackofficePermission(
   actor: BackofficeActor,
@@ -93,7 +113,7 @@ export function canAccessMarketingUser(
   actor: BackofficeActor,
   userId: string,
 ): boolean {
-  if (actor.role === "admin") return true;
+  if (hasFullUserAccess(actor)) return true;
   return actor.assignedUserIds?.includes(userId) ?? false;
 }
 
@@ -102,7 +122,7 @@ export function canAccessUserHubTab(
   userId: string,
   tab: UserHubTab,
 ): boolean {
-  if (actor.role === "admin") return true;
+  if (hasFullUserAccess(actor)) return true;
   return (
     CONSULTANT_USER_HUB_TABS.includes(tab) &&
     canAccessMarketingUser(actor, userId)

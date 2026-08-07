@@ -62,6 +62,7 @@ type TeamPageClientProps = {
 
 const ROLE_LABEL: Record<BackofficeRole, string> = {
   admin: "Admin",
+  dev: "Dev",
   marketing_consultant: "Consultor de marketing",
   finance_viewer: "Somente financeiro",
 };
@@ -223,6 +224,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
                 <SelectItem value="marketing_consultant">
                   Consultor de marketing
                 </SelectItem>
+                <SelectItem value="dev">Dev</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
               </SelectContent>
             </Select>
@@ -402,6 +404,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
                   <SelectItem value="marketing_consultant">
                     Consultor de marketing
                   </SelectItem>
+                  <SelectItem value="dev">Dev</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>

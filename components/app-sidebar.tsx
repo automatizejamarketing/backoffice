@@ -1,5 +1,8 @@
 "use client";
 
+import { WhatsappIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import type { ComponentType } from "react";
 import {
   Briefcase,
   ChevronUp,
@@ -57,11 +60,21 @@ type User = {
 type NavItem = {
   href: string;
   label: string;
-  icon: typeof LayoutDashboard;
+  icon: ComponentType<{ className?: string }>;
   isActive: boolean;
   permission?: BackofficePermission;
   consultantOnly?: boolean;
 };
+
+function WhatsappNavIcon({ className }: { className?: string }) {
+  return (
+    <HugeiconsIcon
+      icon={WhatsappIcon}
+      strokeWidth={2}
+      className={className}
+    />
+  );
+}
 
 export function AppSidebar({
   user,
@@ -76,6 +89,7 @@ export function AppSidebar({
   const isDashboard = pathname === "/";
   const isFinanceSection = pathname?.startsWith("/finance");
   const isEmailsSection = pathname?.startsWith("/emails");
+  const isWhatsappSection = pathname?.startsWith("/whatsapp");
   const isPortfolioSection = pathname?.startsWith("/portfolio");
   const isUsersSection = pathname?.startsWith("/users");
   const isPostsSection = pathname?.startsWith("/posts");
@@ -127,6 +141,13 @@ export function AppSidebar({
       icon: Mail,
       isActive: isEmailsSection,
       permission: "emails:view",
+    },
+    {
+      href: "/whatsapp",
+      label: "WhatsApp",
+      icon: WhatsappNavIcon,
+      isActive: isWhatsappSection,
+      permission: "whatsapp:view",
     },
     {
       href: "/posts",
@@ -286,9 +307,11 @@ export function AppSidebar({
                     {user.name ??
                       (actor.role === "admin"
                         ? "Admin"
-                        : actor.role === "finance_viewer"
-                          ? "Financeiro"
-                          : "Consultor")}
+                        : actor.role === "dev"
+                          ? "Dev"
+                          : actor.role === "finance_viewer"
+                            ? "Financeiro"
+                            : "Consultor")}
                   </p>
                   <p className="text-xs text-muted-foreground">{user.email}</p>
                 </div>

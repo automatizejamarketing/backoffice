@@ -65,6 +65,12 @@ type EditAdSetRequestBody = {
     excluded_custom_audiences?: AudienceRef[];
     placements?: PlacementKey[];
     interest_targeting?: InterestTargetingValue;
+    /**
+     * Advantage+ audience toggle. Omitted = leave whatever the ad set has;
+     * the primitive turns this into `advantageAudience` and manages the
+     * matching `targeting_relaxation_types`.
+     */
+    targeting_automation?: { advantage_audience?: number | boolean };
   };
   note: string;
 };
@@ -184,7 +190,8 @@ export async function PATCH(
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined ||
         targeting.placements !== undefined ||
-        targeting.interest_targeting !== undefined);
+        targeting.interest_targeting !== undefined ||
+        targeting.targeting_automation?.advantage_audience !== undefined);
 
     if (targeting?.placements !== undefined) {
       if (!Array.isArray(targeting.placements) || targeting.placements.length === 0) {
@@ -529,6 +536,20 @@ export async function PATCH(
         | Record<string, unknown>
         | undefined;
 
+      // An explicit toggle from the editor wins; otherwise the ad set keeps
+      // whatever it had. `effAdvantage` further down reads this back out and
+      // hands it to the primitive as `advantageAudience`.
+      const newTargetingAutomation =
+        targeting.targeting_automation?.advantage_audience !== undefined
+          ? {
+              ...prevTargetingAutomation,
+              advantage_audience: targeting.targeting_automation
+                .advantage_audience
+                ? 1
+                : 0,
+            }
+          : prevTargetingAutomation;
+
       // Resolve placement fields. If the user submitted new placements, use them;
       // otherwise preserve whatever the ad set had (which might be Advantage+ /
       // automatic placements, i.e. no publisher_platforms at all).
@@ -576,8 +597,8 @@ export async function PATCH(
           excluded_custom_audiences: newExcludedAudiences,
         }),
         ...(prevRelaxation && { targeting_relaxation_types: prevRelaxation }),
-        ...(prevTargetingAutomation && {
-          targeting_automation: prevTargetingAutomation,
+        ...(newTargetingAutomation && {
+          targeting_automation: newTargetingAutomation,
         }),
         ...(placementFields
           ? placementFields

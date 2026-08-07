@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
 import { DataTablePagination } from "./data-table-pagination";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 type UserWithPosts = {
   id: string;
@@ -77,10 +78,7 @@ export function UsersWithPostsTable({
   };
 
   function formatDate(date: string) {
-    return new Intl.DateTimeFormat("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    }).format(new Date(date));
+    return formatShortDateTimeInSaoPaulo(date);
   }
 
   return (

@@ -88,6 +88,23 @@ export type FinanceProductPaymentAmounts = {
   revenueKind: "coproducao" | "taxa";
 };
 
+export type FinanceProductPaymentAmountRow = Pick<
+  FinanceProductPaymentRow,
+  | "grossAmountCentavos"
+  | "netAmountCentavos"
+  | "feeAmountCentavos"
+  | "priceCentavos"
+  | "ownerType"
+  | "financialModel"
+  | "platformFeeBasisPoints"
+  | "platformFeeGrossCentavos"
+  | "automatizeCoproductionRevenueCentavos"
+  | "automatizeProductRevenueCentavos"
+  | "automatizeTotalNetRevenueCentavos"
+  | "expertShareBasisPoints"
+  | "expertRevenueCentavos"
+>;
+
 export type FinancePaymentsNetBreakdown = {
   newSubscriptionNetCentavos: number;
   renewalNetCentavos: number;
@@ -379,8 +396,10 @@ export function resolveAutomatizeProductNetCentavos(
   );
 }
 
-export function resolveProductPaymentAmounts(
-  payment: FinanceProductPaymentRow,
+export function resolveProductPaymentAmounts<
+  T extends FinanceProductPaymentAmountRow,
+>(
+  payment: T,
 ): FinanceProductPaymentAmounts {
   const gross =
     payment.grossAmountCentavos ?? payment.priceCentavos ?? 0;
@@ -416,8 +435,10 @@ export function resolveProductPaymentAmounts(
   };
 }
 
-export function summarizeProductPayments(
-  payments: FinanceProductPaymentRow[],
+export function summarizeProductPayments<
+  T extends FinanceProductPaymentAmountRow,
+>(
+  payments: T[],
 ): FinancePaymentsSummary {
   const summary: FinancePaymentsSummary = {
     count: 0,
@@ -438,4 +459,38 @@ export function summarizeProductPayments(
   }
 
   return summary;
+}
+
+export function summarizeProductPaymentsByProduct<
+  T extends FinanceProductPaymentAmountRow & { productId: string },
+>(
+  payments: T[],
+): Map<
+  string,
+  {
+    grossRevenueCentavos: number;
+    automatizeNetRevenueCentavos: number;
+  }
+> {
+  const summaries = new Map<
+    string,
+    {
+      grossRevenueCentavos: number;
+      automatizeNetRevenueCentavos: number;
+    }
+  >();
+
+  for (const payment of payments) {
+    const amounts = resolveProductPaymentAmounts(payment);
+    const summary = summaries.get(payment.productId) ?? {
+      grossRevenueCentavos: 0,
+      automatizeNetRevenueCentavos: 0,
+    };
+
+    summary.grossRevenueCentavos += amounts.grossCentavos;
+    summary.automatizeNetRevenueCentavos += amounts.automatizeNetCentavos;
+    summaries.set(payment.productId, summary);
+  }
+
+  return summaries;
 }

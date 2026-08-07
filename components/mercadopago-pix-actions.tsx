@@ -13,8 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { PLAN_DEFINITIONS, PLAN_TYPES } from "@/lib/stripe/plans";
+import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { PlanType } from "@/lib/db/schema";
+import { PLAN_DEFINITIONS, PLAN_TYPES } from "@/lib/stripe/plans";
 
 export type PixLinkView = {
   id: string;
@@ -40,10 +41,7 @@ function formatMoney(amountCents: number, currency: string): string {
 }
 
 function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatShortDateTimeInSaoPaulo(value);
 }
 
 export function MercadoPagoPixActions({

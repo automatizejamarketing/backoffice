@@ -8,6 +8,7 @@ import {
   formatPlanLabel,
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
+import { formatDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 
 interface Props {
   userId: string;
@@ -23,12 +24,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 function formatDate(value: Date | string | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "medium",
-  }).format(d);
+  return formatDateInSaoPaulo(value);
 }
 
 export function SubscriptionSummaryCard({

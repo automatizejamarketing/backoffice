@@ -31,6 +31,7 @@ describe("normalizeUsersFilterParams", () => {
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
+        accountStatus: "all",
         fieldFilter: null,
         sort: "default",
         consultantId: "550e8400-e29b-41d4-a716-446655440000",
@@ -69,6 +70,7 @@ describe("normalizeUsersFilterParams", () => {
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
+        accountStatus: "all",
         fieldFilter: null,
         sort: "default",
         consultantId: "all",
@@ -156,6 +158,14 @@ describe("normalizeUsersFilterParams", () => {
       performanceStatus: "no_drop",
     });
     expect(filters.performanceStatus).toBe("no_drop");
+  });
+
+  test("accepts account status filters", () => {
+    const filters = normalizeUsersFilterParams({
+      accountStatus: "active_plan_pix",
+    });
+
+    expect(filters.accountStatus).toBe("active_plan_pix");
   });
 
   test("accepts performanceStatus error", () => {

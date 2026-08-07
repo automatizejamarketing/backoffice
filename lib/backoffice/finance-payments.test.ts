@@ -6,6 +6,7 @@ import {
   resolveProductPaymentAmounts,
   summarizeAutomatizePayments,
   summarizeProductPayments,
+  summarizeProductPaymentsByProduct,
   listAutomatizePaymentNetGaps,
 } from "./finance-payments";
 
@@ -251,6 +252,32 @@ describe("finance payments summaries", () => {
 
     expect(amounts.automatizeNetCentavos).toBe(-29);
     expect(amounts.platformFeeGrossCentavos).toBe(50);
+  });
+
+  test("aggregates negative platform net revenue without breaking the product list", () => {
+    const payment = {
+      ...productPaymentFixture,
+      financialModel: "platform_fee_coproduction_v2" as const,
+      platformFeeBasisPoints: 500,
+      platformFeeGrossCentavos: 50,
+      automatizeTotalNetRevenueCentavos: -29,
+      expertShareBasisPoints: 10000,
+      expertRevenueCentavos: 950,
+      grossAmountCentavos: 1000,
+      netAmountCentavos: 921,
+      feeAmountCentavos: 79,
+      priceCentavos: 1000,
+    };
+
+    const summaries = summarizeProductPaymentsByProduct([
+      { ...payment, id: "pp6", orderId: "o6", productId: "product-1" },
+      { ...payment, id: "pp7", orderId: "o7", productId: "product-1" },
+    ]);
+
+    expect(summaries.get("product-1")).toEqual({
+      grossRevenueCentavos: 2000,
+      automatizeNetRevenueCentavos: -58,
+    });
   });
 
   test("labels stripe product payments as card with stripe reference", () => {
