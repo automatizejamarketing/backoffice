@@ -25,7 +25,6 @@ describe("product admin input", () => {
         coproducerType: null,
         coproducerExpertId: null,
         coproducerShareBasisPoints: 0,
-        platformFeeBasisPointsOverride: null,
         priceCentavos: 12900,
         description: null,
         coverUrl: null,
@@ -104,30 +103,15 @@ describe("product admin input", () => {
     );
   });
 
-  it("accepts an optional product platform fee override", () => {
-    const inherited = parseProductAdminInput({
-      ownerType: "automatize",
-      title: "Produto herdado",
-      priceCentavos: 1000,
-      platformFeePercentOverride: null,
-    });
-    const customized = parseProductAdminInput({
+  it("ignores the legacy product platform fee override", () => {
+    const parsed = parseProductAdminInput({
       ownerType: "automatize",
       title: "Produto personalizado",
       priceCentavos: 1000,
       platformFeePercentOverride: 3.5,
     });
 
-    assert.equal(inherited.platformFeeBasisPointsOverride, null);
-    assert.equal(customized.platformFeeBasisPointsOverride, 350);
-    assert.throws(() =>
-      parseProductAdminInput({
-        ownerType: "automatize",
-        title: "Produto inválido",
-        priceCentavos: 1000,
-        platformFeePercentOverride: 101,
-      }),
-    );
+    assert.equal("platformFeeBasisPointsOverride" in parsed, false);
   });
 
   it("accepts an internal R2-backed product cover URL", () => {

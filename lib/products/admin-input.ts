@@ -23,7 +23,6 @@ const schema = z.object({
     .nullable()
     .or(z.literal("")),
   priceCentavos: z.number().int().min(0),
-  platformFeePercentOverride: z.number().min(0).max(100).optional().nullable(),
   hasCoproduction: z.boolean().default(false),
   coproducerType: z.enum(["automatize", "expert"]).optional().nullable(),
   coproducerExpertId: z.string().uuid().optional().nullable(),
@@ -86,11 +85,6 @@ export function parseProductAdminInput(input: unknown) {
     description: parsed.description || null,
     coverUrl: parsed.coverUrl || null,
     priceCentavos: parsed.priceCentavos,
-    platformFeeBasisPointsOverride:
-      parsed.platformFeePercentOverride === null ||
-      parsed.platformFeePercentOverride === undefined
-        ? null
-        : Math.round(parsed.platformFeePercentOverride * 100),
     ownerExpertShareBasisPoints:
       parsed.ownerType === "expert" ? 10_000 - coproducerShareBasisPoints : 0,
     coproducerType: hasCoproduction ? parsed.coproducerType! : null,

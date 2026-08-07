@@ -49,7 +49,8 @@ export function describeAutomatizePaymentSequence(paymentNumber: number): {
 export type ProductFinancialModel =
   | "legacy_net_split"
   | "platform_fee_coproduction"
-  | "platform_fee_coproduction_v2";
+  | "platform_fee_coproduction_v2"
+  | "platform_fee_coproduction_v3";
 
 export type FinanceProductPaymentRow = {
   id: string;
@@ -70,6 +71,7 @@ export type FinanceProductPaymentRow = {
   ownerType: ProductOwnerType;
   financialModel: ProductFinancialModel;
   platformFeeBasisPoints: number | null;
+  platformFeeFixedCentavos: number | null;
   platformFeeGrossCentavos: number | null;
   automatizeCoproductionRevenueCentavos: number | null;
   automatizeProductRevenueCentavos: number | null;
@@ -97,6 +99,7 @@ export type FinanceProductPaymentAmountRow = Pick<
   | "ownerType"
   | "financialModel"
   | "platformFeeBasisPoints"
+  | "platformFeeFixedCentavos"
   | "platformFeeGrossCentavos"
   | "automatizeCoproductionRevenueCentavos"
   | "automatizeProductRevenueCentavos"
@@ -267,7 +270,8 @@ function usesPlatformFeeFinancialModel(
 ): boolean {
   return (
     financialModel === "platform_fee_coproduction" ||
-    financialModel === "platform_fee_coproduction_v2"
+    financialModel === "platform_fee_coproduction_v2" ||
+    financialModel === "platform_fee_coproduction_v3"
   );
 }
 
@@ -278,6 +282,7 @@ export function resolveProductPlatformFeeGrossCentavos(
     | "priceCentavos"
     | "financialModel"
     | "platformFeeBasisPoints"
+    | "platformFeeFixedCentavos"
     | "platformFeeGrossCentavos"
   >,
 ): number | null {
@@ -294,7 +299,14 @@ export function resolveProductPlatformFeeGrossCentavos(
   }
 
   const gross = payment.grossAmountCentavos ?? payment.priceCentavos ?? 0;
-  return Math.round((gross * payment.platformFeeBasisPoints) / 10_000);
+  const fixedFee =
+    payment.financialModel === "platform_fee_coproduction_v3"
+      ? (payment.platformFeeFixedCentavos ?? 0)
+      : 0;
+  return Math.min(
+    gross,
+    Math.round((gross * payment.platformFeeBasisPoints) / 10_000) + fixedFee,
+  );
 }
 
 export function describeProductPaymentProvider(
@@ -347,6 +359,7 @@ export function resolveAutomatizeProductNetCentavos(
     | "ownerType"
     | "financialModel"
     | "platformFeeBasisPoints"
+    | "platformFeeFixedCentavos"
     | "platformFeeGrossCentavos"
     | "automatizeCoproductionRevenueCentavos"
     | "automatizeProductRevenueCentavos"
@@ -361,12 +374,22 @@ export function resolveAutomatizeProductNetCentavos(
     return payment.automatizeTotalNetRevenueCentavos;
   }
 
+  if (payment.ownerType === "automatize") {
+    return gatewayNet;
+  }
+
   if (usesPlatformFeeFinancialModel(payment.financialModel)) {
     const gross = payment.grossAmountCentavos ?? payment.priceCentavos ?? 0;
     const platformFee =
       payment.platformFeeGrossCentavos ??
       (payment.platformFeeBasisPoints !== null
-        ? Math.round((gross * payment.platformFeeBasisPoints) / 10_000)
+        ? Math.min(
+            gross,
+            Math.round((gross * payment.platformFeeBasisPoints) / 10_000) +
+              (payment.financialModel === "platform_fee_coproduction_v3"
+                ? (payment.platformFeeFixedCentavos ?? 0)
+                : 0),
+          )
         : 0);
     const automatizeGross =
       platformFee +
@@ -374,10 +397,6 @@ export function resolveAutomatizeProductNetCentavos(
       (payment.automatizeProductRevenueCentavos ?? 0);
 
     return automatizeGross - (payment.feeAmountCentavos ?? 0);
-  }
-
-  if (payment.ownerType === "automatize") {
-    return gatewayNet;
   }
 
   const derivedExpertRevenue =

@@ -12,7 +12,6 @@ import {
   Pencil,
   Plus,
   RefreshCcw,
-  Settings2,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -64,6 +63,10 @@ import {
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
 import {
+  formatExpertPlatformFee,
+  formatExpertPlatformFeePreview,
+} from "@/lib/products/expert-fee-display";
+import {
   formatDateInSaoPaulo,
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
@@ -76,6 +79,8 @@ type Expert = {
   phone: string | null;
   pixKey: string;
   status: "active" | "inactive";
+  platformFeeBasisPoints: number;
+  platformFeeFixedCentavos: number;
 };
 
 type Product = {
@@ -87,7 +92,6 @@ type Product = {
   description: string | null;
   coverUrl: string | null;
   priceCentavos: number;
-  platformFeeBasisPointsOverride: number | null;
   ownerExpertShareBasisPoints: number;
   coproducerType: "automatize" | "expert" | null;
   coproducerExpertId: string | null;
@@ -156,8 +160,6 @@ type ProductFormState = {
   description: string;
   coverUrl: string;
   priceReais: string;
-  useCustomPlatformFee: boolean;
-  platformFeePercentOverride: string;
   hasCoproduction: boolean;
   coproducerType: "automatize" | "expert";
   coproducerExpertId: string;
@@ -174,6 +176,8 @@ type ExpertFormState = {
   profileImageUrl: string | null;
   phone: string;
   pixKey: string;
+  platformFeePercent: string;
+  platformFeeFixedReais: string;
   status: Expert["status"];
 };
 
@@ -182,6 +186,8 @@ const emptyExpert: ExpertFormState = {
   profileImageUrl: null,
   phone: "",
   pixKey: "",
+  platformFeePercent: "5,49%",
+  platformFeeFixedReais: "R$ 0,39",
   status: "active",
 };
 
@@ -193,8 +199,6 @@ const emptyProduct: ProductFormState = {
   description: "",
   coverUrl: "",
   priceReais: "",
-  useCustomPlatformFee: false,
-  platformFeePercentOverride: "",
   hasCoproduction: false,
   coproducerType: "automatize",
   coproducerExpertId: "",
@@ -370,13 +374,14 @@ export function ProductsAdminWorkspace() {
   const [coverInputKey, setCoverInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
-  const [platformFeePercent, setPlatformFeePercent] = useState("5");
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
 
   const selectedProduct = useMemo(
     () => products.find((row) => row.product.id === selectedProductId)?.product,
     [products, selectedProductId],
+  );
+  const selectedOwnerExpert = useMemo(
+    () => experts.find((expert) => expert.id === productForm.expertId) ?? null,
+    [experts, productForm.expertId],
   );
   const ownerExpertSharePercent = productForm.hasCoproduction
     ? Math.max(
@@ -423,32 +428,27 @@ export function ProductsAdminWorkspace() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
-          fetch("/api/products/admin/settings", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextSettings] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
-          settingsResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
-      setPlatformFeePercent(
-        String(nextSettings.platformFeeBasisPoints / 100).replace(".", ","),
-      );
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -458,32 +458,6 @@ export function ProductsAdminWorkspace() {
       setLoading(false);
     }
   }, []);
-
-  async function saveFinancialSettings(event: React.FormEvent) {
-    event.preventDefault();
-    setSavingSettings(true);
-    try {
-      const response = await fetch("/api/products/admin/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platformFeePercent: Number(platformFeePercent.replace(",", ".")),
-        }),
-      });
-      if (!response.ok) throw new Error(await readError(response));
-      toast.success("Taxa da plataforma atualizada para novas vendas.");
-      setSettingsDialogOpen(false);
-      await loadAll();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Não foi possível atualizar a taxa.",
-      );
-    } finally {
-      setSavingSettings(false);
-    }
-  }
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -525,9 +499,6 @@ export function ProductsAdminWorkspace() {
         coverUrl,
         expertId: productForm.expertId || null,
         priceCentavos: parseBrlCurrencyToCentavos(productForm.priceReais),
-        platformFeePercentOverride: productForm.useCustomPlatformFee
-          ? parsePercentageInput(productForm.platformFeePercentOverride)
-          : null,
         coproducerExpertId: productForm.coproducerExpertId || null,
         coproducerSharePercent: parsePercentageInput(
           productForm.coproducerSharePercent,
@@ -585,13 +556,6 @@ export function ProductsAdminWorkspace() {
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
-      useCustomPlatformFee: row.platformFeeBasisPointsOverride !== null,
-      platformFeePercentOverride:
-        row.platformFeeBasisPointsOverride === null
-          ? ""
-          : formatPercentageInput(
-              String(row.platformFeeBasisPointsOverride / 100).replace(".", ","),
-            ),
       hasCoproduction: row.coproducerType !== null,
       coproducerType: row.coproducerType ?? "automatize",
       coproducerExpertId: row.coproducerExpertId ?? "",
@@ -671,10 +635,6 @@ export function ProductsAdminWorkspace() {
           description: row.description,
           coverUrl: row.coverUrl,
           priceCentavos: row.priceCentavos,
-          platformFeePercentOverride:
-            row.platformFeeBasisPointsOverride === null
-              ? null
-              : row.platformFeeBasisPointsOverride / 100,
           hasCoproduction: row.coproducerType !== null,
           coproducerType: row.coproducerType,
           coproducerExpertId: row.coproducerExpertId,
@@ -800,7 +760,17 @@ export function ProductsAdminWorkspace() {
       const response = await fetch("/api/products/admin/experts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, profileImageUrl }),
+        body: JSON.stringify({
+          ...payload,
+          platformFeePercent: parsePercentageInput(
+            String(payload.platformFeePercent ?? ""),
+          ),
+          platformFeeFixedCentavos: parseBrlCurrencyToCentavos(
+            String(payload.platformFeeFixedReais ?? ""),
+          ),
+          platformFeeFixedReais: undefined,
+          profileImageUrl,
+        }),
       });
       if (!response.ok) return toast.error(await readError(response));
       formElement.reset();
@@ -828,6 +798,12 @@ export function ProductsAdminWorkspace() {
       profileImageUrl: expert.profileImageUrl,
       phone: formatBrazilianPhoneInput(expert.phone),
       pixKey: expert.pixKey,
+      platformFeePercent: formatPercentageInput(
+        String(expert.platformFeeBasisPoints / 100).replace(".", ","),
+      ),
+      platformFeeFixedReais: formatBrlCurrencyFromCentavos(
+        expert.platformFeeFixedCentavos,
+      ),
       status: expert.status,
     });
     setExpertDialogOpen(true);
@@ -883,7 +859,19 @@ export function ProductsAdminWorkspace() {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...expertForm, profileImageUrl }),
+          body: JSON.stringify({
+            displayName: expertForm.displayName,
+            phone: expertForm.phone,
+            pixKey: expertForm.pixKey,
+            status: expertForm.status,
+            platformFeePercent: parsePercentageInput(
+              expertForm.platformFeePercent,
+            ),
+            platformFeeFixedCentavos: parseBrlCurrencyToCentavos(
+              expertForm.platformFeeFixedReais,
+            ),
+            profileImageUrl,
+          }),
         },
       );
       if (!response.ok) return toast.error(await readError(response));
@@ -965,16 +953,10 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <CardTitle>Produtos</CardTitle>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => setSettingsDialogOpen(true)}>
-                  <Settings2 className="size-4" />
-                  Taxa {platformFeePercent}%
-                </Button>
-                <Button size="sm" onClick={createProduct}>
-                  <Plus className="size-4" />
-                  Novo produto
-                </Button>
-              </div>
+              <Button size="sm" onClick={createProduct}>
+                <Plus className="size-4" />
+                Novo produto
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table className="min-w-[1180px]">
@@ -1052,16 +1034,38 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader><CardTitle>Vincular expert</CardTitle></CardHeader>
             <CardContent>
-              <form onSubmit={createExpert} className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <form onSubmit={createExpert} className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                 <Field label="E-mail do usuário"><Input name="email" type="email" required /></Field>
                 <Field label="Nome público"><Input name="displayName" required /></Field>
                 <Field label="WhatsApp"><Input name="phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={15} placeholder="(11) 99999-9999" value={expertPhone} onChange={(event) => setExpertPhone(formatBrazilianPhoneInput(event.target.value))} /></Field>
                 <Field label="Chave Pix"><Input name="pixKey" required /></Field>
+                <Field label="Taxa percentual">
+                  <Input
+                    name="platformFeePercent"
+                    inputMode="decimal"
+                    defaultValue="5,49%"
+                    onChange={(event) => {
+                      event.currentTarget.value = formatPercentageInput(event.currentTarget.value);
+                    }}
+                    required
+                  />
+                </Field>
+                <Field label="Taxa fixa">
+                  <Input
+                    name="platformFeeFixedReais"
+                    inputMode="numeric"
+                    defaultValue="R$ 0,39"
+                    onChange={(event) => {
+                      event.currentTarget.value = formatBrlCurrencyInput(event.currentTarget.value);
+                    }}
+                    required
+                  />
+                </Field>
                 <Field label="Foto de perfil">
                   <Input name="profileImage" type="file" accept="image/avif,image/gif,image/jpeg,image/png,image/webp" />
                   <p className="text-xs leading-5 text-muted-foreground">Opcional · imagem de até 5 MB.</p>
                 </Field>
-                <div className="md:col-span-2 xl:col-span-5">
+                <div className="md:col-span-2 xl:col-span-6">
                   <Button type="submit" disabled={creatingExpert}>
                     {creatingExpert ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                     {creatingExpert ? "Vinculando..." : "Vincular expert"}
@@ -1073,12 +1077,13 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader><CardTitle>Experts</CardTitle></CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[860px]">
+              <Table className="min-w-[1040px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Expert</TableHead>
                     <TableHead className="w-[170px]">WhatsApp</TableHead>
                     <TableHead className="w-[280px]">Chave Pix</TableHead>
+                    <TableHead className="w-[190px]">Taxa da plataforma</TableHead>
                     <TableHead className="w-[100px]">Status</TableHead>
                     <TableHead className="w-[110px] text-right">Ações</TableHead>
                   </TableRow>
@@ -1105,6 +1110,12 @@ export function ProductsAdminWorkspace() {
                             <Copy className="size-3.5" />
                           </Button>
                         </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-sm tabular-nums">
+                        {formatExpertPlatformFee(
+                          expert.platformFeeBasisPoints,
+                          expert.platformFeeFixedCentavos,
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
@@ -1251,42 +1262,6 @@ export function ProductsAdminWorkspace() {
       </Tabs>
 
       <Dialog
-        open={settingsDialogOpen}
-        onOpenChange={setSettingsDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Taxa da plataforma</DialogTitle>
-            <DialogDescription>
-              Aplicada somente às novas vendas. O custo do Mercado Pago é absorvido pelo Automatize dentro desta receita.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={saveFinancialSettings} className="grid gap-4">
-            <Field label="Taxa sobre o valor bruto (%)">
-              <Input
-                inputMode="decimal"
-                value={platformFeePercent}
-                onChange={(event) => setPlatformFeePercent(event.target.value)}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Padrão: 5%. Em uma venda de R$ 100,00, R$ 5,00 são a receita de gateway antes do custo do Mercado Pago.
-              </p>
-            </Field>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setSettingsDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={savingSettings}>
-                {savingSettings ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                {savingSettings ? "Salvando..." : "Salvar taxa"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
         open={productDialogOpen}
         onOpenChange={(open) => {
           if (!open) closeProductDialog();
@@ -1320,53 +1295,14 @@ export function ProductsAdminWorkspace() {
               </select>
             </Field>
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium">Taxa da plataforma</p>
-                  <p className="text-xs text-muted-foreground">
-                    {productForm.useCustomPlatformFee
-                      ? "Esta taxa será usada somente nas novas vendas deste produto."
-                      : `Herdando a taxa global atual de ${platformFeePercent}%.`}
-                  </p>
-                </div>
-                <label className="flex shrink-0 items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={productForm.useCustomPlatformFee}
-                    onChange={(event) =>
-                      setProductForm((current) => ({
-                        ...current,
-                        useCustomPlatformFee: event.target.checked,
-                        platformFeePercentOverride: event.target.checked
-                          ? formatPercentageInput(platformFeePercent)
-                          : "",
-                      }))
-                    }
-                  />
-                  Personalizar taxa
-                </label>
-              </div>
-              {productForm.useCustomPlatformFee ? (
-                <Field label="Taxa deste produto">
-                  <Input
-                    inputMode="decimal"
-                    placeholder="Ex.: 8%"
-                    value={productForm.platformFeePercentOverride}
-                    onChange={(event) =>
-                      setProductForm((current) => ({
-                        ...current,
-                        platformFeePercentOverride: formatPercentageInput(
-                          event.target.value,
-                        ),
-                      }))
-                    }
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    O percentual fica congelado no pedido quando a venda é criada.
-                  </p>
-                </Field>
-              ) : null}
+              <p className="text-sm font-medium">Taxa da plataforma</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {productForm.ownerType === "automatize"
+                  ? "Produto próprio: sem taxa da plataforma. O líquido do Automatize é o valor bruto menos o custo do gateway."
+                  : selectedOwnerExpert
+                    ? `Taxa do expert: ${formatExpertPlatformFee(selectedOwnerExpert.platformFeeBasisPoints, selectedOwnerExpert.platformFeeFixedCentavos)}. Ela é congelada no pedido quando a venda é criada.`
+                    : "Selecione o expert proprietário para consultar a taxa aplicável."}
+              </p>
             </div>
             {productForm.ownerType === "expert" ? (
               <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
@@ -1538,6 +1474,50 @@ export function ProductsAdminWorkspace() {
             <Field label="Chave Pix">
               <Input value={expertForm.pixKey} onChange={(event) => setExpertForm({ ...expertForm, pixKey: event.target.value })} required />
             </Field>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <div>
+                <p className="text-sm font-medium">Taxa da plataforma</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Aplicada somente às novas vendas de produtos deste expert.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Percentual">
+                  <Input
+                    inputMode="decimal"
+                    value={expertForm.platformFeePercent}
+                    onChange={(event) =>
+                      setExpertForm({
+                        ...expertForm,
+                        platformFeePercent: formatPercentageInput(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </Field>
+                <Field label="Valor fixo">
+                  <Input
+                    inputMode="numeric"
+                    value={expertForm.platformFeeFixedReais}
+                    onChange={(event) =>
+                      setExpertForm({
+                        ...expertForm,
+                        platformFeeFixedReais: formatBrlCurrencyInput(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </Field>
+              </div>
+              <p className="text-xs font-medium text-foreground">
+                {formatExpertPlatformFeePreview(
+                  Math.round(parsePercentageInput(expertForm.platformFeePercent) * 100),
+                  expertForm.platformFeeFixedReais
+                    ? parseBrlCurrencyToCentavos(expertForm.platformFeeFixedReais)
+                    : 0,
+                )}
+              </p>
+            </div>
             <Field label="Status">
               <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={expertForm.status} onChange={(event) => setExpertForm({ ...expertForm, status: event.target.value as Expert["status"] })}>
                 <option value="active">Ativo</option>

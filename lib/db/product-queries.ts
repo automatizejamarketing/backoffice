@@ -125,6 +125,7 @@ export async function listProductsAdmin() {
         ownerType: product.ownerType,
         financialModel: productOrder.financialModel,
         platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
+        platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
         platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
         automatizeCoproductionRevenueCentavos:
           productPayment.automatizeCoproductionRevenueCentavos,
