@@ -259,6 +259,7 @@ export async function listProductOrders() {
   return db
     .select({
       id: productOrder.id,
+      productId: productOrder.productId,
       productTitle: productOrder.productTitleSnapshot,
       buyerName: productOrder.buyerName,
       buyerEmail: productOrder.buyerEmail,
@@ -267,6 +268,7 @@ export async function listProductOrders() {
       approvedAt: productOrder.approvedAt,
       createdAt: productOrder.createdAt,
       providerPaymentId: productPayment.providerPaymentId,
+      paymentStatus: productPayment.status,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,

@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Receipt,
   RefreshCcw,
   Trash2,
   Upload,
@@ -145,6 +146,7 @@ type Content = {
 
 type Order = {
   id: string;
+  productId: string;
   productTitle: string;
   buyerName: string;
   buyerEmail: string;
@@ -152,8 +154,10 @@ type Order = {
   status: string;
   createdAt: string;
   providerPaymentId: string | null;
+  paymentStatus: string | null;
   paymentMethodId: string | null;
   paymentTypeId: string | null;
+  grossAmountCentavos: number | null;
   netAmountCentavos: number | null;
   feeAmountCentavos: number | null;
   platformFeeGrossCentavos: number | null;
@@ -283,6 +287,14 @@ const orderStatusLabel: Record<string, string> = {
   failed: "Falhou",
   refunded: "Reembolsado",
   canceled: "Cancelado",
+};
+
+const paymentStatusLabel: Record<string, string> = {
+  pending: "Pendente",
+  approved: "Aprovado",
+  failed: "Falhou",
+  refunded: "Reembolsado",
+  charged_back: "Chargeback",
 };
 
 function money(value: number) {
@@ -616,6 +628,9 @@ export function ProductsAdminWorkspace({
   const [loading, setLoading] = useState(false);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
+  const [paymentsDialogProduct, setPaymentsDialogProduct] = useState<Product | null>(
+    null,
+  );
 
   const selectedProduct = useMemo(
     () => products.find((row) => row.product.id === selectedProductId)?.product,
@@ -629,6 +644,10 @@ export function ProductsAdminWorkspace({
     () => new Map(experts.map((expert) => [expert.id, expert])),
     [experts],
   );
+  const productPayments = useMemo(() => {
+    if (!paymentsDialogProduct) return [];
+    return orders.filter((order) => order.productId === paymentsDialogProduct.id);
+  }, [orders, paymentsDialogProduct]);
   const ownerExpertSharePercent = productForm.hasCoproduction
     ? Math.max(
         0,
@@ -1415,6 +1434,7 @@ export function ProductsAdminWorkspace({
                                 </DropdownMenuItem>
                               ) : null}
                               <DropdownMenuItem onSelect={() => void copyCheckoutLink(row)}><Copy /> Copiar link de checkout</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setPaymentsDialogProduct(row)}><Receipt /> Ver pagamentos</DropdownMenuItem>
                               <DropdownMenuItem onSelect={() => manageContent(row.id)}><BookOpen /> Conteúdos</DropdownMenuItem>
                               <DropdownMenuItem onSelect={() => editProduct(row)}><Pencil /> Editar</DropdownMenuItem>
                               <DropdownMenuSeparator />
@@ -2274,6 +2294,104 @@ export function ProductsAdminWorkspace({
               </div>
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={paymentsDialogProduct !== null}
+        onOpenChange={(open) => {
+          if (!open) setPaymentsDialogProduct(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>
+              Pagamentos {paymentsDialogProduct ? `· ${paymentsDialogProduct.title}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Vendas e pagamentos registrados para este produto.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[min(60vh,640px)] overflow-auto rounded-lg border">
+            <Table className="min-w-[920px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Data</TableHead>
+                  <TableHead>Comprador</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead>Método</TableHead>
+                  <TableHead>ID pagamento</TableHead>
+                  <TableHead>Status pedido</TableHead>
+                  <TableHead>Status pagamento</TableHead>
+                  <TableHead className="text-right">Líquido</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {productPayments.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="h-28 text-center text-muted-foreground"
+                    >
+                      Nenhum pagamento registrado para este produto.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  productPayments.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {dateTime(order.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        <p className="font-medium">{order.buyerName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {order.buyerEmail}
+                        </p>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                        {money(order.priceCentavos)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {paymentMethod(order)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                        {order.providerPaymentId ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {orderStatusLabel[order.status] ?? order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {order.paymentStatus ? (
+                          <Badge variant="outline">
+                            {paymentStatusLabel[order.paymentStatus] ??
+                              order.paymentStatus}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                        {order.netAmountCentavos !== null
+                          ? money(order.netAmountCentavos)
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPaymentsDialogProduct(null)}
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
