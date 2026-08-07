@@ -13,35 +13,29 @@ type ProductAssetsR2Config = {
 let client: S3Client | null = null;
 
 function getConfig(): ProductAssetsR2Config {
-  const config = {
-    accountId: process.env.CLOUDFLARE_R2_ACCOUNT_ID,
-    bucket: process.env.PRODUCT_ASSETS_R2_BUCKET,
-    accessKeyId: process.env.PRODUCT_ASSETS_R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.PRODUCT_ASSETS_R2_SECRET_ACCESS_KEY,
-  };
+  const accountId = process.env.CLOUDFLARE_R2_ACCOUNT_ID;
+  const bucket = process.env.PRODUCT_ASSETS_R2_BUCKET;
+  const accessKeyId = process.env.PRODUCT_ASSETS_R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.PRODUCT_ASSETS_R2_SECRET_ACCESS_KEY;
 
-  const missing = Object.entries(config)
-    .filter(([, value]) => !value)
-    .map(([key]) => key);
-
-  if (missing.length > 0) {
+  if (!accountId || !bucket || !accessKeyId || !secretAccessKey) {
     throw new Error(
       "O armazenamento R2 dos produtos não está configurado neste ambiente. Crie credenciais no Cloudflare R2 e adicione-as em .env.r2.local.",
     );
   }
 
   if (
-    config.accessKeyId === "[SENSITIVE]" ||
-    config.secretAccessKey === "[SENSITIVE]" ||
-    config.accessKeyId.length < 16 ||
-    config.secretAccessKey.length < 16
+    accessKeyId === "[SENSITIVE]" ||
+    secretAccessKey === "[SENSITIVE]" ||
+    accessKeyId.length < 16 ||
+    secretAccessKey.length < 16
   ) {
     throw new Error(
       "As credenciais R2 locais estão inválidas. O Vercel não exporta chaves sensíveis; copie Access Key ID e Secret de Cloudflare R2 para .env.r2.local.",
     );
   }
 
-  return config as ProductAssetsR2Config;
+  return { accountId, bucket, accessKeyId, secretAccessKey };
 }
 
 function getClient(config: ProductAssetsR2Config) {
