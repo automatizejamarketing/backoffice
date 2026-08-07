@@ -5,12 +5,14 @@ import {
   failPlaybookInsightsRun,
   persistPlaybookInsightsForUser,
 } from "@/lib/db/playbook-insights-queries";
+import { getConsultantPlaybookAlertConfig } from "@/lib/db/proactivity-alert-queries";
 import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE } from "@/lib/playbook-insights/constants";
 import { evaluatePlaybookInsights } from "@/lib/playbook-insights/evaluate";
 import { fetchCampaignMetricsForAccount } from "@/lib/playbook-insights/fetch-campaign-metrics";
+import { deliverPlaybookInsightsToSlack } from "@/lib/proactivity/slack-delivery";
 
 function formatBatchError(error: unknown): string {
   if (error instanceof GraphApiError) {
@@ -88,6 +90,12 @@ export async function runPlaybookInsightsBatch(
     requestedByEmail: options.requestedByEmail ?? null,
   });
 
+  const alertConfig = await getConsultantPlaybookAlertConfig();
+  const evaluationConfig = {
+    enabledRuleIds: alertConfig.enabledPlaybookRuleIds,
+    thresholdsByRuleId: alertConfig.thresholdsByPlaybookRuleId,
+  };
+
   const results: PlaybookInsightsBatchResult["results"] = [];
   let insightsCreated = 0;
   let campaignsEvaluated = 0;
@@ -122,6 +130,7 @@ export async function runPlaybookInsightsBatch(
           const empty = evaluatePlaybookInsights({
             accountId: null,
             campaigns: [],
+            config: evaluationConfig,
           });
           await persistPlaybookInsightsForUser({
             runId,
@@ -149,12 +158,30 @@ export async function runPlaybookInsightsBatch(
         const evaluation = evaluatePlaybookInsights({
           accountId,
           campaigns,
+          config: evaluationConfig,
         });
         const persisted = await persistPlaybookInsightsForUser({
           runId,
           userId: target.id,
           evaluation,
         });
+
+        if (persisted.createdInsights.length > 0) {
+          try {
+            await deliverPlaybookInsightsToSlack({
+              userId: target.id,
+              createdInsights: persisted.createdInsights,
+              deliverSlackByPlaybookRuleId:
+                alertConfig.deliverSlackByPlaybookRuleId,
+            });
+          } catch (slackError) {
+            console.error(
+              "[playbook-insights] slack delivery failed",
+              target.id,
+              slackError,
+            );
+          }
+        }
 
         insightsCreated += persisted.insightsCreated;
         campaignsEvaluated += campaigns.length;

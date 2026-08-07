@@ -119,11 +119,24 @@ export async function failPlaybookInsightsRun(
     .where(eq(performanceSnapshotRun.id, runId));
 }
 
+export type NewlyCreatedPlaybookInsight = {
+  ruleId: string;
+  entityId: string;
+  title: string;
+  evidence: string;
+  recommendation: string;
+  severity: string;
+  entityName: string | null;
+};
+
 export async function persistPlaybookInsightsForUser(args: {
   runId: string;
   userId: string;
   evaluation: PlaybookEvaluationResult;
-}): Promise<{ insightsCreated: number }> {
+}): Promise<{
+  insightsCreated: number;
+  createdInsights: NewlyCreatedPlaybookInsight[];
+}> {
   const { runId, userId, evaluation } = args;
   const capturedAt = new Date();
   const candidateKeys = new Set(
@@ -184,6 +197,7 @@ export async function persistPlaybookInsightsForUser(args: {
     }
 
     let insightsCreated = 0;
+    const createdInsights: NewlyCreatedPlaybookInsight[] = [];
     for (const candidate of evaluation.candidates) {
       const existing = openRows.find(
         (row) =>
@@ -229,9 +243,18 @@ export async function persistPlaybookInsightsForUser(args: {
         status: "open",
       });
       insightsCreated += 1;
+      createdInsights.push({
+        ruleId: candidate.ruleId,
+        entityId: candidate.entityId ?? "",
+        title: candidate.title,
+        evidence: candidate.evidence,
+        recommendation: candidate.recommendation,
+        severity: candidate.severity,
+        entityName: candidate.entityName ?? null,
+      });
     }
 
-    return { insightsCreated };
+    return { insightsCreated, createdInsights };
   });
 }
 

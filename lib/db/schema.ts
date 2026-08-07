@@ -906,6 +906,108 @@ export type BusinessManagedCampaignCache = InferSelectModel<
   typeof businessManagedCampaignCache
 >;
 
+export type ProactivityAudience = "client" | "consultant";
+export type ProactivityDeliveryChannel = "whatsapp" | "slack";
+export type ProactivityDeliveryStatus =
+  | "scheduled"
+  | "sending"
+  | "sent"
+  | "skipped"
+  | "failed";
+
+export const proactivityAlert = pgTable(
+  "proactivity_alerts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    ruleKey: varchar("rule_key", { length: 64 }).notNull(),
+    audience: varchar("audience", {
+      length: 16,
+      enum: ["client", "consultant"],
+    })
+      .$type<ProactivityAudience>()
+      .notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    thresholds: jsonb("thresholds")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
+    deliverWhatsapp: boolean("deliver_whatsapp").notNull().default(false),
+    deliverSlack: boolean("deliver_slack").notNull().default(false),
+    updatedByEmail: varchar("updated_by_email", { length: 100 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    ruleAudienceUnique: uniqueIndex(
+      "proactivity_alerts_rule_key_audience_unique",
+    ).on(table.ruleKey, table.audience),
+    audienceIdx: index("proactivity_alerts_audience_idx").on(table.audience),
+  }),
+);
+
+export type ProactivityAlert = InferSelectModel<typeof proactivityAlert>;
+
+export const proactivityAlertChangeLog = pgTable(
+  "proactivity_alert_change_logs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    alertId: uuid("alert_id")
+      .notNull()
+      .references(() => proactivityAlert.id),
+    adminEmail: varchar("admin_email", { length: 100 }).notNull(),
+    fieldName: varchar("field_name", { length: 80 }).notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+);
+
+export type ProactivityAlertChangeLog = InferSelectModel<
+  typeof proactivityAlertChangeLog
+>;
+
+export const proactivityAlertDelivery = pgTable(
+  "proactivity_alert_deliveries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    alertId: uuid("alert_id")
+      .notNull()
+      .references(() => proactivityAlert.id),
+    channel: varchar("channel", {
+      length: 16,
+      enum: ["whatsapp", "slack"],
+    })
+      .$type<ProactivityDeliveryChannel>()
+      .notNull(),
+    dedupKey: varchar("dedup_key", { length: 255 }).notNull(),
+    status: varchar("status", {
+      length: 16,
+      enum: ["scheduled", "sending", "sent", "skipped", "failed"],
+    })
+      .$type<ProactivityDeliveryStatus>()
+      .notNull()
+      .default("scheduled"),
+    reasonCode: varchar("reason_code", { length: 64 }),
+    errorMessage: text("error_message"),
+    providerMessageId: varchar("provider_message_id", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    alertChannelDedupUnique: uniqueIndex(
+      "proactivity_alert_deliveries_alert_channel_dedup_unique",
+    ).on(table.alertId, table.channel, table.dedupKey),
+    userIdx: index("proactivity_alert_deliveries_user_id_idx").on(table.userId),
+  }),
+);
+
+export type ProactivityAlertDelivery = InferSelectModel<
+  typeof proactivityAlertDelivery
+>;
+
 // Company table for storing brand information
 export const company = pgTable("companies", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
