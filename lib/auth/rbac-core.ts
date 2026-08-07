@@ -11,6 +11,7 @@ export type BackofficePermission =
   | "dashboard:view"
   | "finance:view"
   | "emails:view"
+  | "whatsapp:view"
   | "users:manage"
   | "billing:manage"
   | "posts:manage"
@@ -46,6 +47,7 @@ export const USER_HUB_TAB_VALUES = [
   "usage",
   "content",
   "audit",
+  "whatsapp",
 ] as const;
 
 export type UserHubTab = (typeof USER_HUB_TAB_VALUES)[number];
@@ -67,6 +69,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "dashboard:view",
     "finance:view",
     "emails:view",
+    "whatsapp:view",
     "users:manage",
     "billing:manage",
     "posts:manage",
@@ -82,6 +85,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   dev: [
     "dashboard:view",
     "emails:view",
+    "whatsapp:view",
     "users:manage",
     "posts:manage",
     "marketing:read",
