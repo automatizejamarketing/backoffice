@@ -1,6 +1,6 @@
-import { ilike, or, sql } from "drizzle-orm";
+import { ilike, or, sql, type SQL } from "drizzle-orm";
 import type { BusinessPortfolioItem } from "@/lib/db/business-queries";
-import { user } from "@/lib/db/schema";
+import { backofficeUser, user } from "@/lib/db/schema";
 import { normalizeBrazilianPhone } from "@/lib/phone";
 
 export function extractPhoneSearchDigits(search: string): string | null {
@@ -28,6 +28,15 @@ export function buildUserListSearchCondition(trimmedSearch: string) {
   }
 
   return or(...conditions);
+}
+
+export function buildPortfolioSearchCondition(trimmedSearch: string): SQL {
+  const base = buildUserListSearchCondition(trimmedSearch);
+  return or(
+    base,
+    ilike(backofficeUser.email, `%${trimmedSearch}%`),
+    ilike(backofficeUser.name, `%${trimmedSearch}%`),
+  )!;
 }
 
 export function matchesPortfolioSearch(

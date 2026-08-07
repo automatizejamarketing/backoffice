@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -24,21 +25,23 @@ export class BackofficeAuthorizationError extends Error {
   }
 }
 
-export async function getCurrentBackofficeActor(): Promise<BackofficeActor | null> {
-  const session = await auth();
-  const sessionEmail = session?.user?.email;
+export const getCurrentBackofficeActor = cache(
+  async (): Promise<BackofficeActor | null> => {
+    const session = await auth();
+    const sessionEmail = session?.user?.email;
 
-  if (sessionEmail) {
-    return getBackofficeActorByEmail(sessionEmail);
-  }
+    if (sessionEmail) {
+      return getBackofficeActorByEmail(sessionEmail);
+    }
 
-  const cookieStore = await cookies();
-  const magicSession = verifyBackofficeMagicSessionToken(
-    cookieStore.get(BACKOFFICE_MAGIC_SESSION_COOKIE)?.value,
-  );
+    const cookieStore = await cookies();
+    const magicSession = verifyBackofficeMagicSessionToken(
+      cookieStore.get(BACKOFFICE_MAGIC_SESSION_COOKIE)?.value,
+    );
 
-  return getBackofficeActorByEmail(magicSession?.email);
-}
+    return getBackofficeActorByEmail(magicSession?.email);
+  },
+);
 
 export async function requireBackofficePermission(
   permission: BackofficePermission,
