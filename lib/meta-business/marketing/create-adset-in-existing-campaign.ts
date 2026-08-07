@@ -25,6 +25,7 @@ import {
   CampaignObjective,
   type GraphApiAdSet,
 } from "@/lib/meta-business/types";
+import { getPagesWithInstagramAccounts } from "@/lib/meta-business/get-instagram-connected-page";
 
 export type CreateAdSetTargetingInput = {
   age_min: number;
@@ -72,16 +73,6 @@ type GraphApiCampaign = {
   lifetime_budget?: string;
   start_time?: string;
   stop_time?: string;
-};
-
-type GraphApiPage = {
-  id: string;
-  name?: string;
-  instagram_business_account?: { id: string; username?: string };
-};
-
-type GraphApiPagesResponse = {
-  data: GraphApiPage[];
 };
 
 type GraphApiPixel = { id: string; name?: string };
@@ -398,14 +389,10 @@ export async function createAdSetInExistingCampaign(
     campaignType,
   } = getAdSetOptimizationConfig(campaignObjective);
 
-  let pagesResponse: GraphApiPagesResponse;
+  let pagesResponse: Awaited<ReturnType<typeof getPagesWithInstagramAccounts>>;
   try {
-    pagesResponse = await metaApiCall<GraphApiPagesResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: "me/accounts",
-      params: "fields=id,name,instagram_business_account{id,username}",
-      accessToken,
+    pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
+      adAccountId: accountId,
     });
   } catch (error) {
     const graphError = errorToGraphErrorReturn(error);
