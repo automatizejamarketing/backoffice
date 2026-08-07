@@ -42,6 +42,7 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(admin, "team:manage")).toBe(true);
     expect(hasBackofficePermission(admin, "finance:view")).toBe(true);
     expect(hasBackofficePermission(admin, "emails:view")).toBe(true);
+    expect(hasBackofficePermission(admin, "whatsapp:view")).toBe(true);
   });
 
   test("limits marketing consultants to marketing portfolio access", () => {
@@ -49,6 +50,7 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(consultant, "marketing:write")).toBe(true);
     expect(hasBackofficePermission(consultant, "users:manage")).toBe(false);
     expect(hasBackofficePermission(consultant, "billing:manage")).toBe(false);
+    expect(hasBackofficePermission(consultant, "whatsapp:view")).toBe(false);
   });
 
   test("limits finance viewers to the financial area", () => {
@@ -57,6 +59,7 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(financeViewer, "users:manage")).toBe(false);
     expect(hasBackofficePermission(financeViewer, "emails:view")).toBe(false);
     expect(hasBackofficePermission(financeViewer, "marketing:read")).toBe(false);
+    expect(hasBackofficePermission(financeViewer, "whatsapp:view")).toBe(false);
   });
 
   test("gives dev technical access without finance, billing, or team", () => {
@@ -68,6 +71,7 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(dev, "billing:manage")).toBe(false);
     expect(hasBackofficePermission(dev, "team:manage")).toBe(false);
     expect(hasBackofficePermission(dev, "business:manage")).toBe(false);
+    expect(hasBackofficePermission(dev, "whatsapp:view")).toBe(true);
   });
 });
 
@@ -96,6 +100,7 @@ describe("canAccessUserHubTab", () => {
     expect(canAccessUserHubTab(admin, "any-user", "business")).toBe(true);
     expect(canAccessUserHubTab(admin, "any-user", "marketing")).toBe(true);
     expect(canAccessUserHubTab(admin, "any-user", "audit")).toBe(true);
+    expect(canAccessUserHubTab(admin, "any-user", "whatsapp")).toBe(true);
   });
 
   test("limits assigned consultants to business and marketing tabs", () => {
@@ -105,6 +110,7 @@ describe("canAccessUserHubTab", () => {
     expect(canAccessUserHubTab(consultant, "user-1", "subscription")).toBe(
       false,
     );
+    expect(canAccessUserHubTab(consultant, "user-1", "whatsapp")).toBe(false);
   });
 
   test("blocks consultants from unassigned user hub tabs", () => {
@@ -116,5 +122,6 @@ describe("canAccessUserHubTab", () => {
     expect(canAccessUserHubTab(dev, "any-user", "summary")).toBe(true);
     expect(canAccessUserHubTab(dev, "any-user", "subscription")).toBe(true);
     expect(canAccessUserHubTab(dev, "any-user", "audit")).toBe(true);
+    expect(canAccessUserHubTab(dev, "any-user", "whatsapp")).toBe(true);
   });
 });

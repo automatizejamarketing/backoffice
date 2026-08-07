@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   CircleAlert,
+  Download,
   Filter,
   LoaderCircle,
   Search,
@@ -36,8 +37,10 @@ import type {
   UserFieldFilterOperator,
   UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
+import { ACCOUNT_STATUS_FILTER_LABELS } from "@/lib/backoffice/account-status-filter";
 import type { UserExpirationDayCounts } from "@/lib/db/admin-queries";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { useUsersNavigation } from "./users-navigation-feedback";
 
 const DEBOUNCE_MS = 300;
@@ -54,6 +57,7 @@ type UsersTableToolbarProps = {
     | "campaignStatus"
     | "performanceStatus"
     | "accessExpiration"
+    | "accountStatus"
     | "fieldFilter"
     | "sort"
     | "consultantId"
@@ -101,6 +105,7 @@ type FilterSection = {
   key: keyof Pick<
     UsersFilterParams,
     | "accessExpiration"
+    | "accountStatus"
     | "performanceStatus"
     | "campaignStatus"
     | "metaStatus"
@@ -192,6 +197,7 @@ export function UsersTableToolbar({
   const [fieldFilterValue, setFieldFilterValue] = useState(
     filters.fieldFilter?.value ?? "",
   );
+  const [isExporting, setIsExporting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstRunRef = useRef(true);
 
@@ -207,6 +213,66 @@ export function UsersTableToolbar({
     }
     const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
+  }
+
+  function buildExportUrl(): string {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.delete("page");
+    params.delete("pageSize");
+    const qs = params.toString();
+    return qs ? `/api/users/export?${qs}` : "/api/users/export";
+  }
+
+  function parseExportFilename(contentDisposition: string | null): string {
+    if (!contentDisposition) return "usuarios.csv";
+
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1]);
+    }
+
+    const asciiMatch = contentDisposition.match(/filename="([^"]+)"/i);
+    return asciiMatch?.[1] ?? "usuarios.csv";
+  }
+
+  async function handleExportCsv() {
+    if (isExporting) return;
+
+    setIsExporting(true);
+    try {
+      const response = await fetch(buildExportUrl());
+
+      if (!response.ok) {
+        let message = "Não foi possível exportar os usuários.";
+        try {
+          const payload = (await response.json()) as { message?: string };
+          if (payload.message) message = payload.message;
+        } catch {
+          // Keep default message when the error body is not JSON.
+        }
+        toast.error(message);
+        return;
+      }
+
+      const blob = await response.blob();
+      const filename = parseExportFilename(
+        response.headers.get("Content-Disposition"),
+      );
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success("CSV exportado com sucesso.");
+    } catch {
+      toast.error("Erro inesperado ao exportar o CSV.");
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   function navigateWithFeedback(
@@ -275,6 +341,16 @@ export function UsersTableToolbar({
           { value: "past_30d", label: "Expirou nos últimos 30 dias" },
           { value: "expired", label: "Já expirou (qualquer data)" },
           { value: "missing", label: "Sem data de expiração" },
+        ],
+      },
+      {
+        key: "accountStatus",
+        label: "Status da conta",
+        options: [
+          { value: "all", label: "Qualquer" },
+          ...Object.entries(ACCOUNT_STATUS_FILTER_LABELS).map(
+            ([value, label]) => ({ value, label }),
+          ),
         ],
       },
       {
@@ -460,6 +536,7 @@ export function UsersTableToolbar({
     navigateWithFeedback(
       buildUrl({
         accessExpiration: null,
+        accountStatus: null,
         filterField: null,
         filterOperator: null,
         filterValue: null,
@@ -585,6 +662,22 @@ export function UsersTableToolbar({
           )}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5"
+            disabled={isExporting}
+            aria-busy={isExporting}
+            onClick={handleExportCsv}
+          >
+            {isExporting ? (
+              <LoaderCircle className="size-3.5 animate-spin" />
+            ) : (
+              <Download className="size-3.5" />
+            )}
+            {isExporting ? "Exportando..." : "Exportar CSV"}
+          </Button>
           <span className="text-xs text-muted-foreground">Por página</span>
           <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
             <SelectTrigger className="h-8 w-[72px]">
@@ -746,6 +839,7 @@ export function UsersTableToolbar({
                     className={cn(
                       "space-y-1",
                       section.key === "accessExpiration" && "sm:col-span-2",
+                      section.key === "accountStatus" && "sm:col-span-2",
                     )}
                   >
                     <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -755,6 +849,8 @@ export function UsersTableToolbar({
                       className={cn(
                         "space-y-0.5",
                         section.key === "accessExpiration" &&
+                          "sm:grid sm:grid-cols-2 sm:gap-x-3 sm:space-y-0",
+                        section.key === "accountStatus" &&
                           "sm:grid sm:grid-cols-2 sm:gap-x-3 sm:space-y-0",
                       )}
                     >

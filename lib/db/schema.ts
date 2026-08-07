@@ -54,6 +54,107 @@ export const user = pgTable("users", {
 
 export type User = InferSelectModel<typeof user>;
 
+export type WhatsappTemplateDeliveryStatus =
+  | "queued"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed"
+  | "deleted";
+
+export const whatsappTemplateDelivery = pgTable(
+  "whatsapp_template_deliveries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    source: varchar("source", { length: 64 }).notNull(),
+    sourceDeliveryId: varchar("source_delivery_id", { length: 255 }).notNull(),
+    templateName: varchar("template_name", { length: 255 }).notNull(),
+    languageCode: varchar("language_code", { length: 16 })
+      .notNull()
+      .default("pt_BR"),
+    providerMessageId: varchar("provider_message_id", { length: 255 }),
+    currentStatus: varchar("current_status", { length: 32 })
+      .$type<WhatsappTemplateDeliveryStatus>()
+      .notNull()
+      .default("queued"),
+    currentStatusAt: timestamp("current_status_at"),
+    acceptedAt: timestamp("accepted_at"),
+    deliveredAt: timestamp("delivered_at"),
+    readAt: timestamp("read_at"),
+    failedAt: timestamp("failed_at"),
+    deletedAt: timestamp("deleted_at"),
+    failureCode: varchar("failure_code", { length: 64 }),
+    failureDetail: text("failure_detail"),
+    historicalStatusUntracked: boolean("historical_status_untracked")
+      .notNull()
+      .default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceUnique: unique("whatsapp_template_deliveries_source_unique").on(
+      table.source,
+      table.sourceDeliveryId,
+    ),
+    providerMessageUnique: unique(
+      "whatsapp_template_deliveries_provider_message_unique",
+    ).on(table.providerMessageId),
+    userCreatedIdx: index("whatsapp_template_deliveries_user_created_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    templateCreatedIdx: index(
+      "whatsapp_template_deliveries_template_created_idx",
+    ).on(table.templateName, table.createdAt),
+    statusCreatedIdx: index(
+      "whatsapp_template_deliveries_status_created_idx",
+    ).on(table.currentStatus, table.createdAt),
+    providerMessageIdx: index(
+      "whatsapp_template_deliveries_provider_message_idx",
+    ).on(table.providerMessageId),
+  }),
+);
+
+export const whatsappTemplateStatusEvent = pgTable(
+  "whatsapp_template_status_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    deliveryId: uuid("delivery_id").references(
+      () => whatsappTemplateDelivery.id,
+      { onDelete: "cascade" },
+    ),
+    eventKey: varchar("event_key", { length: 512 }).notNull(),
+    providerMessageId: varchar("provider_message_id", {
+      length: 255,
+    }).notNull(),
+    providerStatus: varchar("provider_status", { length: 32 })
+      .$type<Exclude<WhatsappTemplateDeliveryStatus, "queued">>()
+      .notNull(),
+    providerStatusAt: timestamp("provider_status_at").notNull(),
+    failureCode: varchar("failure_code", { length: 64 }),
+    failureDetail: text("failure_detail"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique(
+      "whatsapp_template_status_events_event_key_unique",
+    ).on(table.eventKey),
+    providerStatusIdx: index(
+      "whatsapp_template_status_events_provider_status_idx",
+    ).on(table.providerMessageId, table.providerStatusAt),
+  }),
+);
+
+export type WhatsappTemplateDelivery = InferSelectModel<
+  typeof whatsappTemplateDelivery
+>;
+export type WhatsappTemplateStatusEvent = InferSelectModel<
+  typeof whatsappTemplateStatusEvent
+>;
+
 export const backofficeUser = pgTable("backoffice_users", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   email: varchar("email", { length: 100 }).notNull().unique(),

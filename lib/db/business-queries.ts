@@ -7,7 +7,9 @@ import {
   inArray,
   isNull,
   sql,
+  type SQL,
 } from "drizzle-orm";
+import { unstable_cache, revalidateTag } from "next/cache";
 import { db } from "@/lib/db";
 import {
   aiUsageLog,
@@ -36,6 +38,8 @@ import {
 } from "@/lib/business/business-health";
 import { getPlaybookInsightSummariesForUsers } from "@/lib/db/playbook-insights-queries";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import type { PortfolioFilterParams } from "@/lib/backoffice/portfolio-filters";
+import { buildPortfolioSearchCondition } from "@/lib/backoffice/user-search";
 
 export type BusinessOperatingRulesRecord = BusinessOperatingRules & {
   id: string;
@@ -89,6 +93,25 @@ export type BusinessPortfolioItem = {
 
 export type GetBusinessPortfolioParams = {
   userId?: string;
+};
+
+export type BusinessPortfolioPageResult = {
+  items: BusinessPortfolioItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+type BusinessPortfolioBaseRow = {
+  userId: string;
+  userEmail: string;
+  userImageUrl: string | null;
+  userPhone: string | null;
+  credits: number;
+  expirationDate: Date | null;
+  consultantId: string | null;
+  consultantEmail: string | null;
+  consultantName: string | null;
 };
 
 const DEFAULT_RULE_NAME = "default";
@@ -171,9 +194,17 @@ async function getRulesRow() {
   return row ?? null;
 }
 
-export async function getBusinessOperatingRules(): Promise<BusinessOperatingRulesRecord> {
+async function loadBusinessOperatingRules(): Promise<BusinessOperatingRulesRecord> {
   const row = await getRulesRow();
   return row ? rulesFromRow(row) : defaultRulesRecord();
+}
+
+export async function getBusinessOperatingRules(): Promise<BusinessOperatingRulesRecord> {
+  return unstable_cache(
+    loadBusinessOperatingRules,
+    ["business-operating-rules"],
+    { revalidate: 60, tags: ["business-operating-rules"] },
+  )();
 }
 
 export async function listBusinessRuleChangeLogs(
@@ -200,7 +231,7 @@ export async function updateBusinessOperatingRules(
   rules: BusinessOperatingRulesRecord;
   changes: BusinessRuleChange[];
 }> {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [existing] = await tx
       .insert(businessOperatingRules)
       .values({
@@ -282,6 +313,9 @@ export async function updateBusinessOperatingRules(
 
     return { rules: rulesFromRow(updated), changes };
   });
+
+  revalidateTag("business-operating-rules", "max");
+  return result;
 }
 
 export async function upsertManagedCampaignCache(data: {
@@ -342,20 +376,8 @@ function compareBusinessItems(
   return a.userEmail.localeCompare(b.userEmail);
 }
 
-export async function getBusinessPortfolio(
-  actor: BackofficeActor,
-  params: GetBusinessPortfolioParams = {},
-): Promise<BusinessPortfolioItem[]> {
-  const rules = await getBusinessOperatingRules();
-  const conditions = [];
-
-  if (params.userId) conditions.push(eq(user.id, params.userId));
-
-  if (actor.role === "marketing_consultant") {
-    conditions.push(eq(userMarketingConsultant.consultantId, actor.id));
-  }
-
-  const baseRows = await db
+function portfolioBaseQuery() {
+  return db
     .select({
       userId: user.id,
       userEmail: user.email,
@@ -375,10 +397,107 @@ export async function getBusinessPortfolio(
     .leftJoin(
       backofficeUser,
       eq(userMarketingConsultant.consultantId, backofficeUser.id),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(asc(user.email));
+    );
+}
 
+function buildPortfolioAccessConditions(actor: BackofficeActor): SQL[] {
+  if (actor.role === "marketing_consultant") {
+    return [eq(userMarketingConsultant.consultantId, actor.id)];
+  }
+  return [];
+}
+
+function buildPortfolioFilterConditions(
+  filters: Pick<
+    PortfolioFilterParams,
+    "consultantId" | "subscriptionStatus" | "campaignStatus" | "search"
+  >,
+  actorRole: BackofficeActor["role"],
+): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (actorRole === "admin") {
+    if (filters.consultantId === "unassigned") {
+      conditions.push(isNull(userMarketingConsultant.consultantId));
+    } else if (filters.consultantId !== "all") {
+      conditions.push(
+        eq(userMarketingConsultant.consultantId, filters.consultantId),
+      );
+    }
+  }
+
+  const trimmedSearch = filters.search.trim();
+  if (trimmedSearch.length > 0) {
+    conditions.push(buildPortfolioSearchCondition(trimmedSearch));
+  }
+
+  if (filters.subscriptionStatus !== "all") {
+    conditions.push(
+      sql`(
+        SELECT s.status::text
+        FROM ${subscription} s
+        WHERE s.user_id = ${user.id}
+        ORDER BY CASE s.status
+          WHEN 'active' THEN 6
+          WHEN 'trialing' THEN 5
+          WHEN 'past_due' THEN 4
+          WHEN 'incomplete' THEN 3
+          WHEN 'unpaid' THEN 2
+          WHEN 'canceled' THEN 1
+          ELSE 0
+        END DESC, s.created_at DESC
+        LIMIT 1
+      ) = ${filters.subscriptionStatus}`,
+    );
+  }
+
+  if (filters.campaignStatus === "active") {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1
+        FROM ${businessManagedCampaignCache} c
+        WHERE c.user_id = ${user.id}
+          AND c.has_active_managed_campaign = true
+      )`,
+    );
+  } else if (filters.campaignStatus === "inactive") {
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1
+        FROM ${businessManagedCampaignCache} c
+        WHERE c.user_id = ${user.id}
+      ) AND NOT EXISTS (
+        SELECT 1
+        FROM ${businessManagedCampaignCache} c
+        WHERE c.user_id = ${user.id}
+          AND c.has_active_managed_campaign = true
+      )`,
+    );
+  }
+
+  return conditions;
+}
+
+function buildPortfolioWhereClause(
+  actor: BackofficeActor,
+  filters?: Pick<
+    PortfolioFilterParams,
+    "consultantId" | "subscriptionStatus" | "campaignStatus" | "search"
+  >,
+  extraConditions: SQL[] = [],
+) {
+  const conditions = [
+    ...buildPortfolioAccessConditions(actor),
+    ...(filters ? buildPortfolioFilterConditions(filters, actor.role) : []),
+    ...extraConditions,
+  ];
+  return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
+async function enrichBusinessPortfolioBaseRows(
+  baseRows: BusinessPortfolioBaseRow[],
+  rules: BusinessOperatingRulesRecord,
+): Promise<BusinessPortfolioItem[]> {
   const userIds = baseRows.map((row) => row.userId);
   if (userIds.length === 0) return [];
 
@@ -535,7 +654,7 @@ export async function getBusinessPortfolio(
     campaignByUser.set(row.userId, current);
   }
 
-  const items = baseRows.map((row): BusinessPortfolioItem => {
+  return baseRows.map((row): BusinessPortfolioItem => {
     const companyInfo = companyByUser.get(row.userId);
     const activeSubscription = pickActiveSubscription(
       subsByUser.get(row.userId) ?? [],
@@ -544,9 +663,6 @@ export async function getBusinessPortfolio(
     const metaInfo = metaByUser.get(row.userId);
     const campaignInfo = campaignByUser.get(row.userId);
     const expirationDate = asDate(row.expirationDate);
-    // users.expiration_date is the single business authority for access.
-    // Provider periods remain useful billing metadata, but must not replace it
-    // in operational health and renewal decisions.
     const renewalDate = expirationDate;
 
     const health = evaluateBusinessHealth({
@@ -598,7 +714,105 @@ export async function getBusinessPortfolio(
       health,
     };
   });
+}
 
+export async function countStaleManagedCampaignAccounts(
+  actor: BackofficeActor,
+): Promise<number> {
+  const where = buildPortfolioWhereClause(actor, undefined, [
+    isNull(metaBusinessAccount.deletedAt),
+    sql`NOT EXISTS (
+      SELECT 1
+      FROM ${businessManagedCampaignCache} c
+      WHERE c.user_id = ${user.id}
+        AND (c.checked_at AT TIME ZONE 'America/Sao_Paulo')::date =
+            (NOW() AT TIME ZONE 'America/Sao_Paulo')::date
+    )`,
+  ]);
+
+  const [result] = await db
+    .select({ total: count(sql`DISTINCT ${user.id}`) })
+    .from(user)
+    .leftJoin(
+      userMarketingConsultant,
+      eq(userMarketingConsultant.userId, user.id),
+    )
+    .leftJoin(
+      backofficeUser,
+      eq(userMarketingConsultant.consultantId, backofficeUser.id),
+    )
+    .innerJoin(
+      metaBusinessAccount,
+      eq(metaBusinessAccount.userId, user.id),
+    )
+    .where(where);
+
+  return result?.total ?? 0;
+}
+
+export async function getBusinessPortfolioPage(
+  actor: BackofficeActor,
+  filters: PortfolioFilterParams,
+): Promise<BusinessPortfolioPageResult> {
+  const rules = await getBusinessOperatingRules();
+  const effectiveFilters = {
+    ...filters,
+    consultantId:
+      actor.role === "admin" ? filters.consultantId : ("all" as const),
+  };
+  const where = buildPortfolioWhereClause(actor, effectiveFilters);
+  const pageSize = filters.pageSize;
+
+  const [countResult] = await db
+    .select({ total: count(sql`DISTINCT ${user.id}`) })
+    .from(user)
+    .leftJoin(
+      userMarketingConsultant,
+      eq(userMarketingConsultant.userId, user.id),
+    )
+    .leftJoin(
+      backofficeUser,
+      eq(userMarketingConsultant.consultantId, backofficeUser.id),
+    )
+    .where(where);
+
+  const total = countResult?.total ?? 0;
+  if (total === 0) {
+    return { items: [], total: 0, page: 1, pageSize };
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(Math.max(filters.page, 1), totalPages);
+  const offset = (page - 1) * pageSize;
+
+  const baseRows = await portfolioBaseQuery()
+    .where(where)
+    .orderBy(asc(user.expirationDate), asc(user.email))
+    .limit(pageSize)
+    .offset(offset);
+
+  const items = await enrichBusinessPortfolioBaseRows(baseRows, rules);
+  return {
+    items: items.sort(compareBusinessItems),
+    total,
+    page,
+    pageSize,
+  };
+}
+
+export async function getBusinessPortfolio(
+  actor: BackofficeActor,
+  params: GetBusinessPortfolioParams = {},
+): Promise<BusinessPortfolioItem[]> {
+  const rules = await getBusinessOperatingRules();
+  const extraConditions = params.userId ? [eq(user.id, params.userId)] : [];
+  const where = buildPortfolioWhereClause(actor, undefined, extraConditions);
+
+  const baseRows = await portfolioBaseQuery()
+    .where(where)
+    .orderBy(asc(user.email));
+
+  const items = await enrichBusinessPortfolioBaseRows(baseRows, rules);
   return items.sort(compareBusinessItems);
 }
 

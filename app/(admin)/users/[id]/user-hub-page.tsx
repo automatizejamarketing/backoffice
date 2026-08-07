@@ -22,9 +22,18 @@ import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { MarketingConsultantControl } from "@/components/marketing-consultant-control";
 import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
+import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { UserSubscriptionPanel } from "@/components/user-subscription-panel";
 import {
   getAllUserGeneratedImages,
@@ -47,7 +56,12 @@ import {
   getUserConversation,
   listUserConversations,
 } from "@/lib/db/conversation-queries";
+import { getUserWhatsappTemplateHistory } from "@/lib/db/whatsapp-template-queries";
 import { buildTranscript } from "@/lib/backoffice/conversation-transcript";
+import {
+  getWhatsappSourceLabel,
+  getWhatsappTemplateLabel,
+} from "@/lib/backoffice/whatsapp-history-model";
 import {
   canAccessUserHubTab,
   hasBackofficePermission,
@@ -73,6 +87,7 @@ const TAB_CONFIG: Array<{
   { value: "business", label: "Business", icon: BriefcaseBusiness },
   { value: "marketing", label: "Marketing", icon: Megaphone },
   { value: "conversations", label: "Conversas", icon: MessagesSquare },
+  { value: "whatsapp", label: "WhatsApp", icon: MessageCircle },
   { value: "usage", label: "Uso", icon: BarChart3 },
   { value: "content", label: "Conteúdo", icon: FileImage },
   { value: "audit", label: "Auditoria", icon: History },
@@ -206,6 +221,7 @@ export async function UserHubPage({
     businessData,
     businessRules,
     conversations,
+    whatsappHistory,
   ] =
     await Promise.all([
       isAdminHub && (activeTab === "summary" || activeTab === "usage")
@@ -234,6 +250,9 @@ export async function UserHubPage({
         : Promise.resolve(null),
       activeTab === "conversations"
         ? listUserConversations(id)
+        : Promise.resolve([]),
+      activeTab === "whatsapp" && hasBackofficePermission(actor, "whatsapp:view")
+        ? getUserWhatsappTemplateHistory(id)
         : Promise.resolve([]),
     ]);
 
@@ -417,6 +436,99 @@ export async function UserHubPage({
             selectedConversation ? buildTranscript(selectedConversation.events) : []
           }
         />
+      )}
+
+      {activeTab === "whatsapp" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="size-5" />
+              Histórico de templates WhatsApp
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Somente mensagens automáticas outbound. Respostas do cliente e
+              conversas do Mat ou Eve não entram neste histórico.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {whatsappHistory.length === 0 ? (
+              <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-6 text-center">
+                <MessageCircle className="size-5 text-muted-foreground" />
+                <p className="text-sm font-medium">Nenhum disparo registrado</p>
+                <p className="text-xs text-muted-foreground">
+                  Os próximos templates oficiais enviados para este usuário
+                  aparecerão aqui.
+                </p>
+              </div>
+            ) : (
+              <Table className="min-w-[980px]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Template</TableHead>
+                    <TableHead>Origem</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Enviado em</TableHead>
+                    <TableHead>Atualizado em</TableHead>
+                    <TableHead>Falha</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {whatsappHistory.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="max-w-72">
+                        <p className="font-medium">
+                          {getWhatsappTemplateLabel(item.templateName)}
+                        </p>
+                        <p className="truncate font-mono text-[11px] text-muted-foreground">
+                          {item.templateName}
+                        </p>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {getWhatsappSourceLabel(item.source)}
+                      </TableCell>
+                      <TableCell>
+                        <WhatsappDeliveryStatus
+                          status={item.currentStatus}
+                          acceptedAt={item.acceptedAt}
+                          deliveredAt={item.deliveredAt}
+                          readAt={item.readAt}
+                          historicalStatusUntracked={item.historicalStatusUntracked}
+                          compact
+                        />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatShortDateTimeInSaoPaulo(
+                          item.acceptedAt ?? item.createdAt,
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatShortDateTimeInSaoPaulo(
+                          item.currentStatusAt ?? item.acceptedAt ?? item.createdAt,
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-72">
+                        {item.failureCode || item.failureDetail ? (
+                          <p
+                            className="line-clamp-2 text-xs text-destructive"
+                            title={[item.failureCode, item.failureDetail]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          >
+                            {[item.failureCode, item.failureDetail]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </p>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {activeTab === "usage" && detailedUser && (

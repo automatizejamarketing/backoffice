@@ -220,7 +220,7 @@ export async function repointWithFallback(args: {
       params: "",
       body: new URLSearchParams({
         adset_id: ad.adset_id,
-        status_option: "INHERITED_FROM_SOURCE",
+        status_option: "PAUSED",
         rename_options: JSON.stringify({ rename_strategy: "NO_RENAME" }),
       }),
       accessToken,

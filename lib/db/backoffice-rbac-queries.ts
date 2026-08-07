@@ -1,4 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
+import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db";
 import {
   backofficeUser,
@@ -103,7 +104,7 @@ export async function listActiveMarketingConsultants() {
  * Options for admin consultant filters: active marketing consultants plus
  * anyone who already has clients assigned (e.g. admins with a carteira).
  */
-export async function listConsultantsForFilter() {
+async function loadConsultantsForFilter() {
   const [roleConsultants, assignedConsultants] = await Promise.all([
     listActiveMarketingConsultants(),
     db
@@ -126,6 +127,14 @@ export async function listConsultantsForFilter() {
   }
 
   return [...byId.values()].sort((a, b) => a.email.localeCompare(b.email));
+}
+
+export async function listConsultantsForFilter() {
+  return unstable_cache(
+    loadConsultantsForFilter,
+    ["consultants-for-filter"],
+    { revalidate: 60, tags: ["consultants-for-filter"] },
+  )();
 }
 
 export async function getAssignedMarketingConsultant(userId: string) {
