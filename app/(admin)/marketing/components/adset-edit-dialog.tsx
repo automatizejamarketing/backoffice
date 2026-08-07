@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { AdSet, AdSetTargeting } from "@/lib/meta-business/types";
 import {
@@ -55,9 +56,15 @@ import {
 } from "@/lib/meta-business/geo-targeting-types";
 import {
   areInterestTargetingValuesEqual,
+  createDefaultInterestTargetingValue,
   interestTargetingFromMetaTargeting,
   type InterestTargetingValue,
 } from "@/lib/meta-business/interest-targeting-types";
+import {
+  CLEARED_AUDIENCE_SIGNALS,
+  hasManualAudienceSignals,
+  isAdvantageAudienceOn,
+} from "@/lib/meta-business/marketing/advantage-audience";
 
 const PLACEMENT_LABEL_PT: Record<PlacementKey, string> = {
   facebook_feed: "Feed do Facebook",
@@ -282,6 +289,7 @@ export function AdSetEditDialog({
   const availablePlacementsForAdSet: readonly PlacementKey[] =
     isInstagramOnlyAdSet ? INSTAGRAM_PLACEMENTS : ALL_PLACEMENTS;
   const placementsEditable = currentPlacements.length > 0;
+  const currentAdvantageAudience = isAdvantageAudienceOn(adSet.targeting);
 
   const [dailyBudget, setDailyBudget] = useState<string>(
     currentBudgetBRL.toFixed(2),
@@ -315,6 +323,24 @@ export function AdSetEditDialog({
   >(() => geoLocationsToSelectedLocations(adSet.targeting?.geo_locations));
   const [interestTargeting, setInterestTargeting] =
     useState<InterestTargetingValue>(baselineInterestTargeting);
+  const [advantageAudience, setAdvantageAudience] = useState(
+    currentAdvantageAudience,
+  );
+
+  // Switching Advantage+ on CLEARS the manual demographic signals as it locks
+  // them. Meta itself would keep them (as relaxable hints), but then a greyed-out
+  // age field would still be steering delivery — the screen would be lying.
+  //
+  // Custom audiences survive on purpose: they are the seed Advantage+ expands
+  // FROM, and dropping someone's remarketing list would destroy work.
+  const handleAdvantageAudienceChange = (next: boolean) => {
+    setAdvantageAudience(next);
+    if (!next) return;
+    setAgeMin(String(CLEARED_AUDIENCE_SIGNALS.ageMin));
+    setAgeMax(String(CLEARED_AUDIENCE_SIGNALS.ageMax));
+    setGender("all");
+    setInterestTargeting(createDefaultInterestTargetingValue());
+  };
   const [selectedPlacements, setSelectedPlacements] =
     useState<PlacementKey[]>(currentPlacements);
   const [deliverySchedule, setDeliverySchedule] =
@@ -380,6 +406,7 @@ export function AdSetEditDialog({
       geoLocationsToSelectedLocations(adSet.targeting?.geo_locations),
     );
     setInterestTargeting(interestTargetingFromMetaTargeting(adSet.targeting));
+    setAdvantageAudience(isAdvantageAudienceOn(adSet.targeting));
     setSelectedPlacements(targetingFieldsToPlacements(adSet.targeting));
     setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
     setNote("");
@@ -472,7 +499,11 @@ export function AdSetEditDialog({
           currentScheduleBlocks,
         ));
 
+    const hasAdvantageAudienceChange =
+      advantageAudience !== currentAdvantageAudience;
+
     const hasTargetingChange =
+      hasAdvantageAudienceChange ||
       hasAgeMinChange ||
       hasAgeMaxChange ||
       hasGenderChange ||
@@ -607,6 +638,11 @@ export function AdSetEditDialog({
             interest_targeting: interestTargeting,
           }),
           ...(hasPlacementsChange && { placements: selectedPlacements }),
+          ...(hasAdvantageAudienceChange && {
+            targeting_automation: {
+              advantage_audience: advantageAudience ? 1 : 0,
+            },
+          }),
         };
       }
 
@@ -757,6 +793,40 @@ export function AdSetEditDialog({
               </div>
             )}
 
+            <div className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="advantageAudience">Público Advantage+</Label>
+                  <p className="text-xs text-muted-foreground">
+                    A Meta decide quem vê o anúncio, encontrando pessoas além da
+                    segmentação manual.
+                  </p>
+                </div>
+                <Switch
+                  id="advantageAudience"
+                  checked={advantageAudience}
+                  onCheckedChange={handleAdvantageAudienceChange}
+                  disabled={isSubmitting}
+                />
+              </div>
+              {advantageAudience ? (
+                <p className="text-xs text-muted-foreground">
+                  Com o Advantage+ ligado, idade, gênero e segmentação detalhada
+                  deixam de ser configuráveis — quem decide é a Meta.
+                  Localizações e públicos personalizados continuam valendo.
+                </p>
+              ) : null}
+              {advantageAudience &&
+              !currentAdvantageAudience &&
+              hasManualAudienceSignals(adSet.targeting) ? (
+                <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-500">
+                  Ao salvar, a idade, o gênero e os interesses configurados neste
+                  conjunto serão descartados. Desligar o Advantage+ depois não os
+                  traz de volta.
+                </p>
+              ) : null}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="ageMin">Idade Mínima</Label>
@@ -773,7 +843,7 @@ export function AdSetEditDialog({
                     e.preventDefault();
                     setError("Idade mínima deve estar entre 13 e 65");
                   }}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || advantageAudience}
                 />
               </div>
               <div className="space-y-2">
@@ -791,7 +861,7 @@ export function AdSetEditDialog({
                     e.preventDefault();
                     setError("Idade máxima deve estar entre 13 e 65");
                   }}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || advantageAudience}
                 />
               </div>
             </div>
@@ -812,7 +882,7 @@ export function AdSetEditDialog({
                     size="sm"
                     variant={gender === option.value ? "default" : "outline"}
                     onClick={() => setGender(option.value)}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || advantageAudience}
                     className="flex-1"
                   >
                     {option.label}
@@ -873,7 +943,7 @@ export function AdSetEditDialog({
               userId={userId}
               value={interestTargeting}
               onChange={setInterestTargeting}
-              disabled={isSubmitting}
+              disabled={isSubmitting || advantageAudience}
             />
 
             <div className="space-y-2">
