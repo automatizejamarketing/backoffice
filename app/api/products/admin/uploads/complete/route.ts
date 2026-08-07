@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   isAllowedProductAssetObjectKey,
+  PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE,
   putProductAsset,
 } from "@/lib/storage/product-assets-r2";
 
@@ -42,10 +43,7 @@ export async function POST(request: Request) {
       { error: message },
       {
         status:
-          message ===
-          "O armazenamento R2 dos produtos não está configurado neste ambiente."
-            ? 503
-            : 500,
+          message === PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE ? 503 : 500,
       },
     );
   }

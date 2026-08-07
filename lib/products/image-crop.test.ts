@@ -6,9 +6,16 @@ import {
   getCropSourceRect,
 } from "./image-crop";
 
-describe("expert image crop", () => {
+describe("image crop", () => {
   it("scales a landscape image until it covers a square frame", () => {
     assert.equal(getCoverScale({ width: 1200, height: 800 }, 320), 0.4);
+  });
+
+  it("scales an image until it covers a 16:9 frame", () => {
+    assert.equal(
+      getCoverScale({ width: 1200, height: 800 }, { width: 320, height: 180 }),
+      320 / 1200,
+    );
   });
 
   it("clamps movement so the crop never exposes an empty area", () => {
@@ -23,7 +30,7 @@ describe("expert image crop", () => {
     );
   });
 
-  it("converts the visible frame back to source image coordinates", () => {
+  it("converts the visible square frame back to source image coordinates", () => {
     assert.deepEqual(
       getCropSourceRect(
         { width: 1200, height: 800 },
@@ -31,7 +38,7 @@ describe("expert image crop", () => {
         1,
         { x: 0, y: 0 },
       ),
-      { x: 200, y: 0, size: 800 },
+      { x: 200, y: 0, width: 800, height: 800 },
     );
 
     assert.deepEqual(
@@ -41,7 +48,19 @@ describe("expert image crop", () => {
         1,
         { x: 80, y: 0 },
       ),
-      { x: 0, y: 0, size: 800 },
+      { x: 0, y: 0, width: 800, height: 800 },
+    );
+  });
+
+  it("converts the visible 16:9 frame back to source image coordinates", () => {
+    assert.deepEqual(
+      getCropSourceRect(
+        { width: 1600, height: 900 },
+        { width: 320, height: 180 },
+        1,
+        { x: 0, y: 0 },
+      ),
+      { x: 0, y: 0, width: 1600, height: 900 },
     );
   });
 });

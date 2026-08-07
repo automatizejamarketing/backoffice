@@ -24,24 +24,65 @@ import {
   getCoverScale,
   getCropSourceRect,
   type CropOffset,
+  type FrameSize,
   type ImageSize,
 } from "@/lib/products/image-crop";
+import {
+  PRODUCT_COVER_ASPECT_RATIO,
+  PRODUCT_COVER_OUTPUT_HEIGHT,
+  PRODUCT_COVER_OUTPUT_WIDTH,
+} from "@/lib/products/product-cover-spec";
 
-const OUTPUT_SIZE = 512;
+export type ImageCropConfig = {
+  title: string;
+  description: string;
+  aspectRatio: number;
+  outputWidth: number;
+  outputHeight: number;
+  mask: "circle" | "rect";
+  outputFilenameStem: string;
+  previewAlt: string;
+};
 
-type ExpertImageCropDialogProps = {
+export const EXPERT_IMAGE_CROP_CONFIG: ImageCropConfig = {
+  title: "Ajustar foto de perfil",
+  description:
+    "Arraste a imagem para escolher o enquadramento. A área dentro do círculo será exibida no perfil.",
+  aspectRatio: 1,
+  outputWidth: 512,
+  outputHeight: 512,
+  mask: "circle",
+  outputFilenameStem: "foto-do-expert",
+  previewAlt: "Prévia da foto do expert",
+};
+
+export const PRODUCT_COVER_CROP_CONFIG: ImageCropConfig = {
+  title: "Ajustar capa do produto",
+  description:
+    "Arraste a imagem para escolher o enquadramento. A capa será exibida em 16:9 no checkout e na biblioteca do cliente.",
+  aspectRatio: PRODUCT_COVER_ASPECT_RATIO,
+  outputWidth: PRODUCT_COVER_OUTPUT_WIDTH,
+  outputHeight: PRODUCT_COVER_OUTPUT_HEIGHT,
+  mask: "rect",
+  outputFilenameStem: "capa-do-produto",
+  previewAlt: "Prévia da capa do produto",
+};
+
+type ImageCropDialogProps = {
   file: File | null;
   open: boolean;
+  config: ImageCropConfig;
   onCancel: () => void;
   onConfirm: (file: File) => void;
 };
 
-export function ExpertImageCropDialog({
+export function ImageCropDialog({
   file,
   open,
+  config,
   onCancel,
   onConfirm,
-}: ExpertImageCropDialogProps) {
+}: ImageCropDialogProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -50,6 +91,10 @@ export function ExpertImageCropDialog({
     offset: CropOffset;
   } | null>(null);
   const [imageSize, setImageSize] = useState<ImageSize | null>(null);
+  const [frameSize, setFrameSize] = useState<FrameSize>({
+    width: 320,
+    height: 320,
+  });
   const [offset, setOffset] = useState<CropOffset>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [processing, setProcessing] = useState(false);
@@ -75,15 +120,29 @@ export function ExpertImageCropDialog({
     setProcessing(false);
   }, [open, file]);
 
-  function frameSize() {
-    return frameRef.current?.clientWidth ?? 320;
-  }
+  useEffect(() => {
+    if (!open || !frameRef.current) return;
+
+    const updateFrameSize = () => {
+      const element = frameRef.current;
+      if (!element) return;
+      setFrameSize({
+        width: element.clientWidth,
+        height: element.clientHeight,
+      });
+    };
+
+    updateFrameSize();
+    const observer = new ResizeObserver(updateFrameSize);
+    observer.observe(frameRef.current);
+    return () => observer.disconnect();
+  }, [open, config.aspectRatio]);
 
   function updateZoom(nextZoom: number) {
     setZoom(nextZoom);
     if (imageSize) {
       setOffset((current) =>
-        clampCropOffset(current, imageSize, frameSize(), nextZoom),
+        clampCropOffset(current, imageSize, frameSize, nextZoom),
       );
     }
   }
@@ -114,7 +173,7 @@ export function ExpertImageCropDialog({
           y: drag.offset.y + event.clientY - drag.startY,
         },
         imageSize,
-        frameSize(),
+        frameSize,
         zoom,
       ),
     );
@@ -134,15 +193,10 @@ export function ExpertImageCropDialog({
       image.src = previewUrl;
       await image.decode();
 
-      const crop = getCropSourceRect(
-        imageSize,
-        frameSize(),
-        zoom,
-        offset,
-      );
+      const crop = getCropSourceRect(imageSize, frameSize, zoom, offset);
       const canvas = document.createElement("canvas");
-      canvas.width = OUTPUT_SIZE;
-      canvas.height = OUTPUT_SIZE;
+      canvas.width = config.outputWidth;
+      canvas.height = config.outputHeight;
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Não foi possível preparar a imagem.");
 
@@ -152,23 +206,25 @@ export function ExpertImageCropDialog({
         image,
         crop.x,
         crop.y,
-        crop.size,
-        crop.size,
+        crop.width,
+        crop.height,
         0,
         0,
-        OUTPUT_SIZE,
-        OUTPUT_SIZE,
+        config.outputWidth,
+        config.outputHeight,
       );
 
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob(
           (result) =>
-            result ? resolve(result) : reject(new Error("Não foi possível recortar a imagem.")),
+            result
+              ? resolve(result)
+              : reject(new Error("Não foi possível recortar a imagem.")),
           "image/webp",
           0.9,
         );
       });
-      const baseName = file.name.replace(/\.[^.]+$/, "") || "foto-do-expert";
+      const baseName = file.name.replace(/\.[^.]+$/, "") || config.outputFilenameStem;
       onConfirm(
         new File([blob], `${baseName}-recortada.webp`, {
           type: "image/webp",
@@ -187,7 +243,7 @@ export function ExpertImageCropDialog({
   }
 
   const displayScale = imageSize
-    ? getCoverScale(imageSize, frameSize()) * zoom
+    ? getCoverScale(imageSize, frameSize) * zoom
     : 1;
 
   return (
@@ -195,17 +251,16 @@ export function ExpertImageCropDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Crop className="size-4" /> Ajustar foto de perfil
+            <Crop className="size-4" /> {config.title}
           </DialogTitle>
-          <DialogDescription>
-            Arraste a imagem para escolher o enquadramento. A área dentro do círculo será exibida no perfil.
-          </DialogDescription>
+          <DialogDescription>{config.description}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
           <div
             ref={frameRef}
-            className="relative mx-auto aspect-square w-full max-w-80 touch-none cursor-grab select-none overflow-hidden rounded-xl bg-muted active:cursor-grabbing"
+            className="relative mx-auto w-full max-w-80 touch-none cursor-grab select-none overflow-hidden rounded-xl bg-muted active:cursor-grabbing"
+            style={{ aspectRatio: config.aspectRatio }}
             onPointerDown={beginDrag}
             onPointerMove={moveImage}
             onPointerUp={endDrag}
@@ -215,7 +270,7 @@ export function ExpertImageCropDialog({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
-                alt="Prévia da foto do expert"
+                alt={config.previewAlt}
                 draggable={false}
                 className="pointer-events-none absolute max-w-none"
                 style={
@@ -237,13 +292,19 @@ export function ExpertImageCropDialog({
                 }
               />
             ) : null}
-            <div className="pointer-events-none absolute inset-0 rounded-full border-2 border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.55)]" />
-            <div className="pointer-events-none absolute inset-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/70" />
+            {config.mask === "circle" ? (
+              <>
+                <div className="pointer-events-none absolute inset-0 rounded-full border-2 border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.55)]" />
+                <div className="pointer-events-none absolute inset-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/70" />
+              </>
+            ) : (
+              <div className="pointer-events-none absolute inset-0 rounded-lg border-2 border-white/90 shadow-[0_0_0_999px_rgba(0,0,0,0.55)]" />
+            )}
           </div>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="expert-image-zoom" className="flex items-center gap-2">
+              <Label htmlFor="image-crop-zoom" className="flex items-center gap-2">
                 <ZoomIn className="size-4" /> Zoom
               </Label>
               <Button type="button" variant="ghost" size="sm" onClick={resetCrop}>
@@ -251,7 +312,7 @@ export function ExpertImageCropDialog({
               </Button>
             </div>
             <Slider
-              id="expert-image-zoom"
+              id="image-crop-zoom"
               min={1}
               max={3}
               step={0.01}
@@ -265,12 +326,26 @@ export function ExpertImageCropDialog({
           <Button type="button" variant="outline" onClick={onCancel} disabled={processing}>
             Cancelar
           </Button>
-          <Button type="button" onClick={() => void confirmCrop()} disabled={!imageSize || processing}>
+          <Button
+            type="button"
+            onClick={() => void confirmCrop()}
+            disabled={!imageSize || processing}
+          >
             {processing ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-            {processing ? "Preparando..." : "Usar esta foto"}
+            {processing ? "Preparando..." : "Usar esta imagem"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+type PresetImageCropDialogProps = Omit<ImageCropDialogProps, "config">;
+
+export function ExpertImageCropDialog(props: PresetImageCropDialogProps) {
+  return <ImageCropDialog {...props} config={EXPERT_IMAGE_CROP_CONFIG} />;
+}
+
+export function ProductCoverCropDialog(props: PresetImageCropDialogProps) {
+  return <ImageCropDialog {...props} config={PRODUCT_COVER_CROP_CONFIG} />;
 }

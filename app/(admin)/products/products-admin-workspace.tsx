@@ -5,6 +5,7 @@ import {
   Archive,
   BookOpen,
   Check,
+  ChevronsUpDown,
   CircleCheck,
   Copy,
   ImageIcon,
@@ -17,7 +18,10 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ExpertImageCropDialog } from "@/components/expert-image-crop-dialog";
+import {
+  ExpertImageCropDialog,
+  ProductCoverCropDialog,
+} from "@/components/expert-image-crop-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +42,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -81,6 +90,11 @@ import {
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
+import { cn } from "@/lib/utils";
+import {
+  PRODUCT_COVER_OUTPUT_HEIGHT,
+  PRODUCT_COVER_OUTPUT_WIDTH,
+} from "@/lib/products/product-cover-spec";
 
 type Expert = {
   id: string;
@@ -240,6 +254,29 @@ const productStatusLabel: Record<Product["status"], string> = {
   archived: "Arquivado",
 };
 
+function getProductStatusBadgeProps(status: Product["status"]) {
+  switch (status) {
+    case "published":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300",
+      };
+    case "draft":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300",
+      };
+    case "archived":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-border bg-muted/50 text-muted-foreground dark:bg-muted/30",
+      };
+  }
+}
+
 const orderStatusLabel: Record<string, string> = {
   pending: "Pendente",
   approved: "Aprovado",
@@ -327,6 +364,135 @@ function AutomatizeAvatar() {
         className="size-full object-contain"
       />
     </div>
+  );
+}
+
+function getProductOwnerTextValue(
+  ownerType: "automatize" | "expert",
+  expert?: Expert | null,
+) {
+  if (ownerType === "automatize") return "Automatize";
+  if (!expert) return "Selecione o expert";
+  return expert.status === "inactive"
+    ? `${expert.displayName} (inativo)`
+    : expert.displayName;
+}
+
+function ProductOwnerTriggerAvatar({
+  ownerType,
+  expert,
+}: {
+  ownerType: "automatize" | "expert";
+  expert?: Expert | null;
+}) {
+  if (ownerType === "automatize") {
+    return <AutomatizeAvatar />;
+  }
+  if (!expert) return null;
+  return (
+    <ExpertAvatar
+      name={expert.displayName}
+      src={expert.profileImageUrl}
+      size="xs"
+    />
+  );
+}
+
+function ProductOwnerPicker({
+  ownerType,
+  expertId,
+  experts,
+  onSelect,
+}: {
+  ownerType: "automatize" | "expert";
+  expertId: string;
+  experts: Expert[];
+  onSelect: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedExpert =
+    ownerType === "expert"
+      ? experts.find((expert) => expert.id === expertId) ?? null
+      : null;
+  const selectedValue = getProductOwnerSelectionValue(ownerType, expertId);
+  const selectedLabel = getProductOwnerTextValue(ownerType, selectedExpert);
+
+  function pick(value: string) {
+    onSelect(value);
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-10 w-full justify-between px-3 font-normal"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <ProductOwnerTriggerAvatar
+              ownerType={ownerType}
+              expert={selectedExpert}
+            />
+            <span className="truncate">{selectedLabel}</span>
+          </span>
+          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] p-1"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <div className="flex flex-col gap-0.5">
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent",
+              selectedValue === "automatize" && "bg-accent",
+            )}
+            onClick={() => pick("automatize")}
+          >
+            <AutomatizeAvatar />
+            <span className="min-w-0 flex-1 truncate">Automatize</span>
+            {selectedValue === "automatize" ? (
+              <Check className="size-4 shrink-0 opacity-70" aria-hidden="true" />
+            ) : null}
+          </button>
+          {experts.map((expert) => {
+            const value = `expert:${expert.id}`;
+            const label = getProductOwnerTextValue("expert", expert);
+            return (
+              <button
+                key={expert.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent",
+                  selectedValue === value && "bg-accent",
+                )}
+                onClick={() => pick(value)}
+              >
+                <ExpertAvatar
+                  name={expert.displayName}
+                  src={expert.profileImageUrl}
+                  size="xs"
+                />
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {selectedValue === value ? (
+                  <Check className="size-4 shrink-0 opacity-70" aria-hidden="true" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -443,8 +609,12 @@ export function ProductsAdminWorkspace({
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
+  const [coverCropOpen, setCoverCropOpen] = useState(false);
   const [coverInputKey, setCoverInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [isLoadingList, setIsLoadingList] = useState(true);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
 
   const selectedProduct = useMemo(
@@ -503,6 +673,7 @@ export function ProductsAdminWorkspace({
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    setIsLoadingList(true);
     try {
       const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
         await Promise.all([
@@ -532,6 +703,7 @@ export function ProductsAdminWorkspace({
       toast.error((error as Error).message);
     } finally {
       setLoading(false);
+      setIsLoadingList(false);
     }
   }, []);
 
@@ -609,6 +781,12 @@ export function ProductsAdminWorkspace({
     setEditingProductId(null);
     setProductForm(emptyProduct);
     setCoverFile(null);
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverPreviewUrl(null);
+    setPendingCoverFile(null);
+    setCoverCropOpen(false);
     setCoverInputKey((current) => current + 1);
   }
 
@@ -616,6 +794,10 @@ export function ProductsAdminWorkspace({
     setEditingProductId(null);
     setProductForm(emptyProduct);
     setCoverFile(null);
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverPreviewUrl(null);
     setCoverInputKey((current) => current + 1);
     setProductDialogOpen(true);
   }
@@ -623,6 +805,10 @@ export function ProductsAdminWorkspace({
   function editProduct(row: Product) {
     setEditingProductId(row.id);
     setCoverFile(null);
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverPreviewUrl(row.coverUrl);
     setCoverInputKey((current) => current + 1);
     setProductForm({
       ownerType: row.ownerType,
@@ -698,11 +884,21 @@ export function ProductsAdminWorkspace({
   }
 
   async function copyCheckoutLink(row: Product) {
+    if (row.status !== "published") {
+      toast.error("Publique o produto antes de copiar o link de checkout.");
+      return;
+    }
+
+    const url = buildProductCheckoutUrl(frontendAppUrl, row.slug);
     try {
-      await navigator.clipboard.writeText(
-        buildProductCheckoutUrl(frontendAppUrl, row.slug),
-      );
-      toast.success("Link de checkout copiado.");
+      await navigator.clipboard.writeText(url);
+      if (!row.salesEnabled) {
+        toast.warning(
+          "Link copiado. Vendas desabilitadas — a página abre, mas a compra fica bloqueada.",
+        );
+      } else {
+        toast.success(`Link copiado: ${url}`);
+      }
     } catch {
       toast.error("Não foi possível copiar o link de checkout.");
     }
@@ -978,6 +1174,39 @@ export function ProductsAdminWorkspace({
     setNewExpertImageInputKey((current) => current + 1);
   }
 
+  function selectCoverFile(file: File | null) {
+    if (!file) return;
+    setPendingCoverFile(file);
+    setCoverCropOpen(true);
+  }
+
+  function cancelCoverCrop() {
+    setCoverCropOpen(false);
+    setPendingCoverFile(null);
+    setCoverInputKey((current) => current + 1);
+  }
+
+  function applyCoverCrop(file: File) {
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverFile(file);
+    setCoverPreviewUrl(URL.createObjectURL(file));
+    setCoverInputKey((current) => current + 1);
+    setCoverCropOpen(false);
+    setPendingCoverFile(null);
+  }
+
+  function removeCoverImage() {
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverFile(null);
+    setCoverPreviewUrl(null);
+    setCoverInputKey((current) => current + 1);
+    setProductForm((current) => ({ ...current, coverUrl: "" }));
+  }
+
   async function saveExpert(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editingExpertId) return;
@@ -1109,7 +1338,13 @@ export function ProductsAdminWorkspace({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {products.length === 0 ? (
+                  {isLoadingList ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-28 text-center">
+                        <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
+                      </TableCell>
+                    </TableRow>
+                  ) : products.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
                         Nenhum produto cadastrado.
@@ -1121,6 +1356,7 @@ export function ProductsAdminWorkspace({
                         ? expertsById.get(row.expertId)
                         : null;
                       const ownerName = ownerExpert?.displayName ?? expertName ?? "Automatize";
+                      const statusBadge = getProductStatusBadgeProps(row.status);
 
                       return (
                         <TableRow key={row.id}>
@@ -1152,25 +1388,22 @@ export function ProductsAdminWorkspace({
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
-                        <TableCell><Badge variant="outline">{productStatusLabel[row.status]}</Badge></TableCell>
+                        <TableCell>
+                          <Badge variant={statusBadge.variant} className={statusBadge.className}>
+                            {productStatusLabel[row.status]}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right">
-                          <div className="hidden justify-end gap-2 xl:flex">
-                            {row.status === "draft" ? (
-                              <Button type="button" size="sm" onClick={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
-                                {publishingProductId === row.id ? <Loader2 className="size-3.5 animate-spin" /> : <CircleCheck className="size-3.5" />}
-                                {publishingProductId === row.id ? "Publicando..." : "Publicar"}
-                              </Button>
-                            ) : null}
-                            <Button type="button" size="sm" variant="ghost" onClick={() => void copyCheckoutLink(row)}>
-                              <Copy className="size-3.5" /> Copiar checkout
-                            </Button>
-                            <Button type="button" size="sm" variant="outline" onClick={() => manageContent(row.id)}><BookOpen className="size-3.5" /> Conteúdos</Button>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => editProduct(row)}><Pencil className="size-3.5" /> Editar</Button>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => void archiveProduct(row.id)}><Archive className="size-3.5" /> Arquivar</Button>
-                          </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button type="button" size="icon" variant="outline" className="ml-auto xl:hidden" aria-label={`Ações de ${row.title}`} title="Ações">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="ml-auto"
+                                aria-label={`Ações de ${row.title}`}
+                                title="Ações"
+                              >
                                 <MoreHorizontal className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -1323,9 +1556,25 @@ export function ProductsAdminWorkspace({
                         <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button type="button" size="sm" variant="outline" onClick={() => editExpert(expert)}>
-                          <Pencil className="size-3.5" /> Editar
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="ml-auto"
+                              aria-label={`Ações de ${expert.displayName}`}
+                              title="Ações"
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem onSelect={() => editExpert(expert)}>
+                              <Pencil /> Editar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1360,7 +1609,13 @@ export function ProductsAdminWorkspace({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.length === 0 ? (
+                  {isLoadingList ? (
+                    <TableRow>
+                      <TableCell colSpan={13} className="h-28 text-center">
+                        <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
+                      </TableCell>
+                    </TableRow>
+                  ) : orders.length === 0 ? (
                     <TableRow>
                       <TableCell
                         colSpan={13}
@@ -1438,13 +1693,28 @@ export function ProductsAdminWorkspace({
                         </TableCell>
                         <TableCell className="text-right">
                           {order.status === "approved" ? (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => void refundOrder(order.id)}
-                            >
-                              Reembolsar
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="ml-auto"
+                                  aria-label={`Ações da venda de ${order.productTitle}`}
+                                  title="Ações"
+                                >
+                                  <MoreHorizontal className="size-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => void refundOrder(order.id)}
+                                >
+                                  Reembolsar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -1459,7 +1729,70 @@ export function ProductsAdminWorkspace({
         </TabsContent>
 
         <TabsContent value="payouts" className="pt-4">
-          <Card><CardHeader><CardTitle>Repasses</CardTitle></CardHeader><CardContent className="divide-y p-0">{payouts.map((payout) => <div key={payout.id} className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"><div><p className="font-medium">{payout.expertName} · {money(payout.amountCentavos)}</p><p className="font-mono text-xs text-muted-foreground">Pix: {payout.pixKeySnapshot}</p><p className="text-xs text-muted-foreground">Prazo: {formatDateInSaoPaulo(payout.dueAt)}</p></div><Badge variant="outline">{payout.status}</Badge><div className="flex flex-wrap gap-2">{payout.status === "requested" ? <><Button size="sm" variant="outline" onClick={() => void updatePayout(payout.id, "approved")}>Aprovar</Button><Button size="sm" variant="ghost" onClick={() => void updatePayout(payout.id, "rejected")}>Rejeitar</Button></> : null}{payout.status === "approved" ? <Button size="sm" onClick={() => void updatePayout(payout.id, "paid")}>Registrar pagamento</Button> : null}</div></div>)}</CardContent></Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Repasses</CardTitle>
+            </CardHeader>
+            <CardContent className="divide-y p-0">
+              {payouts.map((payout) => (
+                <div
+                  key={payout.id}
+                  className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {payout.expertName} · {money(payout.amountCentavos)}
+                    </p>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      Pix: {payout.pixKeySnapshot}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Prazo: {formatDateInSaoPaulo(payout.dueAt)}
+                    </p>
+                  </div>
+                  <Badge variant="outline">{payout.status}</Badge>
+                  {payout.status === "requested" || payout.status === "approved" ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="ml-auto"
+                          aria-label={`Ações do repasse de ${payout.expertName}`}
+                          title="Ações"
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        {payout.status === "requested" ? (
+                          <>
+                            <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "approved")}>
+                              Aprovar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => void updatePayout(payout.id, "rejected")}
+                            >
+                              Rejeitar
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                        {payout.status === "approved" ? (
+                          <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "paid")}>
+                            Registrar pagamento
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -1483,25 +1816,12 @@ export function ProductsAdminWorkspace({
             <Field label="Slug"><Input value={productForm.slug} onChange={(e) => setProductForm({ ...productForm, slug: e.target.value })} placeholder="gerado pelo título" /></Field>
             <Field label="Preço (R$)"><Input inputMode="numeric" maxLength={18} placeholder="R$ 0,00" value={productForm.priceReais} onChange={(e) => setProductForm({ ...productForm, priceReais: formatBrlCurrencyInput(e.target.value) })} required /></Field>
             <Field label="Proprietário">
-              <Select
-                value={getProductOwnerSelectionValue(productForm.ownerType, productForm.expertId)}
-                onValueChange={changeProductOwner}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="automatize">Automatize</SelectItem>
-                    {experts.map((expert) => (
-                      <SelectItem key={expert.id} value={`expert:${expert.id}`}>
-                        {expert.displayName}
-                        {expert.status === "inactive" ? " (inativo)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+              <ProductOwnerPicker
+                ownerType={productForm.ownerType}
+                expertId={productForm.expertId}
+                experts={experts}
+                onSelect={changeProductOwner}
+              />
             </Field>
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
               <p className="text-sm font-medium">Taxa da plataforma</p>
@@ -1673,15 +1993,43 @@ export function ProductsAdminWorkspace({
                 key={coverInputKey}
                 type="file"
                 accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
-                onChange={(event) => setCoverFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => selectCoverFile(event.target.files?.[0] ?? null)}
               />
-              <p className="text-xs text-muted-foreground">
-                {coverFile
-                  ? coverFile.name
-                  : productForm.coverUrl
-                    ? "Uma capa já está cadastrada. Envie outra para substituí-la."
-                    : "JPG, PNG, WebP, GIF ou AVIF de até 10 MB."}
-              </p>
+              {coverPreviewUrl ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
+                  <div className="aspect-[16/9] w-36 shrink-0 overflow-hidden rounded-md border">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={coverPreviewUrl}
+                      alt="Prévia da capa do produto"
+                      className="size-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted-foreground">
+                      Capa ajustada em 16:9 · {PRODUCT_COVER_OUTPUT_WIDTH} × {PRODUCT_COVER_OUTPUT_HEIGHT} px
+                    </p>
+                    {coverFile ? (
+                      <p className="truncate text-xs font-medium">{coverFile.name}</p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 shrink-0 text-destructive hover:text-destructive"
+                    aria-label="Remover capa"
+                    title="Remover capa"
+                    onClick={removeCoverImage}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  JPG, PNG, WebP, GIF ou AVIF de até 10 MB. A capa será recortada em 16:9 para o checkout e a biblioteca.
+                </p>
+              )}
             </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
@@ -1701,6 +2049,13 @@ export function ProductsAdminWorkspace({
         open={expertImageCropOpen}
         onCancel={cancelExpertImageCrop}
         onConfirm={applyExpertImageCrop}
+      />
+
+      <ProductCoverCropDialog
+        file={pendingCoverFile}
+        open={coverCropOpen}
+        onCancel={cancelCoverCrop}
+        onConfirm={applyCoverCrop}
       />
 
       <Dialog

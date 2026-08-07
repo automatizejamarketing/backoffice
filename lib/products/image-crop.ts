@@ -8,19 +8,44 @@ export type ImageSize = {
   height: number;
 };
 
-export function getCoverScale(image: ImageSize, frameSize: number) {
-  return Math.max(frameSize / image.width, frameSize / image.height);
+export type FrameSize = {
+  width: number;
+  height: number;
+};
+
+export type CropSourceRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function normalizeFrame(frame: number | FrameSize): FrameSize {
+  if (typeof frame === "number") {
+    return { width: frame, height: frame };
+  }
+
+  return frame;
+}
+
+export function getCoverScale(image: ImageSize, frame: number | FrameSize) {
+  const normalized = normalizeFrame(frame);
+  return Math.max(
+    normalized.width / image.width,
+    normalized.height / image.height,
+  );
 }
 
 export function clampCropOffset(
   offset: CropOffset,
   image: ImageSize,
-  frameSize: number,
+  frame: number | FrameSize,
   zoom: number,
 ): CropOffset {
-  const scale = getCoverScale(image, frameSize) * zoom;
-  const maxX = Math.max(0, (image.width * scale - frameSize) / 2);
-  const maxY = Math.max(0, (image.height * scale - frameSize) / 2);
+  const normalized = normalizeFrame(frame);
+  const scale = getCoverScale(image, normalized) * zoom;
+  const maxX = Math.max(0, (image.width * scale - normalized.width) / 2);
+  const maxY = Math.max(0, (image.height * scale - normalized.height) / 2);
 
   return {
     x: maxX === 0 ? 0 : Math.min(maxX, Math.max(-maxX, offset.x)),
@@ -30,16 +55,19 @@ export function clampCropOffset(
 
 export function getCropSourceRect(
   image: ImageSize,
-  frameSize: number,
+  frame: number | FrameSize,
   zoom: number,
   offset: CropOffset,
-) {
-  const scale = getCoverScale(image, frameSize) * zoom;
-  const cropSize = frameSize / scale;
+): CropSourceRect {
+  const normalized = normalizeFrame(frame);
+  const scale = getCoverScale(image, normalized) * zoom;
+  const cropWidth = normalized.width / scale;
+  const cropHeight = normalized.height / scale;
 
   return {
-    x: (image.width - cropSize) / 2 - offset.x / scale,
-    y: (image.height - cropSize) / 2 - offset.y / scale,
-    size: cropSize,
+    x: (image.width - cropWidth) / 2 - offset.x / scale,
+    y: (image.height - cropHeight) / 2 - offset.y / scale,
+    width: cropWidth,
+    height: cropHeight,
   };
 }
