@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { formatBrazilianPhoneInput, getWhatsAppUrl } from "./phone";
+import { formatBrazilianPhone, formatBrazilianPhoneInput, getWhatsAppUrl } from "./phone";
 
 describe("Brazilian phone input mask", () => {
   it("formats a mobile number progressively", () => {
@@ -17,6 +17,19 @@ describe("Brazilian phone input mask", () => {
       formatBrazilianPhoneInput("+55 (11) 99999-8888"),
       "(11) 99999-8888",
     );
+  });
+});
+
+describe("formatBrazilianPhone", () => {
+  it("formats numbers stored with country code", () => {
+    assert.equal(
+      formatBrazilianPhone("5561983167565"),
+      "(61) 98316-7565",
+    );
+  });
+
+  it("formats canonical mobile numbers", () => {
+    assert.equal(formatBrazilianPhone("61983167565"), "(61) 98316-7565");
   });
 });
 

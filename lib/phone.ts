@@ -54,7 +54,7 @@ export function formatBrazilianPhoneInput(
 export function formatBrazilianPhone(
   value: string | null | undefined,
 ): string | null {
-  const digits = digitsOnly(value);
+  const digits = normalizeBrazilianPhone(value);
   if (!digits) return null;
 
   if (digits.length === 11) {

@@ -57,6 +57,7 @@ import {
   type SubscriptionEvent,
   type User,
 } from "./schema";
+import { buildAccountStatusFilterSql } from "@/lib/backoffice/account-status-filter";
 import {
   resolveAccessExpirationRange,
   resolveOperationalExpirationDates,
@@ -138,9 +139,12 @@ export type UserWithUsage = User & {
   performanceDrop: UserPerformanceDrop;
 };
 
+export const USER_EXPORT_MAX_ROWS = 50_000;
+
 export type GetAllUsersWithUsageParams = {
   page?: number;
   pageSize?: number;
+  exportAll?: boolean;
   search?: string;
   filters?: Partial<
     Pick<
@@ -152,6 +156,7 @@ export type GetAllUsersWithUsageParams = {
       | "campaignStatus"
       | "performanceStatus"
       | "accessExpiration"
+      | "accountStatus"
       | "fieldFilter"
       | "sort"
       | "consultantId"
@@ -360,9 +365,12 @@ const hasPerformanceSnapshotSql = sql`EXISTS (
 export async function getAllUsersWithUsage(
   params: GetAllUsersWithUsageParams = {},
 ): Promise<GetAllUsersWithUsageResult> {
-  const page = Math.max(1, Math.trunc(params.page ?? 1));
-  const pageSize = Math.max(1, Math.trunc(params.pageSize ?? 50));
-  const offset = (page - 1) * pageSize;
+  const exportAll = params.exportAll ?? false;
+  const page = exportAll ? 1 : Math.max(1, Math.trunc(params.page ?? 1));
+  const pageSize = exportAll
+    ? USER_EXPORT_MAX_ROWS
+    : Math.max(1, Math.trunc(params.pageSize ?? 50));
+  const offset = exportAll ? 0 : (page - 1) * pageSize;
 
   const trimmedSearch = params.search?.trim() ?? "";
   const conditions = [];
@@ -464,6 +472,15 @@ export async function getAllUsersWithUsage(
     if (expirationRange.lt) {
       conditions.push(lt(user.expirationDate, expirationRange.lt));
     }
+  }
+
+  if (
+    params.filters?.accountStatus &&
+    params.filters.accountStatus !== "all"
+  ) {
+    conditions.push(
+      buildAccountStatusFilterSql(params.filters.accountStatus),
+    );
   }
 
   if (params.filters?.fieldFilter) {

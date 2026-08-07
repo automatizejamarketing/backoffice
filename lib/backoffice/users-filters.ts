@@ -1,5 +1,9 @@
 import type { SubscriptionStatus } from "@/lib/db/schema";
 import {
+  ACCOUNT_STATUS_FILTER_VALUES,
+  type AccountStatusFilter,
+} from "@/lib/backoffice/account-status-filter";
+import {
   normalizeConsultantFilterId,
   type ConsultantFilterId,
 } from "@/lib/backoffice/filter-params";
@@ -110,6 +114,7 @@ export type PerformanceStatusFilter =
   (typeof PERFORMANCE_STATUS_FILTER_VALUES)[number];
 export type AccessExpirationFilter =
   (typeof ACCESS_EXPIRATION_FILTER_VALUES)[number];
+export type { AccountStatusFilter };
 export type UserFieldFilterField =
   (typeof USER_FIELD_FILTER_VALUES)[number];
 export type UserFieldFilterOperator =
@@ -134,6 +139,7 @@ export type UsersFilterParams = {
   campaignStatus: CampaignStatusFilter;
   performanceStatus: PerformanceStatusFilter;
   accessExpiration: AccessExpirationFilter;
+  accountStatus: AccountStatusFilter;
   fieldFilter: UserFieldFilter | null;
   sort: UsersSort;
   consultantId: ConsultantFilter;
@@ -155,6 +161,7 @@ type RawUsersFilterParams = {
   campaignStatus?: string;
   performanceStatus?: string;
   accessExpiration?: string;
+  accountStatus?: string;
   filterField?: string;
   filterOperator?: string;
   filterValue?: string;
@@ -358,6 +365,12 @@ export function normalizeUsersFilterParams(
       raw.accessExpiration,
       raw.renewalWithin,
     ),
+    accountStatus: includesValue(
+      ACCOUNT_STATUS_FILTER_VALUES,
+      raw.accountStatus,
+    )
+      ? raw.accountStatus
+      : "all",
     fieldFilter: normalizeUserFieldFilter(
       raw.filterField,
       raw.filterOperator,
