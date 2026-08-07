@@ -11,8 +11,10 @@ O backoffice é responsável por:
 - gerenciar a identidade pública do Expert, incluindo sua Foto de Perfil;
 - criar e publicar Produtos e Conteúdos;
 - consultar Aquisições e Pagamentos;
-- configurar a Taxa da Plataforma global e sua substituição opcional por
-  Produto, aplicadas somente a novas Aquisições;
+- configurar a Taxa da Plataforma global e a Taxa da Plataforma do Expert,
+  ambas compostas por percentual e valor fixo e aplicadas somente a novas
+  Aquisições; Produtos de Expert herdam exclusivamente a configuração do seu
+  proprietário e Produtos do Automatize usam a configuração global;
 - distinguir custo do Mercado Pago, receita de gateway, coprodução, recebível
   do Expert e receita de Produtos próprios;
 - cadastrar um Coprodutor opcional — Automatize ou outro Expert — mantendo o
