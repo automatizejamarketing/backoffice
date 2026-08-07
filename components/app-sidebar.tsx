@@ -10,6 +10,7 @@ import {
   Link2,
   LogOut,
   Mail,
+  MessageCircle,
   WalletCards,
   Settings2,
   Shield,
@@ -76,6 +77,7 @@ export function AppSidebar({
   const isDashboard = pathname === "/";
   const isFinanceSection = pathname?.startsWith("/finance");
   const isEmailsSection = pathname?.startsWith("/emails");
+  const isWhatsappSection = pathname?.startsWith("/whatsapp");
   const isPortfolioSection = pathname?.startsWith("/portfolio");
   const isUsersSection = pathname?.startsWith("/users");
   const isPostsSection = pathname?.startsWith("/posts");
@@ -127,6 +129,13 @@ export function AppSidebar({
       icon: Mail,
       isActive: isEmailsSection,
       permission: "emails:view",
+    },
+    {
+      href: "/whatsapp",
+      label: "WhatsApp",
+      icon: MessageCircle,
+      isActive: isWhatsappSection,
+      permission: "whatsapp:view",
     },
     {
       href: "/posts",
