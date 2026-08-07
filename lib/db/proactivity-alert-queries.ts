@@ -60,6 +60,15 @@ function asThresholds(value: unknown): Record<string, number> {
   return result;
 }
 
+function asDate(value: Date | string | null | undefined): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return new Date(0);
+}
+
 function toRecord(row: ProactivityAlert): ProactivityAlertRecord | null {
   const definition = getAlertDefinition(row.ruleKey, row.audience);
   if (!definition) return null;
@@ -72,8 +81,8 @@ function toRecord(row: ProactivityAlert): ProactivityAlertRecord | null {
     deliverWhatsapp: row.deliverWhatsapp,
     deliverSlack: row.deliverSlack,
     updatedByEmail: row.updatedByEmail,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    createdAt: asDate(row.createdAt),
+    updatedAt: asDate(row.updatedAt),
     definition,
   };
 }
@@ -133,7 +142,7 @@ export async function listProactivityAlerts(options?: {
 export async function listProactivityAlertChangeLogs(
   limit = 50,
 ): Promise<ProactivityAlertChangeLogItem[]> {
-  return db
+  const rows = await db
     .select({
       id: proactivityAlertChangeLog.id,
       alertId: proactivityAlertChangeLog.alertId,
@@ -146,6 +155,11 @@ export async function listProactivityAlertChangeLogs(
     .from(proactivityAlertChangeLog)
     .orderBy(desc(proactivityAlertChangeLog.createdAt))
     .limit(limit);
+
+  return rows.map((row) => ({
+    ...row,
+    createdAt: asDate(row.createdAt),
+  }));
 }
 
 function serializeValue(value: unknown): string {
