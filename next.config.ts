@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Turbopack running under Bun cannot resolve the hashed external aliases
+  // generated for these CommonJS packages. Bundle them with the server route
+  // so product uploads work in the local Portless environment as well.
+  transpilePackages: [
+    "@aws-sdk/client-s3",
+    "@aws-sdk/s3-request-presigner",
+  ],
   // Allow images from Google profile pictures
   images: {
     remotePatterns: [

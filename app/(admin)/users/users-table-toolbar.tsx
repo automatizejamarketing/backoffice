@@ -6,6 +6,7 @@ import {
   CircleAlert,
   Download,
   Filter,
+  Info,
   LoaderCircle,
   Search,
   TriangleAlert,
@@ -19,6 +20,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -37,7 +44,8 @@ import type {
   UserFieldFilterOperator,
   UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
-import { ACCOUNT_STATUS_FILTER_LABELS } from "@/lib/backoffice/account-status-filter";
+import { ACCOUNT_STATUS_FILTER_DESCRIPTIONS, ACCOUNT_STATUS_FILTER_LABELS } from "@/lib/backoffice/account-status-filter";
+import type { AccountStatusFilter } from "@/lib/backoffice/account-status-filter";
 import type { UserExpirationDayCounts } from "@/lib/db/admin-queries";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -140,34 +148,69 @@ function OptionRow({
   selected,
   label,
   onSelect,
+  infoDescription,
+  loading = false,
+  disabled = false,
 }: {
   selected: boolean;
   label: string;
   onSelect: () => void;
+  infoDescription?: string;
+  loading?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={cn(
-        "flex w-full items-center rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+        "flex w-full items-center rounded-md pr-1 transition-colors",
         selected
-          ? "bg-accent font-medium text-accent-foreground"
+          ? "bg-accent text-accent-foreground"
           : "hover:bg-muted/70",
+        disabled && "pointer-events-none opacity-60",
       )}
     >
-      <span
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={disabled}
+        aria-busy={loading}
         className={cn(
-          "mr-2 flex size-3.5 shrink-0 items-center justify-center rounded-full border",
-          selected ? "border-foreground" : "border-muted-foreground/40",
+          "flex min-w-0 flex-1 items-center px-2 py-1.5 text-left text-sm",
+          selected && "font-medium",
         )}
       >
-        {selected ? (
-          <span className="size-1.5 rounded-full bg-foreground" />
-        ) : null}
-      </span>
-      {label}
-    </button>
+        <span
+          className={cn(
+            "mr-2 flex size-3.5 shrink-0 items-center justify-center rounded-full border",
+            selected ? "border-foreground" : "border-muted-foreground/40",
+          )}
+        >
+          {loading ? (
+            <LoaderCircle className="size-2.5 animate-spin" />
+          ) : selected ? (
+            <span className="size-1.5 rounded-full bg-foreground" />
+          ) : null}
+        </span>
+        <span className="truncate">{label}</span>
+      </button>
+      {infoDescription ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="inline-flex shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Sobre o filtro ${label}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Info className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-left">
+            {infoDescription}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
   );
 }
 
@@ -188,6 +231,7 @@ export function UsersTableToolbar({
   const [pendingExpirationDate, setPendingExpirationDate] = useState<
     string | null
   >(null);
+  const [pendingFilterKey, setPendingFilterKey] = useState<string | null>(null);
   const [fieldFilterField, setFieldFilterField] =
     useState<UserFieldFilterField>(
       filters.fieldFilter?.field ?? "expirationDate",
@@ -282,6 +326,12 @@ export function UsersTableToolbar({
     setPendingExpirationDate(null);
     navigate(href, options);
   }
+
+  useEffect(() => {
+    if (!isFetching) {
+      setPendingFilterKey(null);
+    }
+  }, [isFetching]);
 
   useEffect(() => {
     if (isFirstRunRef.current) {
@@ -517,6 +567,8 @@ export function UsersTableToolbar({
       return;
     }
 
+    setPendingFilterKey(`${key}:${value}`);
+
     const updates: Record<string, string | null> = {
       [key]: value === "all" ? null : value,
     };
@@ -697,8 +749,17 @@ export function UsersTableToolbar({
       <div className="flex flex-wrap items-center gap-2">
         <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5">
-              <Filter className="size-3.5" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              aria-busy={isFetching}
+            >
+              {isFetching ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <Filter className="size-3.5" />
+              )}
               Filtros
               {activeChips.length > 0 ? (
                 <Badge
@@ -712,8 +773,17 @@ export function UsersTableToolbar({
           </PopoverTrigger>
           <PopoverContent
             align="start"
-            className="w-[min(92vw,720px)] max-h-[min(70vh,560px)] overflow-y-auto p-3"
+            className="relative w-[min(92vw,720px)] max-h-[min(70vh,560px)] overflow-y-auto p-3"
           >
+            {isFetching ? (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/70 backdrop-blur-[1px]">
+                <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground shadow-sm">
+                  <LoaderCircle className="size-4 animate-spin" />
+                  Atualizando filtros...
+                </div>
+              </div>
+            ) : null}
+            <TooltipProvider delayDuration={200}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <p className="text-sm font-medium">Filtros</p>
               <Button
@@ -721,7 +791,7 @@ export function UsersTableToolbar({
                 variant="ghost"
                 size="sm"
                 className="h-7 text-xs"
-                disabled={activeChips.length === 0}
+                disabled={activeChips.length === 0 || isFetching}
                 onClick={clearAllFilters}
               >
                 Limpar tudo
@@ -854,21 +924,40 @@ export function UsersTableToolbar({
                           "sm:grid sm:grid-cols-2 sm:gap-x-3 sm:space-y-0",
                       )}
                     >
-                      {section.options.map((option) => (
-                        <OptionRow
-                          key={option.value}
-                          selected={current === option.value}
-                          label={option.label}
-                          onSelect={() =>
-                            handleDimensionChange(section.key, option.value)
-                          }
-                        />
-                      ))}
+                      {section.options.map((option) => {
+                        const optionKey = `${section.key}:${option.value}`;
+                        const isPending = pendingFilterKey === optionKey;
+                        const infoDescription =
+                          section.key === "accountStatus" &&
+                          option.value !== "all"
+                            ? ACCOUNT_STATUS_FILTER_DESCRIPTIONS[
+                                option.value as Exclude<
+                                  AccountStatusFilter,
+                                  "all"
+                                >
+                              ]
+                            : undefined;
+
+                        return (
+                          <OptionRow
+                            key={option.value}
+                            selected={current === option.value}
+                            label={option.label}
+                            infoDescription={infoDescription}
+                            loading={isPending}
+                            disabled={isFetching}
+                            onSelect={() =>
+                              handleDimensionChange(section.key, option.value)
+                            }
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 );
               })}
             </div>
+            </TooltipProvider>
           </PopoverContent>
         </Popover>
 

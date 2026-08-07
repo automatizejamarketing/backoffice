@@ -26,8 +26,26 @@ export const ACCOUNT_STATUS_FILTER_LABELS: Record<
   active_plan_pix: "Plano ativo com pix",
 };
 
+export const ACCOUNT_STATUS_FILTER_DESCRIPTIONS: Record<
+  Exclude<AccountStatusFilter, "all">,
+  string
+> = {
+  no_card_no_payment:
+    "Nunca teve pagamento aprovado e nunca teve registro de assinatura Stripe (trial, cancelada ou pendente).",
+  trial_no_payment:
+    "Tem ou teve assinatura Stripe, mas nunca teve pagamento aprovado — inclui trial cancelado ou expirado sem cobrança.",
+  subscribed_expired:
+    "Já teve pelo menos um pagamento aprovado e o acesso expirou (data de expiração no passado).",
+  active_plan:
+    "Pagamento aprovado, acesso vigente e sem cancelamento Stripe agendado.",
+  active_plan_canceled:
+    "Pagamento aprovado, acesso ainda vigente, mas pediu cancelamento no Stripe até o fim do período.",
+  active_plan_pix:
+    "Pagamento aprovado, acesso vigente e o último pagamento aprovado foi via Pix (Mercado Pago).",
+};
+
 export type AccountStatusCustomer = CustomerBaseRow & {
-  hasTrialingSubscription?: boolean;
+  hasSubscription?: boolean;
 };
 
 function accessFlags(customer: CustomerBaseRow, referenceDate: Date) {
@@ -51,13 +69,13 @@ export function matchesAccountStatusFilter(
     customer,
     referenceDate,
   );
-  const hasTrialingSubscription = customer.hasTrialingSubscription ?? false;
+  const hasSubscription = customer.hasSubscription ?? false;
 
   switch (filter) {
     case "no_card_no_payment":
-      return !customer.hasApprovedPayment && !hasTrialingSubscription;
+      return !customer.hasApprovedPayment && !hasSubscription;
     case "trial_no_payment":
-      return !customer.hasApprovedPayment && hasTrialingSubscription;
+      return !customer.hasApprovedPayment && hasSubscription;
     case "subscribed_expired":
       return customer.hasApprovedPayment && hasExpiredAccess;
     case "active_plan":
@@ -92,11 +110,10 @@ const hasApprovedPaymentSql = sql`EXISTS (
     AND p.status = 'succeeded'
 )`;
 
-const hasTrialingSubscriptionSql = sql`EXISTS (
+const hasSubscriptionSql = sql`EXISTS (
   SELECT 1
   FROM subscriptions s
   WHERE s.user_id = ${user.id}
-    AND s.status = 'trialing'
 )`;
 
 const hasActiveAccessSql = sql`(
@@ -131,9 +148,9 @@ export function buildAccountStatusFilterSql(
 ): SQL {
   switch (filter) {
     case "no_card_no_payment":
-      return sql`NOT ${hasApprovedPaymentSql} AND NOT ${hasTrialingSubscriptionSql}`;
+      return sql`NOT ${hasApprovedPaymentSql} AND NOT ${hasSubscriptionSql}`;
     case "trial_no_payment":
-      return sql`NOT ${hasApprovedPaymentSql} AND ${hasTrialingSubscriptionSql}`;
+      return sql`NOT ${hasApprovedPaymentSql} AND ${hasSubscriptionSql}`;
     case "subscribed_expired":
       return sql`${hasApprovedPaymentSql} AND ${hasExpiredAccessSql}`;
     case "active_plan":

@@ -7,6 +7,7 @@ import {
   Check,
   CircleCheck,
   Copy,
+  ImageIcon,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -16,6 +17,7 @@ import {
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ExpertImageCropDialog } from "@/components/expert-image-crop-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +38,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -70,6 +80,7 @@ import {
   formatDateInSaoPaulo,
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
+import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 
 type Expert = {
   id: string;
@@ -266,9 +277,15 @@ function ExpertAvatar({
 }: {
   name: string;
   src: string | null;
-  size?: "sm" | "lg";
+  size?: "xs" | "sm" | "lg";
 }) {
-  const sizeClass = size === "lg" ? "size-20 text-xl" : "size-10 text-sm";
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const sizeClass =
+    size === "lg"
+      ? "size-20 text-xl"
+      : size === "xs"
+        ? "size-8 text-xs"
+        : "size-10 text-sm";
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -276,23 +293,64 @@ function ExpertAvatar({
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+  const imageSrc = src && failedSrc !== src ? src : null;
 
   return (
     <div
       className={`${sizeClass} shrink-0 overflow-hidden rounded-full border bg-muted`}
-      aria-label={src ? undefined : `Sem foto para ${name}`}
+      aria-label={imageSrc ? undefined : `Sem foto para ${name}`}
     >
-      {src ? (
+      {imageSrc ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          src={imageSrc}
           alt={`Foto de ${name}`}
           className="size-full object-cover"
+          onError={() => setFailedSrc(imageSrc)}
         />
       ) : (
         <span className="flex size-full items-center justify-center font-semibold text-muted-foreground">
           {initials || "EX"}
         </span>
+      )}
+    </div>
+  );
+}
+
+function AutomatizeAvatar() {
+  return (
+    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white p-1.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo/1.png"
+        alt="Logo do Automatize"
+        className="size-full object-contain"
+      />
+    </div>
+  );
+}
+
+function ProductCoverThumbnail({
+  title,
+  src,
+}: {
+  title: string;
+  src: string | null;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
+  return (
+    <div className="flex h-11 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted text-muted-foreground">
+      {src && failedSrc !== src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`Capa de ${title}`}
+          className="size-full object-cover"
+          onError={() => setFailedSrc(src)}
+        />
+      ) : (
+        <ImageIcon className="size-4" aria-hidden="true" />
       )}
     </div>
   );
@@ -331,18 +389,26 @@ async function uploadProductAsset(
     assetUrl: string | null;
     headers: Record<string, string>;
   };
-  const uploadResponse = await fetch(prepared.uploadUrl, {
-    method: "PUT",
-    headers: prepared.headers,
+  const uploadResponse = await fetch("/api/products/admin/uploads/complete", {
+    method: "POST",
+    headers: {
+      "Content-Type": contentType,
+      "X-Object-Key": prepared.objectKey,
+      "X-Cache-Control": prepared.headers["cache-control"] ?? "private, no-store",
+    },
     body: file,
   });
   if (!uploadResponse.ok) {
-    throw new Error("Não foi possível enviar o arquivo para o armazenamento.");
+    throw new Error(await readError(uploadResponse));
   }
   return prepared;
 }
 
-export function ProductsAdminWorkspace() {
+export function ProductsAdminWorkspace({
+  frontendAppUrl,
+}: {
+  frontendAppUrl: string;
+}) {
   const [products, setProducts] = useState<Array<{
     product: Product;
     expertName: string | null;
@@ -367,6 +433,12 @@ export function ProductsAdminWorkspace() {
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
   const [expertImageInputKey, setExpertImageInputKey] = useState(0);
+  const [newExpertImageFile, setNewExpertImageFile] = useState<File | null>(null);
+  const [newExpertImagePreviewUrl, setNewExpertImagePreviewUrl] = useState<string | null>(null);
+  const [newExpertImageInputKey, setNewExpertImageInputKey] = useState(0);
+  const [pendingExpertImageFile, setPendingExpertImageFile] = useState<File | null>(null);
+  const [expertImageCropTarget, setExpertImageCropTarget] = useState<"create" | "edit" | null>(null);
+  const [expertImageCropOpen, setExpertImageCropOpen] = useState(false);
   const [creatingExpert, setCreatingExpert] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -382,6 +454,10 @@ export function ProductsAdminWorkspace() {
   const selectedOwnerExpert = useMemo(
     () => experts.find((expert) => expert.id === productForm.expertId) ?? null,
     [experts, productForm.expertId],
+  );
+  const expertsById = useMemo(
+    () => new Map(experts.map((expert) => [expert.id, expert])),
+    [experts],
   );
   const ownerExpertSharePercent = productForm.hasCoproduction
     ? Math.max(
@@ -621,6 +697,17 @@ export function ProductsAdminWorkspace() {
     await loadAll();
   }
 
+  async function copyCheckoutLink(row: Product) {
+    try {
+      await navigator.clipboard.writeText(
+        buildProductCheckoutUrl(frontendAppUrl, row.slug),
+      );
+      toast.success("Link de checkout copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o link de checkout.");
+    }
+  }
+
   async function publishProduct(row: Product) {
     setPublishingProductId(row.id);
     try {
@@ -746,13 +833,11 @@ export function ProductsAdminWorkspace() {
     const form = new FormData(formElement);
     setCreatingExpert(true);
     try {
-      const selectedImage = form.get("profileImage");
       const payload = Object.fromEntries(form);
-      delete payload.profileImage;
       const profileImageUrl =
-        selectedImage instanceof File && selectedImage.size > 0
+        newExpertImageFile
           ? (
-              await uploadProductAsset(selectedImage, {
+              await uploadProductAsset(newExpertImageFile, {
                 kind: "expert-avatar",
               })
             ).assetUrl
@@ -775,6 +860,12 @@ export function ProductsAdminWorkspace() {
       if (!response.ok) return toast.error(await readError(response));
       formElement.reset();
       setExpertPhone("");
+      setNewExpertImageFile(null);
+      if (newExpertImagePreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(newExpertImagePreviewUrl);
+      }
+      setNewExpertImagePreviewUrl(null);
+      setNewExpertImageInputKey((current) => current + 1);
       toast.success("Expert vinculado.");
       await loadAll();
     } catch (error) {
@@ -822,13 +913,50 @@ export function ProductsAdminWorkspace() {
   }
 
   function selectExpertImage(file: File | null) {
-    if (expertImagePreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(expertImagePreviewUrl);
+    if (!file) return;
+    setPendingExpertImageFile(file);
+    setExpertImageCropTarget("edit");
+    setExpertImageCropOpen(true);
+  }
+
+  function selectNewExpertImage(file: File | null) {
+    if (!file) return;
+    setPendingExpertImageFile(file);
+    setExpertImageCropTarget("create");
+    setExpertImageCropOpen(true);
+  }
+
+  function cancelExpertImageCrop() {
+    setExpertImageCropOpen(false);
+    setPendingExpertImageFile(null);
+    if (expertImageCropTarget === "create") {
+      setNewExpertImageInputKey((current) => current + 1);
+    } else if (expertImageCropTarget === "edit") {
+      setExpertImageInputKey((current) => current + 1);
     }
-    setExpertImageFile(file);
-    setExpertImagePreviewUrl(
-      file ? URL.createObjectURL(file) : expertForm.profileImageUrl,
-    );
+    setExpertImageCropTarget(null);
+  }
+
+  function applyExpertImageCrop(file: File) {
+    const previewUrl = URL.createObjectURL(file);
+    if (expertImageCropTarget === "create") {
+      if (newExpertImagePreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(newExpertImagePreviewUrl);
+      }
+      setNewExpertImageFile(file);
+      setNewExpertImagePreviewUrl(previewUrl);
+      setNewExpertImageInputKey((current) => current + 1);
+    } else {
+      if (expertImagePreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(expertImagePreviewUrl);
+      }
+      setExpertImageFile(file);
+      setExpertImagePreviewUrl(previewUrl);
+      setExpertImageInputKey((current) => current + 1);
+    }
+    setExpertImageCropOpen(false);
+    setPendingExpertImageFile(null);
+    setExpertImageCropTarget(null);
   }
 
   function removeExpertImage() {
@@ -839,6 +967,15 @@ export function ProductsAdminWorkspace() {
     setExpertImagePreviewUrl(null);
     setExpertImageInputKey((current) => current + 1);
     setExpertForm((current) => ({ ...current, profileImageUrl: null }));
+  }
+
+  function removeNewExpertImage() {
+    if (newExpertImagePreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(newExpertImagePreviewUrl);
+    }
+    setNewExpertImageFile(null);
+    setNewExpertImagePreviewUrl(null);
+    setNewExpertImageInputKey((current) => current + 1);
   }
 
   async function saveExpert(event: React.FormEvent<HTMLFormElement>) {
@@ -979,12 +1116,39 @@ export function ProductsAdminWorkspace() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    products.map(({ product: row, expertName, grossRevenueCentavos, automatizeNetRevenueCentavos }) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="max-w-[320px] font-medium">
-                          <span className="block truncate" title={row.title}>{row.title}</span>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{expertName ?? "Automatize"}</TableCell>
+                    products.map(({ product: row, expertName, grossRevenueCentavos, automatizeNetRevenueCentavos }) => {
+                      const ownerExpert = row.expertId
+                        ? expertsById.get(row.expertId)
+                        : null;
+                      const ownerName = ownerExpert?.displayName ?? expertName ?? "Automatize";
+
+                      return (
+                        <TableRow key={row.id}>
+                          <TableCell className="max-w-[320px] font-medium">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <ProductCoverThumbnail
+                                title={row.title}
+                                src={row.coverUrl}
+                              />
+                              <span className="min-w-0 truncate" title={row.title}>
+                                {row.title}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <div className="flex items-center gap-2 whitespace-nowrap">
+                              {ownerExpert ? (
+                                <ExpertAvatar
+                                  name={ownerName}
+                                  src={ownerExpert.profileImageUrl}
+                                  size="xs"
+                                />
+                              ) : (
+                                <AutomatizeAvatar />
+                              )}
+                              <span>{ownerName}</span>
+                            </div>
+                          </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
@@ -997,6 +1161,9 @@ export function ProductsAdminWorkspace() {
                                 {publishingProductId === row.id ? "Publicando..." : "Publicar"}
                               </Button>
                             ) : null}
+                            <Button type="button" size="sm" variant="ghost" onClick={() => void copyCheckoutLink(row)}>
+                              <Copy className="size-3.5" /> Copiar checkout
+                            </Button>
                             <Button type="button" size="sm" variant="outline" onClick={() => manageContent(row.id)}><BookOpen className="size-3.5" /> Conteúdos</Button>
                             <Button type="button" size="sm" variant="ghost" onClick={() => editProduct(row)}><Pencil className="size-3.5" /> Editar</Button>
                             <Button type="button" size="sm" variant="ghost" onClick={() => void archiveProduct(row.id)}><Archive className="size-3.5" /> Arquivar</Button>
@@ -1014,6 +1181,7 @@ export function ProductsAdminWorkspace() {
                                   {publishingProductId === row.id ? "Publicando..." : "Publicar"}
                                 </DropdownMenuItem>
                               ) : null}
+                              <DropdownMenuItem onSelect={() => void copyCheckoutLink(row)}><Copy /> Copiar link de checkout</DropdownMenuItem>
                               <DropdownMenuItem onSelect={() => manageContent(row.id)}><BookOpen /> Conteúdos</DropdownMenuItem>
                               <DropdownMenuItem onSelect={() => editProduct(row)}><Pencil /> Editar</DropdownMenuItem>
                               <DropdownMenuSeparator />
@@ -1021,8 +1189,9 @@ export function ProductsAdminWorkspace() {
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
-                      </TableRow>
-                    ))
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1062,8 +1231,41 @@ export function ProductsAdminWorkspace() {
                   />
                 </Field>
                 <Field label="Foto de perfil">
-                  <Input name="profileImage" type="file" accept="image/avif,image/gif,image/jpeg,image/png,image/webp" />
-                  <p className="text-xs leading-5 text-muted-foreground">Opcional · imagem de até 5 MB.</p>
+                  <Input
+                    key={newExpertImageInputKey}
+                    type="file"
+                    accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                    onChange={(event) =>
+                      selectNewExpertImage(event.target.files?.[0] ?? null)
+                    }
+                  />
+                  {newExpertImagePreviewUrl ? (
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
+                      <ExpertAvatar
+                        name="Novo expert"
+                        src={newExpertImagePreviewUrl}
+                        size="xs"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        Foto ajustada · 512 × 512 px
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-destructive hover:text-destructive"
+                        aria-label="Remover foto"
+                        title="Remover foto"
+                        onClick={removeNewExpertImage}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Opcional · você poderá ajustar o enquadramento.
+                    </p>
+                  )}
                 </Field>
                 <div className="md:col-span-2 xl:col-span-6">
                   <Button type="submit" disabled={creatingExpert}>
@@ -1281,18 +1483,25 @@ export function ProductsAdminWorkspace() {
             <Field label="Slug"><Input value={productForm.slug} onChange={(e) => setProductForm({ ...productForm, slug: e.target.value })} placeholder="gerado pelo título" /></Field>
             <Field label="Preço (R$)"><Input inputMode="numeric" maxLength={18} placeholder="R$ 0,00" value={productForm.priceReais} onChange={(e) => setProductForm({ ...productForm, priceReais: formatBrlCurrencyInput(e.target.value) })} required /></Field>
             <Field label="Proprietário">
-              <select
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              <Select
                 value={getProductOwnerSelectionValue(productForm.ownerType, productForm.expertId)}
-                onChange={(event) => changeProductOwner(event.target.value)}
+                onValueChange={changeProductOwner}
               >
-                <option value="automatize">Automatize</option>
-                {experts.map((expert) => (
-                  <option key={expert.id} value={`expert:${expert.id}`}>
-                    {expert.displayName}{expert.status === "inactive" ? " (inativo)" : ""}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="automatize">Automatize</SelectItem>
+                    {experts.map((expert) => (
+                      <SelectItem key={expert.id} value={`expert:${expert.id}`}>
+                        {expert.displayName}
+                        {expert.status === "inactive" ? " (inativo)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
               <p className="text-sm font-medium">Taxa da plataforma</p>
@@ -1346,26 +1555,31 @@ export function ProductsAdminWorkspace() {
                   {productForm.hasCoproduction ? (
                     <>
                       <Field label="Coprodutor">
-                        <select
-                          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        <Select
                           value={
                             productForm.coproducerType === "automatize"
                               ? "automatize"
                               : `expert:${productForm.coproducerExpertId}`
                           }
-                          onChange={(event) => changeCoproducer(event.target.value)}
-                          required
+                          onValueChange={changeCoproducer}
                         >
-                          <option value="automatize">Automatize</option>
-                          {experts
-                            .filter((expert) => expert.id !== productForm.expertId)
-                            .map((expert) => (
-                              <option key={expert.id} value={`expert:${expert.id}`}>
-                                {expert.displayName}
-                                {expert.status === "inactive" ? " (inativo)" : ""}
-                              </option>
-                            ))}
-                        </select>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="automatize">Automatize</SelectItem>
+                              {experts
+                                .filter((expert) => expert.id !== productForm.expertId)
+                                .map((expert) => (
+                                  <SelectItem key={expert.id} value={`expert:${expert.id}`}>
+                                    {expert.displayName}
+                                    {expert.status === "inactive" ? " (inativo)" : ""}
+                                  </SelectItem>
+                                ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </Field>
                       <Field label="Participação do coprodutor">
                         <Input
@@ -1392,12 +1606,68 @@ export function ProductsAdminWorkspace() {
               </div>
             ) : null}
             <Field label="Incluído a partir do plano">
-              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.minimumPlanTier} onChange={(e) => setProductForm({ ...productForm, minimumPlanTier: e.target.value })}>
-                <option value="">Não incluir</option><option value="starter">Starter</option><option value="pro">Pro</option><option value="premium">Premium</option>
-              </select>
+              <Select
+                value={productForm.minimumPlanTier || "none"}
+                onValueChange={(minimumPlanTier) =>
+                  setProductForm({
+                    ...productForm,
+                    minimumPlanTier: minimumPlanTier === "none" ? "" : minimumPlanTier,
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="none">Não incluir</SelectItem>
+                    <SelectItem value="starter">Starter</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                    <SelectItem value="premium">Premium</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
-            <Field label="Visibilidade"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.visibility} onChange={(e) => setProductForm({ ...productForm, visibility: e.target.value as "public" | "unlisted" })}><option value="unlisted">Não listado</option><option value="public">Público</option></select></Field>
-            <Field label="Status"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.status} onChange={(e) => setProductForm({ ...productForm, status: e.target.value as Product["status"] })}><option value="draft">Rascunho</option><option value="published">Publicado</option><option value="archived">Arquivado</option></select></Field>
+            <Field label="Visibilidade">
+              <Select
+                value={productForm.visibility}
+                onValueChange={(visibility) =>
+                  setProductForm({
+                    ...productForm,
+                    visibility: visibility as Product["visibility"],
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="unlisted">Não listado</SelectItem>
+                    <SelectItem value="public">Público</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select
+                value={productForm.status}
+                onValueChange={(status) =>
+                  setProductForm({ ...productForm, status: status as Product["status"] })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="draft">Rascunho</SelectItem>
+                    <SelectItem value="published">Publicado</SelectItem>
+                    <SelectItem value="archived">Arquivado</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="Imagem de capa">
               <Input
                 key={coverInputKey}
@@ -1425,6 +1695,13 @@ export function ProductsAdminWorkspace() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ExpertImageCropDialog
+        file={pendingExpertImageFile}
+        open={expertImageCropOpen}
+        onCancel={cancelExpertImageCrop}
+        onConfirm={applyExpertImageCrop}
+      />
 
       <Dialog
         open={expertDialogOpen}
@@ -1456,7 +1733,9 @@ export function ProductsAdminWorkspace() {
                   onChange={(event) => selectExpertImage(event.target.files?.[0] ?? null)}
                 />
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs text-muted-foreground">JPG, PNG, WebP, GIF ou AVIF de até 5 MB.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Selecione uma imagem para ajustar o enquadramento.
+                  </p>
                   {expertImagePreviewUrl ? (
                     <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={removeExpertImage}>
                       <Trash2 className="size-3.5" /> Remover foto
@@ -1519,10 +1798,22 @@ export function ProductsAdminWorkspace() {
               </p>
             </div>
             <Field label="Status">
-              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={expertForm.status} onChange={(event) => setExpertForm({ ...expertForm, status: event.target.value as Expert["status"] })}>
-                <option value="active">Ativo</option>
-                <option value="inactive">Inativo</option>
-              </select>
+              <Select
+                value={expertForm.status}
+                onValueChange={(status: Expert["status"]) =>
+                  setExpertForm({ ...expertForm, status })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="active">Ativo</SelectItem>
+                    <SelectItem value="inactive">Inativo</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeExpertDialog}>Cancelar</Button>
@@ -1551,7 +1842,24 @@ export function ProductsAdminWorkspace() {
           {selectedProduct ? (
             <div className="space-y-6">
               <form onSubmit={saveContent} className="grid gap-4 md:grid-cols-2">
-                <Field label="Tipo"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={contentForm.type} onChange={(e) => changeContentType(e.target.value as Content["type"])}><option value="video">Vídeo</option><option value="pdf">PDF</option><option value="file">Arquivo</option><option value="external_link">Link externo</option></select></Field>
+                <Field label="Tipo">
+                  <Select
+                    value={contentForm.type}
+                    onValueChange={(type) => changeContentType(type as Content["type"])}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="video">Vídeo</SelectItem>
+                        <SelectItem value="pdf">PDF</SelectItem>
+                        <SelectItem value="file">Arquivo</SelectItem>
+                        <SelectItem value="external_link">Link externo</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
                 <Field label="Título"><Input value={contentForm.title} onChange={(e) => setContentForm({ ...contentForm, title: e.target.value })} required /></Field>
                 <Field label={contentForm.type === "video" ? "URL / ID do vídeo" : contentForm.type === "pdf" ? "Link do Google Drive" : "URL externa"}>
                   <Input
@@ -1568,20 +1876,26 @@ export function ProductsAdminWorkspace() {
                 </Field>
                 {contentForm.type === "video" ? (
                   <Field label="Hospedagem do vídeo">
-                    <select
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    <Select
                       value={contentForm.videoProvider}
-                      onChange={(event) =>
+                      onValueChange={(videoProvider) =>
                         setContentForm({
                           ...contentForm,
-                          videoProvider: event.target.value,
+                          videoProvider,
                         })
                       }
                     >
-                      <option value="youtube">YouTube</option>
-                      <option value="vimeo">Vimeo</option>
-                      <option value="external">URL incorporável</option>
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="youtube">YouTube</SelectItem>
+                          <SelectItem value="vimeo">Vimeo</SelectItem>
+                          <SelectItem value="external">URL incorporável</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </Field>
                 ) : null}
                 <Field label="Posição"><Input type="number" min="1" value={contentForm.position} onChange={(e) => setContentForm({ ...contentForm, position: e.target.value })} /></Field>

@@ -13,6 +13,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -198,47 +206,65 @@ export default async function PortfolioPage({
           </label>
           <label className="space-y-1.5 text-sm">
             <span className="text-muted-foreground">Assinatura</span>
-            <select
+            <Select
               name="subscriptionStatus"
               defaultValue={filters.subscriptionStatus}
-              className="flex h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
             >
-              <option value="all">Todas</option>
-              <option value="active">Ativos</option>
-              <option value="trialing">Em trial</option>
-              <option value="canceled">Cancelados</option>
-            </select>
+              <SelectTrigger className="w-full" aria-label="Assinatura">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="active">Ativos</SelectItem>
+                  <SelectItem value="trialing">Em trial</SelectItem>
+                  <SelectItem value="canceled">Cancelados</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </label>
           <label className="space-y-1.5 text-sm">
             <span className="text-muted-foreground">Campanha [AM]</span>
-            <select
+            <Select
               name="campaignStatus"
               defaultValue={filters.campaignStatus}
-              className="flex h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
             >
-              <option value="all">Todas</option>
-              <option value="active">Campanha ativa</option>
-              <option value="inactive">Sem campanha</option>
-            </select>
+              <SelectTrigger className="w-full" aria-label="Campanha AM">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="active">Campanha ativa</SelectItem>
+                  <SelectItem value="inactive">Sem campanha</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </label>
           {actor.role === "admin" ? (
             <label className="space-y-1.5 text-sm">
               <span className="text-muted-foreground">Consultor</span>
-              <select
+              <Select
                 name="consultantId"
                 defaultValue={filters.consultantId}
-                className="flex h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
               >
-                <option value="all">Todos os consultores</option>
-                <option value="unassigned">Sem consultor</option>
-                {consultants.map((consultant) => (
-                  <option key={consultant.id} value={consultant.id}>
-                    {consultant.name
-                      ? `${consultant.name} (${consultant.email})`
-                      : consultant.email}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="w-full" aria-label="Consultor">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="all">Todos os consultores</SelectItem>
+                    <SelectItem value="unassigned">Sem consultor</SelectItem>
+                    {consultants.map((consultant) => (
+                      <SelectItem key={consultant.id} value={consultant.id}>
+                        {consultant.name
+                          ? `${consultant.name} (${consultant.email})`
+                          : consultant.email}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </label>
           ) : (
             <div className="hidden xl:block" />

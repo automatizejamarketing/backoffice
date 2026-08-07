@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCheck, Clock3, Eye, MessageCircle } from "lucide-react";
 import Link from "next/link";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
+import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -203,12 +204,7 @@ export default async function WhatsappPage({
                         )}
                       </TableCell>
                       <TableCell className="max-w-72">
-                        <p className="font-medium">
-                          {getWhatsappTemplateLabel(item.templateName)}
-                        </p>
-                        <p className="truncate font-mono text-[11px] text-muted-foreground">
-                          {item.templateName}
-                        </p>
+                        <WhatsappTemplateInfo templateName={item.templateName} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {getWhatsappSourceLabel(item.source)}

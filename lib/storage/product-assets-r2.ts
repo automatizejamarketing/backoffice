@@ -19,11 +19,28 @@ function getConfig(): ProductAssetsR2Config {
     accessKeyId: process.env.PRODUCT_ASSETS_R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.PRODUCT_ASSETS_R2_SECRET_ACCESS_KEY,
   };
-  if (Object.values(config).some((value) => !value)) {
+
+  const missing = Object.entries(config)
+    .filter(([, value]) => !value)
+    .map(([key]) => key);
+
+  if (missing.length > 0) {
     throw new Error(
-      "O armazenamento R2 dos produtos não está configurado neste ambiente.",
+      "O armazenamento R2 dos produtos não está configurado neste ambiente. Crie credenciais no Cloudflare R2 e adicione-as em .env.r2.local.",
     );
   }
+
+  if (
+    config.accessKeyId === "[SENSITIVE]" ||
+    config.secretAccessKey === "[SENSITIVE]" ||
+    config.accessKeyId.length < 16 ||
+    config.secretAccessKey.length < 16
+  ) {
+    throw new Error(
+      "As credenciais R2 locais estão inválidas. O Vercel não exporta chaves sensíveis; copie Access Key ID e Secret de Cloudflare R2 para .env.r2.local.",
+    );
+  }
+
   return config as ProductAssetsR2Config;
 }
 
@@ -61,5 +78,32 @@ export async function getProductAsset(objectKey: string) {
   const config = getConfig();
   return getClient(config).send(
     new GetObjectCommand({ Bucket: config.bucket, Key: objectKey }),
+  );
+}
+
+export async function putProductAsset(input: {
+  objectKey: string;
+  contentType: string;
+  cacheControl: string;
+  body: Uint8Array;
+}) {
+  const config = getConfig();
+  await getClient(config).send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: input.objectKey,
+      Body: input.body,
+      ContentType: input.contentType,
+      CacheControl: input.cacheControl,
+    }),
+  );
+}
+
+export function isAllowedProductAssetObjectKey(objectKey: string): boolean {
+  return (
+    (objectKey.startsWith("r2/product-covers/") ||
+      objectKey.startsWith("r2/expert-avatars/") ||
+      objectKey.startsWith("r2/products/")) &&
+    !objectKey.includes("..")
   );
 }
