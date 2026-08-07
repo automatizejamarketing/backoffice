@@ -21,7 +21,7 @@ import {
   canTransitionPayout,
   type ExpertPayoutStatus,
 } from "@/lib/products/payout";
-import { calculateAutomatizeNetRevenueCentavos } from "@/lib/products/finance";
+import { summarizeProductPaymentsByProduct } from "@/lib/backoffice/finance-payments";
 import { parseProductFinancialSettingsInput } from "@/lib/products/financial-settings";
 
 export async function getProductFinancialSettings() {
@@ -102,7 +102,7 @@ export async function updateExpert(id: string, input: unknown) {
 }
 
 export async function listProductsAdmin() {
-  const [products, paymentSummaries, expertSummaries] = await Promise.all([
+  const [products, paymentRows] = await Promise.all([
     db
       .select({
         product,
@@ -114,61 +114,45 @@ export async function listProductsAdmin() {
     db
       .select({
         productId: productOrder.productId,
-        grossRevenueCentavos: sql<string>`coalesce(sum(coalesce(${productPayment.grossAmountCentavos}, 0)), 0)`,
-        netRevenueCentavos: sql<string>`coalesce(sum(coalesce(${productPayment.netAmountCentavos}, ${productPayment.grossAmountCentavos}, 0)), 0)`,
+        grossAmountCentavos: productPayment.grossAmountCentavos,
+        netAmountCentavos: productPayment.netAmountCentavos,
+        feeAmountCentavos: productPayment.feeAmountCentavos,
+        priceCentavos: productOrder.priceCentavos,
+        ownerType: product.ownerType,
+        financialModel: productOrder.financialModel,
+        platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
+        platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
+        automatizeCoproductionRevenueCentavos:
+          productPayment.automatizeCoproductionRevenueCentavos,
+        automatizeProductRevenueCentavos:
+          productPayment.automatizeProductRevenueCentavos,
+        automatizeTotalNetRevenueCentavos:
+          productPayment.automatizeTotalNetRevenueCentavos,
+        expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+        expertRevenueCentavos: sql<number>`(
+          select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
+          from ${expertLedgerEntry}
+          where ${expertLedgerEntry.orderId} = ${productOrder.id}
+            and ${expertLedgerEntry.type} = 'sale'
+        )`,
       })
       .from(productOrder)
       .innerJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+      .innerJoin(product, eq(productOrder.productId, product.id))
       .where(
         and(
           eq(productOrder.status, "approved"),
           eq(productPayment.status, "approved"),
         ),
-      )
-      .groupBy(productOrder.productId),
-    db
-      .select({
-        productId: productOrder.productId,
-        expertRevenueCentavos: sql<string>`coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)`,
-      })
-      .from(expertLedgerEntry)
-      .innerJoin(productOrder, eq(productOrder.id, expertLedgerEntry.orderId))
-      .innerJoin(productPayment, eq(productPayment.orderId, productOrder.id))
-      .where(
-        and(
-          eq(expertLedgerEntry.type, "sale"),
-          eq(productOrder.status, "approved"),
-          eq(productPayment.status, "approved"),
-        ),
-      )
-      .groupBy(productOrder.productId),
+      ),
   ]);
 
-  const expertRevenueByProduct = new Map(
-    expertSummaries.map((summary) => [
-      summary.productId,
-      Number(summary.expertRevenueCentavos),
-    ]),
-  );
-  const financialsByProduct = new Map(
-    paymentSummaries.map((summary) => {
-      const grossRevenueCentavos = Number(summary.grossRevenueCentavos);
-      const netRevenueCentavos = Number(summary.netRevenueCentavos);
-      const expertRevenueCentavos =
-        expertRevenueByProduct.get(summary.productId) ?? 0;
-
-      return [
-        summary.productId,
-        {
-          grossRevenueCentavos,
-          automatizeNetRevenueCentavos:
-            calculateAutomatizeNetRevenueCentavos(
-              netRevenueCentavos,
-              expertRevenueCentavos,
-            ),
-        },
-      ] as const;
-    }),
+  const financialsByProduct = summarizeProductPaymentsByProduct(
+    paymentRows.map((row) => ({
+      ...row,
+      expertRevenueCentavos:
+        row.expertRevenueCentavos > 0 ? row.expertRevenueCentavos : null,
+    })),
   );
 
   return products.map((row) => ({
