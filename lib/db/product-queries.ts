@@ -59,6 +59,8 @@ export async function listExperts() {
       email: user.email,
       phone: expertProfile.phone,
       pixKey: expertProfile.pixKey,
+      platformFeeBasisPoints: expertProfile.platformFeeBasisPoints,
+      platformFeeFixedCentavos: expertProfile.platformFeeFixedCentavos,
       status: expertProfile.status,
     })
     .from(expertProfile)
@@ -72,6 +74,8 @@ export async function createExpert(input: {
   profileImageUrl?: string | null;
   phone?: string | null;
   pixKey: string;
+  platformFeePercent?: number;
+  platformFeeFixedCentavos?: number;
 }) {
   const email = input.email.trim().toLowerCase();
   const values = parseExpertAdminInput(input);

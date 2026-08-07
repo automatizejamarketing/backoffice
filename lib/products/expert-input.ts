@@ -6,6 +6,8 @@ const schema = z.object({
   phone: z.string().trim().optional().nullable(),
   pixKey: z.string().trim().min(1).max(255),
   profileImageUrl: z.string().trim().optional().nullable(),
+  platformFeePercent: z.number().finite().min(0).max(100).optional(),
+  platformFeeFixedCentavos: z.number().int().min(0).optional(),
   status: z.enum(["active", "inactive"]).default("active"),
 });
 
@@ -37,5 +39,15 @@ export function parseExpertAdminInput(input: unknown) {
     pixKey: parsed.pixKey,
     profileImageUrl: parseProfileImageUrl(parsed.profileImageUrl),
     status: parsed.status,
+    ...(parsed.platformFeePercent === undefined
+      ? {}
+      : {
+          platformFeeBasisPoints: Math.round(
+            parsed.platformFeePercent * 100,
+          ),
+        }),
+    ...(parsed.platformFeeFixedCentavos === undefined
+      ? {}
+      : { platformFeeFixedCentavos: parsed.platformFeeFixedCentavos }),
   };
 }

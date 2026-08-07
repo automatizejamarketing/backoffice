@@ -57,4 +57,44 @@ describe("expert admin input", () => {
       /WhatsApp/,
     );
   });
+
+  it("converts the expert platform fee to persistence values", () => {
+    assert.deepEqual(
+      parseExpertAdminInput({
+        displayName: "Dudu Bastos",
+        pixKey: "pix@example.com",
+        platformFeePercent: 5.49,
+        platformFeeFixedCentavos: 39,
+      }),
+      {
+        displayName: "Dudu Bastos",
+        phone: null,
+        pixKey: "pix@example.com",
+        profileImageUrl: null,
+        status: "active",
+        platformFeeBasisPoints: 549,
+        platformFeeFixedCentavos: 39,
+      },
+    );
+  });
+
+  it("rejects invalid expert platform fee components", () => {
+    const base = {
+      displayName: "Dudu Bastos",
+      pixKey: "pix@example.com",
+    };
+
+    assert.throws(
+      () => parseExpertAdminInput({ ...base, platformFeePercent: 100.01 }),
+      /platformFeePercent/,
+    );
+    assert.throws(
+      () =>
+        parseExpertAdminInput({
+          ...base,
+          platformFeeFixedCentavos: -1,
+        }),
+      /platformFeeFixedCentavos/,
+    );
+  });
 });
