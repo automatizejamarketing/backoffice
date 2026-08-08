@@ -59,6 +59,8 @@ export async function listExperts() {
       email: user.email,
       phone: expertProfile.phone,
       pixKey: expertProfile.pixKey,
+      platformFeeBasisPoints: expertProfile.platformFeeBasisPoints,
+      platformFeeFixedCentavos: expertProfile.platformFeeFixedCentavos,
       status: expertProfile.status,
     })
     .from(expertProfile)
@@ -72,6 +74,8 @@ export async function createExpert(input: {
   profileImageUrl?: string | null;
   phone?: string | null;
   pixKey: string;
+  platformFeePercent?: number;
+  platformFeeFixedCentavos?: number;
 }) {
   const email = input.email.trim().toLowerCase();
   const values = parseExpertAdminInput(input);
@@ -121,6 +125,7 @@ export async function listProductsAdmin() {
         ownerType: product.ownerType,
         financialModel: productOrder.financialModel,
         platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
+        platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
         platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
         automatizeCoproductionRevenueCentavos:
           productPayment.automatizeCoproductionRevenueCentavos,
@@ -254,6 +259,7 @@ export async function listProductOrders() {
   return db
     .select({
       id: productOrder.id,
+      productId: productOrder.productId,
       productTitle: productOrder.productTitleSnapshot,
       buyerName: productOrder.buyerName,
       buyerEmail: productOrder.buyerEmail,
@@ -262,6 +268,7 @@ export async function listProductOrders() {
       approvedAt: productOrder.approvedAt,
       createdAt: productOrder.createdAt,
       providerPaymentId: productPayment.providerPaymentId,
+      paymentStatus: productPayment.status,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,

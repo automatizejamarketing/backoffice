@@ -237,14 +237,7 @@
       "idx": 33,
       "version": "7",
       "when": 1792200000000,
-      "tag": "0040_payments_reversal",
-      "breakpoints": true
-    },
-    {
-      "idx": 34,
-      "version": "7",
-      "when": 1792300000000,
-      "tag": "0041_referral_program_v2",
+      "tag": "0040_expert_platform_fee",
       "breakpoints": true
     }
   ]

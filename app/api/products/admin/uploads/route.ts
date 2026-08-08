@@ -7,7 +7,11 @@ import {
   getProductCoverAssetUrl,
   parseProductUploadInput,
 } from "@/lib/products/upload-input";
-import { createProductAssetUploadUrl } from "@/lib/storage/product-assets-r2";
+import {
+  createProductAssetUploadUrl,
+  isProductAssetsDevLocalStorageEnabled,
+  PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE,
+} from "@/lib/storage/product-assets-r2";
 
 export async function POST(request: Request) {
   const authz = await requireBackofficePermissionResponse("products:manage");
@@ -26,11 +30,14 @@ export async function POST(request: Request) {
       input.kind === "cover" || input.kind === "expert-avatar"
         ? "public, max-age=31536000, immutable"
         : "private, no-store";
-    const uploadUrl = await createProductAssetUploadUrl({
-      objectKey,
-      contentType: input.contentType,
-      cacheControl,
-    });
+
+    const uploadUrl = isProductAssetsDevLocalStorageEnabled()
+      ? "/api/products/admin/uploads/complete"
+      : await createProductAssetUploadUrl({
+          objectKey,
+          contentType: input.contentType,
+          cacheControl,
+        });
 
     return NextResponse.json({
       uploadUrl,
@@ -56,10 +63,7 @@ export async function POST(request: Request) {
       { error: message },
       {
         status:
-          message ===
-          "O armazenamento R2 dos produtos não está configurado neste ambiente."
-            ? 503
-            : 400,
+          message === PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE ? 503 : 400,
       },
     );
   }

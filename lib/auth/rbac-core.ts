@@ -44,6 +44,7 @@ export const USER_HUB_TAB_VALUES = [
   "business",
   "marketing",
   "conversations",
+  "whatsapp",
   "usage",
   "content",
   "audit",

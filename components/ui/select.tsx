@@ -194,6 +194,40 @@ const SelectItem = React.forwardRef<
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;
 
+const SelectRichItem = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+    leading?: React.ReactNode;
+  }
+>(({ className, children, leading, ...props }, ref) => (
+  <SelectPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "focus:bg-accent focus:text-accent-foreground min-h-7 gap-2 rounded-md pl-8 pr-2 py-1 text-xs/relaxed [&_svg:not([class*='size-'])]:size-3.5 relative flex w-full cursor-default items-center outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+      className
+    )}
+    data-slot="select-rich-item"
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <SelectPrimitive.ItemIndicator>
+        <HugeiconsIcon
+          icon={Tick02Icon}
+          strokeWidth={2}
+          className="size-3.5"
+        />
+      </SelectPrimitive.ItemIndicator>
+    </span>
+
+    <span className="flex min-w-0 items-center gap-2">
+      {leading}
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    </span>
+  </SelectPrimitive.Item>
+));
+SelectRichItem.displayName = "SelectRichItem";
+
 const SelectSeparator = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Separator>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
@@ -215,6 +249,7 @@ export {
   SelectContent,
   SelectLabel,
   SelectItem,
+  SelectRichItem,
   SelectSeparator,
   SelectScrollUpButton,
   SelectScrollDownButton,

@@ -12,13 +12,13 @@ function customer(
     hasApprovedPayment: false,
     scheduledCancel: false,
     lastPaymentProvider: null,
-    hasTrialingSubscription: false,
+    hasSubscription: false,
     ...overrides,
   };
 }
 
 describe("matchesAccountStatusFilter", () => {
-  test("no_card_no_payment matches users without payment and without stripe trial", () => {
+  test("no_card_no_payment matches users without payment and without subscription", () => {
     expect(
       matchesAccountStatusFilter(
         customer({
@@ -37,7 +37,7 @@ describe("matchesAccountStatusFilter", () => {
     ).toBe(true);
     expect(
       matchesAccountStatusFilter(
-        customer({ hasTrialingSubscription: true }),
+        customer({ hasSubscription: true }),
         "no_card_no_payment",
         now,
       ),
@@ -51,10 +51,20 @@ describe("matchesAccountStatusFilter", () => {
     ).toBe(false);
   });
 
-  test("trial_no_payment matches stripe trial without approved payment", () => {
+  test("trial_no_payment matches any subscription without approved payment", () => {
     expect(
       matchesAccountStatusFilter(
-        customer({ hasTrialingSubscription: true }),
+        customer({ hasSubscription: true }),
+        "trial_no_payment",
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      matchesAccountStatusFilter(
+        customer({
+          hasSubscription: true,
+          expirationDate: new Date("2026-08-04T12:00:00.000Z"),
+        }),
         "trial_no_payment",
         now,
       ),
@@ -65,7 +75,7 @@ describe("matchesAccountStatusFilter", () => {
     expect(
       matchesAccountStatusFilter(
         customer({
-          hasTrialingSubscription: true,
+          hasSubscription: true,
           hasApprovedPayment: true,
         }),
         "trial_no_payment",
@@ -85,6 +95,16 @@ describe("matchesAccountStatusFilter", () => {
         now,
       ),
     ).toBe(true);
+    expect(
+      matchesAccountStatusFilter(
+        customer({
+          hasApprovedPayment: true,
+          expirationDate: null,
+        }),
+        "subscribed_expired",
+        now,
+      ),
+    ).toBe(false);
   });
 
   test("active_plan matches paying users with active access and no scheduled cancel", () => {

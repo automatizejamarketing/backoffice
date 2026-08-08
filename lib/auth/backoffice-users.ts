@@ -12,23 +12,37 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function getPostgresErrorCode(error: unknown): string | undefined {
+const RECOVERABLE_DATABASE_ERROR_CODES = new Set([
+  "42P01", // undefined_table
+  "ENOTFOUND",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "EPIPE",
+]);
+
+function collectErrorCodes(error: unknown): string[] {
+  const codes: string[] = [];
   let current: unknown = error;
-  for (let i = 0; i < 4 && current; i++) {
+
+  for (let i = 0; i < 6 && current; i++) {
     if (typeof current !== "object" || current === null) break;
     if (
       "code" in current &&
       typeof (current as { code: unknown }).code === "string"
     ) {
-      return (current as { code: string }).code;
+      codes.push((current as { code: string }).code);
     }
     current = "cause" in current ? (current as { cause: unknown }).cause : null;
   }
-  return undefined;
+
+  return codes;
 }
 
-function isMissingBackofficeTable(error: unknown): boolean {
-  return getPostgresErrorCode(error) === "42P01";
+function isRecoverableDatabaseLookupError(error: unknown): boolean {
+  return collectErrorCodes(error).some((code) =>
+    RECOVERABLE_DATABASE_ERROR_CODES.has(code),
+  );
 }
 
 async function getAssignedUserIds(consultantId: string): Promise<string[]> {
@@ -92,7 +106,7 @@ export async function getBackofficeActorByEmail(
           : undefined,
     };
   } catch (error) {
-    if (isFallbackAdmin && isMissingBackofficeTable(error)) {
+    if (isFallbackAdmin && isRecoverableDatabaseLookupError(error)) {
       return {
         id: `admin:${normalizedEmail}`,
         email: normalizedEmail,
@@ -100,7 +114,10 @@ export async function getBackofficeActorByEmail(
         source: "admin_email_fallback",
       };
     }
-    if (canAccessFinance(normalizedEmail) && isMissingBackofficeTable(error)) {
+    if (
+      canAccessFinance(normalizedEmail) &&
+      isRecoverableDatabaseLookupError(error)
+    ) {
       return {
         id: `finance:${normalizedEmail}`,
         email: normalizedEmail,
@@ -122,7 +139,7 @@ export async function canBackofficeEmailSignIn(
     const actor = await getBackofficeActorByEmail(email);
     return Boolean(actor);
   } catch (error) {
-    if (isMissingBackofficeTable(error)) return false;
+    if (isRecoverableDatabaseLookupError(error)) return false;
     throw error;
   }
 }

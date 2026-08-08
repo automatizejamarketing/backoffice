@@ -17,6 +17,8 @@ export async function POST(request: Request) {
     profileImageUrl?: string | null;
     phone?: string;
     pixKey?: string;
+    platformFeePercent?: number;
+    platformFeeFixedCentavos?: number;
   };
   if (!body.email || !body.displayName?.trim() || !body.pixKey?.trim()) {
     return NextResponse.json({ error: "Dados incompletos" }, { status: 422 });
@@ -29,6 +31,8 @@ export async function POST(request: Request) {
         profileImageUrl: body.profileImageUrl,
         phone: body.phone,
         pixKey: body.pixKey,
+        platformFeePercent: body.platformFeePercent,
+        platformFeeFixedCentavos: body.platformFeeFixedCentavos,
       }),
       { status: 201 },
     );

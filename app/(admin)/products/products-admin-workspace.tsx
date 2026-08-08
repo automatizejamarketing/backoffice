@@ -5,18 +5,24 @@ import {
   Archive,
   BookOpen,
   Check,
+  ChevronsUpDown,
   CircleCheck,
   Copy,
+  ImageIcon,
   Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
+  Receipt,
   RefreshCcw,
-  Settings2,
   Trash2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ExpertImageCropDialog,
+  ProductCoverCropDialog,
+} from "@/components/expert-image-crop-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +43,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -64,9 +83,19 @@ import {
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
 import {
+  formatExpertPlatformFee,
+  formatExpertPlatformFeePreview,
+} from "@/lib/products/expert-fee-display";
+import {
   formatDateInSaoPaulo,
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
+import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
+import { cn } from "@/lib/utils";
+import {
+  PRODUCT_COVER_OUTPUT_HEIGHT,
+  PRODUCT_COVER_OUTPUT_WIDTH,
+} from "@/lib/products/product-cover-spec";
 
 type Expert = {
   id: string;
@@ -76,6 +105,8 @@ type Expert = {
   phone: string | null;
   pixKey: string;
   status: "active" | "inactive";
+  platformFeeBasisPoints: number;
+  platformFeeFixedCentavos: number;
 };
 
 type Product = {
@@ -87,7 +118,6 @@ type Product = {
   description: string | null;
   coverUrl: string | null;
   priceCentavos: number;
-  platformFeeBasisPointsOverride: number | null;
   ownerExpertShareBasisPoints: number;
   coproducerType: "automatize" | "expert" | null;
   coproducerExpertId: string | null;
@@ -116,6 +146,7 @@ type Content = {
 
 type Order = {
   id: string;
+  productId: string;
   productTitle: string;
   buyerName: string;
   buyerEmail: string;
@@ -123,8 +154,10 @@ type Order = {
   status: string;
   createdAt: string;
   providerPaymentId: string | null;
+  paymentStatus: string | null;
   paymentMethodId: string | null;
   paymentTypeId: string | null;
+  grossAmountCentavos: number | null;
   netAmountCentavos: number | null;
   feeAmountCentavos: number | null;
   platformFeeGrossCentavos: number | null;
@@ -156,8 +189,6 @@ type ProductFormState = {
   description: string;
   coverUrl: string;
   priceReais: string;
-  useCustomPlatformFee: boolean;
-  platformFeePercentOverride: string;
   hasCoproduction: boolean;
   coproducerType: "automatize" | "expert";
   coproducerExpertId: string;
@@ -174,6 +205,8 @@ type ExpertFormState = {
   profileImageUrl: string | null;
   phone: string;
   pixKey: string;
+  platformFeePercent: string;
+  platformFeeFixedReais: string;
   status: Expert["status"];
 };
 
@@ -182,6 +215,8 @@ const emptyExpert: ExpertFormState = {
   profileImageUrl: null,
   phone: "",
   pixKey: "",
+  platformFeePercent: "5,49%",
+  platformFeeFixedReais: "R$ 0,39",
   status: "active",
 };
 
@@ -193,8 +228,6 @@ const emptyProduct: ProductFormState = {
   description: "",
   coverUrl: "",
   priceReais: "",
-  useCustomPlatformFee: false,
-  platformFeePercentOverride: "",
   hasCoproduction: false,
   coproducerType: "automatize",
   coproducerExpertId: "",
@@ -225,12 +258,43 @@ const productStatusLabel: Record<Product["status"], string> = {
   archived: "Arquivado",
 };
 
+function getProductStatusBadgeProps(status: Product["status"]) {
+  switch (status) {
+    case "published":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300",
+      };
+    case "draft":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300",
+      };
+    case "archived":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-border bg-muted/50 text-muted-foreground dark:bg-muted/30",
+      };
+  }
+}
+
 const orderStatusLabel: Record<string, string> = {
   pending: "Pendente",
   approved: "Aprovado",
   failed: "Falhou",
   refunded: "Reembolsado",
   canceled: "Cancelado",
+};
+
+const paymentStatusLabel: Record<string, string> = {
+  pending: "Pendente",
+  approved: "Aprovado",
+  failed: "Falhou",
+  refunded: "Reembolsado",
+  charged_back: "Chargeback",
 };
 
 function money(value: number) {
@@ -262,9 +326,15 @@ function ExpertAvatar({
 }: {
   name: string;
   src: string | null;
-  size?: "sm" | "lg";
+  size?: "xs" | "sm" | "lg";
 }) {
-  const sizeClass = size === "lg" ? "size-20 text-xl" : "size-10 text-sm";
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const sizeClass =
+    size === "lg"
+      ? "size-20 text-xl"
+      : size === "xs"
+        ? "size-8 text-xs"
+        : "size-10 text-sm";
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -272,23 +342,193 @@ function ExpertAvatar({
     .map((part) => part[0])
     .join("")
     .toUpperCase();
+  const imageSrc = src && failedSrc !== src ? src : null;
 
   return (
     <div
       className={`${sizeClass} shrink-0 overflow-hidden rounded-full border bg-muted`}
-      aria-label={src ? undefined : `Sem foto para ${name}`}
+      aria-label={imageSrc ? undefined : `Sem foto para ${name}`}
     >
-      {src ? (
+      {imageSrc ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          src={imageSrc}
           alt={`Foto de ${name}`}
           className="size-full object-cover"
+          onError={() => setFailedSrc(imageSrc)}
         />
       ) : (
         <span className="flex size-full items-center justify-center font-semibold text-muted-foreground">
           {initials || "EX"}
         </span>
+      )}
+    </div>
+  );
+}
+
+function AutomatizeAvatar() {
+  return (
+    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white p-1.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo/1.png"
+        alt="Logo do Automatize"
+        className="size-full object-contain"
+      />
+    </div>
+  );
+}
+
+function getProductOwnerTextValue(
+  ownerType: "automatize" | "expert",
+  expert?: Expert | null,
+) {
+  if (ownerType === "automatize") return "Automatize";
+  if (!expert) return "Selecione o expert";
+  return expert.status === "inactive"
+    ? `${expert.displayName} (inativo)`
+    : expert.displayName;
+}
+
+function ProductOwnerTriggerAvatar({
+  ownerType,
+  expert,
+}: {
+  ownerType: "automatize" | "expert";
+  expert?: Expert | null;
+}) {
+  if (ownerType === "automatize") {
+    return <AutomatizeAvatar />;
+  }
+  if (!expert) return null;
+  return (
+    <ExpertAvatar
+      name={expert.displayName}
+      src={expert.profileImageUrl}
+      size="xs"
+    />
+  );
+}
+
+function ProductOwnerPicker({
+  ownerType,
+  expertId,
+  experts,
+  onSelect,
+}: {
+  ownerType: "automatize" | "expert";
+  expertId: string;
+  experts: Expert[];
+  onSelect: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedExpert =
+    ownerType === "expert"
+      ? experts.find((expert) => expert.id === expertId) ?? null
+      : null;
+  const selectedValue = getProductOwnerSelectionValue(ownerType, expertId);
+  const selectedLabel = getProductOwnerTextValue(ownerType, selectedExpert);
+
+  function pick(value: string) {
+    onSelect(value);
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen} modal>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="h-10 w-full justify-between px-3 font-normal"
+          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <ProductOwnerTriggerAvatar
+              ownerType={ownerType}
+              expert={selectedExpert}
+            />
+            <span className="truncate">{selectedLabel}</span>
+          </span>
+          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] p-1"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <div className="flex flex-col gap-0.5">
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent",
+              selectedValue === "automatize" && "bg-accent",
+            )}
+            onClick={() => pick("automatize")}
+          >
+            <AutomatizeAvatar />
+            <span className="min-w-0 flex-1 truncate">Automatize</span>
+            {selectedValue === "automatize" ? (
+              <Check className="size-4 shrink-0 opacity-70" aria-hidden="true" />
+            ) : null}
+          </button>
+          {experts.map((expert) => {
+            const value = `expert:${expert.id}`;
+            const label = getProductOwnerTextValue("expert", expert);
+            return (
+              <button
+                key={expert.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent",
+                  selectedValue === value && "bg-accent",
+                )}
+                onClick={() => pick(value)}
+              >
+                <ExpertAvatar
+                  name={expert.displayName}
+                  src={expert.profileImageUrl}
+                  size="xs"
+                />
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {selectedValue === value ? (
+                  <Check className="size-4 shrink-0 opacity-70" aria-hidden="true" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ProductCoverThumbnail({
+  title,
+  src,
+}: {
+  title: string;
+  src: string | null;
+}) {
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
+  return (
+    <div className="flex h-11 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted text-muted-foreground">
+      {src && failedSrc !== src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`Capa de ${title}`}
+          className="size-full object-cover"
+          onError={() => setFailedSrc(src)}
+        />
+      ) : (
+        <ImageIcon className="size-4" aria-hidden="true" />
       )}
     </div>
   );
@@ -327,18 +567,26 @@ async function uploadProductAsset(
     assetUrl: string | null;
     headers: Record<string, string>;
   };
-  const uploadResponse = await fetch(prepared.uploadUrl, {
-    method: "PUT",
-    headers: prepared.headers,
+  const uploadResponse = await fetch("/api/products/admin/uploads/complete", {
+    method: "POST",
+    headers: {
+      "Content-Type": contentType,
+      "X-Object-Key": prepared.objectKey,
+      "X-Cache-Control": prepared.headers["cache-control"] ?? "private, no-store",
+    },
     body: file,
   });
   if (!uploadResponse.ok) {
-    throw new Error("Não foi possível enviar o arquivo para o armazenamento.");
+    throw new Error(await readError(uploadResponse));
   }
   return prepared;
 }
 
-export function ProductsAdminWorkspace() {
+export function ProductsAdminWorkspace({
+  frontendAppUrl,
+}: {
+  frontendAppUrl: string;
+}) {
   const [products, setProducts] = useState<Array<{
     product: Product;
     expertName: string | null;
@@ -363,21 +611,43 @@ export function ProductsAdminWorkspace() {
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
   const [expertImageInputKey, setExpertImageInputKey] = useState(0);
+  const [newExpertImageFile, setNewExpertImageFile] = useState<File | null>(null);
+  const [newExpertImagePreviewUrl, setNewExpertImagePreviewUrl] = useState<string | null>(null);
+  const [newExpertImageInputKey, setNewExpertImageInputKey] = useState(0);
+  const [pendingExpertImageFile, setPendingExpertImageFile] = useState<File | null>(null);
+  const [expertImageCropTarget, setExpertImageCropTarget] = useState<"create" | "edit" | null>(null);
+  const [expertImageCropOpen, setExpertImageCropOpen] = useState(false);
   const [creatingExpert, setCreatingExpert] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null);
+  const [pendingCoverFile, setPendingCoverFile] = useState<File | null>(null);
+  const [coverCropOpen, setCoverCropOpen] = useState(false);
   const [coverInputKey, setCoverInputKey] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [isLoadingList, setIsLoadingList] = useState(true);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
-  const [platformFeePercent, setPlatformFeePercent] = useState("5");
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
+  const [paymentsDialogProduct, setPaymentsDialogProduct] = useState<Product | null>(
+    null,
+  );
 
   const selectedProduct = useMemo(
     () => products.find((row) => row.product.id === selectedProductId)?.product,
     [products, selectedProductId],
   );
+  const selectedOwnerExpert = useMemo(
+    () => experts.find((expert) => expert.id === productForm.expertId) ?? null,
+    [experts, productForm.expertId],
+  );
+  const expertsById = useMemo(
+    () => new Map(experts.map((expert) => [expert.id, expert])),
+    [experts],
+  );
+  const productPayments = useMemo(() => {
+    if (!paymentsDialogProduct) return [];
+    return orders.filter((order) => order.productId === paymentsDialogProduct.id);
+  }, [orders, paymentsDialogProduct]);
   const ownerExpertSharePercent = productForm.hasCoproduction
     ? Math.max(
         0,
@@ -422,33 +692,29 @@ export function ProductsAdminWorkspace() {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
-          fetch("/api/products/admin/settings", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextSettings] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
-          settingsResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
-      setPlatformFeePercent(
-        String(nextSettings.platformFeeBasisPoints / 100).replace(".", ","),
-      );
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -456,34 +722,9 @@ export function ProductsAdminWorkspace() {
       toast.error((error as Error).message);
     } finally {
       setLoading(false);
+      setIsLoadingList(false);
     }
   }, []);
-
-  async function saveFinancialSettings(event: React.FormEvent) {
-    event.preventDefault();
-    setSavingSettings(true);
-    try {
-      const response = await fetch("/api/products/admin/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          platformFeePercent: Number(platformFeePercent.replace(",", ".")),
-        }),
-      });
-      if (!response.ok) throw new Error(await readError(response));
-      toast.success("Taxa da plataforma atualizada para novas vendas.");
-      setSettingsDialogOpen(false);
-      await loadAll();
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "Não foi possível atualizar a taxa.",
-      );
-    } finally {
-      setSavingSettings(false);
-    }
-  }
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -525,9 +766,6 @@ export function ProductsAdminWorkspace() {
         coverUrl,
         expertId: productForm.expertId || null,
         priceCentavos: parseBrlCurrencyToCentavos(productForm.priceReais),
-        platformFeePercentOverride: productForm.useCustomPlatformFee
-          ? parsePercentageInput(productForm.platformFeePercentOverride)
-          : null,
         coproducerExpertId: productForm.coproducerExpertId || null,
         coproducerSharePercent: parsePercentageInput(
           productForm.coproducerSharePercent,
@@ -562,6 +800,12 @@ export function ProductsAdminWorkspace() {
     setEditingProductId(null);
     setProductForm(emptyProduct);
     setCoverFile(null);
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverPreviewUrl(null);
+    setPendingCoverFile(null);
+    setCoverCropOpen(false);
     setCoverInputKey((current) => current + 1);
   }
 
@@ -569,6 +813,10 @@ export function ProductsAdminWorkspace() {
     setEditingProductId(null);
     setProductForm(emptyProduct);
     setCoverFile(null);
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverPreviewUrl(null);
     setCoverInputKey((current) => current + 1);
     setProductDialogOpen(true);
   }
@@ -576,6 +824,10 @@ export function ProductsAdminWorkspace() {
   function editProduct(row: Product) {
     setEditingProductId(row.id);
     setCoverFile(null);
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverPreviewUrl(row.coverUrl);
     setCoverInputKey((current) => current + 1);
     setProductForm({
       ownerType: row.ownerType,
@@ -585,13 +837,6 @@ export function ProductsAdminWorkspace() {
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
-      useCustomPlatformFee: row.platformFeeBasisPointsOverride !== null,
-      platformFeePercentOverride:
-        row.platformFeeBasisPointsOverride === null
-          ? ""
-          : formatPercentageInput(
-              String(row.platformFeeBasisPointsOverride / 100).replace(".", ","),
-            ),
       hasCoproduction: row.coproducerType !== null,
       coproducerType: row.coproducerType ?? "automatize",
       coproducerExpertId: row.coproducerExpertId ?? "",
@@ -657,6 +902,27 @@ export function ProductsAdminWorkspace() {
     await loadAll();
   }
 
+  async function copyCheckoutLink(row: Product) {
+    if (row.status !== "published") {
+      toast.error("Publique o produto antes de copiar o link de checkout.");
+      return;
+    }
+
+    const url = buildProductCheckoutUrl(frontendAppUrl, row.slug);
+    try {
+      await navigator.clipboard.writeText(url);
+      if (!row.salesEnabled) {
+        toast.warning(
+          "Link copiado. Vendas desabilitadas — a página abre, mas a compra fica bloqueada.",
+        );
+      } else {
+        toast.success(`Link copiado: ${url}`);
+      }
+    } catch {
+      toast.error("Não foi possível copiar o link de checkout.");
+    }
+  }
+
   async function publishProduct(row: Product) {
     setPublishingProductId(row.id);
     try {
@@ -671,10 +937,6 @@ export function ProductsAdminWorkspace() {
           description: row.description,
           coverUrl: row.coverUrl,
           priceCentavos: row.priceCentavos,
-          platformFeePercentOverride:
-            row.platformFeeBasisPointsOverride === null
-              ? null
-              : row.platformFeeBasisPointsOverride / 100,
           hasCoproduction: row.coproducerType !== null,
           coproducerType: row.coproducerType,
           coproducerExpertId: row.coproducerExpertId,
@@ -786,13 +1048,11 @@ export function ProductsAdminWorkspace() {
     const form = new FormData(formElement);
     setCreatingExpert(true);
     try {
-      const selectedImage = form.get("profileImage");
       const payload = Object.fromEntries(form);
-      delete payload.profileImage;
       const profileImageUrl =
-        selectedImage instanceof File && selectedImage.size > 0
+        newExpertImageFile
           ? (
-              await uploadProductAsset(selectedImage, {
+              await uploadProductAsset(newExpertImageFile, {
                 kind: "expert-avatar",
               })
             ).assetUrl
@@ -800,11 +1060,27 @@ export function ProductsAdminWorkspace() {
       const response = await fetch("/api/products/admin/experts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, profileImageUrl }),
+        body: JSON.stringify({
+          ...payload,
+          platformFeePercent: parsePercentageInput(
+            String(payload.platformFeePercent ?? ""),
+          ),
+          platformFeeFixedCentavos: parseBrlCurrencyToCentavos(
+            String(payload.platformFeeFixedReais ?? ""),
+          ),
+          platformFeeFixedReais: undefined,
+          profileImageUrl,
+        }),
       });
       if (!response.ok) return toast.error(await readError(response));
       formElement.reset();
       setExpertPhone("");
+      setNewExpertImageFile(null);
+      if (newExpertImagePreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(newExpertImagePreviewUrl);
+      }
+      setNewExpertImagePreviewUrl(null);
+      setNewExpertImageInputKey((current) => current + 1);
       toast.success("Expert vinculado.");
       await loadAll();
     } catch (error) {
@@ -828,6 +1104,12 @@ export function ProductsAdminWorkspace() {
       profileImageUrl: expert.profileImageUrl,
       phone: formatBrazilianPhoneInput(expert.phone),
       pixKey: expert.pixKey,
+      platformFeePercent: formatPercentageInput(
+        String(expert.platformFeeBasisPoints / 100).replace(".", ","),
+      ),
+      platformFeeFixedReais: formatBrlCurrencyFromCentavos(
+        expert.platformFeeFixedCentavos,
+      ),
       status: expert.status,
     });
     setExpertDialogOpen(true);
@@ -846,13 +1128,50 @@ export function ProductsAdminWorkspace() {
   }
 
   function selectExpertImage(file: File | null) {
-    if (expertImagePreviewUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(expertImagePreviewUrl);
+    if (!file) return;
+    setPendingExpertImageFile(file);
+    setExpertImageCropTarget("edit");
+    setExpertImageCropOpen(true);
+  }
+
+  function selectNewExpertImage(file: File | null) {
+    if (!file) return;
+    setPendingExpertImageFile(file);
+    setExpertImageCropTarget("create");
+    setExpertImageCropOpen(true);
+  }
+
+  function cancelExpertImageCrop() {
+    setExpertImageCropOpen(false);
+    setPendingExpertImageFile(null);
+    if (expertImageCropTarget === "create") {
+      setNewExpertImageInputKey((current) => current + 1);
+    } else if (expertImageCropTarget === "edit") {
+      setExpertImageInputKey((current) => current + 1);
     }
-    setExpertImageFile(file);
-    setExpertImagePreviewUrl(
-      file ? URL.createObjectURL(file) : expertForm.profileImageUrl,
-    );
+    setExpertImageCropTarget(null);
+  }
+
+  function applyExpertImageCrop(file: File) {
+    const previewUrl = URL.createObjectURL(file);
+    if (expertImageCropTarget === "create") {
+      if (newExpertImagePreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(newExpertImagePreviewUrl);
+      }
+      setNewExpertImageFile(file);
+      setNewExpertImagePreviewUrl(previewUrl);
+      setNewExpertImageInputKey((current) => current + 1);
+    } else {
+      if (expertImagePreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(expertImagePreviewUrl);
+      }
+      setExpertImageFile(file);
+      setExpertImagePreviewUrl(previewUrl);
+      setExpertImageInputKey((current) => current + 1);
+    }
+    setExpertImageCropOpen(false);
+    setPendingExpertImageFile(null);
+    setExpertImageCropTarget(null);
   }
 
   function removeExpertImage() {
@@ -863,6 +1182,48 @@ export function ProductsAdminWorkspace() {
     setExpertImagePreviewUrl(null);
     setExpertImageInputKey((current) => current + 1);
     setExpertForm((current) => ({ ...current, profileImageUrl: null }));
+  }
+
+  function removeNewExpertImage() {
+    if (newExpertImagePreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(newExpertImagePreviewUrl);
+    }
+    setNewExpertImageFile(null);
+    setNewExpertImagePreviewUrl(null);
+    setNewExpertImageInputKey((current) => current + 1);
+  }
+
+  function selectCoverFile(file: File | null) {
+    if (!file) return;
+    setPendingCoverFile(file);
+    setCoverCropOpen(true);
+  }
+
+  function cancelCoverCrop() {
+    setCoverCropOpen(false);
+    setPendingCoverFile(null);
+    setCoverInputKey((current) => current + 1);
+  }
+
+  function applyCoverCrop(file: File) {
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverFile(file);
+    setCoverPreviewUrl(URL.createObjectURL(file));
+    setCoverInputKey((current) => current + 1);
+    setCoverCropOpen(false);
+    setPendingCoverFile(null);
+  }
+
+  function removeCoverImage() {
+    if (coverPreviewUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(coverPreviewUrl);
+    }
+    setCoverFile(null);
+    setCoverPreviewUrl(null);
+    setCoverInputKey((current) => current + 1);
+    setProductForm((current) => ({ ...current, coverUrl: "" }));
   }
 
   async function saveExpert(event: React.FormEvent<HTMLFormElement>) {
@@ -883,7 +1244,19 @@ export function ProductsAdminWorkspace() {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...expertForm, profileImageUrl }),
+          body: JSON.stringify({
+            displayName: expertForm.displayName,
+            phone: expertForm.phone,
+            pixKey: expertForm.pixKey,
+            status: expertForm.status,
+            platformFeePercent: parsePercentageInput(
+              expertForm.platformFeePercent,
+            ),
+            platformFeeFixedCentavos: parseBrlCurrencyToCentavos(
+              expertForm.platformFeeFixedReais,
+            ),
+            profileImageUrl,
+          }),
         },
       );
       if (!response.ok) return toast.error(await readError(response));
@@ -965,16 +1338,10 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4">
               <CardTitle>Produtos</CardTitle>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => setSettingsDialogOpen(true)}>
-                  <Settings2 className="size-4" />
-                  Taxa {platformFeePercent}%
-                </Button>
-                <Button size="sm" onClick={createProduct}>
-                  <Plus className="size-4" />
-                  Novo produto
-                </Button>
-              </div>
+              <Button size="sm" onClick={createProduct}>
+                <Plus className="size-4" />
+                Novo produto
+              </Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table className="min-w-[1180px]">
@@ -990,38 +1357,72 @@ export function ProductsAdminWorkspace() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {products.length === 0 ? (
+                  {isLoadingList ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="h-28 text-center">
+                        <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
+                      </TableCell>
+                    </TableRow>
+                  ) : products.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
                         Nenhum produto cadastrado.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    products.map(({ product: row, expertName, grossRevenueCentavos, automatizeNetRevenueCentavos }) => (
-                      <TableRow key={row.id}>
-                        <TableCell className="max-w-[320px] font-medium">
-                          <span className="block truncate" title={row.title}>{row.title}</span>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{expertName ?? "Automatize"}</TableCell>
+                    products.map(({ product: row, expertName, grossRevenueCentavos, automatizeNetRevenueCentavos }) => {
+                      const ownerExpert = row.expertId
+                        ? expertsById.get(row.expertId)
+                        : null;
+                      const ownerName = ownerExpert?.displayName ?? expertName ?? "Automatize";
+                      const statusBadge = getProductStatusBadgeProps(row.status);
+
+                      return (
+                        <TableRow key={row.id}>
+                          <TableCell className="max-w-[320px] font-medium">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <ProductCoverThumbnail
+                                title={row.title}
+                                src={row.coverUrl}
+                              />
+                              <span className="min-w-0 truncate" title={row.title}>
+                                {row.title}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <div className="flex items-center gap-2 whitespace-nowrap">
+                              {ownerExpert ? (
+                                <ExpertAvatar
+                                  name={ownerName}
+                                  src={ownerExpert.profileImageUrl}
+                                  size="xs"
+                                />
+                              ) : (
+                                <AutomatizeAvatar />
+                              )}
+                              <span>{ownerName}</span>
+                            </div>
+                          </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
-                        <TableCell><Badge variant="outline">{productStatusLabel[row.status]}</Badge></TableCell>
+                        <TableCell>
+                          <Badge variant={statusBadge.variant} className={statusBadge.className}>
+                            {productStatusLabel[row.status]}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right">
-                          <div className="hidden justify-end gap-2 xl:flex">
-                            {row.status === "draft" ? (
-                              <Button type="button" size="sm" onClick={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
-                                {publishingProductId === row.id ? <Loader2 className="size-3.5 animate-spin" /> : <CircleCheck className="size-3.5" />}
-                                {publishingProductId === row.id ? "Publicando..." : "Publicar"}
-                              </Button>
-                            ) : null}
-                            <Button type="button" size="sm" variant="outline" onClick={() => manageContent(row.id)}><BookOpen className="size-3.5" /> Conteúdos</Button>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => editProduct(row)}><Pencil className="size-3.5" /> Editar</Button>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => void archiveProduct(row.id)}><Archive className="size-3.5" /> Arquivar</Button>
-                          </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button type="button" size="icon" variant="outline" className="ml-auto xl:hidden" aria-label={`Ações de ${row.title}`} title="Ações">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="ml-auto"
+                                aria-label={`Ações de ${row.title}`}
+                                title="Ações"
+                              >
                                 <MoreHorizontal className="size-4" />
                               </Button>
                             </DropdownMenuTrigger>
@@ -1032,6 +1433,8 @@ export function ProductsAdminWorkspace() {
                                   {publishingProductId === row.id ? "Publicando..." : "Publicar"}
                                 </DropdownMenuItem>
                               ) : null}
+                              <DropdownMenuItem onSelect={() => void copyCheckoutLink(row)}><Copy /> Copiar link de checkout</DropdownMenuItem>
+                              <DropdownMenuItem onSelect={() => setPaymentsDialogProduct(row)}><Receipt /> Ver pagamentos</DropdownMenuItem>
                               <DropdownMenuItem onSelect={() => manageContent(row.id)}><BookOpen /> Conteúdos</DropdownMenuItem>
                               <DropdownMenuItem onSelect={() => editProduct(row)}><Pencil /> Editar</DropdownMenuItem>
                               <DropdownMenuSeparator />
@@ -1039,8 +1442,9 @@ export function ProductsAdminWorkspace() {
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
-                      </TableRow>
-                    ))
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1052,16 +1456,71 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader><CardTitle>Vincular expert</CardTitle></CardHeader>
             <CardContent>
-              <form onSubmit={createExpert} className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <form onSubmit={createExpert} className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                 <Field label="E-mail do usuário"><Input name="email" type="email" required /></Field>
                 <Field label="Nome público"><Input name="displayName" required /></Field>
                 <Field label="WhatsApp"><Input name="phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={15} placeholder="(11) 99999-9999" value={expertPhone} onChange={(event) => setExpertPhone(formatBrazilianPhoneInput(event.target.value))} /></Field>
                 <Field label="Chave Pix"><Input name="pixKey" required /></Field>
-                <Field label="Foto de perfil">
-                  <Input name="profileImage" type="file" accept="image/avif,image/gif,image/jpeg,image/png,image/webp" />
-                  <p className="text-xs leading-5 text-muted-foreground">Opcional · imagem de até 5 MB.</p>
+                <Field label="Taxa percentual">
+                  <Input
+                    name="platformFeePercent"
+                    inputMode="decimal"
+                    defaultValue="5,49%"
+                    onChange={(event) => {
+                      event.currentTarget.value = formatPercentageInput(event.currentTarget.value);
+                    }}
+                    required
+                  />
                 </Field>
-                <div className="md:col-span-2 xl:col-span-5">
+                <Field label="Taxa fixa">
+                  <Input
+                    name="platformFeeFixedReais"
+                    inputMode="numeric"
+                    defaultValue="R$ 0,39"
+                    onChange={(event) => {
+                      event.currentTarget.value = formatBrlCurrencyInput(event.currentTarget.value);
+                    }}
+                    required
+                  />
+                </Field>
+                <Field label="Foto de perfil">
+                  <Input
+                    key={newExpertImageInputKey}
+                    type="file"
+                    accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+                    onChange={(event) =>
+                      selectNewExpertImage(event.target.files?.[0] ?? null)
+                    }
+                  />
+                  {newExpertImagePreviewUrl ? (
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
+                      <ExpertAvatar
+                        name="Novo expert"
+                        src={newExpertImagePreviewUrl}
+                        size="xs"
+                      />
+                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        Foto ajustada · 512 × 512 px
+                      </span>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="size-7 text-destructive hover:text-destructive"
+                        aria-label="Remover foto"
+                        title="Remover foto"
+                        onClick={removeNewExpertImage}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Opcional · você poderá ajustar o enquadramento.
+                    </p>
+                  )}
+                </Field>
+                <div className="md:col-span-2 xl:col-span-6">
                   <Button type="submit" disabled={creatingExpert}>
                     {creatingExpert ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
                     {creatingExpert ? "Vinculando..." : "Vincular expert"}
@@ -1073,12 +1532,13 @@ export function ProductsAdminWorkspace() {
           <Card>
             <CardHeader><CardTitle>Experts</CardTitle></CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[860px]">
+              <Table className="min-w-[1040px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Expert</TableHead>
                     <TableHead className="w-[170px]">WhatsApp</TableHead>
                     <TableHead className="w-[280px]">Chave Pix</TableHead>
+                    <TableHead className="w-[190px]">Taxa da plataforma</TableHead>
                     <TableHead className="w-[100px]">Status</TableHead>
                     <TableHead className="w-[110px] text-right">Ações</TableHead>
                   </TableRow>
@@ -1106,13 +1566,35 @@ export function ProductsAdminWorkspace() {
                           </Button>
                         </div>
                       </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-sm tabular-nums">
+                        {formatExpertPlatformFee(
+                          expert.platformFeeBasisPoints,
+                          expert.platformFeeFixedCentavos,
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button type="button" size="sm" variant="outline" onClick={() => editExpert(expert)}>
-                          <Pencil className="size-3.5" /> Editar
-                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="outline"
+                              className="ml-auto"
+                              aria-label={`Ações de ${expert.displayName}`}
+                              title="Ações"
+                            >
+                              <MoreHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem onSelect={() => editExpert(expert)}>
+                              <Pencil /> Editar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1147,7 +1629,13 @@ export function ProductsAdminWorkspace() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.length === 0 ? (
+                  {isLoadingList ? (
+                    <TableRow>
+                      <TableCell colSpan={13} className="h-28 text-center">
+                        <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
+                      </TableCell>
+                    </TableRow>
+                  ) : orders.length === 0 ? (
                     <TableRow>
                       <TableCell
                         colSpan={13}
@@ -1225,13 +1713,28 @@ export function ProductsAdminWorkspace() {
                         </TableCell>
                         <TableCell className="text-right">
                           {order.status === "approved" ? (
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => void refundOrder(order.id)}
-                            >
-                              Reembolsar
-                            </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="ml-auto"
+                                  aria-label={`Ações da venda de ${order.productTitle}`}
+                                  title="Ações"
+                                >
+                                  <MoreHorizontal className="size-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => void refundOrder(order.id)}
+                                >
+                                  Reembolsar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -1246,45 +1749,72 @@ export function ProductsAdminWorkspace() {
         </TabsContent>
 
         <TabsContent value="payouts" className="pt-4">
-          <Card><CardHeader><CardTitle>Repasses</CardTitle></CardHeader><CardContent className="divide-y p-0">{payouts.map((payout) => <div key={payout.id} className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"><div><p className="font-medium">{payout.expertName} · {money(payout.amountCentavos)}</p><p className="font-mono text-xs text-muted-foreground">Pix: {payout.pixKeySnapshot}</p><p className="text-xs text-muted-foreground">Prazo: {formatDateInSaoPaulo(payout.dueAt)}</p></div><Badge variant="outline">{payout.status}</Badge><div className="flex flex-wrap gap-2">{payout.status === "requested" ? <><Button size="sm" variant="outline" onClick={() => void updatePayout(payout.id, "approved")}>Aprovar</Button><Button size="sm" variant="ghost" onClick={() => void updatePayout(payout.id, "rejected")}>Rejeitar</Button></> : null}{payout.status === "approved" ? <Button size="sm" onClick={() => void updatePayout(payout.id, "paid")}>Registrar pagamento</Button> : null}</div></div>)}</CardContent></Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Repasses</CardTitle>
+            </CardHeader>
+            <CardContent className="divide-y p-0">
+              {payouts.map((payout) => (
+                <div
+                  key={payout.id}
+                  className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"
+                >
+                  <div>
+                    <p className="font-medium">
+                      {payout.expertName} · {money(payout.amountCentavos)}
+                    </p>
+                    <p className="font-mono text-xs text-muted-foreground">
+                      Pix: {payout.pixKeySnapshot}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Prazo: {formatDateInSaoPaulo(payout.dueAt)}
+                    </p>
+                  </div>
+                  <Badge variant="outline">{payout.status}</Badge>
+                  {payout.status === "requested" || payout.status === "approved" ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="outline"
+                          className="ml-auto"
+                          aria-label={`Ações do repasse de ${payout.expertName}`}
+                          title="Ações"
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        {payout.status === "requested" ? (
+                          <>
+                            <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "approved")}>
+                              Aprovar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive focus:text-destructive"
+                              onSelect={() => void updatePayout(payout.id, "rejected")}
+                            >
+                              Rejeitar
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                        {payout.status === "approved" ? (
+                          <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "paid")}>
+                            Registrar pagamento
+                          </DropdownMenuItem>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
-
-      <Dialog
-        open={settingsDialogOpen}
-        onOpenChange={setSettingsDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Taxa da plataforma</DialogTitle>
-            <DialogDescription>
-              Aplicada somente às novas vendas. O custo do Mercado Pago é absorvido pelo Automatize dentro desta receita.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={saveFinancialSettings} className="grid gap-4">
-            <Field label="Taxa sobre o valor bruto (%)">
-              <Input
-                inputMode="decimal"
-                value={platformFeePercent}
-                onChange={(event) => setPlatformFeePercent(event.target.value)}
-                required
-              />
-              <p className="text-xs text-muted-foreground">
-                Padrão: 5%. Em uma venda de R$ 100,00, R$ 5,00 são a receita de gateway antes do custo do Mercado Pago.
-              </p>
-            </Field>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setSettingsDialogOpen(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={savingSettings}>
-                {savingSettings ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                {savingSettings ? "Salvando..." : "Salvar taxa"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={productDialogOpen}
@@ -1306,67 +1836,22 @@ export function ProductsAdminWorkspace() {
             <Field label="Slug"><Input value={productForm.slug} onChange={(e) => setProductForm({ ...productForm, slug: e.target.value })} placeholder="gerado pelo título" /></Field>
             <Field label="Preço (R$)"><Input inputMode="numeric" maxLength={18} placeholder="R$ 0,00" value={productForm.priceReais} onChange={(e) => setProductForm({ ...productForm, priceReais: formatBrlCurrencyInput(e.target.value) })} required /></Field>
             <Field label="Proprietário">
-              <select
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                value={getProductOwnerSelectionValue(productForm.ownerType, productForm.expertId)}
-                onChange={(event) => changeProductOwner(event.target.value)}
-              >
-                <option value="automatize">Automatize</option>
-                {experts.map((expert) => (
-                  <option key={expert.id} value={`expert:${expert.id}`}>
-                    {expert.displayName}{expert.status === "inactive" ? " (inativo)" : ""}
-                  </option>
-                ))}
-              </select>
+              <ProductOwnerPicker
+                ownerType={productForm.ownerType}
+                expertId={productForm.expertId}
+                experts={experts}
+                onSelect={changeProductOwner}
+              />
             </Field>
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium">Taxa da plataforma</p>
-                  <p className="text-xs text-muted-foreground">
-                    {productForm.useCustomPlatformFee
-                      ? "Esta taxa será usada somente nas novas vendas deste produto."
-                      : `Herdando a taxa global atual de ${platformFeePercent}%.`}
-                  </p>
-                </div>
-                <label className="flex shrink-0 items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={productForm.useCustomPlatformFee}
-                    onChange={(event) =>
-                      setProductForm((current) => ({
-                        ...current,
-                        useCustomPlatformFee: event.target.checked,
-                        platformFeePercentOverride: event.target.checked
-                          ? formatPercentageInput(platformFeePercent)
-                          : "",
-                      }))
-                    }
-                  />
-                  Personalizar taxa
-                </label>
-              </div>
-              {productForm.useCustomPlatformFee ? (
-                <Field label="Taxa deste produto">
-                  <Input
-                    inputMode="decimal"
-                    placeholder="Ex.: 8%"
-                    value={productForm.platformFeePercentOverride}
-                    onChange={(event) =>
-                      setProductForm((current) => ({
-                        ...current,
-                        platformFeePercentOverride: formatPercentageInput(
-                          event.target.value,
-                        ),
-                      }))
-                    }
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    O percentual fica congelado no pedido quando a venda é criada.
-                  </p>
-                </Field>
-              ) : null}
+              <p className="text-sm font-medium">Taxa da plataforma</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {productForm.ownerType === "automatize"
+                  ? "Produto próprio: sem taxa da plataforma. O líquido do Automatize é o valor bruto menos o custo do gateway."
+                  : selectedOwnerExpert
+                    ? `Taxa do expert: ${formatExpertPlatformFee(selectedOwnerExpert.platformFeeBasisPoints, selectedOwnerExpert.platformFeeFixedCentavos)}. Ela é congelada no pedido quando a venda é criada.`
+                    : "Selecione o expert proprietário para consultar a taxa aplicável."}
+              </p>
             </div>
             {productForm.ownerType === "expert" ? (
               <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
@@ -1410,26 +1895,31 @@ export function ProductsAdminWorkspace() {
                   {productForm.hasCoproduction ? (
                     <>
                       <Field label="Coprodutor">
-                        <select
-                          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        <Select
                           value={
                             productForm.coproducerType === "automatize"
                               ? "automatize"
                               : `expert:${productForm.coproducerExpertId}`
                           }
-                          onChange={(event) => changeCoproducer(event.target.value)}
-                          required
+                          onValueChange={changeCoproducer}
                         >
-                          <option value="automatize">Automatize</option>
-                          {experts
-                            .filter((expert) => expert.id !== productForm.expertId)
-                            .map((expert) => (
-                              <option key={expert.id} value={`expert:${expert.id}`}>
-                                {expert.displayName}
-                                {expert.status === "inactive" ? " (inativo)" : ""}
-                              </option>
-                            ))}
-                        </select>
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              <SelectItem value="automatize">Automatize</SelectItem>
+                              {experts
+                                .filter((expert) => expert.id !== productForm.expertId)
+                                .map((expert) => (
+                                  <SelectItem key={expert.id} value={`expert:${expert.id}`}>
+                                    {expert.displayName}
+                                    {expert.status === "inactive" ? " (inativo)" : ""}
+                                  </SelectItem>
+                                ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
                       </Field>
                       <Field label="Participação do coprodutor">
                         <Input
@@ -1456,26 +1946,110 @@ export function ProductsAdminWorkspace() {
               </div>
             ) : null}
             <Field label="Incluído a partir do plano">
-              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.minimumPlanTier} onChange={(e) => setProductForm({ ...productForm, minimumPlanTier: e.target.value })}>
-                <option value="">Não incluir</option><option value="starter">Starter</option><option value="pro">Pro</option><option value="premium">Premium</option>
-              </select>
+              <Select
+                value={productForm.minimumPlanTier || "none"}
+                onValueChange={(minimumPlanTier) =>
+                  setProductForm({
+                    ...productForm,
+                    minimumPlanTier: minimumPlanTier === "none" ? "" : minimumPlanTier,
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="none">Não incluir</SelectItem>
+                    <SelectItem value="starter">Starter</SelectItem>
+                    <SelectItem value="pro">Pro</SelectItem>
+                    <SelectItem value="premium">Premium</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
-            <Field label="Visibilidade"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.visibility} onChange={(e) => setProductForm({ ...productForm, visibility: e.target.value as "public" | "unlisted" })}><option value="unlisted">Não listado</option><option value="public">Público</option></select></Field>
-            <Field label="Status"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={productForm.status} onChange={(e) => setProductForm({ ...productForm, status: e.target.value as Product["status"] })}><option value="draft">Rascunho</option><option value="published">Publicado</option><option value="archived">Arquivado</option></select></Field>
+            <Field label="Visibilidade">
+              <Select
+                value={productForm.visibility}
+                onValueChange={(visibility) =>
+                  setProductForm({
+                    ...productForm,
+                    visibility: visibility as Product["visibility"],
+                  })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="unlisted">Não listado</SelectItem>
+                    <SelectItem value="public">Público</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Status">
+              <Select
+                value={productForm.status}
+                onValueChange={(status) =>
+                  setProductForm({ ...productForm, status: status as Product["status"] })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="draft">Rascunho</SelectItem>
+                    <SelectItem value="published">Publicado</SelectItem>
+                    <SelectItem value="archived">Arquivado</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
             <Field label="Imagem de capa">
               <Input
                 key={coverInputKey}
                 type="file"
                 accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
-                onChange={(event) => setCoverFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => selectCoverFile(event.target.files?.[0] ?? null)}
               />
-              <p className="text-xs text-muted-foreground">
-                {coverFile
-                  ? coverFile.name
-                  : productForm.coverUrl
-                    ? "Uma capa já está cadastrada. Envie outra para substituí-la."
-                    : "JPG, PNG, WebP, GIF ou AVIF de até 10 MB."}
-              </p>
+              {coverPreviewUrl ? (
+                <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
+                  <div className="aspect-[16/9] w-36 shrink-0 overflow-hidden rounded-md border">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={coverPreviewUrl}
+                      alt="Prévia da capa do produto"
+                      className="size-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-muted-foreground">
+                      Capa ajustada em 16:9 · {PRODUCT_COVER_OUTPUT_WIDTH} × {PRODUCT_COVER_OUTPUT_HEIGHT} px
+                    </p>
+                    {coverFile ? (
+                      <p className="truncate text-xs font-medium">{coverFile.name}</p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 shrink-0 text-destructive hover:text-destructive"
+                    aria-label="Remover capa"
+                    title="Remover capa"
+                    onClick={removeCoverImage}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  JPG, PNG, WebP, GIF ou AVIF de até 10 MB. A capa será recortada em 16:9 para o checkout e a biblioteca.
+                </p>
+              )}
             </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
@@ -1489,6 +2063,20 @@ export function ProductsAdminWorkspace() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ExpertImageCropDialog
+        file={pendingExpertImageFile}
+        open={expertImageCropOpen}
+        onCancel={cancelExpertImageCrop}
+        onConfirm={applyExpertImageCrop}
+      />
+
+      <ProductCoverCropDialog
+        file={pendingCoverFile}
+        open={coverCropOpen}
+        onCancel={cancelCoverCrop}
+        onConfirm={applyCoverCrop}
+      />
 
       <Dialog
         open={expertDialogOpen}
@@ -1520,7 +2108,9 @@ export function ProductsAdminWorkspace() {
                   onChange={(event) => selectExpertImage(event.target.files?.[0] ?? null)}
                 />
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs text-muted-foreground">JPG, PNG, WebP, GIF ou AVIF de até 5 MB.</p>
+                  <p className="text-xs text-muted-foreground">
+                    Selecione uma imagem para ajustar o enquadramento.
+                  </p>
                   {expertImagePreviewUrl ? (
                     <Button type="button" size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={removeExpertImage}>
                       <Trash2 className="size-3.5" /> Remover foto
@@ -1538,11 +2128,67 @@ export function ProductsAdminWorkspace() {
             <Field label="Chave Pix">
               <Input value={expertForm.pixKey} onChange={(event) => setExpertForm({ ...expertForm, pixKey: event.target.value })} required />
             </Field>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <div>
+                <p className="text-sm font-medium">Taxa da plataforma</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Aplicada somente às novas vendas de produtos deste expert.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Percentual">
+                  <Input
+                    inputMode="decimal"
+                    value={expertForm.platformFeePercent}
+                    onChange={(event) =>
+                      setExpertForm({
+                        ...expertForm,
+                        platformFeePercent: formatPercentageInput(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </Field>
+                <Field label="Valor fixo">
+                  <Input
+                    inputMode="numeric"
+                    value={expertForm.platformFeeFixedReais}
+                    onChange={(event) =>
+                      setExpertForm({
+                        ...expertForm,
+                        platformFeeFixedReais: formatBrlCurrencyInput(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </Field>
+              </div>
+              <p className="text-xs font-medium text-foreground">
+                {formatExpertPlatformFeePreview(
+                  Math.round(parsePercentageInput(expertForm.platformFeePercent) * 100),
+                  expertForm.platformFeeFixedReais
+                    ? parseBrlCurrencyToCentavos(expertForm.platformFeeFixedReais)
+                    : 0,
+                )}
+              </p>
+            </div>
             <Field label="Status">
-              <select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={expertForm.status} onChange={(event) => setExpertForm({ ...expertForm, status: event.target.value as Expert["status"] })}>
-                <option value="active">Ativo</option>
-                <option value="inactive">Inativo</option>
-              </select>
+              <Select
+                value={expertForm.status}
+                onValueChange={(status: Expert["status"]) =>
+                  setExpertForm({ ...expertForm, status })
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="active">Ativo</SelectItem>
+                    <SelectItem value="inactive">Inativo</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </Field>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeExpertDialog}>Cancelar</Button>
@@ -1571,7 +2217,24 @@ export function ProductsAdminWorkspace() {
           {selectedProduct ? (
             <div className="space-y-6">
               <form onSubmit={saveContent} className="grid gap-4 md:grid-cols-2">
-                <Field label="Tipo"><select className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={contentForm.type} onChange={(e) => changeContentType(e.target.value as Content["type"])}><option value="video">Vídeo</option><option value="pdf">PDF</option><option value="file">Arquivo</option><option value="external_link">Link externo</option></select></Field>
+                <Field label="Tipo">
+                  <Select
+                    value={contentForm.type}
+                    onValueChange={(type) => changeContentType(type as Content["type"])}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="video">Vídeo</SelectItem>
+                        <SelectItem value="pdf">PDF</SelectItem>
+                        <SelectItem value="file">Arquivo</SelectItem>
+                        <SelectItem value="external_link">Link externo</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
                 <Field label="Título"><Input value={contentForm.title} onChange={(e) => setContentForm({ ...contentForm, title: e.target.value })} required /></Field>
                 <Field label={contentForm.type === "video" ? "URL / ID do vídeo" : contentForm.type === "pdf" ? "Link do Google Drive" : "URL externa"}>
                   <Input
@@ -1588,20 +2251,26 @@ export function ProductsAdminWorkspace() {
                 </Field>
                 {contentForm.type === "video" ? (
                   <Field label="Hospedagem do vídeo">
-                    <select
-                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                    <Select
                       value={contentForm.videoProvider}
-                      onChange={(event) =>
+                      onValueChange={(videoProvider) =>
                         setContentForm({
                           ...contentForm,
-                          videoProvider: event.target.value,
+                          videoProvider,
                         })
                       }
                     >
-                      <option value="youtube">YouTube</option>
-                      <option value="vimeo">Vimeo</option>
-                      <option value="external">URL incorporável</option>
-                    </select>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          <SelectItem value="youtube">YouTube</SelectItem>
+                          <SelectItem value="vimeo">Vimeo</SelectItem>
+                          <SelectItem value="external">URL incorporável</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </Field>
                 ) : null}
                 <Field label="Posição"><Input type="number" min="1" value={contentForm.position} onChange={(e) => setContentForm({ ...contentForm, position: e.target.value })} /></Field>
@@ -1625,6 +2294,104 @@ export function ProductsAdminWorkspace() {
               </div>
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={paymentsDialogProduct !== null}
+        onOpenChange={(open) => {
+          if (!open) setPaymentsDialogProduct(null);
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>
+              Pagamentos {paymentsDialogProduct ? `· ${paymentsDialogProduct.title}` : ""}
+            </DialogTitle>
+            <DialogDescription>
+              Vendas e pagamentos registrados para este produto.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[min(60vh,640px)] overflow-auto rounded-lg border">
+            <Table className="min-w-[920px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Data</TableHead>
+                  <TableHead>Comprador</TableHead>
+                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead>Método</TableHead>
+                  <TableHead>ID pagamento</TableHead>
+                  <TableHead>Status pedido</TableHead>
+                  <TableHead>Status pagamento</TableHead>
+                  <TableHead className="text-right">Líquido</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {productPayments.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={8}
+                      className="h-28 text-center text-muted-foreground"
+                    >
+                      Nenhum pagamento registrado para este produto.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  productPayments.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {dateTime(order.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        <p className="font-medium">{order.buyerName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {order.buyerEmail}
+                        </p>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                        {money(order.priceCentavos)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {paymentMethod(order)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                        {order.providerPaymentId ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {orderStatusLabel[order.status] ?? order.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {order.paymentStatus ? (
+                          <Badge variant="outline">
+                            {paymentStatusLabel[order.paymentStatus] ??
+                              order.paymentStatus}
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                        {order.netAmountCentavos !== null
+                          ? money(order.netAmountCentavos)
+                          : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPaymentsDialogProduct(null)}
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -115,6 +115,7 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       ownerType: product.ownerType,
       financialModel: productOrder.financialModel,
       platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
+      platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
       platformFeeGrossCentavos: productPayment.platformFeeGrossCentavos,
       automatizeCoproductionRevenueCentavos:
         productPayment.automatizeCoproductionRevenueCentavos,

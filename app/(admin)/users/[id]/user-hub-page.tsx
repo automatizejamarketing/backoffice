@@ -23,6 +23,7 @@ import { MarketingConsultantControl } from "@/components/marketing-consultant-co
 import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
+import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,10 +59,7 @@ import {
 } from "@/lib/db/conversation-queries";
 import { getUserWhatsappTemplateHistory } from "@/lib/db/whatsapp-template-queries";
 import { buildTranscript } from "@/lib/backoffice/conversation-transcript";
-import {
-  getWhatsappSourceLabel,
-  getWhatsappTemplateLabel,
-} from "@/lib/backoffice/whatsapp-history-model";
+import { getWhatsappSourceLabel } from "@/lib/backoffice/whatsapp-history-model";
 import {
   canAccessUserHubTab,
   hasBackofficePermission,
@@ -476,12 +474,7 @@ export async function UserHubPage({
                   {whatsappHistory.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="max-w-72">
-                        <p className="font-medium">
-                          {getWhatsappTemplateLabel(item.templateName)}
-                        </p>
-                        <p className="truncate font-mono text-[11px] text-muted-foreground">
-                          {item.templateName}
-                        </p>
+                        <WhatsappTemplateInfo templateName={item.templateName} />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {getWhatsappSourceLabel(item.source)}

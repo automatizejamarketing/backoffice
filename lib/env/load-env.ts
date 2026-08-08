@@ -33,6 +33,7 @@ export function getEnvFilePath(appEnv: AppEnv, cwd = process.cwd()): string {
 // injects `NODE_ENV=development`, it overrides Next's build-time value and
 // crashes the `/_global-error` prerender in Next 16. Never propagate it.
 const PROTECTED_KEYS = new Set(["NODE_ENV"]);
+const PLACEHOLDER_ENV_VALUES = new Set(["[SENSITIVE]"]);
 
 function applyEnvFile(
   filePath: string,
@@ -46,6 +47,10 @@ function applyEnvFile(
     }
 
     if (options.skipEmpty && value === "") {
+      continue;
+    }
+
+    if (PLACEHOLDER_ENV_VALUES.has(value)) {
       continue;
     }
 
@@ -74,6 +79,11 @@ export function loadAppEnv(cwd = process.cwd()): AppEnv {
     console.warn(
       `[env] Missing ${ENV_FILES[appEnv]}. Copy from .env.local or pull from Vercel.`,
     );
+  }
+
+  const r2EnvFile = resolve(cwd, ".env.r2.local");
+  if (existsSync(r2EnvFile)) {
+    applyEnvFile(r2EnvFile, { override: true, skipEmpty: true });
   }
 
   process.env.APP_ENV = appEnv;

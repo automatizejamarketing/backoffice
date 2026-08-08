@@ -48,6 +48,7 @@ const productPaymentFixture = {
   ownerType: "expert" as const,
   financialModel: "legacy_net_split" as const,
   platformFeeBasisPoints: null,
+  platformFeeFixedCentavos: null,
   platformFeeGrossCentavos: null,
   automatizeCoproductionRevenueCentavos: null,
   automatizeProductRevenueCentavos: null,
@@ -252,6 +253,45 @@ describe("finance payments summaries", () => {
 
     expect(amounts.automatizeNetCentavos).toBe(-29);
     expect(amounts.platformFeeGrossCentavos).toBe(50);
+  });
+
+  test("derives the v3 percentage plus fixed fee when settlement fields are absent", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
+      financialModel: "platform_fee_coproduction_v3",
+      grossAmountCentavos: 10_000,
+      netAmountCentavos: 9_602,
+      feeAmountCentavos: 398,
+      priceCentavos: 10_000,
+      platformFeeBasisPoints: 549,
+      platformFeeFixedCentavos: 39,
+      platformFeeGrossCentavos: null,
+      expertShareBasisPoints: 10_000,
+      expertRevenueCentavos: 9_412,
+    });
+
+    expect(amounts.platformFeeGrossCentavos).toBe(588);
+    expect(amounts.automatizeNetCentavos).toBe(190);
+  });
+
+  test("keeps the full gateway net for v3 automatize products", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...productPaymentFixture,
+      ownerType: "automatize" as const,
+      financialModel: "platform_fee_coproduction_v3",
+      grossAmountCentavos: 10_000,
+      netAmountCentavos: 9_602,
+      feeAmountCentavos: 398,
+      priceCentavos: 10_000,
+      platformFeeBasisPoints: 0,
+      platformFeeFixedCentavos: 0,
+      platformFeeGrossCentavos: null,
+      expertShareBasisPoints: 0,
+      expertRevenueCentavos: null,
+    });
+
+    expect(amounts.platformFeeGrossCentavos).toBe(0);
+    expect(amounts.automatizeNetCentavos).toBe(9_602);
   });
 
   test("aggregates negative platform net revenue without breaking the product list", () => {
