@@ -22,7 +22,9 @@
     "campaigns:refresh": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts",
     "campaigns:refresh:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts --stale",
     "performance:drop:backfill": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts",
-    "performance:drop:backfill:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts --stale"
+    "performance:drop:backfill:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts --stale",
+    "tracking:collect": "APP_ENV=prod bun scripts/with-env.ts bun scripts/collect-meta-tracking.ts",
+    "tracking:collect:all": "APP_ENV=prod bun scripts/with-env.ts bun scripts/collect-meta-tracking.ts --all"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.57",
