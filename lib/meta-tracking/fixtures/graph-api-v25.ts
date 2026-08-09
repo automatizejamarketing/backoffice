@@ -196,6 +196,45 @@ export function insightsDayV25(
   return row;
 }
 
+/**
+ * Um evento do audit trail da conta (`GET /act_…/activities`).
+ *
+ * O que só aparece em resposta de verdade e quebra parser ingênuo:
+ *
+ * - `extra_data` chega como **string** contendo JSON, não como objeto — e o
+ *   conteúdo dela não é documentado pela Meta (pode mudar ou sumir);
+ * - `event_time` vem com offset colado (`+0000`), sem os dois pontos do ISO;
+ * - `object_id` é o id da entidade no nível em que a ação aconteceu, e é a
+ *   única ligação com o resto da fundação — não existe id próprio do evento;
+ * - eventos de cobrança e de papéis da conta chegam misturados aos de campanha,
+ *   com `object_id` que não corresponde a entidade nenhuma trackeada.
+ *
+ * `overrides` entra por cima; passar `undefined` num campo o remove.
+ */
+export function activityV25(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    event_type: "update_campaign_budget",
+    translated_event_type: "Orçamento da campanha editado",
+    event_time: "2026-08-08T17:33:21+0000",
+    actor_id: "10223344556677889",
+    actor_name: "Maria Souza",
+    application_id: "1122334455667788",
+    object_id: FIXTURE_CAMPAIGN_ID,
+    object_type: "CAMPAIGN",
+    object_name: "[AM][VENDAS][FS][2026-06-18-19-22-53]",
+    extra_data: '{"old_value":"5000","new_value":"7000"}',
+    ...overrides,
+  };
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete row[key];
+  }
+
+  return row;
+}
+
 /** Configuração profunda de anúncio (`GET /{ad-id}?fields=…`). */
 export function adConfigV25(
   overrides: Record<string, unknown> = {},

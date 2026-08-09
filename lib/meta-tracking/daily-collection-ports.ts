@@ -22,14 +22,24 @@ import {
   persistAccountTrackingDelta,
   upsertAccountCoverage,
 } from "@/lib/db/meta-tracking-collector-queries";
+import {
+  linkActivityMatches,
+  loadEnrichableChangeEvents,
+  upsertActivityEvents,
+} from "@/lib/db/meta-tracking-activity-queries";
 import { upsertDailyMetricRows } from "@/lib/db/meta-tracking-metrics-queries";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
+import {
+  collectActivityEvents as runActivityStep,
+  type ActivityCollectionPorts,
+} from "@/lib/meta-tracking/collect-activity-events";
 import {
   collectDailyMetrics as runDailyMetricsStep,
   type DailyMetricsPorts,
 } from "@/lib/meta-tracking/collect-daily-metrics";
 import {
+  fetchAccountActivities,
   fetchAccountInsights,
   fetchTrackedAdAccounts,
   fetchTrackedConfigs,
@@ -47,6 +57,14 @@ const USER_PAGE_SIZE = 100;
 const DAILY_METRICS_PORTS: DailyMetricsPorts = {
   fetchInsights: fetchAccountInsights,
   upsertRows: upsertDailyMetricRows,
+};
+
+/** As portas do passo de audit trail, na mesma divisão. */
+const ACTIVITY_PORTS: ActivityCollectionPorts = {
+  fetchActivities: fetchAccountActivities,
+  upsertActivityEvents,
+  loadEnrichableChanges: loadEnrichableChangeEvents,
+  linkActivityMatches,
 };
 
 /** Todos os usuários com conta Meta conectada, paginados até o fim. */
@@ -141,6 +159,8 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
     recordCoverage: upsertAccountCoverage,
 
     persistAccountDelta: persistAccountTrackingDelta,
+
+    collectActivityEvents: (args) => runActivityStep(ACTIVITY_PORTS, args),
 
     collectDailyMetrics: (args) =>
       runDailyMetricsStep(DAILY_METRICS_PORTS, args),

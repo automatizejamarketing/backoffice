@@ -27,6 +27,10 @@
  * - **Insights** (`/insights?level=…&time_increment=1`): a série diária do §4.2,
  *   com a atribuição unificada do conjunto para que os números batam com o
  *   Gerenciador de Anúncios. Sem breakdowns nesta fundação.
+ * - **Atividades** (`/activities?since=…&until=…`): o audit trail do §4.4, com a
+ *   sobreposição de 48 h. É o único lugar de onde sai "quem mexeu", e o único
+ *   cuja resposta a Meta não documenta por inteiro — daí o recuo sem
+ *   `extra_data`.
  */
 
 import { graphApiVersion, graphFacebookBaseUrl } from "@/lib/meta-business/constant";
@@ -54,6 +58,7 @@ import {
   type InsightsRange,
   type RawInsightsRow,
 } from "@/lib/meta-tracking/daily-metrics";
+import type { RawActivity } from "@/lib/meta-tracking/activity-enrichment";
 import type { InsightsFetchResult } from "@/lib/meta-tracking/collect-daily-metrics";
 import type { TrackingConfigObservation } from "@/lib/meta-tracking/compute-tracking-delta";
 import type {
@@ -593,6 +598,106 @@ export async function fetchAccountInsights(args: {
       error instanceof Error ? error.message : error,
     );
     const rows = await fetchAllPages(INSIGHTS_CORE_METRIC_FIELDS);
+    return { rows, usage, apiCalls };
+  }
+}
+
+/** Eventos de audit trail por página. */
+const ACTIVITIES_PAGE_LIMIT = 200;
+
+/**
+ * Teto de páginas do poll. A janela é de 48 h: uma conta que produza mais
+ * eventos do que isso em dois dias é caso de operação, não de coleta — e o que
+ * ficar de fora é enriquecimento perdido, nunca ação perdida.
+ */
+const MAX_ACTIVITIES_PAGES = 25;
+
+/** Campos documentados do nó de atividade que a fundação usa. */
+const ACTIVITY_FIELDS: readonly string[] = [
+  "event_type",
+  "translated_event_type",
+  "event_time",
+  "actor_id",
+  "actor_name",
+  "application_id",
+  "object_id",
+  "object_type",
+  "object_name",
+  "extra_data",
+];
+
+/**
+ * Field set de recuo do audit trail: tudo menos `extra_data`.
+ *
+ * `extra_data` é o único campo NÃO documentado da resposta — nem o formato nem a
+ * permanência dele têm garantia. Se a Meta o tirar do catálogo, a requisição
+ * inteira passa a ser rejeitada com erro 100 e a conta perderia o autor de todas
+ * as ações do dia por causa de um campo que ninguém interpreta.
+ */
+const ACTIVITY_CORE_FIELDS: readonly string[] = ACTIVITY_FIELDS.filter(
+  (field) => field !== "extra_data",
+);
+
+/**
+ * O audit trail oficial da conta no período (§4.4 e §5.5 do plano).
+ *
+ * `since`/`until` em segundos do epoch, como a Graph API os recebe. A janela vem
+ * de fora (é o passo que decide a sobreposição de 48 h); aqui só se pagina e se
+ * devolve cru — quem sabe o que é um evento é `activity-enrichment.ts`.
+ */
+export async function fetchAccountActivities(args: {
+  accountId: string;
+  credentials: TrackingCredentials;
+  since: Date;
+  until: Date;
+}): Promise<{ rows: RawActivity[]; usage: QuotaUsage; apiCalls: number }> {
+  let usage = UNKNOWN_QUOTA_USAGE;
+  let apiCalls = 0;
+
+  const fetchAllPages = async (
+    fields: readonly string[],
+  ): Promise<RawActivity[]> => {
+    const rows: RawActivity[] = [];
+    let after: string | undefined;
+    let pages = 0;
+
+    do {
+      const params = new URLSearchParams({
+        fields: fields.join(","),
+        since: String(Math.floor(args.since.getTime() / 1000)),
+        until: String(Math.ceil(args.until.getTime() / 1000)),
+        limit: String(ACTIVITIES_PAGE_LIMIT),
+      });
+      if (after) params.set("after", after);
+
+      const { json, usage: pageUsage } = await graphGet<GraphPage<RawActivity>>(
+        {
+          path: `${accountPath(args.accountId)}/activities`,
+          params: params.toString(),
+          accessToken: args.credentials.accessToken,
+        },
+      );
+      usage = mergeQuotaUsage(usage, pageUsage);
+      apiCalls += 1;
+      pages += 1;
+
+      rows.push(...(json.data ?? []));
+      after = json.paging?.next ? json.paging.cursors?.after : undefined;
+    } while (after && pages < MAX_ACTIVITIES_PAGES);
+
+    return rows;
+  };
+
+  try {
+    const rows = await fetchAllPages(ACTIVITY_FIELDS);
+    return { rows, usage, apiCalls };
+  } catch (error) {
+    if (!isInvalidParameterError(error)) throw error;
+    console.warn(
+      "[meta-tracking] field set de activities rejeitado; recuando sem extra_data",
+      error instanceof Error ? error.message : error,
+    );
+    const rows = await fetchAllPages(ACTIVITY_CORE_FIELDS);
     return { rows, usage, apiCalls };
   }
 }

@@ -63,6 +63,7 @@ type Recorded = {
   graphCalls: string[];
   internalChangeWindows: Array<{ accountId: string; since: Date }>;
   metricCalls: Array<{ accountId: string; today: string; usage: QuotaUsage }>;
+  activityCalls: Array<{ accountId: string; now: Date }>;
 };
 
 function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
@@ -76,6 +77,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
     graphCalls: [],
     internalChangeWindows: [],
     metricCalls: [],
+    activityCalls: [],
   };
 
   const ports: DailyCollectionPorts = {
@@ -134,6 +136,16 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         eventsCreated: delta.events.length,
         versionsConfirmed: delta.confirmations.length,
         eventsLinked: delta.versionLinks.length,
+      };
+    },
+    collectActivityEvents: async ({ accountId, now }) => {
+      recorded.graphCalls.push("collectActivityEvents");
+      recorded.activityCalls.push({ accountId, now });
+      return {
+        eventsUpserted: 9,
+        eventsMatched: 2,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
       };
     },
     collectDailyMetrics: async ({ accountId, today, usage }) => {
@@ -625,9 +637,9 @@ describe("runDailyTrackingCollection", () => {
     ]);
     expect(result.metricRowsUpserted).toBe(87);
     expect(recorded.runs[0].summary).toMatchObject({ metricRowsUpserted: 87 });
-    // Listagem (3) + dois lotes de configuração (2) + insights (3): as
-    // chamadas do passo de métricas entram na conta da cobertura.
-    expect(recorded.coverage[0].apiCallsUsed).toBe(3 + 2 + 3);
+    // Listagem (3) + dois lotes de configuração (2) + audit trail (1) +
+    // insights (3): as chamadas dos passos entram na conta da cobertura.
+    expect(recorded.coverage[0].apiCallsUsed).toBe(3 + 2 + 1 + 3);
   });
 
   test("as métricas vêm depois da configuração — o dia só é gravado uma vez", async () => {
@@ -639,6 +651,7 @@ describe("runDailyTrackingCollection", () => {
       "listAdAccounts",
       "listEntities",
       "fetchConfigs",
+      "collectActivityEvents",
       "collectDailyMetrics",
     ]);
   });
@@ -723,5 +736,69 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.coverage[0]).toMatchObject({ status: "failed" });
     expect(result.versionsCreated).toBe(2);
     expect(result.metricRowsUpserted).toBe(0);
+  });
+
+  test("o audit trail é consultado depois do delta gravado e entra no resumo do run", async () => {
+    const { ports, recorded } = makePorts();
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    // O enriquecimento liga autor e horário a ações que já existem: pedir o
+    // audit trail antes de gravar o delta não teria a que ligar.
+    expect(recorded.graphCalls.indexOf("collectActivityEvents")).toBeGreaterThan(
+      recorded.graphCalls.indexOf("fetchConfigs"),
+    );
+    expect(recorded.activityCalls).toEqual([
+      { accountId: ACCOUNT.accountId, now: NOW },
+    ]);
+    expect(result.activityEventsUpserted).toBe(9);
+    expect(result.activityEventsMatched).toBe(2);
+    expect(recorded.runs[0].summary).toMatchObject({
+      activityEventsUpserted: 9,
+      activityEventsMatched: 2,
+    });
+  });
+
+  test("falha do audit trail não derruba a cobertura: a coleta segue e o enriquecimento fica pendente", async () => {
+    const { ports, recorded } = makePorts({
+      collectActivityEvents: async () => {
+        throw new Error("Meta devolveu 500 para activities");
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    // A ação detectada pelo diff já está gravada; o que faltou foi só o autor.
+    expect(recorded.coverage[0]).toMatchObject({ status: "complete" });
+    expect(result.accountsCovered).toBe(1);
+    expect(result.versionsCreated).toBe(2);
+    expect(result.metricRowsUpserted).toBe(87);
+    expect(result.activityEventsMatched).toBe(0);
+    // Fica visível no run — silêncio seria pior do que a falha.
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toContain("Audit trail");
+    expect(recorded.runs[0].status).toBe("completed_with_errors");
+  });
+
+  test("conta interrompida por cota na configuração não gasta chamada com o audit trail", async () => {
+    const { ports, recorded } = makePorts({
+      listEntities: async () => ({
+        entities: activeListing(),
+        usage: { utilizationPercent: 95, estimatedRegainMs: null },
+        apiCalls: 3,
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.activityCalls).toEqual([]);
+    expect(result.activityEventsUpserted).toBe(0);
+    expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
   });
 });

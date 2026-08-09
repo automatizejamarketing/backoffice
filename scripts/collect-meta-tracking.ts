@@ -71,6 +71,8 @@ console.log(
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
       versionsConfirmed: result.versionsConfirmed,
+      activityEventsUpserted: result.activityEventsUpserted,
+      activityEventsMatched: result.activityEventsMatched,
       metricRowsUpserted: result.metricRowsUpserted,
       metricSlicesDegraded: result.metricSlicesDegraded,
       stoppedForBudget: result.stoppedForBudget,

@@ -28,12 +28,17 @@
  * 4. **Delta** — a costura pura decide versões, eventos e confirmações.
  * 5. **Persistência** — numa transação por conta, para que "fechar a versão
  *    antiga e abrir a nova" seja uma coisa só.
- * 6. **Série diária** — os resultados dos últimos 28 dias nos três níveis, por
+ * 6. **Audit trail** — o poll do `/activities` com sobreposição de 48 h, que
+ *    grava os eventos crus e enriquece com autor e horário exato as ações que o
+ *    diff acabou de detectar. É a única etapa cuja falha NÃO conta contra a
+ *    cobertura: o endpoint não é documentado por inteiro e o diff nunca depende
+ *    dele — sem ele a ação existe do mesmo jeito, só que anônima.
+ * 7. **Série diária** — os resultados dos últimos 28 dias nos três níveis, por
  *    upsert. Vem DEPOIS da persistência da configuração de propósito: se os
  *    insights falharem, a configuração do dia — que não existe em lugar nenhum
  *    para ser buscada depois — já está salva, e a série se recupera sozinha
  *    amanhã, quando a janela móvel re-coletar os mesmos dias.
- * 7. **Cobertura** — o que aconteceu com a conta naquele dia, sempre gravado:
+ * 8. **Cobertura** — o que aconteceu com a conta naquele dia, sempre gravado:
  *    `complete`, `partial` (cota), `failed` ou `skipped_*` (token).
  *
  * ## Por que a cota interrompe em vez de esperar
@@ -70,6 +75,7 @@ import {
   isSupportedTimeZone,
   type DayKey,
 } from "@/lib/meta-tracking/correlation";
+import type { ActivityCollectionResult } from "@/lib/meta-tracking/collect-activity-events";
 import type { DailyMetricsResult } from "@/lib/meta-tracking/collect-daily-metrics";
 import type {
   MetaTrackingCoverageStatus,
@@ -208,6 +214,18 @@ export type DailyCollectionPorts = {
     delta: TrackingDelta;
   }) => Promise<PersistDeltaResult>;
   /**
+   * O audit trail da conta. Etapa separada e injetável: quem a implementa é
+   * `collect-activity-events.ts`, e é ela quem sabe da sobreposição de 48 h, da
+   * deduplicação e de qual evento cru explica qual ação.
+   */
+  collectActivityEvents: (args: {
+    userId: string;
+    accountId: string;
+    credentials: TrackingCredentials;
+    /** O instante da coleta desta conta — define a janela do poll. */
+    now: Date;
+  }) => Promise<ActivityCollectionResult>;
+  /**
    * A série diária de resultados da conta. Etapa separada e injetável: quem a
    * implementa é `collect-daily-metrics.ts`, e é ela quem sabe da janela móvel,
    * do recuo por volume de linhas e do que já congelou.
@@ -272,6 +290,10 @@ export type DailyCollectionResult = {
   eventsCreated: number;
   versionsConfirmed: number;
   eventsLinked: number;
+  /** Eventos crus do audit trail gravados (novos e reconfirmados na sobreposição). */
+  activityEventsUpserted: number;
+  /** Ações que ganharam autor e horário exato vindos do audit trail. */
+  activityEventsMatched: number;
   /** Linhas de `meta_tracking_daily_metrics` inseridas ou atualizadas. */
   metricRowsUpserted: number;
   /**
@@ -327,6 +349,8 @@ export async function runDailyTrackingCollection(
     eventsCreated: 0,
     versionsConfirmed: 0,
     eventsLinked: 0,
+    activityEventsUpserted: 0,
+    activityEventsMatched: 0,
     metricRowsUpserted: 0,
     metricSlicesDegraded: 0,
     stoppedForBudget: false,
@@ -348,6 +372,8 @@ export async function runDailyTrackingCollection(
     eventsCreated: result.eventsCreated,
     versionsConfirmed: result.versionsConfirmed,
     eventsLinked: result.eventsLinked,
+    activityEventsUpserted: result.activityEventsUpserted,
+    activityEventsMatched: result.activityEventsMatched,
     metricRowsUpserted: result.metricRowsUpserted,
     metricSlicesDegraded: result.metricSlicesDegraded,
   });
@@ -589,6 +615,33 @@ async function collectAccount(args: {
     result.eventsCreated += persisted.eventsCreated;
     result.versionsConfirmed += persisted.versionsConfirmed;
     result.eventsLinked += persisted.eventsLinked;
+
+    // O enriquecimento vem DEPOIS da persistência do delta — ele precisa das
+    // ações já gravadas para ligar autor e horário a elas — e por FORA do que
+    // decide a cobertura: o `/activities` é a única fonte de "quem mexeu", mas
+    // a Meta não documenta a retenção dele nem o formato do detalhe. Falhar
+    // aqui não custa ação nenhuma (o diff já registrou tudo), e a sobreposição
+    // de 48 h do poll dá ao próximo disparo uma segunda chance de enriquecer.
+    if (status === "complete") {
+      try {
+        const activities = await ports.collectActivityEvents({
+          userId: user.id,
+          accountId: account.accountId,
+          credentials,
+          now: observedAt,
+        });
+        usage = mergeQuotaUsage(usage, activities.usage);
+        apiCallsUsed += activities.apiCalls;
+        result.activityEventsUpserted += activities.eventsUpserted;
+        result.activityEventsMatched += activities.eventsMatched;
+      } catch (error) {
+        result.errors.push({
+          userEmail: user.email,
+          accountId: account.accountId,
+          message: `Audit trail da Meta indisponível; as ações do dia ficaram sem autor: ${errorMessageOf(error, "erro desconhecido")}`,
+        });
+      }
+    }
 
     // Só quando a configuração fechou o dia: se a cota já apertou, gastar mais
     // chamadas com insights é justamente o que a postura de cota evita — e a

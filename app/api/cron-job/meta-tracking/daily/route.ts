@@ -56,6 +56,10 @@ export async function GET(request: NextRequest) {
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
       versionsConfirmed: result.versionsConfirmed,
+      /** Eventos crus do audit trail gravados neste disparo. */
+      activityEventsUpserted: result.activityEventsUpserted,
+      /** Ações que ganharam autor e horário exato do audit trail. */
+      activityEventsMatched: result.activityEventsMatched,
       /** Dias da série diária inseridos ou atualizados neste disparo. */
       metricRowsUpserted: result.metricRowsUpserted,
       /** Acima de zero = alguma conta está encostando no teto de linhas. */
