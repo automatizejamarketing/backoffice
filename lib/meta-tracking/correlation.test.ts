@@ -96,8 +96,9 @@ describe("selectVersionAt", () => {
 });
 
 /**
- * Um dia da série. Os valores chegam do banco como a Meta os devolve — `spend`
- * é `numeric` (string), as famílias de ação são JSONB cru.
+ * Um dia da série, como o banco o devolve: `numeric` vira string, `integer`
+ * vira number. Compras e valor são COLUNAS — a extração já resolveu a
+ * prioridade entre `purchase` e `omni_purchase` na escrita.
  */
 function day(args: {
   date: string;
@@ -113,14 +114,9 @@ function day(args: {
     spend: args.spend === undefined ? null : String(args.spend),
     impressions: args.impressions ?? null,
     clicks: args.clicks ?? null,
-    actions:
-      args.purchases === undefined
-        ? null
-        : [{ action_type: "purchase", value: String(args.purchases) }],
-    actionValues:
-      args.purchaseValue === undefined
-        ? null
-        : [{ action_type: "purchase", value: String(args.purchaseValue) }],
+    purchases: args.purchases ?? null,
+    purchaseValue:
+      args.purchaseValue === undefined ? null : String(args.purchaseValue),
     isFinal: args.isFinal ?? true,
   };
 }
@@ -261,28 +257,29 @@ describe("computeActionEffect — janelas antes/depois", () => {
     expect(effect.after.provisional).toBe(true);
   });
 
-  test("compras e valor saem das famílias de ação sem contar duas vezes", () => {
-    // A Meta devolve `purchase` e `omni_purchase` para o mesmo fato.
+  test("compras e valor vêm das COLUNAS, não das famílias cruas", () => {
+    // A dupla contagem (`purchase` + `omni_purchase`) e a reconstrução do valor
+    // por ROAS são decisão da ESCRITA — `metric-columns.ts` e o teste dele. Se
+    // este módulo reinterpretasse o jsonb, existiriam duas respostas para
+    // "quantas compras houve".
     const serieComCompras = [
       {
         metricDate: "2026-03-09",
         spend: "100",
+        purchases: 4,
+        purchaseValue: "400",
+        // O jsonb cru continua na linha e continua ignorado aqui.
         actions: [
           { action_type: "purchase", value: "4" },
           { action_type: "omni_purchase", value: "4" },
-          { action_type: "link_click", value: "80" },
-        ],
-        actionValues: [
-          { action_type: "purchase", value: "400" },
-          { action_type: "omni_purchase", value: "400" },
         ],
         isFinal: true,
       },
       {
         metricDate: "2026-03-11",
         spend: "100",
-        actions: [{ action_type: "purchase", value: "10" }],
-        actionValues: [{ action_type: "purchase", value: "900" }],
+        purchases: 10,
+        purchaseValue: "900",
         isFinal: true,
       },
     ];
@@ -300,25 +297,28 @@ describe("computeActionEffect — janelas antes/depois", () => {
     expect(effect.after.roas).toBe(9);
   });
 
-  test("sem action_values, o valor de compra vem do ROAS reportado", () => {
-    const serieSemValores = [
+  test("dia sem compra reportada conta como zero na soma, sem sumir da janela", () => {
+    const serieSemCompra = [
+      { metricDate: "2026-03-09", spend: "50", isFinal: true },
       {
-        metricDate: "2026-03-09",
+        metricDate: "2026-03-11",
         spend: "50",
-        actions: [{ action_type: "purchase", value: "2" }],
-        actionValues: null,
-        purchaseRoas: [{ action_type: "omni_purchase", value: "3" }],
+        purchases: 2,
+        purchaseValue: "150",
         isFinal: true,
       },
     ];
 
     const effect = computeActionEffect({
       action: budgetChange,
-      series: serieSemValores,
+      series: serieSemCompra,
       windowDays: 1,
     });
 
-    expect(effect.before.purchaseValue).toBe(150);
+    expect(effect.before.daysWithData).toBe(1);
+    expect(effect.before.purchases).toBe(0);
+    expect(effect.before.roas).toBe(0);
+    expect(effect.after.purchaseValue).toBe(150);
   });
 });
 

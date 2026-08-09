@@ -104,6 +104,41 @@ describe("toDailyMetricRows", () => {
     ]);
   });
 
+  test("as métricas conhecidas já saem promovidas a coluna, na escrita", () => {
+    const [row] = toDailyMetricRows({
+      ...OWNER,
+      entityLevel: "campaign",
+      today: TODAY,
+      rows: [
+        insightsDayV25({
+          video_thruplay_watched_actions: [
+            { action_type: "video_view", value: "1410" },
+          ],
+          estimated_ad_recallers: "3120",
+        }),
+      ],
+    });
+
+    // O detalhe de CADA coluna é de `metric-columns.test.ts`; aqui o que
+    // importa é que a linha gravada já venha com elas.
+    expect(row).toMatchObject({
+      linkClicks: 212,
+      purchases: 7,
+      purchaseValue: "1394.70",
+      results: 7,
+      thruplays: 1410,
+      estimatedAdRecallers: 3120,
+      // Objetivo de vendas não reporta lead: NULL, não zero.
+      leads: null,
+    });
+    // A família de vídeo continua crua no reservatório, ao lado da coluna.
+    expect(row.videoActions).toEqual({
+      video_thruplay_watched_actions: [
+        { action_type: "video_view", value: "1410" },
+      ],
+    });
+  });
+
   test("conjunto e anúncio desnormalizam a hierarquia acima deles", () => {
     const [adset] = toDailyMetricRows({
       ...OWNER,

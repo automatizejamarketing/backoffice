@@ -16,9 +16,11 @@
  * 2. **Quando o dia vira final.** O dia que está saindo da janela está sendo
  *    coletado pela ÚLTIMA vez — é aí que ele nasce `is_final`. Marcar depois
  *    seria tarde demais: ele já não seria mais re-escrito.
- * 3. **O que é uma linha.** Numéricos universais em colunas tipadas, famílias de
- *    cardinalidade variável (ações, valores, custos) em JSONB, exatamente como a
- *    Meta entrega.
+ * 3. **O que é uma linha.** Numéricos universais e as métricas conhecidas em
+ *    colunas tipadas, famílias de cardinalidade variável (ações, valores,
+ *    custos) em JSONB, exatamente como a Meta entrega. Quem sabe traduzir
+ *    família em coluna é `metric-columns.ts` — e só ele: análise lê coluna, o
+ *    JSONB fica como reservatório de promoção.
  *
  * ## Unidades de dinheiro — a armadilha desta fundação
  *
@@ -32,6 +34,11 @@
  */
 
 import { isDayKey, shiftDayKey, type DayKey } from "@/lib/meta-tracking/correlation";
+import {
+  extractMetricColumns,
+  metricColumnSourceFromInsightsRow,
+  type MetricColumns,
+} from "@/lib/meta-tracking/metric-columns";
 import type { MetaTrackingEntityLevel } from "@/lib/db/schema";
 
 /**
@@ -126,7 +133,11 @@ export function isInsightsRowLimitError(error: unknown): boolean {
   );
 }
 
-/** Uma linha de `meta_tracking_daily_metrics` pronta para upsert. */
+/**
+ * Uma linha de `meta_tracking_daily_metrics` pronta para upsert: os numéricos
+ * universais, as famílias cruas (o reservatório) e as métricas conhecidas já
+ * promovidas a coluna (`MetricColumns`).
+ */
 export type DailyMetricRow = {
   userId: string;
   accountId: string;
@@ -147,8 +158,10 @@ export type DailyMetricRow = {
   costPerResult: unknown;
   purchaseRoas: unknown;
   websitePurchaseRoas: unknown;
+  /** Reservatório das famílias de vídeo, recolhidas num objeto só. */
+  videoActions: unknown;
   isFinal: boolean;
-};
+} & MetricColumns;
 
 /** Uma linha de insights como a Meta a entrega: tudo opaco, tudo string. */
 export type RawInsightsRow = Record<string, unknown>;
@@ -239,7 +252,12 @@ export function toDailyMetricRows(
       continue;
     }
 
+    // A extração acontece AQUI, uma vez por linha, e em nenhum outro lugar: é o
+    // que garante que a leitura encontre o mesmo número que a escrita decidiu.
+    const source = metricColumnSourceFromInsightsRow(raw);
+
     byEntityDay.set(`${entityId}|${metricDate}`, {
+      ...extractMetricColumns(source),
       userId: input.userId,
       accountId: input.accountId,
       entityLevel: input.entityLevel,
@@ -259,6 +277,7 @@ export function toDailyMetricRows(
       costPerResult: jsonOrNull(raw["cost_per_result"]),
       purchaseRoas: jsonOrNull(raw["purchase_roas"]),
       websitePurchaseRoas: jsonOrNull(raw["website_purchase_roas"]),
+      videoActions: source.videoActions,
       isFinal: isFinalMetricDay(metricDate, input.today),
     });
   }

@@ -77,6 +77,28 @@ Uma linha por entidade × dia (dia na timezone da ad account, como a Meta report
 - Unique `(entity_level, entity_id, metric_date)`; índices `(account_id, metric_date)`, `(campaign_id, metric_date)`, `(user_id, metric_date)`.
 - Upsert: `INSERT ... ON CONFLICT DO UPDATE` da janela móvel; nunca deletar.
 
+#### 4.2.1 Contrato de leitura: análise lê COLUNAS, o jsonb é RESERVATÓRIO
+
+Decisão travada (migration `0045`/`0053`): as métricas conhecidas estão promovidas a ~32 colunas nullable, válidas para os três níveis, e **quem analisa lê coluna tipada — nunca abre `actions`/`action_values` em consulta**. As famílias cruas continuam gravadas inteiras porque são o **reservatório de promoção**: é delas que sai a coluna de uma métrica que hoje ninguém consulta, já preenchida sobre o histórico de ontem.
+
+As regras que valem para sempre:
+
+1. **A extração acontece num ponto só** — `lib/meta-tracking/metric-columns.ts`, chamado por `toDailyMetricRows` na escrita. As listas de prioridade que impedem a dupla contagem (`omni_purchase` e `purchase` são o mesmo fato) vivem lá e em lugar nenhum mais; os helpers de correlação (§8) leem as colunas e não reinterpretam família nenhuma. Duas cópias da lista significariam duas respostas para "quantas compras houve".
+2. **Campo novo interessante da Meta entra no field set IMEDIATAMENTE**, mesmo sem coluna. Capturar é irreversível no tempo (a janela de 37 meses desliza um dia por dia); promover não é — o script `scripts/backfill-metric-columns.ts` promove retroativamente, em lotes idempotentes e retomáveis, reusando a mesma função de extração.
+3. **`NULL` é "não reportado", não zero.** Dia de campanha de mensagens não tem compra; gravar `0` apagaria a diferença entre "não se aplica" e "tentou e não vendeu". O zero-verdadeiro se resolve na leitura, com objetivo e `spend` em mãos.
+4. **Conversões personalizadas são a exceção conhecida.** O nome delas é dinâmico por conta (`offsite_conversion.custom.<id>`): não há coluna possível, e elas seguem legíveis só pelo jsonb cru.
+
+Colunas promovidas: funil/comércio (`link_clicks`, `landing_page_views`, `content_views`, `adds_to_cart`, `checkouts_initiated`, `payment_infos_added`, `purchases`, `purchase_value`, `purchase_roas_value`), leads (`leads`, `registrations_completed`), mensagens (`messaging_conversations_started`, `messaging_first_replies`), engajamento (`post_engagements`, `page_engagements`, `post_reactions`, `comments`, `shares`, `post_saves`, `page_likes`), vídeo (`video_views_3s`, `thruplays`, `video_watches_p25/p50/p75/p95/p100`, `video_avg_watch_seconds`) e outros (`estimated_ad_recallers`, `app_installs`, `results`, `cost_per_result_value`). Contagens `integer`, dinheiro e razões `numeric`.
+
+Notas de leitura:
+
+- `results` é o resultado na definição da PRÓPRIA conta: derivado do `indicator` de `cost_per_result` (que nomeia o `action_type` do resultado), com fallback `spend ÷ cost_per_result` e `NULL` quando inderivável.
+- `purchase_value` prefere `action_values`; quando a conta não reporta valores mas reporta ROAS, o valor é reconstruído como `roas × spend` **na escrita** (o fallback nasceu na leitura, no ticket 08, e mudou de casa para que a resposta seja uma só).
+- `purchase_roas_value` e `cost_per_result_value` levam sufixo porque `purchase_roas`/`cost_per_result` já são o jsonb cru da mesma métrica.
+- `video_actions` jsonb é o reservatório das sete famílias de vídeo do field set — todas com a mesma forma, então sete colunas jsonb não comprariam nada, mas ficar só nas colunas escalares deixaria o vídeo fora do reservatório.
+- Vídeo e `estimated_ad_recallers` **nascem para frente**: os campos que os alimentam entraram no field set com a `0045`, então dia anterior fica `NULL` — é a data em que a captura começou, não buraco.
+- `reach` e `frequency` seguem não agregáveis (pessoas únicas): quem precisar da janela pede a janela inteira à Meta.
+
 ### 4.3 `meta_tracking_change_events` — stream unificado de ações
 
 Toda mudança em qualquer nível é uma linha. É a tabela que os propósitos futuros consomem para "o que foi feito, quando, por quê".

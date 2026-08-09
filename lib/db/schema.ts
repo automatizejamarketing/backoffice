@@ -3821,6 +3821,32 @@ export type MetaTrackingChangeEvent = InferSelectModel<
  *
  * O dia é o da timezone da conta de anúncio, e o valor está na moeda dela —
  * ambos registrados em `meta_tracking_account_coverage`, não por linha.
+ *
+ * ## Contrato de leitura: análise lê COLUNAS, o jsonb é RESERVATÓRIO
+ *
+ * As métricas conhecidas estão promovidas a colunas nullable. Quem analisa lê
+ * coluna tipada — nunca abre `actions`/`action_values` em consulta. As famílias
+ * cruas continuam gravadas inteiras porque são o reservatório de promoção: elas
+ * permitem criar amanhã a coluna de uma métrica que hoje ninguém consulta, já
+ * preenchida sobre o histórico de ontem (é o que o script
+ * `scripts/backfill-metric-columns.ts` faz).
+ *
+ * Daí as três regras que valem para sempre nesta tabela:
+ *
+ * 1. **Campo novo interessante da Meta entra no field set IMEDIATAMENTE**, mesmo
+ *    sem coluna. Capturar é irreversível no tempo (a janela de 37 meses desliza
+ *    todo dia); promover não é.
+ * 2. **`NULL` é "não reportado", não zero.** Dia de campanha de mensagens não
+ *    tem compra; gravar `0` apagaria a diferença entre "não se aplica" e
+ *    "tentou e não vendeu". O zero-verdadeiro se resolve na leitura, com
+ *    objetivo + `spend` em mãos.
+ * 3. **Conversões personalizadas são a exceção conhecida.** O nome delas é
+ *    dinâmico por conta (`offsite_conversion.custom.<id>`), então não há coluna
+ *    possível: seguem legíveis só pelo jsonb cru.
+ *
+ * A extração vive num ponto só — `lib/meta-tracking/metric-columns.ts` — e é
+ * lá que moram as listas de prioridade que impedem a dupla contagem
+ * (`omni_purchase` e `purchase` são o mesmo fato).
  */
 export const metaTrackingDailyMetric = pgTable(
   "meta_tracking_daily_metrics",
@@ -3851,6 +3877,61 @@ export const metaTrackingDailyMetric = pgTable(
     costPerResult: jsonb("cost_per_result"),
     purchaseRoas: jsonb("purchase_roas"),
     websitePurchaseRoas: jsonb("website_purchase_roas"),
+    /**
+     * As sete famílias de vídeo do field set num reservatório só, chaveadas pelo
+     * nome do campo da Meta. Todas têm a mesma forma
+     * (`[{ action_type: "video_view", value }]`), então sete colunas jsonb não
+     * comprariam nada — mas ficar só nas colunas escalares deixaria o vídeo
+     * fora do reservatório, e é dele que sai qualquer promoção futura.
+     */
+    videoActions: jsonb("video_actions"),
+
+    /*
+     * Métricas promovidas a coluna — o modelo de leitura tipado. Todas
+     * nullable: `NULL` é "a Meta não reportou". Contagens `integer`, dinheiro e
+     * razões `numeric`. `purchase_roas_value`/`cost_per_result_value` levam o
+     * sufixo porque `purchase_roas`/`cost_per_result` já são o jsonb cru da
+     * mesma métrica: o sufixo é o que diz "o escalar promovido daquela família".
+     */
+    linkClicks: integer("link_clicks"),
+    landingPageViews: integer("landing_page_views"),
+    contentViews: integer("content_views"),
+    addsToCart: integer("adds_to_cart"),
+    checkoutsInitiated: integer("checkouts_initiated"),
+    paymentInfosAdded: integer("payment_infos_added"),
+    purchases: integer("purchases"),
+    /** Unidades MAIORES da moeda da conta, como `spend`. */
+    purchaseValue: numeric("purchase_value"),
+    purchaseRoasValue: numeric("purchase_roas_value"),
+
+    leads: integer("leads"),
+    registrationsCompleted: integer("registrations_completed"),
+
+    messagingConversationsStarted: integer("messaging_conversations_started"),
+    messagingFirstReplies: integer("messaging_first_replies"),
+
+    postEngagements: integer("post_engagements"),
+    pageEngagements: integer("page_engagements"),
+    postReactions: integer("post_reactions"),
+    comments: integer("comments"),
+    shares: integer("shares"),
+    postSaves: integer("post_saves"),
+    pageLikes: integer("page_likes"),
+
+    videoViews3s: integer("video_views_3s"),
+    thruplays: integer("thruplays"),
+    videoWatchesP25: integer("video_watches_p25"),
+    videoWatchesP50: integer("video_watches_p50"),
+    videoWatchesP75: integer("video_watches_p75"),
+    videoWatchesP95: integer("video_watches_p95"),
+    videoWatchesP100: integer("video_watches_p100"),
+    videoAvgWatchSeconds: numeric("video_avg_watch_seconds"),
+
+    estimatedAdRecallers: integer("estimated_ad_recallers"),
+    appInstalls: integer("app_installs"),
+    /** Resultado na definição da própria conta (o `indicator` do custo). */
+    results: integer("results"),
+    costPerResultValue: numeric("cost_per_result_value"),
 
     firstCapturedAt: timestamp("first_captured_at").notNull().defaultNow(),
     lastRefreshedAt: timestamp("last_refreshed_at").notNull().defaultNow(),

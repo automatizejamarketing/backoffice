@@ -61,6 +61,10 @@ import {
   type InsightsRange,
   type RawInsightsRow,
 } from "@/lib/meta-tracking/daily-metrics";
+import {
+  AD_RECALL_INSIGHT_FIELD,
+  VIDEO_INSIGHT_FIELDS,
+} from "@/lib/meta-tracking/metric-columns";
 import type { RawActivity } from "@/lib/meta-tracking/activity-enrichment";
 import type { RawCreative } from "@/lib/meta-tracking/creative-snapshot";
 import type { InsightsFetchResult } from "@/lib/meta-tracking/collect-daily-metrics";
@@ -595,7 +599,30 @@ const INSIGHTS_ID_FIELDS: Record<MetaTrackingEntityLevel, readonly string[]> = {
   ad: ["campaign_id", "adset_id", "ad_id"],
 };
 
-/** Numéricos universais + as famílias de cardinalidade variável do §4.2. */
+/**
+ * Os campos jovens do catálogo — os primeiros a sair no recuo.
+ *
+ * `cost_per_result` depende da configuração de resultado da conta em vez de
+ * existir sempre; as famílias de vídeo e `estimated_ad_recallers` são as
+ * últimas a entrar no field set e, por isso, as menos provadas contra contas
+ * reais. Um campo recusado derruba a requisição INTEIRA (erro 100), e perder o
+ * dia da conta é pior do que gravar a série sem eles.
+ */
+const INSIGHTS_YOUNG_METRIC_FIELDS: readonly string[] = [
+  "cost_per_result",
+  ...VIDEO_INSIGHT_FIELDS,
+  AD_RECALL_INSIGHT_FIELD,
+];
+
+/**
+ * Numéricos universais + as famílias de cardinalidade variável do §4.2 + os
+ * campos jovens.
+ *
+ * Pedir vídeo e lembrança de anúncio custa o mesmo que não pedir (a Meta cobra
+ * por requisição, não por campo) e captura o que a janela de 37 meses levaria
+ * embora: um campo interessante entra no field set na hora, mesmo antes de
+ * alguém consultá-lo.
+ */
 const INSIGHTS_METRIC_FIELDS: readonly string[] = [
   "spend",
   "impressions",
@@ -605,24 +632,25 @@ const INSIGHTS_METRIC_FIELDS: readonly string[] = [
   "actions",
   "action_values",
   "cost_per_action_type",
-  "cost_per_result",
   "purchase_roas",
   "website_purchase_roas",
+  ...INSIGHTS_YOUNG_METRIC_FIELDS,
   "date_start",
   "date_stop",
 ];
 
 /**
  * Field set de recuo — mesma postura do fetch profundo: um campo que saiu do
- * catálogo derruba a requisição INTEIRA (erro 100), e perder o dia da conta é
- * pior do que gravar a série sem uma família.
+ * catálogo derruba a requisição INTEIRA, e é melhor a série sem uma família do
+ * que nenhuma série.
  *
- * Sai só `cost_per_result`: é o único que depende da configuração de resultado
- * da conta em vez de existir sempre. Os demais são antigos e estáveis, e
- * removê-los "por precaução" seria jogar fora dado bom.
+ * Saem os jovens. Os demais são antigos e estáveis, e removê-los "por
+ * precaução" seria jogar fora dado bom.
  */
 const INSIGHTS_CORE_METRIC_FIELDS: readonly string[] =
-  INSIGHTS_METRIC_FIELDS.filter((field) => field !== "cost_per_result");
+  INSIGHTS_METRIC_FIELDS.filter(
+    (field) => !INSIGHTS_YOUNG_METRIC_FIELDS.includes(field),
+  );
 
 /**
  * A série diária de um nível num período (§5.6 do plano).

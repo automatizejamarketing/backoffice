@@ -260,6 +260,13 @@
       "when": 1793200000000,
       "tag": "0044_meta_tracking_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793300000000,
+      "tag": "0045_meta_tracking_metric_columns",
+      "breakpoints": true
     }
   ]
 }

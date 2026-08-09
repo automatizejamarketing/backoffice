@@ -20,9 +20,15 @@
  *   `valid_from`) são convertidos para dia com a timezone da conta.
  * - **Vigência** é meio-aberta `[valid_from, valid_to)`: no instante exato da
  *   mudança já vale a versão nova.
- * - **Dinheiro** dos insights (`spend`, `action_values`) vem em unidades
+ * - **Dinheiro** dos insights (`spend`, `purchase_value`) vem em unidades
  *   MAIORES; os orçamentos das versões vêm em unidades menores. Este módulo só
  *   soma valores de insights — nunca misture as duas escalas.
+ * - **A série é lida por COLUNA, nunca por jsonb.** Quantas compras houve num
+ *   dia é decisão da escrita (`lib/meta-tracking/metric-columns.ts`, que conhece
+ *   as listas de prioridade da Meta), não da leitura. Este módulo soma o que já
+ *   está tipado; se ele reinterpretasse as famílias cruas, existiriam duas
+ *   respostas para a mesma pergunta — e elas divergiriam na primeira vez que só
+ *   uma das listas fosse corrigida.
  */
 
 import type {
@@ -158,20 +164,20 @@ export type TimelineEntry<V, A, M> =
   | { kind: "metrics"; day: DayKey; at: null; metrics: M };
 
 /**
- * Um dia da série (`meta_tracking_daily_metrics`). Os tipos aceitos são os que o
- * Drizzle devolve: `numeric` vira string, JSONB vira `unknown`. Uma linha do
- * banco satisfaz isto sem adaptação, e um teste monta um dia em duas chaves.
+ * Um dia da série (`meta_tracking_daily_metrics`), lido pelas COLUNAS. Os tipos
+ * aceitos são os que o Drizzle devolve: `numeric` vira string, `integer` vira
+ * number. Uma linha do banco satisfaz isto sem adaptação, e um teste monta um
+ * dia em duas chaves.
  */
 export type DailyMetricPoint = {
   metricDate: DayKey;
   spend?: string | number | null;
   impressions?: string | number | null;
   clicks?: string | number | null;
-  /** Famílias cruas da Meta: `[{ action_type, value }]`. */
-  actions?: unknown;
-  actionValues?: unknown;
-  purchaseRoas?: unknown;
-  websitePurchaseRoas?: unknown;
+  /** Já sem dupla contagem: a prioridade foi resolvida na escrita. */
+  purchases?: string | number | null;
+  /** Unidades MAIORES da moeda da conta. */
+  purchaseValue?: string | number | null;
   /** `false` = ainda dentro da janela de 28 dias em que a atribuição muda. */
   isFinal?: boolean | null;
 };
@@ -235,42 +241,11 @@ export type PerDayDelta = {
   roas: number | null;
 };
 
-/**
- * Prioridade de leitura das compras. A Meta devolve `purchase` e
- * `omni_purchase` na mesma resposta contando o mesmo fato: somar os dois dobra
- * o número. Mesma lista de `lib/meta-business/transformers.ts`.
- */
-const PURCHASE_ACTION_TYPES = [
-  "purchase",
-  "omni_purchase",
-  "offsite_conversion.fb_pixel_purchase",
-] as const;
-
-const ROAS_ACTION_TYPES = ["omni_purchase", "purchase"] as const;
-
 function toNumber(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value === "string") {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-/** Primeiro `action_type` da lista de prioridade presente na família. */
-function actionFamilyValue(
-  family: unknown,
-  actionTypes: readonly string[],
-): number {
-  if (!Array.isArray(family)) return 0;
-  for (const actionType of actionTypes) {
-    const hit = family.find(
-      (entry) =>
-        typeof entry === "object" &&
-        entry !== null &&
-        (entry as { action_type?: unknown }).action_type === actionType,
-    );
-    if (hit) return toNumber((hit as { value?: unknown }).value);
   }
   return 0;
 }
@@ -340,22 +315,13 @@ function aggregateWindow(
     if (point.metricDate < from || point.metricDate > to) continue;
 
     daysSeen.add(point.metricDate);
-    const daySpend = toNumber(point.spend);
-    spend += daySpend;
+    spend += toNumber(point.spend);
     impressions += toNumber(point.impressions);
     clicks += toNumber(point.clicks);
-    purchases += actionFamilyValue(point.actions, PURCHASE_ACTION_TYPES);
-
-    let dayValue = actionFamilyValue(point.actionValues, PURCHASE_ACTION_TYPES);
-    if (dayValue <= 0 && daySpend > 0) {
-      // Contas sem `action_values` ainda reportam ROAS; sem esta volta o valor
-      // de compra cairia para zero em silêncio.
-      const roas =
-        actionFamilyValue(point.purchaseRoas, ROAS_ACTION_TYPES) ||
-        actionFamilyValue(point.websitePurchaseRoas, ROAS_ACTION_TYPES);
-      if (roas > 0) dayValue = roas * daySpend;
-    }
-    purchaseValue += dayValue;
+    // Colunas: a prioridade entre `purchase` e `omni_purchase` e a
+    // reconstrução do valor por `roas × spend` já aconteceram na escrita.
+    purchases += toNumber(point.purchases);
+    purchaseValue += toNumber(point.purchaseValue);
 
     if (point.isFinal === false) provisional = true;
   }
