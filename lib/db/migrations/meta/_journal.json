@@ -239,6 +239,20 @@
       "when": 1792200000000,
       "tag": "0040_expert_platform_fee",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1793000000000,
+      "tag": "0042_payments_generic_external_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1793100000000,
+      "tag": "0043_referral_affiliate_blocks",
+      "breakpoints": true
     }
   ]
 }

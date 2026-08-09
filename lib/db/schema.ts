@@ -1962,6 +1962,20 @@ export const payment = pgTable(
     mercadopagoPreferenceId: varchar("mercadopago_preference_id", {
       length: 255,
     }),
+    // The payment's identity AT THE PROVIDER, in a column no provider owns.
+    //
+    // The per-gateway id columns above stay — plenty of code matches on them,
+    // and the Stripe reversal path looks a charge up by three of them. What
+    // they cannot do is answer "what is this payment called at its provider?"
+    // without the caller already knowing which provider it is. That question is
+    // what an idempotency key is built from, so any domain that needs a stable
+    // key had to grow a switch over `provider` — and a gateway missing from
+    // that switch got silently dropped (ADR 0025's promise, unmet).
+    //
+    // Written by `createPaymentRecord`, derived from whichever id the gateway
+    // supplied. Backfilled for existing rows with EXACTLY the value the old
+    // switch returned, so no event key that already exists ever changes value.
+    externalId: varchar("external_id", { length: 255 }),
     amount: integer("amount").notNull(),
     grossAmount: integer("gross_amount"),
     netAmount: integer("net_amount"),
@@ -2492,6 +2506,48 @@ export const referralAffiliate = pgTable(
 );
 
 export type ReferralAffiliate = InferSelectModel<typeof referralAffiliate>;
+
+/**
+ * Histórico de bloqueios do afiliado — um período por linha, nunca apagado.
+ *
+ * Existe porque `referral_affiliates.status` responde "está bloqueado AGORA?" e
+ * o motor de comissão precisa de outra pergunta: "estava bloqueado NAQUELA
+ * data?". Enquanto só havia o status e um `blocked_at`, reativar apagava a
+ * única evidência de que houve período bloqueado — e uma fatura daquele
+ * período, ainda não processada, passava a comissionar no instante da
+ * reativação.
+ *
+ * Mesmo idioma de `referral_agreements`: o encerrado é marcado, não removido,
+ * porque é ele que explica o passado. E o mesmo idioma do saque: um índice
+ * único parcial garante no máximo um período aberto por afiliado.
+ */
+export const referralAffiliateBlock = pgTable(
+  "referral_affiliate_blocks",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    blockedAt: timestamp("blocked_at").notNull().defaultNow(),
+    blockedBy: varchar("blocked_by", { length: 120 }),
+    blockReason: text("block_reason"),
+    /** `null` enquanto o bloqueio estiver vigente. */
+    unblockedAt: timestamp("unblocked_at"),
+    unblockedBy: varchar("unblocked_by", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateIdx: index("referral_affiliate_blocks_affiliate_idx").on(
+      table.affiliateId,
+      table.blockedAt,
+    ),
+  }),
+);
+
+export type ReferralAffiliateBlock = InferSelectModel<
+  typeof referralAffiliateBlock
+>;
+
 
 /**
  * Acordo de Comissão — formato, valor e duração, e nada mais: carência e base

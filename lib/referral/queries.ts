@@ -16,6 +16,7 @@ import {
   affiliate as legacyAffiliate,
   referralAdminAction,
   referralAffiliate,
+  referralAffiliateBlock,
   referralAgreement,
   referralCustomer,
   user,
@@ -422,13 +423,18 @@ export async function renegotiateReferralAgreement({
     if (!affiliate) {
       throw new ReferralOperationError(404, "Afiliado não encontrado");
     }
-    if (affiliate.status === "blocked") {
-      throw new ReferralOperationError(
-        409,
-        "Este afiliado está bloqueado — reative antes de renegociar o acordo",
-      );
-    }
-    if (affiliate.status !== "approved") {
+    // Um afiliado BLOQUEADO pode ser renegociado. O acordo novo é gravado e
+    // fica sem efeito enquanto o bloqueio durar — bloqueado não gera comissão
+    // de qualquer forma — e passa a reger as faturas seguintes se ele for
+    // reativado.
+    //
+    // A regra anterior recusava, e ao recusar empurrava o operador para a
+    // sequência reativar → renegociar → bloquear de novo. Essa janela não é
+    // inócua: `affiliateEarnsAt` olha o status ATUAL, então enquanto ela está
+    // aberta toda fatura ainda não processada comissiona — inclusive as que
+    // foram pagas durante o bloqueio. A recusa, feita para ser conservadora,
+    // era o caminho mais curto para pagar comissão que não deveria existir.
+    if (affiliate.status !== "approved" && affiliate.status !== "blocked") {
       throw new ReferralOperationError(
         409,
         "Só um afiliado aprovado tem acordo a renegociar",
@@ -629,6 +635,17 @@ export async function blockReferralAffiliate({
       .where(eq(referralAffiliate.id, affiliateId))
       .returning();
 
+    // Abre o período no histórico. `referral_affiliates.blocked_at` continua
+    // sendo escrito para a pergunta "está bloqueado agora?", mas quem responde
+    // "estava bloqueado NAQUELA data?" — a pergunta de que o dinheiro depende —
+    // é esta linha, que a reativação encerra em vez de apagar.
+    await tx.insert(referralAffiliateBlock).values({
+      affiliateId,
+      blockedAt: now,
+      blockedBy: adminEmail,
+      blockReason: reason,
+    });
+
     await tx.insert(referralAdminAction).values({
       affiliateId,
       adminEmail,
@@ -697,6 +714,19 @@ export async function reactivateReferralAffiliate({
       })
       .where(eq(referralAffiliate.id, affiliateId))
       .returning();
+
+    // Encerra o período aberto em vez de apagá-lo. É o que impede uma fatura
+    // paga DURANTE o bloqueio, e ainda não processada, de passar a comissionar
+    // no instante da reativação.
+    await tx
+      .update(referralAffiliateBlock)
+      .set({ unblockedAt: now, unblockedBy: adminEmail })
+      .where(
+        and(
+          eq(referralAffiliateBlock.affiliateId, affiliateId),
+          isNull(referralAffiliateBlock.unblockedAt),
+        ),
+      );
 
     await tx.insert(referralAdminAction).values({
       affiliateId,
