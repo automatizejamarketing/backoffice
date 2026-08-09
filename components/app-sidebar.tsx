@@ -14,6 +14,7 @@ import {
   LogOut,
   Mail,
   WalletCards,
+  Radar,
   Settings2,
   Shield,
   Users,
@@ -98,6 +99,7 @@ export function AppSidebar({
   const isProductsSection = pathname?.startsWith("/products");
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
+  const isMetaTrackingSection = pathname?.startsWith("/marketing/tracking");
 
   const allNavItems: NavItem[] = [
     {
@@ -119,6 +121,16 @@ export function AppSidebar({
       label: "Carteira",
       icon: Briefcase,
       isActive: isPortfolioSection,
+      permission: "marketing:read",
+    },
+    {
+      // Operação da coleta Meta: execuções e cobertura conta×dia. Token
+      // quebrado é buraco irrecuperável na série, então precisa de um lugar
+      // fixo onde apareça no mesmo dia.
+      href: "/marketing/tracking",
+      label: "Coleta Meta",
+      icon: Radar,
+      isActive: isMetaTrackingSection,
       permission: "marketing:read",
     },
     {
