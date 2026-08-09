@@ -253,6 +253,13 @@
       "when": 1793100000000,
       "tag": "0043_referral_affiliate_blocks",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1793200000000,
+      "tag": "0044_meta_tracking_foundation",
+      "breakpoints": true
     }
   ]
 }
