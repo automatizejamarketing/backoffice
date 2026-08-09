@@ -11,7 +11,18 @@
  * dados brutos, exatamente como a decisão 8 do plano determina.
  */
 
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db";
@@ -28,9 +39,12 @@ import {
   type MetaTrackingEntityLevel,
 } from "@/lib/db/schema";
 import {
+  assertWindowDays,
   buildEntityTimeline,
   computeActionEffect,
   dayKeyOf,
+  isDayKey,
+  isSupportedTimeZone,
   selectVersionAt,
   shiftDayKey,
   type ActionEffect,
@@ -56,10 +70,6 @@ const VERSION_CANDIDATE_LIMIT = 100;
 
 /** Maior deslocamento de fuso existente, usado para folgar as bordas em SQL. */
 const MAX_TIME_ZONE_OFFSET_HOURS = 14;
-
-function isDayKey(value: StateAt): value is DayKey {
-  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
-}
 
 /**
  * Instante seguramente posterior ao fim do dia `day` em qualquer fuso — o filtro
@@ -226,7 +236,8 @@ async function resolveAccountTimeZone(accountId: string): Promise<string> {
     .orderBy(desc(metaTrackingAccountCoverage.businessDate))
     .limit(1);
 
-  return row?.timezoneName ?? "UTC";
+  const timeZone = row?.timezoneName;
+  return timeZone && isSupportedTimeZone(timeZone) ? timeZone : "UTC";
 }
 
 /**
@@ -249,6 +260,7 @@ export async function getActionEffect(args: {
     windowDays = DEFAULT_ACTION_EFFECT_WINDOW_DAYS,
     concurrentScope = "campaign",
   } = args;
+  assertWindowDays(windowDays);
 
   const [action] = await db
     .select()
@@ -334,24 +346,25 @@ function concurrentScopeCondition(
   >,
   scope: ConcurrentScope,
 ): SQL | undefined {
-  const sameEntity = and(
-    eq(metaTrackingChangeEvent.entityLevel, action.entityLevel),
-    eq(metaTrackingChangeEvent.entityId, action.entityId),
-  );
-
-  if (scope === "entity") return sameEntity;
+  if (scope === "entity") {
+    return and(
+      eq(metaTrackingChangeEvent.entityLevel, action.entityLevel),
+      eq(metaTrackingChangeEvent.entityId, action.entityId),
+    );
+  }
 
   // O nível da própria entidade guarda `campaign_id`/`adset_id` nulos, então a
   // campanha da ação pode ser ela mesma.
   const campaignId =
     action.campaignId ??
     (action.entityLevel === "campaign" ? action.entityId : null);
+  // A própria entidade e seus ancestrais entram por id; a descendência inteira
+  // entra pelo `campaign_id` desnormalizado.
   const relatedIds = [action.entityId, action.campaignId, action.adsetId].filter(
     (id): id is string => typeof id === "string" && id.length > 0,
   );
 
   return or(
-    sameEntity,
     inArray(metaTrackingChangeEvent.entityId, relatedIds),
     ...(campaignId ? [eq(metaTrackingChangeEvent.campaignId, campaignId)] : []),
   );
@@ -447,7 +460,10 @@ export async function findActions(
     .from(metaTrackingChangeEvent)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     // O id desempata para a paginação não repetir nem pular ações simultâneas.
-    .orderBy(desc(metaTrackingChangeEvent.occurredAt), desc(metaTrackingChangeEvent.id))
+    .orderBy(
+      desc(metaTrackingChangeEvent.occurredAt),
+      desc(metaTrackingChangeEvent.id),
+    )
     .limit(limit)
     .offset(Math.max(filters.offset ?? 0, 0));
 }

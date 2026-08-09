@@ -62,6 +62,21 @@ export function dayKeyOf(instant: Date, timeZone = "UTC"): DayKey {
   }).format(instant);
 }
 
+/**
+ * A timezone é reconhecida pelo runtime? Vale para valor vindo de dado (o
+ * `timezone_name` que a Meta devolveu e a coleta gravou), não para constante
+ * escrita à mão: `dayKeyOf` estoura com fuso desconhecido, e uma consulta de
+ * leitura não pode morrer porque uma conta veio com um nome estranho.
+ */
+export function isSupportedTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Desloca um dia de calendário (meio-dia UTC evita as bordas de horário de verão). */
 export function shiftDayKey(day: DayKey, days: number): DayKey {
   const [year, month, dayOfMonth] = day.split("-").map(Number);
@@ -70,8 +85,9 @@ export function shiftDayKey(day: DayKey, days: number): DayKey {
   return dayKeyOf(shifted);
 }
 
-function isDayKey(value: string): boolean {
-  return DAY_KEY_PATTERN.test(value);
+/** O valor é um dia de calendário, e não um instante? */
+export function isDayKey(value: unknown): value is DayKey {
+  return typeof value === "string" && DAY_KEY_PATTERN.test(value);
 }
 
 function toInstant(value: Date | string): Date {
@@ -101,9 +117,8 @@ export function selectVersionAt<V extends VersionVigencia>(
 ): V | null {
   if (versions.length === 0) return null;
 
-  const asDay = typeof at === "string" && isDayKey(at);
-  const day = asDay ? (at as DayKey) : null;
-  const instant = asDay ? null : toInstant(at);
+  const day = isDayKey(at) ? at : null;
+  const instant = day === null ? toInstant(at) : null;
 
   let current: V | null = null;
   for (const version of versions) {
@@ -467,23 +482,22 @@ export type ActionEffect = {
  */
 export function computeActionEffect(input: ActionEffectInput): ActionEffect {
   const { action, series, windowDays, timeZone = "UTC" } = input;
-  if (!Number.isInteger(windowDays) || windowDays < 1) {
-    throw new RangeError(
-      `windowDays precisa ser um inteiro maior que zero (recebido: ${String(windowDays)})`,
-    );
-  }
+  assertWindowDays(windowDays);
 
   const actionDay = dayKeyOf(action.occurredAt, timeZone);
+  const windowFrom = shiftDayKey(actionDay, -windowDays);
+  const windowTo = shiftDayKey(actionDay, windowDays);
+
   const before = aggregateWindow(
     series,
-    shiftDayKey(actionDay, -windowDays),
+    windowFrom,
     shiftDayKey(actionDay, -1),
     windowDays,
   );
   const after = aggregateWindow(
     series,
     shiftDayKey(actionDay, 1),
-    shiftDayKey(actionDay, windowDays),
+    windowTo,
     windowDays,
   );
   const actionDayWindow = aggregateWindow(series, actionDay, actionDay, 1);
@@ -491,15 +505,16 @@ export function computeActionEffect(input: ActionEffectInput): ActionEffect {
 
   // A janela de confundidores inclui o dia da ação: duas mudanças no mesmo dia
   // são o caso mais confuso que existe, não o menos.
-  const windowFrom = shiftDayKey(actionDay, -windowDays);
-  const windowTo = shiftDayKey(actionDay, windowDays);
   const inWindow = (instant: Date) => {
     const day = dayKeyOf(instant, timeZone);
     return day >= windowFrom && day <= windowTo;
   };
 
   const concurrentActions = (input.concurrentActions ?? [])
-    .filter((candidate) => candidate.id !== action.id && inWindow(candidate.occurredAt))
+    .filter(
+      (candidate) =>
+        candidate.id !== action.id && inWindow(candidate.occurredAt),
+    )
     .map<ConcurrentAction>((candidate) => ({
       id: candidate.id,
       entityLevel: candidate.entityLevel,
@@ -559,6 +574,19 @@ export function computeActionEffect(input: ActionEffectInput): ActionEffect {
     learningPhaseResetSource: learning.source,
     learningPhaseActiveInWindow: learning.activeInWindow,
   };
+}
+
+/**
+ * Vale para o invólucro de banco também: sem isso, um `windowDays` inválido
+ * viraria uma faixa de datas sem sentido e três consultas jogadas fora antes de
+ * o cálculo reclamar.
+ */
+export function assertWindowDays(windowDays: number): void {
+  if (!Number.isInteger(windowDays) || windowDays < 1) {
+    throw new RangeError(
+      `windowDays precisa ser um inteiro maior que zero (recebido: ${String(windowDays)})`,
+    );
+  }
 }
 
 export type TimelineRange = { from?: DayKey; to?: DayKey };
