@@ -43,6 +43,31 @@ export type StatusBadgeVariant =
   | "destructive"
   | "outline";
 
+export type SubscriptionAccessIssue = {
+  kind: "expired" | "missing";
+  expirationDate: Date | null;
+};
+
+export function getSubscriptionAccessIssue(
+  status: SubscriptionStatus | null | undefined,
+  expirationDate: Date | string | null | undefined,
+  now: Date = new Date(),
+): SubscriptionAccessIssue | null {
+  if (status !== "active" && status !== "trialing") return null;
+  if (!expirationDate) return { kind: "missing", expirationDate: null };
+
+  const normalizedExpiration = new Date(expirationDate);
+  if (Number.isNaN(normalizedExpiration.getTime())) {
+    return { kind: "missing", expirationDate: null };
+  }
+
+  if (normalizedExpiration.getTime() <= now.getTime()) {
+    return { kind: "expired", expirationDate: normalizedExpiration };
+  }
+
+  return null;
+}
+
 export interface StatusBadgeProps {
   variant: StatusBadgeVariant;
   label: string;

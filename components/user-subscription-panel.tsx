@@ -8,6 +8,7 @@ import {
   User,
 } from "lucide-react";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
+import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
 import {
   MercadoPagoPixActions,
   type PixLinkView,
@@ -223,7 +224,7 @@ export function UserSubscriptionPanel({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            Status atual da assinatura
+            Assinatura e cobrança
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -233,6 +234,15 @@ export function UserSubscriptionPanel({
             </p>
           ) : (
             <div className="space-y-5">
+              <SubscriptionAccessSyncAlert
+                status={activeSubscription.status}
+                expirationDate={user.expirationDate}
+                providerLabel={
+                  PROVIDER_LABELS[activeSubscription.provider] ??
+                  activeSubscription.provider
+                }
+              />
+
               <div className="flex flex-wrap items-start gap-6">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -244,7 +254,7 @@ export function UserSubscriptionPanel({
                 </div>
                 <div>
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Status
+                    Status no provedor
                   </p>
                   <div className="mt-0.5 flex flex-col gap-1">
                     <Badge variant={badge.variant} className="w-fit">
@@ -316,23 +326,25 @@ export function UserSubscriptionPanel({
                   }
                 />
                 <Row
-                  label="Período atual (início)"
+                  label="Ciclo de cobrança (início)"
                   value={formatDateTime(activeSubscription.currentPeriodStart)}
                 />
                 <Row
-                  label="Período atual (fim)"
+                  label="Ciclo de cobrança (fim)"
                   value={formatDateTime(activeSubscription.currentPeriodEnd)}
                 />
-                <Row
-                  label="Compromisso"
-                  value={`${activeSubscription.commitmentMonths} ${
-                    activeSubscription.commitmentMonths === 1 ? "mês" : "meses"
-                  }`}
-                />
-                <Row
-                  label="Compromisso até"
-                  value={formatDate(activeSubscription.commitmentEndDate)}
-                />
+                {activeSubscription.commitmentMonths > 1 && (
+                  <>
+                    <Row
+                      label="Compromisso"
+                      value={`${activeSubscription.commitmentMonths} meses`}
+                    />
+                    <Row
+                      label="Compromisso até"
+                      value={formatDate(activeSubscription.commitmentEndDate)}
+                    />
+                  </>
+                )}
                 <Row
                   label="Cancelada em"
                   value={formatDateTime(activeSubscription.canceledAt)}
