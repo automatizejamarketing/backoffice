@@ -46,24 +46,36 @@ function openVersionFor(
   };
 }
 
-function inputWithCampaign(args: {
-  config: Record<string, unknown>;
+/** Uma conta observada agora: a listagem, o fetch profundo e o que já se sabia. */
+function makeInput(args: {
+  listing: TrackingDeltaInput["listing"];
+  configs: TrackingDeltaInput["configs"];
   previous?: KnownEntityState[];
-  listingEffectiveStatus?: string;
 }): TrackingDeltaInput {
   return {
     userId: FIXTURE_USER_ID,
     accountId: FIXTURE_ACCOUNT_ID,
     observedAt: OBSERVED_AT,
     managedCampaignNamePrefix: FIXTURE_MANAGED_PREFIX,
+    listing: args.listing,
+    configs: args.configs,
+    previous: args.previous ?? [],
+  };
+}
+
+/** Conta de uma campanha só, ativa e com configuração profunda coletada. */
+function inputWithCampaign(args: {
+  config: Record<string, unknown>;
+  previous?: KnownEntityState[];
+}): TrackingDeltaInput {
+  return makeInput({
     listing: [
       {
         entityLevel: "campaign",
         entityId: FIXTURE_CAMPAIGN_ID,
         name: args.config.name as string,
         status: args.config.status as string,
-        effectiveStatus:
-          args.listingEffectiveStatus ?? (args.config.effective_status as string),
+        effectiveStatus: args.config.effective_status as string,
       },
     ],
     configs: [
@@ -73,8 +85,16 @@ function inputWithCampaign(args: {
         config: args.config,
       },
     ],
-    previous: args.previous ?? [],
-  };
+    previous: args.previous,
+  });
+}
+
+/** Listagem crua, sem fetch profundo — o caso de quem não está entregando. */
+function listingOnlyInput(
+  listing: TrackingDeltaInput["listing"],
+  previous: KnownEntityState[],
+): TrackingDeltaInput {
+  return makeInput({ listing, configs: [], previous });
 }
 
 describe("computeTrackingDelta — idempotência", () => {
@@ -182,22 +202,6 @@ describe("computeTrackingDelta — mudança real de configuração", () => {
     });
   });
 });
-
-/** Delta de uma listagem crua, sem fetch profundo (o caso de quem não está ativo). */
-function listingOnlyInput(
-  listing: TrackingDeltaInput["listing"],
-  previous: KnownEntityState[],
-): TrackingDeltaInput {
-  return {
-    userId: FIXTURE_USER_ID,
-    accountId: FIXTURE_ACCOUNT_ID,
-    observedAt: OBSERVED_AT,
-    managedCampaignNamePrefix: FIXTURE_MANAGED_PREFIX,
-    listing,
-    configs: [],
-    previous,
-  };
-}
 
 describe("computeTrackingDelta — transições de ciclo de vida", () => {
   test("pausar gera evento de transição e nenhuma versão", () => {
@@ -332,22 +336,6 @@ describe("computeTrackingDelta — transições de ciclo de vida", () => {
     expect(delta).toEqual({ versions: [], events: [], confirmations: [] });
   });
 });
-
-function makeInput(args: {
-  listing: TrackingDeltaInput["listing"];
-  configs: TrackingDeltaInput["configs"];
-  previous?: KnownEntityState[];
-}): TrackingDeltaInput {
-  return {
-    userId: FIXTURE_USER_ID,
-    accountId: FIXTURE_ACCOUNT_ID,
-    observedAt: OBSERVED_AT,
-    managedCampaignNamePrefix: FIXTURE_MANAGED_PREFIX,
-    listing: args.listing,
-    configs: args.configs,
-    previous: args.previous ?? [],
-  };
-}
 
 describe("computeTrackingDelta — descoberta e reativação", () => {
   test("campanha nunca vista entra com evento de criação e a primeira versão", () => {
@@ -525,7 +513,11 @@ describe("computeTrackingDelta — os três níveis numa observação só", () =
       },
     ],
     configs: [
-      { entityLevel: "campaign", entityId: FIXTURE_CAMPAIGN_ID, config: campaign },
+      {
+        entityLevel: "campaign",
+        entityId: FIXTURE_CAMPAIGN_ID,
+        config: campaign,
+      },
       { entityLevel: "adset", entityId: FIXTURE_ADSET_ID, config: adset },
       { entityLevel: "ad", entityId: FIXTURE_AD_ID, config: ad },
     ],

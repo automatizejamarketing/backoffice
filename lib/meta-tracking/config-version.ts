@@ -139,7 +139,7 @@ export type TrackedVersionColumns = {
   buyingType: string | null;
   bidStrategy: string | null;
   spendCap: string | null;
-  specialAdCategories: unknown | null;
+  specialAdCategories: unknown;
   smartPromotionType: string | null;
   advantageState: string | null;
   isAdsetBudgetSharingEnabled: boolean | null;
@@ -157,26 +157,26 @@ export type TrackedVersionColumns = {
   bidAmount: string | null;
   destinationType: string | null;
   isDynamicCreative: boolean | null;
-  targeting: unknown | null;
-  promotedObject: unknown | null;
-  attributionSpec: unknown | null;
-  frequencyControlSpecs: unknown | null;
-  pacingType: unknown | null;
+  targeting: unknown;
+  promotedObject: unknown;
+  attributionSpec: unknown;
+  frequencyControlSpecs: unknown;
+  pacingType: unknown;
   dsaBeneficiary: string | null;
   dsaPayor: string | null;
 
   // Anúncio
   creativeId: string | null;
   conversionDomain: string | null;
-  trackingSpecs: unknown | null;
+  trackingSpecs: unknown;
 };
 
 /** A metade que muda sozinha — gravada na versão, fora do hash. */
 export type TrackedVolatileColumns = {
   effectiveStatus: string | null;
   budgetRemaining: string | null;
-  learningStageInfo: unknown | null;
-  issuesInfo: unknown | null;
+  learningStageInfo: unknown;
+  issuesInfo: unknown;
   updatedTimeMeta: Date | null;
   lastBudgetTogglingTime: Date | null;
 };
@@ -187,18 +187,24 @@ function text(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/** Numérico como a Meta manda (string ou número), preservando o zero. */
+function numeric(value: unknown): string | null {
+  return typeof value === "number" ? String(value) : text(value);
+}
+
 /**
- * Valor monetário em unidades menores. `"0"` é como a Meta diz "não tem
- * orçamento AQUI" (o orçamento está no outro nível ou no outro campo), e vira
- * NULL para que a coluna signifique "não se aplica" em vez de "zero real".
+ * Valor monetário CONFIGURADO, em unidades menores. `"0"` é como a Meta diz
+ * "não tem orçamento AQUI" (o dinheiro está no outro nível ou no outro campo) —
+ * ninguém configura orçamento zero —, e vira NULL para que a coluna signifique
+ * "não se aplica" em vez de "zero real". Quantidade OBSERVADA (`budget_remaining`)
+ * não passa por aqui: lá o zero é informação, não ausência.
  *
  * O sentinela `"92233720368547758"` de `spend_cap` ("sem limite") é preservado
  * cru de propósito: é magia documentada da Meta, não zero.
  */
-function money(value: unknown): string | null {
-  const raw = typeof value === "number" ? String(value) : text(value);
-  if (raw === null || raw === "0") return null;
-  return raw;
+function configuredMoney(value: unknown): string | null {
+  const raw = numeric(value);
+  return raw === "0" ? null : raw;
 }
 
 function instant(value: unknown): Date | null {
@@ -215,7 +221,7 @@ function flag(value: unknown): boolean | null {
   return null;
 }
 
-function structured(value: unknown): unknown | null {
+function jsonOrNull(value: unknown): unknown {
   return value === undefined || value === null ? null : value;
 }
 
@@ -232,8 +238,8 @@ export function projectVersionColumns(
   const isAdset = level === "adset";
   const isAd = level === "ad";
 
-  const dailyBudget = isAd ? null : money(raw.daily_budget);
-  const lifetimeBudget = isAd ? null : money(raw.lifetime_budget);
+  const dailyBudget = isAd ? null : configuredMoney(raw.daily_budget);
+  const lifetimeBudget = isAd ? null : configuredMoney(raw.lifetime_budget);
 
   return {
     entityName: text(raw.name),
@@ -248,8 +254,10 @@ export function projectVersionColumns(
     // A Meta expõe estratégia de lance na campanha E no conjunto; a coluna é
     // uma só e vale para os dois.
     bidStrategy: isAd ? null : text(raw.bid_strategy),
-    spendCap: isCampaign ? money(raw.spend_cap) : null,
-    specialAdCategories: isCampaign ? structured(raw.special_ad_categories) : null,
+    spendCap: isCampaign ? configuredMoney(raw.spend_cap) : null,
+    specialAdCategories: isCampaign
+      ? jsonOrNull(raw.special_ad_categories)
+      : null,
     smartPromotionType: isCampaign ? text(raw.smart_promotion_type) : null,
     advantageState: isCampaign ? text(raw.advantage_state) : null,
     isAdsetBudgetSharingEnabled: isCampaign
@@ -275,16 +283,16 @@ export function projectVersionColumns(
 
     optimizationGoal: isAdset ? text(raw.optimization_goal) : null,
     billingEvent: isAdset ? text(raw.billing_event) : null,
-    bidAmount: isAdset ? money(raw.bid_amount) : null,
+    bidAmount: isAdset ? configuredMoney(raw.bid_amount) : null,
     destinationType: isAdset ? text(raw.destination_type) : null,
     isDynamicCreative: isAdset ? flag(raw.is_dynamic_creative) : null,
-    targeting: isAdset ? structured(raw.targeting) : null,
-    promotedObject: isAdset ? structured(raw.promoted_object) : null,
-    attributionSpec: isAdset ? structured(raw.attribution_spec) : null,
+    targeting: isAdset ? jsonOrNull(raw.targeting) : null,
+    promotedObject: isAdset ? jsonOrNull(raw.promoted_object) : null,
+    attributionSpec: isAdset ? jsonOrNull(raw.attribution_spec) : null,
     frequencyControlSpecs: isAdset
-      ? structured(raw.frequency_control_specs)
+      ? jsonOrNull(raw.frequency_control_specs)
       : null,
-    pacingType: isAdset ? structured(raw.pacing_type) : null,
+    pacingType: isAdset ? jsonOrNull(raw.pacing_type) : null,
     dsaBeneficiary: isAdset ? text(raw.dsa_beneficiary) : null,
     dsaPayor: isAdset ? text(raw.dsa_payor) : null,
 
@@ -294,7 +302,7 @@ export function projectVersionColumns(
         text((raw.creative as { id?: unknown } | undefined)?.id))
       : null,
     conversionDomain: isAd ? text(raw.conversion_domain) : null,
-    trackingSpecs: isAd ? structured(raw.tracking_specs) : null,
+    trackingSpecs: isAd ? jsonOrNull(raw.tracking_specs) : null,
   };
 }
 
@@ -304,9 +312,9 @@ export function projectVolatileColumns(
 ): TrackedVolatileColumns {
   return {
     effectiveStatus: text(raw.effective_status),
-    budgetRemaining: money(raw.budget_remaining),
-    learningStageInfo: structured(raw.learning_stage_info),
-    issuesInfo: structured(raw.issues_info),
+    budgetRemaining: numeric(raw.budget_remaining),
+    learningStageInfo: jsonOrNull(raw.learning_stage_info),
+    issuesInfo: jsonOrNull(raw.issues_info),
     updatedTimeMeta: instant(raw.updated_time),
     lastBudgetTogglingTime: instant(raw.last_budget_toggling_time),
   };

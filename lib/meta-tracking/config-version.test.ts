@@ -171,4 +171,17 @@ describe("projectVolatileColumns", () => {
     );
     expect(volatiles.issuesInfo).toBeNull();
   });
+
+  test("orçamento restante zerado é informação, não ausência", () => {
+    // O orçamento do dia acabou — o contrário de "esta entidade não tem
+    // orçamento", que é o que NULL diz nas colunas de orçamento configurado.
+    const volatiles = projectVolatileColumns(
+      campaignConfigV25({ budget_remaining: "0" }),
+    );
+
+    expect(volatiles.budgetRemaining).toBe("0");
+    expect(
+      projectVersionColumns("campaign", campaignConfigV25()).lifetimeBudget,
+    ).toBeNull();
+  });
 });
