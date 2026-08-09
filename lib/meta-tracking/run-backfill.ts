@@ -143,6 +143,18 @@ export type BackfillPorts = {
     userId: string;
     accountId: string;
   }) => Promise<TrackedEntityState[]>;
+  /**
+   * Reserva a conta para ESTE run. `false` = outro disparo vivo já está nela e
+   * esta invocação não deve tocá-la.
+   *
+   * Existe porque o backfill ganhou um segundo disparador (o workflow que nasce
+   * na conexão da Meta, ticket 10) e o dreno manual continua existindo. Ver
+   * `lib/meta-tracking/backfill-claim.ts` para a semântica e a expiração.
+   */
+  claimAccount: (args: {
+    runId: string;
+    accountId: string;
+  }) => Promise<boolean>;
   persistAccountDelta: (args: {
     runId: string;
     delta: TrackingDelta;
@@ -232,6 +244,8 @@ export type BackfillResult = {
   usersSkipped: number;
   accountsSeen: number;
   accountsProcessed: number;
+  /** Contas que outro disparo vivo já estava backfillando. */
+  accountsSkippedByClaim: number;
   accountsCompleted: number;
   accountsPartial: number;
   accountsFailed: number;
@@ -249,6 +263,62 @@ export type BackfillResult = {
 
 function errorMessageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/** Por que a cadeia de chamadas parou (ou não). */
+export type BackfillSliceReason =
+  | "target_covered"
+  | "pending"
+  | "account_failed"
+  | "claimed_elsewhere"
+  | "nothing_to_do";
+
+export type BackfillSliceOutcome = {
+  /** `true` = não adianta chamar de novo agora. */
+  done: boolean;
+  reason: BackfillSliceReason;
+  remainingDays: number;
+};
+
+/**
+ * "Vale a pena chamar de novo?" — a leitura de um `BackfillResult` pelo olho de
+ * quem encadeia invocações (o workflow do ticket 10, que roda uma fatia por
+ * chamada até o backfill do cliente terminar).
+ *
+ * As duas paradas que não são "terminou" merecem explicação:
+ *
+ * - **`account_failed`**: a conta esgotou as falhas de fatia da noite. A licença
+ *   Meta do app é throttled por TAXA DE ERRO — insistir agora só piora o
+ *   problema que causou a falha. O que ficou pendente continua pendente e volta
+ *   pelo dreno noturno.
+ * - **`claimed_elsewhere`**: outro disparo vivo está com a conta. Chamar de novo
+ *   giraria em falso até o claim expirar; quem tem o claim vai terminar.
+ */
+export function describeBackfillSlice(
+  result: BackfillResult,
+): BackfillSliceOutcome {
+  const remainingDays = result.remainingDays;
+
+  if (result.accountsFailed > 0) {
+    return { done: true, reason: "account_failed", remainingDays };
+  }
+  // O lote acabou pelo prazo ou pelo teto de contas: sobrou base para a próxima
+  // chamada, e `remainingDays` só fala das contas que ESTA invocação tocou.
+  if (result.stoppedForBudget) {
+    return { done: false, reason: "pending", remainingDays };
+  }
+  if (result.accountsProcessed === 0) {
+    return {
+      done: true,
+      reason:
+        result.accountsSkippedByClaim > 0 ? "claimed_elsewhere" : "nothing_to_do",
+      remainingDays,
+    };
+  }
+  if (remainingDays === 0 && result.accountsPartial === 0) {
+    return { done: true, reason: "target_covered", remainingDays };
+  }
+  return { done: false, reason: "pending", remainingDays };
 }
 
 export async function runMetaTrackingBackfill(
@@ -279,6 +349,7 @@ export async function runMetaTrackingBackfill(
     usersSkipped: 0,
     accountsSeen: 0,
     accountsProcessed: 0,
+    accountsSkippedByClaim: 0,
     accountsCompleted: 0,
     accountsPartial: 0,
     accountsFailed: 0,
@@ -303,6 +374,7 @@ export async function runMetaTrackingBackfill(
     usersConsidered: result.usersConsidered,
     usersSkipped: result.usersSkipped,
     accountsProcessed: result.accountsProcessed,
+    accountsSkippedByClaim: result.accountsSkippedByClaim,
     accountsCompleted: result.accountsCompleted,
     accountsPartial: result.accountsPartial,
     accountsFailed: result.accountsFailed,
@@ -371,6 +443,17 @@ export async function runMetaTrackingBackfill(
         ) {
           result.stoppedForBudget = true;
           break;
+        }
+
+        // O claim vem DEPOIS do orçamento e ANTES de qualquer chamada à Meta:
+        // conta tomada por outro disparo não pode custar nem uma chamada, e
+        // também não pode consumir a vaga do lote — a vaga é para quem ninguém
+        // está atendendo.
+        if (
+          !(await ports.claimAccount({ runId, accountId: account.accountId }))
+        ) {
+          result.accountsSkippedByClaim += 1;
+          continue;
         }
 
         result.accountsProcessed += 1;

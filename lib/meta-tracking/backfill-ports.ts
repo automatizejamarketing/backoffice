@@ -14,9 +14,12 @@
  *    treze meses num relatório síncrono estouram o teto de linhas antes de
  *    começar.
  * 3. **O progresso é lido e gravado por conta**, que é o que faz a retomada.
+ * 4. **A conta é reivindicada antes de ser tocada** (ticket 10), porque agora há
+ *    mais de um disparador: o workflow da conexão e o dreno manual.
  */
 
 import {
+  claimBackfillAccount,
   finishBackfillRun,
   loadBackfillProgress,
   saveBackfillProgress,
@@ -58,6 +61,7 @@ export function createBackfillPorts(): BackfillPorts {
     loadAccountState: daily.loadAccountState,
     persistAccountDelta: daily.persistAccountDelta,
 
+    claimAccount: claimBackfillAccount,
     loadProgress: loadBackfillProgress,
     saveProgress: saveBackfillProgress,
 

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  describeBackfillSlice,
   runMetaTrackingBackfill,
   type BackfillPorts,
+  type BackfillResult,
 } from "@/lib/meta-tracking/run-backfill";
 import {
   backfillTargetRange,
@@ -80,6 +82,7 @@ type Recorded = {
   countersSaved: { slicesCompleted: number; metricRowsUpserted: number }[];
   finished: { status: string; summary: Record<string, unknown> }[];
   runKinds: string[];
+  claimed: { runId: string; accountId: string }[];
 };
 
 function makePorts(
@@ -96,6 +99,7 @@ function makePorts(
     countersSaved: [],
     finished: [],
     runKinds: [],
+    claimed: [],
   };
   const clock = options.clock ?? { value: NOW };
 
@@ -145,6 +149,10 @@ function makePorts(
         versionsConfirmed: delta.confirmations.length,
         eventsLinked: delta.versionLinks.length,
       };
+    },
+    claimAccount: async ({ runId, accountId }) => {
+      recorded.claimed.push({ runId, accountId });
+      return true;
     },
     loadProgress: async () => options.progress ?? { ...EMPTY_BACKFILL_PROGRESS },
     saveProgress: async ({ progress, counters }) => {
@@ -525,5 +533,175 @@ describe("runMetaTrackingBackfill", () => {
 
     expect(seen[0].today).toBe(TODAY);
     expect(seen[0].range).toEqual({ since: "2026-06-11", until: TARGET.until });
+  });
+
+  test("a conta é reivindicada antes de qualquer chamada à Meta", async () => {
+    const { ports, recorded } = makePorts();
+
+    await runMetaTrackingBackfill(ports, OPTIONS);
+
+    expect(recorded.claimed).toEqual([
+      { runId: "run-de-teste", accountId: FIXTURE_ACCOUNT_ID },
+    ]);
+  });
+
+  test("conta já reivindicada por outro disparo é pulada inteira", async () => {
+    const { ports, recorded } = makePorts({ claimAccount: async () => false });
+
+    const result = await runMetaTrackingBackfill(ports, OPTIONS);
+
+    // Nem baseline, nem fatia, nem checkpoint: quem tem o claim está cuidando.
+    expect(recorded.deltas).toEqual([]);
+    expect(recorded.slices).toEqual([]);
+    expect(recorded.progressSaved).toEqual([]);
+    expect(result.accountsSkippedByClaim).toBe(1);
+    expect(result.accountsProcessed).toBe(0);
+    expect(result.errors).toEqual([]);
+    expect(recorded.finished[0].status).toBe("completed");
+    expect(recorded.finished[0].summary).toMatchObject({
+      accountsSkippedByClaim: 1,
+    });
+  });
+
+  test("conta pulada por claim não gasta a vaga do lote", async () => {
+    const accounts = [
+      { ...ACCOUNT, accountId: "act_111" },
+      { ...ACCOUNT, accountId: "act_222" },
+    ];
+    const asked: string[] = [];
+    const { ports } = makePorts({
+      listAdAccounts: async () => ({
+        accounts,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+      }),
+      claimAccount: async ({ accountId }) => {
+        asked.push(accountId);
+        return accountId !== "act_111";
+      },
+    });
+
+    const result = await runMetaTrackingBackfill(ports, {
+      ...OPTIONS,
+      maxAccounts: 1,
+    });
+
+    expect(result.accountsSkippedByClaim).toBe(1);
+    expect(result.accountsProcessed).toBe(1);
+    expect(asked).toEqual(["act_111", "act_222"]);
+  });
+
+  test("reconexão de conta já coberta termina na primeira chamada", async () => {
+    // O gatilho da conexão dispara igual em toda reconexão; quem faz isso sair
+    // barato é o estado retomável, não uma verificação especial no gatilho.
+    const { ports, recorded } = makePorts(
+      {},
+      {
+        progress: {
+          covered: [{ since: "2024-01-01", until: "2026-08-09" }],
+          baselineCompletedAt: "2026-08-01T08:00:00.000Z",
+        },
+      },
+    );
+
+    const result = await runMetaTrackingBackfill(ports, OPTIONS);
+
+    expect(recorded.slices).toEqual([]);
+    expect(describeBackfillSlice(result)).toEqual({
+      done: true,
+      reason: "target_covered",
+      remainingDays: 0,
+    });
+  });
+});
+
+describe("describeBackfillSlice", () => {
+  function resultWith(overrides: Partial<BackfillResult>): BackfillResult {
+    return {
+      runId: "run-de-teste",
+      usersConsidered: 1,
+      usersSkipped: 0,
+      accountsSeen: 1,
+      accountsProcessed: 1,
+      accountsSkippedByClaim: 0,
+      accountsCompleted: 0,
+      accountsPartial: 0,
+      accountsFailed: 0,
+      baselinesCreated: 0,
+      baselineVersionsCreated: 0,
+      slicesCompleted: 0,
+      metricRowsUpserted: 0,
+      metricSlicesDegraded: 0,
+      remainingDays: 0,
+      apiCallsUsed: 0,
+      stoppedForBudget: false,
+      errors: [],
+      ...overrides,
+    };
+  }
+
+  test("alvo inteiro coberto encerra a cadeia", () => {
+    expect(
+      describeBackfillSlice(
+        resultWith({ accountsCompleted: 1, remainingDays: 0 }),
+      ),
+    ).toEqual({ done: true, reason: "target_covered", remainingDays: 0 });
+  });
+
+  test("período pendente pede a próxima chamada", () => {
+    expect(
+      describeBackfillSlice(
+        resultWith({ accountsPartial: 1, remainingDays: 120 }),
+      ),
+    ).toEqual({ done: false, reason: "pending", remainingDays: 120 });
+  });
+
+  test("baseline pendente com série completa ainda pede outra chamada", () => {
+    // `remainingDays` zerado não basta: a conta fica `partial` quando o baseline
+    // de configuração falhou, e ele é a única foto de pausadas e arquivadas.
+    expect(
+      describeBackfillSlice(resultWith({ accountsPartial: 1, remainingDays: 0 })),
+    ).toEqual({ done: false, reason: "pending", remainingDays: 0 });
+  });
+
+  test("lote interrompido pelo prazo continua na chamada seguinte", () => {
+    expect(
+      describeBackfillSlice(
+        resultWith({ stoppedForBudget: true, accountsCompleted: 1 }),
+      ),
+    ).toEqual({ done: false, reason: "pending", remainingDays: 0 });
+  });
+
+  test("conta encerrada por falhas para a cadeia (a licença é throttled por erro)", () => {
+    expect(
+      describeBackfillSlice(
+        resultWith({
+          accountsFailed: 1,
+          remainingDays: 300,
+          errors: [{ userEmail: "x@y.z", accountId: "act_1", message: "boom" }],
+        }),
+      ),
+    ).toEqual({ done: true, reason: "account_failed", remainingDays: 300 });
+  });
+
+  test("conta na mão de outro disparo encerra a cadeia sem girar em falso", () => {
+    expect(
+      describeBackfillSlice(
+        resultWith({ accountsProcessed: 0, accountsSkippedByClaim: 1 }),
+      ),
+    ).toEqual({ done: true, reason: "claimed_elsewhere", remainingDays: 0 });
+  });
+
+  test("cliente sem conta ou sem token encerra a cadeia em vez de repetir", () => {
+    expect(
+      describeBackfillSlice(
+        resultWith({
+          accountsSeen: 0,
+          accountsProcessed: 0,
+          usersSkipped: 1,
+          errors: [{ userEmail: "x@y.z", accountId: null, message: "sem token" }],
+        }),
+      ),
+    ).toEqual({ done: true, reason: "nothing_to_do", remainingDays: 0 });
   });
 });
