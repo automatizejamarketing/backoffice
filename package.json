@@ -24,7 +24,8 @@
     "performance:drop:backfill": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts",
     "performance:drop:backfill:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts --stale",
     "tracking:collect": "APP_ENV=prod bun scripts/with-env.ts bun scripts/collect-meta-tracking.ts",
-    "tracking:collect:all": "APP_ENV=prod bun scripts/with-env.ts bun scripts/collect-meta-tracking.ts --all"
+    "tracking:collect:all": "APP_ENV=prod bun scripts/with-env.ts bun scripts/collect-meta-tracking.ts --all",
+    "tracking:backfill": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-meta-tracking.ts"
   },
   "dependencies": {
     "@ai-sdk/gateway": "^3.0.57",

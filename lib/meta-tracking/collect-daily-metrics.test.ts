@@ -240,6 +240,112 @@ describe("collectDailyMetrics", () => {
     expect(upserted.flat().map((row) => row.entityLevel)).toEqual(["campaign"]);
   });
 
+  test("um período explícito substitui a janela móvel — é assim que o backfill reusa o passo", async () => {
+    const range = { since: "2025-09-01", until: "2025-09-30" };
+    const { ports, asked, upserted } = makePorts();
+
+    const result = await collectDailyMetrics(ports, { ...ARGS, range });
+
+    expect(asked.map((call) => call.range)).toEqual([range, range, range]);
+    // Dia fora da janela mutável nasce final: o backfill grava passado congelado.
+    expect(upserted.flat().every((row) => row.isFinal)).toBe(true);
+    expect(result.rowsUpserted).toBe(3);
+  });
+
+  test("conta que estoura o teto até no dia único vai inteira para o job assíncrono", async () => {
+    const asyncCalls: InsightsRange[] = [];
+    const { ports, upserted } = makePorts({
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "ad") throw rowLimitError();
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+      fetchInsightsAsync: async ({ entityLevel, range }) => {
+        asyncCalls.push(range);
+        return {
+          rows: [dayFor(entityLevel, range.since), dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 5,
+        };
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    // Um job só, pelo período INTEIRO: se nem um dia cabe no caminho síncrono,
+    // continuar fatiando geraria 29 jobs para o mesmo resultado.
+    expect(asyncCalls).toEqual([WINDOW]);
+    expect(result.levelsAbandoned).toEqual([]);
+    expect(upserted.at(-1)?.map((row) => row.metricDate)).toEqual([
+      WINDOW.since,
+      WINDOW.until,
+    ]);
+  });
+
+  test("sem porta assíncrona, o dia único que estoura continua abandonando o nível", async () => {
+    const { ports } = makePorts({
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "ad") throw rowLimitError();
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(result.levelsAbandoned).toEqual(["ad"]);
+  });
+
+  test("job assíncrono que também estoura o teto abandona o nível sem derrubar a conta", async () => {
+    const { ports, upserted } = makePorts({
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "ad") throw rowLimitError();
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+      fetchInsightsAsync: async () => {
+        throw rowLimitError();
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(result.levelsAbandoned).toEqual(["ad"]);
+    expect(upserted.flat().map((row) => row.entityLevel)).toEqual([
+      "campaign",
+      "adset",
+    ]);
+  });
+
+  test("falha do job assíncrono que não é de volume sobe — o operador precisa vê-la", async () => {
+    const { ports } = makePorts({
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "ad") throw rowLimitError();
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+      fetchInsightsAsync: async () => {
+        throw new Error("Job assíncrono de insights não completou");
+      },
+    });
+
+    await expect(collectDailyMetrics(ports, ARGS)).rejects.toThrow(
+      "Job assíncrono de insights não completou",
+    );
+  });
+
   test("nível sem entrega nenhuma não chama o upsert à toa", async () => {
     const { ports, upserted } = makePorts({
       fetchInsights: async () => ({

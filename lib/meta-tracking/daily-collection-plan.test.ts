@@ -74,6 +74,27 @@ describe("planDeepFetch", () => {
     expect(plan.activeSeen).toBe(1);
   });
 
+  test("pausada COM versão do baseline continua fora do fetch profundo até reativar", () => {
+    // O backfill dá versão inicial a pausadas e arquivadas (§6 do plano). Isso
+    // não pode fazer o coletor diário passar a buscá-las todo dia: quem não
+    // gasta não tem configuração mudando, e a cota é da conta.
+    const plan = planDeepFetch({
+      listing: [
+        listed({
+          entityLevel: "campaign",
+          entityId: CAMPAIGN_ID,
+          effectiveStatus: "PAUSED",
+        }),
+      ],
+      previous: [
+        stateWithVersion("campaign", CAMPAIGN_ID, new Date("2026-08-01T00:00:00Z")),
+      ],
+    });
+
+    expect(plan.chunks).toEqual([]);
+    expect(plan.activeSeen).toBe(0);
+  });
+
   test("campanha entra sempre — o carimbo de atualização dela não é confiável", () => {
     const plan = planDeepFetch({
       listing: [

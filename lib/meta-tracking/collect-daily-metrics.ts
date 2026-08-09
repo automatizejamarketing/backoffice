@@ -22,6 +22,10 @@
  * 3. **Cota antes de cada consulta.** A licença do app é throttled por taxa de
  *    erro: parar com o dia incompleto é barato (a janela de 28 dias re-coleta
  *    tudo amanhã), tomar 429 não é.
+ * 4. **O recuo por volume tem três degraus, nesta ordem** (§5.6 do plano):
+ *    período partido ao meio → job assíncrono da Meta pelo período inteiro →
+ *    nível abandonado no dia. O assíncrono é o último porque custa espera; o
+ *    abandono é o fim porque nem ele deu conta.
  */
 
 import {
@@ -56,14 +60,23 @@ export type InsightsFetchResult = {
   apiCalls: number;
 };
 
+export type InsightsFetchArgs = {
+  accountId: string;
+  credentials: TrackingCredentials;
+  entityLevel: MetaTrackingEntityLevel;
+  range: InsightsRange;
+};
+
 export type DailyMetricsPorts = {
   /** Insights de um nível num período, já paginados. */
-  fetchInsights: (args: {
-    accountId: string;
-    credentials: TrackingCredentials;
-    entityLevel: MetaTrackingEntityLevel;
-    range: InsightsRange;
-  }) => Promise<InsightsFetchResult>;
+  fetchInsights: (args: InsightsFetchArgs) => Promise<InsightsFetchResult>;
+  /**
+   * O último recurso do recuo por volume (§5.6 do plano): o job assíncrono da
+   * Meta, que aceita relatórios muito maiores em troca de espera. Opcional
+   * porque quem já ENTRA pelo caminho assíncrono — o backfill — não tem para
+   * onde recuar depois dele.
+   */
+  fetchInsightsAsync?: (args: InsightsFetchArgs) => Promise<InsightsFetchResult>;
   /** Upsert por (nível, entidade, dia); devolve quantas linhas gravou. */
   upsertRows: (rows: readonly DailyMetricRow[]) => Promise<number>;
 };
@@ -74,6 +87,12 @@ export type CollectDailyMetricsArgs = {
   credentials: TrackingCredentials;
   /** Hoje na timezone da conta — define a janela e o que já congelou. */
   today: DayKey;
+  /**
+   * Período a coletar. Ausente = a janela móvel de 28 dias da coleta diária; o
+   * backfill passa a fatia de passado que está capturando. `today` continua
+   * mandando no `is_final`, então o passo nunca congela um dia que ainda muda.
+   */
+  range?: InsightsRange;
   /** Cota já gasta pelas etapas anteriores da conta. */
   usage?: QuotaUsage;
 };
@@ -98,7 +117,10 @@ export async function collectDailyMetrics(
   ports: DailyMetricsPorts,
   args: CollectDailyMetricsArgs,
 ): Promise<DailyMetricsResult> {
-  const metricsWindow = metricsWindowFor(args.today);
+  // Chamado de "período", e não de "janela": para a coleta diária é a janela
+  // móvel de 28 dias; para o backfill é a fatia de passado que ele está
+  // capturando. O passo trata os dois igual.
+  const targetRange = args.range ?? metricsWindowFor(args.today);
 
   const result: DailyMetricsResult = {
     rowsUpserted: 0,
@@ -120,7 +142,7 @@ export async function collectDailyMetrics(
       accountId: args.accountId,
       credentials: args.credentials,
       entityLevel,
-      window: metricsWindow,
+      fullRange: targetRange,
       result,
     });
     const rows = toDailyMetricRows({
@@ -153,11 +175,12 @@ async function fetchLevel(args: {
   accountId: string;
   credentials: TrackingCredentials;
   entityLevel: MetaTrackingEntityLevel;
-  window: InsightsRange;
+  /** O período do nível inteiro, antes de qualquer recuo por volume. */
+  fullRange: InsightsRange;
   result: DailyMetricsResult;
 }): Promise<RawInsightsRow[]> {
   const { ports, accountId, credentials, entityLevel, result } = args;
-  const pending: InsightsRange[] = [args.window];
+  const pending: InsightsRange[] = [args.fullRange];
   const rows: RawInsightsRow[] = [];
 
   while (pending.length > 0) {
@@ -181,13 +204,39 @@ async function fetchLevel(args: {
       if (!isInsightsRowLimitError(error)) throw error;
 
       const halves = splitInsightsRange(range);
-      if (halves.length === 0) {
-        // Um dia único que ainda estoura o teto não tem recuo possível.
+      if (halves.length > 0) {
+        result.slicesDegraded += 1;
+        pending.unshift(...halves);
+        continue;
+      }
+
+      // Nem um dia único cabe no caminho síncrono: fatiar mais é impossível e
+      // insistir por dia geraria um job assíncrono para cada dia da janela. O
+      // job assíncrono aceita relatórios muito maiores — vai o período INTEIRO
+      // de uma vez, e o que já veio pelas fatias é descartado porque a resposta
+      // dele cobre tudo.
+      if (!ports.fetchInsightsAsync) {
         result.levelsAbandoned.push(entityLevel);
         break;
       }
-      result.slicesDegraded += 1;
-      pending.unshift(...halves);
+      try {
+        const fetched = await ports.fetchInsightsAsync({
+          accountId,
+          credentials,
+          entityLevel,
+          range: args.fullRange,
+        });
+        result.usage = mergeQuotaUsage(result.usage, fetched.usage);
+        result.apiCalls += fetched.apiCalls;
+        result.slicesDegraded += 1;
+        return fetched.rows;
+      } catch (asyncError) {
+        // Volume que estoura até no relatório assíncrono não tem mais recurso.
+        // Qualquer outra falha sobe: o operador precisa ver o job que quebrou.
+        if (!isInsightsRowLimitError(asyncError)) throw asyncError;
+        result.levelsAbandoned.push(entityLevel);
+        break;
+      }
     }
   }
 

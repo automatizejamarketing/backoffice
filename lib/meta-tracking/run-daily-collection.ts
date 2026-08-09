@@ -309,8 +309,14 @@ function errorMessageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-/** O dia da conta: timezone dela quando utilizável, negócio quando não. */
-function businessDateFor(account: TrackedAdAccount, now: Date): DayKey {
+/**
+ * O dia da conta: timezone dela quando utilizável, negócio quando não.
+ *
+ * Exportada porque o backfill (`run-backfill.ts`) faz a MESMA pergunta — qual é
+ * "hoje" para esta conta —, e a resposta precisa ser a mesma nos dois: é ela que
+ * decide o que já congelou na série diária.
+ */
+export function businessDateFor(account: TrackedAdAccount, now: Date): DayKey {
   const timeZone =
     account.timezoneName && isSupportedTimeZone(account.timezoneName)
       ? account.timezoneName

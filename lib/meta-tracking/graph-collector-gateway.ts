@@ -701,3 +701,180 @@ export async function fetchAccountActivities(args: {
     return { rows, usage, apiCalls };
   }
 }
+
+// ================================
+// Job assíncrono de insights (§6 do plano)
+// ================================
+
+/**
+ * Um POST na Graph API que também devolve a leitura de cota dos headers.
+ *
+ * Existe pelo mesmo motivo do `graphGet` deste módulo — a postura de cota
+ * depende dos headers da resposta BEM-SUCEDIDA — e é usado por um único
+ * chamador: a criação do relatório assíncrono de insights, o único POST que a
+ * coleta faz. Os parâmetros vão no corpo (`x-www-form-urlencoded`), que é o que
+ * a Marketing API espera aqui.
+ */
+async function graphPost<T>(args: {
+  path: string;
+  params: string;
+  accessToken: string;
+}): Promise<GraphResponse<T>> {
+  const proof = appSecretProofParam(args.accessToken, facebookAppSecret());
+  const body = [args.params, proof].filter(Boolean).join("&");
+  const endpoint = `${graphFacebookBaseUrl}/${graphApiVersion}/${args.path}`;
+  const startedAt = Date.now();
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${args.accessToken}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+  });
+  const usage = readQuotaUsage(response.headers);
+  const durationMs = Date.now() - startedAt;
+
+  if (!response.ok) {
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = undefined;
+    }
+    logMetaCall({
+      phase: "error",
+      method: "POST",
+      endpoint,
+      requestParams: args.params,
+      httpStatus: response.status,
+      durationMs,
+      errorData: payload,
+    });
+    const parsed = payload ? parseGraphError(payload) : undefined;
+    throw new GraphApiError(
+      parsed?.data ? parsed : { statusCode: response.status, reason: genericError },
+    );
+  }
+
+  const json = (await response.json()) as T;
+  logMetaCall({
+    phase: "success",
+    method: "POST",
+    endpoint,
+    requestParams: args.params,
+    httpStatus: response.status,
+    durationMs,
+  });
+
+  return { json, usage };
+}
+
+/**
+ * Os mesmos parâmetros da consulta síncrona de insights — o relatório
+ * assíncrono precisa produzir exatamente a mesma série, ou o backfill e a coleta
+ * diária escreveriam números diferentes na mesma tabela.
+ */
+function insightsParams(args: {
+  entityLevel: MetaTrackingEntityLevel;
+  range: InsightsRange;
+  metricFields: readonly string[];
+}): URLSearchParams {
+  return new URLSearchParams({
+    level: args.entityLevel,
+    fields: [...INSIGHTS_ID_FIELDS[args.entityLevel], ...args.metricFields].join(","),
+    time_increment: "1",
+    time_range: JSON.stringify(args.range),
+    use_unified_attribution_setting: "true",
+  });
+}
+
+/** `POST /act_{id}/insights` — pede o relatório e recebe o `report_run_id`. */
+export async function startInsightsReport(args: {
+  accountId: string;
+  credentials: TrackingCredentials;
+  entityLevel: MetaTrackingEntityLevel;
+  range: InsightsRange;
+}): Promise<{ reportRunId: string; usage: QuotaUsage; apiCalls: number }> {
+  const request = (metricFields: readonly string[]) =>
+    graphPost<{ report_run_id?: string }>({
+      path: `${accountPath(args.accountId)}/insights`,
+      params: insightsParams({ ...args, metricFields }).toString(),
+      accessToken: args.credentials.accessToken,
+    });
+
+  let response: GraphResponse<{ report_run_id?: string }>;
+  let apiCalls = 1;
+  try {
+    response = await request(INSIGHTS_METRIC_FIELDS);
+  } catch (error) {
+    // Mesmo recuo da consulta síncrona, e pelo mesmo motivo: um campo que saiu
+    // do catálogo derruba a requisição INTEIRA. Sem isto, a conta afetada
+    // falharia o backfill todas as noites, para sempre. A ordem das guardas
+    // importa — volume e campo inválido chegam os dois como erro 100.
+    if (isInsightsRowLimitError(error) || !isInvalidParameterError(error)) throw error;
+    console.warn(
+      `[meta-tracking] field set do relatório assíncrono rejeitado em ${args.entityLevel}; recuando para o essencial`,
+      error instanceof Error ? error.message : error,
+    );
+    response = await request(INSIGHTS_CORE_METRIC_FIELDS);
+    apiCalls = 2;
+  }
+
+  const reportRunId = response.json?.report_run_id;
+  if (!reportRunId) {
+    throw new Error(
+      `A Meta aceitou o pedido de relatório de ${args.entityLevel} mas não devolveu report_run_id`,
+    );
+  }
+
+  return { reportRunId: String(reportRunId), usage: response.usage, apiCalls };
+}
+
+/** `GET /{report_run_id}` — o nó de status, entregue cru para a costura ler. */
+export async function readInsightsReport(args: {
+  reportRunId: string;
+  credentials: TrackingCredentials;
+}): Promise<{ node: unknown; usage: QuotaUsage; apiCalls: number }> {
+  const { json, usage } = await graphGet<Record<string, unknown>>({
+    path: args.reportRunId,
+    params: new URLSearchParams({
+      fields: "id,async_status,async_percent_completion,is_running",
+    }).toString(),
+    accessToken: args.credentials.accessToken,
+  });
+
+  return { node: json, usage, apiCalls: 1 };
+}
+
+/** `GET /{report_run_id}/insights` — as linhas do relatório pronto, paginadas. */
+export async function fetchInsightsReportRows(args: {
+  reportRunId: string;
+  credentials: TrackingCredentials;
+}): Promise<{ rows: RawInsightsRow[]; usage: QuotaUsage; apiCalls: number }> {
+  const rows: RawInsightsRow[] = [];
+  let usage = UNKNOWN_QUOTA_USAGE;
+  let apiCalls = 0;
+  let after: string | undefined;
+  let pages = 0;
+
+  do {
+    const params = new URLSearchParams({ limit: String(INSIGHTS_PAGE_LIMIT) });
+    if (after) params.set("after", after);
+
+    const { json, usage: pageUsage } = await graphGet<GraphPage<RawInsightsRow>>({
+      path: `${args.reportRunId}/insights`,
+      params: params.toString(),
+      accessToken: args.credentials.accessToken,
+    });
+    usage = mergeQuotaUsage(usage, pageUsage);
+    apiCalls += 1;
+    pages += 1;
+
+    rows.push(...(json.data ?? []));
+    after = json.paging?.next ? json.paging.cursors?.after : undefined;
+  } while (after && pages < MAX_INSIGHTS_PAGES);
+
+  return { rows, usage, apiCalls };
+}

@@ -30,6 +30,7 @@ import {
 import { upsertDailyMetricRows } from "@/lib/db/meta-tracking-metrics-queries";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
+import { fetchAccountInsightsAsync } from "@/lib/meta-tracking/async-insights-ports";
 import {
   collectActivityEvents as runActivityStep,
   type ActivityCollectionPorts,
@@ -53,9 +54,17 @@ import type {
 /** Usuários por página ao varrer a base — o mesmo passo dos jobs existentes. */
 const USER_PAGE_SIZE = 100;
 
-/** As portas do passo de resultados: Graph API de um lado, Postgres do outro. */
+/**
+ * As portas do passo de resultados: Graph API de um lado, Postgres do outro.
+ *
+ * `fetchInsightsAsync` é o último degrau do recuo por volume de linhas (§5.6 do
+ * plano): quando nem um dia único cabe na consulta síncrona, o relatório
+ * assíncrono da Meta faz a janela inteira em troca de espera. Sem ele o nível
+ * ficaria sem série no dia.
+ */
 const DAILY_METRICS_PORTS: DailyMetricsPorts = {
   fetchInsights: fetchAccountInsights,
+  fetchInsightsAsync: fetchAccountInsightsAsync,
   upsertRows: upsertDailyMetricRows,
 };
 
