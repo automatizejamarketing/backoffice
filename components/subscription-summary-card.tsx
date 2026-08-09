@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, CalendarClock, CreditCard, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
 import type { PendingPlanChange, Subscription } from "@/lib/db/schema";
 import {
   describeUpcomingChange,
@@ -56,7 +57,7 @@ export function SubscriptionSummaryCard({
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="flex items-center gap-2">
           <CreditCard className="size-4" />
-          Assinatura & Pagamentos
+          Assinatura e cobrança
         </CardTitle>
         <Link
           href={`/users/${userId}?tab=subscription`}
@@ -73,6 +74,14 @@ export function SubscriptionSummaryCard({
           </div>
         ) : (
           <>
+            <SubscriptionAccessSyncAlert
+              status={subscription.status}
+              expirationDate={expirationDate}
+              providerLabel={
+                PROVIDER_LABELS[subscription.provider] ?? subscription.provider
+              }
+            />
+
             <div className="flex flex-wrap items-center gap-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -83,6 +92,9 @@ export function SubscriptionSummaryCard({
                 </p>
               </div>
               <div className="flex flex-col gap-1">
+                <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Status no provedor
+                </span>
                 <Badge variant={badge.variant} className="w-fit">
                   {badge.label}
                 </Badge>
@@ -123,21 +135,24 @@ export function SubscriptionSummaryCard({
                   {formatDate(subscription.currentPeriodEnd)}
                 </dd>
               </div>
+              {subscription.commitmentMonths > 1 && (
+                <div>
+                  <dt className="text-xs text-muted-foreground">Compromisso</dt>
+                  <dd className="font-medium text-foreground">
+                    {subscription.commitmentMonths} meses
+                    {subscription.commitmentEndDate && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        (até {formatDate(subscription.commitmentEndDate)})
+                      </span>
+                    )}
+                  </dd>
+                </div>
+              )}
               <div>
-                <dt className="text-xs text-muted-foreground">Compromisso</dt>
-                <dd className="font-medium text-foreground">
-                  {subscription.commitmentMonths}{" "}
-                  {subscription.commitmentMonths === 1 ? "mês" : "meses"}
-                  {subscription.commitmentEndDate && (
-                    <span className="text-muted-foreground">
-                      {" "}
-                      (até {formatDate(subscription.commitmentEndDate)})
-                    </span>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Acesso até</dt>
+                <dt className="text-xs text-muted-foreground">
+                  Acesso operacional até
+                </dt>
                 <dd className="font-medium text-foreground">
                   {formatDate(expirationDate)}
                 </dd>

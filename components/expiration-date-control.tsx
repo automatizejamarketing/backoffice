@@ -88,8 +88,8 @@ export function ExpirationDateControl({
     const expDate = new Date(expirationDate);
     expDate.setHours(0, 0, 0, 0);
     now.setHours(0, 0, 0, 0);
-    if (expDate < now) return "Expirado";
-    return "Ativo";
+    if (expDate < now) return "Acesso expirado";
+    return "Acesso ativo";
   };
 
   const persistDate = async (newDate: Date): Promise<boolean> => {
@@ -153,10 +153,10 @@ export function ExpirationDateControl({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarIcon className="h-5 w-5" />
-            Data de Expiração
+            Acesso à plataforma
           </CardTitle>
           <CardDescription>
-            Ajuste a data de expiração do acesso do usuário
+            Data operacional usada para liberar as áreas protegidas
           </CardDescription>
         </CardHeader>
         <CardContent>
