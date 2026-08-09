@@ -40,6 +40,7 @@
 -- Reservatório das famílias de vídeo, cru como a Meta entrega.
 ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "video_actions" jsonb;
+--> statement-breakpoint
 
 -- Funil e comércio. `purchase_value` vem de `action_values`, em unidades
 -- MAIORES da moeda da conta (como `spend`, ao contrário dos orçamentos das
@@ -54,17 +55,20 @@ ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "purchases" integer,
   ADD COLUMN IF NOT EXISTS "purchase_value" numeric,
   ADD COLUMN IF NOT EXISTS "purchase_roas_value" numeric;
+--> statement-breakpoint
 
 -- Leads. `complete_registration` tem coluna própria em vez de ser contado como
 -- lead: misturar os dois faria "leads" mudar de significado conforme a conta.
 ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "leads" integer,
   ADD COLUMN IF NOT EXISTS "registrations_completed" integer;
+--> statement-breakpoint
 
 -- Mensagens (o objetivo mais comum das contas de WhatsApp).
 ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "messaging_conversations_started" integer,
   ADD COLUMN IF NOT EXISTS "messaging_first_replies" integer;
+--> statement-breakpoint
 
 -- Engajamento. `shares` vem do `action_type` "post" e `page_likes` do "like" —
 -- o vocabulário da Meta, não o da interface.
@@ -76,6 +80,7 @@ ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "shares" integer,
   ADD COLUMN IF NOT EXISTS "post_saves" integer,
   ADD COLUMN IF NOT EXISTS "page_likes" integer;
+--> statement-breakpoint
 
 -- Vídeo. Nasce para frente: os campos que as alimentam entram no field set
 -- agora, então dia já coletado fica NULL e não é backfillável.
@@ -88,9 +93,11 @@ ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "video_watches_p95" integer,
   ADD COLUMN IF NOT EXISTS "video_watches_p100" integer,
   ADD COLUMN IF NOT EXISTS "video_avg_watch_seconds" numeric;
+--> statement-breakpoint
 
 -- Outros. `results` é o resultado na definição da PRÓPRIA conta, derivado do
 -- `indicator` de `cost_per_result` (que nomeia o action_type do resultado);
+--> statement-breakpoint
 -- `estimated_ad_recallers` também nasce para frente.
 ALTER TABLE "meta_tracking_daily_metrics"
   ADD COLUMN IF NOT EXISTS "estimated_ad_recallers" integer,

@@ -31,15 +31,19 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_runs" (
   "summary" jsonb DEFAULT '{"eventsCreated": 0, "entitiesSeen": 0, "accountsCovered": 0, "accountsSkipped": 0, "versionsCreated": 0, "metricRowsUpserted": 0}'::jsonb NOT NULL,
   "created_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_runs_started_at_idx"
   ON "meta_tracking_runs" ("started_at");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_runs_status_idx"
   ON "meta_tracking_runs" ("status");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_runs_kind_started_at_idx"
   ON "meta_tracking_runs" ("kind", "started_at");
+--> statement-breakpoint
 
 -- Cobertura por conta × dia. É o mecanismo de claim (conta sem cobertura
 -- `complete` hoje = pendente) e a fonte da tela de operação. Moeda e timezone
@@ -63,18 +67,23 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_account_coverage" (
   CONSTRAINT "meta_tracking_account_coverage_user_id_fk"
     FOREIGN KEY ("user_id") REFERENCES "public"."users"("id")
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "meta_tracking_account_coverage_account_date_unique"
   ON "meta_tracking_account_coverage" ("account_id", "business_date");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_account_coverage_date_status_idx"
   ON "meta_tracking_account_coverage" ("business_date", "status");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_account_coverage_run_idx"
   ON "meta_tracking_account_coverage" ("run_id");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_account_coverage_user_date_idx"
   ON "meta_tracking_account_coverage" ("user_id", "business_date");
+--> statement-breakpoint
 
 -- Eventos crus do audit trail da Meta (`/act_{id}/activities`). Persistidos
 -- inteiros, inclusive os sem match (billing, públicos, papéis da conta).
@@ -103,15 +112,19 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_activity_events" (
   CONSTRAINT "meta_tracking_activity_events_user_id_fk"
     FOREIGN KEY ("user_id") REFERENCES "public"."users"("id")
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "meta_tracking_activity_events_dedup_hash_unique"
   ON "meta_tracking_activity_events" ("dedup_hash");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_activity_events_account_time_idx"
   ON "meta_tracking_activity_events" ("account_id", "event_time");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_activity_events_object_idx"
   ON "meta_tracking_activity_events" ("object_id");
+--> statement-breakpoint
 
 -- Versões de configuração (SCD tipo 2). Versão nova só quando a configuração
 -- muda de fato; "estado em qualquer data" é consulta de vigência.
@@ -182,21 +195,26 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_config_versions" (
   CONSTRAINT "meta_tracking_config_versions_first_seen_run_id_fk"
     FOREIGN KEY ("first_seen_run_id") REFERENCES "public"."meta_tracking_runs"("id")
 );
+--> statement-breakpoint
 
 -- Reexecutar a coleta no mesmo dia reencontra a linha em vez de duplicar.
 CREATE UNIQUE INDEX IF NOT EXISTS "meta_tracking_config_versions_entity_hash_valid_from_unique"
   ON "meta_tracking_config_versions" ("entity_level", "entity_id", "config_hash", "valid_from");
+--> statement-breakpoint
 
 -- Versão vigente: o caminho de leitura de "estado em qualquer data".
 CREATE INDEX IF NOT EXISTS "meta_tracking_config_versions_current_idx"
   ON "meta_tracking_config_versions" ("entity_level", "entity_id")
   WHERE "valid_to" is null;
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_config_versions_account_valid_from_idx"
   ON "meta_tracking_config_versions" ("account_id", "valid_from");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_config_versions_user_idx"
   ON "meta_tracking_config_versions" ("user_id");
+--> statement-breakpoint
 
 -- Stream unificado de ações. `note` (motivo) é obrigatório na APLICAÇÃO quando
 -- `source = 'backoffice_admin'`, não no banco: o mesmo evento vindo do coletor
@@ -237,18 +255,23 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_change_events" (
   CONSTRAINT "meta_tracking_change_events_activity_event_id_fk"
     FOREIGN KEY ("activity_event_id") REFERENCES "public"."meta_tracking_activity_events"("id")
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_change_events_entity_occurred_idx"
   ON "meta_tracking_change_events" ("entity_level", "entity_id", "occurred_at");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_change_events_account_occurred_idx"
   ON "meta_tracking_change_events" ("account_id", "occurred_at");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_change_events_user_occurred_idx"
   ON "meta_tracking_change_events" ("user_id", "occurred_at");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_change_events_source_idx"
   ON "meta_tracking_change_events" ("source");
+--> statement-breakpoint
 
 -- Série diária de resultados: uma linha por entidade × dia, sempre. Janela de
 -- análise é consulta, nunca armazenamento. Upsert da janela móvel de 28 dias
@@ -279,18 +302,23 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_daily_metrics" (
   CONSTRAINT "meta_tracking_daily_metrics_user_id_fk"
     FOREIGN KEY ("user_id") REFERENCES "public"."users"("id")
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "meta_tracking_daily_metrics_entity_date_unique"
   ON "meta_tracking_daily_metrics" ("entity_level", "entity_id", "metric_date");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_daily_metrics_account_date_idx"
   ON "meta_tracking_daily_metrics" ("account_id", "metric_date");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_daily_metrics_campaign_date_idx"
   ON "meta_tracking_daily_metrics" ("campaign_id", "metric_date");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_daily_metrics_user_date_idx"
   ON "meta_tracking_daily_metrics" ("user_id", "metric_date");
+--> statement-breakpoint
 
 -- Snapshot de criativo, chaveado pelo id da própria Meta: criativos são
 -- imutáveis na prática (sem `updated_time` documentado), então uma linha basta.
@@ -300,6 +328,7 @@ CREATE TABLE IF NOT EXISTS "meta_tracking_creatives" (
   "spec" jsonb NOT NULL,
   "fetched_at" timestamp DEFAULT now() NOT NULL
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "meta_tracking_creatives_account_idx"
   ON "meta_tracking_creatives" ("account_id");

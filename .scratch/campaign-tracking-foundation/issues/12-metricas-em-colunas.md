@@ -209,3 +209,27 @@ Mantidos conscientemente: a duplicação das listas com `transformers.ts` e dos
 coercitivos com `daily-metrics.ts` (aviso 7); e o `set` do UPDATE derivado de
 `getTableColumns` com um cast para `PgUpdateSetSource` — o cast é o preço de não
 ter 50 linhas que alguém vai esquecer de atualizar.
+
+### Incidente pós-verificação: o drizzle-kit no-opou a 0045 em silêncio (resolvido)
+
+Na aplicação em staging (2026-08-10), `APP_ENV=staging bun run db:migrate` REGISTROU a
+0045 em `drizzle.__drizzle_migrations` mas NÃO executou os ALTERs — 22 colunas depois
+do "migrations applied successfully". O SQL era válido (aplicado manualmente via
+`postgres.unsafe` numa transação, as 33 colunas nasceram na hora — staging agora tem
+as 55). Causa provável: chunk multi-statement sem `--> statement-breakpoint`
+atravessando o pooler em modo transação; a 0044 (CREATEs) passou pelo mesmo caminho e
+executou, então o gatilho exato não foi isolado — o conserto elimina a classe inteira.
+
+**Conserto**: os pares 0045/0053 E 0044/0052 ganharam os marcadores canônicos
+`--> statement-breakpoint` entre statements (formato de 24 migrations da casa; cada
+statement vira um chunk próprio, imune a qualquer modo de protocolo), mantendo a
+identidade byte a byte de cada par. Validação: 30 chunks na 0044, 8 na 0045, todos
+não-vazios.
+
+**Estado dos bancos**: staging tem 0044 + 0045 aplicadas E registradas (a 0045 com
+conteúdo aplicado manualmente; o registro já existente impede re-execução, e o
+IF NOT EXISTS torna qualquer re-execução inofensiva). PRODUÇÃO não tem nenhuma das
+duas — quando o deploy rodar o migrate, os arquivos agora fatiados aplicam correto.
+Lição para as próximas migrations manuais: SEMPRE incluir os marcadores; e depois de
+todo apply, conferir o efeito com uma consulta ao information_schema — "applied
+successfully" do drizzle-kit não é prova de execução.
