@@ -15,6 +15,12 @@ O backoffice é responsável por:
   fixo e aplicada somente a novas Aquisições; Produtos de Expert herdam
   exclusivamente a configuração do seu proprietário e Produtos do Automatize
   não pagam Taxa da Plataforma;
+- configurar a Taxa de Marketplace do Expert (padrão 3%), somada ao percentual
+  da Taxa da Plataforma apenas em Aquisições cujo Canal do Checkout é
+  `marketplace` (descoberta por dentro do Automatize); vendas pela URL direta
+  do produto (`direct`) pagam só a taxa base. O canal e o componente de
+  marketplace ficam congelados no pedido (`checkout_channel` e
+  `marketplace_fee_basis_points`) e aparecem na tabela de Vendas;
 - distinguir custo do Mercado Pago, receita de gateway, coprodução, recebível
   do Expert e receita de Produtos próprios;
 - cadastrar um Coprodutor opcional — Automatize ou outro Expert — mantendo o

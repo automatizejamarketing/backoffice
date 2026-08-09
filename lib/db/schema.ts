@@ -324,6 +324,12 @@ export const expertProfile = pgTable(
     platformFeeFixedCentavos: integer("platform_fee_fixed_centavos")
       .notNull()
       .default(39),
+    /** Extra fee charged on top of the platform fee when the buyer discovered
+     * the product inside the app (checkout_channel = 'marketplace'). Direct
+     * sales via the public product URL never pay this component. */
+    marketplaceFeeBasisPoints: integer("marketplace_fee_basis_points")
+      .notNull()
+      .default(300),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -337,6 +343,10 @@ export const expertProfile = pgTable(
     platformFeeCheck: check(
       "expert_profiles_platform_fee_range",
       sql`${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0`,
+    ),
+    marketplaceFeeCheck: check(
+      "expert_profiles_marketplace_fee_range",
+      sql`${table.marketplaceFeeBasisPoints} >= 0 AND ${table.marketplaceFeeBasisPoints} <= 10000`,
     ),
   }),
 );
@@ -500,6 +510,17 @@ export const PRODUCT_ORDER_STATUS_VALUES = [
 ] as const;
 export type ProductOrderStatus = (typeof PRODUCT_ORDER_STATUS_VALUES)[number];
 
+/** Where the buyer discovered the product. `direct` = public product URL
+ * (the expert's own traffic, tracked via the `product_direct` cookie);
+ * `marketplace` = browsing inside the app. Marketplace purchases pay the
+ * expert's marketplace fee on top of the base platform fee. */
+export const PRODUCT_CHECKOUT_CHANNEL_VALUES = [
+  "direct",
+  "marketplace",
+] as const;
+export type ProductCheckoutChannel =
+  (typeof PRODUCT_CHECKOUT_CHANNEL_VALUES)[number];
+
 export const productOrder = pgTable(
   "product_orders",
   {
@@ -534,6 +555,19 @@ export const productOrder = pgTable(
       .default("legacy_net_split"),
     platformFeeBasisPoints: integer("platform_fee_basis_points"),
     platformFeeFixedCentavos: integer("platform_fee_fixed_centavos"),
+    /** Sales channel frozen at order creation. Historical orders default to
+     * 'direct' (no marketplace fee was ever charged before this column). */
+    checkoutChannel: varchar("checkout_channel", {
+      enum: [...PRODUCT_CHECKOUT_CHANNEL_VALUES],
+    })
+      .$type<ProductCheckoutChannel>()
+      .notNull()
+      .default("direct"),
+    /** Marketplace component included in platform_fee_basis_points, for
+     * auditing/reporting only. Settlement reads the summed total. */
+    marketplaceFeeBasisPoints: integer("marketplace_fee_basis_points")
+      .notNull()
+      .default(0),
     ownerExpertShareBasisPoints: integer("expert_share_basis_points")
       .notNull()
       .default(0),
@@ -566,6 +600,10 @@ export const productOrder = pgTable(
     statusCreatedIdx: index("product_orders_status_created_idx").on(
       table.status,
       table.createdAt,
+    ),
+    checkoutChannelCheck: check(
+      "product_orders_checkout_channel_consistency",
+      sql`${table.checkoutChannel} IN ('direct', 'marketplace') AND ${table.marketplaceFeeBasisPoints} >= 0 AND ${table.marketplaceFeeBasisPoints} <= 10000 AND (${table.checkoutChannel} = 'marketplace' OR ${table.marketplaceFeeBasisPoints} = 0)`,
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
