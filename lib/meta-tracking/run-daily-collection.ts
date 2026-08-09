@@ -28,7 +28,12 @@
  * 4. **Delta** — a costura pura decide versões, eventos e confirmações.
  * 5. **Persistência** — numa transação por conta, para que "fechar a versão
  *    antiga e abrir a nova" seja uma coisa só.
- * 6. **Cobertura** — o que aconteceu com a conta naquele dia, sempre gravado:
+ * 6. **Série diária** — os resultados dos últimos 28 dias nos três níveis, por
+ *    upsert. Vem DEPOIS da persistência da configuração de propósito: se os
+ *    insights falharem, a configuração do dia — que não existe em lugar nenhum
+ *    para ser buscada depois — já está salva, e a série se recupera sozinha
+ *    amanhã, quando a janela móvel re-coletar os mesmos dias.
+ * 7. **Cobertura** — o que aconteceu com a conta naquele dia, sempre gravado:
  *    `complete`, `partial` (cota), `failed` ou `skipped_*` (token).
  *
  * ## Por que a cota interrompe em vez de esperar
@@ -65,6 +70,7 @@ import {
   isSupportedTimeZone,
   type DayKey,
 } from "@/lib/meta-tracking/correlation";
+import type { DailyMetricsResult } from "@/lib/meta-tracking/collect-daily-metrics";
 import type {
   MetaTrackingCoverageStatus,
   MetaTrackingRunStatus,
@@ -201,6 +207,20 @@ export type DailyCollectionPorts = {
     runId: string;
     delta: TrackingDelta;
   }) => Promise<PersistDeltaResult>;
+  /**
+   * A série diária de resultados da conta. Etapa separada e injetável: quem a
+   * implementa é `collect-daily-metrics.ts`, e é ela quem sabe da janela móvel,
+   * do recuo por volume de linhas e do que já congelou.
+   */
+  collectDailyMetrics: (args: {
+    userId: string;
+    accountId: string;
+    credentials: TrackingCredentials;
+    /** Hoje na timezone da conta — o mesmo dia da cobertura. */
+    today: DayKey;
+    /** Cota já gasta pelas etapas anteriores desta conta. */
+    usage: QuotaUsage;
+  }) => Promise<DailyMetricsResult>;
   createRun: (args: {
     triggeredBy: MetaTrackingRunTriggeredBy;
   }) => Promise<string>;
@@ -224,6 +244,8 @@ export type DailyCollectionOptions = {
     userEmail: string;
     accountId: string;
     status: MetaTrackingCoverageStatus;
+    /** Linhas da série diária gravadas nesta conta. */
+    metricRowsUpserted: number;
   }) => void;
 };
 
@@ -250,6 +272,13 @@ export type DailyCollectionResult = {
   eventsCreated: number;
   versionsConfirmed: number;
   eventsLinked: number;
+  /** Linhas de `meta_tracking_daily_metrics` inseridas ou atualizadas. */
+  metricRowsUpserted: number;
+  /**
+   * Quantas vezes um período de insights precisou ser partido por volume de
+   * linhas. Diferente de zero = alguma conta está encostando no teto da Meta.
+   */
+  metricSlicesDegraded: number;
   stoppedForBudget: boolean;
   errors: DailyCollectionError[];
 };
@@ -298,6 +327,8 @@ export async function runDailyTrackingCollection(
     eventsCreated: 0,
     versionsConfirmed: 0,
     eventsLinked: 0,
+    metricRowsUpserted: 0,
+    metricSlicesDegraded: 0,
     stoppedForBudget: false,
     errors: [],
   };
@@ -317,9 +348,8 @@ export async function runDailyTrackingCollection(
     eventsCreated: result.eventsCreated,
     versionsConfirmed: result.versionsConfirmed,
     eventsLinked: result.eventsLinked,
-    // A série diária de resultados é do ticket 04; a chave existe desde já
-    // porque o resumo do run é lido pela tela de operação.
-    metricRowsUpserted: 0,
+    metricRowsUpserted: result.metricRowsUpserted,
+    metricSlicesDegraded: result.metricSlicesDegraded,
   });
 
   try {
@@ -476,7 +506,7 @@ async function collectAccount(args: {
   runId: string;
   user: TrackedUser;
   account: TrackedAdAccount;
-  businessDate: string;
+  businessDate: DayKey;
   credentials: TrackingCredentials;
   managedCampaignNamePrefix: string;
   result: DailyCollectionResult;
@@ -497,6 +527,7 @@ async function collectAccount(args: {
   let usage: QuotaUsage = UNKNOWN_QUOTA_USAGE;
   let apiCallsUsed = 0;
   let entitiesSeen = 0;
+  let metricRowsUpserted = 0;
   let status: MetaTrackingCoverageStatus = "complete";
   let errorMessage: string | null = null;
 
@@ -558,6 +589,35 @@ async function collectAccount(args: {
     result.eventsCreated += persisted.eventsCreated;
     result.versionsConfirmed += persisted.versionsConfirmed;
     result.eventsLinked += persisted.eventsLinked;
+
+    // Só quando a configuração fechou o dia: se a cota já apertou, gastar mais
+    // chamadas com insights é justamente o que a postura de cota evita — e a
+    // janela móvel de 28 dias devolve estes mesmos dias no próximo disparo.
+    if (status === "complete") {
+      const metrics = await ports.collectDailyMetrics({
+        userId: user.id,
+        accountId: account.accountId,
+        credentials,
+        today: businessDate,
+        usage,
+      });
+      usage = mergeQuotaUsage(usage, metrics.usage);
+      apiCallsUsed += metrics.apiCalls;
+      metricRowsUpserted = metrics.rowsUpserted;
+      result.metricSlicesDegraded += metrics.slicesDegraded;
+      if (metrics.stoppedForQuota) status = "partial";
+
+      for (const entityLevel of metrics.levelsAbandoned) {
+        // Cobertura segue `complete`: o erro veio da Meta e insistir hoje só
+        // aumentaria a taxa de erro do app. Fica visível no run, que é onde o
+        // operador vê que aquele nível ficou sem série.
+        result.errors.push({
+          userEmail: user.email,
+          accountId: account.accountId,
+          message: `Insights de ${entityLevel} excederam o limite de linhas da Meta mesmo em um único dia; o nível ficou sem série em ${businessDate}.`,
+        });
+      }
+    }
   } catch (error) {
     status = "failed";
     errorMessage = errorMessageOf(error, "Erro ao coletar a conta na Meta.");
@@ -567,6 +627,8 @@ async function collectAccount(args: {
       message: errorMessage,
     });
   }
+
+  result.metricRowsUpserted += metricRowsUpserted;
 
   if (status === "complete") result.accountsCovered += 1;
   else if (status === "partial") result.accountsPartial += 1;
@@ -590,5 +652,6 @@ async function collectAccount(args: {
     userEmail: user.email,
     accountId: account.accountId,
     status,
+    metricRowsUpserted,
   });
 }

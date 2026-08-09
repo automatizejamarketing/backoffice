@@ -8,7 +8,10 @@ import {
 } from "@/lib/meta-tracking/run-daily-collection";
 import type { ListedEntity } from "@/lib/meta-tracking/daily-collection-plan";
 import type { TrackingDelta } from "@/lib/meta-tracking/compute-tracking-delta";
-import { UNKNOWN_QUOTA_USAGE } from "@/lib/meta-tracking/quota-usage";
+import {
+  UNKNOWN_QUOTA_USAGE,
+  type QuotaUsage,
+} from "@/lib/meta-tracking/quota-usage";
 import {
   hashTrackedConfig,
   normalizeTrackedConfig,
@@ -59,6 +62,7 @@ type Recorded = {
   runs: Array<{ status: string; summary: Record<string, number> }>;
   graphCalls: string[];
   internalChangeWindows: Array<{ accountId: string; since: Date }>;
+  metricCalls: Array<{ accountId: string; today: string; usage: QuotaUsage }>;
 };
 
 function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
@@ -71,6 +75,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
     runs: [],
     graphCalls: [],
     internalChangeWindows: [],
+    metricCalls: [],
   };
 
   const ports: DailyCollectionPorts = {
@@ -129,6 +134,18 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         eventsCreated: delta.events.length,
         versionsConfirmed: delta.confirmations.length,
         eventsLinked: delta.versionLinks.length,
+      };
+    },
+    collectDailyMetrics: async ({ accountId, today, usage }) => {
+      recorded.graphCalls.push("collectDailyMetrics");
+      recorded.metricCalls.push({ accountId, today, usage });
+      return {
+        rowsUpserted: 87,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 3,
+        stoppedForQuota: false,
+        slicesDegraded: 0,
+        levelsAbandoned: [],
       };
     },
     createRun: async () => "run-1",
@@ -590,5 +607,121 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.runs).toHaveLength(1);
     expect(recorded.runs[0].status).toBe("failed");
     expect(recorded.runs[0].summary).toMatchObject({ accountsCovered: 0 });
+  });
+
+  test("a série diária é coletada no dia da conta e o contador entra no resumo do run", async () => {
+    const { ports, recorded } = makePorts();
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.metricCalls).toEqual([
+      {
+        accountId: ACCOUNT.accountId,
+        today: "2026-08-09",
+        usage: UNKNOWN_QUOTA_USAGE,
+      },
+    ]);
+    expect(result.metricRowsUpserted).toBe(87);
+    expect(recorded.runs[0].summary).toMatchObject({ metricRowsUpserted: 87 });
+    // Listagem (3) + dois lotes de configuração (2) + insights (3): as
+    // chamadas do passo de métricas entram na conta da cobertura.
+    expect(recorded.coverage[0].apiCallsUsed).toBe(3 + 2 + 3);
+  });
+
+  test("as métricas vêm depois da configuração — o dia só é gravado uma vez", async () => {
+    const { ports, recorded } = makePorts();
+
+    await runDailyTrackingCollection(ports, { triggeredBy: "cron" });
+
+    expect(recorded.graphCalls).toEqual([
+      "listAdAccounts",
+      "listEntities",
+      "fetchConfigs",
+      "collectDailyMetrics",
+    ]);
+  });
+
+  test("conta interrompida por cota na configuração não gasta chamada com métricas", async () => {
+    const { ports, recorded } = makePorts({
+      listEntities: async () => ({
+        entities: activeListing(),
+        usage: { utilizationPercent: 95, estimatedRegainMs: null },
+        apiCalls: 3,
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.metricCalls).toEqual([]);
+    expect(result.metricRowsUpserted).toBe(0);
+    expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
+  });
+
+  test("cota estourada durante as métricas deixa a conta parcial e guarda o que veio", async () => {
+    const { ports, recorded } = makePorts({
+      collectDailyMetrics: async () => ({
+        rowsUpserted: 12,
+        usage: { utilizationPercent: 91, estimatedRegainMs: null },
+        apiCalls: 2,
+        stoppedForQuota: true,
+        slicesDegraded: 0,
+        levelsAbandoned: [],
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
+    expect(result.metricRowsUpserted).toBe(12);
+    expect(result.accountsPartial).toBe(1);
+  });
+
+  test("nível abandonado por volume aparece no run sem tirar a conta do dia", async () => {
+    const { ports, recorded } = makePorts({
+      collectDailyMetrics: async () => ({
+        rowsUpserted: 40,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 6,
+        stoppedForQuota: false,
+        slicesDegraded: 3,
+        levelsAbandoned: ["ad"],
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    // A cobertura continua completa: reinsistir hoje só multiplicaria o erro
+    // que a própria Meta devolveu.
+    expect(recorded.coverage[0]).toMatchObject({ status: "complete" });
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toContain("ad");
+    expect(recorded.runs[0].status).toBe("completed_with_errors");
+    // O fatiamento é sinal de conta encostando no teto de linhas da Meta.
+    expect(recorded.runs[0].summary).toMatchObject({ metricSlicesDegraded: 3 });
+  });
+
+  test("falha na coleta de métricas não desfaz a configuração já gravada", async () => {
+    const { ports, recorded } = makePorts({
+      collectDailyMetrics: async () => {
+        throw new Error("Meta devolveu 500 para insights");
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.deltas[0].versions).toHaveLength(2);
+    expect(recorded.coverage[0]).toMatchObject({ status: "failed" });
+    expect(result.versionsCreated).toBe(2);
+    expect(result.metricRowsUpserted).toBe(0);
   });
 });

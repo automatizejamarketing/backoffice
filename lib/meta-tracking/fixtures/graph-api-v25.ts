@@ -130,6 +130,72 @@ export function adsetConfigV25(
   };
 }
 
+/**
+ * Uma linha de insights com `time_increment=1` (`GET /act_…/insights`).
+ *
+ * O que só aparece em resposta de verdade e quebra parser ingênuo:
+ *
+ * - **tudo é string**, inclusive contagens inteiras (`impressions: "9432"`);
+ * - `spend` e `action_values` em unidades MAIORES da moeda (`"128.47"` = R$
+ *   128,47) — ao contrário dos orçamentos da configuração, que vêm em unidades
+ *   menores;
+ * - `date_start` e `date_stop` iguais, porque o incremento é de um dia;
+ * - `cost_per_result` tem forma própria (`indicator` + `values`), diferente das
+ *   outras famílias (`action_type` + `value`);
+ * - `frequency` com muitas casas decimais.
+ *
+ * `overrides` entra por cima; passar `undefined` num campo o remove, que é como
+ * a Meta se comporta quando a métrica não existe para aquele dia.
+ */
+export function insightsDayV25(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    date_start: "2026-08-08",
+    date_stop: "2026-08-08",
+    campaign_id: FIXTURE_CAMPAIGN_ID,
+    campaign_name: "[AM][VENDAS][FS][2026-06-18-19-22-53]",
+    spend: "128.47",
+    impressions: "9432",
+    clicks: "212",
+    reach: "7781",
+    frequency: "1.212183",
+    actions: [
+      { action_type: "link_click", value: "212" },
+      { action_type: "offsite_conversion.fb_pixel_purchase", value: "7" },
+      { action_type: "omni_purchase", value: "7" },
+    ],
+    action_values: [
+      { action_type: "offsite_conversion.fb_pixel_purchase", value: "1394.70" },
+      { action_type: "omni_purchase", value: "1394.70" },
+    ],
+    cost_per_action_type: [
+      { action_type: "link_click", value: "0.605990" },
+      { action_type: "omni_purchase", value: "18.352857" },
+    ],
+    cost_per_result: [
+      {
+        indicator: "actions:offsite_conversion.fb_pixel_purchase",
+        values: [{ value: "18.352857", attribution_windows: ["default"] }],
+      },
+    ],
+    purchase_roas: [{ action_type: "omni_purchase", value: "10.856231" }],
+    website_purchase_roas: [
+      {
+        action_type: "offsite_conversion.fb_pixel_purchase",
+        value: "10.856231",
+      },
+    ],
+    ...overrides,
+  };
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete row[key];
+  }
+
+  return row;
+}
+
 /** Configuração profunda de anúncio (`GET /{ad-id}?fields=…`). */
 export function adConfigV25(
   overrides: Record<string, unknown> = {},

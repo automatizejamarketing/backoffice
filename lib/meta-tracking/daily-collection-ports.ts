@@ -22,9 +22,15 @@ import {
   persistAccountTrackingDelta,
   upsertAccountCoverage,
 } from "@/lib/db/meta-tracking-collector-queries";
+import { upsertDailyMetricRows } from "@/lib/db/meta-tracking-metrics-queries";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import {
+  collectDailyMetrics as runDailyMetricsStep,
+  type DailyMetricsPorts,
+} from "@/lib/meta-tracking/collect-daily-metrics";
+import {
+  fetchAccountInsights,
   fetchTrackedAdAccounts,
   fetchTrackedConfigs,
   listTrackedEntities,
@@ -36,6 +42,12 @@ import type {
 
 /** Usuários por página ao varrer a base — o mesmo passo dos jobs existentes. */
 const USER_PAGE_SIZE = 100;
+
+/** As portas do passo de resultados: Graph API de um lado, Postgres do outro. */
+const DAILY_METRICS_PORTS: DailyMetricsPorts = {
+  fetchInsights: fetchAccountInsights,
+  upsertRows: upsertDailyMetricRows,
+};
 
 /** Todos os usuários com conta Meta conectada, paginados até o fim. */
 async function listAllUsersWithMeta(options: {
@@ -129,6 +141,9 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
     recordCoverage: upsertAccountCoverage,
 
     persistAccountDelta: persistAccountTrackingDelta,
+
+    collectDailyMetrics: (args) =>
+      runDailyMetricsStep(DAILY_METRICS_PORTS, args),
 
     createRun: ({ triggeredBy }) => createTrackingRun({ triggeredBy }),
 

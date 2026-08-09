@@ -24,6 +24,9 @@
  *   sem o que o edge as omite e a remoção nunca seria reportada.
  * - **Fetch profundo** (`?ids=…&fields=…`): o field set do §4.1, só para quem
  *   está entregando, em lotes de 50 (teto do node batch).
+ * - **Insights** (`/insights?level=…&time_increment=1`): a série diária do §4.2,
+ *   com a atribuição unificada do conjunto para que os números batam com o
+ *   Gerenciador de Anúncios. Sem breakdowns nesta fundação.
  */
 
 import { graphApiVersion, graphFacebookBaseUrl } from "@/lib/meta-business/constant";
@@ -46,6 +49,12 @@ import {
   UNKNOWN_QUOTA_USAGE,
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
+import {
+  isInsightsRowLimitError,
+  type InsightsRange,
+  type RawInsightsRow,
+} from "@/lib/meta-tracking/daily-metrics";
+import type { InsightsFetchResult } from "@/lib/meta-tracking/collect-daily-metrics";
 import type { TrackingConfigObservation } from "@/lib/meta-tracking/compute-tracking-delta";
 import type {
   TrackedAdAccount,
@@ -457,4 +466,133 @@ export async function fetchTrackedConfigs(args: {
   }
 
   return { configs, usage, apiCalls, stoppedForQuota: false };
+}
+
+/** Linhas de insights por página. Acima disso a Meta costuma truncar sozinha. */
+const INSIGHTS_PAGE_LIMIT = 500;
+
+/**
+ * Teto de páginas por nível e período. Conta que passe disso já teria estourado
+ * o teto de linhas do relatório muito antes — o recuo por volume (o fatiamento
+ * do período) é que resolve o caso, não mais paginação.
+ */
+const MAX_INSIGHTS_PAGES = 100;
+
+/**
+ * O que identifica a entidade em cada nível. Pedido explicitamente porque é a
+ * chave da linha: sem ele a série não tem a que se ligar.
+ */
+const INSIGHTS_ID_FIELDS: Record<MetaTrackingEntityLevel, readonly string[]> = {
+  campaign: ["campaign_id"],
+  adset: ["campaign_id", "adset_id"],
+  ad: ["campaign_id", "adset_id", "ad_id"],
+};
+
+/** Numéricos universais + as famílias de cardinalidade variável do §4.2. */
+const INSIGHTS_METRIC_FIELDS: readonly string[] = [
+  "spend",
+  "impressions",
+  "clicks",
+  "reach",
+  "frequency",
+  "actions",
+  "action_values",
+  "cost_per_action_type",
+  "cost_per_result",
+  "purchase_roas",
+  "website_purchase_roas",
+  "date_start",
+  "date_stop",
+];
+
+/**
+ * Field set de recuo — mesma postura do fetch profundo: um campo que saiu do
+ * catálogo derruba a requisição INTEIRA (erro 100), e perder o dia da conta é
+ * pior do que gravar a série sem uma família.
+ *
+ * Sai só `cost_per_result`: é o único que depende da configuração de resultado
+ * da conta em vez de existir sempre. Os demais são antigos e estáveis, e
+ * removê-los "por precaução" seria jogar fora dado bom.
+ */
+const INSIGHTS_CORE_METRIC_FIELDS: readonly string[] =
+  INSIGHTS_METRIC_FIELDS.filter((field) => field !== "cost_per_result");
+
+/**
+ * A série diária de um nível num período (§5.6 do plano).
+ *
+ * `time_increment=1` é o que torna a persistência por dia possível — qualquer
+ * janela de análise é derivada por consulta, nunca armazenada.
+ * `use_unified_attribution_setting=true` faz a Meta responder com a mesma
+ * configuração de atribuição do conjunto, que é a que o Gerenciador de Anúncios
+ * mostra; sem isso os números do histórico não bateriam com o que o cliente vê.
+ *
+ * Erro de volume de linhas sobe intocado: quem sabe encolher o período é o passo
+ * (`collect-daily-metrics.ts`), não este executor.
+ */
+export async function fetchAccountInsights(args: {
+  accountId: string;
+  credentials: TrackingCredentials;
+  entityLevel: MetaTrackingEntityLevel;
+  range: InsightsRange;
+}): Promise<InsightsFetchResult> {
+  let usage = UNKNOWN_QUOTA_USAGE;
+  let apiCalls = 0;
+
+  const fetchAllPages = async (
+    metricFields: readonly string[],
+  ): Promise<RawInsightsRow[]> => {
+    const fields = [
+      ...INSIGHTS_ID_FIELDS[args.entityLevel],
+      ...metricFields,
+    ].join(",");
+    const rows: RawInsightsRow[] = [];
+    let after: string | undefined;
+    let pages = 0;
+
+    do {
+      const params = new URLSearchParams({
+        level: args.entityLevel,
+        fields,
+        time_increment: "1",
+        time_range: JSON.stringify(args.range),
+        use_unified_attribution_setting: "true",
+        limit: String(INSIGHTS_PAGE_LIMIT),
+      });
+      if (after) params.set("after", after);
+
+      const { json, usage: pageUsage } = await graphGet<
+        GraphPage<RawInsightsRow>
+      >({
+        path: `${accountPath(args.accountId)}/insights`,
+        params: params.toString(),
+        accessToken: args.credentials.accessToken,
+      });
+      usage = mergeQuotaUsage(usage, pageUsage);
+      apiCalls += 1;
+      pages += 1;
+
+      rows.push(...(json.data ?? []));
+      after = json.paging?.next ? json.paging.cursors?.after : undefined;
+    } while (after && pages < MAX_INSIGHTS_PAGES);
+
+    return rows;
+  };
+
+  try {
+    const rows = await fetchAllPages(INSIGHTS_METRIC_FIELDS);
+    return { rows, usage, apiCalls };
+  } catch (error) {
+    // Volume de linhas é do passo, não deste recuo — e os dois chegam como
+    // erro 100, então a ordem destas duas guardas é o que faz o fatiamento
+    // acontecer em vez de virar uma consulta sem as famílias de custo.
+    if (isInsightsRowLimitError(error) || !isInvalidParameterError(error)) {
+      throw error;
+    }
+    console.warn(
+      `[meta-tracking] field set de insights rejeitado em ${args.entityLevel}; recuando para o essencial`,
+      error instanceof Error ? error.message : error,
+    );
+    const rows = await fetchAllPages(INSIGHTS_CORE_METRIC_FIELDS);
+    return { rows, usage, apiCalls };
+  }
 }

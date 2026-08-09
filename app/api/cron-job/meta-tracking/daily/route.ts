@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
       accountsFailed: result.accountsFailed,
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
+      metricRowsUpserted: result.metricRowsUpserted,
       stoppedForBudget: result.stoppedForBudget,
     });
 
@@ -55,6 +56,10 @@ export async function GET(request: NextRequest) {
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
       versionsConfirmed: result.versionsConfirmed,
+      /** Dias da série diária inseridos ou atualizados neste disparo. */
+      metricRowsUpserted: result.metricRowsUpserted,
+      /** Acima de zero = alguma conta está encostando no teto de linhas. */
+      metricSlicesDegraded: result.metricSlicesDegraded,
       /** Verdadeiro = ainda há base a cobrir; o próximo disparo continua. */
       stoppedForBudget: result.stoppedForBudget,
       // Primeiras falhas ajudam a diagnosticar sem despejar o lote inteiro.
