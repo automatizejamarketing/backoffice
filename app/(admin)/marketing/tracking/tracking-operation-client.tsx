@@ -123,7 +123,7 @@ function RunCard({ run }: { run: SerializedTrackingRunView }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
         <CounterPill label="Contas" value={run.counters.accountsCovered} />
         <CounterPill label="Parciais" value={run.counters.accountsPartial} />
         <CounterPill label="Falhas" value={run.counters.accountsFailed} />
@@ -131,12 +131,20 @@ function RunCard({ run }: { run: SerializedTrackingRunView }) {
         <CounterPill label="Versões" value={run.counters.versionsCreated} />
         <CounterPill label="Ações" value={run.counters.eventsCreated} />
         <CounterPill label="Métricas" value={run.counters.metricRowsUpserted} />
+        <CounterPill label="Criativos" value={run.counters.creativesFetched} />
       </div>
 
       {run.counters.eventsLinked > 0 ? (
         <p className="text-xs text-muted-foreground">
           {run.counters.eventsLinked} ação(ões) já registrada(s) pela plataforma
           foram reconhecidas em vez de duplicadas.
+        </p>
+      ) : null}
+
+      {run.counters.creativesPending > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {run.counters.creativesPending} criativo(s) seguem sem snapshot — a
+          próxima coleta tenta de novo.
         </p>
       ) : null}
 

@@ -64,6 +64,7 @@ type Recorded = {
   internalChangeWindows: Array<{ accountId: string; since: Date }>;
   metricCalls: Array<{ accountId: string; today: string; usage: QuotaUsage }>;
   activityCalls: Array<{ accountId: string; now: Date }>;
+  creativeCalls: Array<{ accountId: string; usage: QuotaUsage }>;
 };
 
 function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
@@ -78,6 +79,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
     internalChangeWindows: [],
     metricCalls: [],
     activityCalls: [],
+    creativeCalls: [],
   };
 
   const ports: DailyCollectionPorts = {
@@ -158,6 +160,18 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         stoppedForQuota: false,
         slicesDegraded: 0,
         levelsAbandoned: [],
+      };
+    },
+    collectCreativeSnapshots: async ({ accountId, usage }) => {
+      recorded.graphCalls.push("collectCreativeSnapshots");
+      recorded.creativeCalls.push({ accountId, usage });
+      return {
+        creativesFetched: 4,
+        creativesPending: 0,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+        stoppedForQuota: false,
+        failureMessage: null,
       };
     },
     createRun: async () => "run-1",
@@ -638,8 +652,9 @@ describe("runDailyTrackingCollection", () => {
     expect(result.metricRowsUpserted).toBe(87);
     expect(recorded.runs[0].summary).toMatchObject({ metricRowsUpserted: 87 });
     // Listagem (3) + dois lotes de configuração (2) + audit trail (1) +
-    // insights (3): as chamadas dos passos entram na conta da cobertura.
-    expect(recorded.coverage[0].apiCallsUsed).toBe(3 + 2 + 1 + 3);
+    // insights (3) + criativos (1): as chamadas dos passos entram na conta da
+    // cobertura.
+    expect(recorded.coverage[0].apiCallsUsed).toBe(3 + 2 + 1 + 3 + 1);
   });
 
   test("as métricas vêm depois da configuração — o dia só é gravado uma vez", async () => {
@@ -647,12 +662,16 @@ describe("runDailyTrackingCollection", () => {
 
     await runDailyTrackingCollection(ports, { triggeredBy: "cron" });
 
+    // Criativos por último de propósito: é a única coleta que não perece
+    // (criativo é imutável), então é a primeira a ceder a vez quando a cota
+    // aperta.
     expect(recorded.graphCalls).toEqual([
       "listAdAccounts",
       "listEntities",
       "fetchConfigs",
       "collectActivityEvents",
       "collectDailyMetrics",
+      "collectCreativeSnapshots",
     ]);
   });
 
@@ -736,6 +755,87 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.coverage[0]).toMatchObject({ status: "failed" });
     expect(result.versionsCreated).toBe(2);
     expect(result.metricRowsUpserted).toBe(0);
+  });
+
+  test("o snapshot de criativos roda com a cota já gasta e entra no resumo do run", async () => {
+    const { ports, recorded } = makePorts();
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.creativeCalls).toEqual([
+      { accountId: ACCOUNT.accountId, usage: UNKNOWN_QUOTA_USAGE },
+    ]);
+    expect(result.creativesFetched).toBe(4);
+    expect(recorded.runs[0].summary).toMatchObject({
+      creativesFetched: 4,
+      creativesPending: 0,
+    });
+  });
+
+  test("falha no snapshot de criativos não derruba a cobertura da conta", async () => {
+    const { ports, recorded } = makePorts({
+      collectCreativeSnapshots: async () => {
+        throw new Error("Postgres recusou a varredura de criativos");
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    // Criativo é imutável: a varredura de amanhã encontra os mesmos ids.
+    expect(recorded.coverage[0]).toMatchObject({ status: "complete" });
+    expect(result.accountsCovered).toBe(1);
+    expect(result.metricRowsUpserted).toBe(87);
+    expect(result.creativesFetched).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toContain("criativos");
+  });
+
+  test("lote de criativos recusado pela Meta vira erro no run e contador de pendentes", async () => {
+    const { ports, recorded } = makePorts({
+      collectCreativeSnapshots: async () => ({
+        creativesFetched: 50,
+        creativesPending: 12,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 2,
+        stoppedForQuota: false,
+        failureMessage: "(#100) Unsupported get request",
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage[0]).toMatchObject({ status: "complete" });
+    expect(result.creativesFetched).toBe(50);
+    expect(result.creativesPending).toBe(12);
+    expect(result.errors[0].message).toContain("Unsupported get request");
+    expect(recorded.runs[0].summary).toMatchObject({ creativesPending: 12 });
+  });
+
+  test("conta parcial por cota não gasta chamada com criativos", async () => {
+    const { ports, recorded } = makePorts({
+      collectDailyMetrics: async () => ({
+        rowsUpserted: 12,
+        usage: { utilizationPercent: 91, estimatedRegainMs: null },
+        apiCalls: 2,
+        stoppedForQuota: true,
+        slicesDegraded: 0,
+        levelsAbandoned: [],
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.creativeCalls).toEqual([]);
+    expect(result.creativesFetched).toBe(0);
+    expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
   });
 
   test("o audit trail é consultado depois do delta gravado e entra no resumo do run", async () => {

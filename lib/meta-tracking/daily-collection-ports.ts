@@ -27,6 +27,10 @@ import {
   loadEnrichableChangeEvents,
   upsertActivityEvents,
 } from "@/lib/db/meta-tracking-activity-queries";
+import {
+  insertCreativeSnapshots,
+  listUnknownCreativeIds,
+} from "@/lib/db/meta-tracking-creative-queries";
 import { upsertDailyMetricRows } from "@/lib/db/meta-tracking-metrics-queries";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
@@ -36,12 +40,17 @@ import {
   type ActivityCollectionPorts,
 } from "@/lib/meta-tracking/collect-activity-events";
 import {
+  collectCreativeSnapshots as runCreativeStep,
+  type CreativeSnapshotPorts,
+} from "@/lib/meta-tracking/collect-creative-snapshots";
+import {
   collectDailyMetrics as runDailyMetricsStep,
   type DailyMetricsPorts,
 } from "@/lib/meta-tracking/collect-daily-metrics";
 import {
   fetchAccountActivities,
   fetchAccountInsights,
+  fetchAdCreatives,
   fetchTrackedAdAccounts,
   fetchTrackedConfigs,
   listTrackedEntities,
@@ -74,6 +83,18 @@ const ACTIVITY_PORTS: ActivityCollectionPorts = {
   upsertActivityEvents,
   loadEnrichableChanges: loadEnrichableChangeEvents,
   linkActivityMatches,
+};
+
+/**
+ * As portas do passo de criativos. A descoberta é uma varredura no banco (quais
+ * `creative_id` das versões de anúncio ainda não têm snapshot), não um
+ * subproduto do delta: é o que faz o passivo do backfill e o que falhou ontem
+ * reaparecerem sozinhos.
+ */
+const CREATIVE_PORTS: CreativeSnapshotPorts = {
+  listUnknownCreativeIds,
+  fetchCreatives: fetchAdCreatives,
+  insertCreatives: insertCreativeSnapshots,
 };
 
 /** Todos os usuários com conta Meta conectada, paginados até o fim. */
@@ -173,6 +194,8 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
 
     collectDailyMetrics: (args) =>
       runDailyMetricsStep(DAILY_METRICS_PORTS, args),
+
+    collectCreativeSnapshots: (args) => runCreativeStep(CREATIVE_PORTS, args),
 
     createRun: ({ triggeredBy }) => createTrackingRun({ triggeredBy }),
 

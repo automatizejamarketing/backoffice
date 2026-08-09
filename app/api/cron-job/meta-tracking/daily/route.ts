@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
       metricRowsUpserted: result.metricRowsUpserted,
+      creativesFetched: result.creativesFetched,
       stoppedForBudget: result.stoppedForBudget,
     });
 
@@ -64,6 +65,10 @@ export async function GET(request: NextRequest) {
       metricRowsUpserted: result.metricRowsUpserted,
       /** Acima de zero = alguma conta está encostando no teto de linhas. */
       metricSlicesDegraded: result.metricSlicesDegraded,
+      /** Snapshots de criativo gravados neste disparo (foto única por criativo). */
+      creativesFetched: result.creativesFetched,
+      /** Criativos ainda sem snapshot; a próxima varredura os encontra de novo. */
+      creativesPending: result.creativesPending,
       /** Verdadeiro = ainda há base a cobrir; o próximo disparo continua. */
       stoppedForBudget: result.stoppedForBudget,
       // Primeiras falhas ajudam a diagnosticar sem despejar o lote inteiro.

@@ -30,6 +30,8 @@ const RUN_BASE = {
     eventsLinked: 2,
     metricRowsUpserted: 9520,
     metricSlicesDegraded: 0,
+    creativesFetched: 31,
+    creativesPending: 4,
   },
 };
 
@@ -43,6 +45,10 @@ describe("summarizeTrackingRun", () => {
     expect(view.counters.accountsCovered).toBe(18);
     expect(view.counters.metricRowsUpserted).toBe(9520);
     expect(view.counters.eventsLinked).toBe(2);
+    // Contador fora de `COUNTER_KEYS` não chega à tela — ver o aviso 3 do
+    // ticket 09.
+    expect(view.counters.creativesFetched).toBe(31);
+    expect(view.counters.creativesPending).toBe(4);
   });
 
   test("execução com erros parciais é parcial, não falha", () => {

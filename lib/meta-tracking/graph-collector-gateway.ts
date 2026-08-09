@@ -31,6 +31,9 @@
  *   sobreposição de 48 h. É o único lugar de onde sai "quem mexeu", e o único
  *   cuja resposta a Meta não documenta por inteiro — daí o recuo sem
  *   `extra_data`.
+ * - **Criativos** (`?ids=…&fields=object_story_spec,…`): o conteúdo do §4.6, uma
+ *   vez por criativo. É a única busca sem repetição: criativo é imutável, então
+ *   a foto é única.
  */
 
 import { graphApiVersion, graphFacebookBaseUrl } from "@/lib/meta-business/constant";
@@ -59,6 +62,7 @@ import {
   type RawInsightsRow,
 } from "@/lib/meta-tracking/daily-metrics";
 import type { RawActivity } from "@/lib/meta-tracking/activity-enrichment";
+import type { RawCreative } from "@/lib/meta-tracking/creative-snapshot";
 import type { InsightsFetchResult } from "@/lib/meta-tracking/collect-daily-metrics";
 import type { TrackingConfigObservation } from "@/lib/meta-tracking/compute-tracking-delta";
 import type {
@@ -471,6 +475,104 @@ export async function fetchTrackedConfigs(args: {
   }
 
   return { configs, usage, apiCalls, stoppedForQuota: false };
+}
+
+/**
+ * Field set do criativo (§4.6 do plano): o que o anúncio mostrava e para onde
+ * levava.
+ *
+ * `object_story_spec` é o campo que responde a pergunta central — é dentro dele
+ * que mora a URL de promoção, o texto e o botão. `asset_feed_spec` traz as
+ * variações do Advantage+, `url_tags` as UTMs e `degrees_of_freedom_spec` o que
+ * a Meta teve permissão para alterar sozinha.
+ */
+const CREATIVE_FIELDS: readonly string[] = [
+  "id",
+  "name",
+  "status",
+  "object_story_spec",
+  "asset_feed_spec",
+  "degrees_of_freedom_spec",
+  "url_tags",
+  "call_to_action_type",
+  "effective_object_story_id",
+  "image_url",
+  "image_hash",
+  "video_id",
+  "instagram_user_id",
+  "actor_id",
+];
+
+/**
+ * Field set de recuo, com os campos que existem desde sempre — mesma postura do
+ * fetch profundo de configuração. Ficam de fora os três mais novos do catálogo
+ * (`asset_feed_spec`, `degrees_of_freedom_spec`, `instagram_user_id`): perder as
+ * variações do Advantage+ é ruim, perder o `object_story_spec` do lote inteiro
+ * por causa de um campo renomeado é pior.
+ */
+const CREATIVE_CORE_FIELDS: readonly string[] = CREATIVE_FIELDS.filter(
+  (field) =>
+    field !== "asset_feed_spec" &&
+    field !== "degrees_of_freedom_spec" &&
+    field !== "instagram_user_id",
+);
+
+/**
+ * Um node batch de criativos (`?ids=a,b,c&fields=…`), no mesmo teto de 50 do
+ * fetch profundo de configuração.
+ *
+ * Criativo é imutável na Meta e esta é a única foto que existirá dele — daí o
+ * field set largo e o recuo: gravar o essencial é melhor do que não gravar
+ * nada, e o que não for capturado agora não tem quando ser recuperado.
+ */
+export async function fetchAdCreatives(args: {
+  accountId: string;
+  credentials: TrackingCredentials;
+  creativeIds: readonly string[];
+}): Promise<{
+  creatives: RawCreative[];
+  usage: QuotaUsage;
+  apiCalls: number;
+}> {
+  if (args.creativeIds.length === 0) {
+    return { creatives: [], usage: UNKNOWN_QUOTA_USAGE, apiCalls: 0 };
+  }
+
+  const request = (fields: readonly string[]) =>
+    graphGet<Record<string, unknown>>({
+      path: "",
+      params: new URLSearchParams({
+        ids: args.creativeIds.join(","),
+        fields: fields.join(","),
+      }).toString(),
+      accessToken: args.credentials.accessToken,
+    });
+
+  let response: GraphResponse<Record<string, unknown>>;
+  let apiCalls = 1;
+  try {
+    response = await request(CREATIVE_FIELDS);
+  } catch (error) {
+    if (!isInvalidParameterError(error)) throw error;
+    console.warn(
+      "[meta-tracking] field set de criativos rejeitado; recuando para o essencial",
+      error instanceof Error ? error.message : error,
+    );
+    response = await request(CREATIVE_CORE_FIELDS);
+    apiCalls = 2;
+  }
+
+  // O node batch responde um mapa `{ id: nó }`. O nó vai cru para a costura,
+  // que é quem decide o que é uma linha; id que não existe mais chega como
+  // `false` ou objeto sem `id`, e ela o descarta.
+  const creatives: RawCreative[] = [];
+  for (const node of Object.values(response.json ?? {})) {
+    if (node && typeof node === "object" && !Array.isArray(node)) {
+      creatives.push(node as RawCreative);
+    }
+  }
+
+  return { creatives, usage: response.usage, apiCalls };
 }
 
 /** Linhas de insights por página. Acima disso a Meta costuma truncar sozinha. */

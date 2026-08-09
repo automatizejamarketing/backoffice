@@ -58,6 +58,13 @@ export type TrackingRunCounters = {
   metricRowsUpserted: number;
   /** Diferente de zero = alguma conta está encostando no teto de linhas da Meta. */
   metricSlicesDegraded: number;
+  /** Snapshots de criativo gravados — foto única, nunca rebuscada. */
+  creativesFetched: number;
+  /**
+   * Criativos que continuam sem snapshot. Normal enquanto o passivo de uma
+   * conta recém-ativada drena; teimoso é sinal de lote recusado pela Meta.
+   */
+  creativesPending: number;
 };
 
 const COUNTER_KEYS = [
@@ -74,6 +81,8 @@ const COUNTER_KEYS = [
   "eventsLinked",
   "metricRowsUpserted",
   "metricSlicesDegraded",
+  "creativesFetched",
+  "creativesPending",
 ] as const satisfies readonly (keyof TrackingRunCounters)[];
 
 export type TrackingRunRow = {

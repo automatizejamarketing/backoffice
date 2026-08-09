@@ -75,6 +75,8 @@ console.log(
       activityEventsMatched: result.activityEventsMatched,
       metricRowsUpserted: result.metricRowsUpserted,
       metricSlicesDegraded: result.metricSlicesDegraded,
+      creativesFetched: result.creativesFetched,
+      creativesPending: result.creativesPending,
       stoppedForBudget: result.stoppedForBudget,
     },
     null,

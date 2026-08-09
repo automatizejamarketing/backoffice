@@ -38,7 +38,11 @@
  *    insights falharem, a configuração do dia — que não existe em lugar nenhum
  *    para ser buscada depois — já está salva, e a série se recupera sozinha
  *    amanhã, quando a janela móvel re-coletar os mesmos dias.
- * 8. **Cobertura** — o que aconteceu com a conta naquele dia, sempre gravado:
+ * 8. **Criativos** — o conteúdo dos criativos que os anúncios referenciam, uma
+ *    foto única por criativo. Por último de propósito: é a única coleta que não
+ *    perece (criativo é imutável na Meta), então é a primeira a ceder a vez
+ *    quando a cota aperta, e a falha dela também não conta contra a cobertura.
+ * 9. **Cobertura** — o que aconteceu com a conta naquele dia, sempre gravado:
  *    `complete`, `partial` (cota), `failed` ou `skipped_*` (token).
  *
  * ## Por que a cota interrompe em vez de esperar
@@ -77,6 +81,7 @@ import {
 } from "@/lib/meta-tracking/correlation";
 import type { ActivityCollectionResult } from "@/lib/meta-tracking/collect-activity-events";
 import type { DailyMetricsResult } from "@/lib/meta-tracking/collect-daily-metrics";
+import type { CreativeSnapshotResult } from "@/lib/meta-tracking/collect-creative-snapshots";
 import type {
   MetaTrackingCoverageStatus,
   MetaTrackingRunStatus,
@@ -239,6 +244,19 @@ export type DailyCollectionPorts = {
     /** Cota já gasta pelas etapas anteriores desta conta. */
     usage: QuotaUsage;
   }) => Promise<DailyMetricsResult>;
+  /**
+   * O conteúdo dos criativos que os anúncios da conta referenciam. Etapa
+   * separada e injetável: quem a implementa é `collect-creative-snapshots.ts`,
+   * e é ela quem sabe descobrir os desconhecidos e respeitar o teto por
+   * execução.
+   */
+  collectCreativeSnapshots: (args: {
+    userId: string;
+    accountId: string;
+    credentials: TrackingCredentials;
+    /** Cota já gasta pelas etapas anteriores desta conta. */
+    usage: QuotaUsage;
+  }) => Promise<CreativeSnapshotResult>;
   createRun: (args: {
     triggeredBy: MetaTrackingRunTriggeredBy;
   }) => Promise<string>;
@@ -301,6 +319,14 @@ export type DailyCollectionResult = {
    * linhas. Diferente de zero = alguma conta está encostando no teto da Meta.
    */
   metricSlicesDegraded: number;
+  /** Snapshots de criativo gravados (uma foto única por criativo). */
+  creativesFetched: number;
+  /**
+   * Criativos que continuam sem snapshot. Diferente de zero é normal enquanto o
+   * passivo de uma conta recém-ativada drena; alto e teimoso é sinal de que a
+   * Meta está recusando os lotes.
+   */
+  creativesPending: number;
   stoppedForBudget: boolean;
   errors: DailyCollectionError[];
 };
@@ -359,6 +385,8 @@ export async function runDailyTrackingCollection(
     activityEventsMatched: 0,
     metricRowsUpserted: 0,
     metricSlicesDegraded: 0,
+    creativesFetched: 0,
+    creativesPending: 0,
     stoppedForBudget: false,
     errors: [],
   };
@@ -382,6 +410,8 @@ export async function runDailyTrackingCollection(
     activityEventsMatched: result.activityEventsMatched,
     metricRowsUpserted: result.metricRowsUpserted,
     metricSlicesDegraded: result.metricSlicesDegraded,
+    creativesFetched: result.creativesFetched,
+    creativesPending: result.creativesPending,
   });
 
   try {
@@ -674,6 +704,40 @@ async function collectAccount(args: {
           userEmail: user.email,
           accountId: account.accountId,
           message: `Insights de ${entityLevel} excederam o limite de linhas da Meta mesmo em um único dia; o nível ficou sem série em ${businessDate}.`,
+        });
+      }
+    }
+
+    // Criativos por ÚLTIMO, e por fora do que decide a cobertura: é a única
+    // coisa que esta coleta busca e que não perece. Criativo é imutável na
+    // Meta, então o que não couber hoje continua igual amanhã — enquanto a
+    // configuração do dia não existe em lugar nenhum para ser buscada depois.
+    // Daí ser o primeiro a ceder a vez quando a cota aperta, e a falha aqui não
+    // custar o dia da conta.
+    if (status === "complete") {
+      try {
+        const creatives = await ports.collectCreativeSnapshots({
+          userId: user.id,
+          accountId: account.accountId,
+          credentials,
+          usage,
+        });
+        usage = mergeQuotaUsage(usage, creatives.usage);
+        apiCallsUsed += creatives.apiCalls;
+        result.creativesFetched += creatives.creativesFetched;
+        result.creativesPending += creatives.creativesPending;
+        if (creatives.failureMessage) {
+          result.errors.push({
+            userEmail: user.email,
+            accountId: account.accountId,
+            message: `Conteúdo de criativos indisponível na Meta; ${creatives.creativesPending} criativo(s) seguem sem snapshot: ${creatives.failureMessage}`,
+          });
+        }
+      } catch (error) {
+        result.errors.push({
+          userEmail: user.email,
+          accountId: account.accountId,
+          message: `Não foi possível capturar o conteúdo dos criativos: ${errorMessageOf(error, "erro desconhecido")}`,
         });
       }
     }

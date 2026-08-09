@@ -235,6 +235,66 @@ export function activityV25(
   return row;
 }
 
+/**
+ * Um criativo de anúncio (`GET /{creative-id}?fields=…`), o conteúdo que o
+ * anúncio mostrava e para onde ele levava.
+ *
+ * O que só aparece em resposta de verdade e quebra parser ingênuo:
+ *
+ * - **a URL de promoção muda de lugar conforme o tipo do anúncio**: em anúncio
+ *   de link ela é `object_story_spec.link_data.link`; em vídeo, ela só existe
+ *   dentro de `call_to_action.value.link`; em Advantage+ ela vira uma LISTA em
+ *   `asset_feed_spec.link_urls[].website_url`;
+ * - `url_tags` é uma **string** de query string, não um objeto;
+ * - `image_hash` e `video_id` se excluem na prática, e o `image_url` do vídeo é
+ *   a miniatura, não a mídia;
+ * - `effective_object_story_id` tem a forma `{page_id}_{post_id}`.
+ *
+ * `overrides` entra por cima; passar `undefined` num campo o remove.
+ */
+export function adCreativeV25(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const node: Record<string, unknown> = {
+    id: FIXTURE_CREATIVE_ID,
+    name: "Criativo — Vídeo 15s oferta de inverno",
+    status: "ACTIVE",
+    object_story_spec: {
+      page_id: "1122334455667788",
+      instagram_user_id: "17841400000000001",
+      video_data: {
+        video_id: "1029384756473829",
+        message: "Últimas unidades da coleção de inverno.",
+        title: "Frete grátis acima de R$ 199",
+        image_url:
+          "https://scontent.xx.fbcdn.net/v/t15.0-10/thumb_120250000000000401.jpg",
+        call_to_action: {
+          type: "SHOP_NOW",
+          value: { link: "https://loja.exemplo.com.br/inverno" },
+        },
+      },
+    },
+    degrees_of_freedom_spec: {
+      creative_features_spec: {
+        standard_enhancements: { enroll_status: "OPT_IN" },
+      },
+    },
+    url_tags: "utm_source=facebook&utm_medium=paid&utm_campaign=inverno",
+    call_to_action_type: "SHOP_NOW",
+    effective_object_story_id: "1122334455667788_9988776655443322",
+    video_id: "1029384756473829",
+    instagram_user_id: "17841400000000001",
+    actor_id: "1122334455667788",
+    ...overrides,
+  };
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete node[key];
+  }
+
+  return node;
+}
+
 /** Configuração profunda de anúncio (`GET /{ad-id}?fields=…`). */
 export function adConfigV25(
   overrides: Record<string, unknown> = {},
