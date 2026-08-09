@@ -279,8 +279,6 @@ export type MatchActivitiesInput = {
   activities: readonly ActivityEventRow[];
   /** Ações pendentes, da mais recente para a mais antiga. */
   changes: readonly EnrichableChange[];
-  /** Janela para trás a partir da detecção. Padrão: a do poll. */
-  toleranceMs?: number;
 };
 
 /** Quem agiu, para efeito de ambiguidade. */
@@ -313,7 +311,6 @@ function actorIdentity(activity: ActivityEventRow): string {
 export function matchActivitiesToChanges(
   input: MatchActivitiesInput,
 ): ActivityMatch[] {
-  const toleranceMs = input.toleranceMs ?? ACTIVITY_POLL_OVERLAP_MS;
   const consumed = new Set<string>();
   const matches: ActivityMatch[] = [];
 
@@ -328,7 +325,7 @@ export function matchActivitiesToChanges(
           activity.objectId === change.entityId &&
           activityNature(activity.eventType) === nature &&
           activity.eventTime.getTime() <= detectedAt &&
-          activity.eventTime.getTime() >= detectedAt - toleranceMs,
+          activity.eventTime.getTime() >= detectedAt - ACTIVITY_POLL_OVERLAP_MS,
       )
       .sort((a, b) => b.eventTime.getTime() - a.eventTime.getTime());
 

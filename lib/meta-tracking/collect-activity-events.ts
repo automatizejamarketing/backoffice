@@ -37,11 +37,7 @@ import {
   type EnrichableChange,
   type RawActivity,
 } from "@/lib/meta-tracking/activity-enrichment";
-import {
-  mergeQuotaUsage,
-  UNKNOWN_QUOTA_USAGE,
-  type QuotaUsage,
-} from "@/lib/meta-tracking/quota-usage";
+import type { QuotaUsage } from "@/lib/meta-tracking/quota-usage";
 import type { TrackingCredentials } from "@/lib/meta-tracking/run-daily-collection";
 
 /** Um evento cru já gravado: a chave de dedup e o uuid que ela ganhou. */
@@ -125,7 +121,7 @@ export async function collectActivityEvents(
   const result: ActivityCollectionResult = {
     eventsUpserted: 0,
     eventsMatched: 0,
-    usage: mergeQuotaUsage(UNKNOWN_QUOTA_USAGE, fetched.usage),
+    usage: fetched.usage,
     apiCalls: fetched.apiCalls,
   };
 
@@ -154,21 +150,18 @@ export async function collectActivityEvents(
   });
   if (changes.length === 0) return result;
 
-  const links: ActivityLink[] = [];
   const available = rows.filter((row) => idByDedupHash.has(row.dedupHash));
-  for (const match of matchActivitiesToChanges({
+  const links: ActivityLink[] = matchActivitiesToChanges({
     activities: available,
     changes,
-  })) {
-    const activityEventId = idByDedupHash.get(match.dedupHash);
-    if (!activityEventId) continue;
-    links.push({
-      changeEventId: match.changeEventId,
-      activityEventId,
-      actorName: match.actorName,
-      occurredAt: match.occurredAt,
-    });
-  }
+  }).map((match) => ({
+    changeEventId: match.changeEventId,
+    // O match só pode ter saído de `available`, e `available` é exatamente o
+    // que está no mapa.
+    activityEventId: idByDedupHash.get(match.dedupHash)!,
+    actorName: match.actorName,
+    occurredAt: match.occurredAt,
+  }));
 
   if (links.length > 0) {
     result.eventsMatched = await ports.linkActivityMatches(links);
