@@ -40,6 +40,8 @@
 
 import {
   computeTrackingDelta,
+  INTERNAL_CHANGE_TOLERANCE_MS,
+  type RecentInternalChange,
   type TrackingConfigObservation,
   type TrackingDelta,
 } from "@/lib/meta-tracking/compute-tracking-delta";
@@ -131,6 +133,8 @@ export type PersistDeltaResult = {
   versionsCreated: number;
   eventsCreated: number;
   versionsConfirmed: number;
+  /** Ações internas que ganharam a versão nova como destino. */
+  eventsLinked: number;
 };
 
 /**
@@ -179,6 +183,15 @@ export type DailyCollectionPorts = {
     userId: string;
     accountId: string;
   }) => Promise<TrackedEntityState[]>;
+  /**
+   * Ações que a própria plataforma registrou no stream desde `since`. Sem
+   * elas o coletor escreveria um segundo evento — anônimo — para a mudança que
+   * o gestor ou o cliente acabou de fazer com autor e motivo.
+   */
+  loadRecentInternalChanges: (args: {
+    accountId: string;
+    since: Date;
+  }) => Promise<RecentInternalChange[]>;
   getCoverageStatus: (args: {
     accountId: string;
     businessDate: DayKey;
@@ -236,6 +249,7 @@ export type DailyCollectionResult = {
   versionsCreated: number;
   eventsCreated: number;
   versionsConfirmed: number;
+  eventsLinked: number;
   stoppedForBudget: boolean;
   errors: DailyCollectionError[];
 };
@@ -283,6 +297,7 @@ export async function runDailyTrackingCollection(
     versionsCreated: 0,
     eventsCreated: 0,
     versionsConfirmed: 0,
+    eventsLinked: 0,
     stoppedForBudget: false,
     errors: [],
   };
@@ -301,6 +316,7 @@ export async function runDailyTrackingCollection(
     versionsCreated: result.versionsCreated,
     eventsCreated: result.eventsCreated,
     versionsConfirmed: result.versionsConfirmed,
+    eventsLinked: result.eventsLinked,
     // A série diária de resultados é do ticket 04; a chave existe desde já
     // porque o resumo do run é lido pela tela de operação.
     metricRowsUpserted: 0,
@@ -517,6 +533,14 @@ async function collectAccount(args: {
       if (fetched.stoppedForQuota) status = "partial";
     }
 
+    // O que a plataforma já registrou com autor e motivo. Lido DEPOIS do fetch
+    // (a janela conta a partir da observação) e antes do delta, que é quem sabe
+    // o que fazer com isso.
+    const internalChanges = await ports.loadRecentInternalChanges({
+      accountId: account.accountId,
+      since: new Date(observedAt.getTime() - INTERNAL_CHANGE_TOLERANCE_MS),
+    });
+
     const delta = computeTrackingDelta({
       userId: user.id,
       accountId: account.accountId,
@@ -525,6 +549,7 @@ async function collectAccount(args: {
       listing: listing.entities,
       configs,
       previous,
+      internalChanges,
     });
 
     const persisted = await ports.persistAccountDelta({ runId, delta });
@@ -532,6 +557,7 @@ async function collectAccount(args: {
     result.versionsCreated += persisted.versionsCreated;
     result.eventsCreated += persisted.eventsCreated;
     result.versionsConfirmed += persisted.versionsConfirmed;
+    result.eventsLinked += persisted.eventsLinked;
   } catch (error) {
     status = "failed";
     errorMessage = errorMessageOf(error, "Erro ao coletar a conta na Meta.");

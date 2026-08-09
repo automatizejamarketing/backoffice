@@ -10,6 +10,10 @@ import type { ListedEntity } from "@/lib/meta-tracking/daily-collection-plan";
 import type { TrackingDelta } from "@/lib/meta-tracking/compute-tracking-delta";
 import { UNKNOWN_QUOTA_USAGE } from "@/lib/meta-tracking/quota-usage";
 import {
+  hashTrackedConfig,
+  normalizeTrackedConfig,
+} from "@/lib/meta-tracking/config-version";
+import {
   adsetConfigV25,
   campaignConfigV25,
   FIXTURE_ADSET_ID,
@@ -54,6 +58,7 @@ type Recorded = {
   deltas: TrackingDelta[];
   runs: Array<{ status: string; summary: Record<string, number> }>;
   graphCalls: string[];
+  internalChangeWindows: Array<{ accountId: string; since: Date }>;
 };
 
 function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
@@ -65,6 +70,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
     deltas: [],
     runs: [],
     graphCalls: [],
+    internalChangeWindows: [],
   };
 
   const ports: DailyCollectionPorts = {
@@ -108,6 +114,10 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
       };
     },
     loadAccountState: async () => [],
+    loadRecentInternalChanges: async (args) => {
+      recorded.internalChangeWindows.push(args);
+      return [];
+    },
     getCoverageStatus: async () => null,
     recordCoverage: async (record) => {
       recorded.coverage.push(record);
@@ -118,6 +128,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         versionsCreated: delta.versions.length,
         eventsCreated: delta.events.length,
         versionsConfirmed: delta.confirmations.length,
+        eventsLinked: delta.versionLinks.length,
       };
     },
     createRun: async () => "run-1",
@@ -163,6 +174,83 @@ describe("runDailyTrackingCollection", () => {
       versionsCreated: 2,
       eventsCreated: 2,
     });
+  });
+
+  test("a coleta pergunta pelas ações internas do último dia da conta", async () => {
+    const { ports, recorded } = makePorts();
+
+    await runDailyTrackingCollection(ports, { triggeredBy: "script" });
+
+    expect(recorded.internalChangeWindows).toEqual([
+      {
+        accountId: ACCOUNT.accountId,
+        since: new Date(NOW.getTime() - 24 * 60 * 60 * 1000),
+      },
+    ]);
+  });
+
+  test("mudança já registrada pelo backoffice liga a versão em vez de virar evento", async () => {
+    const yesterdayCampaign = campaignConfigV25();
+    const todayCampaign = campaignConfigV25({ daily_budget: "9000" });
+
+    const { ports, recorded } = makePorts({
+      listEntities: async () => ({
+        entities: activeListing().slice(0, 1),
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 3,
+      }),
+      fetchConfigs: async () => ({
+        configs: [
+          {
+            entityLevel: "campaign" as const,
+            entityId: FIXTURE_CAMPAIGN_ID,
+            config: todayCampaign,
+          },
+        ],
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+        stoppedForQuota: false,
+      }),
+      loadAccountState: async () => [
+        {
+          entityLevel: "campaign",
+          entityId: FIXTURE_CAMPAIGN_ID,
+          lastEffectiveStatus: "ACTIVE",
+          confirmedAt: new Date(NOW.getTime() - 24 * 60 * 60 * 1000),
+          currentVersion: {
+            id: "8d0f5b2a-4c31-4d7e-9a10-6b5c4d3e2f11",
+            versionNumber: 4,
+            configHash: hashTrackedConfig(
+              normalizeTrackedConfig(yesterdayCampaign),
+            ),
+            isManaged: true,
+            config: yesterdayCampaign,
+          },
+        },
+      ],
+      loadRecentInternalChanges: async () => [
+        {
+          changeEventId: "b7c2e1d0-3a45-4f67-8901-2b3c4d5e6f70",
+          entityLevel: "campaign",
+          entityId: FIXTURE_CAMPAIGN_ID,
+          changeKind: "config_change",
+          changedFields: { daily_budget: { old: "5000", new: "9000" } },
+          occurredAt: new Date(NOW.getTime() - 6 * 60 * 60 * 1000),
+        },
+      ],
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "script",
+    });
+
+    const [delta] = recorded.deltas;
+    expect(delta.versions).toHaveLength(1);
+    expect(delta.events).toEqual([]);
+    expect(delta.versionLinks).toHaveLength(1);
+    expect(result.eventsCreated).toBe(0);
+    expect(result.eventsLinked).toBe(1);
+    expect(recorded.runs[0].summary).toMatchObject({ eventsLinked: 1 });
   });
 
   test("a marca de Campanha Gerenciada é avaliada com o prefixo das regras do negócio", async () => {

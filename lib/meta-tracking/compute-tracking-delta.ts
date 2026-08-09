@@ -34,9 +34,12 @@
  *   `partial`). Inventar `deleted_detected` a partir de uma listagem truncada
  *   escreveria mentira permanente no stream. Remoção é reconhecida quando a
  *   Meta a REPORTA (`effective_status` `DELETED`/`ARCHIVED`).
- * - **Não deduplica escritas internas** (ticket 07): tudo que ela detecta nasce
- *   com origem `external_detected`. A supressão entra depois, filtrando eventos
- *   já registrados pelas rotas de mutação.
+ * - **Não infere autoria.** O que ela detecta nasce com origem
+ *   `external_detected`. Uma mudança que a plataforma mesma fez já entrou no
+ *   stream pela camada de wrapper das rotas, com autor e motivo — e é por isso
+ *   que `internalChanges` existe: alimentada com essas ações, a costura
+ *   reconhece o que já foi registrado, não duplica o evento e apenas liga a
+ *   versão nova ao evento que já está lá (`versionLinks`).
  *
  * ## Duas entradas, dois papéis
  *
@@ -67,6 +70,10 @@ import {
   type TrackedVersionColumns,
   type TrackedVolatileColumns,
 } from "@/lib/meta-tracking/config-version";
+import {
+  isAppliedToMeta,
+  sameMetaFieldValue,
+} from "@/lib/meta-tracking/internal-change-event";
 
 // ================================
 // Entrada
@@ -123,6 +130,25 @@ export type KnownEntityState = {
   currentVersion?: KnownConfigVersion | null;
 };
 
+/**
+ * Uma ação que a PLATAFORMA já registrou no stream — pelo backoffice (com
+ * motivo) ou pelo painel do cliente —, lida do banco antes da coleta.
+ *
+ * O coletor enxerga a mesma mudança um dia depois e, sem isto, escreveria um
+ * segundo evento dizendo "alguém mexeu, não sei quem": o stream passaria a ter
+ * duas ações para um fato só, e a de baixo qualidade apagaria a de cima na
+ * leitura. `changedFields` chega no MESMO vocabulário do diff do coletor
+ * (chaves de primeiro nível da Graph API) — é o que torna a comparação possível.
+ */
+export type RecentInternalChange = {
+  changeEventId: string;
+  entityLevel: MetaTrackingEntityLevel;
+  entityId: string;
+  changeKind: MetaTrackingChangeKind;
+  changedFields: MetaTrackingChangedFields;
+  occurredAt: Date;
+};
+
 export type TrackingDeltaInput = {
   userId: string;
   accountId: string;
@@ -133,6 +159,12 @@ export type TrackingDeltaInput = {
   listing: readonly TrackingListingEntity[];
   configs: readonly TrackingConfigObservation[];
   previous: readonly KnownEntityState[];
+  /**
+   * Ações internas recentes da conta. Ausente = coleta sem deduplicação (o
+   * backfill, por exemplo, que roda sobre um passado que ninguém editou por
+   * aqui).
+   */
+  internalChanges?: readonly RecentInternalChange[];
 };
 
 // ================================
@@ -196,11 +228,33 @@ export type TrackingVersionConfirmation = {
   volatile: TrackedVolatileColumns;
 };
 
+/**
+ * "Este evento que já está no stream é o que produziu esta versão nova": o
+ * executor faz `UPDATE meta_tracking_change_events SET to_config_version_id`.
+ * É o que fecha o ciclo de uma ação interna — ela nasce sem versão (a versão só
+ * existe depois que a coleta confirma a configuração nova) e ganha o destino
+ * aqui.
+ */
+export type TrackingVersionLink = {
+  changeEventId: string;
+  /** `ref` da versão nova deste delta; o executor troca pelo uuid inserido. */
+  toVersionRef: string;
+};
+
 export type TrackingDelta = {
   versions: TrackingVersionDraft[];
   events: TrackingChangeEventDraft[];
   confirmations: TrackingVersionConfirmation[];
+  versionLinks: TrackingVersionLink[];
 };
+
+/**
+ * Janela de tolerância entre a ação registrada e a coleta que a enxerga. Vinte
+ * e quatro horas cobrem o caso real — a coleta roda de madrugada e a ação
+ * aconteceu em algum momento do dia anterior — sem esticar a ponto de casar
+ * duas edições distintas do mesmo campo em dias seguidos.
+ */
+export const INTERNAL_CHANGE_TOLERANCE_MS = 24 * 60 * 60 * 1000;
 
 // ================================
 // Cálculo
@@ -255,13 +309,73 @@ function lifecycleKindFor(effectiveStatus: string): MetaTrackingChangeKind {
   return "status_transition";
 }
 
+/**
+ * O estado para onde uma ação interna disse que a entidade foi. As rotas
+ * registram o status CONFIGURADO (`status` — o interruptor que a pessoa mexeu)
+ * e o coletor observa o EFETIVO (`effective_status` — a entrega). Quando quem
+ * pausou foi a pessoa, os dois contam o mesmo fato com nomes diferentes.
+ */
+function internalStatusTarget(change: RecentInternalChange): unknown {
+  const status = change.changedFields.status ?? change.changedFields.effective_status;
+  return status?.new;
+}
+
+/**
+ * Casa a transição observada com uma ação interna ainda não usada. Consome a
+ * ação: um evento interno explica UMA mudança, não todas as que se parecerem
+ * com ela.
+ */
+function takeLifecycleExplanation(args: {
+  candidates: readonly RecentInternalChange[];
+  consumed: Set<string>;
+  isCreation: boolean;
+  observedStatus: string;
+}): RecentInternalChange | null {
+  for (const candidate of args.candidates) {
+    if (args.consumed.has(candidate.changeEventId)) continue;
+
+    const explains = args.isCreation
+      ? candidate.changeKind === "created"
+      : sameMetaFieldValue(internalStatusTarget(candidate), args.observedStatus);
+
+    if (!explains) continue;
+    args.consumed.add(candidate.changeEventId);
+    return candidate;
+  }
+  return null;
+}
+
 export function computeTrackingDelta(input: TrackingDeltaInput): TrackingDelta {
-  const delta: TrackingDelta = { versions: [], events: [], confirmations: [] };
+  const delta: TrackingDelta = {
+    versions: [],
+    events: [],
+    confirmations: [],
+    versionLinks: [],
+  };
 
   const previousByKey = new Map<string, KnownEntityState>();
   for (const state of input.previous) {
     previousByKey.set(entityKey(state.entityLevel, state.entityId), state);
   }
+
+  // Ações internas que podem explicar o que a coleta vai encontrar. Fora da
+  // janela de tolerância não explicam nada, e uma que a Meta RECUSOU explica
+  // menos ainda: se a alteração não foi aplicada, o que o coletor está vendo é
+  // outra pessoa mexendo — e o stream tem de dizer isso.
+  const internalByKey = new Map<string, RecentInternalChange[]>();
+  for (const change of input.internalChanges ?? []) {
+    const distance = Math.abs(
+      input.observedAt.getTime() - change.occurredAt.getTime(),
+    );
+    if (distance > INTERNAL_CHANGE_TOLERANCE_MS) continue;
+    if (!isAppliedToMeta(change.changedFields)) continue;
+
+    const key = entityKey(change.entityLevel, change.entityId);
+    const bucket = internalByKey.get(key);
+    if (bucket) bucket.push(change);
+    else internalByKey.set(key, [change]);
+  }
+  const consumedInternalChanges = new Set<string>();
 
   const listingByKey = new Map<string, TrackingListingEntity>();
   for (const entity of input.listing) {
@@ -324,6 +438,10 @@ export function computeTrackingDelta(input: TrackingDeltaInput): TrackingDelta {
     const previous = previousByKey.get(key);
     const current = previous?.currentVersion ?? null;
 
+    const internalCandidates = internalByKey.get(key) ?? [];
+    /** Ação interna que já registrou a criação desta entidade, se houver. */
+    let internalCreation: RecentInternalChange | null = null;
+
     // ---- Ciclo de vida: só a listagem vê todas as entidades da conta.
     if (listed) {
       const observedStatus = listed.effectiveStatus ?? null;
@@ -332,7 +450,23 @@ export function computeTrackingDelta(input: TrackingDeltaInput): TrackingDelta {
       const statusMoved =
         observedStatus !== null && observedStatus !== knownStatus;
 
-      if (isNewToTracking || statusMoved) {
+      // Pausar, retomar ou criar pela plataforma já virou ação no stream, com
+      // autor e motivo. Reescrever isso como "detectado externamente" seria
+      // trocar uma ação assinada por uma anônima.
+      const explainedInternally =
+        (isNewToTracking || statusMoved) && observedStatus !== null
+          ? takeLifecycleExplanation({
+              candidates: internalCandidates,
+              consumed: consumedInternalChanges,
+              isCreation: isNewToTracking,
+              observedStatus,
+            })
+          : null;
+      if (explainedInternally && isNewToTracking) {
+        internalCreation = explainedInternally;
+      }
+
+      if ((isNewToTracking || statusMoved) && !explainedInternally) {
         delta.events.push({
           userId: input.userId,
           accountId: input.accountId,
@@ -412,26 +546,67 @@ export function computeTrackingDelta(input: TrackingDeltaInput): TrackingDelta {
     };
     delta.versions.push(version);
 
-    if (current) {
-      delta.events.push({
-        userId: input.userId,
-        accountId: input.accountId,
-        entityLevel: observation.entityLevel,
-        entityId: observation.entityId,
-        entityName,
-        campaignId: version.campaignId,
-        adsetId: version.adsetId,
-        changeKind: "config_change",
-        changedFields: diffNormalizedConfigs(
-          normalizeTrackedConfig(current.config),
-          normalized,
-        ),
-        source: "external_detected",
-        fromConfigVersionId: current.id,
+    // A criação já registrada internamente ganha aqui o destino que ela não
+    // podia ter no momento da escrita: a versão só existe depois que a coleta
+    // confirma a configuração.
+    if (internalCreation) {
+      delta.versionLinks.push({
+        changeEventId: internalCreation.changeEventId,
         toVersionRef: version.ref,
-        occurredAt: input.observedAt,
-        detectedAt: input.observedAt,
       });
+    }
+
+    if (current) {
+      let changedFields = diffNormalizedConfigs(
+        normalizeTrackedConfig(current.config),
+        normalized,
+      );
+
+      // Cada ação interna abate do diff os campos que ela já registrou. O que
+      // sobrar é o que mais alguém mexeu por fora — e só isso vira evento novo.
+      for (const candidate of internalCandidates) {
+        if (consumedInternalChanges.has(candidate.changeEventId)) continue;
+
+        const explained = Object.keys(candidate.changedFields).filter(
+          (field) =>
+            field in changedFields &&
+            sameMetaFieldValue(
+              candidate.changedFields[field].new,
+              changedFields[field].new,
+            ),
+        );
+        if (explained.length === 0) continue;
+
+        consumedInternalChanges.add(candidate.changeEventId);
+        delta.versionLinks.push({
+          changeEventId: candidate.changeEventId,
+          toVersionRef: version.ref,
+        });
+        changedFields = Object.fromEntries(
+          Object.entries(changedFields).filter(
+            ([field]) => !explained.includes(field),
+          ),
+        );
+      }
+
+      if (Object.keys(changedFields).length > 0) {
+        delta.events.push({
+          userId: input.userId,
+          accountId: input.accountId,
+          entityLevel: observation.entityLevel,
+          entityId: observation.entityId,
+          entityName,
+          campaignId: version.campaignId,
+          adsetId: version.adsetId,
+          changeKind: "config_change",
+          changedFields,
+          source: "external_detected",
+          fromConfigVersionId: current.id,
+          toVersionRef: version.ref,
+          occurredAt: input.observedAt,
+          detectedAt: input.observedAt,
+        });
+      }
     }
   }
 

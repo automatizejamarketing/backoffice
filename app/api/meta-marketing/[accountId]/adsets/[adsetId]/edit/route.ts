@@ -7,6 +7,8 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
+import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
+import { buildInternalChangeEvent } from "@/lib/meta-tracking/internal-change-event";
 import {
   currencyToMinorUnits,
   isEndAfterStart,
@@ -777,6 +779,71 @@ export async function PATCH(
       auditLogFailed = true;
       auditLogError =
         dbErr instanceof Error ? dbErr.message : "Falha ao registrar auditoria";
+    }
+
+    // ── Stream de ações: a mesma edição, com autor, horário exato e motivo. ──
+    // Os campos usam o vocabulário da Graph API (`daily_budget`, `targeting`,
+    // `pacing_type`…) porque é assim que a coleta do dia seguinte reconhece que
+    // esta mudança já tem dono e não a duplica como "detectada externamente".
+    const trackedEvent = buildInternalChangeEvent({
+      source: "backoffice_admin",
+      userId,
+      accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+      entityLevel: "adset",
+      entityId: adsetId,
+      entityName: adsetName ?? currentAdSet.name ?? null,
+      campaignId: campaignId ?? currentAdSet.campaign_id ?? null,
+      adsetId,
+      changeKind: "config_change",
+      changes: [
+        {
+          field: "daily_budget",
+          old: previousDailyBudget,
+          new: updateParams.daily_budget ?? previousDailyBudget,
+        },
+        {
+          field: "lifetime_budget",
+          old: previousLifetimeBudget,
+          new: updateParams.lifetime_budget ?? previousLifetimeBudget,
+        },
+        {
+          field: "start_time",
+          old: previousStartTime,
+          new: updateParams.start_time ?? previousStartTime,
+        },
+        {
+          field: "end_time",
+          old: previousEndTime,
+          new: updateParams.end_time ?? previousEndTime,
+        },
+        {
+          field: "targeting",
+          old: previousTargeting,
+          new: newTargeting ?? previousTargeting,
+        },
+        {
+          field: "pacing_type",
+          old: currentAdSet.pacing_type ?? null,
+          new: changes.deliverySchedule?.newPacingType ?? currentAdSet.pacing_type ?? null,
+        },
+        {
+          field: "adset_schedule",
+          old: currentAdSet.adset_schedule ?? null,
+          new:
+            changes.deliverySchedule?.newAdsetSchedule ??
+            currentAdSet.adset_schedule ??
+            null,
+        },
+      ],
+      actorEmail: backofficeUserEmail,
+      note: note.trim(),
+      occurredAt: new Date(),
+      appliedToMeta,
+      errorMessage,
+      legacy: logId ? { table: "adset_edit_logs", id: logId } : null,
+    });
+    if (trackedEvent.ok && trackedEvent.event) {
+      await recordInternalChangeEvent(trackedEvent.event);
     }
 
     if (!appliedToMeta) {

@@ -2414,6 +2414,8 @@ export type CreateRenameLogData = {
   objectId: string;
   previousName: string;
   newName: string;
+  /** Motivo declarado pelo gestor; ausente cai na descrição automática. */
+  note?: string | null;
 };
 
 /**
@@ -2430,7 +2432,48 @@ export async function createRenameLog(data: CreateRenameLogData) {
       fieldName: `${data.entity}_name`,
       oldValue: data.previousName,
       newValue: data.newName,
-      note: `Renomeado ${data.entity} ${data.objectId}: "${data.previousName}" → "${data.newName}"`,
+      note: data.note?.trim()
+        ? data.note.trim()
+        : `Renomeado ${data.entity} ${data.objectId}: "${data.previousName}" → "${data.newName}"`,
+    })
+    .returning();
+
+  return log;
+}
+
+export type CreateStatusChangeLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  entity: DuplicationEntity;
+  objectId: string;
+  objectName?: string | null;
+  previousStatus: string | null;
+  newStatus: string;
+  note: string;
+};
+
+/**
+ * Audit record for a Meta object status change (pause / resume / archive).
+ *
+ * Until this existed, the status `PATCH` routes wrote NOTHING — the one
+ * backoffice mutation with no paper trail at all. Reuses the generic
+ * `backoffice_audit_logs` table for the same reason `createRenameLog` does: the
+ * typed campaign/adset edit-log tables have a budget-mode shape that a status
+ * flip does not fit. The tracking stream
+ * (`meta_tracking_change_events`) is the richer record and bridges back to this
+ * row through `legacy_edit_log_table` / `legacy_edit_log_id`.
+ */
+export async function createStatusChangeLog(data: CreateStatusChangeLogData) {
+  const [log] = await db
+    .insert(backofficeAuditLog)
+    .values({
+      adminEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      action: `update_${data.entity}_status`,
+      fieldName: `${data.entity}_status`,
+      oldValue: data.previousStatus,
+      newValue: data.newStatus,
+      note: data.note,
     })
     .returning();
 

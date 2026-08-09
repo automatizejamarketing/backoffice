@@ -18,6 +18,7 @@ import {
   getAccountCoverageStatus,
   listKnownTrackedAccountIds,
   loadAccountTrackedState,
+  loadRecentInternalChangeEvents,
   persistAccountTrackingDelta,
   upsertAccountCoverage,
 } from "@/lib/db/meta-tracking-collector-queries";
@@ -120,6 +121,8 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
     fetchConfigs: fetchTrackedConfigs,
 
     loadAccountState: loadAccountTrackedState,
+
+    loadRecentInternalChanges: loadRecentInternalChangeEvents,
 
     getCoverageStatus: getAccountCoverageStatus,
 

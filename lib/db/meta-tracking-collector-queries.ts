@@ -16,7 +16,7 @@
  * dela entra completo, ou não entra.
  */
 
-import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -33,7 +33,11 @@ import {
   buildTrackedEntityStates,
   type TrackedEntityState,
 } from "@/lib/meta-tracking/daily-collection-plan";
-import type { TrackingDelta } from "@/lib/meta-tracking/compute-tracking-delta";
+import type {
+  RecentInternalChange,
+  TrackingDelta,
+} from "@/lib/meta-tracking/compute-tracking-delta";
+import type { MetaTrackingChangedFields } from "@/lib/db/schema";
 import type { DayKey } from "@/lib/meta-tracking/correlation";
 import type {
   AccountCoverageRecord,
@@ -253,6 +257,46 @@ export async function loadAccountTrackedState(args: {
 }
 
 /**
+ * As ações que a PRÓPRIA plataforma registrou nesta conta desde `since` — as
+ * rotas do backoffice (com motivo) e as do painel do cliente.
+ *
+ * Sem isso a coleta do dia seguinte escreveria um segundo evento, anônimo, para
+ * a mudança que já tem autor e motivo no stream. É a matéria-prima da
+ * deduplicação; quem decide o que casa é a costura pura.
+ */
+export async function loadRecentInternalChangeEvents(args: {
+  accountId: string;
+  since: Date;
+}): Promise<RecentInternalChange[]> {
+  const rows = await db
+    .select({
+      changeEventId: metaTrackingChangeEvent.id,
+      entityLevel: metaTrackingChangeEvent.entityLevel,
+      entityId: metaTrackingChangeEvent.entityId,
+      changeKind: metaTrackingChangeEvent.changeKind,
+      changedFields: metaTrackingChangeEvent.changedFields,
+      occurredAt: metaTrackingChangeEvent.occurredAt,
+    })
+    .from(metaTrackingChangeEvent)
+    .where(
+      and(
+        eq(metaTrackingChangeEvent.accountId, args.accountId),
+        inArray(metaTrackingChangeEvent.source, [
+          "backoffice_admin",
+          "frontend_user",
+        ]),
+        gte(metaTrackingChangeEvent.occurredAt, args.since),
+      ),
+    )
+    .orderBy(desc(metaTrackingChangeEvent.occurredAt));
+
+  return rows.map((row) => ({
+    ...row,
+    changedFields: row.changedFields as MetaTrackingChangedFields,
+  }));
+}
+
+/**
  * Grava o delta de uma conta. Tudo numa transação só, nesta ordem:
  *
  * 1. **Confirmações** — `last_confirmed_at` e as seis colunas voláteis da
@@ -262,6 +306,8 @@ export async function loadAccountTrackedState(args: {
  *    nova. Juntas, sempre.
  * 3. **Eventos** — com `to_config_version_id` já apontando para o uuid recém
  *    inserido (a costura entrega `toVersionRef`, que só ela sabe resolver).
+ * 4. **Ligações** — as ações já registradas por escrita interna ganham a versão
+ *    nova como destino, em vez de um evento duplicado.
  */
 export async function persistAccountTrackingDelta(args: {
   runId: string;
@@ -271,9 +317,15 @@ export async function persistAccountTrackingDelta(args: {
   if (
     delta.versions.length === 0 &&
     delta.events.length === 0 &&
-    delta.confirmations.length === 0
+    delta.confirmations.length === 0 &&
+    delta.versionLinks.length === 0
   ) {
-    return { versionsCreated: 0, eventsCreated: 0, versionsConfirmed: 0 };
+    return {
+      versionsCreated: 0,
+      eventsCreated: 0,
+      versionsConfirmed: 0,
+      eventsLinked: 0,
+    };
   }
 
   return db.transaction(async (tx) => {
@@ -355,10 +407,22 @@ export async function persistAccountTrackingDelta(args: {
       );
     }
 
+    let eventsLinked = 0;
+    for (const link of delta.versionLinks) {
+      const versionId = versionIdByRef.get(link.toVersionRef);
+      if (!versionId) continue;
+      await tx
+        .update(metaTrackingChangeEvent)
+        .set({ toConfigVersionId: versionId })
+        .where(eq(metaTrackingChangeEvent.id, link.changeEventId));
+      eventsLinked += 1;
+    }
+
     return {
       versionsCreated: delta.versions.length,
       eventsCreated: delta.events.length,
       versionsConfirmed: delta.confirmations.length,
+      eventsLinked,
     };
   });
 }

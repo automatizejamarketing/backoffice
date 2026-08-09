@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 const MAX_NAME_LENGTH = 100;
@@ -51,15 +52,18 @@ export function NameEditButton({
   const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(currentName ?? "");
+  const [note, setNote] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const label = ENTITY_LABEL[entityType];
   const trimmed = value.trim();
+  const trimmedNote = note.trim();
 
   const openDialog = (e: React.MouseEvent) => {
     e.stopPropagation();
     setValue(currentName ?? "");
+    setNote("");
     setError(null);
     setOpen(true);
   };
@@ -75,6 +79,13 @@ export function NameEditButton({
       return;
     }
 
+    // O motivo acompanha a alteração até o stream de ações: renomear muda a
+    // marca de Campanha Gerenciada e a configuração registrada.
+    if (trimmedNote.length === 0) {
+      setError("A nota explicativa é obrigatória.");
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -84,7 +95,7 @@ export function NameEditButton({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: trimmed }),
+          body: JSON.stringify({ name: trimmed, note: trimmedNote }),
         },
       );
 
@@ -158,6 +169,18 @@ export function NameEditButton({
               {value.length}/{MAX_NAME_LENGTH}
             </p>
 
+            <Label htmlFor="entity-rename-note">
+              Nota Explicativa <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="entity-rename-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Explique o motivo desta alteração..."
+              className="min-h-[80px]"
+              disabled={isSubmitting}
+            />
+
             {error && (
               <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
                 {error}
@@ -178,7 +201,11 @@ export function NameEditButton({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || trimmed.length === 0}
+                disabled={
+                  isSubmitting ||
+                  trimmed.length === 0 ||
+                  trimmedNote.length === 0
+                }
               >
                 {isSubmitting && (
                   <Loader2 className="mr-2 size-4 animate-spin" />

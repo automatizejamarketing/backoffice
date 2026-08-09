@@ -31,6 +31,10 @@ import {
 const OBSERVED_AT = new Date("2026-08-09T08:05:00.000Z");
 const YESTERDAY_VERSION_ID = "6f0b9c14-7d21-4f8a-9e3b-1c2d3e4f5a60";
 
+/** Uma ação já registrada por escrita interna, dentro da janela de tolerância. */
+const INTERNAL_EVENT_ID = "c1a7f3d2-91b4-4f0e-8a6c-5d4e3f2a1b09";
+const INTERNAL_OCCURRED_AT = new Date("2026-08-08T17:41:00.000Z");
+
 /** A versão vigente que a coleta de ontem deixou para esta config. */
 function openVersionFor(
   config: Record<string, unknown>,
@@ -51,6 +55,7 @@ function makeInput(args: {
   listing: TrackingDeltaInput["listing"];
   configs: TrackingDeltaInput["configs"];
   previous?: KnownEntityState[];
+  internalChanges?: TrackingDeltaInput["internalChanges"];
 }): TrackingDeltaInput {
   return {
     userId: FIXTURE_USER_ID,
@@ -60,6 +65,7 @@ function makeInput(args: {
     listing: args.listing,
     configs: args.configs,
     previous: args.previous ?? [],
+    internalChanges: args.internalChanges,
   };
 }
 
@@ -67,6 +73,7 @@ function makeInput(args: {
 function inputWithCampaign(args: {
   config: Record<string, unknown>;
   previous?: KnownEntityState[];
+  internalChanges?: TrackingDeltaInput["internalChanges"];
 }): TrackingDeltaInput {
   return makeInput({
     listing: [
@@ -86,6 +93,7 @@ function inputWithCampaign(args: {
       },
     ],
     previous: args.previous,
+    internalChanges: args.internalChanges,
   });
 }
 
@@ -333,7 +341,12 @@ describe("computeTrackingDelta — transições de ciclo de vida", () => {
       ),
     );
 
-    expect(delta).toEqual({ versions: [], events: [], confirmations: [] });
+    expect(delta).toEqual({
+      versions: [],
+      events: [],
+      confirmations: [],
+      versionLinks: [],
+    });
   });
 });
 
@@ -610,5 +623,256 @@ describe("computeTrackingDelta — versão inicial sem listagem (caminho do back
     expect(delta.versions[0].volatile.effectiveStatus).toBe("PAUSED");
     // Nada de `created`: a entidade não nasceu hoje, só entrou no tracking hoje.
     expect(delta.events).toEqual([]);
+  });
+});
+
+describe("computeTrackingDelta — mudança já registrada por escrita interna", () => {
+  const yesterday = campaignConfigV25();
+  const today = campaignConfigV25({ daily_budget: "9000" });
+  const previous: KnownEntityState[] = [
+    {
+      entityLevel: "campaign",
+      entityId: FIXTURE_CAMPAIGN_ID,
+      lastEffectiveStatus: "ACTIVE",
+      currentVersion: openVersionFor(yesterday),
+    },
+  ];
+
+  const pausedListing: TrackingDeltaInput["listing"] = [
+    {
+      entityLevel: "campaign",
+      entityId: FIXTURE_CAMPAIGN_ID,
+      name: yesterday.name as string,
+      status: "PAUSED",
+      effectiveStatus: "PAUSED",
+    },
+  ];
+
+  test("não duplica o evento: só liga a versão nova ao evento que já existe", () => {
+    const delta = computeTrackingDelta(
+      inputWithCampaign({
+        config: today,
+        previous,
+        internalChanges: [
+          {
+            changeEventId: INTERNAL_EVENT_ID,
+            entityLevel: "campaign",
+            entityId: FIXTURE_CAMPAIGN_ID,
+            changeKind: "config_change",
+            changedFields: { daily_budget: { old: "5000", new: "9000" } },
+            occurredAt: INTERNAL_OCCURRED_AT,
+          },
+        ],
+      }),
+    );
+
+    // A versão nasce — a configuração mudou de fato.
+    expect(delta.versions).toHaveLength(1);
+    expect(delta.versions[0].columns.dailyBudget).toBe("9000");
+    // O evento NÃO nasce de novo.
+    expect(delta.events).toEqual([]);
+    // E a versão nova passa a ser o destino do evento que já está no stream.
+    expect(delta.versionLinks).toEqual([
+      { changeEventId: INTERNAL_EVENT_ID, toVersionRef: delta.versions[0].ref },
+    ]);
+  });
+
+  test("a parte que o cliente mexeu por fora continua virando evento", () => {
+    const alsoRenamed = campaignConfigV25({
+      daily_budget: "9000",
+      name: "[AM] Renomeada no Gerenciador",
+    });
+
+    const delta = computeTrackingDelta(
+      inputWithCampaign({
+        config: alsoRenamed,
+        previous,
+        internalChanges: [
+          {
+            changeEventId: INTERNAL_EVENT_ID,
+            entityLevel: "campaign",
+            entityId: FIXTURE_CAMPAIGN_ID,
+            changeKind: "config_change",
+            changedFields: { daily_budget: { old: "5000", new: "9000" } },
+            occurredAt: INTERNAL_OCCURRED_AT,
+          },
+        ],
+      }),
+    );
+
+    expect(delta.events).toHaveLength(1);
+    expect(Object.keys(delta.events[0].changedFields)).toEqual(["name"]);
+    expect(delta.events[0].source).toBe("external_detected");
+    expect(delta.versionLinks).toHaveLength(1);
+  });
+
+  test("mesmo campo com valor diferente do registrado continua sendo ação externa", () => {
+    const delta = computeTrackingDelta(
+      inputWithCampaign({
+        config: today,
+        previous,
+        internalChanges: [
+          {
+            changeEventId: INTERNAL_EVENT_ID,
+            entityLevel: "campaign",
+            entityId: FIXTURE_CAMPAIGN_ID,
+            changeKind: "config_change",
+            // O gestor subiu para 7000; a conta está em 9000 — alguém mexeu
+            // depois, por fora. O evento externo tem de existir.
+            changedFields: { daily_budget: { old: "5000", new: "7000" } },
+            occurredAt: INTERNAL_OCCURRED_AT,
+          },
+        ],
+      }),
+    );
+
+    expect(delta.events).toHaveLength(1);
+    expect(delta.events[0].changedFields.daily_budget).toEqual({
+      old: "5000",
+      new: "9000",
+    });
+    expect(delta.versionLinks).toEqual([]);
+  });
+
+  test("escrita interna fora da janela de tolerância não deduplica nada", () => {
+    const delta = computeTrackingDelta(
+      inputWithCampaign({
+        config: today,
+        previous,
+        internalChanges: [
+          {
+            changeEventId: INTERNAL_EVENT_ID,
+            entityLevel: "campaign",
+            entityId: FIXTURE_CAMPAIGN_ID,
+            changeKind: "config_change",
+            changedFields: { daily_budget: { old: "5000", new: "9000" } },
+            // Três dias atrás: a coleta daquele dia já ligou esse evento à
+            // versão da época; a mudança de hoje é outra coisa.
+            occurredAt: new Date("2026-08-06T08:05:00.000Z"),
+          },
+        ],
+      }),
+    );
+
+    expect(delta.events).toHaveLength(1);
+    expect(delta.versionLinks).toEqual([]);
+  });
+
+  test("uma escrita interna explica uma entidade só — a irmã continua externa", () => {
+    const changedAdset = adsetConfigV25({ daily_budget: "9000" });
+    const delta = computeTrackingDelta(
+      makeInput({
+        listing: [],
+        configs: [
+          {
+            entityLevel: "campaign",
+            entityId: FIXTURE_CAMPAIGN_ID,
+            config: today,
+          },
+          {
+            entityLevel: "adset",
+            entityId: FIXTURE_ADSET_ID,
+            config: changedAdset,
+          },
+        ],
+        previous: [
+          ...previous,
+          {
+            entityLevel: "adset",
+            entityId: FIXTURE_ADSET_ID,
+            lastEffectiveStatus: "ACTIVE",
+            currentVersion: openVersionFor(adsetConfigV25()),
+          },
+        ],
+        internalChanges: [
+          {
+            changeEventId: INTERNAL_EVENT_ID,
+            entityLevel: "campaign",
+            entityId: FIXTURE_CAMPAIGN_ID,
+            changeKind: "config_change",
+            changedFields: { daily_budget: { old: "5000", new: "9000" } },
+            occurredAt: INTERNAL_OCCURRED_AT,
+          },
+        ],
+      }),
+    );
+
+    expect(delta.events).toHaveLength(1);
+    expect(delta.events[0].entityLevel).toBe("adset");
+    expect(delta.versionLinks).toHaveLength(1);
+  });
+
+  test("pausa feita pelo backoffice não vira transição detectada no dia seguinte", () => {
+    const detected = computeTrackingDelta(
+      listingOnlyInput(pausedListing, previous),
+    );
+    expect(detected.events).toHaveLength(1);
+
+    const deduped = computeTrackingDelta({
+      ...listingOnlyInput(pausedListing, previous),
+      internalChanges: [
+        {
+          changeEventId: INTERNAL_EVENT_ID,
+          entityLevel: "campaign",
+          entityId: FIXTURE_CAMPAIGN_ID,
+          changeKind: "status_transition",
+          // A rota registra o status CONFIGURADO; o coletor vê o EFETIVO. São
+          // nomes diferentes para o mesmo fato quando quem pausou foi a pessoa.
+          changedFields: { status: { old: "ACTIVE", new: "PAUSED" } },
+          occurredAt: INTERNAL_OCCURRED_AT,
+        },
+      ],
+    });
+
+    expect(deduped.events).toEqual([]);
+    expect(deduped.versionLinks).toEqual([]);
+  });
+
+  test("um evento interno explica uma mudança só, não duas entidades iguais", () => {
+    const changedAdset = adsetConfigV25({ daily_budget: "9000" });
+    const otherAdsetId = "120250000000000202";
+    const delta = computeTrackingDelta(
+      makeInput({
+        listing: [],
+        configs: [
+          {
+            entityLevel: "adset",
+            entityId: FIXTURE_ADSET_ID,
+            config: changedAdset,
+          },
+          {
+            entityLevel: "adset",
+            entityId: otherAdsetId,
+            config: changedAdset,
+          },
+        ],
+        previous: [
+          {
+            entityLevel: "adset",
+            entityId: FIXTURE_ADSET_ID,
+            currentVersion: openVersionFor(adsetConfigV25()),
+          },
+          {
+            entityLevel: "adset",
+            entityId: otherAdsetId,
+            currentVersion: openVersionFor(adsetConfigV25()),
+          },
+        ],
+        internalChanges: [
+          {
+            changeEventId: INTERNAL_EVENT_ID,
+            entityLevel: "adset",
+            entityId: FIXTURE_ADSET_ID,
+            changeKind: "config_change",
+            changedFields: { daily_budget: { old: "5000", new: "9000" } },
+            occurredAt: INTERNAL_OCCURRED_AT,
+          },
+        ],
+      }),
+    );
+
+    // Só o conjunto nomeado pelo evento interno é deduplicado.
+    expect(delta.events).toHaveLength(1);
+    expect(delta.events[0].entityId).toBe(otherAdsetId);
   });
 });
