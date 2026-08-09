@@ -212,3 +212,17 @@ Do not paste secrets from `.env*` files into commits or external docs.
 - Do NOT flip `postgres-js` back to `prepare: true` in `lib/db/index.ts`. It was set to `false` intentionally to fix a stale-row bug on repeated UPDATEs.
 - Do NOT call `stripe` without a null guard; it is `null` when `STRIPE_SECRET_KEY` is unset.
 - Do NOT remove the `export const dynamic = "force-dynamic"` directive from heavy admin pages — it prevents Vercel build timeouts.
+
+## Agent skills
+
+### Issue tracker
+
+Issues e specs vivem como markdown local em `.scratch/<feature>/` neste repo. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Vocabulário canônico padrão (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix) como linhas `Status:` nos tickets. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` na raiz + ADRs. See `docs/agents/domain.md`.
