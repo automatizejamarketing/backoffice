@@ -83,6 +83,7 @@ import {
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
 import {
+  formatExpertMarketplaceFee,
   formatExpertPlatformFee,
   formatExpertPlatformFeePreview,
 } from "@/lib/products/expert-fee-display";
@@ -107,6 +108,7 @@ type Expert = {
   status: "active" | "inactive";
   platformFeeBasisPoints: number;
   platformFeeFixedCentavos: number;
+  marketplaceFeeBasisPoints: number;
 };
 
 type Product = {
@@ -160,6 +162,8 @@ type Order = {
   grossAmountCentavos: number | null;
   netAmountCentavos: number | null;
   feeAmountCentavos: number | null;
+  checkoutChannel: "direct" | "marketplace";
+  marketplaceFeeBasisPoints: number;
   platformFeeGrossCentavos: number | null;
   platformGatewayNetRevenueCentavos: number | null;
   ownerExpertReceivableCentavos: number | null;
@@ -207,6 +211,7 @@ type ExpertFormState = {
   pixKey: string;
   platformFeePercent: string;
   platformFeeFixedReais: string;
+  marketplaceFeePercent: string;
   status: Expert["status"];
 };
 
@@ -217,6 +222,7 @@ const emptyExpert: ExpertFormState = {
   pixKey: "",
   platformFeePercent: "5,49%",
   platformFeeFixedReais: "R$ 0,39",
+  marketplaceFeePercent: "3%",
   status: "active",
 };
 
@@ -1068,6 +1074,9 @@ export function ProductsAdminWorkspace({
           platformFeeFixedCentavos: parseBrlCurrencyToCentavos(
             String(payload.platformFeeFixedReais ?? ""),
           ),
+          marketplaceFeePercent: parsePercentageInput(
+            String(payload.marketplaceFeePercent ?? ""),
+          ),
           platformFeeFixedReais: undefined,
           profileImageUrl,
         }),
@@ -1109,6 +1118,9 @@ export function ProductsAdminWorkspace({
       ),
       platformFeeFixedReais: formatBrlCurrencyFromCentavos(
         expert.platformFeeFixedCentavos,
+      ),
+      marketplaceFeePercent: formatPercentageInput(
+        String(expert.marketplaceFeeBasisPoints / 100).replace(".", ","),
       ),
       status: expert.status,
     });
@@ -1254,6 +1266,9 @@ export function ProductsAdminWorkspace({
             ),
             platformFeeFixedCentavos: parseBrlCurrencyToCentavos(
               expertForm.platformFeeFixedReais,
+            ),
+            marketplaceFeePercent: parsePercentageInput(
+              expertForm.marketplaceFeePercent,
             ),
             profileImageUrl,
           }),
@@ -1483,6 +1498,17 @@ export function ProductsAdminWorkspace({
                     required
                   />
                 </Field>
+                <Field label="Taxa marketplace">
+                  <Input
+                    name="marketplaceFeePercent"
+                    inputMode="decimal"
+                    defaultValue="3%"
+                    onChange={(event) => {
+                      event.currentTarget.value = formatPercentageInput(event.currentTarget.value);
+                    }}
+                    required
+                  />
+                </Field>
                 <Field label="Foto de perfil">
                   <Input
                     key={newExpertImageInputKey}
@@ -1567,10 +1593,17 @@ export function ProductsAdminWorkspace({
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap font-mono text-sm tabular-nums">
-                        {formatExpertPlatformFee(
-                          expert.platformFeeBasisPoints,
-                          expert.platformFeeFixedCentavos,
-                        )}
+                        <div>
+                          {formatExpertPlatformFee(
+                            expert.platformFeeBasisPoints,
+                            expert.platformFeeFixedCentavos,
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatExpertMarketplaceFee(
+                            expert.marketplaceFeeBasisPoints,
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
@@ -1672,7 +1705,12 @@ export function ProductsAdminWorkspace({
                             : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.platformFeeGrossCentavos !== null ? money(order.platformFeeGrossCentavos) : "—"}
+                          <p>{order.platformFeeGrossCentavos !== null ? money(order.platformFeeGrossCentavos) : "—"}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {order.checkoutChannel === "marketplace"
+                              ? `marketplace (+${(order.marketplaceFeeBasisPoints / 100).toLocaleString("pt-BR")}%)`
+                              : "link direto"}
+                          </p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {order.ownerExpertReceivableCentavos !== null ||
@@ -2135,7 +2173,7 @@ export function ProductsAdminWorkspace({
                   Aplicada somente às novas vendas de produtos deste expert.
                 </p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Percentual">
                   <Input
                     inputMode="decimal"
@@ -2162,6 +2200,19 @@ export function ProductsAdminWorkspace({
                     required
                   />
                 </Field>
+                <Field label="Taxa marketplace">
+                  <Input
+                    inputMode="decimal"
+                    value={expertForm.marketplaceFeePercent}
+                    onChange={(event) =>
+                      setExpertForm({
+                        ...expertForm,
+                        marketplaceFeePercent: formatPercentageInput(event.target.value),
+                      })
+                    }
+                    required
+                  />
+                </Field>
               </div>
               <p className="text-xs font-medium text-foreground">
                 {formatExpertPlatformFeePreview(
@@ -2170,6 +2221,11 @@ export function ProductsAdminWorkspace({
                     ? parseBrlCurrencyToCentavos(expertForm.platformFeeFixedReais)
                     : 0,
                 )}
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                A taxa marketplace é somada ao percentual apenas quando a compra
+                acontece por dentro do Automatize; vendas pelo link direto do
+                produto pagam só a taxa acima.
               </p>
             </div>
             <Field label="Status">

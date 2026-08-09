@@ -21,6 +21,14 @@ export function formatExpertPlatformFee(
   return `${percentage}% + ${formatBrlCurrencyFromCentavos(fixedCentavos)}`;
 }
 
+export function formatExpertMarketplaceFee(basisPoints: number): string {
+  const percentage = new Intl.NumberFormat("pt-BR", {
+    minimumFractionDigits: basisPoints % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(basisPoints / 100);
+  return `+${percentage}% via marketplace`;
+}
+
 export function formatExpertPlatformFeePreview(
   basisPoints: number,
   fixedCentavos: number,
