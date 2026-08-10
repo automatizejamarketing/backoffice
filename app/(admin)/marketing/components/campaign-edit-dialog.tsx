@@ -488,8 +488,9 @@ export function CampaignEditDialog({
         <DialogHeader>
           <DialogTitle>Editar Campanha</DialogTitle>
           <DialogDescription>
-            Altere o modelo de orçamento da campanha entre ABO e CBO. Todas as
-            alterações são registradas para auditoria.
+            Escolha entre orçamento por conjunto e Orçamento Advantage+ (a
+            Meta distribui um orçamento único da campanha). Todas as alterações
+            são registradas para auditoria.
           </DialogDescription>
         </DialogHeader>
 
@@ -502,15 +503,15 @@ export function CampaignEditDialog({
                   [
                     {
                       value: "ABO" as const,
-                      label: "ABO",
+                      label: "Orçamento por conjunto",
                       description:
-                        "Orçamento definido por conjunto de anúncios.",
+                        "Você define um orçamento fixo em cada conjunto de anúncios.",
                     },
                     {
                       value: "CBO" as const,
-                      label: "CBO",
+                      label: "Orçamento Advantage+",
                       description:
-                        "Orçamento definido no nível da campanha.",
+                        "Um orçamento único na campanha. A Meta distribui entre os conjuntos em tempo real, gastando mais onde há mais oportunidade.",
                     },
                   ] as const
                 ).map((option) => (
@@ -688,15 +689,17 @@ export function CampaignEditDialog({
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Quando CBO está ativo, a Meta distribui o orçamento entre os
-                  conjuntos da campanha.
+                  Com o Orçamento Advantage+ ligado, os orçamentos por
+                  conjunto deixam de ser configuráveis — quem distribui é a
+                  Meta. Avalie os resultados no nível da campanha, não por
+                  conjunto.
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-                  Em ABO, o orçamento fica em cada conjunto de anúncios.
-                  Orçamento total exige início e término por conjunto.
+                  Com o orçamento por conjunto, cada conjunto tem seu próprio
+                  valor. Orçamento total exige início e término por conjunto.
                 </div>
 
                 {isLoadingAdSets ? (

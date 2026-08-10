@@ -10,6 +10,15 @@ import {
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { createCampaignEditLog } from "@/lib/db/admin-queries";
+import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
+import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
+import {
+  adsetBudgetFieldChanges,
+  buildInternalChangeEvent,
+  campaignBudgetFieldChanges,
+  validateChangeNote,
+  type FieldChange,
+} from "@/lib/meta-tracking/internal-change-event";
 import {
   currencyToMinorUnits,
   isEndAfterStart,
@@ -97,6 +106,8 @@ export type GetCampaignsResponse = Partial<{
 type PatchCampaignStatusRequestBody = {
   campaignId: string;
   status: CampaignStatus;
+  /** Motivo — obrigatório, como em toda mutação do backoffice. */
+  note: string;
 };
 
 type PatchCampaignBudgetModeRequestBody = {
@@ -748,7 +759,7 @@ export async function PATCH(
     const body: PatchCampaignRequestBody = await request.json();
 
     if (isStatusPatchBody(body)) {
-      const { campaignId, status } = body;
+      const { campaignId, status, note } = body;
 
       if (!campaignId || !status) {
         return NextResponse.json(
@@ -761,22 +772,102 @@ export async function PATCH(
         );
       }
 
+      // O motivo é exigido ANTES de tocar na Meta: uma alteração sem motivo não
+      // pode chegar a mexer na conta do cliente e só depois ser recusada.
+      const statusNote = validateChangeNote("backoffice_admin", note);
+      if (!statusNote.ok) {
+        return NextResponse.json(
+          {
+            error: "Missing note",
+            message: statusNote.issue.reason,
+            solution: statusNote.issue.suggestion,
+          },
+          { status: 400 },
+        );
+      }
+
+      // Estado anterior para o diff do stream. Não é essencial à mutação —
+      // falhar aqui degrada para "não sei de onde veio", nunca derruba a ação.
+      let previousStatus: string | null = null;
+      let campaignName: string | null = null;
+      try {
+        const current = await metaApiCall<GraphApiCampaign>({
+          domain: "FACEBOOK",
+          method: "GET",
+          path: campaignId,
+          params: "fields=id,name,status",
+          accessToken,
+        });
+        previousStatus = current.status ?? null;
+        campaignName = current.name ?? null;
+      } catch (readError) {
+        logMetaMutationError(readError);
+      }
+
       const updateParams = new URLSearchParams({
         status,
       });
 
-      await metaApiCall<GraphApiUpdateCampaignResponse>({
-        domain: "FACEBOOK",
-        method: "POST",
-        path: `${campaignId}`,
-        params: "",
-        body: updateParams,
-        accessToken,
+      let appliedToMeta = false;
+      let statusErrorMessage: string | undefined;
+      let statusClientError:
+        | { error: string; message: string; solution: string }
+        | undefined;
+      try {
+        await metaApiCall<GraphApiUpdateCampaignResponse>({
+          domain: "FACEBOOK",
+          method: "POST",
+          path: `${campaignId}`,
+          params: "",
+          body: updateParams,
+          accessToken,
+        });
+        appliedToMeta = true;
+      } catch (metaError) {
+        const errorReturn = errorToGraphErrorReturn(metaError);
+        statusClientError = graphErrorToClientError(errorReturn);
+        statusErrorMessage = statusClientError.message;
+      }
+
+      // Aplicada ou recusada, a tentativa fica registrada — é o mesmo padrão
+      // dos edit logs legados, e o que fecha o ponto cego do PATCH de status.
+      const audit = await recordStatusChangeAudit({
+        entity: "campaign",
+        backofficeUserEmail: authz.actor.email,
+        targetUserId: userId,
+        accountId: formatAccountId(accountId),
+        objectId: campaignId,
+        objectName: campaignName,
+        campaignId,
+        previousStatus,
+        newStatus: status,
+        note: statusNote.note ?? "",
+        occurredAt: new Date(),
+        appliedToMeta,
+        errorMessage: statusErrorMessage,
       });
+
+      if (!appliedToMeta) {
+        return NextResponse.json(
+          {
+            error: statusClientError?.error ?? "Failed to apply changes to Meta",
+            message: statusClientError?.message ?? "Unknown error occurred",
+            solution:
+              statusClientError?.solution ??
+              "A alteração foi registrada, mas não foi aplicada na Meta. Tente novamente.",
+          },
+          { status: 400 },
+        );
+      }
 
       return NextResponse.json(
         {
           success: true,
+          logId: audit.logId,
+          ...(audit.auditLogFailed && {
+            auditLogFailed: true,
+            auditLogError: audit.auditLogError,
+          }),
           campaign: {
             id: campaignId,
             status,
@@ -1412,6 +1503,70 @@ export async function PATCH(
       auditLogFailed = true;
       auditLogError =
         dbErr instanceof Error ? dbErr.message : "Falha ao registrar auditoria";
+    }
+
+    // ── Stream de ações: a mesma alteração, com autor, horário e motivo. ──
+    // O orçamento vive no nível em que a Meta o guarda: em CBO na campanha, em
+    // ABO nos conjuntos. Por isso a mudança de modo produz um evento por
+    // entidade que teve o valor mexido — é assim que o coletor vai reencontrar
+    // cada mudança no dia seguinte e reconhecer que ela já tem dono.
+    const trackingOccurredAt = new Date();
+    const legacyBridge = logId
+      ? { table: "campaign_edit_logs", id: logId }
+      : null;
+    const campaignBudgetChanges = campaignBudgetFieldChanges({
+      mode,
+      previousDailyBudget,
+      previousLifetimeBudget,
+      nextDailyBudget: updateParams.get("daily_budget"),
+      nextLifetimeBudget: updateParams.get("lifetime_budget"),
+    });
+
+    const trackedChanges: Array<{
+      entityLevel: "campaign" | "adset";
+      entityId: string;
+      entityName: string | null;
+      adsetId: string | null;
+      changes: FieldChange[];
+    }> = [
+      {
+        entityLevel: "campaign",
+        entityId: campaignId,
+        entityName: campaignName ?? currentCampaign.name ?? null,
+        adsetId: null,
+        changes: campaignBudgetChanges,
+      },
+      ...(adsetBudgetChanges ?? []).map((adSet) => ({
+        entityLevel: "adset" as const,
+        entityId: adSet.adsetId,
+        entityName: adSet.adsetName ?? null,
+        adsetId: adSet.adsetId,
+        changes: adsetBudgetFieldChanges(adSet),
+      })),
+    ];
+
+    for (const tracked of trackedChanges) {
+      const event = buildInternalChangeEvent({
+        source: "backoffice_admin",
+        userId,
+        accountId: formatAccountId(accountId),
+        entityLevel: tracked.entityLevel,
+        entityId: tracked.entityId,
+        entityName: tracked.entityName,
+        campaignId,
+        adsetId: tracked.adsetId,
+        changeKind: "config_change",
+        changes: tracked.changes,
+        actorEmail: backofficeUserEmail,
+        note: note.trim(),
+        occurredAt: trackingOccurredAt,
+        appliedToMeta,
+        errorMessage,
+        legacy: legacyBridge,
+      });
+      if (event.ok && event.event) {
+        await recordInternalChangeEvent(event.event);
+      }
     }
 
     if (!appliedToMeta) {

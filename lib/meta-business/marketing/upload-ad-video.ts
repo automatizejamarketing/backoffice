@@ -1,4 +1,5 @@
 import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
+import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
 
 export type UploadAdVideoResponse = {
@@ -47,6 +48,11 @@ export async function uploadAdVideoFromUrl(
   name?: string,
   description?: string,
 ): Promise<UploadAdVideoResponse> {
+  // Meta fetches `file_url` server-side, so an unvalidated URL here is an SSRF
+  // primitive with Meta as the proxy. Guarded in the helper, not only at the
+  // call site, so a new caller can't reopen the hole.
+  await assertSafeFetchUrl(videoUrl);
+
   const formData = new FormData();
   formData.append("file_url", videoUrl);
   formData.append("access_token", accessToken);

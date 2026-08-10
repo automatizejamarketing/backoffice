@@ -1,4 +1,6 @@
-import { metaApiCall } from "./api";
+// Absolute (not `../api`): this file is mirrored into the backoffice's FLATTENED
+// `lib/meta-business/` root, where a relative parent import would miss.
+import { metaApiCall } from "@/lib/meta-business/api";
 
 /**
  * Facebook Page connected to Instagram Business Account

@@ -324,6 +324,12 @@ export const expertProfile = pgTable(
     platformFeeFixedCentavos: integer("platform_fee_fixed_centavos")
       .notNull()
       .default(39),
+    /** Extra fee charged on top of the platform fee when the buyer discovered
+     * the product inside the app (checkout_channel = 'marketplace'). Direct
+     * sales via the public product URL never pay this component. */
+    marketplaceFeeBasisPoints: integer("marketplace_fee_basis_points")
+      .notNull()
+      .default(300),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -337,6 +343,10 @@ export const expertProfile = pgTable(
     platformFeeCheck: check(
       "expert_profiles_platform_fee_range",
       sql`${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0`,
+    ),
+    marketplaceFeeCheck: check(
+      "expert_profiles_marketplace_fee_range",
+      sql`${table.marketplaceFeeBasisPoints} >= 0 AND ${table.marketplaceFeeBasisPoints} <= 10000`,
     ),
   }),
 );
@@ -500,6 +510,17 @@ export const PRODUCT_ORDER_STATUS_VALUES = [
 ] as const;
 export type ProductOrderStatus = (typeof PRODUCT_ORDER_STATUS_VALUES)[number];
 
+/** Where the buyer discovered the product. `direct` = public product URL
+ * (the expert's own traffic, tracked via the `product_direct` cookie);
+ * `marketplace` = browsing inside the app. Marketplace purchases pay the
+ * expert's marketplace fee on top of the base platform fee. */
+export const PRODUCT_CHECKOUT_CHANNEL_VALUES = [
+  "direct",
+  "marketplace",
+] as const;
+export type ProductCheckoutChannel =
+  (typeof PRODUCT_CHECKOUT_CHANNEL_VALUES)[number];
+
 export const productOrder = pgTable(
   "product_orders",
   {
@@ -534,6 +555,19 @@ export const productOrder = pgTable(
       .default("legacy_net_split"),
     platformFeeBasisPoints: integer("platform_fee_basis_points"),
     platformFeeFixedCentavos: integer("platform_fee_fixed_centavos"),
+    /** Sales channel frozen at order creation. Historical orders default to
+     * 'direct' (no marketplace fee was ever charged before this column). */
+    checkoutChannel: varchar("checkout_channel", {
+      enum: [...PRODUCT_CHECKOUT_CHANNEL_VALUES],
+    })
+      .$type<ProductCheckoutChannel>()
+      .notNull()
+      .default("direct"),
+    /** Marketplace component included in platform_fee_basis_points, for
+     * auditing/reporting only. Settlement reads the summed total. */
+    marketplaceFeeBasisPoints: integer("marketplace_fee_basis_points")
+      .notNull()
+      .default(0),
     ownerExpertShareBasisPoints: integer("expert_share_basis_points")
       .notNull()
       .default(0),
@@ -566,6 +600,10 @@ export const productOrder = pgTable(
     statusCreatedIdx: index("product_orders_status_created_idx").on(
       table.status,
       table.createdAt,
+    ),
+    checkoutChannelCheck: check(
+      "product_orders_checkout_channel_consistency",
+      sql`${table.checkoutChannel} IN ('direct', 'marketplace') AND ${table.marketplaceFeeBasisPoints} >= 0 AND ${table.marketplaceFeeBasisPoints} <= 10000 AND (${table.checkoutChannel} = 'marketplace' OR ${table.marketplaceFeeBasisPoints} = 0)`,
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
@@ -866,6 +904,108 @@ export const businessManagedCampaignCache = pgTable(
 
 export type BusinessManagedCampaignCache = InferSelectModel<
   typeof businessManagedCampaignCache
+>;
+
+export type ProactivityAudience = "client" | "consultant";
+export type ProactivityDeliveryChannel = "whatsapp" | "slack";
+export type ProactivityDeliveryStatus =
+  | "scheduled"
+  | "sending"
+  | "sent"
+  | "skipped"
+  | "failed";
+
+export const proactivityAlert = pgTable(
+  "proactivity_alerts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    ruleKey: varchar("rule_key", { length: 64 }).notNull(),
+    audience: varchar("audience", {
+      length: 16,
+      enum: ["client", "consultant"],
+    })
+      .$type<ProactivityAudience>()
+      .notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    thresholds: jsonb("thresholds")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
+    deliverWhatsapp: boolean("deliver_whatsapp").notNull().default(false),
+    deliverSlack: boolean("deliver_slack").notNull().default(false),
+    updatedByEmail: varchar("updated_by_email", { length: 100 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    ruleAudienceUnique: uniqueIndex(
+      "proactivity_alerts_rule_key_audience_unique",
+    ).on(table.ruleKey, table.audience),
+    audienceIdx: index("proactivity_alerts_audience_idx").on(table.audience),
+  }),
+);
+
+export type ProactivityAlert = InferSelectModel<typeof proactivityAlert>;
+
+export const proactivityAlertChangeLog = pgTable(
+  "proactivity_alert_change_logs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    alertId: uuid("alert_id")
+      .notNull()
+      .references(() => proactivityAlert.id),
+    adminEmail: varchar("admin_email", { length: 100 }).notNull(),
+    fieldName: varchar("field_name", { length: 80 }).notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+);
+
+export type ProactivityAlertChangeLog = InferSelectModel<
+  typeof proactivityAlertChangeLog
+>;
+
+export const proactivityAlertDelivery = pgTable(
+  "proactivity_alert_deliveries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    alertId: uuid("alert_id")
+      .notNull()
+      .references(() => proactivityAlert.id),
+    channel: varchar("channel", {
+      length: 16,
+      enum: ["whatsapp", "slack"],
+    })
+      .$type<ProactivityDeliveryChannel>()
+      .notNull(),
+    dedupKey: varchar("dedup_key", { length: 255 }).notNull(),
+    status: varchar("status", {
+      length: 16,
+      enum: ["scheduled", "sending", "sent", "skipped", "failed"],
+    })
+      .$type<ProactivityDeliveryStatus>()
+      .notNull()
+      .default("scheduled"),
+    reasonCode: varchar("reason_code", { length: 64 }),
+    errorMessage: text("error_message"),
+    providerMessageId: varchar("provider_message_id", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    alertChannelDedupUnique: uniqueIndex(
+      "proactivity_alert_deliveries_alert_channel_dedup_unique",
+    ).on(table.alertId, table.channel, table.dedupKey),
+    userIdx: index("proactivity_alert_deliveries_user_id_idx").on(table.userId),
+  }),
+);
+
+export type ProactivityAlertDelivery = InferSelectModel<
+  typeof proactivityAlertDelivery
 >;
 
 // Company table for storing brand information
@@ -1935,6 +2075,12 @@ export type PendingPlanChange = InferSelectModel<typeof pendingPlanChange>;
 // Payments table - payment history records
 export type PaymentStatus = "succeeded" | "failed" | "pending" | "refunded";
 
+// How a settled payment was reversed. `refund` is money the merchant gave back;
+// `chargeback` is money the card network pulled back after a dispute. Both are
+// recorded here, on the payment, because the affiliate program reads reversals
+// from `payments` and never from a gateway SDK (ADR 0025).
+export type PaymentReversalKind = "refund" | "chargeback";
+
 export const payment = pgTable(
   "payments",
   {
@@ -1956,6 +2102,20 @@ export const payment = pgTable(
     mercadopagoPreferenceId: varchar("mercadopago_preference_id", {
       length: 255,
     }),
+    // The payment's identity AT THE PROVIDER, in a column no provider owns.
+    //
+    // The per-gateway id columns above stay — plenty of code matches on them,
+    // and the Stripe reversal path looks a charge up by three of them. What
+    // they cannot do is answer "what is this payment called at its provider?"
+    // without the caller already knowing which provider it is. That question is
+    // what an idempotency key is built from, so any domain that needs a stable
+    // key had to grow a switch over `provider` — and a gateway missing from
+    // that switch got silently dropped (ADR 0025's promise, unmet).
+    //
+    // Written by `createPaymentRecord`, derived from whichever id the gateway
+    // supplied. Backfilled for existing rows with EXACTLY the value the old
+    // switch returned, so no event key that already exists ever changes value.
+    externalId: varchar("external_id", { length: 255 }),
     amount: integer("amount").notNull(),
     grossAmount: integer("gross_amount"),
     netAmount: integer("net_amount"),
@@ -1974,6 +2134,14 @@ export const payment = pgTable(
     description: text("description"),
     failureReason: text("failure_reason"),
     paidAt: timestamp("paid_at"),
+    // Reversal, in centavos. Always written even when it equals the gross,
+    // because it is what lets an anomalous PARTIAL refund be detected — the
+    // business policy is that a refund is always total.
+    refundedAmount: integer("refunded_amount"),
+    refundedAt: timestamp("refunded_at"),
+    reversalKind: varchar("reversal_kind", {
+      enum: ["refund", "chargeback"],
+    }).$type<PaymentReversalKind>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
@@ -2266,6 +2434,681 @@ export const affiliateConversion = pgTable("affiliate_conversions", {
 });
 
 export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
+
+// =============================================
+// Programa de afiliados v2 — namespace `referral_*`
+//
+// Deliberadamente separado das tabelas do v1 acima (`affiliates`,
+// `affiliate_clicks`, `affiliate_conversions`, `affiliate_action_logs`) e da
+// coluna `users.referred_by_affiliate_id`, que permanecem no banco intactas e
+// sem uso. Lendo o banco, o prefixo é o que diz qual conjunto está vivo
+// (ADR 0024). Nenhum dado do v1 é migrado ou reinterpretado.
+//
+// Dinheiro é sempre centavos em `integer`. Manter byte-equivalente com o
+// `lib/db/schema.ts` do projeto irmão — os dois descrevem o mesmo Postgres.
+// =============================================
+
+export const REFERRAL_ATTRIBUTION_MODEL_VALUES = ["last_click"] as const;
+export type ReferralAttributionModel =
+  (typeof REFERRAL_ATTRIBUTION_MODEL_VALUES)[number];
+
+export const REFERRAL_AFFILIATE_STATUS_VALUES = [
+  "pending",
+  "approved",
+  "rejected",
+  "blocked",
+] as const;
+export type ReferralAffiliateStatus =
+  (typeof REFERRAL_AFFILIATE_STATUS_VALUES)[number];
+
+export const REFERRAL_TAX_DOCUMENT_TYPE_VALUES = ["cpf", "cnpj"] as const;
+export type ReferralTaxDocumentType =
+  (typeof REFERRAL_TAX_DOCUMENT_TYPE_VALUES)[number];
+
+export const REFERRAL_AGREEMENT_FORMAT_VALUES = [
+  "percentage",
+  "fixed",
+] as const;
+export type ReferralAgreementFormat =
+  (typeof REFERRAL_AGREEMENT_FORMAT_VALUES)[number];
+
+// Só aceita `net`. A base de cálculo é global e é o líquido: a empresa nunca
+// paga comissão sobre dinheiro que não entrou (ADR 0026). O campo existe para
+// tornar a decisão legível no banco, não para ser configurado.
+export const REFERRAL_CALCULATION_BASE_VALUES = ["net"] as const;
+export type ReferralCalculationBase =
+  (typeof REFERRAL_CALCULATION_BASE_VALUES)[number];
+
+export const REFERRAL_AGREEMENT_DURATION_VALUES = [
+  "lifetime",
+  "n_cycles",
+  "first_sale",
+] as const;
+export type ReferralAgreementDuration =
+  (typeof REFERRAL_AGREEMENT_DURATION_VALUES)[number];
+
+export const REFERRAL_ATTRIBUTION_OUTCOME_VALUES = [
+  "won",
+  "lost_last_click",
+  "lost_permanent_link",
+  "lost_existing_account",
+  "lost_self_referral",
+] as const;
+export type ReferralAttributionOutcome =
+  (typeof REFERRAL_ATTRIBUTION_OUTCOME_VALUES)[number];
+
+export const REFERRAL_EVENT_KIND_VALUES = [
+  "sale",
+  "renewal",
+  "reversal",
+] as const;
+export type ReferralEventKind = (typeof REFERRAL_EVENT_KIND_VALUES)[number];
+
+export const REFERRAL_EVENT_STATUS_VALUES = [
+  "awaiting_settlement",
+  "settled",
+  "ignored",
+] as const;
+export type ReferralEventStatus = (typeof REFERRAL_EVENT_STATUS_VALUES)[number];
+
+export const REFERRAL_COMMISSION_STATUS_VALUES = [
+  "foreseen",
+  "approved",
+  "paid",
+  "reversed",
+  "rejected",
+] as const;
+export type ReferralCommissionStatus =
+  (typeof REFERRAL_COMMISSION_STATUS_VALUES)[number];
+
+export const REFERRAL_LEDGER_ENTRY_TYPE_VALUES = [
+  "commission",
+  "reversal",
+  "payout",
+  "write_off",
+] as const;
+export type ReferralLedgerEntryType =
+  (typeof REFERRAL_LEDGER_ENTRY_TYPE_VALUES)[number];
+
+export const REFERRAL_PAYOUT_STATUS_VALUES = [
+  "requested",
+  "approved",
+  "paid",
+  "denied",
+  "cancelled",
+] as const;
+export type ReferralPayoutStatus =
+  (typeof REFERRAL_PAYOUT_STATUS_VALUES)[number];
+
+export const REFERRAL_ADMIN_ACTION_VALUES = [
+  "affiliate_approved",
+  "affiliate_rejected",
+  "affiliate_blocked",
+  "affiliate_reactivated",
+  "agreement_created",
+  "agreement_renegotiated",
+  "payout_approved",
+  "payout_paid",
+  "payout_denied",
+  "balance_written_off",
+] as const;
+export type ReferralAdminActionType =
+  (typeof REFERRAL_ADMIN_ACTION_VALUES)[number];
+
+/** Snapshot da regra que produziu uma Comissão. Nunca reprecificado. */
+export type ReferralAgreementSnapshot = {
+  format: ReferralAgreementFormat;
+  percentageBps: number | null;
+  fixedAmountCentavos: number | null;
+  calculationBase: ReferralCalculationBase;
+  duration: ReferralAgreementDuration;
+  durationCycles: number | null;
+};
+
+/**
+ * Configuração do Programa — versionada, com exatamente uma linha vigente
+ * (índice único parcial). Janela de atribuição, carência e mínimo de saque são
+ * globais e nunca termos de um acordo individual. Cada Atribuição grava a
+ * versão vigente, que é o que mantém o histórico explicável quando a política
+ * muda.
+ */
+export const referralProgramConfig = pgTable(
+  "referral_program_config",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    version: integer("version").notNull(),
+    attributionWindowDays: integer("attribution_window_days").notNull(),
+    waitingPeriodDays: integer("waiting_period_days").notNull(),
+    minPayoutCentavos: integer("min_payout_centavos").notNull(),
+    attributionModel: varchar("attribution_model", {
+      enum: [...REFERRAL_ATTRIBUTION_MODEL_VALUES],
+    })
+      .$type<ReferralAttributionModel>()
+      .notNull()
+      .default("last_click"),
+    effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+    supersededAt: timestamp("superseded_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    versionUnique: unique("referral_program_config_version_unique").on(
+      table.version,
+    ),
+    oneCurrent: uniqueIndex("referral_program_config_one_current")
+      .on(sql`((${table.supersededAt} IS NULL))`)
+      .where(sql`${table.supersededAt} IS NULL`),
+  }),
+);
+
+export type ReferralProgramConfig = InferSelectModel<
+  typeof referralProgramConfig
+>;
+
+/**
+ * Afiliado — sempre lastreado numa conta de usuário, mas nunca obrigado a ser
+ * assinante. Carrega exatamente um código, gerado no v2 (nenhuma string do v1
+ * é portada). O documento fiscal é nulo até o primeiro saque.
+ */
+export const referralAffiliate = pgTable(
+  "referral_affiliates",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id)
+      .unique(),
+    code: varchar("code", { length: 32 }).notNull().unique(),
+    status: varchar("status", {
+      enum: [...REFERRAL_AFFILIATE_STATUS_VALUES],
+    })
+      .$type<ReferralAffiliateStatus>()
+      .notNull()
+      .default("pending"),
+    taxDocument: varchar("tax_document", { length: 20 }),
+    taxDocumentType: varchar("tax_document_type", {
+      enum: [...REFERRAL_TAX_DOCUMENT_TYPE_VALUES],
+    }).$type<ReferralTaxDocumentType>(),
+    requestedAt: timestamp("requested_at").notNull().defaultNow(),
+    approvedBy: varchar("approved_by", { length: 120 }),
+    approvedAt: timestamp("approved_at"),
+    rejectedBy: varchar("rejected_by", { length: 120 }),
+    rejectedAt: timestamp("rejected_at"),
+    rejectionReason: text("rejection_reason"),
+    blockedBy: varchar("blocked_by", { length: 120 }),
+    blockedAt: timestamp("blocked_at"),
+    blockReason: text("block_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    statusIdx: index("referral_affiliates_status_idx").on(table.status),
+  }),
+);
+
+export type ReferralAffiliate = InferSelectModel<typeof referralAffiliate>;
+
+/**
+ * Histórico de bloqueios do afiliado — um período por linha, nunca apagado.
+ *
+ * Existe porque `referral_affiliates.status` responde "está bloqueado AGORA?" e
+ * o motor de comissão precisa de outra pergunta: "estava bloqueado NAQUELA
+ * data?". Enquanto só havia o status e um `blocked_at`, reativar apagava a
+ * única evidência de que houve período bloqueado — e uma fatura daquele
+ * período, ainda não processada, passava a comissionar no instante da
+ * reativação.
+ *
+ * Mesmo idioma de `referral_agreements`: o encerrado é marcado, não removido,
+ * porque é ele que explica o passado. E o mesmo idioma do saque: um índice
+ * único parcial garante no máximo um período aberto por afiliado.
+ */
+export const referralAffiliateBlock = pgTable(
+  "referral_affiliate_blocks",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    blockedAt: timestamp("blocked_at").notNull().defaultNow(),
+    blockedBy: varchar("blocked_by", { length: 120 }),
+    blockReason: text("block_reason"),
+    /** `null` enquanto o bloqueio estiver vigente. */
+    unblockedAt: timestamp("unblocked_at"),
+    unblockedBy: varchar("unblocked_by", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateIdx: index("referral_affiliate_blocks_affiliate_idx").on(
+      table.affiliateId,
+      table.blockedAt,
+    ),
+  }),
+);
+
+export type ReferralAffiliateBlock = InferSelectModel<
+  typeof referralAffiliateBlock
+>;
+
+
+/**
+ * Acordo de Comissão — formato, valor e duração, e nada mais: carência e base
+ * de cálculo são globais. Um acordo vigente por afiliado, garantido por índice
+ * único parcial. Acordos superados nunca são apagados, porque são o que
+ * explica as comissões passadas.
+ */
+export const referralAgreement = pgTable(
+  "referral_agreements",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    format: varchar("format", {
+      enum: [...REFERRAL_AGREEMENT_FORMAT_VALUES],
+    })
+      .$type<ReferralAgreementFormat>()
+      .notNull(),
+    percentageBps: integer("percentage_bps"),
+    fixedAmountCentavos: integer("fixed_amount_centavos"),
+    calculationBase: varchar("calculation_base", {
+      enum: [...REFERRAL_CALCULATION_BASE_VALUES],
+    })
+      .$type<ReferralCalculationBase>()
+      .notNull()
+      .default("net"),
+    duration: varchar("duration", {
+      enum: [...REFERRAL_AGREEMENT_DURATION_VALUES],
+    })
+      .$type<ReferralAgreementDuration>()
+      .notNull()
+      .default("lifetime"),
+    durationCycles: integer("duration_cycles"),
+    effectiveFrom: timestamp("effective_from").notNull().defaultNow(),
+    supersededAt: timestamp("superseded_at"),
+    createdBy: varchar("created_by", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    oneCurrentPerAffiliate: uniqueIndex("referral_agreements_one_current")
+      .on(table.affiliateId)
+      .where(sql`${table.supersededAt} IS NULL`),
+    affiliateIdx: index("referral_agreements_affiliate_effective_idx").on(
+      table.affiliateId,
+      table.effectiveFrom,
+    ),
+    formatCheck: check(
+      "referral_agreements_format_value",
+      sql`(${table.format} = 'percentage' AND ${table.percentageBps} IS NOT NULL AND ${table.fixedAmountCentavos} IS NULL)
+        OR (${table.format} = 'fixed' AND ${table.fixedAmountCentavos} IS NOT NULL AND ${table.percentageBps} IS NULL)`,
+    ),
+    durationCheck: check(
+      "referral_agreements_duration_cycles",
+      sql`(${table.duration} = 'n_cycles' AND ${table.durationCycles} IS NOT NULL AND ${table.durationCycles} > 0)
+        OR (${table.duration} <> 'n_cycles' AND ${table.durationCycles} IS NULL)`,
+    ),
+  }),
+);
+
+export type ReferralAgreement = InferSelectModel<typeof referralAgreement>;
+
+/**
+ * Indicado — conta cuja origem foi congelada no cadastro. Aponta
+ * explicitamente para o acordo que a rege, e não por data: é este campo que a
+ * renegociação reescreve, ou não, por escolha do operador. O vínculo com o
+ * afiliado é permanente.
+ */
+export const referralCustomer = pgTable(
+  "referral_customers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id)
+      .unique(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => referralAgreement.id),
+    signedUpAt: timestamp("signed_up_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateIdx: index("referral_customers_affiliate_idx").on(
+      table.affiliateId,
+    ),
+    agreementIdx: index("referral_customers_agreement_idx").on(
+      table.agreementId,
+    ),
+  }),
+);
+
+export type ReferralCustomer = InferSelectModel<typeof referralCustomer>;
+
+/**
+ * Clique — uma chegada carregando o código do afiliado na URL. Toda chegada
+ * conta; o parâmetro é limpo da URL depois da captura. O `visitor_id` anônimo
+ * é o que liga o clique ao cadastro que ele produziu.
+ */
+export const referralClick = pgTable(
+  "referral_clicks",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    visitorId: uuid("visitor_id").notNull(),
+    ipHash: varchar("ip_hash", { length: 64 }),
+    userAgent: text("user_agent"),
+    referrerUrl: text("referrer_url"),
+    landingUrl: text("landing_url"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    visitorIdx: index("referral_clicks_visitor_created_idx").on(
+      table.visitorId,
+      table.createdAt,
+    ),
+    affiliateIdx: index("referral_clicks_affiliate_created_idx").on(
+      table.affiliateId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type ReferralClick = InferSelectModel<typeof referralClick>;
+
+/**
+ * Atribuição — uma linha por toque, vencedor e perdedores, cada um com o
+ * motivo da derrota e a versão da configuração vigente. `customer_id` só é
+ * preenchido no toque vencedor: um toque que perdeu para conta já existente
+ * não produz Indicado nenhum. O índice parcial garante um único vencedor por
+ * conta.
+ */
+export const referralAttribution = pgTable(
+  "referral_attributions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    customerId: uuid("customer_id").references(() => referralCustomer.id),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    clickId: uuid("click_id")
+      .notNull()
+      .references(() => referralClick.id),
+    outcome: varchar("outcome", {
+      enum: [...REFERRAL_ATTRIBUTION_OUTCOME_VALUES],
+    })
+      .$type<ReferralAttributionOutcome>()
+      .notNull(),
+    reason: text("reason"),
+    configVersion: integer("config_version").notNull(),
+    resolvedAt: timestamp("resolved_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    oneWinnerPerUser: uniqueIndex("referral_attributions_one_winner")
+      .on(table.userId)
+      .where(sql`${table.outcome} = 'won'`),
+    userIdx: index("referral_attributions_user_idx").on(table.userId),
+    affiliateOutcomeIdx: index(
+      "referral_attributions_affiliate_outcome_idx",
+    ).on(table.affiliateId, table.outcome),
+  }),
+);
+
+export type ReferralAttribution = InferSelectModel<typeof referralAttribution>;
+
+/**
+ * Evento Comissionável — uma fatura de assinatura paga, de qualquer gateway,
+ * derivada de `payments` e nunca de um SDK. Idempotente por `event_key`, que
+ * deriva da identidade do pagamento no provedor (e não de `payments.id`,
+ * porque a mesma linha muda de `failed` para `succeeded` num Smart Retry).
+ * Sem líquido o evento fica em `awaiting_settlement` e não produz Comissão
+ * nenhuma — o CHECK abaixo é o que impede um evento liquidado sem líquido.
+ */
+export const referralCommissionableEvent = pgTable(
+  "referral_commissionable_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payment.id),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => referralCustomer.id),
+    eventKey: varchar("event_key", { length: 255 }).notNull(),
+    kind: varchar("kind", {
+      enum: [...REFERRAL_EVENT_KIND_VALUES],
+    })
+      .$type<ReferralEventKind>()
+      .notNull(),
+    status: varchar("status", {
+      enum: [...REFERRAL_EVENT_STATUS_VALUES],
+    })
+      .$type<ReferralEventStatus>()
+      .notNull()
+      .default("awaiting_settlement"),
+    grossCentavos: integer("gross_centavos").notNull(),
+    netCentavos: integer("net_centavos"),
+    occurredAt: timestamp("occurred_at").notNull(),
+    settledAt: timestamp("settled_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique(
+      "referral_commissionable_events_event_key_unique",
+    ).on(table.eventKey),
+    paymentIdx: index("referral_commissionable_events_payment_idx").on(
+      table.paymentId,
+    ),
+    customerIdx: index("referral_commissionable_events_customer_idx").on(
+      table.customerId,
+    ),
+    statusOccurredIdx: index(
+      "referral_commissionable_events_status_occurred_idx",
+    ).on(table.status, table.occurredAt),
+    settledNeedsNet: check(
+      "referral_commissionable_events_settled_needs_net",
+      sql`${table.status} <> 'settled' OR ${table.netCentavos} IS NOT NULL`,
+    ),
+  }),
+);
+
+export type ReferralCommissionableEvent = InferSelectModel<
+  typeof referralCommissionableEvent
+>;
+
+/**
+ * Comissão — o valor devido por um Evento Comissionável, com o snapshot da
+ * regra que o produziu. Percentual incide sobre o líquido. Ciclo de vida:
+ * `foreseen` → `approved` → `paid`, com `reversed` e `rejected` alcançáveis de
+ * qualquer ponto.
+ */
+export const referralCommission = pgTable(
+  "referral_commissions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => referralCommissionableEvent.id),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    agreementId: uuid("agreement_id")
+      .notNull()
+      .references(() => referralAgreement.id),
+    agreementSnapshot: jsonb("agreement_snapshot")
+      .$type<ReferralAgreementSnapshot>()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    status: varchar("status", {
+      enum: [...REFERRAL_COMMISSION_STATUS_VALUES],
+    })
+      .$type<ReferralCommissionStatus>()
+      .notNull()
+      .default("foreseen"),
+    releasesAt: timestamp("releases_at").notNull(),
+    releasedAt: timestamp("released_at"),
+    reversedAt: timestamp("reversed_at"),
+    rejectedAt: timestamp("rejected_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventUnique: unique("referral_commissions_event_unique").on(table.eventId),
+    affiliateStatusIdx: index("referral_commissions_affiliate_status_idx").on(
+      table.affiliateId,
+      table.status,
+    ),
+    releaseIdx: index("referral_commissions_status_releases_idx").on(
+      table.status,
+      table.releasesAt,
+    ),
+    amountCheck: check(
+      "referral_commissions_amount_non_negative",
+      sql`${table.amountCentavos} >= 0`,
+    ),
+  }),
+);
+
+export type ReferralCommission = InferSelectModel<typeof referralCommission>;
+
+/**
+ * Solicitação de Saque. Duas travas vivem no banco, não na aplicação: um
+ * pedido aberto (`requested | approved`) por afiliado, e o mínimo de R$100.
+ * Uma corrida de requisições não pode pagar em dobro, e essa garantia é do
+ * Postgres. Guarda o snapshot do documento fiscal usado no momento do pedido.
+ */
+export const referralPayoutRequest = pgTable(
+  "referral_payout_requests",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    amountCentavos: integer("amount_centavos").notNull(),
+    taxDocumentSnapshot: varchar("tax_document_snapshot", {
+      length: 20,
+    }).notNull(),
+    taxDocumentTypeSnapshot: varchar("tax_document_type_snapshot", {
+      enum: [...REFERRAL_TAX_DOCUMENT_TYPE_VALUES],
+    })
+      .$type<ReferralTaxDocumentType>()
+      .notNull(),
+    status: varchar("status", {
+      enum: [...REFERRAL_PAYOUT_STATUS_VALUES],
+    })
+      .$type<ReferralPayoutStatus>()
+      .notNull()
+      .default("requested"),
+    adminEmail: varchar("admin_email", { length: 120 }),
+    proofUrl: text("proof_url"),
+    denialReason: text("denial_reason"),
+    reviewedAt: timestamp("reviewed_at"),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateStatusIdx: index(
+      "referral_payout_requests_affiliate_status_idx",
+    ).on(table.affiliateId, table.status),
+    oneOpenRequest: uniqueIndex("referral_payout_requests_one_open")
+      .on(table.affiliateId)
+      .where(sql`${table.status} IN ('requested', 'approved')`),
+    minimumCheck: check(
+      "referral_payout_requests_minimum_amount",
+      sql`${table.amountCentavos} >= 10000`,
+    ),
+  }),
+);
+
+export type ReferralPayoutRequest = InferSelectModel<
+  typeof referralPayoutRequest
+>;
+
+/**
+ * Lançamento — espelha `expert_ledger_entries`, o padrão já provado no repo:
+ * valor com sinal, tipo, `event_key` único para idempotência e origem
+ * rastreável. Nunca sofre `UPDATE`: uma correção é um lançamento oposto.
+ *
+ * `available_at` carrega a carência (nulo = disponível imediatamente, como um
+ * saque pago ou uma baixa). `customer_id` é o que faz um lançamento de
+ * reversão dizer qual indicado o originou, para que um débito no extrato
+ * nunca seja um mistério.
+ */
+export const referralLedgerEntry = pgTable(
+  "referral_ledger_entries",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    type: varchar("type", {
+      enum: [...REFERRAL_LEDGER_ENTRY_TYPE_VALUES],
+    })
+      .$type<ReferralLedgerEntryType>()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    eventKey: varchar("event_key", { length: 255 }).notNull(),
+    commissionId: uuid("commission_id").references(() => referralCommission.id),
+    payoutRequestId: uuid("payout_request_id").references(
+      () => referralPayoutRequest.id,
+    ),
+    customerId: uuid("customer_id").references(() => referralCustomer.id),
+    availableAt: timestamp("available_at"),
+    description: text("description"),
+    createdBy: varchar("created_by", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique("referral_ledger_entries_event_key_unique").on(
+      table.eventKey,
+    ),
+    affiliateAvailableIdx: index(
+      "referral_ledger_entries_affiliate_available_idx",
+    ).on(table.affiliateId, table.availableAt),
+    commissionIdx: index("referral_ledger_entries_commission_idx").on(
+      table.commissionId,
+    ),
+    payoutIdx: index("referral_ledger_entries_payout_idx").on(
+      table.payoutRequestId,
+    ),
+  }),
+);
+
+export type ReferralLedgerEntry = InferSelectModel<typeof referralLedgerEntry>;
+
+/** Log de ação administrativa do programa — quem fez, em quem, e o quê. */
+export const referralAdminAction = pgTable(
+  "referral_admin_actions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    affiliateId: uuid("affiliate_id")
+      .notNull()
+      .references(() => referralAffiliate.id),
+    adminEmail: varchar("admin_email", { length: 120 }).notNull(),
+    action: varchar("action", {
+      enum: [...REFERRAL_ADMIN_ACTION_VALUES],
+    })
+      .$type<ReferralAdminActionType>()
+      .notNull(),
+    reason: text("reason"),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    affiliateCreatedIdx: index(
+      "referral_admin_actions_affiliate_created_idx",
+    ).on(table.affiliateId, table.createdAt),
+  }),
+);
+
+export type ReferralAdminAction = InferSelectModel<typeof referralAdminAction>;
 
 // =============================================
 // Trackable Links (Links Rastreáveis)
@@ -2646,3 +3489,640 @@ export const conversationEvent = pgTable(
 );
 
 export type ConversationEvent = InferSelectModel<typeof conversationEvent>;
+
+// ===== BEGIN meta_tracking_* — bloco espelhado byte a byte no projeto irmão =====
+//
+// Fundação de tracking de campanhas Meta (§4 do plano
+// `backoffice/docs/plans/campaign-tracking-foundation.md`). Sete tabelas
+// registram, para toda conta de anúncio conectada, três coisas em três formatos
+// diferentes porque elas mudam em ritmos diferentes: a CONFIGURAÇÃO de cada
+// entidade ao longo do tempo (versões), os RESULTADOS dia a dia (série) e as
+// AÇÕES tomadas (stream), com autor e motivo quando a ação nasceu dentro da
+// plataforma.
+//
+// A Meta não guarda histórico de configuração — só o estado atual — e sua
+// janela de insights desliza (37 meses). O que não for capturado no dia é
+// perdido para sempre; daí a obsessão com idempotência e cobertura.
+//
+// O backoffice é o dono da migration e do coletor. Este bloco vive nos dois
+// `schema.ts` porque o Postgres é um só, e
+// `automatize-frontend/tests/meta-tracking-schema-parity.test.ts` compara os
+// dois blocos byte a byte: editar um lado sem o outro quebra o teste, que é
+// exatamente o ponto.
+//
+// Nada aqui altera tabela existente. As tabelas legadas de edit log
+// (`campaign_edit_logs`, `adset_edit_logs`, `ad_creative_edit_logs`) seguem
+// intactas e recebem dual-write, com ponte em
+// `meta_tracking_change_events.legacy_edit_log_*`.
+
+/** A hierarquia inteira é trackeada igual — campanha, conjunto e anúncio. */
+export type MetaTrackingEntityLevel = "campaign" | "adset" | "ad";
+
+/**
+ * `CBO` = orçamento na campanha; `ABO` = no conjunto. Derivado na coleta: a
+ * Meta não devolve o modo, devolve em qual nível o orçamento está.
+ */
+export type MetaTrackingBudgetMode = "CBO" | "ABO";
+
+/**
+ * Diff campo a campo pré-computado NA COLETA — é o que dispensa comparar
+ * configurações em tempo de consulta e o que a busca por campo alterado
+ * (`changed_fields ? 'daily_budget'`) interroga.
+ */
+export type MetaTrackingChangedFields = Record<
+  string,
+  { old: unknown; new: unknown }
+>;
+
+/**
+ * `created` e `config_change` andam com versões de configuração;
+ * `status_transition`, `archived` e `deleted_detected` são ciclo de vida e
+ * NÃO geram versão — estado efetivo é campo volátil (ver a tabela de versões).
+ */
+export type MetaTrackingChangeKind =
+  | "created"
+  | "config_change"
+  | "status_transition"
+  | "archived"
+  | "deleted_detected";
+
+/**
+ * De onde veio a ação. `backoffice_admin` é a única origem com motivo
+ * obrigatório (regra de aplicação, não do banco: o mesmo evento vindo do
+ * coletor legitimamente não tem motivo). `external_detected` é o que o diff
+ * descobriu de mudanças feitas direto no Gerenciador de Anúncios.
+ */
+export type MetaTrackingChangeSource =
+  | "backoffice_admin"
+  | "frontend_user"
+  | "external_detected"
+  | "system";
+
+export type MetaTrackingRunKind = "daily" | "backfill";
+
+export type MetaTrackingRunTriggeredBy = "cron" | "script" | "manual";
+
+export type MetaTrackingRunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "failed";
+
+/**
+ * `skipped_reconnect` / `skipped_no_token` são buraco irrecuperável: sem token
+ * não há coleta, e a configuração daquele dia não existe em lugar nenhum para
+ * ser buscada depois. Por isso a cobertura é a fonte da tela de operação, e não
+ * só um log.
+ */
+export type MetaTrackingCoverageStatus =
+  | "complete"
+  | "partial"
+  | "failed"
+  | "skipped_reconnect"
+  | "skipped_no_token";
+
+/**
+ * Execução de coleta. O cron dispara várias vezes na mesma madrugada drenando
+ * lotes (limite de duração da plataforma), então "run" é uma invocação, não um
+ * dia: quem responde "o dia está coberto?" é `meta_tracking_account_coverage`.
+ */
+export const metaTrackingRun = pgTable(
+  "meta_tracking_runs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    kind: varchar("kind", { length: 16 })
+      .$type<MetaTrackingRunKind>()
+      .notNull()
+      .default("daily"),
+    triggeredBy: varchar("triggered_by", { length: 16 })
+      .$type<MetaTrackingRunTriggeredBy>()
+      .notNull()
+      .default("cron"),
+    status: varchar("status", { length: 24 })
+      .$type<MetaTrackingRunStatus>()
+      .notNull()
+      .default("running"),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+    errorMessage: text("error_message"),
+    summary: jsonb("summary")
+      .notNull()
+      .default(
+        sql`'{"eventsCreated": 0, "entitiesSeen": 0, "accountsCovered": 0, "accountsSkipped": 0, "versionsCreated": 0, "metricRowsUpserted": 0}'::jsonb`,
+      ),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    startedAtIdx: index("meta_tracking_runs_started_at_idx").on(
+      table.startedAt,
+    ),
+    statusIdx: index("meta_tracking_runs_status_idx").on(table.status),
+    kindStartedAtIdx: index("meta_tracking_runs_kind_started_at_idx").on(
+      table.kind,
+      table.startedAt,
+    ),
+  }),
+);
+
+export type MetaTrackingRun = InferSelectModel<typeof metaTrackingRun>;
+
+/**
+ * Cobertura por conta × dia. É o mecanismo de claim (conta sem cobertura
+ * `complete` no dia = pendente, e o próximo disparo do cron a pega) e a fonte
+ * da tela de operação. Moeda e timezone vivem aqui, não por linha de métrica:
+ * são propriedade da conta de anúncio, e é a timezone dela que define o que a
+ * Meta chama de "dia".
+ */
+export const metaTrackingAccountCoverage = pgTable(
+  "meta_tracking_account_coverage",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => metaTrackingRun.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id").notNull(),
+    businessDate: date("business_date").notNull(),
+    status: varchar("status", { length: 24 })
+      .$type<MetaTrackingCoverageStatus>()
+      .notNull(),
+    errorMessage: text("error_message"),
+    entitiesSeen: integer("entities_seen").notNull().default(0),
+    apiCallsUsed: integer("api_calls_used").notNull().default(0),
+    currency: varchar("currency", { length: 8 }),
+    timezoneName: varchar("timezone_name", { length: 64 }),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    accountDateUnique: uniqueIndex(
+      "meta_tracking_account_coverage_account_date_unique",
+    ).on(table.accountId, table.businessDate),
+    dateStatusIdx: index("meta_tracking_account_coverage_date_status_idx").on(
+      table.businessDate,
+      table.status,
+    ),
+    runIdx: index("meta_tracking_account_coverage_run_idx").on(table.runId),
+    userDateIdx: index("meta_tracking_account_coverage_user_date_idx").on(
+      table.userId,
+      table.businessDate,
+    ),
+  }),
+);
+
+export type MetaTrackingAccountCoverage = InferSelectModel<
+  typeof metaTrackingAccountCoverage
+>;
+
+/**
+ * Eventos crus do audit trail da Meta (`/act_{id}/activities`) — persistidos
+ * inteiros, inclusive os que não casam com ação nenhuma (billing, públicos,
+ * papéis da conta), porque são matéria-prima de propósitos futuros.
+ *
+ * Enriquecimento oportunista, nunca fonte primária: o formato de `extra_data`
+ * e a retenção do endpoint não são documentados. O diff do coletor é que manda.
+ *
+ * `dedup_hash` é sha256 de `(account_id, event_type, event_time, object_id,
+ * actor_id)` — o evento não tem id próprio documentado. É hash, e não unique
+ * composto, porque `object_id` e `actor_id` vêm nulos em parte dos eventos e no
+ * Postgres NULL nunca colide com NULL: o unique composto deixaria passar
+ * duplicata justo na sobreposição de 48 h que o poll faz de propósito.
+ */
+export const metaTrackingActivityEvent = pgTable(
+  "meta_tracking_activity_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id").notNull(),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    translatedEventType: text("translated_event_type"),
+    eventTime: timestamp("event_time").notNull(),
+    actorId: text("actor_id"),
+    actorName: text("actor_name"),
+    applicationId: text("application_id"),
+    objectId: text("object_id"),
+    objectType: varchar("object_type", { length: 48 }),
+    objectName: text("object_name"),
+    /** Opaco de propósito: não documentado, pode sumir sem aviso. */
+    extraData: jsonb("extra_data"),
+    dedupHash: varchar("dedup_hash", { length: 64 }).notNull(),
+    /**
+     * Sem FK para `meta_tracking_change_events` de propósito: a ponte canônica
+     * é o `activity_event_id` do lado do evento de mudança, e um par de FKs
+     * mútuas obrigaria a ordenar inserts que o matcher faz em qualquer ordem.
+     */
+    matchedChangeEventId: uuid("matched_change_event_id"),
+    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    dedupHashUnique: uniqueIndex(
+      "meta_tracking_activity_events_dedup_hash_unique",
+    ).on(table.dedupHash),
+    accountTimeIdx: index("meta_tracking_activity_events_account_time_idx").on(
+      table.accountId,
+      table.eventTime,
+    ),
+    objectIdx: index("meta_tracking_activity_events_object_idx").on(
+      table.objectId,
+    ),
+  }),
+);
+
+export type MetaTrackingActivityEvent = InferSelectModel<
+  typeof metaTrackingActivityEvent
+>;
+
+/**
+ * Versões de configuração (SCD tipo 2): uma linha por entidade × configuração
+ * distinta, aberta na primeira observação e fechada (`valid_to`) quando a
+ * configuração muda. "Estado da entidade em qualquer data" vira uma consulta de
+ * vigência; versão nova só nasce quando algo mudou de fato, o que mantém o
+ * histórico denso em informação.
+ *
+ * CAMPOS VOLÁTEIS — GRAVADOS AQUI, MAS FORA DO HASH: `effective_status`,
+ * `budget_remaining`, `learning_stage_info`, `issues_info`, `updated_time_meta`
+ * e `last_budget_toggling_time` NÃO entram em `config_hash` e portanto não
+ * abrem versão nova. Eles mudam sozinhos — o estado efetivo cai por cascata
+ * quando o pai pausa, o restante do orçamento muda a cada gasto, a fase de
+ * aprendizado anda sem ninguém tocar em nada. Se entrassem no hash, toda
+ * entidade ganharia versão nova todo dia e a pergunta "o que estava valendo
+ * quando o resultado mudou?" perderia a resposta no ruído. Transição de estado
+ * vira `meta_tracking_change_events`, não versão.
+ */
+export const metaTrackingConfigVersion = pgTable(
+  "meta_tracking_config_versions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id").notNull(),
+    entityLevel: varchar("entity_level", { length: 16 })
+      .$type<MetaTrackingEntityLevel>()
+      .notNull(),
+    entityId: text("entity_id").notNull(),
+    /** Desnormalizados para filtrar sem join; nulos no próprio nível. */
+    campaignId: text("campaign_id"),
+    adsetId: text("adset_id"),
+    entityName: text("entity_name"),
+
+    validFrom: timestamp("valid_from").notNull().defaultNow(),
+    /** NULL = versão vigente. */
+    validTo: timestamp("valid_to"),
+    versionNumber: integer("version_number").notNull().default(1),
+    firstSeenRunId: uuid("first_seen_run_id").references(
+      () => metaTrackingRun.id,
+    ),
+    /** Última vez que a coleta viu esta configuração idêntica. */
+    lastConfirmedAt: timestamp("last_confirmed_at").notNull().defaultNow(),
+
+    /** sha256 da configuração normalizada — chaves ordenadas, voláteis fora. */
+    configHash: varchar("config_hash", { length: 64 }).notNull(),
+    /**
+     * Resposta integral da Graph API. Existe para o campo que hoje ninguém
+     * consulta já estar capturado quando um propósito futuro precisar dele.
+     */
+    config: jsonb("config").notNull(),
+    /**
+     * Prefixo de Campanha Gerenciada avaliado na coleta, POR VERSÃO: renomear
+     * uma campanha muda a marca daqui para frente sem reescrever a história.
+     */
+    isManaged: boolean("is_managed").notNull().default(false),
+
+    // Colunas tipadas (consulta quente). NULL quando não se aplicam ao nível.
+    configuredStatus: varchar("configured_status", { length: 24 }),
+    createdTimeMeta: timestamp("created_time_meta"),
+
+    // Campanha
+    objective: varchar("objective", { length: 48 }),
+    buyingType: varchar("buying_type", { length: 24 }),
+    bidStrategy: varchar("bid_strategy", { length: 48 }),
+    spendCap: numeric("spend_cap"),
+    specialAdCategories: jsonb("special_ad_categories"),
+    /** Advantage+: distingue ASC/AAC legadas da estrutura nova. */
+    smartPromotionType: varchar("smart_promotion_type", { length: 48 }),
+    advantageState: varchar("advantage_state", { length: 48 }),
+    isAdsetBudgetSharingEnabled: boolean("is_adset_budget_sharing_enabled"),
+    budgetMode: varchar("budget_mode", {
+      length: 8,
+    }).$type<MetaTrackingBudgetMode>(),
+
+    /** Campanha ou conjunto — a Meta põe o orçamento em um nível ou no outro. */
+    dailyBudget: numeric("daily_budget"),
+    lifetimeBudget: numeric("lifetime_budget"),
+
+    // Conjunto
+    optimizationGoal: varchar("optimization_goal", { length: 48 }),
+    billingEvent: varchar("billing_event", { length: 48 }),
+    bidAmount: numeric("bid_amount"),
+    destinationType: varchar("destination_type", { length: 48 }),
+    startTime: timestamp("start_time"),
+    endTime: timestamp("end_time"),
+    isDynamicCreative: boolean("is_dynamic_creative"),
+    targeting: jsonb("targeting"),
+    promotedObject: jsonb("promoted_object"),
+    attributionSpec: jsonb("attribution_spec"),
+    frequencyControlSpecs: jsonb("frequency_control_specs"),
+    pacingType: jsonb("pacing_type"),
+    dsaBeneficiary: text("dsa_beneficiary"),
+    dsaPayor: text("dsa_payor"),
+
+    // Anúncio
+    creativeId: text("creative_id"),
+    conversionDomain: text("conversion_domain"),
+    trackingSpecs: jsonb("tracking_specs"),
+
+    // Voláteis — fora do hash. Ver o comentário da tabela.
+    effectiveStatus: varchar("effective_status", { length: 32 }),
+    budgetRemaining: numeric("budget_remaining"),
+    learningStageInfo: jsonb("learning_stage_info"),
+    issuesInfo: jsonb("issues_info"),
+    updatedTimeMeta: timestamp("updated_time_meta"),
+    lastBudgetTogglingTime: timestamp("last_budget_toggling_time"),
+
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    /** Reexecutar a coleta no mesmo dia reencontra a linha em vez de duplicar. */
+    entityHashValidFromUnique: uniqueIndex(
+      "meta_tracking_config_versions_entity_hash_valid_from_unique",
+    ).on(table.entityLevel, table.entityId, table.configHash, table.validFrom),
+    /** Versão vigente: o caminho de leitura de "estado em qualquer data". */
+    currentIdx: index("meta_tracking_config_versions_current_idx")
+      .on(table.entityLevel, table.entityId)
+      .where(sql`"valid_to" is null`),
+    accountValidFromIdx: index(
+      "meta_tracking_config_versions_account_valid_from_idx",
+    ).on(table.accountId, table.validFrom),
+    userIdx: index("meta_tracking_config_versions_user_idx").on(table.userId),
+  }),
+);
+
+export type MetaTrackingConfigVersion = InferSelectModel<
+  typeof metaTrackingConfigVersion
+>;
+
+/**
+ * Stream unificado de ações: toda mudança, em qualquer nível e de qualquer
+ * origem, é uma linha aqui. É a tabela que responde "o que foi feito, quando,
+ * por quem e por quê" — e a que os propósitos futuros consomem.
+ *
+ * O motivo (`note`) é obrigatório na aplicação quando `source =
+ * "backoffice_admin"`, e não no banco: o mesmo evento vindo do coletor
+ * (`external_detected`) legitimamente não tem motivo, porque ninguém o
+ * declarou. A obrigação vive onde existe alguém para responder por ela.
+ */
+export const metaTrackingChangeEvent = pgTable(
+  "meta_tracking_change_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id").notNull(),
+    entityLevel: varchar("entity_level", { length: 16 })
+      .$type<MetaTrackingEntityLevel>()
+      .notNull(),
+    entityId: text("entity_id").notNull(),
+    campaignId: text("campaign_id"),
+    adsetId: text("adset_id"),
+    entityName: text("entity_name"),
+
+    changeKind: varchar("change_kind", { length: 24 })
+      .$type<MetaTrackingChangeKind>()
+      .notNull(),
+    changedFields: jsonb("changed_fields")
+      .$type<MetaTrackingChangedFields>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    /** Nulos nas transições de estado puras, que não abrem versão. */
+    fromConfigVersionId: uuid("from_config_version_id").references(
+      () => metaTrackingConfigVersion.id,
+    ),
+    toConfigVersionId: uuid("to_config_version_id").references(
+      () => metaTrackingConfigVersion.id,
+    ),
+
+    source: varchar("source", { length: 24 })
+      .$type<MetaTrackingChangeSource>()
+      .notNull(),
+    actorEmail: varchar("actor_email", { length: 100 }),
+    /** Nome que o audit trail da Meta atribuiu, quando houve match. */
+    actorNameMeta: text("actor_name_meta"),
+    note: text("note"),
+
+    /** Exato quando conhecido (escrita interna ou activities); senão = detecção. */
+    occurredAt: timestamp("occurred_at").notNull(),
+    detectedAt: timestamp("detected_at").notNull().defaultNow(),
+    detectionRunId: uuid("detection_run_id").references(
+      () => metaTrackingRun.id,
+    ),
+    activityEventId: uuid("activity_event_id").references(
+      () => metaTrackingActivityEvent.id,
+    ),
+
+    /** Ponte com o edit log legado gravado no mesmo dual-write. */
+    legacyEditLogTable: varchar("legacy_edit_log_table", { length: 32 }),
+    legacyEditLogId: uuid("legacy_edit_log_id"),
+
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    entityOccurredIdx: index(
+      "meta_tracking_change_events_entity_occurred_idx",
+    ).on(table.entityLevel, table.entityId, table.occurredAt),
+    accountOccurredIdx: index(
+      "meta_tracking_change_events_account_occurred_idx",
+    ).on(table.accountId, table.occurredAt),
+    userOccurredIdx: index("meta_tracking_change_events_user_occurred_idx").on(
+      table.userId,
+      table.occurredAt,
+    ),
+    sourceIdx: index("meta_tracking_change_events_source_idx").on(table.source),
+  }),
+);
+
+export type MetaTrackingChangeEvent = InferSelectModel<
+  typeof metaTrackingChangeEvent
+>;
+
+/**
+ * Série diária de resultados: uma linha por entidade × dia, sempre com
+ * granularidade de um dia. Janela de análise é consulta, nunca armazenamento.
+ *
+ * Os insights da Meta mudam retroativamente por até 28 dias (atribuição) e só
+ * então congelam, então a coleta reescreve a janela móvel todo dia por upsert e
+ * marca `is_final` quando o dia sai dela. Nunca deletar: o que já foi capturado
+ * é a única cópia que existe depois que a janela de 37 meses passar.
+ *
+ * O dia é o da timezone da conta de anúncio, e o valor está na moeda dela —
+ * ambos registrados em `meta_tracking_account_coverage`, não por linha.
+ *
+ * ## Contrato de leitura: análise lê COLUNAS, o jsonb é RESERVATÓRIO
+ *
+ * As métricas conhecidas estão promovidas a colunas nullable. Quem analisa lê
+ * coluna tipada — nunca abre `actions`/`action_values` em consulta. As famílias
+ * cruas continuam gravadas inteiras porque são o reservatório de promoção: elas
+ * permitem criar amanhã a coluna de uma métrica que hoje ninguém consulta, já
+ * preenchida sobre o histórico de ontem (é o que o script
+ * `scripts/backfill-metric-columns.ts` faz).
+ *
+ * Daí as três regras que valem para sempre nesta tabela:
+ *
+ * 1. **Campo novo interessante da Meta entra no field set IMEDIATAMENTE**, mesmo
+ *    sem coluna. Capturar é irreversível no tempo (a janela de 37 meses desliza
+ *    todo dia); promover não é.
+ * 2. **`NULL` é "não reportado", não zero.** Dia de campanha de mensagens não
+ *    tem compra; gravar `0` apagaria a diferença entre "não se aplica" e
+ *    "tentou e não vendeu". O zero-verdadeiro se resolve na leitura, com
+ *    objetivo + `spend` em mãos.
+ * 3. **Conversões personalizadas são a exceção conhecida.** O nome delas é
+ *    dinâmico por conta (`offsite_conversion.custom.<id>`), então não há coluna
+ *    possível: seguem legíveis só pelo jsonb cru.
+ *
+ * A extração vive num ponto só — `lib/meta-tracking/metric-columns.ts` — e é
+ * lá que moram as listas de prioridade que impedem a dupla contagem
+ * (`omni_purchase` e `purchase` são o mesmo fato).
+ */
+export const metaTrackingDailyMetric = pgTable(
+  "meta_tracking_daily_metrics",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id").notNull(),
+    entityLevel: varchar("entity_level", { length: 16 })
+      .$type<MetaTrackingEntityLevel>()
+      .notNull(),
+    entityId: text("entity_id").notNull(),
+    campaignId: text("campaign_id"),
+    adsetId: text("adset_id"),
+    metricDate: date("metric_date").notNull(),
+
+    spend: numeric("spend"),
+    impressions: integer("impressions"),
+    clicks: integer("clicks"),
+    reach: integer("reach"),
+    frequency: numeric("frequency"),
+
+    /** Famílias de cardinalidade variável — tipar seria inventar colunas. */
+    actions: jsonb("actions"),
+    actionValues: jsonb("action_values"),
+    costPerActionType: jsonb("cost_per_action_type"),
+    costPerResult: jsonb("cost_per_result"),
+    purchaseRoas: jsonb("purchase_roas"),
+    websitePurchaseRoas: jsonb("website_purchase_roas"),
+    /**
+     * As sete famílias de vídeo do field set num reservatório só, chaveadas pelo
+     * nome do campo da Meta. Todas têm a mesma forma
+     * (`[{ action_type: "video_view", value }]`), então sete colunas jsonb não
+     * comprariam nada — mas ficar só nas colunas escalares deixaria o vídeo
+     * fora do reservatório, e é dele que sai qualquer promoção futura.
+     */
+    videoActions: jsonb("video_actions"),
+
+    /*
+     * Métricas promovidas a coluna — o modelo de leitura tipado. Todas
+     * nullable: `NULL` é "a Meta não reportou". Contagens `integer`, dinheiro e
+     * razões `numeric`. `purchase_roas_value`/`cost_per_result_value` levam o
+     * sufixo porque `purchase_roas`/`cost_per_result` já são o jsonb cru da
+     * mesma métrica: o sufixo é o que diz "o escalar promovido daquela família".
+     */
+    linkClicks: integer("link_clicks"),
+    landingPageViews: integer("landing_page_views"),
+    contentViews: integer("content_views"),
+    addsToCart: integer("adds_to_cart"),
+    checkoutsInitiated: integer("checkouts_initiated"),
+    paymentInfosAdded: integer("payment_infos_added"),
+    purchases: integer("purchases"),
+    /** Unidades MAIORES da moeda da conta, como `spend`. */
+    purchaseValue: numeric("purchase_value"),
+    purchaseRoasValue: numeric("purchase_roas_value"),
+
+    leads: integer("leads"),
+    registrationsCompleted: integer("registrations_completed"),
+
+    messagingConversationsStarted: integer("messaging_conversations_started"),
+    messagingFirstReplies: integer("messaging_first_replies"),
+
+    postEngagements: integer("post_engagements"),
+    pageEngagements: integer("page_engagements"),
+    postReactions: integer("post_reactions"),
+    comments: integer("comments"),
+    shares: integer("shares"),
+    postSaves: integer("post_saves"),
+    pageLikes: integer("page_likes"),
+
+    videoViews3s: integer("video_views_3s"),
+    thruplays: integer("thruplays"),
+    videoWatchesP25: integer("video_watches_p25"),
+    videoWatchesP50: integer("video_watches_p50"),
+    videoWatchesP75: integer("video_watches_p75"),
+    videoWatchesP95: integer("video_watches_p95"),
+    videoWatchesP100: integer("video_watches_p100"),
+    videoAvgWatchSeconds: numeric("video_avg_watch_seconds"),
+
+    estimatedAdRecallers: integer("estimated_ad_recallers"),
+    appInstalls: integer("app_installs"),
+    /** Resultado na definição da própria conta (o `indicator` do custo). */
+    results: integer("results"),
+    costPerResultValue: numeric("cost_per_result_value"),
+
+    firstCapturedAt: timestamp("first_captured_at").notNull().defaultNow(),
+    lastRefreshedAt: timestamp("last_refreshed_at").notNull().defaultNow(),
+    /** O dia saiu da janela de 28 dias: o número não muda mais. */
+    isFinal: boolean("is_final").notNull().default(false),
+  },
+  (table) => ({
+    entityDateUnique: uniqueIndex(
+      "meta_tracking_daily_metrics_entity_date_unique",
+    ).on(table.entityLevel, table.entityId, table.metricDate),
+    accountDateIdx: index("meta_tracking_daily_metrics_account_date_idx").on(
+      table.accountId,
+      table.metricDate,
+    ),
+    campaignDateIdx: index("meta_tracking_daily_metrics_campaign_date_idx").on(
+      table.campaignId,
+      table.metricDate,
+    ),
+    userDateIdx: index("meta_tracking_daily_metrics_user_date_idx").on(
+      table.userId,
+      table.metricDate,
+    ),
+  }),
+);
+
+export type MetaTrackingDailyMetric = InferSelectModel<
+  typeof metaTrackingDailyMetric
+>;
+
+/**
+ * Snapshot de criativo, chaveado pelo id da própria Meta: criativos são
+ * imutáveis na prática (não têm `updated_time` documentado), então uma linha
+ * por criativo basta. Buscado quando um anúncio referencia um criativo
+ * desconhecido — é o que permite correlacionar troca de criativo com o conteúdo
+ * do criativo, em vez de só com o id dele.
+ */
+export const metaTrackingCreative = pgTable(
+  "meta_tracking_creatives",
+  {
+    id: text("id").primaryKey().notNull(),
+    accountId: text("account_id").notNull(),
+    spec: jsonb("spec").notNull(),
+    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    accountIdx: index("meta_tracking_creatives_account_idx").on(
+      table.accountId,
+    ),
+  }),
+);
+
+export type MetaTrackingCreative = InferSelectModel<typeof metaTrackingCreative>;
+
+// ===== END meta_tracking_* =====

@@ -525,19 +525,24 @@ export function useToggleCampaignStatus(accountId: string, userId: string) {
   return useMutation<
     void,
     Error,
-    { campaignId: string; nextStatus: CampaignStatus },
+    { campaignId: string; nextStatus: CampaignStatus; note: string },
     ToggleContext
   >({
-    mutationFn: async ({ campaignId, nextStatus }) => {
+    mutationFn: async ({ campaignId, nextStatus, note }) => {
       const response = await fetch(
         `${basePath(accountId)}/campaigns?userId=${userId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ campaignId, status: nextStatus }),
+          body: JSON.stringify({ campaignId, status: nextStatus, note }),
         },
       );
-      if (!response.ok) throw new Error("Falha ao atualizar status");
+      if (!response.ok) {
+        // A rota recusa a alteração sem motivo antes de tocar na Meta —
+        // a mensagem dela é mais útil do que um erro genérico.
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.message ?? "Falha ao atualizar status");
+      }
     },
     onMutate: async ({ campaignId, nextStatus }) => {
       const rootKey = marketingKeys.campaignListRoot(accountId, userId);
@@ -569,19 +574,24 @@ export function useToggleAdSetStatus(accountId: string, userId: string) {
   return useMutation<
     void,
     Error,
-    { adsetId: string; nextStatus: AdSetStatus },
+    { adsetId: string; nextStatus: AdSetStatus; note: string },
     ToggleContext
   >({
-    mutationFn: async ({ adsetId, nextStatus }) => {
+    mutationFn: async ({ adsetId, nextStatus, note }) => {
       const response = await fetch(
         `${basePath(accountId)}/adsets?userId=${userId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ adsetId, status: nextStatus }),
+          body: JSON.stringify({ adsetId, status: nextStatus, note }),
         },
       );
-      if (!response.ok) throw new Error("Falha ao atualizar status");
+      if (!response.ok) {
+        // A rota recusa a alteração sem motivo antes de tocar na Meta —
+        // a mensagem dela é mais útil do que um erro genérico.
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.message ?? "Falha ao atualizar status");
+      }
     },
     onMutate: async ({ adsetId, nextStatus }) => {
       const rootKey = marketingKeys.adsetListRoot(accountId, userId);
@@ -613,19 +623,24 @@ export function useToggleAdStatus(accountId: string, userId: string) {
   return useMutation<
     void,
     Error,
-    { adId: string; nextStatus: AdStatus },
+    { adId: string; nextStatus: AdStatus; note: string },
     ToggleContext
   >({
-    mutationFn: async ({ adId, nextStatus }) => {
+    mutationFn: async ({ adId, nextStatus, note }) => {
       const response = await fetch(
         `${basePath(accountId)}/ads?userId=${userId}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ adId, status: nextStatus }),
+          body: JSON.stringify({ adId, status: nextStatus, note }),
         },
       );
-      if (!response.ok) throw new Error("Falha ao atualizar status");
+      if (!response.ok) {
+        // A rota recusa a alteração sem motivo antes de tocar na Meta —
+        // a mensagem dela é mais útil do que um erro genérico.
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.message ?? "Falha ao atualizar status");
+      }
     },
     onMutate: async ({ adId, nextStatus }) => {
       const rootKey = marketingKeys.adListRoot(accountId, userId);

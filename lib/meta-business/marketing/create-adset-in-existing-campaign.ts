@@ -11,6 +11,7 @@ import { sanitizeGeoLocationsForMeta } from "@/lib/meta-business/geo-locations";
 import type { InterestTargetingValue } from "@/lib/meta-business/interest-targeting-types";
 import {
   applyInterestTargetingToMetaTargeting,
+  hasInterestTargetingConfigured,
 } from "@/lib/meta-business/interest-targeting-types";
 import { validateInterestTargetingForWrite } from "@/lib/meta-business/parse-interest-targeting-request";
 import {
@@ -25,7 +26,67 @@ import {
   CampaignObjective,
   type GraphApiAdSet,
 } from "@/lib/meta-business/types";
-import { getPagesWithInstagramAccounts } from "@/lib/meta-business/get-instagram-connected-page";
+import {
+  getPagesWithInstagramAccounts,
+  type FacebookPagesWithInstagramResponse,
+} from "@/lib/meta-business/get-instagram-connected-page";
+
+/**
+ * Decides whether this ad set goes out Advantage or strictly manual.
+ *
+ * Advantage is the default here too — but only when the operator left the
+ * audience controls alone.
+ *
+ * This dialog is the product's manual targeting tool: age, gender, custom
+ * audiences, exclusions and interests are meant to be honoured literally, and
+ * `advantage_audience: 0` is what makes Meta honour them. Since Marketing API
+ * v23.0, combining NON-default values for Age / Gender / Custom Audience
+ * Inclusion / Detailed Targeting Inclusion with `advantage_audience: 1` and no
+ * declared relaxation is an error — so the flag cannot simply be flipped on.
+ *
+ * Untouched = Meta's own defaults (18–65, all genders, no audiences, no
+ * interests) and no manual placements. In that state the operator expressed no
+ * intent, so the ad set goes out Advantage: audience automation on, placement
+ * fields omitted entirely.
+ *
+ * Placements have one extra guard. Instagram-profile traffic stays manual even
+ * when everything else is default: Meta does NOT narrow an empty placement set
+ * to Instagram — verified live, it stores `publisher_platforms: []` — so
+ * automatic placements would let a profile-visit ad set spend on Facebook.
+ */
+export function resolveAdvantageMode(input: {
+  ageMin: number;
+  ageMax: number;
+  targeting: Pick<
+    CreateAdSetTargetingInput,
+    | "genders"
+    | "custom_audiences"
+    | "excluded_custom_audiences"
+    | "interest_targeting"
+    | "placements"
+  >;
+  instagramOnlyPlacements?: boolean;
+}): { advantageAudience: boolean; advantagePlacements: boolean } {
+  const { ageMin, ageMax, targeting, instagramOnlyPlacements } = input;
+
+  const advantageAudience =
+    ageMin === 18 &&
+    ageMax === 65 &&
+    !targeting.genders?.length &&
+    !targeting.custom_audiences?.length &&
+    !targeting.excluded_custom_audiences?.length &&
+    !(
+      targeting.interest_targeting &&
+      hasInterestTargetingConfigured(targeting.interest_targeting)
+    );
+
+  const advantagePlacements =
+    advantageAudience &&
+    !instagramOnlyPlacements &&
+    !(targeting.placements && targeting.placements.length > 0);
+
+  return { advantageAudience, advantagePlacements };
+}
 
 export type CreateAdSetTargetingInput = {
   age_min: number;
@@ -389,7 +450,7 @@ export async function createAdSetInExistingCampaign(
     campaignType,
   } = getAdSetOptimizationConfig(campaignObjective);
 
-  let pagesResponse: Awaited<ReturnType<typeof getPagesWithInstagramAccounts>>;
+  let pagesResponse: FacebookPagesWithInstagramResponse;
   try {
     pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
       adAccountId: accountId,
@@ -481,18 +542,28 @@ export async function createAdSetInExistingCampaign(
     }
   }
 
-  const placementFields = placementsToTargetingFields(placementKeys);
   const geoLocations =
     sanitizeGeoLocationsForMeta(targeting.geo_locations) ??
     ({ countries: ["BR"] } as GeoLocationsPayload);
+
+  const { advantageAudience, advantagePlacements } = resolveAdvantageMode({
+    ageMin,
+    ageMax,
+    targeting,
+    instagramOnlyPlacements,
+  });
+  const usesDefaultAudience = advantageAudience;
+  const usesAdvantagePlacements = advantagePlacements;
 
   const metaTargeting: Record<string, unknown> = {
     geo_locations: geoLocations,
     age_min: ageMin,
     age_max: ageMax,
-    ...placementFields,
-    targeting_automation: { advantage_audience: 0 },
-    targeting_relaxation_types: { custom_audience: 0 },
+    ...(usesAdvantagePlacements
+      ? {}
+      : placementsToTargetingFields(placementKeys)),
+    targeting_automation: { advantage_audience: usesDefaultAudience ? 1 : 0 },
+    ...(usesDefaultAudience ? {} : { targeting_relaxation_types: { custom_audience: 0 } }),
   };
 
   if (targeting.genders?.length) {

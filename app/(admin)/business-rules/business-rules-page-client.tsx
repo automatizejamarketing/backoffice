@@ -11,6 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import type { BusinessOperatingRules } from "@/lib/business/business-health";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
+import {
+  ProactivityAlertsSection,
+  type ProactivityAlertClient,
+  type ProactivityAlertLogClient,
+} from "./proactivity-alerts-section";
 
 type RulesState = BusinessOperatingRules & {
   id: string;
@@ -48,9 +53,13 @@ function formatDate(value: string) {
 export function BusinessRulesPageClient({
   initialRules,
   initialLogs,
+  initialProactivityAlerts,
+  initialProactivityLogs,
 }: {
   initialRules: RulesState;
   initialLogs: LogItem[];
+  initialProactivityAlerts: ProactivityAlertClient[];
+  initialProactivityLogs: ProactivityAlertLogClient[];
 }) {
   const [rules, setRules] = useState(initialRules);
   const [logs, setLogs] = useState(initialLogs);
@@ -106,8 +115,8 @@ export function BusinessRulesPageClient({
           Regras de Business
         </h1>
         <p className="text-sm text-muted-foreground">
-          Critérios usados pela carteira e pela aba Business para classificar
-          clientes em crítico, atenção ou saudável.
+          Critérios de saúde da carteira e alertas de proatividade (cliente e
+          consultor), com valores e canais de entrega configuráveis.
         </p>
       </div>
 
@@ -224,7 +233,7 @@ export function BusinessRulesPageClient({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <History className="size-5" />
-            Histórico de mudanças
+            Histórico de mudanças (saúde)
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -280,6 +289,13 @@ export function BusinessRulesPageClient({
           )}
         </CardContent>
       </Card>
+
+      <div className="border-t pt-8">
+        <ProactivityAlertsSection
+          initialAlerts={initialProactivityAlerts}
+          initialLogs={initialProactivityLogs}
+        />
+      </div>
     </div>
   );
 }

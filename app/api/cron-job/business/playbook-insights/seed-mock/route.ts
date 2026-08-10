@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { assertCronAuthorized } from "@/lib/auth/cron-auth";
-import { resolveAppEnv } from "@/lib/env/load-env";
+import {
+  isMetaFakeScenarioEnvAllowed,
+  isMetaFakeScenarioUser,
+} from "@/lib/meta-fake/config";
 import {
   resolveUserIdForMockSeed,
   seedMockPlaybookInsights,
@@ -8,18 +11,10 @@ import {
 
 export const maxDuration = 60;
 
-function mockSeedAllowed(): boolean {
-  if (process.env.PLAYBOOK_INSIGHTS_ALLOW_MOCK === "true") return true;
-  const appEnv = resolveAppEnv(process.env.APP_ENV);
-  if (appEnv === "staging" || appEnv === "local") return true;
-  // Staging branch deployments sometimes ship with APP_ENV unset/prod.
-  const branch = process.env.VERCEL_GIT_COMMIT_REF?.trim().toLowerCase();
-  return branch === "staging";
-}
-
 /**
- * Staging/local helper: insert synthetic playbook.* insights for a user
- * so Carteira + Marketing panel can be demoted without Meta Graph.
+ * Staging/local helper: insert synthetic playbook.* insights for an
+ * allowlisted fake-scenario user so Carteira + Marketing panel can be
+ * demoted without Meta Graph. Uses DB-configured thresholds.
  *
  * GET ?email=user@example.com
  * GET ?userId=<uuid>
@@ -29,11 +24,11 @@ export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[playbook-insights-seed-mock]");
   if (!auth.ok) return auth.response;
 
-  if (!mockSeedAllowed()) {
+  if (!isMetaFakeScenarioEnvAllowed()) {
     return NextResponse.json(
       {
         error:
-          "Mock playbook seed is disabled in this environment (set PLAYBOOK_INSIGHTS_ALLOW_MOCK=true or use staging/local)",
+          "Fake Meta scenario runners are disabled in this environment (staging/local only)",
       },
       { status: 403 },
     );
@@ -52,6 +47,17 @@ export async function GET(request: NextRequest) {
     const target = await resolveUserIdForMockSeed({ userId, email });
     if (!target) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (!isMetaFakeScenarioUser(target.userId)) {
+      return NextResponse.json(
+        {
+          error:
+            "User is not in META_FAKE_SCENARIO_USER_IDS (or fake mode is disabled)",
+          userId: target.userId,
+        },
+        { status: 403 },
+      );
     }
 
     const result = await seedMockPlaybookInsights(target);

@@ -14,6 +14,8 @@ import {
   type PaginationInfo,
 } from "@/lib/meta-business/types";
 import { transformAd, transformPaging } from "@/lib/meta-business/transformers";
+import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
+import { validateChangeNote } from "@/lib/meta-tracking/internal-change-event";
 
 type GraphApiAdsResponse = {
   data: GraphApiAd[];
@@ -32,10 +34,16 @@ export type GetAdsResponse = Partial<{
 export type PatchAdRequestBody = {
   adId: string;
   status: AdStatus;
+  /** Motivo — obrigatório, como em toda mutação do backoffice. */
+  note: string;
 };
 
 export type PatchAdResponse = {
   success: boolean;
+  logId?: string;
+  /** True when Meta applied but DB audit log insert failed */
+  auditLogFailed?: boolean;
+  auditLogError?: string;
   ad?: {
     id: string;
     status: AdStatus;
@@ -249,7 +257,7 @@ export async function PATCH(
 
     const { accessToken } = tokenResult;
     const body: PatchAdRequestBody = await request.json();
-    const { adId, status } = body;
+    const { adId, status, note } = body;
 
     if (!adId || !status) {
       return NextResponse.json(
@@ -262,20 +270,99 @@ export async function PATCH(
       );
     }
 
+    // Motivo antes da Meta: mutação sem motivo não chega a mexer na conta.
+    const statusNote = validateChangeNote("backoffice_admin", note);
+    if (!statusNote.ok) {
+      return NextResponse.json(
+        {
+          error: "Missing note",
+          message: statusNote.issue.reason,
+          solution: statusNote.issue.suggestion,
+        },
+        { status: 400 },
+      );
+    }
+
+    // Estado anterior para o diff do stream — falhar aqui degrada o registro,
+    // nunca a ação.
+    let previousStatus: string | null = null;
+    let adName: string | null = null;
+    let parentCampaignId: string | null = null;
+    let parentAdsetId: string | null = null;
+    try {
+      const current = await metaApiCall<GraphApiAd>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: adId,
+        params: "fields=id,name,status,campaign_id,adset_id",
+        accessToken,
+      });
+      previousStatus = current.status ?? null;
+      adName = current.name ?? null;
+      parentCampaignId = current.campaign_id ?? null;
+      parentAdsetId = current.adset_id ?? null;
+    } catch (readError) {
+      logMetaMutationError(readError);
+    }
+
     const updateParams = new URLSearchParams({ status });
 
-    await metaApiCall<GraphApiUpdateAdResponse>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: `${adId}`,
-      params: "",
-      body: updateParams,
-      accessToken,
+    let appliedToMeta = false;
+    let statusErrorMessage: string | undefined;
+    let statusErrorReturn: ReturnType<typeof errorToGraphErrorReturn> | undefined;
+    try {
+      await metaApiCall<GraphApiUpdateAdResponse>({
+        domain: "FACEBOOK",
+        method: "POST",
+        path: `${adId}`,
+        params: "",
+        body: updateParams,
+        accessToken,
+      });
+      appliedToMeta = true;
+    } catch (metaError) {
+      statusErrorReturn = errorToGraphErrorReturn(metaError);
+      statusErrorMessage = `${statusErrorReturn.reason.title}: ${statusErrorReturn.reason.message}`;
+    }
+
+    const audit = await recordStatusChangeAudit({
+      entity: "ad",
+      backofficeUserEmail: authz.actor.email,
+      targetUserId: userId,
+      accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+      objectId: adId,
+      objectName: adName,
+      campaignId: parentCampaignId,
+      adsetId: parentAdsetId,
+      previousStatus,
+      newStatus: status,
+      note: statusNote.note ?? "",
+      occurredAt: new Date(),
+      appliedToMeta,
+      errorMessage: statusErrorMessage,
     });
+
+    if (!appliedToMeta) {
+      return NextResponse.json(
+        {
+          error: statusErrorReturn?.reason.title ?? "Failed to apply changes to Meta",
+          message: statusErrorMessage ?? "Unknown error occurred",
+          solution:
+            statusErrorReturn?.reason.solution ??
+            "A alteração foi registrada, mas não foi aplicada na Meta. Tente novamente.",
+        },
+        { status: statusErrorReturn?.statusCode ?? 400 },
+      );
+    }
 
     return NextResponse.json(
       {
         success: true,
+        logId: audit.logId,
+        ...(audit.auditLogFailed && {
+          auditLogFailed: true,
+          auditLogError: audit.auditLogError,
+        }),
         ad: {
           id: adId,
           status,

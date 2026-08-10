@@ -35,6 +35,7 @@ import {
   formatCurrency,
   translateStatus,
 } from "../utils/formatters";
+import { ActionHistoryPanel } from "./action-history-panel";
 import { AdSetDetail } from "./adset-detail";
 import { AdSetCreateDialog } from "./adset-create-dialog";
 import { CampaignEditDialog } from "./campaign-edit-dialog";
@@ -435,6 +436,19 @@ export function CampaignDetail({
                 sortMetric={adSetSortMetric}
                 sortOrder={adSetSortOrder}
                 onAdSetClick={handleAdSetClick}
+              />
+            </section>
+
+            <section>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                Histórico de Ações
+              </p>
+              <ActionHistoryPanel
+                accountId={accountId}
+                userId={userId}
+                entityLevel="campaign"
+                entityId={campaign.id}
+                enabled={isOpen}
               />
             </section>
           </div>

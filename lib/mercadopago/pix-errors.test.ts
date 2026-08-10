@@ -19,6 +19,7 @@ test("formatMercadoPagoPixError parses Mercado Pago JSON errors", () => {
         cause: [{ description: "Unauthorized use of live credentials" }],
       }),
     ),
-    /permissão para criar pagamentos Pix/,
+    // A causa aninhada é o que vira mensagem — e ela aponta a conta certa a usar.
+    /sem permissão para Pix via API/,
   );
 });

@@ -2,6 +2,20 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
 
 /**
+ * MIRRORED FILE — `automatize-frontend` and `backoffice` must hold BYTE-IDENTICAL copies.
+ *
+ * The admin panel duplicates the very same live campaigns the user dashboard does; the two
+ * must behave identically or an admin-side duplication spends money differently from a
+ * user-side one. The frontend is authoritative. After editing THIS file:
+ *
+ *     cd automatize-frontend && bun run sync:meta   # writes ../backoffice's copy
+ *
+ * and commit BOTH projects together — a frontend-only feature landing here (ADR 0022/0023's
+ * AI creation path did exactly this) leaves the backoffice on stale duplication logic.
+ * `tests/meta-duplicate-parity.test.ts` fails while the two drift.
+ */
+
+/**
  * Native Meta `/copies` duplication, orchestrated entity-by-entity.
  *
  * We deliberately DO NOT use `deep_copy=true` on campaign or ad set copies.
@@ -1108,27 +1122,6 @@ export function computeDuplicationBudget(args: {
     slices,
     lifetimeCents: dailyCents * AI_DUPLICATE_FLIGHT_DAYS,
   };
-}
-
-async function patchObjectFields(
-  objectId: string,
-  fields: Record<string, string>,
-  accessToken: string,
-): Promise<void> {
-  await withMetaRetry(() =>
-    metaApiCall<{ success?: boolean }>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: objectId,
-      params: "",
-      body: new URLSearchParams(fields),
-      accessToken,
-    }),
-  );
-}
-
-async function setObjectActive(objectId: string, accessToken: string): Promise<void> {
-  await patchObjectFields(objectId, { status: "ACTIVE" }, accessToken);
 }
 
 async function getCampaignTree(

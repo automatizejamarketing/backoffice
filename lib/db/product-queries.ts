@@ -61,6 +61,7 @@ export async function listExperts() {
       pixKey: expertProfile.pixKey,
       platformFeeBasisPoints: expertProfile.platformFeeBasisPoints,
       platformFeeFixedCentavos: expertProfile.platformFeeFixedCentavos,
+      marketplaceFeeBasisPoints: expertProfile.marketplaceFeeBasisPoints,
       status: expertProfile.status,
     })
     .from(expertProfile)
@@ -76,6 +77,7 @@ export async function createExpert(input: {
   pixKey: string;
   platformFeePercent?: number;
   platformFeeFixedCentavos?: number;
+  marketplaceFeePercent?: number;
 }) {
   const email = input.email.trim().toLowerCase();
   const values = parseExpertAdminInput(input);
@@ -267,6 +269,8 @@ export async function listProductOrders() {
       status: productOrder.status,
       approvedAt: productOrder.approvedAt,
       createdAt: productOrder.createdAt,
+      checkoutChannel: productOrder.checkoutChannel,
+      marketplaceFeeBasisPoints: productOrder.marketplaceFeeBasisPoints,
       providerPaymentId: productPayment.providerPaymentId,
       paymentStatus: productPayment.status,
       grossAmountCentavos: productPayment.grossAmountCentavos,

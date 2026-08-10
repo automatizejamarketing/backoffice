@@ -8,6 +8,7 @@ const schema = z.object({
   profileImageUrl: z.string().trim().optional().nullable(),
   platformFeePercent: z.number().finite().min(0).max(100).optional(),
   platformFeeFixedCentavos: z.number().int().min(0).optional(),
+  marketplaceFeePercent: z.number().finite().min(0).max(100).optional(),
   status: z.enum(["active", "inactive"]).default("active"),
 });
 
@@ -49,5 +50,12 @@ export function parseExpertAdminInput(input: unknown) {
     ...(parsed.platformFeeFixedCentavos === undefined
       ? {}
       : { platformFeeFixedCentavos: parsed.platformFeeFixedCentavos }),
+    ...(parsed.marketplaceFeePercent === undefined
+      ? {}
+      : {
+          marketplaceFeeBasisPoints: Math.round(
+            parsed.marketplaceFeePercent * 100,
+          ),
+        }),
   };
 }

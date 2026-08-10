@@ -1,5 +1,4 @@
 import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
-import { logMetaMutationError } from "@/lib/observability/meta-logger";
 import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
@@ -9,7 +8,8 @@ import {
 } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { normalizeName, renameMetaObject } from "@/lib/meta-business/rename";
-import { createRenameLog } from "@/lib/db/admin-queries";
+import { recordRenameAudit } from "@/lib/backoffice/meta-rename-audit";
+import { validateChangeNote } from "@/lib/meta-tracking/internal-change-event";
 
 export type RenameResponse = {
   success: boolean;
@@ -66,7 +66,7 @@ export async function POST(
       parentIds: { adAccountId: accountId },
     });
 
-    const body: { name?: unknown } = await request.json();
+    const body: { name?: unknown; note?: unknown } = await request.json();
     const validation = normalizeName(body.name);
     if (!validation.ok) {
       return NextResponse.json(
@@ -74,6 +74,23 @@ export async function POST(
           error: validation.error.title,
           message: validation.error.message,
           solution: validation.error.solution,
+        },
+        { status: 400 },
+      );
+    }
+
+    // Motivo antes da Meta: renomear muda a marca de Campanha Gerenciada e o
+    // hash da configuração — nunca é uma alteração sem consequência.
+    const renameNote = validateChangeNote(
+      "backoffice_admin",
+      typeof body.note === "string" ? body.note : null,
+    );
+    if (!renameNote.ok) {
+      return NextResponse.json(
+        {
+          error: "Missing note",
+          message: renameNote.issue.reason,
+          solution: renameNote.issue.suggestion,
         },
         { status: 400 },
       );
@@ -97,24 +114,24 @@ export async function POST(
       accessToken: tokenResult.accessToken,
     });
 
-    let auditLogFailed = false;
-    try {
-      await createRenameLog({
-        backofficeUserEmail: authz.actor.email,
-        targetUserId: userId,
-        entity: "ad",
-        objectId: adId,
-        previousName,
-        newName: validation.name,
-      });
-    } catch (dbErr) {
-      logMetaMutationError(dbErr);
-    console.error("[POST ad rename] audit log failed:", dbErr);
-      auditLogFailed = true;
-    }
+    const audit = await recordRenameAudit({
+      entity: "ad",
+      backofficeUserEmail: authz.actor.email,
+      targetUserId: userId,
+      accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+      objectId: adId,
+      previousName,
+      newName: validation.name,
+      note: renameNote.note ?? "",
+      occurredAt: new Date(),
+    });
 
     return NextResponse.json(
-      { success: true, name: validation.name, auditLogFailed },
+      {
+        success: true,
+        name: validation.name,
+        auditLogFailed: audit.auditLogFailed,
+      },
       { status: 200 },
     );
   } catch (error) {

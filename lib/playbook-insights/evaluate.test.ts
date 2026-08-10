@@ -9,6 +9,16 @@ import {
 import { evaluatePlaybookInsights } from "./evaluate";
 import type { CampaignMetricsRow } from "./types";
 
+function withConfig(
+  enabled: string[],
+  thresholds: Record<string, Record<string, number>>,
+) {
+  return {
+    enabledRuleIds: new Set(enabled),
+    thresholdsByRuleId: new Map(Object.entries(thresholds)),
+  };
+}
+
 function campaign(
   overrides: Partial<CampaignMetricsRow> & Pick<CampaignMetricsRow, "id" | "name">,
 ): CampaignMetricsRow {
@@ -136,5 +146,46 @@ describe("evaluatePlaybookInsights", () => {
     expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_TRIGGER)).toBe(
       false,
     );
+  });
+
+  test("honors dynamic thresholds from config", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c7",
+          name: "Borderline ROAS",
+          purchaseRoas: 3.5,
+          spend: 80,
+        }),
+      ],
+      config: {
+        enabledRuleIds: new Set([PLAYBOOK_RULE_ROAS_TRIGGER]),
+        thresholdsByRuleId: new Map([
+          [PLAYBOOK_RULE_ROAS_TRIGGER, { minSpend: 50, roasTrigger: 4 }],
+        ]),
+      },
+    });
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_TRIGGER)).toBe(
+      true,
+    );
+  });
+
+  test("skips disabled rules from config", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c8",
+          name: "Low ROAS disabled",
+          purchaseRoas: 1,
+          spend: 80,
+        }),
+      ],
+      config: {
+        enabledRuleIds: new Set(),
+      },
+    });
+    expect(result.candidates).toHaveLength(0);
   });
 });

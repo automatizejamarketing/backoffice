@@ -1,3 +1,4 @@
+import type { MetaTrackingEntityLevel } from "@/lib/db/schema";
 import type { DatePreset, TimeIncrement } from "@/lib/meta-business/types";
 import type { CampaignObjectiveFilter } from "@/lib/meta-business/campaign-objectives";
 import type { SortOrder } from "@/lib/meta-business/campaign-sort";
@@ -114,6 +115,24 @@ export const marketingKeys = {
     ] as const,
   adsetEditHistory: (accountId: string, userId: string, adsetId: string) =>
     [...marketingKeys.all(accountId, userId), "adsets", "edit-history", adsetId] as const,
+
+  /**
+   * Histórico unificado de ações (stream de tracking). Fica sob a raiz da conta
+   * de propósito: toda mutação invalida `marketingKeys.all`, então o painel
+   * recarrega sozinho assim que uma alteração é aplicada.
+   */
+  trackingHistory: (
+    accountId: string,
+    userId: string,
+    entityLevel: MetaTrackingEntityLevel,
+    entityId: string,
+  ) =>
+    [
+      ...marketingKeys.all(accountId, userId),
+      "tracking-history",
+      entityLevel,
+      entityId,
+    ] as const,
 
   // Ads
   adListRoot: (accountId: string, userId: string) =>

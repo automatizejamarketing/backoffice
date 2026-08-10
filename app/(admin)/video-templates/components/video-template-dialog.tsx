@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { AlertCircle, ImageOff } from "lucide-react";
+import { AlertCircle, ImageOff, Download } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +53,7 @@ export function VideoTemplateDialog({
   template: VideoTemplate | null;
   onSave: (template: VideoTemplate) => void;
 }) {
+  const [fetchingThumbnail, setFetchingThumbnail] = useState(false);
   const form = useForm<FormInputValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -129,14 +130,55 @@ export function VideoTemplateDialog({
         throw new Error(message);
       }
 
-      const saved = payload as VideoTemplate;
-      toast.success("Template salvo com sucesso!");
+      const saved = payload as VideoTemplate & { previewError?: string | null };
+
+      if (saved.previewError) {
+        toast.warning(
+          `Preview não pôde ser gerado automaticamente: ${saved.previewError}`,
+          {
+            description: "Você pode tentar novamente editando o template.",
+          }
+        );
+      } else {
+        toast.success("Template salvo com sucesso!");
+      }
       onSave(saved);
       onOpenChange(false);
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Erro ao salvar template"
       );
+    }
+  };
+
+  const handleFetchThumbnail = async () => {
+    const creatomateTemplateId = form.getValues("creatomateTemplateId");
+    if (!creatomateTemplateId) {
+      toast.error("Informe o ID do template Creatomate primeiro");
+      return;
+    }
+
+    setFetchingThumbnail(true);
+    try {
+      const res = await fetch(
+        `/api/backoffice/video-templates?templateId=${encodeURIComponent(creatomateTemplateId)}&action=fetch-thumbnail`
+      );
+
+      if (!res.ok) {
+        throw new Error("Erro ao buscar thumbnail");
+      }
+
+      const data = await res.json();
+      if (data.thumbnailUrl) {
+        form.setValue("thumbnailUrl", data.thumbnailUrl);
+        toast.success("Thumbnail carregada do Creatomate!");
+      } else {
+        toast.error("Thumbnail não encontrada no Creatomate");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao buscar thumbnail");
+    } finally {
+      setFetchingThumbnail(false);
     }
   };
 
@@ -260,9 +302,21 @@ export function VideoTemplateDialog({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>URL da Thumbnail</FormLabel>
-                        <FormControl>
-                          <Input placeholder="https://..." {...field} />
-                        </FormControl>
+                        <div className="flex gap-2">
+                          <FormControl>
+                            <Input placeholder="https://..." {...field} />
+                          </FormControl>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={handleFetchThumbnail}
+                            disabled={fetchingThumbnail}
+                            title="Buscar thumbnail do Creatomate"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}

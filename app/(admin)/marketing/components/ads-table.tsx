@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+
+import {
+  StatusChangeNoteDialog,
+  type StatusChangeRequest,
+} from "./status-change-note-dialog";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAds, useToggleAdStatus } from "../hooks/marketing-queries";
@@ -140,18 +145,42 @@ export function AdsTable({
     }
   };
 
+  const [pendingStatusChange, setPendingStatusChange] =
+    useState<StatusChangeRequest | null>(null);
+
+  // Pausar/retomar exige motivo (§7 do plano de tracking): o clique abre o
+  // diálogo, e só o motivo preenchido dispara a mutação.
   const handleToggleStatus = (ad: Ad, event: React.MouseEvent) => {
     event.stopPropagation();
 
     if (togglingAdId) return;
 
-    const newStatus =
-      ad.status === AdStatus.ACTIVE ? AdStatus.PAUSED : AdStatus.ACTIVE;
+    setPendingStatusChange({
+      entityId: ad.id,
+      entityName: ad.name,
+      activating: ad.status !== AdStatus.ACTIVE,
+    });
+  };
 
-    setTogglingAdId(ad.id);
+  const confirmStatusChange = (note: string) => {
+    const pending = pendingStatusChange;
+    if (!pending) return;
+
+    const newStatus = pending.activating
+      ? AdStatus.ACTIVE
+      : AdStatus.PAUSED;
+
+    setTogglingAdId(pending.entityId);
     toggleStatus.mutate(
-      { adId: ad.id, nextStatus: newStatus },
-      { onSettled: () => setTogglingAdId(null) },
+      { adId: pending.entityId, nextStatus: newStatus, note },
+      {
+        // O diálogo fica aberto até a Meta responder: fechar antes esconderia
+        // uma alteração que pode ser recusada (motivo ausente, cota, permissão).
+        onSettled: () => {
+          setTogglingAdId(null);
+          setPendingStatusChange(null);
+        },
+      },
     );
   };
 
@@ -471,6 +500,14 @@ export function AdsTable({
           </Button>
         </div>
       )}
+
+      <StatusChangeNoteDialog
+        request={pendingStatusChange}
+        entityLabel="anúncio"
+        isSubmitting={togglingAdId !== null}
+        onCancel={() => setPendingStatusChange(null)}
+        onConfirm={confirmStatusChange}
+      />
     </div>
   );
 }

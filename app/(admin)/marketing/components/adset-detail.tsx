@@ -41,6 +41,7 @@ import { InsightsChart } from "./insights-chart";
 import { TimeIncrementSelector } from "./time-increment-selector";
 import { AdsTable } from "./ads-table";
 import { DateFilter, resolveDateFilterFromParent } from "./date-filter";
+import { ActionHistoryPanel } from "./action-history-panel";
 import { AdSetEditDialog } from "./adset-edit-dialog";
 import { AdSetEditHistory } from "./adset-edit-history";
 import { AdCreativeDialog } from "./ad-creative-dialog";
@@ -496,7 +497,25 @@ export function AdSetDetail({
 
             <section>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
-                Histórico de Alterações
+                Histórico de Ações
+              </p>
+              <ActionHistoryPanel
+                accountId={accountId}
+                userId={userId}
+                entityLevel="adset"
+                entityId={adSet.id}
+                enabled={isOpen}
+              />
+            </section>
+
+            {/*
+              O registro legado continua visível enquanto a fundação de tracking
+              não tiver histórico suficiente: ele cobre só as edições feitas pelo
+              backoffice, mas é o que existe para o período anterior à coleta.
+            */}
+            <section>
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+                Edições pelo backoffice (registro legado)
               </p>
               <AdSetEditHistory
                 adsetId={adSet.id}

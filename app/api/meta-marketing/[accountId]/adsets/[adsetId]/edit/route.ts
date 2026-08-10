@@ -7,6 +7,8 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
+import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
+import { buildInternalChangeEvent } from "@/lib/meta-tracking/internal-change-event";
 import {
   currencyToMinorUnits,
   isEndAfterStart,
@@ -65,6 +67,12 @@ type EditAdSetRequestBody = {
     excluded_custom_audiences?: AudienceRef[];
     placements?: PlacementKey[];
     interest_targeting?: InterestTargetingValue;
+    /**
+     * Advantage+ audience toggle. Omitted = leave whatever the ad set has;
+     * the primitive turns this into `advantageAudience` and manages the
+     * matching `targeting_relaxation_types`.
+     */
+    targeting_automation?: { advantage_audience?: number | boolean };
   };
   note: string;
 };
@@ -184,7 +192,8 @@ export async function PATCH(
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined ||
         targeting.placements !== undefined ||
-        targeting.interest_targeting !== undefined);
+        targeting.interest_targeting !== undefined ||
+        targeting.targeting_automation?.advantage_audience !== undefined);
 
     if (targeting?.placements !== undefined) {
       if (!Array.isArray(targeting.placements) || targeting.placements.length === 0) {
@@ -529,6 +538,20 @@ export async function PATCH(
         | Record<string, unknown>
         | undefined;
 
+      // An explicit toggle from the editor wins; otherwise the ad set keeps
+      // whatever it had. `effAdvantage` further down reads this back out and
+      // hands it to the primitive as `advantageAudience`.
+      const newTargetingAutomation =
+        targeting.targeting_automation?.advantage_audience !== undefined
+          ? {
+              ...prevTargetingAutomation,
+              advantage_audience: targeting.targeting_automation
+                .advantage_audience
+                ? 1
+                : 0,
+            }
+          : prevTargetingAutomation;
+
       // Resolve placement fields. If the user submitted new placements, use them;
       // otherwise preserve whatever the ad set had (which might be Advantage+ /
       // automatic placements, i.e. no publisher_platforms at all).
@@ -576,8 +599,8 @@ export async function PATCH(
           excluded_custom_audiences: newExcludedAudiences,
         }),
         ...(prevRelaxation && { targeting_relaxation_types: prevRelaxation }),
-        ...(prevTargetingAutomation && {
-          targeting_automation: prevTargetingAutomation,
+        ...(newTargetingAutomation && {
+          targeting_automation: newTargetingAutomation,
         }),
         ...(placementFields
           ? placementFields
@@ -756,6 +779,71 @@ export async function PATCH(
       auditLogFailed = true;
       auditLogError =
         dbErr instanceof Error ? dbErr.message : "Falha ao registrar auditoria";
+    }
+
+    // ── Stream de ações: a mesma edição, com autor, horário exato e motivo. ──
+    // Os campos usam o vocabulário da Graph API (`daily_budget`, `targeting`,
+    // `pacing_type`…) porque é assim que a coleta do dia seguinte reconhece que
+    // esta mudança já tem dono e não a duplica como "detectada externamente".
+    const trackedEvent = buildInternalChangeEvent({
+      source: "backoffice_admin",
+      userId,
+      accountId: accountId.startsWith("act_") ? accountId : `act_${accountId}`,
+      entityLevel: "adset",
+      entityId: adsetId,
+      entityName: adsetName ?? currentAdSet.name ?? null,
+      campaignId: campaignId ?? currentAdSet.campaign_id ?? null,
+      adsetId,
+      changeKind: "config_change",
+      changes: [
+        {
+          field: "daily_budget",
+          old: previousDailyBudget,
+          new: updateParams.daily_budget ?? previousDailyBudget,
+        },
+        {
+          field: "lifetime_budget",
+          old: previousLifetimeBudget,
+          new: updateParams.lifetime_budget ?? previousLifetimeBudget,
+        },
+        {
+          field: "start_time",
+          old: previousStartTime,
+          new: updateParams.start_time ?? previousStartTime,
+        },
+        {
+          field: "end_time",
+          old: previousEndTime,
+          new: updateParams.end_time ?? previousEndTime,
+        },
+        {
+          field: "targeting",
+          old: previousTargeting,
+          new: newTargeting ?? previousTargeting,
+        },
+        {
+          field: "pacing_type",
+          old: currentAdSet.pacing_type ?? null,
+          new: changes.deliverySchedule?.newPacingType ?? currentAdSet.pacing_type ?? null,
+        },
+        {
+          field: "adset_schedule",
+          old: currentAdSet.adset_schedule ?? null,
+          new:
+            changes.deliverySchedule?.newAdsetSchedule ??
+            currentAdSet.adset_schedule ??
+            null,
+        },
+      ],
+      actorEmail: backofficeUserEmail,
+      note: note.trim(),
+      occurredAt: new Date(),
+      appliedToMeta,
+      errorMessage,
+      legacy: logId ? { table: "adset_edit_logs", id: logId } : null,
+    });
+    if (trackedEvent.ok && trackedEvent.event) {
+      await recordInternalChangeEvent(trackedEvent.event);
     }
 
     if (!appliedToMeta) {
