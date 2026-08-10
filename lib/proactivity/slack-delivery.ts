@@ -9,6 +9,10 @@ import {
   backofficeUser,
 } from "@/lib/db/schema";
 import type { NewlyCreatedPlaybookInsight } from "@/lib/db/playbook-insights-queries";
+import {
+  isMetaFakeScenarioUser,
+  META_FAKE_SKIP_REASON,
+} from "@/lib/meta-fake/config";
 
 function getBackofficeBaseUrl(): string {
   return (
@@ -168,6 +172,7 @@ export async function deliverPlaybookInsightsToSlack(args: {
     return { attempted, sent, skipped, failed };
   }
 
+  const fakeScenarioUser = isMetaFakeScenarioUser(args.userId);
   const clientLabel = await resolveClientLabel(args.userId);
   const consultantLabel = await resolveConsultantLabel(args.userId);
   const deepLink = `${getBackofficeBaseUrl()}/users/${args.userId}?tab=marketing`;
@@ -193,6 +198,17 @@ export async function deliverPlaybookInsightsToSlack(args: {
       dedupKey,
       status: "sending",
     });
+
+    if (fakeScenarioUser) {
+      await markDelivery({
+        alertId: channelConfig.alertId,
+        dedupKey,
+        status: "skipped",
+        reasonCode: META_FAKE_SKIP_REASON,
+      });
+      skipped += 1;
+      continue;
+    }
 
     const consultantLine = consultantLabel
       ? `Consultor: ${consultantLabel}`

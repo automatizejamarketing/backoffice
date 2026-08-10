@@ -1,4 +1,7 @@
+import { inArray } from "drizzle-orm";
 import { getUsersWithMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { db } from "@/lib/db";
+import { user } from "@/lib/db/schema";
 import {
   completePlaybookInsightsRun,
   createPlaybookInsightsRun,
@@ -6,6 +9,14 @@ import {
   persistPlaybookInsightsForUser,
 } from "@/lib/db/playbook-insights-queries";
 import { getConsultantPlaybookAlertConfig } from "@/lib/db/proactivity-alert-queries";
+import {
+  isMetaFakeScenarioUser,
+  parseMetaFakeScenarioUserIds,
+} from "@/lib/meta-fake/config";
+import {
+  buildFullDemoCampaignMetrics,
+  FULL_DEMO_PLAYBOOK_ACCOUNT_ID,
+} from "@/lib/meta-fake/full-demo-campaigns";
 import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
@@ -84,6 +95,35 @@ export async function runPlaybookInsightsBatch(
     page += 1;
   }
 
+  // Explicit userIds may include fake-scenario QA users without Meta connected.
+  if (options.userIds && options.userIds.length > 0) {
+    const known = new Set(allUsers.map((row) => row.id));
+    const missingFakeIds = options.userIds.filter(
+      (id) => !known.has(id) && isMetaFakeScenarioUser(id),
+    );
+    if (missingFakeIds.length > 0) {
+      const rows = await db
+        .select({ id: user.id, email: user.email })
+        .from(user)
+        .where(inArray(user.id, missingFakeIds));
+      allUsers.push(...rows);
+    }
+  } else {
+    // Cron path: also evaluate allowlisted fake users that have no Meta row.
+    const allowlist = [...parseMetaFakeScenarioUserIds()];
+    if (allowlist.length > 0) {
+      const known = new Set(allUsers.map((row) => row.id.toLowerCase()));
+      const missing = allowlist.filter((id) => !known.has(id));
+      if (missing.length > 0) {
+        const rows = await db
+          .select({ id: user.id, email: user.email })
+          .from(user)
+          .where(inArray(user.id, missing));
+        allUsers.push(...rows.filter((row) => isMetaFakeScenarioUser(row.id)));
+      }
+    }
+  }
+
   const targets = allUsers.slice(0, maxUsers);
   const runId = await createPlaybookInsightsRun({
     triggeredBy,
@@ -104,6 +144,50 @@ export async function runPlaybookInsightsBatch(
   try {
     for (const target of targets) {
       try {
+        if (isMetaFakeScenarioUser(target.id)) {
+          const now = new Date();
+          const campaigns = buildFullDemoCampaignMetrics(now);
+          const evaluation = evaluatePlaybookInsights({
+            accountId: FULL_DEMO_PLAYBOOK_ACCOUNT_ID,
+            campaigns,
+            now,
+            config: evaluationConfig,
+          });
+          const persisted = await persistPlaybookInsightsForUser({
+            runId,
+            userId: target.id,
+            evaluation,
+          });
+
+          if (persisted.createdInsights.length > 0) {
+            try {
+              await deliverPlaybookInsightsToSlack({
+                userId: target.id,
+                createdInsights: persisted.createdInsights,
+                deliverSlackByPlaybookRuleId:
+                  alertConfig.deliverSlackByPlaybookRuleId,
+              });
+            } catch (slackError) {
+              console.error(
+                "[playbook-insights] slack delivery failed",
+                target.id,
+                slackError,
+              );
+            }
+          }
+
+          insightsCreated += persisted.insightsCreated;
+          campaignsEvaluated += campaigns.length;
+          results.push({
+            userId: target.id,
+            email: target.email,
+            insightsCreated: persisted.insightsCreated,
+            campaignsEvaluated: campaigns.length,
+            errorMessage: null,
+          });
+          continue;
+        }
+
         const tokenResult = await getUserAccessTokenByUserId(target.id);
         if (!tokenResult.success) {
           results.push({
