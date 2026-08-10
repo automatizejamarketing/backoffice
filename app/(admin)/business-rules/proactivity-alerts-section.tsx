@@ -1,13 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Save } from "lucide-react";
+import { Bell, Lock, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  REMARKETING_WHATSAPP_NUDGES,
+  type RemarketingNudgeDefinition,
+} from "@/lib/proactivity/remarketing-nudge-catalog";
 
 export type ProactivityAlertClient = {
   id: string;
@@ -145,6 +149,8 @@ export function ProactivityAlertsSection({
         onUpdate={updateAlert}
       />
 
+      <RemarketingNudgesReadonlySection />
+
       {logs.length > 0 ? (
         <Card>
           <CardHeader>
@@ -195,6 +201,91 @@ export function ProactivityAlertsSection({
         </Card>
       ) : null}
     </div>
+  );
+}
+
+function RemarketingNudgesReadonlySection() {
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <Lock className="size-3.5" />
+          Remarketing WhatsApp (somente leitura)
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Sequência de ativação do app Automatize (hardcoded no frontend).
+          Valores e canais ainda não são editáveis neste painel — histórico em{" "}
+          <a href="/whatsapp" className="underline underline-offset-2">
+            WhatsApp
+          </a>
+          .
+        </p>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {REMARKETING_WHATSAPP_NUDGES.map((nudge) => (
+          <RemarketingNudgeCard key={nudge.ruleKey} nudge={nudge} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RemarketingNudgeCard({
+  nudge,
+}: {
+  nudge: RemarketingNudgeDefinition;
+}) {
+  return (
+    <Card className="border-dashed bg-muted/10">
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 pb-3">
+        <div className="min-w-0 space-y-1">
+          <CardTitle className="text-base leading-snug">{nudge.title}</CardTitle>
+          <p className="text-xs text-muted-foreground">{nudge.description}</p>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {nudge.templateName}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-md border bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground">
+          Somente leitura
+        </span>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <dl className="grid gap-2 sm:grid-cols-2">
+          <div>
+            <dt className="text-xs text-muted-foreground">Delay (produção)</dt>
+            <dd className="font-medium text-foreground">
+              {nudge.delayProduction}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Delay (staging)</dt>
+            <dd className="font-medium text-foreground">{nudge.delayStaging}</dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs text-muted-foreground">Gatilho</dt>
+            <dd className="font-medium text-foreground">{nudge.trigger}</dd>
+          </div>
+        </dl>
+        <div className="rounded-lg border bg-background/60 p-3">
+          <p className="text-xs font-medium text-foreground">Preview do texto</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {nudge.bodyPreview}
+          </p>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            CTA: {nudge.ctaLabel} → {nudge.ctaUrl}
+          </p>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 p-3">
+          <div>
+            <p className="text-xs font-medium">Canal</p>
+            <p className="text-[11px] text-muted-foreground">
+              WhatsApp (cliente) · sempre ativo na sequência de ativação
+            </p>
+          </div>
+          <Switch checked disabled aria-label="WhatsApp (somente leitura)" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
