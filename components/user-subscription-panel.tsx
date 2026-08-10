@@ -28,6 +28,7 @@ import type { UserSubscriptionDetails } from "@/lib/db/admin-queries";
 import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
+import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
 import {
   describeUpcomingChange,
   formatPlanLabel,
@@ -169,10 +170,7 @@ export function UserSubscriptionPanel({
     amount: link.amount,
     currency: link.currency,
     preferenceId: link.preferenceId,
-    initPoint: link.initPoint,
-    pixCopyPasteCode: link.initPoint.startsWith("000201")
-      ? link.initPoint
-      : undefined,
+    ...normalizePixInitPoint(link.initPoint),
     mercadopagoPaymentId: link.mercadopagoPaymentId,
     status: link.status,
     source: link.source,
