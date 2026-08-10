@@ -86,6 +86,8 @@ export const whatsappTemplateDelivery = pgTable(
     readAt: timestamp("read_at"),
     failedAt: timestamp("failed_at"),
     deletedAt: timestamp("deleted_at"),
+    // First click on any template button (quick reply or tracked URL).
+    clickedAt: timestamp("clicked_at"),
     failureCode: varchar("failure_code", { length: 64 }),
     failureDetail: text("failure_detail"),
     historicalStatusUntracked: boolean("historical_status_untracked")
@@ -148,11 +150,52 @@ export const whatsappTemplateStatusEvent = pgTable(
   }),
 );
 
+export const whatsappTemplateClickEvent = pgTable(
+  "whatsapp_template_click_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    // Null when the click cannot be attributed to a tracked delivery
+    // (unknown wamid/token) — kept anyway for inspection.
+    deliveryId: uuid("delivery_id").references(
+      () => whatsappTemplateDelivery.id,
+      { onDelete: "cascade" },
+    ),
+    kind: varchar("kind", { length: 16 })
+      .$type<"url" | "quick_reply">()
+      .notNull(),
+    // Dedup key for webhook-sourced clicks ("qr:<wamid>"); null for URL
+    // clicks, where every hit counts (Postgres unique allows multiple nulls).
+    eventKey: varchar("event_key", { length: 512 }),
+    clickToken: varchar("click_token", { length: 255 }),
+    providerMessageId: varchar("provider_message_id", { length: 255 }),
+    buttonText: varchar("button_text", { length: 255 }),
+    buttonPayload: varchar("button_payload", { length: 512 }),
+    userAgent: text("user_agent"),
+    ipHash: varchar("ip_hash", { length: 64 }),
+    clickedAt: timestamp("clicked_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    eventKeyUnique: unique(
+      "whatsapp_template_click_events_event_key_unique",
+    ).on(table.eventKey),
+    deliveryCreatedIdx: index(
+      "whatsapp_template_click_events_delivery_created_idx",
+    ).on(table.deliveryId, table.createdAt),
+    providerMessageIdx: index(
+      "whatsapp_template_click_events_provider_message_idx",
+    ).on(table.providerMessageId),
+  }),
+);
+
 export type WhatsappTemplateDelivery = InferSelectModel<
   typeof whatsappTemplateDelivery
 >;
 export type WhatsappTemplateStatusEvent = InferSelectModel<
   typeof whatsappTemplateStatusEvent
+>;
+export type WhatsappTemplateClickEvent = InferSelectModel<
+  typeof whatsappTemplateClickEvent
 >;
 
 export const backofficeUser = pgTable("backoffice_users", {
