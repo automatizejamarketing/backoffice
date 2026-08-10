@@ -16,10 +16,8 @@
 //     "de onde vêm cadastros" é decisão de onde divulgar mais.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -96,27 +94,12 @@ export default function ReferralTrafficPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Tráfego dos afiliados (v2)
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            De onde vêm os cliques e os cadastros. Números principais contam
-            visitantes únicos; robôs de preview ficam fora de todas as somas.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/referrals">Fila de afiliação</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/referrals/metrics">Métricas</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/referrals/payouts">Saques</Link>
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Tráfego</h1>
+        <p className="text-sm text-muted-foreground">
+          De onde vêm os cliques e os cadastros. Números principais contam
+          visitantes únicos; robôs de preview ficam fora de todas as somas.
+        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

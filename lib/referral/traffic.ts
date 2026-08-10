@@ -1,5 +1,11 @@
 // Classificação de tráfego dos Cliques do programa de afiliados v2.
 //
+// ESPELHO MANUAL: `../automatize-frontend/lib/referral/traffic.ts` é o mesmo
+// módulo, mantido em sincronia à mão (como os dois `lib/db/schema.ts`). Os
+// dois projetos leem a MESMA tabela `referral_clicks`; se as regras daqui
+// divergirem das de lá, o painel do afiliado e o backoffice passam a discordar
+// sobre o mesmo número.
+//
 // O painel de tráfego responde "por onde os afiliados divulgam?", e a resposta
 // vem de três testemunhas gravadas no Clique, nenhuma delas completa:
 //
