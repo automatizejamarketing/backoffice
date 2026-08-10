@@ -4,7 +4,6 @@ import {
   applyFullProductRefund,
   listProductOrders,
 } from "@/lib/db/product-queries";
-import { refundMercadoPagoProductPayment } from "@/lib/mercadopago/product-refunds";
 
 export async function POST(
   _request: Request,
@@ -19,16 +18,11 @@ export async function POST(
   }
   if (order.status === "refunded") return NextResponse.json(order);
   try {
-    let refundReference = "free";
-    if (order.providerPaymentId) {
-      const refund = await refundMercadoPagoProductPayment(
-        order.providerPaymentId,
-        `product-refund-${order.id}`,
-      );
-      refundReference = String(refund.id ?? order.providerPaymentId);
-    }
+    // Registro-only: a devolução ao cliente é feita manualmente via Pix, fora
+    // do sistema. Nenhuma chamada de reembolso ao provedor — o mesmo caminho
+    // vale para pagamentos Mercado Pago e Stripe.
     return NextResponse.json(
-      await applyFullProductRefund(order.id, refundReference),
+      await applyFullProductRefund(order.id, "manual-pix"),
     );
   } catch (error) {
     return NextResponse.json(

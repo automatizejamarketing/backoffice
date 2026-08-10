@@ -17,6 +17,7 @@ import {
   RefreshCcw,
   ShoppingCart,
   Trash2,
+  Undo2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -1314,7 +1315,10 @@ export function ProductsAdminWorkspace({
   }
 
   async function refundOrder(id: string) {
-    if (!window.confirm("Confirmar reembolso integral e revogar o acesso da compra?")) return;
+    if (!window.confirm(
+      "Registrar reembolso? Isso NÃO devolve o dinheiro — o Pix ao cliente é manual. " +
+        "Revoga o acesso, estorna o repasse do expert e zera nossa receita neste pagamento.",
+    )) return;
     const response = await fetch(`/api/products/admin/orders/${id}/refund`, {
       method: "POST",
     });
@@ -1732,8 +1736,25 @@ export function ProductsAdminWorkspace({
                           {dateTime(order.createdAt)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                          <p>{paymentMethod(order)}</p>
-                          <p>{order.providerPaymentId ? `MP ${order.providerPaymentId}` : "—"}</p>
+                          <div className="flex items-center gap-1.5">
+                            <div className="min-w-0">
+                              <p>{paymentMethod(order)}</p>
+                              <p>{order.providerPaymentId ? `MP ${order.providerPaymentId}` : "—"}</p>
+                            </div>
+                            {order.status === "approved" ? (
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="size-8 shrink-0"
+                                title="Registrar reembolso (Pix manual)"
+                                aria-label={`Registrar reembolso da venda de ${order.productTitle}`}
+                                onClick={() => void refundOrder(order.id)}
+                              >
+                                <Undo2 className="size-3.5" />
+                              </Button>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {money(order.priceCentavos)}
