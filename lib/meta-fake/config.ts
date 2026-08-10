@@ -10,15 +10,21 @@ function resolveAppEnvLite(
   return "local";
 }
 
+type MetaFakeEnv = {
+  APP_ENV?: string;
+  VERCEL_GIT_COMMIT_REF?: string;
+};
+
 /**
  * Fake Meta is allowed only in staging/local (or staging git branch).
  * Production always forces real Meta even if the allowlist env is present.
+ *
+ * The cast on the default exists because `MetaFakeEnv` is a weak type (all
+ * properties optional): assigning `process.env` to it fails the weak-type
+ * check on Vercel's build ("has no properties in common").
  */
 export function isMetaFakeScenarioEnvAllowed(
-  env: {
-    APP_ENV?: string;
-    VERCEL_GIT_COMMIT_REF?: string;
-  } = process.env,
+  env: MetaFakeEnv = process.env as MetaFakeEnv,
 ): boolean {
   if (resolveAppEnvLite(env.APP_ENV) === "prod") {
     return false;
