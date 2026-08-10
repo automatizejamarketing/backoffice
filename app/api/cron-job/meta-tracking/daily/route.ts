@@ -3,19 +3,29 @@ import { assertCronAuthorized } from "@/lib/auth/cron-auth";
 import { createDailyCollectionPorts } from "@/lib/meta-tracking/daily-collection-ports";
 import { runDailyTrackingCollection } from "@/lib/meta-tracking/run-daily-collection";
 
-export const maxDuration = 300;
+// 800 s é o máximo GA do plano Pro. O prazo interno fica em 600 s
+// (`DEFAULT_SOFT_DEADLINE_MS`); a folga de 200 s deixa a pior conta única
+// terminar e gravar a cobertura antes de a plataforma matar a invocação.
+export const maxDuration = 800;
 
 /**
  * Coleta diária de configuração das contas Meta conectadas (§5 e §10 do plano
  * `docs/plans/campaign-tracking-foundation.md`).
  *
- * Roda na janela de madrugada (08:00–10:40 UTC ≈ 05:00–07:40 BRT), fora da
- * janela 11:00–12:15 UTC dos crons de negócio. Cada disparo drena um LOTE de
- * contas e para com folga do limite de duração da plataforma; o disparo
- * seguinte encontra as contas ainda pendentes pela cobertura conta×dia e
- * continua de onde parou. Rodar duas vezes no mesmo dia não duplica nada —
- * a conta já coberta é pulada e, quando reprocessada, a configuração idêntica
- * só atualiza `last_confirmed_at`.
+ * Roda na janela de madrugada (03:00–10:45 UTC ≈ 00:00–07:45 BRT, a cada
+ * 15 min = 32 disparos), terminando antes da janela 11:00–12:15 UTC dos crons
+ * de negócio — que falam com a MESMA Graph API e disputariam a cota. O
+ * intervalo de 15 min é deliberadamente maior que o `maxDuration`: disparos
+ * nunca se sobrepõem, e o claim de cobertura conta×dia não precisa ser
+ * atômico. Cada disparo drena um LOTE de contas e para com folga do limite de
+ * duração da plataforma; o disparo seguinte encontra as contas ainda
+ * pendentes pela cobertura conta×dia e continua de onde parou. Rodar duas
+ * vezes no mesmo dia não duplica nada — a conta já coberta é pulada e, quando
+ * reprocessada, a configuração idêntica só atualiza `last_confirmed_at`.
+ *
+ * Dimensionamento (medido em staging, 2026-08-10): conta típica 11–15 s,
+ * conta de ~2.400 entidades ~2 min. 32 disparos × 600 s ≈ 19.200 s por
+ * madrugada ≈ 1.400 contas típicas — folga para uma base de 1.000.
  */
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[meta-tracking-cron]");

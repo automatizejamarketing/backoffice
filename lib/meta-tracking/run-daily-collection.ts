@@ -93,18 +93,25 @@ import type {
 export const DEFAULT_BUSINESS_TIME_ZONE = "America/Sao_Paulo";
 
 /**
- * Contas por invocação. O cron dispara a cada 20 min na janela de madrugada, e
+ * Contas por invocação. O cron dispara a cada 15 min na janela de madrugada, e
  * cada disparo drena um lote — o teto existe para caber com folga no limite de
- * duração da plataforma, não para limitar a base.
+ * duração da plataforma, não para limitar a base. Com 32 disparos por
+ * madrugada, o teto agregado é de 1.280 contas/dia.
  */
 export const DEFAULT_MAX_ACCOUNTS_PER_RUN = 40;
 
 /**
- * Prazo por invocação, abaixo do `maxDuration = 300s` da rota de cron. A folga
- * é para a conta em andamento terminar e a cobertura dela ser gravada — uma
+ * Prazo por invocação, abaixo do `maxDuration = 800s` da rota de cron. A folga
+ * é para a conta EM ANDAMENTO terminar e a cobertura dela ser gravada — uma
  * invocação morta no meio deixaria a conta sem registro nenhum.
+ *
+ * A folga é de 200 s porque cobre a PIOR conta única, não a média: uma conta
+ * de ~2.400 entidades leva ~2 min sozinha quando os insights precisam do
+ * fatiamento por volume (medido em 2026-08-10), e `hasCollectionBudgetLeft` é
+ * checado ANTES de cada conta — a última pode começar rente ao prazo e correr
+ * inteira dentro da folga.
  */
-export const DEFAULT_SOFT_DEADLINE_MS = 240_000;
+export const DEFAULT_SOFT_DEADLINE_MS = 600_000;
 
 export type TrackedUser = { id: string; email: string };
 

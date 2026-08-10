@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron-job/meta-tracking/daily",
-      "schedule": "*/20 8-10 * * *"
+      "schedule": "*/15 3-10 * * *"
     },
     {
       "path": "/api/cron-job/business/managed-campaigns/refresh",
