@@ -47,9 +47,11 @@ const result = await runDailyTrackingCollection(createDailyCollectionPorts(), {
   onlyStale,
   userIds: userIds.length > 0 ? userIds : undefined,
   maxAccounts: Number.isFinite(maxAccounts) && maxAccounts > 0 ? maxAccounts : undefined,
-  onProgress: ({ userEmail, accountId, status, metricRowsUpserted }) => {
+  onProgress: ({ userEmail, accountId, status, metricRowsUpserted, errorMessage }) => {
     console.log(
-      `[meta-tracking] ${userEmail} ${accountId} → ${status} (${metricRowsUpserted} dias de métrica)`,
+      `[meta-tracking] ${userEmail} ${accountId} → ${status} (${metricRowsUpserted} dias de métrica)${
+        errorMessage ? ` — ${errorMessage}` : ""
+      }`,
     );
   },
 });

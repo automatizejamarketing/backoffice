@@ -284,12 +284,29 @@ export type DailyCollectionOptions = {
   softDeadlineMs?: number;
   /** Restringe a coleta a alguns usuários (script manual e diagnóstico). */
   userIds?: string[];
+  /**
+   * Disparado ANTES de coletar cada conta. Existe para o chamador deixar um
+   * rastro de "conta em voo" no log: quando a plataforma mata a invocação no
+   * meio (limite de duração), o último início sem o término correspondente
+   * identifica a conta que morreu no meio — sem isso a invocação morta não
+   * deixa vestígio nenhum.
+   */
+  onAccountStart?: (info: { userEmail: string; accountId: string }) => void;
   onProgress?: (progress: {
     userEmail: string;
     accountId: string;
     status: MetaTrackingCoverageStatus;
     /** Linhas da série diária gravadas nesta conta. */
     metricRowsUpserted: number;
+    /** Motivo quando a conta não fechou limpa; null quando fechou. */
+    errorMessage: string | null;
+    /**
+     * O erro cru da falha fatal da conta, quando houve — é o que preserva o
+     * stack para o log. As mensagens em `errorMessage` bastam para erros da
+     * Meta (o gateway já loga o payload), mas uma exceção inesperada sem stack
+     * é impossível de rastrear.
+     */
+    error?: unknown;
   }) => void;
 };
 
@@ -485,6 +502,10 @@ export async function runDailyTrackingCollection(
         }
 
         result.accountsProcessed += 1;
+        options.onAccountStart?.({
+          userEmail: user.email,
+          accountId: account.accountId,
+        });
         await collectAccount({
           ports,
           runId,
@@ -600,6 +621,7 @@ async function collectAccount(args: {
   let metricRowsUpserted = 0;
   let status: MetaTrackingCoverageStatus = "complete";
   let errorMessage: string | null = null;
+  let fatalError: unknown;
 
   try {
     const listing = await ports.listEntities({
@@ -755,6 +777,7 @@ async function collectAccount(args: {
     // marca como transitório. Ver `coverageStatusForCollectionError`.
     status = coverageStatusForCollectionError(error);
     errorMessage = errorMessageOf(error, "Erro ao coletar a conta na Meta.");
+    fatalError = error;
     result.errors.push({
       userEmail: user.email,
       accountId: account.accountId,
@@ -787,5 +810,7 @@ async function collectAccount(args: {
     accountId: account.accountId,
     status,
     metricRowsUpserted,
+    errorMessage,
+    error: fatalError,
   });
 }

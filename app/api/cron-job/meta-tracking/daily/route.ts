@@ -27,6 +27,13 @@ export const maxDuration = 800;
  * conta de ~2.400 entidades ~2 min. 32 disparos × 600 s ≈ 19.200 s por
  * madrugada ≈ 1.400 contas típicas — folga para uma base de 1.000.
  */
+/**
+ * Erros do lote despejados no log ao fim do disparo. Limitado porque num lote
+ * de 40 contas quase tudo pode falhar de uma vez (ex.: banco fora) e o log
+ * vira ruído; 50 cobre o lote inteiro com folga.
+ */
+const MAX_ERRORS_LOGGED = 50;
+
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[meta-tracking-cron]");
   if (!auth.ok) return auth.response;
@@ -34,8 +41,51 @@ export async function GET(request: NextRequest) {
   try {
     const result = await runDailyTrackingCollection(
       createDailyCollectionPorts(),
-      { triggeredBy: "cron", onlyStale: true },
+      {
+        triggeredBy: "cron",
+        onlyStale: true,
+        // O rastro por conta existe para o pós-morte: se a plataforma matar a
+        // invocação no limite de duração, o último "coletando" sem o "→ status"
+        // correspondente é a conta que morreu no meio — sem isso a invocação
+        // morta não deixa vestígio nenhum no log.
+        onAccountStart: ({ userEmail, accountId }) => {
+          console.log("[meta-tracking-cron] coletando", { userEmail, accountId });
+        },
+        onProgress: (progress) => {
+          if (progress.status === "complete") {
+            console.log("[meta-tracking-cron] conta coberta", {
+              userEmail: progress.userEmail,
+              accountId: progress.accountId,
+              metricRowsUpserted: progress.metricRowsUpserted,
+            });
+            return;
+          }
+          // Falha e parcial saem por `console.error` COM o erro cru: a
+          // mensagem achatada basta para erro da Meta (o gateway já logou o
+          // payload), mas exceção inesperada sem stack não tem causa raiz.
+          console.error(
+            "[meta-tracking-cron] conta não fechou",
+            {
+              userEmail: progress.userEmail,
+              accountId: progress.accountId,
+              status: progress.status,
+              errorMessage: progress.errorMessage,
+            },
+            ...(progress.error !== undefined ? [progress.error] : []),
+          );
+        },
+      },
     );
+
+    // As mensagens completas, não só as contagens do summary: o corpo da
+    // resposta de um cron não fica registrado em lugar nenhum — o log da
+    // função é o único lugar onde a causa sobrevive.
+    if (result.errors.length > 0) {
+      console.error("[meta-tracking-cron] erros do lote", {
+        total: result.errors.length,
+        errors: result.errors.slice(0, MAX_ERRORS_LOGGED),
+      });
+    }
 
     console.log("[meta-tracking-cron] completed", {
       runId: result.runId,

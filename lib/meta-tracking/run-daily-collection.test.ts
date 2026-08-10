@@ -559,6 +559,63 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.runs[0].status).toBe("completed_with_errors");
   });
 
+  test("o rastro de progresso carrega o motivo e o erro cru — é o que o log do cron consome", async () => {
+    // O contrato de observabilidade: `onAccountStart` marca a conta em voo
+    // (pós-morte de invocação morta pela plataforma) e `onProgress` entrega o
+    // motivo e o erro original (stack) da conta que não fechou. Sem isto o log
+    // de produção só teria contagens.
+    const otherAccount: TrackedAdAccount = {
+      accountId: "act_112233445566778",
+      name: "Segunda conta",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+    };
+    const boom = new Error("Meta devolveu 500 para a listagem");
+    const { ports } = makePorts({
+      listAdAccounts: async () => ({
+        accounts: [ACCOUNT, otherAccount],
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+      }),
+      listEntities: async ({ accountId }) => {
+        if (accountId === ACCOUNT.accountId) throw boom;
+        return {
+          entities: activeListing(),
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+    });
+
+    const started: string[] = [];
+    const progressed: {
+      accountId: string;
+      status: string;
+      errorMessage: string | null;
+      error?: unknown;
+    }[] = [];
+
+    await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+      onAccountStart: ({ accountId }) => started.push(accountId),
+      onProgress: ({ accountId, status, errorMessage, error }) =>
+        progressed.push({ accountId, status, errorMessage, error }),
+    });
+
+    expect(started).toEqual([ACCOUNT.accountId, otherAccount.accountId]);
+
+    const failed = progressed.find((p) => p.accountId === ACCOUNT.accountId);
+    expect(failed?.status).toBe("failed");
+    expect(failed?.errorMessage).toContain("500");
+    // O erro CRU, não uma cópia achatada: é ele que carrega o stack.
+    expect(failed?.error).toBe(boom);
+
+    const covered = progressed.find((p) => p.accountId === otherAccount.accountId);
+    expect(covered?.status).toBe("complete");
+    expect(covered?.errorMessage).toBeNull();
+    expect(covered?.error).toBeUndefined();
+  });
+
   test("o lote drena até o limite da invocação e deixa o resto para o próximo disparo", async () => {
     const accounts: TrackedAdAccount[] = Array.from({ length: 5 }, (_, i) => ({
       accountId: `act_00000000000000${i}`,
