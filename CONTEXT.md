@@ -25,7 +25,12 @@ O backoffice é responsável por:
   do Expert e receita de Produtos próprios;
 - cadastrar um Coprodutor opcional — Automatize ou outro Expert — mantendo o
   proprietário com 100% quando a coprodução estiver desativada;
-- executar reembolso integral;
+- registrar reembolso integral — apenas registro: a devolução ao cliente é
+  feita manualmente via Pix, fora do sistema, sem chamada de reembolso ao
+  provedor. O registro revoga o Acesso, estorna o repasse do Expert no ledger
+  e zera a receita líquida da Automatize (e os recebíveis de expert) no
+  Pagamento; o valor bruto e o Custo do Provedor permanecem, porque o custo do
+  gateway foi pago e não retorna;
 - revisar e registrar Saques manuais.
 
 Ele não inicia assinatura, não calcula acesso por plano e não executa Split
