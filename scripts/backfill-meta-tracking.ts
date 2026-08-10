@@ -22,11 +22,11 @@
  * intuição (ver o ticket 01 da feature).
  */
 
+// PRIMEIRO import de propósito: resolve o `.env` antes que `lib/db` construa o
+// cliente Postgres a partir de `process.env` (ver `scripts/bootstrap-env.ts`).
+import "./bootstrap-env";
 import { createBackfillPorts } from "@/lib/meta-tracking/backfill-ports";
 import { runMetaTrackingBackfill } from "@/lib/meta-tracking/run-backfill";
-import { loadAppEnv } from "../lib/env/load-env";
-
-loadAppEnv();
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;

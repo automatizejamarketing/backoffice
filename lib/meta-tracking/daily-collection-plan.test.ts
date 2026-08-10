@@ -208,11 +208,18 @@ describe("planDeepFetch", () => {
 });
 
 describe("LISTING_EFFECTIVE_STATUSES", () => {
-  test("os três níveis pedem arquivadas e removidas — sem pedir, o edge as omite e a remoção nunca é reportada", () => {
+  test("os três níveis pedem arquivadas — sem pedir, o edge as omite e o arquivamento nunca é reportado", () => {
     for (const level of ["campaign", "adset", "ad"] as const) {
       expect(LISTING_EFFECTIVE_STATUSES[level]).toContain("ARCHIVED");
-      expect(LISTING_EFFECTIVE_STATUSES[level]).toContain("DELETED");
       expect(LISTING_EFFECTIVE_STATUSES[level]).toContain("ACTIVE");
+    }
+  });
+
+  test("nenhum nível pede DELETED — a Meta rejeita a requisição inteira (subcódigo 1815001)", () => {
+    // Medido contra a v25 nos três edges: com `DELETED` no filtro a resposta é
+    // 400 e a listagem do nível se perde por completo, não só as removidas.
+    for (const level of ["campaign", "adset", "ad"] as const) {
+      expect(LISTING_EFFECTIVE_STATUSES[level]).not.toContain("DELETED");
     }
   });
 

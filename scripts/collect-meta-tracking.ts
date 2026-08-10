@@ -18,11 +18,11 @@
  * intuição (ver o ticket 01 da feature).
  */
 
+// PRIMEIRO import de propósito: resolve o `.env` antes que `lib/db` construa o
+// cliente Postgres a partir de `process.env` (ver `scripts/bootstrap-env.ts`).
+import "./bootstrap-env";
 import { createDailyCollectionPorts } from "@/lib/meta-tracking/daily-collection-ports";
 import { runDailyTrackingCollection } from "@/lib/meta-tracking/run-daily-collection";
-import { loadAppEnv } from "../lib/env/load-env";
-
-loadAppEnv();
 
 function flagValue(name: string): string | undefined {
   const prefix = `--${name}=`;

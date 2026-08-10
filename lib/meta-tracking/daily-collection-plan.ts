@@ -57,21 +57,33 @@ export type TrackedEntityState = KnownEntityState & {
  * Estados efetivos pedidos na listagem, POR NÍVEL — a lista documentada de
  * `effective_status` de cada edge da Marketing API v25.
  *
- * Pedir explicitamente é obrigatório: sem o filtro, o edge OMITE arquivadas e
- * removidas, e a costura do delta (que nunca infere remoção por ausência, para
- * não escrever mentira quando a listagem é truncada) jamais registraria um
- * arquivamento. Valor fora da lista do nível é rejeitado pela Meta como
- * parâmetro inválido — daí a lista ser por nível, e não uma só.
+ * Pedir explicitamente é obrigatório para o ARQUIVAMENTO: sem o filtro, o edge
+ * omite arquivadas, e a costura do delta (que nunca infere remoção por
+ * ausência, para não escrever mentira quando a listagem é truncada) jamais
+ * registraria um arquivamento — que é fim de linha e precisa entrar no stream.
+ * Valor fora da lista do nível é rejeitado como parâmetro inválido, daí a lista
+ * ser por nível e não uma só.
+ *
+ * `DELETED` está FORA de propósito, e isso é imposição da Meta, não escolha: os
+ * edges `/campaigns`, `/adsets` e `/ads` respondem 400 (código 100, subcódigo
+ * 1815001, "A solicitação de objetos excluídos não é aceita neste ponto de
+ * extremidade") quando `DELETED` aparece no filtro — inclusive sozinho, e a
+ * rejeição derruba a requisição INTEIRA, levando junto todos os outros estados.
+ * Medido contra a v25 em 2026-08-10 nos três níveis; `ARCHIVED` passa nos três.
+ *
+ * A consequência é conhecida e aceita: remoção de verdade não é observável por
+ * esta listagem. Quem a reporta é o fetch profundo de uma entidade já conhecida
+ * (buscar por id ainda devolve `effective_status` `DELETED`, e a costura do
+ * delta traduz isso em `deleted_detected`) e o audit trail de `/activities`.
  */
 export const LISTING_EFFECTIVE_STATUSES: Record<
   MetaTrackingEntityLevel,
   readonly string[]
 > = {
-  campaign: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES"],
+  campaign: ["ACTIVE", "PAUSED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES"],
   adset: [
     "ACTIVE",
     "PAUSED",
-    "DELETED",
     "ARCHIVED",
     "CAMPAIGN_PAUSED",
     "IN_PROCESS",
@@ -80,7 +92,6 @@ export const LISTING_EFFECTIVE_STATUSES: Record<
   ad: [
     "ACTIVE",
     "PAUSED",
-    "DELETED",
     "ARCHIVED",
     "CAMPAIGN_PAUSED",
     "ADSET_PAUSED",

@@ -199,6 +199,23 @@ async function loadBusinessOperatingRules(): Promise<BusinessOperatingRulesRecor
   return row ? rulesFromRow(row) : defaultRulesRecord();
 }
 
+/**
+ * As mesmas regras, sem passar pelo `unstable_cache` do Next.
+ *
+ * Existe para quem roda FORA do runtime do Next — os scripts de `scripts/`. O
+ * `unstable_cache` exige o incremental cache da requisição e lança
+ * `Invariant: incrementalCache missing` quando não há uma; num job de lote isso
+ * derruba a execução inteira. Trocar o cache por uma leitura direta não custa
+ * nada ali: um job chama isto uma vez por execução, e ler as regras frescas é
+ * até mais correto numa execução longa.
+ *
+ * Dentro do Next continue usando `getBusinessOperatingRules` — páginas e rotas
+ * chamam isto em toda renderização e é o cache que as segura.
+ */
+export async function getBusinessOperatingRulesUncached(): Promise<BusinessOperatingRulesRecord> {
+  return loadBusinessOperatingRules();
+}
+
 export async function getBusinessOperatingRules(): Promise<BusinessOperatingRulesRecord> {
   return unstable_cache(
     loadBusinessOperatingRules,

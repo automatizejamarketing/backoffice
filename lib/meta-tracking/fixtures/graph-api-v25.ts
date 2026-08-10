@@ -52,7 +52,14 @@ export function campaignConfigV25(
     budget_remaining: "5000",
     special_ad_categories: [],
     smart_promotion_type: "GUIDED_CREATION",
-    advantage_state: "ADVANTAGE_PLUS_SALES",
+    // Forma real da v25: o estado vem aninhado, com os eixos ao lado. Campanha
+    // sem Advantage+ não traz a chave `advantage_state_info` de jeito nenhum.
+    advantage_state_info: {
+      advantage_state: "ADVANTAGE_PLUS_SALES",
+      advantage_budget_state: "ENABLED",
+      advantage_audience_state: "ENABLED",
+      advantage_placement_state: "ENABLED",
+    },
     is_adset_budget_sharing_enabled: true,
     start_time: "2026-06-18T19:22:53-0300",
     stop_time: "2026-09-18T23:59:59-0300",
