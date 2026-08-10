@@ -426,7 +426,19 @@ export async function applyFullProductRefund(
       );
     await tx
       .update(productPayment)
-      .set({ status: "refunded", updatedAt: now })
+      .set({
+        status: "refunded",
+        // A devolução ao cliente é manual (Pix), então nossa receita e os
+        // recebíveis de expert deste pagamento viram zero. Bruto e Custo MP
+        // ficam: o custo do provedor foi pago de verdade e não volta.
+        platformGatewayNetRevenueCentavos: 0,
+        ownerExpertReceivableCentavos: 0,
+        coproducerExpertReceivableCentavos: 0,
+        automatizeCoproductionRevenueCentavos: 0,
+        automatizeProductRevenueCentavos: 0,
+        automatizeTotalNetRevenueCentavos: 0,
+        updatedAt: now,
+      })
       .where(eq(productPayment.orderId, order.id));
     const [updated] = await tx
       .update(productOrder)
