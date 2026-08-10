@@ -15,6 +15,7 @@ import {
   Plus,
   Receipt,
   RefreshCcw,
+  ShoppingCart,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -92,6 +93,7 @@ import {
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
+import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_COVER_OUTPUT_HEIGHT,
@@ -634,6 +636,9 @@ export function ProductsAdminWorkspace({
   const [loading, setLoading] = useState(false);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [publishingProductId, setPublishingProductId] = useState<string | null>(null);
+  const [enablingSalesProductId, setEnablingSalesProductId] = useState<
+    string | null
+  >(null);
   const [paymentsDialogProduct, setPaymentsDialogProduct] = useState<Product | null>(
     null,
   );
@@ -935,30 +940,39 @@ export function ProductsAdminWorkspace({
       const response = await fetch(`/api/products/admin/${row.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ownerType: row.ownerType,
-          expertId: row.expertId,
-          title: row.title,
-          slug: row.slug,
-          description: row.description,
-          coverUrl: row.coverUrl,
-          priceCentavos: row.priceCentavos,
-          hasCoproduction: row.coproducerType !== null,
-          coproducerType: row.coproducerType,
-          coproducerExpertId: row.coproducerExpertId,
-          coproducerSharePercent: row.coproducerShareBasisPoints / 100,
-          minimumPlanTier: row.minimumPlanTier,
-          visibility: row.visibility,
-          status: "published",
-          salesEnabled: row.salesEnabled,
-          termsVersion: row.termsVersion,
-        }),
+        body: JSON.stringify(
+          buildProductAdminUpdatePayload(row, { status: "published" }),
+        ),
       });
       if (!response.ok) return toast.error(await readError(response));
       toast.success("Produto publicado.");
       await loadAll();
     } finally {
       setPublishingProductId(null);
+    }
+  }
+
+  async function enableProductSales(row: Product) {
+    setEnablingSalesProductId(row.id);
+    try {
+      const response = await fetch(`/api/products/admin/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          buildProductAdminUpdatePayload(row, { salesEnabled: true }),
+        ),
+      });
+      if (!response.ok) return toast.error(await readError(response));
+      toast.success("Aquisição habilitada.");
+      await loadAll();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível habilitar a aquisição.",
+      );
+    } finally {
+      setEnablingSalesProductId(null);
     }
   }
 
@@ -1423,9 +1437,19 @@ export function ProductsAdminWorkspace({
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
                         <TableCell>
-                          <Badge variant={statusBadge.variant} className={statusBadge.className}>
-                            {productStatusLabel[row.status]}
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant={statusBadge.variant} className={statusBadge.className}>
+                              {productStatusLabel[row.status]}
+                            </Badge>
+                            {!row.salesEnabled ? (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
+                              >
+                                Aquisição desabilitada
+                              </Badge>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -1446,6 +1470,21 @@ export function ProductsAdminWorkspace({
                                 <DropdownMenuItem onSelect={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
                                   {publishingProductId === row.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
                                   {publishingProductId === row.id ? "Publicando..." : "Publicar"}
+                                </DropdownMenuItem>
+                              ) : null}
+                              {!row.salesEnabled ? (
+                                <DropdownMenuItem
+                                  onSelect={() => void enableProductSales(row)}
+                                  disabled={enablingSalesProductId === row.id}
+                                >
+                                  {enablingSalesProductId === row.id ? (
+                                    <Loader2 className="animate-spin" />
+                                  ) : (
+                                    <ShoppingCart />
+                                  )}
+                                  {enablingSalesProductId === row.id
+                                    ? "Habilitando..."
+                                    : "Habilitar aquisição"}
                                 </DropdownMenuItem>
                               ) : null}
                               <DropdownMenuItem onSelect={() => void copyCheckoutLink(row)}><Copy /> Copiar link de checkout</DropdownMenuItem>

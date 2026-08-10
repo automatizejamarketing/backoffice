@@ -100,7 +100,13 @@ export function ProactivityAlertsSection({
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error ?? "Erro ao salvar alertas");
+        const detail =
+          typeof data.detail === "string" && data.detail
+            ? ` (${data.detail})`
+            : "";
+        throw new Error(
+          `${data.error ?? "Erro ao salvar alertas"}${detail}`,
+        );
       }
       setAlerts(data.alerts);
       setLogs(data.logs);
@@ -129,10 +135,16 @@ export function ProactivityAlertsSection({
             (consultor) são extras.
           </p>
         </div>
-        <Button type="button" onClick={saveAlerts} disabled={isSaving}>
-          <Save className="size-4" />
-          Salvar alertas
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          <Button type="button" onClick={saveAlerts} disabled={isSaving}>
+            <Save className="size-4" />
+            Salvar alertas
+          </Button>
+          <p className="max-w-[16rem] text-right text-[11px] text-muted-foreground">
+            Diferente de “Salvar regras” (saúde da carteira). Só este botão
+            grava ROAS/CPA/Slack.
+          </p>
+        </div>
       </div>
 
       <AudienceGroup
@@ -379,7 +391,10 @@ function AlertCard({
                     }
                     disabled={!alert.enabled}
                     onChange={(event) => {
-                      const value = Number(event.target.value);
+                      const raw = event.target.value.trim();
+                      if (raw === "") return;
+                      const value = Number(raw);
+                      if (!Number.isFinite(value)) return;
                       onUpdate(alert.id, (current) => ({
                         ...current,
                         thresholds: {
