@@ -29,7 +29,7 @@
  */
 
 import {
-  isInsightsRowLimitError,
+  isInsightsTooHeavyError,
   metricsWindowFor,
   splitInsightsRange,
   toDailyMetricRows,
@@ -201,7 +201,7 @@ async function fetchLevel(args: {
       result.apiCalls += fetched.apiCalls;
       rows.push(...fetched.rows);
     } catch (error) {
-      if (!isInsightsRowLimitError(error)) throw error;
+      if (!isInsightsTooHeavyError(error)) throw error;
 
       const halves = splitInsightsRange(range);
       if (halves.length > 0) {
@@ -215,6 +215,11 @@ async function fetchLevel(args: {
       // job assíncrono aceita relatórios muito maiores — vai o período INTEIRO
       // de uma vez, e o que já veio pelas fatias é descartado porque a resposta
       // dele cobre tudo.
+      //
+      // O `break` lá embaixo é também o que segura a taxa de erro do app: a
+      // descida é uma só (a fatia da frente é sempre a próxima tentada), então
+      // um nível que falha do começo ao fim gasta ~log2(dias) chamadas, não uma
+      // árvore inteira de fatias condenadas.
       if (!ports.fetchInsightsAsync) {
         result.levelsAbandoned.push(entityLevel);
         break;
@@ -233,7 +238,7 @@ async function fetchLevel(args: {
       } catch (asyncError) {
         // Volume que estoura até no relatório assíncrono não tem mais recurso.
         // Qualquer outra falha sobe: o operador precisa ver o job que quebrou.
-        if (!isInsightsRowLimitError(asyncError)) throw asyncError;
+        if (!isInsightsTooHeavyError(asyncError)) throw asyncError;
         result.levelsAbandoned.push(entityLevel);
         break;
       }

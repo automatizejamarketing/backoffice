@@ -59,7 +59,7 @@ import {
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
 import {
-  isInsightsRowLimitError,
+  isInsightsTooHeavyError,
   type InsightsRange,
   type RawInsightsRow,
 } from "@/lib/meta-tracking/daily-metrics";
@@ -725,7 +725,7 @@ export async function fetchAccountInsights(args: {
     // Volume de linhas é do passo, não deste recuo — e os dois chegam como
     // erro 100, então a ordem destas duas guardas é o que faz o fatiamento
     // acontecer em vez de virar uma consulta sem as famílias de custo.
-    if (isInsightsRowLimitError(error) || !isInvalidParameterError(error)) {
+    if (isInsightsTooHeavyError(error) || !isInvalidParameterError(error)) {
       throw error;
     }
     console.warn(
@@ -948,7 +948,7 @@ export async function startInsightsReport(args: {
     // do catálogo derruba a requisição INTEIRA. Sem isto, a conta afetada
     // falharia o backfill todas as noites, para sempre. A ordem das guardas
     // importa — volume e campo inválido chegam os dois como erro 100.
-    if (isInsightsRowLimitError(error) || !isInvalidParameterError(error)) throw error;
+    if (isInsightsTooHeavyError(error) || !isInvalidParameterError(error)) throw error;
     console.warn(
       `[meta-tracking] field set do relatório assíncrono rejeitado em ${args.entityLevel}; recuando para o essencial`,
       error instanceof Error ? error.message : error,
