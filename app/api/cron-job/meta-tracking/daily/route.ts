@@ -34,6 +34,33 @@ export const maxDuration = 800;
  */
 const MAX_ERRORS_LOGGED = 50;
 
+/**
+ * O código/subcódigo da Meta escondido dentro do erro, achatado para a linha
+ * de log.
+ *
+ * Existe porque `console.error` do Node imprime objetos aninhados como
+ * `[Object]` a partir do segundo nível: um `GraphApiError` sai com o stack
+ * inteiro mas com `errorReturn: [Object]`, e é justamente ali que mora o par
+ * código/subcódigo que identifica O QUE a Meta recusou. O payload completo
+ * está na linha `meta_mutation` do gateway, mas num lote de 40 contas as
+ * linhas se intercalam — a de desfecho da conta precisa se bastar.
+ */
+function metaErrorCodeOf(
+  error: unknown,
+): { code?: number; subcode?: number } | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const data = (
+    error as {
+      errorReturn?: { data?: { code?: unknown; errorSubcode?: unknown } };
+    }
+  ).errorReturn?.data;
+  if (!data) return undefined;
+  const code = typeof data.code === "number" ? data.code : undefined;
+  const subcode =
+    typeof data.errorSubcode === "number" ? data.errorSubcode : undefined;
+  return code === undefined && subcode === undefined ? undefined : { code, subcode };
+}
+
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[meta-tracking-cron]");
   if (!auth.ok) return auth.response;
@@ -60,9 +87,9 @@ export async function GET(request: NextRequest) {
             });
             return;
           }
-          // Falha e parcial saem por `console.error` COM o erro cru: a
-          // mensagem achatada basta para erro da Meta (o gateway já logou o
-          // payload), mas exceção inesperada sem stack não tem causa raiz.
+          // Falha e parcial saem por `console.error` COM o erro cru: o código
+          // da Meta diz O QUE foi recusado e o stack diz ONDE — exceção
+          // inesperada sem stack não tem investigação possível.
           console.error(
             "[meta-tracking-cron] conta não fechou",
             {
@@ -70,6 +97,7 @@ export async function GET(request: NextRequest) {
               accountId: progress.accountId,
               status: progress.status,
               errorMessage: progress.errorMessage,
+              metaError: metaErrorCodeOf(progress.error),
             },
             ...(progress.error !== undefined ? [progress.error] : []),
           );
