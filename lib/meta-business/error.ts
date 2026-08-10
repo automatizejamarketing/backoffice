@@ -130,10 +130,17 @@ function isGraphApiError(json: unknown): json is { error: unknown } {
 
 /**
  * Verifica se um erro do Graph API tem a estrutura esperada.
+ *
+ * `type` NÃO é exigido de propósito: os 5xx da Meta às vezes vêm só com
+ * `{code, error_subcode, message}` (medido em 2026-08-10 num
+ * `{"code":1,"error_subcode":99}` de insights). Exigir `type` fazia esses erros
+ * caírem no `genericError` SEM `data` — e aí todo tratamento por código
+ * (recuo por volume do coletor, retry de throttle da duplicação) ficava cego
+ * justamente nos erros que mais precisam dele.
  */
 function isValidGraphErrorInfo(error: unknown): error is {
   message: string;
-  type: string;
+  type?: string;
   code: number;
   error_subcode?: number;
   error_user_title?: string;
@@ -147,7 +154,7 @@ function isValidGraphErrorInfo(error: unknown): error is {
   const err = error as Record<string, unknown>;
   return (
     typeof err["message"] === "string" &&
-    typeof err["type"] === "string" &&
+    (err["type"] === undefined || typeof err["type"] === "string") &&
     typeof err["code"] === "number"
   );
 }
@@ -158,7 +165,7 @@ export function parseGraphError(json: unknown): GraphErrorReturn {
     // É um erro do Graph API - mapeia para o formato padrão
     const errorInfo: GraphErrorInfo = {
       message: json.error.message,
-      type: json.error.type,
+      type: json.error.type ?? "UnknownException",
       code: json.error.code,
       errorSubcode: json.error.error_subcode,
       errorUserTitle: json.error.error_user_title,

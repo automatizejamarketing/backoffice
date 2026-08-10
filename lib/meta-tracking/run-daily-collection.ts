@@ -63,6 +63,7 @@ import {
   hasCollectionBudgetLeft,
   isDayCoveredBy,
   planDeepFetch,
+  coverageStatusForCollectionError,
   coverageStatusForTokenFailure,
   type DeepFetchChunk,
   type ListedEntity,
@@ -742,7 +743,10 @@ async function collectAccount(args: {
       }
     }
   } catch (error) {
-    status = "failed";
+    // Throttle vira `partial` e não `failed`: a conta fica pendente para o
+    // disparo seguinte em vez de perder o dia por um erro que a própria Meta
+    // marca como transitório. Ver `coverageStatusForCollectionError`.
+    status = coverageStatusForCollectionError(error);
     errorMessage = errorMessageOf(error, "Erro ao coletar a conta na Meta.");
     result.errors.push({
       userEmail: user.email,
