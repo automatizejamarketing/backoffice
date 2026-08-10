@@ -54,7 +54,9 @@ export function isMetaFakeScenarioUser(
   userId: string,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (!userId || !isMetaFakeScenarioEnvAllowed(env)) {
+  // Same weak-type story as the default above: NodeJS.ProcessEnv is not
+  // assignable to MetaFakeEnv on Vercel's build, so cast at the boundary.
+  if (!userId || !isMetaFakeScenarioEnvAllowed(env as MetaFakeEnv)) {
     return false;
   }
   const allowlist = parseMetaFakeScenarioUserIds(
