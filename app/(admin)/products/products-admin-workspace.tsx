@@ -17,7 +17,6 @@ import {
   RefreshCcw,
   ShoppingCart,
   Trash2,
-  Undo2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +24,16 @@ import {
   ExpertImageCropDialog,
   ProductCoverCropDialog,
 } from "@/components/expert-image-crop-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -616,6 +625,8 @@ export function ProductsAdminWorkspace({
   const [expertPhone, setExpertPhone] = useState("");
   const [editingExpertId, setEditingExpertId] = useState<string | null>(null);
   const [expertDialogOpen, setExpertDialogOpen] = useState(false);
+  const [refundTarget, setRefundTarget] = useState<Order | null>(null);
+  const [refunding, setRefunding] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
@@ -1314,17 +1325,21 @@ export function ProductsAdminWorkspace({
     }
   }
 
-  async function refundOrder(id: string) {
-    if (!window.confirm(
-      "Registrar reembolso? Isso NÃO devolve o dinheiro — o Pix ao cliente é manual. " +
-        "Revoga o acesso, estorna o repasse do expert e zera nossa receita neste pagamento.",
-    )) return;
-    const response = await fetch(`/api/products/admin/orders/${id}/refund`, {
-      method: "POST",
-    });
-    if (!response.ok) return toast.error(await readError(response));
-    toast.success("Reembolso registrado.");
-    await loadAll();
+  async function confirmRefund() {
+    if (!refundTarget) return;
+    setRefunding(true);
+    try {
+      const response = await fetch(
+        `/api/products/admin/orders/${refundTarget.id}/refund`,
+        { method: "POST" },
+      );
+      if (!response.ok) return toast.error(await readError(response));
+      toast.success("Reembolso registrado.");
+      setRefundTarget(null);
+      await loadAll();
+    } finally {
+      setRefunding(false);
+    }
   }
 
   async function updatePayout(id: string, status: "approved" | "paid" | "rejected") {
@@ -1736,25 +1751,8 @@ export function ProductsAdminWorkspace({
                           {dateTime(order.createdAt)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                          <div className="flex items-center gap-1.5">
-                            <div className="min-w-0">
-                              <p>{paymentMethod(order)}</p>
-                              <p>{order.providerPaymentId ? `MP ${order.providerPaymentId}` : "—"}</p>
-                            </div>
-                            {order.status === "approved" ? (
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                className="size-8 shrink-0"
-                                title="Registrar reembolso (Pix manual)"
-                                aria-label={`Registrar reembolso da venda de ${order.productTitle}`}
-                                onClick={() => void refundOrder(order.id)}
-                              >
-                                <Undo2 className="size-3.5" />
-                              </Button>
-                            ) : null}
-                          </div>
+                          <p>{paymentMethod(order)}</p>
+                          <p>{order.providerPaymentId ? `MP ${order.providerPaymentId}` : "—"}</p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {money(order.priceCentavos)}
@@ -1827,7 +1825,7 @@ export function ProductsAdminWorkspace({
                               <DropdownMenuContent align="end" className="w-40">
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
-                                  onSelect={() => void refundOrder(order.id)}
+                                  onSelect={() => setRefundTarget(order)}
                                 >
                                   Reembolsar
                                 </DropdownMenuItem>
@@ -2510,6 +2508,47 @@ export function ProductsAdminWorkspace({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={refundTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !refunding) setRefundTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Registrar reembolso</AlertDialogTitle>
+            <AlertDialogDescription>
+              {refundTarget
+                ? `${refundTarget.productTitle} · ${refundTarget.buyerName} · ${money(refundTarget.priceCentavos)}`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">
+              Isso não devolve o dinheiro — o Pix ao cliente é feito
+              manualmente, fora do sistema.
+            </p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Revoga o acesso do comprador ao produto.</li>
+              <li>Estorna o repasse do expert no ledger.</li>
+              <li>Zera a receita líquida da Automatize neste pagamento.</li>
+            </ul>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={refunding}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={refunding}
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmRefund();
+              }}
+            >
+              {refunding ? "Registrando…" : "Registrar reembolso"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
