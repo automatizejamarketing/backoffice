@@ -152,6 +152,9 @@ export default function ReferralMetricsPage() {
             <Link href="/referrals">Fila de afiliação</Link>
           </Button>
           <Button variant="outline" asChild>
+            <Link href="/referrals/traffic">Tráfego</Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/referrals/payouts">Saques</Link>
           </Button>
         </div>

@@ -346,6 +346,9 @@ export default function ReferralsPage() {
             <Link href="/referrals/metrics">Métricas</Link>
           </Button>
           <Button variant="outline" asChild>
+            <Link href="/referrals/traffic">Tráfego</Link>
+          </Button>
+          <Button variant="outline" asChild>
             <Link href="/referrals/payouts">Fila de saques</Link>
           </Button>
           <Button onClick={() => setRecruitOpen(true)}>
