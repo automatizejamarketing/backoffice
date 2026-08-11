@@ -58,6 +58,11 @@ type EditAdSetRequestBody = {
   endTime?: string;
   deliveryMode?: CampaignDeliveryMode;
   scheduleBlocks?: CampaignScheduleBlock[];
+  /**
+   * Replaces the pixel in the ad set's `promoted_object` (conversion ad sets
+   * only — the rest of the promoted object is preserved).
+   */
+  pixelId?: string;
   targeting?: {
     age_min?: number;
     age_max?: number;
@@ -91,6 +96,10 @@ type EditAdSetResponse = {
       newPacingType: string[];
       previousAdsetSchedule?: GraphApiAdSet["adset_schedule"];
       newAdsetSchedule: ReturnType<typeof toMetaAdSetScheduleBlocks>;
+    };
+    promotedObject?: {
+      previous: Record<string, unknown> | null;
+      new: Record<string, unknown>;
     };
   };
 };
@@ -133,6 +142,7 @@ export async function PATCH(
       endTime,
       deliveryMode,
       scheduleBlocks,
+      pixelId,
       targeting,
       note,
     } = body;
@@ -183,6 +193,19 @@ export async function PATCH(
     const hasScheduleChange = startTime !== undefined || endTime !== undefined;
     const hasDeliveryScheduleChange =
       deliveryMode !== undefined || scheduleBlocks !== undefined;
+    const hasPixelChange =
+      typeof pixelId === "string" && pixelId.trim().length > 0;
+
+    if (pixelId !== undefined && !hasPixelChange) {
+      return NextResponse.json(
+        {
+          error: "Invalid pixel",
+          message: "O pixel informado é inválido.",
+          solution: "Selecione um pixel válido da conta de anúncios.",
+        },
+        { status: 400 },
+      );
+    }
     const hasTargetingChange =
       targeting !== undefined &&
       (targeting.age_min !== undefined ||
@@ -225,15 +248,16 @@ export async function PATCH(
       !hasLifetimeBudgetChange &&
       !hasScheduleChange &&
       !hasDeliveryScheduleChange &&
-      !hasTargetingChange
+      !hasTargetingChange &&
+      !hasPixelChange
     ) {
       return NextResponse.json(
         {
           error: "No changes provided",
           message:
-            "At least one of budget, schedule, delivery hours, or targeting must be provided",
+            "At least one of budget, schedule, delivery hours, pixel, or targeting must be provided",
           solution:
-            "Provide dailyBudget, lifetimeBudget, startTime/endTime, deliveryMode/scheduleBlocks and/or targeting fields to update",
+            "Provide dailyBudget, lifetimeBudget, startTime/endTime, deliveryMode/scheduleBlocks, pixelId and/or targeting fields to update",
         },
         { status: 400 },
       );
@@ -259,7 +283,7 @@ export async function PATCH(
       method: "GET",
       path: adsetId,
       params:
-        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,pacing_type,adset_schedule,targeting",
+        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,pacing_type,adset_schedule,targeting,promoted_object",
       accessToken,
     });
 
@@ -704,6 +728,39 @@ export async function PATCH(
       }
     }
 
+    // ── Pixel swap → promoted_object patch (pixel_id replaced, the rest kept) ──
+    const previousPromotedObject = currentAdSet.promoted_object ?? null;
+    let newPromotedObject: Record<string, unknown> | undefined;
+    if (hasPixelChange) {
+      const currentPixelIdValue = previousPromotedObject?.pixel_id;
+      if (
+        typeof currentPixelIdValue !== "string" ||
+        currentPixelIdValue.length === 0
+      ) {
+        // Attaching a pixel to an ad set that never measured through one would
+        // silently change what the campaign optimises for — refuse.
+        return NextResponse.json(
+          {
+            error: "Pixel not editable",
+            message:
+              "Este conjunto de anúncios não usa pixel de conversão, então não há pixel para trocar.",
+            solution:
+              "O pixel só pode ser alterado em conjuntos de campanhas de vendas/conversão.",
+          },
+          { status: 400 },
+        );
+      }
+      newPromotedObject = {
+        ...previousPromotedObject,
+        pixel_id: pixelId,
+      };
+      updateParams.promoted_object = JSON.stringify(newPromotedObject);
+      changes.promotedObject = {
+        previous: previousPromotedObject,
+        new: newPromotedObject,
+      };
+    }
+
     let appliedToMeta = false;
     let errorMessage: string | undefined;
     let errorStatus = 500;
@@ -833,6 +890,11 @@ export async function PATCH(
             changes.deliverySchedule?.newAdsetSchedule ??
             currentAdSet.adset_schedule ??
             null,
+        },
+        {
+          field: "promoted_object",
+          old: previousPromotedObject,
+          new: newPromotedObject ?? previousPromotedObject,
         },
       ],
       actorEmail: backofficeUserEmail,

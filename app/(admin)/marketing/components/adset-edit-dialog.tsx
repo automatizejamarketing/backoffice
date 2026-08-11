@@ -13,6 +13,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { AdSet, AdSetTargeting } from "@/lib/meta-business/types";
@@ -290,6 +297,14 @@ export function AdSetEditDialog({
     isInstagramOnlyAdSet ? INSTAGRAM_PLACEMENTS : ALL_PLACEMENTS;
   const placementsEditable = currentPlacements.length > 0;
   const currentAdvantageAudience = isAdvantageAudienceOn(adSet.targeting);
+  // Only an ad set that already measures through a pixel can swap it — offering
+  // the selector elsewhere would silently attach conversion tracking to a
+  // campaign whose objective never had one.
+  const currentPixelId =
+    typeof adSet.promotedObject?.pixel_id === "string"
+      ? adSet.promotedObject.pixel_id
+      : null;
+  const canEditPixel = currentPixelId !== null;
 
   const [dailyBudget, setDailyBudget] = useState<string>(
     currentBudgetBRL.toFixed(2),
@@ -347,9 +362,32 @@ export function AdSetEditDialog({
     useState<AdSetDeliveryScheduleValue>(() =>
       adSetToDeliveryScheduleValue(adSet),
     );
+  const [selectedPixelId, setSelectedPixelId] = useState<string | null>(
+    currentPixelId,
+  );
+  const [pixels, setPixels] = useState<Array<{ id: string; name?: string }>>([]);
+  const [isLoadingPixels, setIsLoadingPixels] = useState(false);
   const [note, setNote] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchPixels = useCallback(async () => {
+    if (!canEditPixel) return;
+    setIsLoadingPixels(true);
+    try {
+      const response = await fetch(
+        `/api/meta-marketing/${accountId}/pixels?userId=${userId}`,
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setPixels(data.data ?? []);
+      }
+    } catch {
+      // Silently fail - the current pixel keeps working without the list
+    } finally {
+      setIsLoadingPixels(false);
+    }
+  }, [accountId, userId, canEditPixel]);
 
   const fetchAudiences = useCallback(async () => {
     setIsLoadingAudiences(true);
@@ -371,8 +409,9 @@ export function AdSetEditDialog({
   useEffect(() => {
     if (isOpen) {
       fetchAudiences();
+      void fetchPixels();
     }
-  }, [isOpen, fetchAudiences]);
+  }, [isOpen, fetchAudiences, fetchPixels]);
 
   // Reset form when the dialog opens or when switching to another ad set.
   // Without this, React keeps stale state from a previous ad set, so the user
@@ -409,6 +448,11 @@ export function AdSetEditDialog({
     setAdvantageAudience(isAdvantageAudienceOn(adSet.targeting));
     setSelectedPlacements(targetingFieldsToPlacements(adSet.targeting));
     setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
+    setSelectedPixelId(
+      typeof adSet.promotedObject?.pixel_id === "string"
+        ? adSet.promotedObject.pixel_id
+        : null,
+    );
     setNote("");
     setError(null);
   }, [adSet, isOpen]);
@@ -502,6 +546,11 @@ export function AdSetEditDialog({
     const hasAdvantageAudienceChange =
       advantageAudience !== currentAdvantageAudience;
 
+    const hasPixelChange =
+      canEditPixel &&
+      selectedPixelId !== null &&
+      selectedPixelId !== currentPixelId;
+
     const hasTargetingChange =
       hasAdvantageAudienceChange ||
       hasAgeMinChange ||
@@ -518,7 +567,8 @@ export function AdSetEditDialog({
       !hasLifetimeBudgetChange &&
       !hasScheduleChange &&
       !hasDeliveryScheduleChange &&
-      !hasTargetingChange
+      !hasTargetingChange &&
+      !hasPixelChange
     ) {
       setError("Nenhuma alteração foi feita");
       return;
@@ -613,6 +663,10 @@ export function AdSetEditDialog({
             : [];
       }
 
+      if (hasPixelChange && selectedPixelId) {
+        body.pixelId = selectedPixelId;
+      }
+
       if (hasTargetingChange) {
         body.targeting = {
           ...(hasAgeMinChange && { age_min: ageMinValue }),
@@ -693,6 +747,7 @@ export function AdSetEditDialog({
       setInterestTargeting(baselineInterestTargeting);
       setSelectedPlacements(currentPlacements);
       setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
+      setSelectedPixelId(currentPixelId);
       setNote("");
       setError(null);
       onClose();
@@ -705,8 +760,8 @@ export function AdSetEditDialog({
         <DialogHeader>
           <DialogTitle>Editar Conjunto de Anúncios</DialogTitle>
           <DialogDescription>
-            Altere orçamento, período e/ou segmentação do público. Todas as
-            alterações são registradas para auditoria.
+            Altere orçamento, período, pixel e/ou segmentação do público. Todas
+            as alterações são registradas para auditoria.
           </DialogDescription>
         </DialogHeader>
 
@@ -790,6 +845,46 @@ export function AdSetEditDialog({
                   onChange={setDeliverySchedule}
                   disabled={isSubmitting}
                 />
+              </div>
+            )}
+
+            {canEditPixel && (
+              <div className="space-y-2">
+                <Label>Pixel de conversão</Label>
+                <Select
+                  value={selectedPixelId ?? undefined}
+                  onValueChange={(value) => setSelectedPixelId(value || null)}
+                  disabled={isSubmitting || isLoadingPixels}
+                >
+                  <SelectTrigger className="w-full">
+                    {isLoadingPixels ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="size-4 animate-spin" />
+                        <span>Carregando pixels...</span>
+                      </div>
+                    ) : (
+                      <SelectValue placeholder="Selecione o pixel" />
+                    )}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pixels.length === 0 && selectedPixelId ? (
+                      <SelectItem value={selectedPixelId}>
+                        {selectedPixelId}
+                      </SelectItem>
+                    ) : (
+                      pixels.map((pixel) => (
+                        <SelectItem key={pixel.id} value={pixel.id}>
+                          {pixel.name ?? pixel.id}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  O pixel mede as conversões deste conjunto. Trocar o pixel muda
+                  de onde vêm os eventos de compra — a campanha pode voltar à
+                  fase de aprendizado.
+                </p>
               </div>
             )}
 
