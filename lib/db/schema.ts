@@ -2594,6 +2594,7 @@ export const REFERRAL_ADMIN_ACTION_VALUES = [
   "payout_paid",
   "payout_denied",
   "balance_written_off",
+  "tax_document_updated",
 ] as const;
 export type ReferralAdminActionType =
   (typeof REFERRAL_ADMIN_ACTION_VALUES)[number];
