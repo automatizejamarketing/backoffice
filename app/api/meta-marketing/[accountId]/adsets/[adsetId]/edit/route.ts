@@ -58,6 +58,11 @@ type EditAdSetRequestBody = {
   endTime?: string;
   deliveryMode?: CampaignDeliveryMode;
   scheduleBlocks?: CampaignScheduleBlock[];
+  /**
+   * Replaces the pixel in the ad set's `promoted_object` (conversion ad sets
+   * only — the rest of the promoted object is preserved).
+   */
+  pixelId?: string;
   targeting?: {
     age_min?: number;
     age_max?: number;
@@ -66,6 +71,12 @@ type EditAdSetRequestBody = {
     custom_audiences?: AudienceRef[];
     excluded_custom_audiences?: AudienceRef[];
     placements?: PlacementKey[];
+    /**
+     * "automatic" switches the ad set to Advantage+ placements: every placement
+     * field is REMOVED from the targeting (their absence is what "automatic"
+     * means in the Marketing API). Mutually exclusive with `placements`.
+     */
+    placements_mode?: "automatic";
     interest_targeting?: InterestTargetingValue;
     /**
      * Advantage+ audience toggle. Omitted = leave whatever the ad set has;
@@ -91,6 +102,10 @@ type EditAdSetResponse = {
       newPacingType: string[];
       previousAdsetSchedule?: GraphApiAdSet["adset_schedule"];
       newAdsetSchedule: ReturnType<typeof toMetaAdSetScheduleBlocks>;
+    };
+    promotedObject?: {
+      previous: Record<string, unknown> | null;
+      new: Record<string, unknown>;
     };
   };
 };
@@ -133,6 +148,7 @@ export async function PATCH(
       endTime,
       deliveryMode,
       scheduleBlocks,
+      pixelId,
       targeting,
       note,
     } = body;
@@ -183,6 +199,19 @@ export async function PATCH(
     const hasScheduleChange = startTime !== undefined || endTime !== undefined;
     const hasDeliveryScheduleChange =
       deliveryMode !== undefined || scheduleBlocks !== undefined;
+    const hasPixelChange =
+      typeof pixelId === "string" && pixelId.trim().length > 0;
+
+    if (pixelId !== undefined && !hasPixelChange) {
+      return NextResponse.json(
+        {
+          error: "Invalid pixel",
+          message: "O pixel informado é inválido.",
+          solution: "Selecione um pixel válido da conta de anúncios.",
+        },
+        { status: 400 },
+      );
+    }
     const hasTargetingChange =
       targeting !== undefined &&
       (targeting.age_min !== undefined ||
@@ -192,8 +221,39 @@ export async function PATCH(
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined ||
         targeting.placements !== undefined ||
+        targeting.placements_mode !== undefined ||
         targeting.interest_targeting !== undefined ||
         targeting.targeting_automation?.advantage_audience !== undefined);
+
+    if (
+      targeting?.placements_mode !== undefined &&
+      targeting.placements_mode !== "automatic"
+    ) {
+      return NextResponse.json(
+        {
+          error: "Invalid placements mode",
+          message: "placements_mode só aceita o valor \"automatic\".",
+          solution:
+            "Envie placements_mode: \"automatic\" ou uma lista em placements.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (
+      targeting?.placements_mode !== undefined &&
+      targeting.placements !== undefined
+    ) {
+      return NextResponse.json(
+        {
+          error: "Conflicting placements",
+          message:
+            "Envie posicionamentos manuais OU placements_mode automático — não os dois.",
+          solution: "Remova um dos campos antes de salvar.",
+        },
+        { status: 400 },
+      );
+    }
 
     if (targeting?.placements !== undefined) {
       if (!Array.isArray(targeting.placements) || targeting.placements.length === 0) {
@@ -225,15 +285,16 @@ export async function PATCH(
       !hasLifetimeBudgetChange &&
       !hasScheduleChange &&
       !hasDeliveryScheduleChange &&
-      !hasTargetingChange
+      !hasTargetingChange &&
+      !hasPixelChange
     ) {
       return NextResponse.json(
         {
           error: "No changes provided",
           message:
-            "At least one of budget, schedule, delivery hours, or targeting must be provided",
+            "At least one of budget, schedule, delivery hours, pixel, or targeting must be provided",
           solution:
-            "Provide dailyBudget, lifetimeBudget, startTime/endTime, deliveryMode/scheduleBlocks and/or targeting fields to update",
+            "Provide dailyBudget, lifetimeBudget, startTime/endTime, deliveryMode/scheduleBlocks, pixelId and/or targeting fields to update",
         },
         { status: 400 },
       );
@@ -259,7 +320,7 @@ export async function PATCH(
       method: "GET",
       path: adsetId,
       params:
-        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,pacing_type,adset_schedule,targeting",
+        "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,pacing_type,adset_schedule,targeting,promoted_object",
       accessToken,
     });
 
@@ -555,6 +616,10 @@ export async function PATCH(
       // Resolve placement fields. If the user submitted new placements, use them;
       // otherwise preserve whatever the ad set had (which might be Advantage+ /
       // automatic placements, i.e. no publisher_platforms at all).
+      const prevPlatforms = previousTargeting?.publisher_platforms ?? [];
+      const wasInstagramOnly =
+        prevPlatforms.length === 1 && prevPlatforms[0] === "instagram";
+
       let placementFields:
         | {
             publisher_platforms: string[];
@@ -564,9 +629,6 @@ export async function PATCH(
         | null = null;
       if (targeting.placements !== undefined) {
         // Refuse to promote an IG-only ad set to Facebook through edit.
-        const prevPlatforms = previousTargeting?.publisher_platforms ?? [];
-        const wasInstagramOnly =
-          prevPlatforms.length === 1 && prevPlatforms[0] === "instagram";
         if (wasInstagramOnly) {
           const allowed = new Set<PlacementKey>(INSTAGRAM_PLACEMENTS);
           for (const p of targeting.placements) {
@@ -587,6 +649,24 @@ export async function PATCH(
         placementFields = placementsToTargetingFields(targeting.placements);
       }
 
+      // Advantage+ placements = the ABSENCE of every placement field in the
+      // targeting (Marketing API): the automatic branch below simply omits
+      // them from the rebuilt object. Same IG-only protection as above —
+      // automatic would serve on Facebook and beyond.
+      const wantsAutomaticPlacements = targeting.placements_mode === "automatic";
+      if (wantsAutomaticPlacements && wasInstagramOnly) {
+        return NextResponse.json(
+          {
+            error: "Placement not allowed",
+            message:
+              "Este conjunto de anúncios é Instagram-only. O posicionamento automático (Advantage+) veicularia também no Facebook.",
+            solution:
+              "Mantenha posicionamentos do Instagram ou refaça a campanha.",
+          },
+          { status: 400 },
+        );
+      }
+
       newTargeting = {
         geo_locations: newGeoLocations,
         age_min: targeting.age_min ?? previousTargeting?.age_min ?? 18,
@@ -602,19 +682,23 @@ export async function PATCH(
         ...(newTargetingAutomation && {
           targeting_automation: newTargetingAutomation,
         }),
-        ...(placementFields
-          ? placementFields
-          : {
-              ...(previousTargeting?.publisher_platforms && {
-                publisher_platforms: previousTargeting.publisher_platforms,
+        // Automatic (Advantage+): no placement field at all. Manual: the new
+        // selection. Untouched: whatever the ad set had.
+        ...(wantsAutomaticPlacements
+          ? {}
+          : placementFields
+            ? placementFields
+            : {
+                ...(previousTargeting?.publisher_platforms && {
+                  publisher_platforms: previousTargeting.publisher_platforms,
+                }),
+                ...(previousTargeting?.facebook_positions && {
+                  facebook_positions: previousTargeting.facebook_positions,
+                }),
+                ...(previousTargeting?.instagram_positions && {
+                  instagram_positions: previousTargeting.instagram_positions,
+                }),
               }),
-              ...(previousTargeting?.facebook_positions && {
-                facebook_positions: previousTargeting.facebook_positions,
-              }),
-              ...(previousTargeting?.instagram_positions && {
-                instagram_positions: previousTargeting.instagram_positions,
-              }),
-            }),
       };
 
       const metaTargeting: Record<string, unknown> = {
@@ -702,6 +786,39 @@ export async function PATCH(
           { status: 400 },
         );
       }
+    }
+
+    // ── Pixel swap → promoted_object patch (pixel_id replaced, the rest kept) ──
+    const previousPromotedObject = currentAdSet.promoted_object ?? null;
+    let newPromotedObject: Record<string, unknown> | undefined;
+    if (hasPixelChange) {
+      const currentPixelIdValue = previousPromotedObject?.pixel_id;
+      if (
+        typeof currentPixelIdValue !== "string" ||
+        currentPixelIdValue.length === 0
+      ) {
+        // Attaching a pixel to an ad set that never measured through one would
+        // silently change what the campaign optimises for — refuse.
+        return NextResponse.json(
+          {
+            error: "Pixel not editable",
+            message:
+              "Este conjunto de anúncios não usa pixel de conversão, então não há pixel para trocar.",
+            solution:
+              "O pixel só pode ser alterado em conjuntos de campanhas de vendas/conversão.",
+          },
+          { status: 400 },
+        );
+      }
+      newPromotedObject = {
+        ...previousPromotedObject,
+        pixel_id: pixelId,
+      };
+      updateParams.promoted_object = JSON.stringify(newPromotedObject);
+      changes.promotedObject = {
+        previous: previousPromotedObject,
+        new: newPromotedObject,
+      };
     }
 
     let appliedToMeta = false;
@@ -833,6 +950,11 @@ export async function PATCH(
             changes.deliverySchedule?.newAdsetSchedule ??
             currentAdSet.adset_schedule ??
             null,
+        },
+        {
+          field: "promoted_object",
+          old: previousPromotedObject,
+          new: newPromotedObject ?? previousPromotedObject,
         },
       ],
       actorEmail: backofficeUserEmail,
