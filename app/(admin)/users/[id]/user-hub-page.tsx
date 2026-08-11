@@ -23,6 +23,7 @@ import { MarketingConsultantControl } from "@/components/marketing-consultant-co
 import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
+import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
 import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -444,8 +445,8 @@ export async function UserHubPage({
               Histórico de templates WhatsApp
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Somente mensagens automáticas outbound. Respostas do cliente e
-              conversas do Mat ou Eve não entram neste histórico.
+              Somente mensagens automáticas outbound. Acompanhe entrega, leitura
+              e cliques sem misturar conversas do Mat ou Eve.
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -459,7 +460,7 @@ export async function UserHubPage({
                 </p>
               </div>
             ) : (
-              <Table className="min-w-[980px]">
+              <Table className="min-w-[1120px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Template</TableHead>
@@ -467,6 +468,7 @@ export async function UserHubPage({
                     <TableHead>Status</TableHead>
                     <TableHead>Enviado em</TableHead>
                     <TableHead>Atualizado em</TableHead>
+                    <TableHead>Clique</TableHead>
                     <TableHead>Falha</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -485,6 +487,7 @@ export async function UserHubPage({
                           acceptedAt={item.acceptedAt}
                           deliveredAt={item.deliveredAt}
                           readAt={item.readAt}
+                          clickedAt={item.clickedAt}
                           historicalStatusUntracked={item.historicalStatusUntracked}
                           compact
                         />
@@ -498,6 +501,12 @@ export async function UserHubPage({
                         {formatShortDateTimeInSaoPaulo(
                           item.currentStatusAt ?? item.acceptedAt ?? item.createdAt,
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <WhatsappClickInfo
+                          clickedAt={item.clickedAt}
+                          clickKind={item.clickKind}
+                        />
                       </TableCell>
                       <TableCell className="max-w-72">
                         {item.failureCode || item.failureDetail ? (

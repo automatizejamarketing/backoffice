@@ -11,6 +11,7 @@ type WhatsappDeliveryStatusProps = {
   acceptedAt: Date | null;
   deliveredAt: Date | null;
   readAt: Date | null;
+  clickedAt: Date | null;
   historicalStatusUntracked?: boolean;
   compact?: boolean;
 };
@@ -26,6 +27,7 @@ export function WhatsappDeliveryStatus({
   acceptedAt,
   deliveredAt,
   readAt,
+  clickedAt,
   historicalStatusUntracked = false,
   compact = false,
 }: WhatsappDeliveryStatusProps) {
@@ -54,12 +56,18 @@ export function WhatsappDeliveryStatus({
     acceptedAt ? 1 : 0,
     deliveredAt ? 2 : 0,
     readAt ? 3 : 0,
+    clickedAt ? 4 : 0,
   );
-  const steps = ["Enviado", "Entregue", "Lido"];
+  const steps = ["Enviado", "Entregue", "Lido", "Clicado"];
 
   return (
-    <div className="space-y-1.5" aria-label={`Status: ${WHATSAPP_STATUS_LABELS[status]}`}>
-      <div className={cn("flex items-center", compact ? "min-w-52" : "min-w-64")}>
+    <div
+      className="space-y-1.5"
+      aria-label={`Status: ${WHATSAPP_STATUS_LABELS[status]}`}
+    >
+      <div
+        className={cn("flex items-center", compact ? "min-w-64" : "min-w-72")}
+      >
         {steps.map((label, index) => {
           const reached = progress >= index + 1;
           return (
@@ -88,9 +96,7 @@ export function WhatsappDeliveryStatus({
                 <span
                   className={cn(
                     "mx-1 h-px flex-1",
-                    progress > index + 1
-                      ? "bg-emerald-600"
-                      : "bg-border",
+                    progress > index + 1 ? "bg-emerald-600" : "bg-border",
                   )}
                 />
               )}
@@ -101,15 +107,15 @@ export function WhatsappDeliveryStatus({
       <div
         className={cn(
           "grid text-[10px] leading-none text-muted-foreground",
-          compact ? "min-w-52 grid-cols-3" : "min-w-64 grid-cols-3",
+          compact ? "min-w-64 grid-cols-4" : "min-w-72 grid-cols-4",
         )}
       >
         {steps.map((label, index) => (
           <span
             key={label}
             className={cn(
-              index === 1 && "text-center",
-              index === 2 && "text-right",
+              index > 0 && index < steps.length - 1 && "text-center",
+              index === steps.length - 1 && "text-right",
               progress >= index + 1 && "font-medium text-foreground",
             )}
           >

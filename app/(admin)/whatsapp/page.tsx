@@ -1,5 +1,13 @@
-import { AlertCircle, CheckCheck, Clock3, Eye, MessageCircle } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCheck,
+  Clock3,
+  Eye,
+  MessageCircle,
+  MousePointerClick,
+} from "lucide-react";
 import Link from "next/link";
+import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Button } from "@/components/ui/button";
@@ -92,15 +100,20 @@ export default async function WhatsappPage({
           WhatsApp
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-          Acompanhe envio, entrega, leitura e falhas dos templates automáticos.
-          Respostas de clientes e conversas do Mat ou Eve não aparecem aqui.
+          Acompanhe envio, entrega, leitura, clique e falhas dos templates
+          automáticos. Conversas do Mat ou Eve não aparecem aqui.
         </p>
       </header>
 
-      <section className="grid overflow-hidden rounded-xl border bg-card shadow-xs sm:grid-cols-2 xl:grid-cols-5 [&>div]:border-b [&>div]:border-r sm:[&>div:nth-child(2n)]:border-r-0 xl:[&>div]:border-b-0 xl:[&>div:nth-child(2n)]:border-r xl:[&>div:last-child]:border-r-0">
+      <section className="grid overflow-hidden rounded-xl border bg-card shadow-xs sm:grid-cols-2 xl:grid-cols-6 [&>div]:border-b [&>div]:border-r sm:[&>div:nth-child(2n)]:border-r-0 xl:[&>div]:border-b-0 xl:[&>div:nth-child(2n)]:border-r xl:[&>div:last-child]:border-r-0">
         <Metric label="Enviados" value={history.summary.sent} icon={MessageCircle} />
         <Metric label="Entregues" value={history.summary.delivered} icon={CheckCheck} />
         <Metric label="Lidos" value={history.summary.read} icon={Eye} />
+        <Metric
+          label="Clicados"
+          value={history.summary.clicked}
+          icon={MousePointerClick}
+        />
         <Metric label="Falhos" value={history.summary.failed} icon={AlertCircle} />
         <Metric
           label="Sem status posterior"
@@ -175,7 +188,7 @@ export default async function WhatsappPage({
         ) : (
           <>
             <div className="overflow-auto">
-              <Table className="min-w-[1180px]">
+              <Table className="min-w-[1320px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Usuário</TableHead>
@@ -184,6 +197,7 @@ export default async function WhatsappPage({
                     <TableHead>Status</TableHead>
                     <TableHead>Enviado em</TableHead>
                     <TableHead>Atualizado em</TableHead>
+                    <TableHead>Clique</TableHead>
                     <TableHead>Falha</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -215,6 +229,7 @@ export default async function WhatsappPage({
                           acceptedAt={item.acceptedAt}
                           deliveredAt={item.deliveredAt}
                           readAt={item.readAt}
+                          clickedAt={item.clickedAt}
                           historicalStatusUntracked={item.historicalStatusUntracked}
                           compact
                         />
@@ -228,6 +243,12 @@ export default async function WhatsappPage({
                         {formatShortDateTimeInSaoPaulo(
                           item.currentStatusAt ?? item.acceptedAt ?? item.createdAt,
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <WhatsappClickInfo
+                          clickedAt={item.clickedAt}
+                          clickKind={item.clickKind}
+                        />
                       </TableCell>
                       <TableCell className="max-w-72">
                         {item.failureCode || item.failureDetail ? (
