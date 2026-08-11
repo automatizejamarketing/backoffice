@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   METRICS_MUTABLE_DAYS,
   isFinalMetricDay,
-  isInsightsRowLimitError,
+  isInsightsTooHeavyError,
   metricsWindowFor,
   rangeDays,
   splitInsightsRange,
@@ -273,7 +273,7 @@ describe("splitInsightsRange", () => {
   });
 });
 
-describe("isInsightsRowLimitError", () => {
+describe("isInsightsTooHeavyError", () => {
   function graphError(code: number, errorSubcode?: number): unknown {
     return {
       name: "GraphApiError",
@@ -282,17 +282,30 @@ describe("isInsightsRowLimitError", () => {
   }
 
   test("erro de volume de linhas é reconhecido pelo subcódigo", () => {
-    expect(isInsightsRowLimitError(graphError(100, 1487534))).toBe(true);
+    expect(isInsightsTooHeavyError(graphError(100, 1487534))).toBe(true);
   });
 
-  test("outro erro 100 (campo inválido, por exemplo) não é volume", () => {
-    expect(isInsightsRowLimitError(graphError(100))).toBe(false);
-    expect(isInsightsRowLimitError(graphError(100, 1487742))).toBe(false);
+  test("estouro de tempo do servidor também é recusa por custo", () => {
+    // As duas formas medidas contra a v25 numa conta de 657 conjuntos: a mesma
+    // janela responde em 7 dias e morre aos 30 s em 14. Sem reconhecê-las, a
+    // escada de recuo nunca engata e o nível fica sem série todo dia.
+    expect(isInsightsTooHeavyError(graphError(2, 1504044))).toBe(true);
+    expect(isInsightsTooHeavyError(graphError(1, 99))).toBe(true);
   });
 
-  test("erro que não é da Graph API não é volume", () => {
-    expect(isInsightsRowLimitError(new Error("timeout"))).toBe(false);
-    expect(isInsightsRowLimitError(null)).toBe(false);
-    expect(isInsightsRowLimitError({ errorReturn: {} })).toBe(false);
+  test("o subcódigo é que decide — o código sozinho não basta", () => {
+    expect(isInsightsTooHeavyError(graphError(100))).toBe(false);
+    expect(isInsightsTooHeavyError(graphError(100, 1487742))).toBe(false);
+    expect(isInsightsTooHeavyError(graphError(2))).toBe(false);
+    expect(isInsightsTooHeavyError(graphError(1))).toBe(false);
+    // Par trocado não casa: o subcódigo pertence ao seu código.
+    expect(isInsightsTooHeavyError(graphError(2, 99))).toBe(false);
+    expect(isInsightsTooHeavyError(graphError(1, 1504044))).toBe(false);
+  });
+
+  test("erro que não é da Graph API não é recusa por custo", () => {
+    expect(isInsightsTooHeavyError(new Error("timeout"))).toBe(false);
+    expect(isInsightsTooHeavyError(null)).toBe(false);
+    expect(isInsightsTooHeavyError({ errorReturn: {} })).toBe(false);
   });
 });

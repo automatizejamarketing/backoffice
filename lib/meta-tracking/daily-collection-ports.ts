@@ -11,7 +11,7 @@
  */
 
 import { getUsersWithMetaBusinessAccount } from "@/lib/db/admin-queries";
-import { getBusinessOperatingRules } from "@/lib/db/business-queries";
+import { getBusinessOperatingRulesUncached } from "@/lib/db/business-queries";
 import {
   createTrackingRun,
   finishTrackingRun,
@@ -122,8 +122,11 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
   return {
     now: () => new Date(),
 
+    // Sem o `unstable_cache` do Next de propósito: o coletor roda também fora do
+    // runtime do Next (`scripts/collect-meta-tracking.ts`), onde o cache lança
+    // `Invariant: incrementalCache missing`. É uma leitura por execução.
     getManagedCampaignPrefix: async () =>
-      (await getBusinessOperatingRules()).managedCampaignNamePrefix,
+      (await getBusinessOperatingRulesUncached()).managedCampaignNamePrefix,
 
     listUsersWithMeta: listAllUsersWithMeta,
 

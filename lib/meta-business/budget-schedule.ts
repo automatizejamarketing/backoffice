@@ -75,3 +75,68 @@ export function isStartInPast(startIso: string | null | undefined): boolean {
   const t = new Date(startIso).getTime();
   return Number.isFinite(t) && t <= Date.now();
 }
+
+/** Timestamp truncated to the minute — Meta stores seconds the pickers can't express. */
+export function toMinuteTimestamp(
+  value: string | null | undefined,
+): number | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setSeconds(0, 0);
+  return date.getTime();
+}
+
+export function hasScheduleMinuteChange(
+  currentValue: string | null | undefined,
+  nextValue: string,
+): boolean {
+  const currentTimestamp = toMinuteTimestamp(currentValue);
+  const nextTimestamp = toMinuteTimestamp(nextValue);
+  return nextTimestamp !== null && currentTimestamp !== nextTimestamp;
+}
+
+/**
+ * Per-ad-set schedule params when a CAMPAIGN-level window is saved.
+ *
+ * `applyStart`/`applyEnd` say whether the USER actually moved that end of the
+ * campaign window. They exist because the edit dialog can only show the
+ * campaign's own start/stop while each ad set carries its own — a duplicated
+ * ad set legitimately starts minutes or days apart from its campaign. Without
+ * the flags, that pre-existing drift read as "the user is changing the start"
+ * and a pure budget edit died with "A data de início não pode ser alterada"
+ * even though the user never touched the dates.
+ *
+ * With `applyStart`, a start that truly changed still refuses on ad sets that
+ * already started — Meta rejects start_time on started sets (subcode 1487057),
+ * even when only the end date is being edited.
+ */
+export function buildAdSetScheduleUpdateParams(
+  adSet: { start_time?: string | null; end_time?: string | null },
+  nextStartIso: string,
+  nextEndIso: string,
+  opts: { applyStart?: boolean; applyEnd?: boolean } = {},
+): URLSearchParams | { error: string } {
+  const { applyStart = true, applyEnd = true } = opts;
+  const params = new URLSearchParams();
+  const startChanged =
+    applyStart && hasScheduleMinuteChange(adSet.start_time, nextStartIso);
+  const endChanged =
+    applyEnd && hasScheduleMinuteChange(adSet.end_time, nextEndIso);
+
+  if (startChanged) {
+    if (isStartInPast(adSet.start_time)) {
+      return {
+        error:
+          "A data de início não pode ser alterada em conjuntos que já começaram. Altere apenas a data de término.",
+      };
+    }
+    params.set("start_time", new Date(nextStartIso).toISOString());
+  }
+
+  if (endChanged) {
+    params.set("end_time", new Date(nextEndIso).toISOString());
+  }
+
+  return params;
+}

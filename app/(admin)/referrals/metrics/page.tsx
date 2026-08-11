@@ -22,8 +22,6 @@
 // resolvido.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -146,14 +144,6 @@ export default function ReferralMetricsPage() {
             Margem líquida por afiliado é o número que decide: o ranking por
             receita, sozinho, esconde quem traz volume e dá prejuízo.
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/referrals">Fila de afiliação</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/referrals/payouts">Saques</Link>
-          </Button>
         </div>
       </div>
 

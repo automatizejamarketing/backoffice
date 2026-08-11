@@ -20,8 +20,10 @@
  *
  * - **Listagem** (`/campaigns`, `/adsets`, `/ads`): id, hierarquia, status,
  *   estado efetivo e `updated_time`. Barata, cobre TODAS as entidades — é a
- *   única fonte de ciclo de vida — e pede explicitamente arquivadas e removidas,
- *   sem o que o edge as omite e a remoção nunca seria reportada.
+ *   única fonte de ciclo de vida — e pede explicitamente as arquivadas, sem o
+ *   que o edge as omite e o arquivamento nunca seria reportado. Removidas não
+ *   entram: a Meta rejeita `DELETED` nestes edges (ver
+ *   `LISTING_EFFECTIVE_STATUSES` em `daily-collection-plan.ts`).
  * - **Fetch profundo** (`?ids=…&fields=…`): o field set do §4.1, só para quem
  *   está entregando, em lotes de 50 (teto do node batch).
  * - **Insights** (`/insights?level=…&time_increment=1`): a série diária do §4.2,
@@ -57,7 +59,7 @@ import {
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
 import {
-  isInsightsRowLimitError,
+  isInsightsTooHeavyError,
   type InsightsRange,
   type RawInsightsRow,
 } from "@/lib/meta-tracking/daily-metrics";
@@ -117,9 +119,11 @@ const DEEP_FETCH_FIELDS: Record<MetaTrackingEntityLevel, string> = {
     "budget_remaining",
     "special_ad_categories",
     "smart_promotion_type",
-    // Os dois: a coluna tipada lê o primeiro, o segundo fica no `config`
-    // jsonb até alguém ver a forma real dele numa resposta de verdade.
-    "advantage_state",
+    // Só o `_info`: `advantage_state` NÃO existe como campo de campanha na v25
+    // (a Meta responde 100 "Tried accessing nonexisting field" e derruba a
+    // requisição inteira, levando o field set todo para o recuo). O estado que
+    // a coluna tipada guarda vem aninhado aqui — ver `campaignAdvantageState`
+    // em `config-version.ts`. Medido contra a v25 em 2026-08-10.
     "advantage_state_info",
     "is_adset_budget_sharing_enabled",
     "start_time",
@@ -360,10 +364,11 @@ export async function fetchTrackedAdAccounts(args: {
 }
 
 /**
- * A listagem completa da conta nos três níveis. Pede explicitamente todos os
- * estados efetivos documentados do nível: sem isso o edge omite arquivadas e
- * removidas, e o arquivamento — que é fim de linha e precisa entrar no stream —
- * nunca seria observado.
+ * A listagem completa da conta nos três níveis. Pede explicitamente os estados
+ * efetivos do nível que a Meta aceita: sem isso o edge omite as arquivadas, e o
+ * arquivamento — que é fim de linha e precisa entrar no stream — nunca seria
+ * observado. `DELETED` fica fora porque a Meta rejeita a requisição inteira com
+ * ele no filtro (ver `LISTING_EFFECTIVE_STATUSES`).
  */
 export async function listTrackedEntities(args: {
   accountId: string;
@@ -720,7 +725,7 @@ export async function fetchAccountInsights(args: {
     // Volume de linhas é do passo, não deste recuo — e os dois chegam como
     // erro 100, então a ordem destas duas guardas é o que faz o fatiamento
     // acontecer em vez de virar uma consulta sem as famílias de custo.
-    if (isInsightsRowLimitError(error) || !isInvalidParameterError(error)) {
+    if (isInsightsTooHeavyError(error) || !isInvalidParameterError(error)) {
       throw error;
     }
     console.warn(
@@ -943,7 +948,7 @@ export async function startInsightsReport(args: {
     // do catálogo derruba a requisição INTEIRA. Sem isto, a conta afetada
     // falharia o backfill todas as noites, para sempre. A ordem das guardas
     // importa — volume e campo inválido chegam os dois como erro 100.
-    if (isInsightsRowLimitError(error) || !isInvalidParameterError(error)) throw error;
+    if (isInsightsTooHeavyError(error) || !isInvalidParameterError(error)) throw error;
     console.warn(
       `[meta-tracking] field set do relatório assíncrono rejeitado em ${args.entityLevel}; recuando para o essencial`,
       error instanceof Error ? error.message : error,

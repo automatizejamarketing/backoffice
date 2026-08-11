@@ -8,7 +8,6 @@
 // apenas não oferece um caminho que o violaria.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -341,18 +340,10 @@ export default function ReferralsPage() {
             novo.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/referrals/metrics">Métricas</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/referrals/payouts">Fila de saques</Link>
-          </Button>
-          <Button onClick={() => setRecruitOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Criar afiliação
-          </Button>
-        </div>
+        <Button onClick={() => setRecruitOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Criar afiliação
+        </Button>
       </div>
 
       <Card>

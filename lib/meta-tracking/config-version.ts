@@ -226,6 +226,24 @@ function jsonOrNull(value: unknown): unknown {
 }
 
 /**
+ * O estado Advantage+ da campanha, que a v25 entrega ANINHADO.
+ *
+ * Não existe campo `advantage_state` no nó de campanha — pedi-lo derruba a
+ * requisição inteira com erro 100. O que existe é `advantage_state_info`, um
+ * objeto com o estado geral mais os estados por eixo (orçamento, público,
+ * posicionamento). A coluna tipada guarda só o geral, que é por onde se filtra;
+ * o objeto inteiro continua no `config` jsonb para quem precisar dos eixos.
+ *
+ * Campanha sem Advantage+ simplesmente não traz a chave — daí o retorno nulo
+ * ser um resultado normal, e não sinal de field set quebrado.
+ */
+function campaignAdvantageState(raw: Record<string, unknown>): string | null {
+  const info = raw.advantage_state_info;
+  if (info === null || typeof info !== "object") return null;
+  return text((info as Record<string, unknown>).advantage_state);
+}
+
+/**
  * Projeta a resposta crua nas colunas tipadas do nível. O `config` jsonb
  * integral continua guardando tudo — esta projeção existe só para a consulta
  * quente não precisar abri-lo.
@@ -259,7 +277,7 @@ export function projectVersionColumns(
       ? jsonOrNull(raw.special_ad_categories)
       : null,
     smartPromotionType: isCampaign ? text(raw.smart_promotion_type) : null,
-    advantageState: isCampaign ? text(raw.advantage_state) : null,
+    advantageState: isCampaign ? campaignAdvantageState(raw) : null,
     isAdsetBudgetSharingEnabled: isCampaign
       ? flag(raw.is_adset_budget_sharing_enabled)
       : null,

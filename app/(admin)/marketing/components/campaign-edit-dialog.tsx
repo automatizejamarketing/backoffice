@@ -349,7 +349,13 @@ export function CampaignEditDialog({
         }
 
         body.lifetimeBudget = budgetValue;
-        body.startTime = dateTimeLocalToMeta(startTime);
+        // A started campaign has its start locked in this dialog, so send
+        // Meta's own value untouched: datetime-local only holds minute
+        // precision, and a reconstructed instant that drifts would read as a
+        // start change server-side.
+        body.startTime = campaignAlreadyStarted
+          ? (campaign.startTime ?? dateTimeLocalToMeta(startTime))
+          : dateTimeLocalToMeta(startTime);
         body.endTime = dateTimeLocalToMeta(endTime);
       }
     } else {

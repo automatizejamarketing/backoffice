@@ -57,21 +57,33 @@ export type TrackedEntityState = KnownEntityState & {
  * Estados efetivos pedidos na listagem, POR NÍVEL — a lista documentada de
  * `effective_status` de cada edge da Marketing API v25.
  *
- * Pedir explicitamente é obrigatório: sem o filtro, o edge OMITE arquivadas e
- * removidas, e a costura do delta (que nunca infere remoção por ausência, para
- * não escrever mentira quando a listagem é truncada) jamais registraria um
- * arquivamento. Valor fora da lista do nível é rejeitado pela Meta como
- * parâmetro inválido — daí a lista ser por nível, e não uma só.
+ * Pedir explicitamente é obrigatório para o ARQUIVAMENTO: sem o filtro, o edge
+ * omite arquivadas, e a costura do delta (que nunca infere remoção por
+ * ausência, para não escrever mentira quando a listagem é truncada) jamais
+ * registraria um arquivamento — que é fim de linha e precisa entrar no stream.
+ * Valor fora da lista do nível é rejeitado como parâmetro inválido, daí a lista
+ * ser por nível e não uma só.
+ *
+ * `DELETED` está FORA de propósito, e isso é imposição da Meta, não escolha: os
+ * edges `/campaigns`, `/adsets` e `/ads` respondem 400 (código 100, subcódigo
+ * 1815001, "A solicitação de objetos excluídos não é aceita neste ponto de
+ * extremidade") quando `DELETED` aparece no filtro — inclusive sozinho, e a
+ * rejeição derruba a requisição INTEIRA, levando junto todos os outros estados.
+ * Medido contra a v25 em 2026-08-10 nos três níveis; `ARCHIVED` passa nos três.
+ *
+ * A consequência é conhecida e aceita: remoção de verdade não é observável por
+ * esta listagem. Quem a reporta é o fetch profundo de uma entidade já conhecida
+ * (buscar por id ainda devolve `effective_status` `DELETED`, e a costura do
+ * delta traduz isso em `deleted_detected`) e o audit trail de `/activities`.
  */
 export const LISTING_EFFECTIVE_STATUSES: Record<
   MetaTrackingEntityLevel,
   readonly string[]
 > = {
-  campaign: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES"],
+  campaign: ["ACTIVE", "PAUSED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES"],
   adset: [
     "ACTIVE",
     "PAUSED",
-    "DELETED",
     "ARCHIVED",
     "CAMPAIGN_PAUSED",
     "IN_PROCESS",
@@ -80,7 +92,6 @@ export const LISTING_EFFECTIVE_STATUSES: Record<
   ad: [
     "ACTIVE",
     "PAUSED",
-    "DELETED",
     "ARCHIVED",
     "CAMPAIGN_PAUSED",
     "ADSET_PAUSED",
@@ -321,6 +332,56 @@ export function coverageStatusForTokenFailure(failure: {
   needsReconnect?: boolean;
 }): MetaTrackingCoverageStatus {
   return failure.needsReconnect ? "skipped_reconnect" : "skipped_no_token";
+}
+
+/**
+ * Códigos de throttle da Marketing API — o mesmo conjunto que
+ * `lib/meta-business/duplicate.ts` já usa para saber o que vale reenviar.
+ *
+ * Reconhecidos pelo CÓDIGO, não pelo `is_transient` da resposta: o default de
+ * `genericError` é `true` e marcaria como transitório erro permanente de
+ * parâmetro.
+ */
+const THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([
+  4, // application request limit reached
+  17, // user request limit reached
+  32, // page-level rate limit
+  341, // application limit reached
+  613, // calls-per-ad-account / QPS exceeded
+  80000, // BUC ads_management
+  80003,
+  80004,
+  80014,
+]);
+
+/**
+ * O status de cobertura de uma conta que quebrou no meio da coleta.
+ *
+ * Throttle não é falha da conta, é a Meta pedindo para esperar — e o pedido
+ * dela tem prazo curto. Registrar como `failed` encerraria o dia da conta
+ * (`failed` é terminal, ver `TERMINAL_COVERAGE_STATUSES`) e o buraco só
+ * fecharia amanhã, por causa de um erro que a própria Meta marca como
+ * transitório. `partial` é o status certo: é o mesmo caso da parada preventiva
+ * por cota — a conta fica pendente e o disparo seguinte do cron, 20 minutos
+ * depois, é exatamente o resfriamento que a Meta pediu.
+ *
+ * Medido na staging em 2026-08-10: uma conta levou `4/1504022` ("Application
+ * request limit reached", `is_transient: true`) no meio dos insights, foi
+ * gravada como `failed` e os oito disparos restantes da madrugada a pularam.
+ *
+ * Qualquer outro erro continua `failed`: aí sim insistir no mesmo dia só piora
+ * a taxa de erro, que é o que a licença do app mede.
+ */
+export function coverageStatusForCollectionError(
+  error: unknown,
+): MetaTrackingCoverageStatus {
+  if (typeof error !== "object" || error === null) return "failed";
+  const code = (
+    error as { errorReturn?: { data?: { code?: unknown } } }
+  ).errorReturn?.data?.code;
+  return typeof code === "number" && THROTTLE_ERROR_CODES.has(code)
+    ? "partial"
+    : "failed";
 }
 
 export type CollectionBudget = {

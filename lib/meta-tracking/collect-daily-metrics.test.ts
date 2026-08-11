@@ -39,6 +39,18 @@ function rowLimitError(): Error {
   return error;
 }
 
+/**
+ * A OUTRA cara da recusa por custo: a consulta bateu no teto de ~30 s do
+ * servidor. Chega como erro genérico, sem nada no texto sobre volume.
+ */
+function serverTimeoutError(): Error {
+  const error = new Error("Service temporarily unavailable");
+  Object.assign(error, {
+    errorReturn: { statusCode: 400, data: { code: 2, errorSubcode: 1504044 } },
+  });
+  return error;
+}
+
 /** Um dia de insights com o id do nível pedido — como a Meta devolve. */
 function dayFor(entityLevel: MetaTrackingEntityLevel, date: string) {
   if (entityLevel === "campaign") return insightsDayV25({ date_start: date, date_stop: date });
@@ -324,6 +336,74 @@ describe("collectDailyMetrics", () => {
       "campaign",
       "adset",
     ]);
+  });
+
+  test("estouro de tempo do servidor entra na escada igual ao teto de linhas", async () => {
+    // Este é o caso da conta grande: 28 dias morrem aos 30 s, as fatias passam.
+    // Sem isto o nível inteiro ficava sem série, e era o que acontecia todo dia.
+    const janelaInteira = `${WINDOW.since}..${WINDOW.until}`;
+    const pedidosDeAdset: string[] = [];
+    const { ports, upserted } = makePorts({
+      fetchInsights: async ({ entityLevel, range }) => {
+        const periodo = `${range.since}..${range.until}`;
+        if (entityLevel === "adset") {
+          pedidosDeAdset.push(periodo);
+          if (periodo === janelaInteira) throw serverTimeoutError();
+        }
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(result.levelsAbandoned).toEqual([]);
+    expect(result.slicesDegraded).toBe(1);
+    // A janela inteira, e depois as duas metades — que entregaram.
+    expect(pedidosDeAdset).toHaveLength(3);
+    expect(pedidosDeAdset[0]).toBe(janelaInteira);
+    // As metades cobrem o período sem buraco nem sobreposição.
+    expect(pedidosDeAdset[1].startsWith(WINDOW.since)).toBe(true);
+    expect(pedidosDeAdset[2].endsWith(WINDOW.until)).toBe(true);
+    expect(upserted.flat().some((row) => row.entityLevel === "adset")).toBe(true);
+  });
+
+  test("nível que falha do começo ao fim desce UMA vez, não uma árvore de fatias", async () => {
+    // O portão do recuo reconhece erros genéricos da Meta (`2/1504044`), então
+    // uma instabilidade de verdade também entra na escada. O que impede isso de
+    // virar avalanche é o `break`: a fatia da frente é sempre a próxima
+    // tentada, então a descida é uma só. Importa porque a licença Meta do app é
+    // throttled por TAXA DE ERRO — multiplicar chamadas condenadas é o pior
+    // resultado possível.
+    let adsetCalls = 0;
+    const { ports } = makePorts({
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "adset") {
+          adsetCalls += 1;
+          throw serverTimeoutError();
+        }
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+      fetchInsightsAsync: async () => {
+        throw rowLimitError();
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(result.levelsAbandoned).toEqual(["adset"]);
+    // Uma descida por metades numa janela de 29 dias: 29 → 14 → 7 → 3 → 1.
+    // Uma árvore completa passaria de trinta chamadas.
+    expect(adsetCalls).toBe(5);
+    // E os outros níveis não são punidos pelo que aconteceu neste.
+    expect(result.rowsUpserted).toBeGreaterThan(0);
   });
 
   test("falha do job assíncrono que não é de volume sobe — o operador precisa vê-la", async () => {

@@ -84,12 +84,13 @@ function dayIndex(day: DayKey): number {
 }
 
 /**
- * O período partido ao meio, para o recuo por volume de linhas.
+ * O período partido ao meio, para o recuo por volume.
  *
- * A Meta rejeita a consulta inteira quando o resultado passaria do teto de
- * linhas (erro 100, subcódigo 1487534) — o nível de anúncio de uma conta grande
- * é o primeiro a estourar. As metades cobrem o período inteiro sem sobrepor,
- * então repetir a consulta em fatias devolve exatamente a mesma série.
+ * A Meta rejeita a consulta inteira quando ela sai cara demais — por passar do
+ * teto de linhas ou por estourar o tempo do servidor (ver
+ * `isInsightsTooHeavyError`). Encolher o período é o que resolve os dois: o
+ * custo cresce com os dias pedidos. As metades cobrem o período inteiro sem
+ * sobrepor, então repetir a consulta em fatias devolve exatamente a mesma série.
  *
  * Devolve lista VAZIA quando não há mais o que encolher (um dia só, ou período
  * invertido): quem chamou precisa distinguir "tento menor" de "desisto deste
@@ -106,30 +107,49 @@ export function splitInsightsRange(range: InsightsRange): InsightsRange[] {
   ];
 }
 
-/** Erro de parâmetro inválido da Meta; o subcódigo é que diz o que houve. */
-const INSIGHTS_ERROR_CODE = 100;
-
-/** "Reduza o intervalo de datas": o teto de linhas do relatório estourou. */
-const INSIGHTS_ROW_LIMIT_SUBCODE = 1487534;
+/**
+ * As formas com que a Meta recusa uma consulta síncrona de insights por ser
+ * cara demais. São `[code, subcode]`, e são TRÊS porque a Meta não usa uma só.
+ *
+ * - `100/1487534` — "reduza o intervalo de datas". A recusa explícita: o
+ *   relatório passaria do teto de linhas. É a única documentada.
+ * - `2/1504044` — "serviço temporariamente indisponível" e `1/99` — "erro
+ *   desconhecido". As duas são o MESMO evento: a consulta bateu no teto de ~30 s
+ *   do servidor e morreu. Medidas em 2026-08-10 contra a conta `CA01- NEMESIS`
+ *   (657 conjuntos), onde a mesma janela responde em 4 s com 1 dia, 15 s com 7
+ *   dias e estoura com 14 — e cai para 1,2 s se as famílias de ação e vídeo
+ *   saem do field set. Determinístico, reprodutível, `is_transient: false`.
+ *
+ * Nenhum dos três diz "volume" no texto, e os dois últimos são genéricos o
+ * bastante para aparecerem numa instabilidade de verdade. É aceito de propósito:
+ * o recuo custa algumas chamadas a mais numa instabilidade, e o preço de NÃO
+ * recuar é a conta grande ficar sem série de conjunto e anúncio todo dia. O teto
+ * de degradações por nível (ver `collect-daily-metrics.ts`) é o que impede um
+ * erro genérico de virar uma avalanche de fatias.
+ */
+const INSIGHTS_TOO_HEAVY_SHAPES: readonly (readonly [number, number])[] = [
+  [100, 1487534],
+  [2, 1504044],
+  [1, 99],
+];
 
 /**
- * O erro é "resultado grande demais"?
+ * A consulta síncrona de insights não coube — por linhas ou por tempo?
  *
  * Reconhecido pela FORMA do erro, não por `instanceof GraphApiError`: a classe
  * mora num módulo que arrasta o log observável (e, com ele, o runtime do Next)
  * para dentro de uma costura que precisa ser pura. A forma é estável — é a que
  * `parseGraphError` produz — e um erro de outra origem simplesmente não casa.
  */
-export function isInsightsRowLimitError(error: unknown): boolean {
+export function isInsightsTooHeavyError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const data = (
     error as {
       errorReturn?: { data?: { code?: unknown; errorSubcode?: unknown } };
     }
   ).errorReturn?.data;
-  return (
-    data?.code === INSIGHTS_ERROR_CODE &&
-    data?.errorSubcode === INSIGHTS_ROW_LIMIT_SUBCODE
+  return INSIGHTS_TOO_HEAVY_SHAPES.some(
+    ([code, subcode]) => data?.code === code && data?.errorSubcode === subcode,
   );
 }
 

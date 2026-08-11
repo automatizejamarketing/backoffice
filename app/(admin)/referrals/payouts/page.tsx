@@ -21,7 +21,6 @@
 // dívida sumir.
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -271,14 +270,6 @@ export default function ReferralPayoutsPage() {
             O Pix só pode ser enviado para uma chave IGUAL ao documento do
             pedido — o titular exibido pelo banco é a conferência.
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" asChild>
-            <Link href="/referrals/metrics">Métricas</Link>
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/referrals">Fila de afiliação</Link>
-          </Button>
         </div>
       </div>
 

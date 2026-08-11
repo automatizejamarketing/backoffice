@@ -46,6 +46,7 @@ import {
   type ReferralCommissionStatus,
 } from "@/lib/db/schema";
 import { OPEN_REFERRAL_PAYOUT_STATUSES } from "./payout";
+import { classifyReferralClick } from "./traffic";
 import {
   rankReferralAffiliates,
   referralDaysSince,
@@ -237,13 +238,28 @@ async function aggregateOpenPayouts(): Promise<Map<string, number>> {
   return new Map(rows.map((row) => [row.affiliateId, Number(row.amountCentavos)]));
 }
 
+/**
+ * Cliques HUMANOS por afiliado. Os user-agents vêm inteiros porque a contagem
+ * exclui robôs de preview (WhatsApp/Facebook buscando a URL do link) com o
+ * MESMO classificador do painel de tráfego — um `count()` cego aqui faria o
+ * ranking dizer 12 onde o tráfego diz 5, e o EPC dividiria por fetch de robô.
+ */
 async function aggregateClicks(): Promise<Map<string, number>> {
   const rows = await db
-    .select({ affiliateId: referralClick.affiliateId, total: count() })
-    .from(referralClick)
-    .groupBy(referralClick.affiliateId);
+    .select({
+      affiliateId: referralClick.affiliateId,
+      userAgent: referralClick.userAgent,
+    })
+    .from(referralClick);
 
-  return new Map(rows.map((row) => [row.affiliateId, Number(row.total)]));
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    if (classifyReferralClick({ ...row, referrerUrl: null, landingUrl: null }).kind !== "human") {
+      continue;
+    }
+    totals.set(row.affiliateId, (totals.get(row.affiliateId) ?? 0) + 1);
+  }
+  return totals;
 }
 
 async function aggregateCustomers(): Promise<Map<string, number>> {

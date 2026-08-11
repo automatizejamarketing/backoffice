@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildTrackedEntityStates,
   chunkIds,
+  coverageStatusForCollectionError,
   coverageStatusForTokenFailure,
   DEEP_FETCH_CHUNK_SIZE,
   hasCollectionBudgetLeft,
@@ -208,11 +209,18 @@ describe("planDeepFetch", () => {
 });
 
 describe("LISTING_EFFECTIVE_STATUSES", () => {
-  test("os três níveis pedem arquivadas e removidas — sem pedir, o edge as omite e a remoção nunca é reportada", () => {
+  test("os três níveis pedem arquivadas — sem pedir, o edge as omite e o arquivamento nunca é reportado", () => {
     for (const level of ["campaign", "adset", "ad"] as const) {
       expect(LISTING_EFFECTIVE_STATUSES[level]).toContain("ARCHIVED");
-      expect(LISTING_EFFECTIVE_STATUSES[level]).toContain("DELETED");
       expect(LISTING_EFFECTIVE_STATUSES[level]).toContain("ACTIVE");
+    }
+  });
+
+  test("nenhum nível pede DELETED — a Meta rejeita a requisição inteira (subcódigo 1815001)", () => {
+    // Medido contra a v25 nos três edges: com `DELETED` no filtro a resposta é
+    // 400 e a listagem do nível se perde por completo, não só as removidas.
+    for (const level of ["campaign", "adset", "ad"] as const) {
+      expect(LISTING_EFFECTIVE_STATUSES[level]).not.toContain("DELETED");
     }
   });
 
@@ -371,6 +379,33 @@ describe("isDayCoveredBy", () => {
 
   test("falha não é reinsistida no mesmo dia — a licença é throttled por taxa de erro", () => {
     expect(isDayCoveredBy("failed")).toBe(true);
+  });
+});
+
+describe("coverageStatusForCollectionError", () => {
+  function graphError(code: number): unknown {
+    return {
+      name: "GraphApiError",
+      errorReturn: { statusCode: 403, data: { code, errorSubcode: 1504022 } },
+    };
+  }
+
+  test("throttle fica PENDENTE — o disparo seguinte é o resfriamento que a Meta pediu", () => {
+    // `partial` não é terminal: é o que faz a conta voltar em 20 minutos em vez
+    // de perder o dia inteiro por um erro que a Meta marca como transitório.
+    for (const code of [4, 17, 32, 341, 613, 80000]) {
+      expect(coverageStatusForCollectionError(graphError(code))).toBe("partial");
+      expect(isDayCoveredBy(coverageStatusForCollectionError(graphError(code)))).toBe(false);
+    }
+  });
+
+  test("erro que não é throttle encerra o dia da conta", () => {
+    // Insistir num erro permanente a cada disparo só piora a taxa de erro, que
+    // é justamente o que a licença do app mede.
+    expect(coverageStatusForCollectionError(graphError(100))).toBe("failed");
+    expect(coverageStatusForCollectionError(new Error("banco fora"))).toBe("failed");
+    expect(coverageStatusForCollectionError(null)).toBe("failed");
+    expect(coverageStatusForCollectionError({ errorReturn: {} })).toBe("failed");
   });
 });
 
