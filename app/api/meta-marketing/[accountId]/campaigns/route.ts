@@ -20,8 +20,11 @@ import {
   type FieldChange,
 } from "@/lib/meta-tracking/internal-change-event";
 import {
+  buildAdSetScheduleUpdateParams,
   currencyToMinorUnits,
+  hasScheduleMinuteChange,
   isEndAfterStart,
+  isStartInPast,
   isValidDateTimeLocal,
   type BudgetType,
 } from "@/lib/meta-business/budget-schedule";
@@ -231,54 +234,10 @@ function getAdSetBudgetType(adSet: GraphApiAdSet): BudgetType | null {
   return null;
 }
 
-function toMinuteTimestamp(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  date.setSeconds(0, 0);
-  return date.getTime();
-}
-
-function hasScheduleMinuteChange(
-  currentValue: string | null | undefined,
-  nextValue: string,
-): boolean {
-  const currentTimestamp = toMinuteTimestamp(currentValue);
-  const nextTimestamp = toMinuteTimestamp(nextValue);
-  return nextTimestamp !== null && currentTimestamp !== nextTimestamp;
-}
-
-function hasStarted(startTime: string | null | undefined): boolean {
-  const timestamp = toMinuteTimestamp(startTime);
-  return timestamp !== null && timestamp <= Date.now();
-}
-
-function buildScheduleUpdateParams(
-  adSet: GraphApiAdSet,
-  nextStartTime: string,
-  nextEndTime: string,
-): URLSearchParams | { error: string } {
-  const params = new URLSearchParams();
-  const startChanged = hasScheduleMinuteChange(adSet.start_time, nextStartTime);
-  const endChanged = hasScheduleMinuteChange(adSet.end_time, nextEndTime);
-
-  if (startChanged) {
-    if (hasStarted(adSet.start_time)) {
-      return {
-        error:
-          "A data de início não pode ser alterada em conjuntos que já começaram. Altere apenas a data de término.",
-      };
-    }
-
-    params.set("start_time", new Date(nextStartTime).toISOString());
-  }
-
-  if (endChanged) {
-    params.set("end_time", new Date(nextEndTime).toISOString());
-  }
-
-  return params;
-}
+// Ad-set schedule propagation moved to `buildAdSetScheduleUpdateParams` in
+// lib/meta-business/budget-schedule.ts — the CBO branch gates it on what the
+// USER changed relative to the campaign window, so ad sets whose own times
+// drifted from the campaign's (duplicates) no longer block a pure budget edit.
 
 function isStatusPatchBody(
   body: PatchCampaignRequestBody,
@@ -1085,20 +1044,52 @@ export async function PATCH(
 
         const newStartTime = new Date(startTime).toISOString();
         const newEndTime = new Date(endTime).toISOString();
+
+        // What did the USER change, relative to the CAMPAIGN's own window? The
+        // dialog can only display the campaign's start/stop, while each ad set
+        // carries its own times — a duplicated ad set legitimately starts
+        // minutes or days apart from the campaign. That drift is not a user
+        // edit: propagating it turned a pure budget change into "start change"
+        // and blocked the save on started ad sets. On a started campaign the
+        // start is locked in the dialog, so any delta there is reconstruction
+        // noise — ignore it instead of failing.
+        const campaignStarted = isStartInPast(currentCampaign.start_time);
+        const startChangedByUser =
+          !campaignStarted &&
+          hasScheduleMinuteChange(currentCampaign.start_time, newStartTime);
+        const endChangedByUser = hasScheduleMinuteChange(
+          currentCampaign.stop_time,
+          newEndTime,
+        );
+
+        // The campaign's OWN window: a lifetime campaign budget requires
+        // stop_time on the campaign (an ABO→CBO migration may not have one
+        // yet), and an extended end must move the campaign stop too — the
+        // campaign stop is what actually halts delivery, not the ad sets'.
+        if (startChangedByUser) {
+          updateParams.set("start_time", newStartTime);
+        }
+        if (endChangedByUser) {
+          updateParams.set("stop_time", newEndTime);
+        }
+
         adsetScheduleChanges = adSetsResponse.data.map((adSet) => ({
           adsetId: adSet.id,
           adsetName: adSet.name,
           previousStartTime: adSet.start_time ?? null,
-          newStartTime,
+          newStartTime: startChangedByUser
+            ? newStartTime
+            : (adSet.start_time ?? null),
           previousEndTime: adSet.end_time ?? null,
-          newEndTime,
+          newEndTime: endChangedByUser ? newEndTime : (adSet.end_time ?? null),
         }));
 
         for (const adSet of adSetsResponse.data) {
-          const scheduleParams = buildScheduleUpdateParams(
+          const scheduleParams = buildAdSetScheduleUpdateParams(
             adSet,
             newStartTime,
             newEndTime,
+            { applyStart: startChangedByUser, applyEnd: endChangedByUser },
           );
 
           if ("error" in scheduleParams) {
@@ -1335,7 +1326,7 @@ export async function PATCH(
 
           if (inputBudgetType !== "lifetime") continue;
 
-          const scheduleParams = buildScheduleUpdateParams(
+          const scheduleParams = buildAdSetScheduleUpdateParams(
             adSet,
             new Date(input.startTime ?? adSet.start_time!).toISOString(),
             new Date(input.endTime ?? adSet.end_time!).toISOString(),
@@ -1381,7 +1372,7 @@ export async function PATCH(
             // Schedule: only send start_time when it truly changed AND the set
             // hasn't started — Meta rejects start_time on started sets (subcode
             // 1487057), even when only the end date is being edited.
-            const scheduleParams = buildScheduleUpdateParams(
+            const scheduleParams = buildAdSetScheduleUpdateParams(
               adSet,
               new Date(input.startTime ?? adSet.start_time!).toISOString(),
               new Date(input.endTime ?? adSet.end_time!).toISOString(),
