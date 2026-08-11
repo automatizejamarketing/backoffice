@@ -15,6 +15,8 @@ export const WHATSAPP_DELIVERY_STATUSES = [
 export type WhatsappDeliveryStatus =
   (typeof WHATSAPP_DELIVERY_STATUSES)[number];
 
+export type WhatsappClickKind = "url" | "quick_reply";
+
 export type WhatsappHistoryRawFilters = {
   from?: string | string[];
   to?: string | string[];
@@ -40,6 +42,7 @@ export type WhatsappDeliveryMetricRow = {
   acceptedAt: Date | null;
   deliveredAt: Date | null;
   readAt: Date | null;
+  clickedAt: Date | null;
   failedAt: Date | null;
   historicalStatusUntracked: boolean;
 };
@@ -48,14 +51,12 @@ export type WhatsappTemplateHistorySummary = {
   sent: number;
   delivered: number;
   read: number;
+  clicked: number;
   failed: number;
   historicalUntracked: number;
 };
 
-export const WHATSAPP_STATUS_LABELS: Record<
-  WhatsappDeliveryStatus,
-  string
-> = {
+export const WHATSAPP_STATUS_LABELS: Record<WhatsappDeliveryStatus, string> = {
   queued: "Na fila",
   sent: "Enviado",
   delivered: "Entregue",
@@ -141,15 +142,21 @@ export function summarizeWhatsappDeliveryRows(
   return rows.reduce<WhatsappTemplateHistorySummary>(
     (summary, row) => ({
       sent: summary.sent + (row.acceptedAt ? 1 : 0),
-      delivered:
-        summary.delivered + (row.deliveredAt || row.readAt ? 1 : 0),
+      delivered: summary.delivered + (row.deliveredAt || row.readAt ? 1 : 0),
       read: summary.read + (row.readAt ? 1 : 0),
+      clicked: summary.clicked + (row.clickedAt ? 1 : 0),
       failed: summary.failed + (row.failedAt ? 1 : 0),
       historicalUntracked:
-        summary.historicalUntracked +
-        (row.historicalStatusUntracked ? 1 : 0),
+        summary.historicalUntracked + (row.historicalStatusUntracked ? 1 : 0),
     }),
-    { sent: 0, delivered: 0, read: 0, failed: 0, historicalUntracked: 0 },
+    {
+      sent: 0,
+      delivered: 0,
+      read: 0,
+      clicked: 0,
+      failed: 0,
+      historicalUntracked: 0,
+    },
   );
 }
 

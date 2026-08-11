@@ -13,12 +13,17 @@ import {
   type SQL,
 } from "drizzle-orm";
 import type {
+  WhatsappClickKind,
   WhatsappDeliveryStatus,
   WhatsappHistoryFilters,
   WhatsappTemplateHistorySummary,
 } from "@/lib/backoffice/whatsapp-history-model";
 import { db } from "./index";
-import { user, whatsappTemplateDelivery } from "./schema";
+import {
+  user,
+  whatsappTemplateClickEvent,
+  whatsappTemplateDelivery,
+} from "./schema";
 
 export type WhatsappTemplateHistoryItem = {
   id: string;
@@ -32,6 +37,8 @@ export type WhatsappTemplateHistoryItem = {
   acceptedAt: Date | null;
   deliveredAt: Date | null;
   readAt: Date | null;
+  clickedAt: Date | null;
+  clickKind: WhatsappClickKind | null;
   failedAt: Date | null;
   deletedAt: Date | null;
   failureCode: string | null;
@@ -53,6 +60,14 @@ function selectHistoryItem() {
     acceptedAt: whatsappTemplateDelivery.acceptedAt,
     deliveredAt: whatsappTemplateDelivery.deliveredAt,
     readAt: whatsappTemplateDelivery.readAt,
+    clickedAt: whatsappTemplateDelivery.clickedAt,
+    clickKind: sql<WhatsappClickKind | null>`(
+      select ${whatsappTemplateClickEvent.kind}
+      from ${whatsappTemplateClickEvent}
+      where ${whatsappTemplateClickEvent.deliveryId} = ${whatsappTemplateDelivery.id}
+      order by ${whatsappTemplateClickEvent.clickedAt} asc
+      limit 1
+    )`,
     failedAt: whatsappTemplateDelivery.failedAt,
     deletedAt: whatsappTemplateDelivery.deletedAt,
     failureCode: whatsappTemplateDelivery.failureCode,
@@ -69,7 +84,9 @@ function filterConditions(filters: WhatsappHistoryFilters): SQL[] {
     lt(whatsappTemplateDelivery.createdAt, filters.lt),
   ];
   if (filters.template) {
-    conditions.push(eq(whatsappTemplateDelivery.templateName, filters.template));
+    conditions.push(
+      eq(whatsappTemplateDelivery.templateName, filters.template),
+    );
   }
   if (filters.status) {
     conditions.push(eq(whatsappTemplateDelivery.currentStatus, filters.status));
@@ -108,11 +125,28 @@ export async function getWhatsappTemplateHistory(
       .where(where),
     db
       .select({
-        sent: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.acceptedAt} is not null)`.mapWith(Number),
-        delivered: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.deliveredAt} is not null or ${whatsappTemplateDelivery.readAt} is not null)`.mapWith(Number),
-        read: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.readAt} is not null)`.mapWith(Number),
-        failed: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.failedAt} is not null)`.mapWith(Number),
-        historicalUntracked: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.historicalStatusUntracked} = true)`.mapWith(Number),
+        sent: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.acceptedAt} is not null)`.mapWith(
+          Number,
+        ),
+        delivered:
+          sql<number>`count(*) filter (where ${whatsappTemplateDelivery.deliveredAt} is not null or ${whatsappTemplateDelivery.readAt} is not null)`.mapWith(
+            Number,
+          ),
+        read: sql<number>`count(*) filter (where ${whatsappTemplateDelivery.readAt} is not null)`.mapWith(
+          Number,
+        ),
+        clicked:
+          sql<number>`count(*) filter (where ${whatsappTemplateDelivery.clickedAt} is not null)`.mapWith(
+            Number,
+          ),
+        failed:
+          sql<number>`count(*) filter (where ${whatsappTemplateDelivery.failedAt} is not null)`.mapWith(
+            Number,
+          ),
+        historicalUntracked:
+          sql<number>`count(*) filter (where ${whatsappTemplateDelivery.historicalStatusUntracked} = true)`.mapWith(
+            Number,
+          ),
       })
       .from(whatsappTemplateDelivery)
       .innerJoin(user, eq(user.id, whatsappTemplateDelivery.userId))
@@ -130,6 +164,7 @@ export async function getWhatsappTemplateHistory(
       sent: 0,
       delivered: 0,
       read: 0,
+      clicked: 0,
       failed: 0,
       historicalUntracked: 0,
     },
