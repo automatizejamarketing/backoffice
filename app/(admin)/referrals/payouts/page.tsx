@@ -21,6 +21,7 @@
 // dívida sumir.
 
 import { useCallback, useEffect, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -55,6 +56,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   CheckCircle,
   Loader2,
@@ -129,7 +136,10 @@ export default function ReferralPayoutsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const [payTarget, setPayTarget] = useState<PayoutRow | null>(null);
-  const [proofUrl, setProofUrl] = useState("");
+  // O comprovante é um ARQUIVO: o upload para o Blob acontece no registrar, e a
+  // URL que ele devolve é a que o servidor grava — o operador nunca cola link.
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [uploadingProof, setUploadingProof] = useState(false);
 
   const [denyTarget, setDenyTarget] = useState<PayoutRow | null>(null);
   const [denyReason, setDenyReason] = useState("");
@@ -229,6 +239,56 @@ export default function ReferralPayoutsPage() {
     }
   };
 
+  /**
+   * Registrar pagamento = subir o comprovante e decidir, nessa ordem. O upload
+   * é client-side (o arquivo vai do navegador direto ao Blob, com token desta
+   * origem) — é o que permite 10 MB sem esbarrar no limite de corpo da Vercel.
+   * Se o upload falhar, nada muda de estado; se a decisão falhar, o arquivo
+   * órfão no Blob é aceitável — repetir o registro sobe outro (sufixo
+   * aleatório) e é a URL da decisão bem-sucedida que vale.
+   */
+  const submitPayment = async () => {
+    if (!payTarget || !proofFile) return;
+
+    if (proofFile.size > 10 * 1024 * 1024) {
+      toast.error("O comprovante deve ter no máximo 10 MB");
+      return;
+    }
+
+    setUploadingProof(true);
+    try {
+      const blob = await upload(
+        `referral-payouts/${payTarget.id}/${proofFile.name}`,
+        proofFile,
+        {
+          access: "public",
+          handleUploadUrl: "/api/referrals/payouts/proof-upload",
+        },
+      );
+
+      const done = await decide(
+        {
+          payoutId: payTarget.id,
+          status: "paid",
+          proofUrl: blob.url,
+        },
+        "Pagamento registrado",
+      );
+      if (done) {
+        setPayTarget(null);
+        setProofFile(null);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message
+          ? `Erro ao subir o comprovante: ${error.message}`
+          : "Erro ao subir o comprovante",
+      );
+    } finally {
+      setUploadingProof(false);
+    }
+  };
+
   const decide = async (
     body: {
       payoutId: string;
@@ -262,6 +322,7 @@ export default function ReferralPayoutsPage() {
   };
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
@@ -483,55 +544,79 @@ export default function ReferralPayoutsPage() {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
                           {row.status === "requested" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-green-600 hover:text-green-700"
-                              disabled={busy}
-                              aria-label="Aprovar"
-                              onClick={() =>
-                                decide(
-                                  { payoutId: row.id, status: "approved" },
-                                  "Saque aprovado",
-                                )
-                              }
-                            >
-                              {busy ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <CheckCircle className="h-4 w-4" />
-                              )}
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-green-600 hover:text-green-700"
+                                  disabled={busy}
+                                  aria-label="Aprovar saque"
+                                  onClick={() =>
+                                    decide(
+                                      { payoutId: row.id, status: "approved" },
+                                      "Saque aprovado",
+                                    )
+                                  }
+                                >
+                                  {busy ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <CheckCircle className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Aprovar o saque — autoriza o repasse, sem mover
+                                dinheiro ainda
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                           {row.status === "approved" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={busy}
-                              aria-label="Marcar como pago"
-                              onClick={() => {
-                                setPayTarget(row);
-                                setProofUrl("");
-                              }}
-                            >
-                              <Receipt className="h-4 w-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={busy}
+                                  aria-label="Registrar pagamento"
+                                  onClick={() => {
+                                    setPayTarget(row);
+                                    setProofFile(null);
+                                  }}
+                                >
+                                  <Receipt className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Registrar o pagamento — anexa o comprovante e
+                                lança o débito no extrato
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                           {(row.status === "requested" ||
                             row.status === "approved") && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-red-600 hover:text-red-700"
-                              disabled={busy}
-                              aria-label="Negar"
-                              onClick={() => {
-                                setDenyTarget(row);
-                                setDenyReason("");
-                              }}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-600 hover:text-red-700"
+                                  disabled={busy}
+                                  aria-label="Negar saque"
+                                  onClick={() => {
+                                    setDenyTarget(row);
+                                    setDenyReason("");
+                                  }}
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Negar o saque — o valor volta ao saldo
+                                disponível do afiliado
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                         </div>
                       </TableCell>
@@ -570,14 +655,21 @@ export default function ReferralPayoutsPage() {
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="referral-payout-proof">
-              Comprovante (URL HTTPS)
+              Comprovante (imagem ou PDF)
             </Label>
             <Input
               id="referral-payout-proof"
-              placeholder="https://..."
-              value={proofUrl}
-              onChange={(event) => setProofUrl(event.target.value)}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(event) =>
+                setProofFile(event.target.files?.[0] ?? null)
+              }
             />
+            <p className="text-xs text-muted-foreground">
+              O arquivo sobe para o storage no registrar, e o link fica gravado
+              no pedido — é ele que abre depois como &quot;comprovante&quot;.
+              Máximo 10 MB.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPayTarget(null)}>
@@ -585,22 +677,13 @@ export default function ReferralPayoutsPage() {
             </Button>
             <Button
               disabled={
-                actionLoading === payTarget?.id || proofUrl.trim().length === 0
+                uploadingProof ||
+                actionLoading === payTarget?.id ||
+                proofFile === null
               }
-              onClick={async () => {
-                if (!payTarget) return;
-                const done = await decide(
-                  {
-                    payoutId: payTarget.id,
-                    status: "paid",
-                    proofUrl: proofUrl.trim(),
-                  },
-                  "Pagamento registrado",
-                );
-                if (done) setPayTarget(null);
-              }}
+              onClick={submitPayment}
             >
-              {actionLoading === payTarget?.id && (
+              {(uploadingProof || actionLoading === payTarget?.id) && (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               )}
               Registrar pagamento
@@ -719,5 +802,6 @@ export default function ReferralPayoutsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }

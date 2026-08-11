@@ -43,15 +43,24 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Ban,
   CheckCircle,
   Handshake,
+  IdCard,
   Loader2,
   Plus,
   RefreshCw,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { formatTaxDocument } from "@/lib/referral/payout";
+import type { ReferralTaxDocumentType } from "@/lib/db/schema";
 import {
   describeAgreementDuration,
   describeAgreementValue,
@@ -82,6 +91,7 @@ type ReferralAffiliateRow = {
   blockedAt: string | null;
   blockReason: string | null;
   user: { id: string; email: string; name: string | null };
+  taxDocument: { document: string; type: ReferralTaxDocumentType } | null;
   agreement: {
     id: string;
     format: "percentage" | "fixed";
@@ -144,6 +154,12 @@ export default function ReferralsPage() {
 
   const [blockTarget, setBlockTarget] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState("");
+
+  // A correção do documento fiscal — a única porta de troca depois que o
+  // afiliado registra o dele no primeiro saque.
+  const [documentTarget, setDocumentTarget] =
+    useState<ReferralAffiliateRow | null>(null);
+  const [documentInput, setDocumentInput] = useState("");
 
   const fetchAffiliates = useCallback(async () => {
     setLoading(true);
@@ -331,6 +347,7 @@ export default function ReferralsPage() {
   };
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
@@ -460,89 +477,159 @@ export default function ReferralsPage() {
                         <div className="flex items-center justify-end gap-2">
                           {row.status === "pending" && (
                             <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-green-600 hover:text-green-700"
-                                disabled={busy}
-                                aria-label="Aprovar"
-                                onClick={() => {
-                                  setApproveTarget(row);
-                                  setApproveTerms(EMPTY_AGREEMENT_FORM);
-                                }}
-                              >
-                                {busy ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <CheckCircle className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-600 hover:text-red-700"
-                                disabled={busy}
-                                aria-label="Recusar"
-                                onClick={() => {
-                                  setRejectTarget(row.id);
-                                  setRejectReason("");
-                                }}
-                              >
-                                <XCircle className="h-4 w-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-green-600 hover:text-green-700"
+                                    disabled={busy}
+                                    aria-label="Aprovar afiliação"
+                                    onClick={() => {
+                                      setApproveTarget(row);
+                                      setApproveTerms(EMPTY_AGREEMENT_FORM);
+                                    }}
+                                  >
+                                    {busy ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <CheckCircle className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Aprovar a afiliação — abre o acordo de
+                                  comissão obrigatório
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-red-600 hover:text-red-700"
+                                    disabled={busy}
+                                    aria-label="Recusar afiliação"
+                                    onClick={() => {
+                                      setRejectTarget(row.id);
+                                      setRejectReason("");
+                                    }}
+                                  >
+                                    <XCircle className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Recusar o pedido — o motivo aparece para o
+                                  candidato
+                                </TooltipContent>
+                              </Tooltip>
                             </>
+                          )}
+                          {(row.status === "approved" ||
+                            row.status === "blocked") && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={busy}
+                                  aria-label="Editar documento fiscal"
+                                  onClick={() => {
+                                    setDocumentTarget(row);
+                                    setDocumentInput(
+                                      row.taxDocument
+                                        ? formatTaxDocument(
+                                            row.taxDocument.document,
+                                            row.taxDocument.type,
+                                          )
+                                        : "",
+                                    );
+                                  }}
+                                >
+                                  <IdCard className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Editar o CPF/CNPJ do afiliado — ele não consegue
+                                trocar sozinho depois do primeiro saque
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                           {row.status === "approved" && (
                             <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled={busy}
-                                aria-label="Renegociar acordo"
-                                onClick={() => openRenegotiation(row)}
-                              >
-                                {busy ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Handshake className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-orange-600 hover:text-orange-700"
-                                disabled={busy}
-                                aria-label="Bloquear"
-                                onClick={() => {
-                                  setBlockTarget(row.id);
-                                  setBlockReason("");
-                                }}
-                              >
-                                <Ban className="h-4 w-4" />
-                              </Button>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled={busy}
+                                    aria-label="Renegociar acordo"
+                                    onClick={() => openRenegotiation(row)}
+                                  >
+                                    {busy ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Handshake className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Renegociar o acordo — o atual fica no
+                                  histórico como superado
+                                </TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="text-orange-600 hover:text-orange-700"
+                                    disabled={busy}
+                                    aria-label="Bloquear afiliado"
+                                    onClick={() => {
+                                      setBlockTarget(row.id);
+                                      setBlockReason("");
+                                    }}
+                                  >
+                                    <Ban className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  Bloquear o afiliado — interrompe comissões
+                                  novas, sem tocar no que já foi ganho
+                                </TooltipContent>
+                              </Tooltip>
                             </>
                           )}
                           {row.status === "blocked" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={busy}
-                              aria-label="Reativar"
-                              onClick={() =>
-                                postAction(
-                                  "/api/referrals/reactivate",
-                                  { affiliateId: row.id },
-                                  "Afiliado reativado",
-                                  row.id,
-                                )
-                              }
-                            >
-                              {busy ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <RefreshCw className="h-4 w-4" />
-                              )}
-                            </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled={busy}
+                                  aria-label="Reativar afiliado"
+                                  onClick={() =>
+                                    postAction(
+                                      "/api/referrals/reactivate",
+                                      { affiliateId: row.id },
+                                      "Afiliado reativado",
+                                      row.id,
+                                    )
+                                  }
+                                >
+                                  {busy ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Reativar o afiliado — comissões novas voltam a
+                                ser geradas
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                           {row.status === "rejected" && (
                             <Button
@@ -816,6 +903,74 @@ export default function ReferralsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Corrigir o documento fiscal — a única porta de troca, com auditoria */}
+      <Dialog
+        open={documentTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDocumentTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar documento fiscal</DialogTitle>
+            <DialogDescription>
+              {documentTarget && (
+                <>
+                  {documentTarget.user.email} —{" "}
+                  {documentTarget.taxDocument
+                    ? `documento atual ${formatTaxDocument(
+                        documentTarget.taxDocument.document,
+                        documentTarget.taxDocument.type,
+                      )}.`
+                    : "ainda sem documento registrado."}{" "}
+                  O afiliado não consegue trocar sozinho; a alteração fica no
+                  histórico com o seu e-mail. Saques já pagos mantêm o
+                  documento da época.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="referral-admin-tax-document">CPF ou CNPJ</Label>
+            <Input
+              id="referral-admin-tax-document"
+              placeholder="000.000.000-00"
+              value={documentInput}
+              onChange={(event) => setDocumentInput(event.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDocumentTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={
+                actionLoading === `document:${documentTarget?.id}` ||
+                documentInput.trim().length === 0
+              }
+              onClick={async () => {
+                if (!documentTarget) return;
+                const done = await postAction(
+                  "/api/referrals/tax-document",
+                  {
+                    affiliateId: documentTarget.id,
+                    taxDocument: documentInput,
+                  },
+                  "Documento atualizado",
+                  `document:${documentTarget.id}`,
+                );
+                if (done) setDocumentTarget(null);
+              }}
+            >
+              {actionLoading === `document:${documentTarget?.id}` && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Salvar documento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Bloquear */}
       <Dialog
         open={blockTarget !== null}
@@ -860,5 +1015,6 @@ export default function ReferralsPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }

@@ -23,6 +23,7 @@ import {
   type ReferralAffiliate,
   type ReferralAffiliateStatus,
   type ReferralAgreement,
+  type ReferralTaxDocumentType,
 } from "@/lib/db/schema";
 import { generateReferralCode } from "./code";
 import type { ReferralAgreementTerms } from "./agreement";
@@ -60,6 +61,8 @@ export type ReferralAffiliateListItem = {
   blockedAt: string | null;
   blockReason: string | null;
   user: { id: string; email: string; name: string | null };
+  /** O documento fiscal do cadastro — o que o afiliado não consegue mais trocar sozinho. */
+  taxDocument: { document: string; type: ReferralTaxDocumentType } | null;
   agreement: {
     id: string;
     format: ReferralAgreement["format"];
@@ -126,6 +129,13 @@ export async function listReferralAffiliates(
     blockedAt: affiliate.blockedAt?.toISOString() ?? null,
     blockReason: affiliate.blockReason,
     user: affiliateUser,
+    taxDocument:
+      affiliate.taxDocument && affiliate.taxDocumentType
+        ? {
+            document: affiliate.taxDocument,
+            type: affiliate.taxDocumentType,
+          }
+        : null,
     agreement: agreement
       ? {
           id: agreement.id,
@@ -139,6 +149,60 @@ export async function listReferralAffiliates(
       : null,
     customerCount: customerCounts.get(affiliate.id) ?? 0,
   }));
+}
+
+/**
+ * Corrige o documento fiscal do afiliado — ato ADMINISTRATIVO. O afiliado não
+ * consegue trocar o próprio documento pelo painel (o serviço de saque do
+ * frontend recusa); a única porta é esta, e ela deixa rastro: o documento novo
+ * e a linha de auditoria entram na mesma transação. Snapshots de pedidos já
+ * feitos não são tocados — o que foi pago foi pago para o documento da época.
+ */
+export async function updateReferralAffiliateTaxDocument(args: {
+  affiliateId: string;
+  taxDocument: { document: string; type: ReferralTaxDocumentType };
+  adminEmail: string;
+}): Promise<ReferralAffiliate> {
+  return db.transaction(async (tx) => {
+    const [affiliate] = await tx
+      .select()
+      .from(referralAffiliate)
+      .where(eq(referralAffiliate.id, args.affiliateId))
+      .limit(1);
+    if (!affiliate) {
+      throw new ReferralOperationError(404, "Afiliado não encontrado");
+    }
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(referralAffiliate)
+      .set({
+        taxDocument: args.taxDocument.document,
+        taxDocumentType: args.taxDocument.type,
+        updatedAt: now,
+      })
+      .where(eq(referralAffiliate.id, args.affiliateId))
+      .returning();
+
+    await tx.insert(referralAdminAction).values({
+      affiliateId: affiliate.id,
+      adminEmail: args.adminEmail,
+      action: "tax_document_updated",
+      details: {
+        from:
+          affiliate.taxDocument && affiliate.taxDocumentType
+            ? {
+                document: affiliate.taxDocument,
+                type: affiliate.taxDocumentType,
+              }
+            : null,
+        to: args.taxDocument,
+      },
+      createdAt: now,
+    });
+
+    return updated;
+  });
 }
 
 /**
