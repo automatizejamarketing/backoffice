@@ -71,6 +71,12 @@ type EditAdSetRequestBody = {
     custom_audiences?: AudienceRef[];
     excluded_custom_audiences?: AudienceRef[];
     placements?: PlacementKey[];
+    /**
+     * "automatic" switches the ad set to Advantage+ placements: every placement
+     * field is REMOVED from the targeting (their absence is what "automatic"
+     * means in the Marketing API). Mutually exclusive with `placements`.
+     */
+    placements_mode?: "automatic";
     interest_targeting?: InterestTargetingValue;
     /**
      * Advantage+ audience toggle. Omitted = leave whatever the ad set has;
@@ -215,8 +221,39 @@ export async function PATCH(
         targeting.custom_audiences !== undefined ||
         targeting.excluded_custom_audiences !== undefined ||
         targeting.placements !== undefined ||
+        targeting.placements_mode !== undefined ||
         targeting.interest_targeting !== undefined ||
         targeting.targeting_automation?.advantage_audience !== undefined);
+
+    if (
+      targeting?.placements_mode !== undefined &&
+      targeting.placements_mode !== "automatic"
+    ) {
+      return NextResponse.json(
+        {
+          error: "Invalid placements mode",
+          message: "placements_mode só aceita o valor \"automatic\".",
+          solution:
+            "Envie placements_mode: \"automatic\" ou uma lista em placements.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (
+      targeting?.placements_mode !== undefined &&
+      targeting.placements !== undefined
+    ) {
+      return NextResponse.json(
+        {
+          error: "Conflicting placements",
+          message:
+            "Envie posicionamentos manuais OU placements_mode automático — não os dois.",
+          solution: "Remova um dos campos antes de salvar.",
+        },
+        { status: 400 },
+      );
+    }
 
     if (targeting?.placements !== undefined) {
       if (!Array.isArray(targeting.placements) || targeting.placements.length === 0) {
@@ -579,6 +616,10 @@ export async function PATCH(
       // Resolve placement fields. If the user submitted new placements, use them;
       // otherwise preserve whatever the ad set had (which might be Advantage+ /
       // automatic placements, i.e. no publisher_platforms at all).
+      const prevPlatforms = previousTargeting?.publisher_platforms ?? [];
+      const wasInstagramOnly =
+        prevPlatforms.length === 1 && prevPlatforms[0] === "instagram";
+
       let placementFields:
         | {
             publisher_platforms: string[];
@@ -588,9 +629,6 @@ export async function PATCH(
         | null = null;
       if (targeting.placements !== undefined) {
         // Refuse to promote an IG-only ad set to Facebook through edit.
-        const prevPlatforms = previousTargeting?.publisher_platforms ?? [];
-        const wasInstagramOnly =
-          prevPlatforms.length === 1 && prevPlatforms[0] === "instagram";
         if (wasInstagramOnly) {
           const allowed = new Set<PlacementKey>(INSTAGRAM_PLACEMENTS);
           for (const p of targeting.placements) {
@@ -611,6 +649,24 @@ export async function PATCH(
         placementFields = placementsToTargetingFields(targeting.placements);
       }
 
+      // Advantage+ placements = the ABSENCE of every placement field in the
+      // targeting (Marketing API): the automatic branch below simply omits
+      // them from the rebuilt object. Same IG-only protection as above —
+      // automatic would serve on Facebook and beyond.
+      const wantsAutomaticPlacements = targeting.placements_mode === "automatic";
+      if (wantsAutomaticPlacements && wasInstagramOnly) {
+        return NextResponse.json(
+          {
+            error: "Placement not allowed",
+            message:
+              "Este conjunto de anúncios é Instagram-only. O posicionamento automático (Advantage+) veicularia também no Facebook.",
+            solution:
+              "Mantenha posicionamentos do Instagram ou refaça a campanha.",
+          },
+          { status: 400 },
+        );
+      }
+
       newTargeting = {
         geo_locations: newGeoLocations,
         age_min: targeting.age_min ?? previousTargeting?.age_min ?? 18,
@@ -626,19 +682,23 @@ export async function PATCH(
         ...(newTargetingAutomation && {
           targeting_automation: newTargetingAutomation,
         }),
-        ...(placementFields
-          ? placementFields
-          : {
-              ...(previousTargeting?.publisher_platforms && {
-                publisher_platforms: previousTargeting.publisher_platforms,
+        // Automatic (Advantage+): no placement field at all. Manual: the new
+        // selection. Untouched: whatever the ad set had.
+        ...(wantsAutomaticPlacements
+          ? {}
+          : placementFields
+            ? placementFields
+            : {
+                ...(previousTargeting?.publisher_platforms && {
+                  publisher_platforms: previousTargeting.publisher_platforms,
+                }),
+                ...(previousTargeting?.facebook_positions && {
+                  facebook_positions: previousTargeting.facebook_positions,
+                }),
+                ...(previousTargeting?.instagram_positions && {
+                  instagram_positions: previousTargeting.instagram_positions,
+                }),
               }),
-              ...(previousTargeting?.facebook_positions && {
-                facebook_positions: previousTargeting.facebook_positions,
-              }),
-              ...(previousTargeting?.instagram_positions && {
-                instagram_positions: previousTargeting.instagram_positions,
-              }),
-            }),
       };
 
       const metaTargeting: Record<string, unknown> = {

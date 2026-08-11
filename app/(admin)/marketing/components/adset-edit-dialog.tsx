@@ -295,7 +295,12 @@ export function AdSetEditDialog({
     currentPublisherPlatforms[0] === "instagram";
   const availablePlacementsForAdSet: readonly PlacementKey[] =
     isInstagramOnlyAdSet ? INSTAGRAM_PLACEMENTS : ALL_PLACEMENTS;
-  const placementsEditable = currentPlacements.length > 0;
+  // No placement fields in the targeting = Advantage+ (automatic) placements.
+  const currentPlacementsMode: "automatic" | "manual" =
+    currentPlacements.length > 0 ? "manual" : "automatic";
+  // An Instagram-only ad set (follower campaigns) cannot go automatic: Meta
+  // would start serving on Facebook and beyond, breaking the IG-only design.
+  const canUseAutomaticPlacements = !isInstagramOnlyAdSet;
   const currentAdvantageAudience = isAdvantageAudienceOn(adSet.targeting);
   // Only an ad set that already measures through a pixel can swap it — offering
   // the selector elsewhere would silently attach conversion tracking to a
@@ -358,6 +363,9 @@ export function AdSetEditDialog({
   };
   const [selectedPlacements, setSelectedPlacements] =
     useState<PlacementKey[]>(currentPlacements);
+  const [placementsMode, setPlacementsMode] = useState<"automatic" | "manual">(
+    currentPlacementsMode,
+  );
   const [deliverySchedule, setDeliverySchedule] =
     useState<AdSetDeliveryScheduleValue>(() =>
       adSetToDeliveryScheduleValue(adSet),
@@ -446,7 +454,9 @@ export function AdSetEditDialog({
     );
     setInterestTargeting(interestTargetingFromMetaTargeting(adSet.targeting));
     setAdvantageAudience(isAdvantageAudienceOn(adSet.targeting));
-    setSelectedPlacements(targetingFieldsToPlacements(adSet.targeting));
+    const placements = targetingFieldsToPlacements(adSet.targeting);
+    setSelectedPlacements(placements);
+    setPlacementsMode(placements.length > 0 ? "manual" : "automatic");
     setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
     setSelectedPixelId(
       typeof adSet.promotedObject?.pixel_id === "string"
@@ -532,9 +542,10 @@ export function AdSetEditDialog({
     );
 
     const hasPlacementsChange =
-      placementsEditable &&
-      sortedPlacementsKey(selectedPlacements) !==
-        sortedPlacementsKey(currentPlacements);
+      placementsMode !== currentPlacementsMode ||
+      (placementsMode === "manual" &&
+        sortedPlacementsKey(selectedPlacements) !==
+          sortedPlacementsKey(currentPlacements));
     const hasDeliveryScheduleChange =
       canEditDeliverySchedule &&
       (deliverySchedule.deliveryMode !== currentDeliveryMode ||
@@ -589,7 +600,11 @@ export function AdSetEditDialog({
       return;
     }
 
-    if (hasPlacementsChange && selectedPlacements.length === 0) {
+    if (
+      hasPlacementsChange &&
+      placementsMode === "manual" &&
+      selectedPlacements.length === 0
+    ) {
       setError("Selecione pelo menos um posicionamento");
       return;
     }
@@ -691,7 +706,10 @@ export function AdSetEditDialog({
           ...(hasInterestTargetingChange && {
             interest_targeting: interestTargeting,
           }),
-          ...(hasPlacementsChange && { placements: selectedPlacements }),
+          ...(hasPlacementsChange &&
+            (placementsMode === "automatic"
+              ? { placements_mode: "automatic" }
+              : { placements: selectedPlacements })),
           ...(hasAdvantageAudienceChange && {
             targeting_automation: {
               advantage_audience: advantageAudience ? 1 : 0,
@@ -746,6 +764,7 @@ export function AdSetEditDialog({
       );
       setInterestTargeting(baselineInterestTargeting);
       setSelectedPlacements(currentPlacements);
+      setPlacementsMode(currentPlacementsMode);
       setDeliverySchedule(adSetToDeliveryScheduleValue(adSet));
       setSelectedPixelId(currentPixelId);
       setNote("");
@@ -890,13 +909,7 @@ export function AdSetEditDialog({
 
             <div className="space-y-2 rounded-lg border p-3">
               <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="advantageAudience">Público Advantage+</Label>
-                  <p className="text-xs text-muted-foreground">
-                    A Meta decide quem vê o anúncio, encontrando pessoas além da
-                    segmentação manual.
-                  </p>
-                </div>
+                <Label htmlFor="advantageAudience">Público Advantage+</Label>
                 <Switch
                   id="advantageAudience"
                   checked={advantageAudience}
@@ -904,13 +917,6 @@ export function AdSetEditDialog({
                   disabled={isSubmitting}
                 />
               </div>
-              {advantageAudience ? (
-                <p className="text-xs text-muted-foreground">
-                  Com o Advantage+ ligado, idade, gênero e segmentação detalhada
-                  deixam de ser configuráveis — quem decide é a Meta.
-                  Localizações e públicos personalizados continuam valendo.
-                </p>
-              ) : null}
               {advantageAudience &&
               !currentAdvantageAudience &&
               hasManualAudienceSignals(adSet.targeting) ? (
@@ -1043,57 +1049,115 @@ export function AdSetEditDialog({
 
             <div className="space-y-2">
               <Label>Posicionamentos</Label>
-              {!placementsEditable ? (
-                <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
-                  Este conjunto de anúncios usa posicionamentos automáticos do
-                  Meta (Advantage+). Para alterar, use o Gerenciador de Anúncios.
-                </div>
-              ) : (
+              {canUseAutomaticPlacements && (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {availablePlacementsForAdSet.map((key) => {
-                    const checked = selectedPlacements.includes(key);
-                    const isFb = (FACEBOOK_PLACEMENTS as readonly string[]).includes(
-                      key,
-                    );
-                    const PlatformIcon = isFb ? Facebook : Instagram;
-                    const toggle = () => {
+                  <button
+                    type="button"
+                    onClick={() => {
                       if (isSubmitting) return;
-                      setSelectedPlacements((prev) => {
-                        const set = new Set(prev);
-                        if (set.has(key)) set.delete(key);
-                        else set.add(key);
-                        return ALL_PLACEMENTS.filter((p) => set.has(p));
-                      });
-                    };
-                    return (
-                      <button
-                        type="button"
-                        key={key}
-                        onClick={toggle}
-                        disabled={isSubmitting}
-                        className={cn(
-                          "flex items-center gap-2 rounded-md border p-2 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50",
-                          checked && "border-primary/60 bg-primary/5",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "grid size-4 place-content-center rounded-sm border border-primary",
-                            checked
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-background",
-                          )}
-                        >
-                          {checked ? <Check className="size-3" /> : null}
-                        </span>
-                        <PlatformIcon className="size-4 text-muted-foreground" />
-                        <span>{PLACEMENT_LABEL_PT[key]}</span>
-                      </button>
-                    );
-                  })}
+                      setPlacementsMode("automatic");
+                    }}
+                    disabled={isSubmitting}
+                    aria-pressed={placementsMode === "automatic"}
+                    className={cn(
+                      "rounded-md border p-2.5 text-left transition-colors hover:bg-muted disabled:opacity-50",
+                      placementsMode === "automatic"
+                        ? "border-primary/60 bg-primary/5"
+                        : "border-border/60",
+                    )}
+                  >
+                    <span className="block text-sm font-medium">
+                      Advantage+ (automático)
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      A Meta escolhe onde o anúncio aparece.
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isSubmitting) return;
+                      setPlacementsMode("manual");
+                      setSelectedPlacements((prev) =>
+                        prev.length > 0
+                          ? prev
+                          : [...availablePlacementsForAdSet],
+                      );
+                    }}
+                    disabled={isSubmitting}
+                    aria-pressed={placementsMode === "manual"}
+                    className={cn(
+                      "rounded-md border p-2.5 text-left transition-colors hover:bg-muted disabled:opacity-50",
+                      placementsMode === "manual"
+                        ? "border-primary/60 bg-primary/5"
+                        : "border-border/60",
+                    )}
+                  >
+                    <span className="block text-sm font-medium">Manual</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Escolher posicionamentos manualmente desativa o
+                      Advantage+.
+                    </span>
+                  </button>
                 </div>
               )}
-              {placementsEditable && currentPlacements.length > 0 ? (
+              <div
+                className={cn(
+                  "grid gap-2 sm:grid-cols-2",
+                  placementsMode === "automatic" && "opacity-60",
+                )}
+              >
+                {availablePlacementsForAdSet.map((key) => {
+                  const checked =
+                    placementsMode === "manual" &&
+                    selectedPlacements.includes(key);
+                  const isFb = (FACEBOOK_PLACEMENTS as readonly string[]).includes(
+                    key,
+                  );
+                  const PlatformIcon = isFb ? Facebook : Instagram;
+                  const toggle = () => {
+                    if (isSubmitting) return;
+                    // A manual placement choice turns Advantage+ placements off.
+                    if (placementsMode === "automatic") {
+                      setPlacementsMode("manual");
+                      setSelectedPlacements([key]);
+                      return;
+                    }
+                    setSelectedPlacements((prev) => {
+                      const set = new Set(prev);
+                      if (set.has(key)) set.delete(key);
+                      else set.add(key);
+                      return ALL_PLACEMENTS.filter((p) => set.has(p));
+                    });
+                  };
+                  return (
+                    <button
+                      type="button"
+                      key={key}
+                      onClick={toggle}
+                      disabled={isSubmitting}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md border p-2 text-left text-sm transition-colors hover:bg-muted disabled:opacity-50",
+                        checked && "border-primary/60 bg-primary/5",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "grid size-4 place-content-center rounded-sm border border-primary",
+                          checked
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-background",
+                        )}
+                      >
+                        {checked ? <Check className="size-3" /> : null}
+                      </span>
+                      <PlatformIcon className="size-4 text-muted-foreground" />
+                      <span>{PLACEMENT_LABEL_PT[key]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {currentPlacements.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
                   Atual:{" "}
                   {currentPlacements
