@@ -17,6 +17,8 @@
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun scripts/drizzle-migrate-with-baseline.ts",
+    "db:migrate:status": "bun scripts/migration-audit.ts",
+    "db:migrate:repair": "bun scripts/migration-audit.ts --repair",
     "db:pull": "drizzle-kit introspect",
     "referral:verify-staging": "APP_ENV=staging bun scripts/verify-referral-approval-staging.ts",
     "campaigns:refresh": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts",
