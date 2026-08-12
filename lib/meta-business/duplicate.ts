@@ -2688,10 +2688,10 @@ function promotedObjectDiagnosisError(dead: DeadPromotedRef[]): GraphApiError {
       httpStatusCode: 502,
       title: "Falha na duplicação",
       message:
-        `A campanha original está vinculada a recursos que não existem mais ou aos quais você perdeu o acesso: ${describeDeadRefs(dead)}. ` +
-        "Por isso a Meta recusa qualquer cópia desta campanha.",
+        `A campanha original está vinculada a recursos que a sua conexão com a Meta não consegue acessar: ${describeDeadRefs(dead)}. ` +
+        "Ou o recurso foi removido, ou ele não está compartilhado com o Automatize. Por isso a Meta recusa qualquer cópia desta campanha.",
       solution:
-        "Recrie a campanha apontando para o recurso atual (por exemplo, o catálogo vigente no Gerenciador de Comércio da Meta) ou restaure o acesso ao recurso e tente duplicar novamente.",
+        "Enquanto isso, duplique esta campanha pelo Gerenciador de Anúncios da Meta — se funcionar lá, basta compartilhar o recurso (por exemplo, o catálogo, no Gerenciador de Negócios) com o Automatize para duplicar por aqui; se falhar lá também, o recurso foi removido e a campanha precisa ser recriada com o recurso atual.",
       isTransient: false,
     },
   });
