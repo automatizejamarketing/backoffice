@@ -63,6 +63,8 @@ const COPY_MARKER = "Cópia";
 const STATUS_OPTION = "INHERITED_FROM_SOURCE";
 /** AI proven-campaign path: build paused, then activate after budget is applied. */
 const AI_BUILD_STATUS_OPTION = "PAUSED";
+/** A promoted-object-repaired campaign copy is created PAUSED so the user reviews it. */
+const REPAIRED_COPY_STATUS_OPTION = "PAUSED";
 const NO_RENAME = JSON.stringify({ rename_strategy: "NO_RENAME" });
 const VALIDATE_ONLY = JSON.stringify(["validate_only"]);
 
@@ -868,6 +870,13 @@ export type DuplicateResult = {
    * (possibly past) window — surfaced so the user reviews those dates.
    */
   scheduleAdjustFailed?: boolean;
+  /**
+   * The campaign copy was refused for a dead promoted-object id (subcode 1885015)
+   * and retried with `parameter_overrides` swapping the dead id(s) for the live
+   * one(s) derived from the ad sets (e.g. a deleted catalog replaced by the parent
+   * catalog of their product set). The repaired copy is created PAUSED for review.
+   */
+  repairedCampaign?: RepairedCampaignInfo;
 };
 
 export type CopiedAdSetMapping = {
@@ -2575,6 +2584,243 @@ async function copyAdsIntoAdset(
   return { copiedAds, skippedAds, repairedCreatives };
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Campaign-copy promoted-object repair (subcode 1885015)
+//
+// A campaign `/copies` refused with 1885015 means an id inside the CAMPAIGN's
+// `promoted_object` no longer resolves for this token (deleted or inaccessible
+// catalog, pixel, app...). The Ad Copies API accepts `parameter_overrides` (a
+// campaign spec applied to the copy), so — mirroring the ad-level
+// `creative_parameters` repair — we: (1) probe each id in the source campaign's
+// promoted_object to find the dead one(s); (2) derive a live replacement from the
+// ad sets' OWN promoted_object, the live source of truth for what the campaign
+// promotes (the parent catalog of their product set, their pixel) — never a
+// guess; (3) retry the SAME native copy overriding only the dead key(s). The
+// repaired copy is created PAUSED for review. When no safe replacement exists,
+// the diagnosis still upgrades Meta's opaque error into one that NAMES the dead
+// resource. The SOURCE campaign is never modified.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** pt-BR labels for promoted_object id keys, used in diagnosis messages. */
+const PROMOTED_OBJECT_KEY_LABELS: Record<string, string> = {
+  product_catalog_id: "catálogo",
+  product_set_id: "conjunto de produtos",
+  pixel_id: "pixel",
+  application_id: "aplicativo",
+  page_id: "Página",
+  custom_conversion_id: "conversão personalizada",
+  event_id: "evento",
+  offer_id: "oferta",
+};
+
+export type RepairedCampaignInfo = {
+  /** promoted_object keys whose dead id was replaced (e.g. product_catalog_id). */
+  replacedKeys: string[];
+  /** The repaired copy is always created PAUSED so the user reviews it before it spends. */
+  pausedForReview: true;
+};
+
+type DeadPromotedRef = { key: string; id: string };
+
+/** True when the id resolves for this token (exists AND is accessible). */
+async function probeObjectAlive(
+  objectId: string,
+  accessToken: string,
+): Promise<boolean> {
+  try {
+    await metaApiCall<{ id?: string }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: objectId,
+      params: "fields=id",
+      accessToken,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The live parent catalog of a product set, or null when dead/unreadable. */
+async function resolveProductSetCatalog(
+  productSetId: string,
+  accessToken: string,
+): Promise<string | null> {
+  try {
+    const res = await metaApiCall<{ product_catalog?: { id?: string } }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: productSetId,
+      params: "fields=product_catalog{id}",
+      accessToken,
+    });
+    return res.product_catalog?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `promoted_object` entries that look like probe-able object ids. */
+function promotedObjectIdEntries(
+  promoted: Record<string, unknown>,
+): DeadPromotedRef[] {
+  const entries: DeadPromotedRef[] = [];
+  for (const [key, value] of Object.entries(promoted)) {
+    if (!key.endsWith("_id")) continue;
+    if (typeof value !== "string" && typeof value !== "number") continue;
+    const id = String(value);
+    if (/^\d+$/.test(id)) entries.push({ key, id });
+  }
+  return entries;
+}
+
+function describeDeadRefs(dead: DeadPromotedRef[]): string {
+  return dead
+    .map((ref) => `${PROMOTED_OBJECT_KEY_LABELS[ref.key] ?? ref.key} ${ref.id}`)
+    .join(", ");
+}
+
+/** The named-resource upgrade of Meta's opaque 1885015 rejection. */
+function promotedObjectDiagnosisError(dead: DeadPromotedRef[]): GraphApiError {
+  return new GraphApiError({
+    statusCode: 502,
+    reason: {
+      httpStatusCode: 502,
+      title: "Falha na duplicação",
+      message:
+        `A campanha original está vinculada a recursos que não existem mais ou aos quais você perdeu o acesso: ${describeDeadRefs(dead)}. ` +
+        "Por isso a Meta recusa qualquer cópia desta campanha.",
+      solution:
+        "Recrie a campanha apontando para o recurso atual (por exemplo, o catálogo vigente no Gerenciador de Comércio da Meta) ou restaure o acesso ao recurso e tente duplicar novamente.",
+      isTransient: false,
+    },
+  });
+}
+
+/**
+ * Native campaign `/copies` with the 1885015 self-repair described above.
+ * Returns the copied campaign id, plus repair info when `parameter_overrides`
+ * had to replace dead promoted-object ids.
+ */
+async function copyCampaignWithPromotedObjectRepair(args: {
+  campaignId: string;
+  accessToken: string;
+  /** Bulk-read source ad sets — their promoted_object derives the live replacements. */
+  adsets: AdsetFull[];
+}): Promise<{ copiedCampaignId: string; repairedCampaign?: RepairedCampaignInfo }> {
+  const { campaignId, accessToken } = args;
+  const attemptNativeCopy = (statusOption: string, parameterOverrides?: string) =>
+    withMetaRetry(() =>
+      metaApiCall<CopyResponse>({
+        domain: "FACEBOOK",
+        method: "POST",
+        path: `${campaignId}/copies`,
+        params: "",
+        body: new URLSearchParams({
+          status_option: statusOption,
+          rename_options: NO_RENAME,
+          ...(parameterOverrides
+            ? { parameter_overrides: parameterOverrides }
+            : {}),
+        }),
+        accessToken,
+      }),
+    );
+
+  let copy: CopyResponse;
+  let repairedCampaign: RepairedCampaignInfo | undefined;
+  try {
+    copy = await attemptNativeCopy(STATUS_OPTION);
+  } catch (err) {
+    if (
+      graphErrorSubcode(err) !== PROMOTED_OBJECT_MISSING ||
+      !isPermanentGraphFailure(err)
+    ) {
+      throw err;
+    }
+
+    // Diagnose: read the campaign's own promoted_object and probe every id in it.
+    const campaign = await metaApiCall<{
+      promoted_object?: Record<string, unknown>;
+    }>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: campaignId,
+      params: "fields=promoted_object",
+      accessToken,
+    }).catch(() => ({}) as { promoted_object?: Record<string, unknown> });
+    const promoted = campaign.promoted_object ?? {};
+
+    const dead: DeadPromotedRef[] = [];
+    for (const entry of promotedObjectIdEntries(promoted)) {
+      if (!(await probeObjectAlive(entry.id, accessToken))) dead.push(entry);
+    }
+
+    const adsetPromo = args.adsets
+      .map((a) => a.promoted_object)
+      .find(Boolean) as Record<string, unknown> | undefined;
+
+    if (dead.length === 0) {
+      // Campaign-level promoted_object looks fine (or is unreadable/empty) — probe
+      // the ad sets' promoted objects so the error can still NAME a dead resource.
+      const adsetDead: DeadPromotedRef[] = [];
+      for (const entry of promotedObjectIdEntries(adsetPromo ?? {})) {
+        if (!(await probeObjectAlive(entry.id, accessToken))) adsetDead.push(entry);
+      }
+      if (adsetDead.length > 0) throw promotedObjectDiagnosisError(adsetDead);
+      throw err; // nothing identifiable — surface Meta's original error + hint
+    }
+
+    // Derive live replacements from the ad sets — never guessed: the parent
+    // catalog of THEIR product set, and THEIR pixel.
+    const replacements: Record<string, string> = {};
+    for (const ref of dead) {
+      if (ref.key === "product_catalog_id") {
+        const productSetId = adsetPromo?.product_set_id;
+        const liveCatalog =
+          typeof productSetId === "string" || typeof productSetId === "number"
+            ? await resolveProductSetCatalog(String(productSetId), accessToken)
+            : null;
+        if (liveCatalog && liveCatalog !== ref.id) {
+          replacements[ref.key] = liveCatalog;
+        }
+      } else if (ref.key === "pixel_id") {
+        const adsetPixel = adsetPromo?.pixel_id;
+        if (
+          (typeof adsetPixel === "string" || typeof adsetPixel === "number") &&
+          String(adsetPixel) !== ref.id &&
+          (await probeObjectAlive(String(adsetPixel), accessToken))
+        ) {
+          replacements[ref.key] = String(adsetPixel);
+        }
+      }
+      // Other dead keys have no safe derivation — diagnosis only.
+    }
+
+    const repairable = dead.every((ref) => replacements[ref.key] != null);
+    if (!repairable) throw promotedObjectDiagnosisError(dead);
+
+    // Retry the SAME native copy overriding ONLY the dead keys; PAUSED for review.
+    try {
+      copy = await attemptNativeCopy(
+        REPAIRED_COPY_STATUS_OPTION,
+        JSON.stringify({ promoted_object: { ...promoted, ...replacements } }),
+      );
+    } catch {
+      // The override was refused — the named diagnosis beats a second opaque error.
+      throw promotedObjectDiagnosisError(dead);
+    }
+    repairedCampaign = {
+      replacedKeys: dead.map((d) => d.key),
+      pausedForReview: true,
+    };
+  }
+
+  const copiedCampaignId = copy.copied_campaign_id;
+  if (!copiedCampaignId) throw missingCopyIdError("da campanha");
+  return { copiedCampaignId, ...(repairedCampaign ? { repairedCampaign } : {}) };
+}
+
 /**
  * Duplicates a campaign (and its full tree: ad sets + ads). Tries one async
  * deep-copy job first when the subtree fits Meta's async cap (far fewer calls),
@@ -2688,22 +2934,12 @@ export async function duplicateCampaign(args: {
   const limiter = createWriteLimiter(MIN_WRITE_INTERVAL_MS);
 
   try {
-    const campaignCopy = await withMetaRetry(() =>
-      metaApiCall<CopyResponse>({
-        domain: "FACEBOOK",
-        method: "POST",
-        path: `${campaignId}/copies`,
-        params: "",
-        body: new URLSearchParams({
-          status_option: STATUS_OPTION,
-          rename_options: NO_RENAME,
-        }),
+    const { copiedCampaignId: newCampaignId, repairedCampaign } =
+      await copyCampaignWithPromotedObjectRepair({
+        campaignId,
         accessToken,
-      }),
-    );
-
-    const newCampaignId = campaignCopy.copied_campaign_id;
-    if (!newCampaignId) throw missingCopyIdError("da campanha");
+        adsets: [...adsetsById.values()],
+      });
     tracker.track("campaign", newCampaignId);
 
     const skippedAds: SkippedItem[] = [];
@@ -2817,6 +3053,7 @@ export async function duplicateCampaign(args: {
       ...(rebuiltAdsets.length ? { rebuiltAdsets } : {}),
       ...(scheduleAdjusted ? { scheduleAdjusted: true } : {}),
       ...(scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
+      ...(repairedCampaign ? { repairedCampaign } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);

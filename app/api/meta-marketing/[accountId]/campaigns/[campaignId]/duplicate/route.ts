@@ -16,6 +16,7 @@ import {
   type ReplacedInterestsItem,
   type RepairedCreativeItem,
   type RebuiltAdsetItem,
+  type RepairedCampaignInfo,
 } from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
 
@@ -44,6 +45,8 @@ export type DuplicateCampaignResponse = {
   scheduleAdjusted?: boolean;
   /** A native copy's schedule patch failed, leaving its inherited (possibly past) window. */
   scheduleAdjustFailed?: boolean;
+  /** Dead promoted-object ids replaced on the copy (1885015); the copy is PAUSED for review. */
+  repairedCampaign?: RepairedCampaignInfo;
 };
 
 export type DuplicateErrorResponse = {
@@ -179,6 +182,9 @@ export async function POST(
           : {}),
         ...(result.scheduleAdjusted ? { scheduleAdjusted: true } : {}),
         ...(result.scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
+        ...(result.repairedCampaign
+          ? { repairedCampaign: result.repairedCampaign }
+          : {}),
       },
       { status: 201 },
     );
