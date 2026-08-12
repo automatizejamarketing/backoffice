@@ -97,7 +97,14 @@ They are intentionally near-identical. Each project has its own `lib/db/migratio
 3. Escolha um `when` **maior que o último de AMBOS os journals** (o daqui e o de `../automatize-frontend/lib/db/migrations/meta/_journal.json`). Um `when` abaixo da marca d'água nunca roda — leia "A marca d'água" acima antes de reaproveitar número.
 4. Run `bun run db:migrate` in that project to apply it — e confira a auditoria que ele imprime no fim. `db:migrate` só sai 0 quando nada foi pulado.
 5. In the sibling project, either regenerate a no-op/empty migration or manually record the same migration so its journal stays in sync.
-6. Rode `bun run db:migrate:status` **em cada ambiente** (`APP_ENV=local` é PRODUÇÃO nesta máquina; `.env.prod` e `.env.staging` apontam os dois para staging). Migrar um ambiente não migra os outros: não existe passo de migration no build da Vercel, tudo aqui é manual.
+6. Rode `bun run db:migrate:status` **em cada ambiente**. Migrar um ambiente não migra os outros: não existe passo de migration no build da Vercel, tudo aqui é manual — e foi exatamente essa a diferença entre staging (que tinha as tabelas) e produção (que não tinha).
+
+⚠️ `APP_ENV=local` aponta para o banco de **produção**: o `.env.local` vem do
+ambiente *development* da Vercel, que carrega a `POSTGRES_URL` de produção. Ou
+seja, `bun dev` roda contra produção. `APP_ENV=prod` (`.env.prod`, puxado do
+ambiente production) e `APP_ENV=staging` (`.env.staging`) estão corretos. Antes
+de qualquer escrita, confira o projeto Supabase que os scripts imprimem no
+cabeçalho: produção é `hosjqwtfjjtmphchsuqf`, staging é `wsbsnzgzqiehqnklzchm`.
 7. Prefer **additive, reversible** migrations. For type changes, use expand → backfill → contract across multiple deploys. Never drop columns/tables in the same migration that introduces a replacement.
 8. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
 9. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.

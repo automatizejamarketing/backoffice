@@ -12,10 +12,12 @@
  *   bun run db:migrate:repair --yes           # executa o reparo
  *
  * `APP_ENV` escolhe o arquivo de env, e é por isso que o script imprime o
- * projeto Supabase alvo antes de qualquer coisa: nesta máquina `.env.prod` e
- * `.env.staging` apontam para o MESMO projeto, e produção mora no `.env.local`.
- * Ler o cabeçalho antes de responder `--yes` é o que separa reparar produção de
- * reparar staging achando que é produção.
+ * projeto Supabase alvo antes de qualquer coisa. Produção é
+ * `hosjqwtfjjtmphchsuqf` e staging é `wsbsnzgzqiehqnklzchm`; note que
+ * `APP_ENV=local` também cai em produção, porque o `.env.local` vem do ambiente
+ * *development* da Vercel e é lá que mora a `POSTGRES_URL` de produção. Ler o
+ * cabeçalho antes de responder `--yes` é o que separa reparar o banco certo de
+ * reparar o errado achando que é o certo.
  */
 import postgres from "postgres";
 
