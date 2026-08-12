@@ -3,10 +3,18 @@
  * without recording migration 0000 in `drizzle.__drizzle_migrations`, the first
  * migration fails with "already exists". We baseline the first journal entry
  * when `public.users` exists but that migration hash is missing, then re-run migrate.
+ *
+ * Depois de migrar, audita. O `drizzle-kit migrate` sai 0 tanto quando aplicou
+ * tudo quanto quando desistiu de uma migration por causa da marca d'água única
+ * que ele usa como controle — e os dois repositórios que dividem este banco
+ * fazem essa marca subir fora de ordem o tempo todo. Sem a auditoria, "migrou
+ * com sucesso" e "a tabela não existe em produção" são a mesma saída de
+ * terminal; foi assim que `0044_meta_tracking_foundation` nunca chegou lá.
+ * Ver `lib/db/migration-audit.ts`.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
@@ -84,6 +92,18 @@ function runDrizzleMigrate(): number {
   return r.status ?? 1;
 }
 
+function runAudit(): number {
+  const r = spawnSync(
+    process.execPath,
+    [join(scriptDir, "migration-audit.ts")],
+    { cwd: backofficeRoot, stdio: "inherit", env: process.env },
+  );
+  if (r.error) {
+    throw r.error;
+  }
+  return r.status ?? 1;
+}
+
 async function main() {
   const url = process.env.POSTGRES_URL;
   if (!url) {
@@ -108,7 +128,12 @@ async function main() {
   }
 
   const code = runDrizzleMigrate();
-  process.exit(code);
+  if (code !== 0) {
+    process.exit(code);
+  }
+
+  console.log("");
+  process.exit(runAudit());
 }
 
 void main();

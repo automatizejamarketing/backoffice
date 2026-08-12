@@ -26,6 +26,8 @@ bun run db:generate      # drizzle-kit generate — creates a migration from sch
 bun run db:migrate       # CUSTOM — runs scripts/drizzle-migrate-with-baseline.ts (see below)
 bun run db:push          # drizzle-kit push — DO NOT run against shared/prod DBs
 bun run db:pull          # drizzle-kit introspect
+bun run db:migrate:status # audita o journal contra o banco do APP_ENV atual
+bun run db:migrate:repair # aplica o que o drizzle pulou (exige --yes)
 ```
 
 There is no `test` script — `bun test` above is bun's built-in runner, not a `package.json` entry. Lint actually works (unlike the sibling frontend, which has no lint script).
@@ -50,6 +52,35 @@ This exists because the Postgres database was originally bootstrapped with `driz
 
 **Do not** replace `bun run db:migrate` with plain `bunx drizzle-kit migrate` — it will blow up on any real environment. If you add a new first-position migration (don't), update the script too.
 
+### A marca d'água: como uma migration some sem erro
+
+`drizzle-kit migrate` não guarda *quais* migrations rodaram — ele lê o
+`max(created_at)` de `drizzle.__drizzle_migrations` e roda tudo que tiver `when`
+**estritamente maior**. Uma marca d'água só.
+
+Isso quebra aqui porque `backoffice` e `automatize-frontend` escrevem na MESMA
+tabela de controle e cada branch escolhe seu `when` na mão. Se a sua branch pegar
+um `when` abaixo de uma marca já levantada por outra branch — ou pelo repositório
+irmão — sua migration nunca roda. Sem erro, sem aviso: o comando sai 0 dizendo
+que não havia nada a aplicar.
+
+Foi assim que `0044_meta_tracking_foundation` (`when=1793200000000`) nunca criou
+as tabelas `meta_tracking_*` em produção — a marca já estava em `1793300000000`,
+vinda do `0054_marketplace_fee_checkout_channel` do frontend. Em staging a ordem
+das branches calhou de dar certo, então o bug só apareceu em produção, como 500
+em `/api/meta-marketing/[accountId]/tracking-history`.
+
+Por isso `db:migrate` **audita depois de migrar** (`lib/db/migration-audit.ts`) e
+sai diferente de zero quando encontra entrada pulada cujo objeto não existe no
+banco. O critério não é hash nem marca d'água: é abrir o `.sql`, extrair as
+tabelas e colunas que ele cria e perguntar ao banco se estão lá. Para consertar o
+que já foi pulado, `bun run db:migrate:repair --yes` aplica os arquivos e grava o
+hash **com o `when` do próprio journal** — levantar a marca no reparo empurraria
+para o limbo as migrations ainda pendentes do repositório irmão.
+
+`tests/migration-journal.test.ts` barra a colisão nova de `when` entre os dois
+repositórios; as sete que já existiam estão fixadas lá como dívida conhecida.
+
 ## Database workflow (CRITICAL)
 
 The same Postgres DB backs both `backoffice/` and `../automatize-frontend/`. Two schema files describe it:
@@ -63,11 +94,13 @@ They are intentionally near-identical. Each project has its own `lib/db/migratio
 
 1. Edit BOTH `schema.ts` files so they match.
 2. Run `bun run db:generate` in the project that "owns" the change (typically the one whose feature needs it) to produce the SQL migration.
-3. Run `bun run db:migrate` in that project to apply it.
-4. In the sibling project, either regenerate a no-op/empty migration or manually record the same migration so its journal stays in sync.
-5. Prefer **additive, reversible** migrations. For type changes, use expand → backfill → contract across multiple deploys. Never drop columns/tables in the same migration that introduces a replacement.
-6. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
-7. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.
+3. Escolha um `when` **maior que o último de AMBOS os journals** (o daqui e o de `../automatize-frontend/lib/db/migrations/meta/_journal.json`). Um `when` abaixo da marca d'água nunca roda — leia "A marca d'água" acima antes de reaproveitar número.
+4. Run `bun run db:migrate` in that project to apply it — e confira a auditoria que ele imprime no fim. `db:migrate` só sai 0 quando nada foi pulado.
+5. In the sibling project, either regenerate a no-op/empty migration or manually record the same migration so its journal stays in sync.
+6. Rode `bun run db:migrate:status` **em cada ambiente** (`APP_ENV=local` é PRODUÇÃO nesta máquina; `.env.prod` e `.env.staging` apontam os dois para staging). Migrar um ambiente não migra os outros: não existe passo de migration no build da Vercel, tudo aqui é manual.
+7. Prefer **additive, reversible** migrations. For type changes, use expand → backfill → contract across multiple deploys. Never drop columns/tables in the same migration that introduces a replacement.
+8. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
+9. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.
 
 Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit it.
 
