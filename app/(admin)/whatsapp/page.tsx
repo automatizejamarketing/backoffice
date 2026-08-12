@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
+import { WhatsappFailureInfo } from "@/components/whatsapp-failure-info";
 import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -251,20 +252,10 @@ export default async function WhatsappPage({
                         />
                       </TableCell>
                       <TableCell className="max-w-72">
-                        {item.failureCode || item.failureDetail ? (
-                          <p
-                            className="line-clamp-2 text-xs text-destructive"
-                            title={[item.failureCode, item.failureDetail]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          >
-                            {[item.failureCode, item.failureDetail]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                        <WhatsappFailureInfo
+                          failureCode={item.failureCode}
+                          failureDetail={item.failureDetail}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

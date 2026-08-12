@@ -24,6 +24,7 @@ import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refr
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
+import { WhatsappFailureInfo } from "@/components/whatsapp-failure-info";
 import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -509,20 +510,10 @@ export async function UserHubPage({
                         />
                       </TableCell>
                       <TableCell className="max-w-72">
-                        {item.failureCode || item.failureDetail ? (
-                          <p
-                            className="line-clamp-2 text-xs text-destructive"
-                            title={[item.failureCode, item.failureDetail]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          >
-                            {[item.failureCode, item.failureDetail]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                        <WhatsappFailureInfo
+                          failureCode={item.failureCode}
+                          failureDetail={item.failureDetail}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
