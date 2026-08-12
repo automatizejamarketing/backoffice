@@ -158,20 +158,25 @@ const SKIPPABLE_AD_SUBCODES = new Set<number>([
 /**
  * Meta subcode 1487202: the token lacks permission to create ads for the ad's
  * Facebook Page. Meta subcode 2446149: a campaign-budget (CBO) campaign's budget is
- * too low to cover an additional ad set.
+ * too low to cover an additional ad set. Meta subcode 1885015: an id inside the
+ * promoted object no longer resolves (deleted/inaccessible catalog, product set,
+ * pixel or app).
  *
- * Neither is something the ad-set REBUILD can change — it only sanitizes targeting,
- * and the reconstructed ad set references the SAME Page and lives under the SAME
- * campaign budget. So if native `/copies` fails this way, attempting the rebuild just
- * spends a SECOND doomed 4xx against the app's Meta error budget for the same outcome.
- * We rethrow the original error immediately instead (see `isRebuildUnfixable`). Keep
- * this narrow: only errors the rebuild provably cannot resolve belong here.
+ * None of these is something the ad-set REBUILD can change — it only sanitizes
+ * targeting, and the reconstructed ad set references the SAME Page, lives under the
+ * SAME campaign budget and resends the SAME promoted_object. So if native `/copies`
+ * fails this way, attempting the rebuild just spends a SECOND doomed 4xx against the
+ * app's Meta error budget for the same outcome. We rethrow the original error
+ * immediately instead (see `isRebuildUnfixable`). Keep this narrow: only errors the
+ * rebuild provably cannot resolve belong here.
  */
 const PAGE_ADS_PERMISSION_REQUIRED = 1487202;
 const CBO_BUDGET_TOO_LOW = 2446149;
+const PROMOTED_OBJECT_MISSING = 1885015;
 const REBUILD_UNFIXABLE_SUBCODES = new Set<number>([
   PAGE_ADS_PERMISSION_REQUIRED,
   CBO_BUDGET_TOO_LOW,
+  PROMOTED_OBJECT_MISSING,
 ]);
 
 /**
@@ -189,6 +194,8 @@ const ERROR_HINTS_BY_SUBCODE: Record<number, string> = {
     "Atualize os posicionamentos do conjunto de anúncios original no Gerenciador de Anúncios (Instagram Explore) e tente duplicar novamente.",
   2446149:
     "Esta campanha usa orçamento de campanha (CBO): aumente o orçamento da campanha para cobrir o conjunto adicional, ou reduza a quantidade de conjuntos, e tente duplicar novamente.",
+  1885015:
+    "O objeto promovido da campanha original (catálogo/conjunto de produtos, pixel ou app) não existe mais ou você perdeu o acesso a ele. Verifique o recurso no Gerenciador da Meta ou recrie a campanha com o recurso atual e tente duplicar novamente.",
 };
 
 // Cap parallel ad copies inside a single ad set so we don't trigger Meta's
@@ -1840,6 +1847,11 @@ type GraphCreativeShape = {
       [key: string]: unknown;
     };
     video_data?: { call_to_action?: GraphCta; [key: string]: unknown };
+    template_data?: {
+      link?: string;
+      call_to_action?: GraphCta;
+      [key: string]: unknown;
+    };
     [key: string]: unknown;
   };
   asset_feed_spec?: {
@@ -1883,12 +1895,19 @@ async function getRepairableCreative(
   }
 }
 
-/** First website URL found anywhere in the creative, or null. */
+/**
+ * First website URL found anywhere in the creative, or null. Catalog (Advantage+
+ * catalog) creatives carry theirs in `object_story_spec.template_data` — same read
+ * as the promotion-link edit flow (`promotion-link-edit.ts`), so a catalog sales
+ * campaign is never mistaken for a URL-less one by the pre-flight.
+ */
 function extractCreativeUrl(creative: GraphCreativeShape): string | null {
   return (
     creative.object_story_spec?.link_data?.link ??
     creative.object_story_spec?.link_data?.call_to_action?.value?.link ??
     creative.object_story_spec?.video_data?.call_to_action?.value?.link ??
+    creative.object_story_spec?.template_data?.call_to_action?.value?.link ??
+    creative.object_story_spec?.template_data?.link ??
     creative.call_to_action?.value?.link ??
     creative.asset_feed_spec?.link_urls?.find((l) => l.website_url)?.website_url ??
     null
@@ -2240,6 +2259,12 @@ async function fetchBoostIneligibleMedia(
  *   without it even when the CTA already carries the link (observed live);
  * - carousels (`asset_feed_spec.link_urls`) → left to the reactive repair so distinct
  *   per-card URLs aren't clobbered;
+ * - catalog templates (`object_story_spec.template_data`) → never patched: the
+ *   destination already lives in the template and per-product links come from the
+ *   catalog feed, so the only patch shape available (a top-level CTA override) would
+ *   force every product to one static URL. The promotion-link edit flow refuses to
+ *   rewrite these creatives for the same reason; the reactive repair still applies
+ *   if Meta demands a URL on the copy (2446383/2061015);
  * - no URL anywhere and no fallback → handled by the pre-flight (`someCreativeNeedsUrl`).
  */
 function preemptiveUrlPatch(
@@ -2248,6 +2273,7 @@ function preemptiveUrlPatch(
 ): Record<string, unknown> | null {
   if (!opts.isSales) return null;
   if (creative.asset_feed_spec?.link_urls?.length) return null;
+  if (creative.object_story_spec?.template_data) return null;
 
   const url = extractCreativeUrl(creative) ?? opts.fallbackPromotionUrl ?? null;
   if (!url) return null;
