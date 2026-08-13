@@ -243,6 +243,7 @@ export async function runPlaybookInsightsBatch(
           accountId,
           campaigns,
           config: evaluationConfig,
+          connectionCreatedAt: connection.createdAt,
         });
         const persisted = await persistPlaybookInsightsForUser({
           runId,

@@ -12,6 +12,8 @@ export function buildFullDemoCampaignMetrics(
     now.getTime() - 8 * 24 * 60 * 60 * 1000,
   ).toISOString();
 
+  const createdTime = now.toISOString();
+
   return [
     {
       id: "fake_campaign_roas_low",
@@ -19,7 +21,9 @@ export function buildFullDemoCampaignMetrics(
       status: "ACTIVE",
       effectiveStatus: "ACTIVE",
       updatedTime: now.toISOString(),
+      createdTime,
       spend: 220,
+      spendLast10Days: 220,
       purchaseRoas: 2.1,
       purchases: 12,
       purchaseValue: 462,
@@ -32,7 +36,9 @@ export function buildFullDemoCampaignMetrics(
       status: "ACTIVE",
       effectiveStatus: "ACTIVE",
       updatedTime: now.toISOString(),
+      createdTime,
       spend: 310,
+      spendLast10Days: 310,
       purchaseRoas: 6.4,
       purchases: 40,
       purchaseValue: 1984,
@@ -45,7 +51,9 @@ export function buildFullDemoCampaignMetrics(
       status: "ACTIVE",
       effectiveStatus: "ACTIVE",
       updatedTime: now.toISOString(),
+      createdTime,
       spend: 150,
+      spendLast10Days: 150,
       purchaseRoas: 3.5,
       purchases: 8,
       purchaseValue: 525,
@@ -58,7 +66,9 @@ export function buildFullDemoCampaignMetrics(
       status: "PAUSED",
       effectiveStatus: "PAUSED",
       updatedTime: pausedUpdated,
+      createdTime,
       spend: 95,
+      spendLast10Days: 95,
       purchaseRoas: 4.2,
       purchases: 10,
       purchaseValue: 399,
@@ -71,7 +81,9 @@ export function buildFullDemoCampaignMetrics(
       status: "ACTIVE",
       effectiveStatus: "ACTIVE",
       updatedTime: now.toISOString(),
+      createdTime,
       spend: 0,
+      spendLast10Days: 0,
       purchaseRoas: null,
       purchases: 0,
       purchaseValue: 0,
