@@ -9,15 +9,7 @@ import {
 import { evaluatePlaybookInsights } from "./evaluate";
 import type { CampaignMetricsRow } from "./types";
 
-function withConfig(
-  enabled: string[],
-  thresholds: Record<string, Record<string, number>>,
-) {
-  return {
-    enabledRuleIds: new Set(enabled),
-    thresholdsByRuleId: new Map(Object.entries(thresholds)),
-  };
-}
+const CONNECTION_CREATED_AT = new Date("2026-06-01T00:00:00.000Z");
 
 function campaign(
   overrides: Partial<CampaignMetricsRow> & Pick<CampaignMetricsRow, "id" | "name">,
@@ -26,7 +18,9 @@ function campaign(
     status: "ACTIVE",
     effectiveStatus: "ACTIVE",
     updatedTime: null,
+    createdTime: "2026-07-01T00:00:00.000Z",
     spend: 100,
+    spendLast10Days: 100,
     purchaseRoas: 4,
     purchases: 10,
     purchaseValue: 400,
@@ -187,5 +181,124 @@ describe("evaluatePlaybookInsights", () => {
       },
     });
     expect(result.candidates).toHaveLength(0);
+  });
+
+  test("includes a new zero-spend campaign created after the Meta connection", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      connectionCreatedAt: CONNECTION_CREATED_AT,
+      campaigns: [
+        campaign({
+          id: "c-new",
+          name: "New no delivery",
+          createdTime: "2026-06-01T00:00:00.000Z",
+          spend: 0,
+          spendLast10Days: 0,
+          impressions: 0,
+          purchaseRoas: null,
+          cpa: null,
+          purchases: 0,
+        }),
+      ],
+    });
+    expect(result.campaigns.map((row) => row.id)).toEqual(["c-new"]);
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_NO_DELIVERY)).toBe(
+      true,
+    );
+  });
+
+  test("includes a legacy campaign with any spend in the last 10 days", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      connectionCreatedAt: CONNECTION_CREATED_AT,
+      campaigns: [
+        campaign({
+          id: "c-legacy-spend",
+          name: "Legacy with spend",
+          createdTime: "2025-01-01T00:00:00.000Z",
+          purchaseRoas: 2,
+          spend: 80,
+          spendLast10Days: 0.01,
+        }),
+      ],
+    });
+    expect(result.campaigns.map((row) => row.id)).toEqual(["c-legacy-spend"]);
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_TRIGGER)).toBe(
+      true,
+    );
+  });
+
+  test("excludes a legacy campaign with no recent spend", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      connectionCreatedAt: CONNECTION_CREATED_AT,
+      campaigns: [
+        campaign({
+          id: "c-legacy-quiet",
+          name: "Legacy quiet",
+          createdTime: "2025-01-01T00:00:00.000Z",
+          purchaseRoas: 1,
+          spend: 200,
+          spendLast10Days: 0,
+        }),
+      ],
+    });
+    expect(result.campaigns).toHaveLength(0);
+    expect(result.candidates).toHaveLength(0);
+  });
+
+  test("missing or invalid createdTime qualifies only through recent spend", () => {
+    const missing = evaluatePlaybookInsights({
+      accountId: "act_1",
+      connectionCreatedAt: CONNECTION_CREATED_AT,
+      campaigns: [
+        campaign({
+          id: "c-missing",
+          name: "Missing created",
+          createdTime: null,
+          spend: 200,
+          spendLast10Days: 0,
+          purchaseRoas: 1,
+        }),
+        campaign({
+          id: "c-invalid",
+          name: "Invalid created",
+          createdTime: "not-a-date",
+          spend: 200,
+          spendLast10Days: 0,
+          purchaseRoas: 1,
+        }),
+        campaign({
+          id: "c-missing-spend",
+          name: "Missing created with spend",
+          createdTime: null,
+          spend: 80,
+          spendLast10Days: 5,
+          purchaseRoas: 2,
+        }),
+      ],
+    });
+    expect(missing.campaigns.map((row) => row.id)).toEqual(["c-missing-spend"]);
+  });
+
+  test("includes a campaign created at the exact connection cutoff", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      connectionCreatedAt: CONNECTION_CREATED_AT,
+      campaigns: [
+        campaign({
+          id: "c-cutoff",
+          name: "Exact cutoff",
+          createdTime: CONNECTION_CREATED_AT.toISOString(),
+          spend: 0,
+          spendLast10Days: 0,
+          impressions: 0,
+          purchaseRoas: null,
+          cpa: null,
+          purchases: 0,
+        }),
+      ],
+    });
+    expect(result.campaigns.map((row) => row.id)).toEqual(["c-cutoff"]);
   });
 });
