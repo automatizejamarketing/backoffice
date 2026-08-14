@@ -188,6 +188,27 @@ export async function listKnownTrackedAccountIds(
 }
 
 /**
+ * Contas já vistas + a timezone da cobertura mais recente de cada uma. É o que
+ * o pré-cheque do coletor usa para responder "este usuário já está coberto
+ * hoje?" sem gastar descoberta na Meta (a timezone define o "hoje" da conta).
+ */
+export async function listKnownTrackedAccountsForPrecheck(
+  userId: string,
+): Promise<Array<{ accountId: string; timezoneName: string | null }>> {
+  return db
+    .selectDistinctOn([metaTrackingAccountCoverage.accountId], {
+      accountId: metaTrackingAccountCoverage.accountId,
+      timezoneName: metaTrackingAccountCoverage.timezoneName,
+    })
+    .from(metaTrackingAccountCoverage)
+    .where(eq(metaTrackingAccountCoverage.userId, userId))
+    .orderBy(
+      metaTrackingAccountCoverage.accountId,
+      desc(metaTrackingAccountCoverage.businessDate),
+    );
+}
+
+/**
  * O estado anterior da conta: versões vigentes + a última transição de estado
  * efetivo de cada entidade.
  *

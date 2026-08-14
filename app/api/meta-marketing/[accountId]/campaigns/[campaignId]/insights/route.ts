@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
+import {
+  cachedMetaRead,
+  tokenCacheId,
+  INSIGHTS_CACHE_TTL_MS,
+} from "@/lib/meta-business/read-cache";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { transformInsightsData } from "@/lib/meta-business/transformers";
 import type {
@@ -108,13 +113,21 @@ export async function GET(
       queryParams.push(`time_increment=${timeIncrement}`);
     }
 
-    // Make Graph API request
-    const response = await metaApiCall<GraphApiInsightsResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: `${campaignId}/insights`,
-      params: queryParams.join("&"),
-      accessToken,
+    // Leitura cacheada: os insights da Meta já chegam com atraso — 5 minutos
+    // de frescor são invisíveis e derrubam o refetch de cada montagem/admin
+    // olhando a mesma conta para zero chamadas.
+    const insightsQuery = queryParams.join("&");
+    const response = await cachedMetaRead({
+      key: `insights:${tokenCacheId(accessToken)}:${campaignId}:${insightsQuery}`,
+      ttlMs: INSIGHTS_CACHE_TTL_MS,
+      fetcher: () =>
+        metaApiCall<GraphApiInsightsResponse>({
+          domain: "FACEBOOK",
+          method: "GET",
+          path: `${campaignId}/insights`,
+          params: insightsQuery,
+          accessToken,
+        }),
     });
 
     // Transform response

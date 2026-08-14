@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
+import {
+  cachedMetaRead,
+  tokenCacheId,
+  INSIGHTS_CACHE_TTL_MS,
+} from "@/lib/meta-business/read-cache";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { transformInsightsData } from "@/lib/meta-business/transformers";
 import type {
@@ -102,12 +107,19 @@ export async function GET(
       queryParams.push(`time_increment=${timeIncrement}`);
     }
 
-    const response = await metaApiCall<GraphApiInsightsResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: `${adsetId}/insights`,
-      params: queryParams.join("&"),
-      accessToken,
+    // Leitura cacheada — mesmo racional da rota de insights de campanha.
+    const insightsQuery = queryParams.join("&");
+    const response = await cachedMetaRead({
+      key: `insights:${tokenCacheId(accessToken)}:${adsetId}:${insightsQuery}`,
+      ttlMs: INSIGHTS_CACHE_TTL_MS,
+      fetcher: () =>
+        metaApiCall<GraphApiInsightsResponse>({
+          domain: "FACEBOOK",
+          method: "GET",
+          path: `${adsetId}/insights`,
+          params: insightsQuery,
+          accessToken,
+        }),
     });
 
     if (timeIncrement && response.data && response.data.length > 0) {
