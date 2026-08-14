@@ -1,6 +1,7 @@
 import { graphFacebookBaseUrl, graphApiVersion } from "./constant";
 import { appSecretProof, facebookAppSecret } from "./appsecret-proof";
 import { GraphApiError, parseGraphError } from "./error";
+import { cachedMetaRead, tokenCacheId } from "./read-cache";
 import type { MetaTokenKind } from "./connection-record";
 
 /** Appends appsecret_proof when META_GENERAL_APP_SECRET is set (user/BISU token call). */
@@ -303,12 +304,40 @@ function assignedToFacebookAdAccounts(
 }
 
 /**
+ * TTL do cache da listagem de contas. A resposta é a mesma para o painel
+ * /marketing, os crons de negócio e o coletor, e o conjunto de contas de um
+ * cliente muda em escala de dias — 5 minutos de frescor não têm efeito visível.
+ * Reconectar o Facebook troca o token e, com ele, a chave do cache.
+ */
+const AD_ACCOUNTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
  * Get user/connection identity and accessible ad accounts.
  *
  * - Legacy user tokens: /me + /me/adaccounts
  * - BISU tokens: identity + me/adaccounts + assigned_ad_accounts
  */
 export async function getUserWithAdAccounts(
+  accessToken: string,
+  options?: GetUserWithAdAccountsOptions,
+): Promise<FacebookUserWithAdAccountsResponse> {
+  const cacheKey = [
+    "adaccounts",
+    tokenCacheId(accessToken),
+    options?.tokenKind ?? "user",
+    options?.bisuAppScopedId ?? "",
+    options?.clientBusinessId ?? "",
+    options?.connectionName ?? "",
+  ].join(":");
+
+  return cachedMetaRead({
+    key: cacheKey,
+    ttlMs: AD_ACCOUNTS_CACHE_TTL_MS,
+    fetcher: () => fetchUserWithAdAccounts(accessToken, options),
+  });
+}
+
+async function fetchUserWithAdAccounts(
   accessToken: string,
   options?: GetUserWithAdAccountsOptions,
 ): Promise<FacebookUserWithAdAccountsResponse> {
