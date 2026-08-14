@@ -176,6 +176,21 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Rate limit NÃO conta como "hiccup": o bloqueio da Meta dura minutos, então
+// re-tentar em 0,5s/1,5s só soma chamadas ao mesmo bloqueio — o oposto de
+// backoff. (`isTransient` sozinho não serve de critério: os códigos 4/17/32 e o
+// genericError são todos `isTransient: true`.)
+const NO_RETRY_THROTTLE_CODES = new Set([4, 17, 32, 341, 368, 613, 80000, 80003, 80004, 80014]);
+
+function isThrottleError(err: unknown): boolean {
+  if (!(err instanceof GraphApiError)) return false;
+  const code = err.errorReturn.data?.code;
+  return (
+    err.errorReturn.statusCode === 429 ||
+    (typeof code === "number" && NO_RETRY_THROTTLE_CODES.has(code))
+  );
+}
+
 async function fetchVideoWithRetry(
   videoId: string,
   accessToken: string,
@@ -194,7 +209,9 @@ async function fetchVideoWithRetry(
       lastErr = err;
       const isTransient =
         err instanceof GraphApiError && err.errorReturn.reason.isTransient;
-      if (!isTransient || attempt >= VIDEO_RETRY_DELAYS_MS.length) break;
+      if (!isTransient || isThrottleError(err) || attempt >= VIDEO_RETRY_DELAYS_MS.length) {
+        break;
+      }
       await delay(VIDEO_RETRY_DELAYS_MS[attempt]);
     }
   }

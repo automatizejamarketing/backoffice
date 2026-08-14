@@ -17,6 +17,7 @@ import {
   finishTrackingRun,
   getAccountCoverageStatus,
   listKnownTrackedAccountIds,
+  listKnownTrackedAccountsForPrecheck,
   loadAccountTrackedState,
   loadRecentInternalChangeEvents,
   persistAccountTrackingDelta,
@@ -152,6 +153,8 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
     },
 
     listKnownAccountIds: listKnownTrackedAccountIds,
+
+    listKnownAccountsForPrecheck: listKnownTrackedAccountsForPrecheck,
 
     // Duas etapas de propósito: o edge de contas atribuídas devolve a lista mas
     // não a timezone, e é a timezone da conta que define o "dia" da cobertura.

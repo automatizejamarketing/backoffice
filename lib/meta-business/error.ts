@@ -263,6 +263,28 @@ const errorMap: Record<string, MappedError> = {
     solution: "Implemente backoff e tente novamente.",
     isTransient: true,
   },
+  "341": {
+    httpStatusCode: 429,
+    title: "Limite do aplicativo atingido",
+    message: "Limite temporário de chamadas no nível do aplicativo.",
+    solution: "Aguarde e tente novamente mais tarde.",
+    isTransient: true,
+  },
+  "613": {
+    httpStatusCode: 429,
+    title: "Limite de taxa excedido",
+    message: "As chamadas para esta API excederam o limite de taxa.",
+    solution: "Aguarde e tente novamente mais tarde.",
+    isTransient: true,
+  },
+  "80004": {
+    httpStatusCode: 429,
+    title: "Muitas chamadas à conta de anúncios",
+    message:
+      "Esta conta de anúncios recebeu chamadas demais em pouco tempo (rate limit da Marketing API).",
+    solution: "Aguarde alguns minutos e tente novamente.",
+    isTransient: true,
+  },
   "100": {
     httpStatusCode: 400,
     title: "Parâmetro inválido",
