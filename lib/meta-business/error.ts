@@ -116,6 +116,33 @@ export class GraphApiError extends Error {
 }
 
 /**
+ * Thrown when a Meta user access token is invalid and the user must reconnect
+ * (Graph codes 190 / 102). Distinct from transient throttles.
+ */
+export class MetaTokenInvalidError extends Error {
+  readonly code: number;
+  readonly subcode?: number;
+
+  constructor(message: string, code: number, subcode?: number) {
+    super(message);
+    this.name = "MetaTokenInvalidError";
+    this.code = code;
+    this.subcode = subcode;
+  }
+}
+
+const TOKEN_INVALID_CODES = new Set<number>([190, 102]);
+
+export function isMetaTokenInvalid(error: unknown): boolean {
+  if (error instanceof MetaTokenInvalidError) return true;
+  if (error instanceof GraphApiError) {
+    const code = error.errorReturn.data?.code;
+    return typeof code === "number" && TOKEN_INVALID_CODES.has(code);
+  }
+  return false;
+}
+
+/**
  * Verifica se um objeto JSON é um erro do Graph API.
  */
 function isGraphApiError(json: unknown): json is { error: unknown } {
@@ -383,6 +410,13 @@ export function findMappedError(code: number, subcode?: number): MappedError {
 
   // Se não encontrou, retorna erro genérico
   return genericError;
+}
+
+export function isObjectUnavailableCode(
+  code: number,
+  subcode?: number,
+): boolean {
+  return code === 100 && subcode === 33;
 }
 
 /**
