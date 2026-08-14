@@ -928,6 +928,14 @@ export class DuplicateAtomicError extends GraphApiError {
    * user for a promotion URL and retry the duplication with it.
    */
   readonly needsPromotionUrl?: boolean;
+  /**
+   * Carried over from a {@link DuplicatePreconditionError} cause: the source
+   * campaign promotes an object this Meta connection cannot resolve, so no
+   * retry of this duplication will ever succeed. Surfaced by
+   * {@link duplicateErrorExtras} so the client can drop the "try again"
+   * affordance instead of inviting the 8-attempt loop of item B-04.
+   */
+  readonly promotedObjectUnavailable?: boolean;
 
   constructor(args: {
     message: string;
@@ -937,6 +945,7 @@ export class DuplicateAtomicError extends GraphApiError {
     orphanIds?: string[];
     isTransient?: boolean;
     needsPromotionUrl?: boolean;
+    promotedObjectUnavailable?: boolean;
   }) {
     super({
       statusCode: args.statusCode ?? 502,
@@ -951,6 +960,64 @@ export class DuplicateAtomicError extends GraphApiError {
     this.rolledBack = args.rolledBack;
     this.orphanIds = args.orphanIds;
     this.needsPromotionUrl = args.needsPromotionUrl;
+    this.promotedObjectUnavailable = args.promotedObjectUnavailable;
+  }
+}
+
+/**
+ * A duplication refused by a PRECONDITION of the source object, not by a failure
+ * of the copy operation. The distinction is the whole point: `rollbackAndThrow`
+ * re-wraps every failure into a `DuplicateAtomicError` so the response can say
+ * "reverted", and in doing so it used to overwrite the envelope — every failure
+ * came out as `502` + "Corrija o problema indicado e tente duplicar novamente."
+ *
+ * For a precondition that is the wrong answer twice over. `502 Bad Gateway`
+ * blames Meta for a condition Meta reported correctly (item B-04 of
+ * `docs/qa/RELATORIO-ERROS-VERCEL-2026-08-12.md`: 8 identical 502s in 3h20 from
+ * one user, polluting the infra-error metrics), and "tente duplicar novamente"
+ * is advice that provably cannot work — the same copy is refused every time
+ * until somebody changes something in Meta's Business Manager. Errors of this
+ * class carry their own status and their own `solution` through the rollback.
+ *
+ * Deliberately a marker CLASS, not a heuristic on the reason: "non-transient
+ * 4xx" would also swallow a genuine `code 100` bug of ours and start telling the
+ * user to go fix their account for a payload we built wrong.
+ */
+export class DuplicatePreconditionError extends GraphApiError {
+  /**
+   * The source campaign's `promoted_object` names an id this Meta connection
+   * cannot resolve (Meta subcode 1885015 on `/copies`, confirmed by a `100/33`
+   * probe of the id itself).
+   *
+   * It rides on `duplicateErrorExtras` rather than on `GraphErrorReturn` — where
+   * the sibling discriminators (`needsReconnect`, `objectUnavailable`,
+   * `needsPaymentMethod`) live — because THIS FILE is byte-mirrored into the
+   * backoffice, whose `lib/meta-business/error.ts` is an older, narrower copy
+   * without those fields. A new key on `GraphErrorReturn` would not compile
+   * there; a field on a class declared here compiles in both.
+   */
+  readonly promotedObjectUnavailable: boolean;
+
+  constructor(args: {
+    statusCode: number;
+    title: string;
+    message: string;
+    solution: string;
+    promotedObjectUnavailable?: boolean;
+  }) {
+    super({
+      statusCode: args.statusCode,
+      reason: {
+        httpStatusCode: args.statusCode,
+        title: args.title,
+        message: args.message,
+        solution: args.solution,
+        // A precondition is never transient by definition — if waiting fixed it,
+        // it was not a precondition.
+        isTransient: false,
+      },
+    });
+    this.promotedObjectUnavailable = args.promotedObjectUnavailable ?? false;
   }
 }
 
@@ -1026,14 +1093,31 @@ async function rollbackAndThrow(
     });
   }
 
+  // A precondition failure already IS the answer: it carries the status that
+  // says "your setup, not our gateway" and a `solution` that does not ask for a
+  // retry that cannot work. Reverting does not change the diagnosis, so only the
+  // "foi revertida" framing is added on top — the envelope survives intact.
+  // Without this, item B-04's named, actionable diagnosis was flattened back
+  // into `502` + "tente duplicar novamente" on its way out of here.
+  const precondition =
+    cause instanceof DuplicatePreconditionError ? cause : undefined;
+
   throw new DuplicateAtomicError({
     message: `A duplicação falhou e foi revertida. ${originalMessage}`,
-    solution: "Corrija o problema indicado e tente duplicar novamente.",
+    solution:
+      precondition?.errorReturn.reason.solution ??
+      "Corrija o problema indicado e tente duplicar novamente.",
+    ...(precondition
+      ? { statusCode: precondition.errorReturn.statusCode }
+      : {}),
     rolledBack: true,
     // Only on a clean rollback do we offer the reactive promotion-URL retry:
     // when objects were orphaned the user must clean those up first, so we
     // surface the hard error (with orphan IDs) instead.
     needsPromotionUrl: URL_REQUIRED_SUBCODES.has(graphErrorSubcode(cause) ?? -1),
+    ...(precondition?.promotedObjectUnavailable
+      ? { promotedObjectUnavailable: true }
+      : {}),
   });
 }
 
@@ -1042,12 +1126,27 @@ export function duplicateErrorExtras(error: unknown): {
   rolledBack?: boolean;
   orphanIds?: string[];
   needsPromotionUrl?: boolean;
+  promotedObjectUnavailable?: boolean;
 } {
+  // A precondition raised BEFORE the rollback scope opens never becomes a
+  // DuplicateAtomicError, so it is matched on its own: the client needs the
+  // "do not offer a retry" signal either way. It reports no `rolledBack` —
+  // truthfully, since nothing was created to revert.
+  if (error instanceof DuplicatePreconditionError) {
+    return {
+      ...(error.promotedObjectUnavailable
+        ? { promotedObjectUnavailable: true }
+        : {}),
+    };
+  }
   if (!(error instanceof DuplicateAtomicError)) return {};
   return {
     rolledBack: error.rolledBack,
     ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),
     ...(error.needsPromotionUrl ? { needsPromotionUrl: true } : {}),
+    ...(error.promotedObjectUnavailable
+      ? { promotedObjectUnavailable: true }
+      : {}),
   };
 }
 
@@ -2680,20 +2779,34 @@ function describeDeadRefs(dead: DeadPromotedRef[]): string {
     .join(", ");
 }
 
-/** The named-resource upgrade of Meta's opaque 1885015 rejection. */
-function promotedObjectDiagnosisError(dead: DeadPromotedRef[]): GraphApiError {
-  return new GraphApiError({
-    statusCode: 502,
-    reason: {
-      httpStatusCode: 502,
-      title: "Falha na duplicação",
-      message:
-        `A campanha original está vinculada a recursos que a sua conexão com a Meta não consegue acessar: ${describeDeadRefs(dead)}. ` +
-        "Ou o recurso foi removido, ou ele não está compartilhado com o Automatize. Por isso a Meta recusa qualquer cópia desta campanha.",
-      solution:
-        "Enquanto isso, duplique esta campanha pelo Gerenciador de Anúncios da Meta — se funcionar lá, basta compartilhar o recurso (por exemplo, o catálogo, no Gerenciador de Negócios) com o Automatize para duplicar por aqui; se falhar lá também, o recurso foi removido e a campanha precisa ser recriada com o recurso atual.",
-      isTransient: false,
-    },
+/**
+ * The named-resource upgrade of Meta's opaque 1885015 rejection.
+ *
+ * `422 Unprocessable Content`, not `502 Bad Gateway`: the request is well-formed
+ * and Meta answered correctly — it is the *instruction* ("copy this campaign")
+ * that cannot be carried out, because of the source campaign's own state. Same
+ * status, for the same reason, as `assertCopyableCampaignType`'s refusal of an
+ * ASC/AAC campaign; same remedy shape too ("do it in Ads Manager instead").
+ *
+ * `409 Conflict` was the other candidate in the report and is deliberately NOT
+ * used: `getUserAccessToken` already answers `409` for `needs_reconnect` on THIS
+ * route, and two screens branch on that exact status to mean "reconnect your
+ * Meta account" (`marketing/page.tsx`, `new/hooks/use-campaign-accounts.ts`).
+ * Reusing it here would make an unshared catalog indistinguishable from a dead
+ * token, which is the wrong remedy pointed at the wrong person.
+ */
+function promotedObjectDiagnosisError(
+  dead: DeadPromotedRef[],
+): DuplicatePreconditionError {
+  return new DuplicatePreconditionError({
+    statusCode: 422,
+    title: "Falha na duplicação",
+    message:
+      `A campanha original está vinculada a recursos que a sua conexão com a Meta não consegue acessar: ${describeDeadRefs(dead)}. ` +
+      "Ou o recurso foi removido, ou ele não está compartilhado com o Automatize. Por isso a Meta recusa qualquer cópia desta campanha.",
+    solution:
+      "Enquanto isso, duplique esta campanha pelo Gerenciador de Anúncios da Meta — se funcionar lá, basta compartilhar o recurso (por exemplo, o catálogo, no Gerenciador de Negócios) com o Automatize para duplicar por aqui; se falhar lá também, o recurso foi removido e a campanha precisa ser recriada com o recurso atual.",
+    promotedObjectUnavailable: true,
   });
 }
 
