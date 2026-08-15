@@ -54,7 +54,10 @@ export type AdSetTargetingInput = {
   audienceNetworkPositions?: string[];
   messengerPositions?: string[];
   devicePlatforms?: string[];
-  /** Advantage+ audience. Defaults to true (Meta default). false = strict manual. */
+  /**
+   * Advantage+ audience. Defaults to true (Meta default). false = strict manual.
+   * Included custom audiences force this OFF (ADR 0027) — exclusion-only does not.
+   */
   advantageAudience?: boolean;
   /** Raw merge into the compiled targeting object (escape hatch). */
   raw?: Record<string, unknown>;
@@ -130,7 +133,8 @@ export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown>
   if (t?.messengerPositions?.length) tt.messenger_positions = t.messengerPositions;
   if (t?.devicePlatforms?.length) tt.device_platforms = t.devicePlatforms;
 
-  const advantage = t?.advantageAudience !== false; // default true (Meta default)
+  const hasIncludedAudiences = Boolean(t?.customAudiences?.length);
+  const advantage = hasIncludedAudiences ? false : t?.advantageAudience !== false;
   tt.targeting_automation = { advantage_audience: advantage ? 1 : 0 };
 
   const hasManualSignals = Boolean(
