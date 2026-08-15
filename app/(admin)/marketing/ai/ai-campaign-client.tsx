@@ -25,6 +25,11 @@ import {
   type AdSetDeliveryScheduleValue,
 } from "../components/adset-delivery-schedule-editor";
 import { useCompanyProfile } from "../hooks/use-company-locations";
+import {
+  buildSavedCustomLocations,
+  needsAiLocationStep,
+  resolveEffectiveAiLocations,
+} from "@/lib/onboarding/business-geo-defaults";
 import { scheduleFromLocationHours } from "@/lib/meta-business/location-hours";
 import {
   ADVISED_MIN_DAILY_BUDGET,
@@ -94,6 +99,14 @@ export function AiCampaignClient() {
   const { pages, isLoading: isLoadingPages } = usePages(accountId, userId, Boolean(accountId && userId));
   const { data: companyProfile } = useCompanyProfile(userId);
   const businessUnits = companyProfile?.locations ?? [];
+  const savedLocations = useMemo(
+    () =>
+      buildSavedCustomLocations(
+        companyProfile?.company ?? null,
+        companyProfile?.locations ?? [],
+      ),
+    [companyProfile],
+  );
   const rawNiche = companyProfile?.company?.niche ?? "outros";
   const companyNiche = [
     "food_service",
@@ -122,7 +135,7 @@ export function AiCampaignClient() {
   const [pageId, setPageId] = useState<string | null>(null);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixels, setPixels] = useState<Array<{ id: string; name?: string }>>([]);
-  const [locations, setLocations] = useState<SelectedGeoLocation[]>([]);
+  const [manualLocations, setManualLocations] = useState<SelectedGeoLocation[]>([]);
   const [promotionUrl, setPromotionUrl] = useState("");
   const [deliverySchedule, setDeliverySchedule] = useState<AdSetDeliveryScheduleValue>({
     deliveryMode: "specific_hours",
@@ -134,8 +147,12 @@ export function AiCampaignClient() {
   const selectedPage = pages.find((page) => page.pageId === pageId) ?? pages[0] ?? null;
   const hasMold = Boolean(mold);
   const needsTexts = selectedMedia?.source !== "instagram";
-  const needsPixel = objective === "sales" && !hasMold;
-  const needsLocation = !hasMold;
+  const needsPixel = objective === "sales" && !hasMold && !pixelId;
+  const effectiveLocations = resolveEffectiveAiLocations(
+    manualLocations,
+    savedLocations,
+  );
+  const needsLocation = needsAiLocationStep(hasMold, effectiveLocations);
 
   const backHref = `/users/${userId}?tab=marketing`;
 
@@ -319,6 +336,10 @@ export function AiCampaignClient() {
       toast.error("Selecione a página do anúncio.");
       return;
     }
+    if (!hasMold && effectiveLocations.length === 0) {
+      toast.error("Selecione ao menos uma localização para segmentação");
+      return;
+    }
     setIsBusy(true);
     setPhase("publishing");
     setError(null);
@@ -368,7 +389,7 @@ export function AiCampaignClient() {
             instagramUserId: selectedPage.instagramBusinessAccountId,
             pixelId,
             promotionUrl,
-            locations,
+            locations: effectiveLocations,
             deliveryMode: deliverySchedule.deliveryMode,
             scheduleBlocks: answers.scheduleBlocks,
             period: {
@@ -397,6 +418,18 @@ export function AiCampaignClient() {
     setPhase("media");
   }
 
+  function advanceAfterCreative() {
+    if (needsLocation) {
+      setPhase("location");
+      return;
+    }
+    if (needsPixel) {
+      setPhase("pixel");
+      return;
+    }
+    setPhase("review");
+  }
+
   function goNextFromMedia() {
     if (!selectedMedia) {
       toast.error("Escolha uma mídia.");
@@ -408,7 +441,11 @@ export function AiCampaignClient() {
         return;
       }
     }
-    setPhase(needsTexts ? "text" : needsLocation ? "location" : "review");
+    if (needsTexts) {
+      setPhase("text");
+      return;
+    }
+    advanceAfterCreative();
   }
 
   function goNextFromText() {
@@ -416,19 +453,26 @@ export function AiCampaignClient() {
       toast.error("Preencha título e texto do anúncio.");
       return;
     }
-    if (needsLocation) {
-      setPhase("location");
-      return;
-    }
-    setPhase("review");
+    advanceAfterCreative();
   }
 
   function goNextFromLocation() {
+    if (manualLocations.length === 0) {
+      toast.error("Selecione ao menos uma localização para segmentação");
+      return;
+    }
     if (needsPixel) {
       setPhase("pixel");
       return;
     }
     setPhase("review");
+  }
+
+  function openLocationStep() {
+    if (manualLocations.length === 0 && savedLocations.length > 0) {
+      setManualLocations(savedLocations);
+    }
+    setPhase("location");
   }
 
   return (
@@ -633,11 +677,15 @@ export function AiCampaignClient() {
           <CardContent className="space-y-4">
             <LocationTargetingSection
               accountId={accountId}
-              onLocationsChange={setLocations}
-              selectedLocations={locations}
+              company={companyProfile?.company ?? null}
+              companyLocations={companyProfile?.locations ?? []}
+              onLocationsChange={setManualLocations}
+              selectedLocations={manualLocations}
               userId={userId}
             />
-            <Button onClick={goNextFromLocation}>Continuar</Button>
+            <Button disabled={manualLocations.length === 0} onClick={goNextFromLocation}>
+              Continuar
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -692,12 +740,40 @@ export function AiCampaignClient() {
                 selectedPageId={pageId}
               />
             </div>
+            {!hasMold ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>Geo Localização</Label>
+                  <Button onClick={openLocationStep} size="sm" type="button" variant="ghost">
+                    Alterar
+                  </Button>
+                </div>
+                {effectiveLocations.length > 0 ? (
+                  <ul className="space-y-1 text-sm">
+                    {effectiveLocations.map((location) => (
+                      <li key={location.key} className="text-muted-foreground">
+                        {location.name}
+                        {location.address_string ? ` · ${location.address_string}` : ""}
+                        {location.radius != null ? ` · ${location.radius} km` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-destructive">
+                    Selecione ao menos uma localização para segmentação
+                  </p>
+                )}
+              </div>
+            ) : null}
             <AdSetDeliveryScheduleEditor
               businessUnits={businessUnits}
               onChange={setDeliverySchedule}
               value={deliverySchedule}
             />
-            <Button disabled={isBusy} onClick={() => void publish()}>
+            <Button
+              disabled={isBusy || (!hasMold && effectiveLocations.length === 0)}
+              onClick={() => void publish()}
+            >
               Publicar campanha
             </Button>
           </CardContent>

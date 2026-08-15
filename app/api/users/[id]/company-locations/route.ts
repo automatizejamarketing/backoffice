@@ -4,22 +4,9 @@ import {
   getCompanyLocationsByCompanyId,
   getPrimaryCompanyForUser,
 } from "@/lib/db/admin-queries";
+import type { CompanyLocationsResponse } from "@/lib/db/company-location-queries";
 
-export type CompanyLocationsResponse = {
-  company: {
-    id: string;
-    name: string;
-    niche: string | null;
-    websiteUrl: string | null;
-  } | null;
-  locations: Array<{
-    id: string;
-    name: string | null;
-    isPrimary: boolean;
-    businessOperatingHours: unknown;
-    businessAddress: unknown;
-  }>;
-};
+export type { CompanyLocationsResponse };
 
 /**
  * GET /api/users/[id]/company-locations
@@ -47,13 +34,16 @@ export async function GET(
       name: company.name,
       niche: company.niche ?? null,
       websiteUrl: company.websiteUrl ?? null,
+      googlePlaceId: company.googlePlaceId ?? null,
+      businessAddress: company.businessAddress,
     },
     locations: locations.map((location) => ({
       id: location.id,
       name: location.name,
       isPrimary: location.isPrimary,
-      businessOperatingHours: location.businessOperatingHours,
+      googlePlaceId: location.googlePlaceId,
       businessAddress: location.businessAddress,
+      businessOperatingHours: location.businessOperatingHours,
     })),
   });
 }
