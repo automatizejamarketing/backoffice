@@ -22,7 +22,7 @@ import {
   placementsToTargetingFields,
   reviewPlacementsFromMode,
   type PlacementKey,
-} from "../../placements";
+} from "../placements";
 import { updateAdSet } from "../update/update-ad-set";
 import { readAdSet } from "../update/read-current";
 import type { MetaCtx } from "@/lib/meta-business/insights";
@@ -476,6 +476,12 @@ const PLACEMENT_TARGETING_KEYS = [
   "device_platforms",
 ] as const;
 
+/**
+ * Apply the review's placement override onto every duplicated ad set before activation.
+ *
+ * Marketing API v25.0: Advantage+ placements is the ABSENCE of placement fields.
+ * Sending publisher_platforms / facebook_positions / instagram_positions turns it off.
+ */
 async function applyPlacementsOverride(args: {
   accessToken: string;
   adSetIds: string[];
@@ -498,6 +504,8 @@ async function applyPlacementsOverride(args: {
     }
 
     if (answers.placementsMode === "automatic") {
+      // Advantage+ would also spend on Facebook. An IG-profile destination must
+      // stay pinned — Meta stores an empty set as publisher_platforms: [].
       if (wasInstagramOnly) {
         Object.assign(
           targeting,
