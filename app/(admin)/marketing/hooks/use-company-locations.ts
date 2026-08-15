@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { CompanyLocationRow } from "@/lib/db/company-location-queries";
+import type { CompanyLocationsResponse } from "@/lib/db/company-location-queries";
 
 export function useCompanyProfile(userId: string | null) {
   return useQuery({
@@ -10,15 +10,7 @@ export function useCompanyProfile(userId: string | null) {
       if (!response.ok) {
         throw new Error("Não foi possível carregar as unidades do cliente.");
       }
-      return (await response.json()) as {
-        company: {
-          id: string;
-          name: string;
-          niche: string | null;
-          websiteUrl: string | null;
-        } | null;
-        locations: CompanyLocationRow[];
-      };
+      return (await response.json()) as CompanyLocationsResponse;
     },
   });
 }

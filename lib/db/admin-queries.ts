@@ -1515,6 +1515,7 @@ export type CompanyForUser = Pick<
   | "name"
   | "niche"
   | "websiteUrl"
+  | "googlePlaceId"
   | "businessOperatingHours"
   | "businessAddress"
 > & { role: string };
@@ -1528,6 +1529,7 @@ export async function getCompaniesByUserId(
       name: company.name,
       niche: company.niche,
       websiteUrl: company.websiteUrl,
+      googlePlaceId: company.googlePlaceId,
       businessOperatingHours: company.businessOperatingHours,
       businessAddress: company.businessAddress,
       role: userCompany.role,
