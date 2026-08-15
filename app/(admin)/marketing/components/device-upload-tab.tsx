@@ -3,7 +3,6 @@
 import { useCallback, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import { Loader2, UploadCloud, Video as VideoIcon, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
@@ -20,19 +19,23 @@ const MAX_VIDEO = 300 * 1024 * 1024;
 
 type DeviceUploadTabProps = {
   userId: string;
-  selected: DeviceUploadSelection | null;
-  onSelect: (selection: DeviceUploadSelection | null) => void;
+  selected: DeviceUploadSelection[];
+  onSelect: (selection: DeviceUploadSelection[]) => void;
+  maxSelection?: number;
 };
 
 export function DeviceUploadTab({
   userId,
   selected,
   onSelect,
+  maxSelection = 1,
 }: DeviceUploadTabProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  const remaining = maxSelection - selected.length;
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -67,8 +70,6 @@ export function DeviceUploadTab({
           onUploadProgress: (event) => setProgress(event.percentage),
         });
 
-        // Persist the blob_uploads row while the admin session cookie is
-        // present (proxy.ts would block Vercel's cookie-less callback).
         const registerResponse = await fetch("/api/files/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -88,11 +89,12 @@ export function DeviceUploadTab({
           );
         }
 
-        onSelect({
+        const next: DeviceUploadSelection = {
           blobUrl: result.url,
           mediaType: isVideo ? "video" : "image",
           previewUrl: URL.createObjectURL(file),
-        });
+        };
+        onSelect(maxSelection === 1 ? [next] : [...selected, next]);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Falha ao enviar o arquivo.",
@@ -101,68 +103,77 @@ export function DeviceUploadTab({
         setIsUploading(false);
       }
     },
-    [onSelect, userId],
+    [maxSelection, onSelect, selected, userId],
   );
-
-  if (selected) {
-    return (
-      <div className="flex flex-col items-center gap-3 py-6">
-        <div className="relative">
-          {selected.mediaType === "video" ? (
-            <video
-              src={selected.previewUrl}
-              className="max-h-56 rounded-lg border"
-              controls
-            />
-          ) : (
-            <img
-              src={selected.previewUrl}
-              alt="Mídia enviada"
-              className="max-h-56 rounded-lg border object-contain"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => onSelect(null)}
-            className="absolute -right-2 -top-2 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
-            aria-label="Remover"
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          {selected.mediaType === "video" ? (
-            <VideoIcon className="size-3.5" />
-          ) : null}
-          Arquivo enviado e pronto para uso.
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-3 py-4">
-      <button
-        type="button"
-        disabled={isUploading}
-        onClick={() => inputRef.current?.click()}
-        className={cn(
-          "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border px-6 py-10 text-center transition-colors",
-          isUploading ? "opacity-70" : "hover:border-primary/40",
-        )}
-      >
-        {isUploading ? (
-          <Loader2 className="size-7 animate-spin text-muted-foreground" />
-        ) : (
-          <UploadCloud className="size-7 text-muted-foreground" />
-        )}
-        <span className="text-sm font-medium">
-          {isUploading ? "Enviando..." : "Selecionar arquivo do dispositivo"}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          Imagem (JPG/PNG, até 5 MB) ou vídeo (MP4/MOV/WEBM, até 300 MB)
-        </span>
-      </button>
+      {selected.length > 0 ? (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {selected.map((item) => (
+            <div key={item.blobUrl} className="relative">
+              {item.mediaType === "video" ? (
+                <video
+                  src={item.previewUrl}
+                  className="aspect-square w-full rounded-lg border object-cover"
+                  controls
+                />
+              ) : (
+                <img
+                  src={item.previewUrl}
+                  alt="Mídia enviada"
+                  className="aspect-square w-full rounded-lg border object-cover"
+                />
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  onSelect(selected.filter((entry) => entry.blobUrl !== item.blobUrl))
+                }
+                className="absolute -right-2 -top-2 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow"
+                aria-label="Remover"
+              >
+                <X className="size-3.5" />
+              </button>
+              {item.mediaType === "video" ? (
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <VideoIcon className="size-3" />
+                  Vídeo
+                </p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {remaining > 0 ? (
+        <button
+          type="button"
+          disabled={isUploading}
+          onClick={() => inputRef.current?.click()}
+          className={cn(
+            "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border px-6 py-10 text-center transition-colors",
+            isUploading ? "opacity-70" : "hover:border-primary/40",
+          )}
+        >
+          {isUploading ? (
+            <Loader2 className="size-7 animate-spin text-muted-foreground" />
+          ) : (
+            <UploadCloud className="size-7 text-muted-foreground" />
+          )}
+          <span className="text-sm font-medium">
+            {isUploading
+              ? "Enviando..."
+              : selected.length > 0
+                ? "Adicionar outro arquivo"
+                : "Selecionar arquivo do dispositivo"}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Imagem (JPG/PNG, até 5 MB) ou vídeo (MP4/MOV/WEBM, até 300 MB)
+            {maxSelection > 1 ? ` · até ${remaining} restante(s)` : ""}
+          </span>
+        </button>
+      ) : null}
 
       {isUploading && (
         <div className="space-y-1">

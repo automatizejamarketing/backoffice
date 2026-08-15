@@ -11,6 +11,7 @@ import {
 import {
   INSTAGRAM_PLACEMENTS,
   placementsToTargetingFields,
+  type PlacementKey,
 } from "@/lib/meta-business/placements";
 import type {
   CampaignDeliveryMode,
@@ -67,6 +68,12 @@ export type FallbackPublishInput = {
   deliveryMode?: CampaignDeliveryMode;
   scheduleBlocks?: CampaignScheduleBlock[];
   period?: FallbackPeriod;
+  /**
+   * Advantage+ = omit placement fields. Manual = send publisher_platforms /
+   * *_positions. Followers (traffic) stays Instagram-only either way.
+   */
+  placementsMode?: "automatic" | "manual";
+  selectedPlacements?: PlacementKey[];
 };
 
 export type FallbackConfig = {
@@ -298,6 +305,31 @@ function resolveFlight(
   };
 }
 
+function resolvePlacementFields(
+  input: FallbackPublishInput,
+  config: FallbackConfig,
+): Record<string, unknown> {
+  const isTraffic = config.metaObjective === "OUTCOME_TRAFFIC";
+  const mode = input.placementsMode ?? (isTraffic ? "manual" : "automatic");
+
+  if (isTraffic) {
+    const selected = (input.selectedPlacements ?? []).filter((key) =>
+      (INSTAGRAM_PLACEMENTS as readonly PlacementKey[]).includes(key),
+    );
+    return placementsToTargetingFields(
+      selected.length > 0 ? selected : INSTAGRAM_PLACEMENTS,
+    );
+  }
+
+  if (mode === "automatic") {
+    return {};
+  }
+
+  const selected = input.selectedPlacements ?? [];
+  if (selected.length === 0) return {};
+  return placementsToTargetingFields(selected);
+}
+
 function privacyPolicyUrl(): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   return appUrl
@@ -504,10 +536,7 @@ export async function publishFallbackCampaign(args: {
     input.deliveryMode === "specific_hours" &&
     (input.scheduleBlocks?.length ?? 0) > 0;
 
-  const placementFields =
-    resolved.metaObjective === "OUTCOME_TRAFFIC"
-      ? placementsToTargetingFields(INSTAGRAM_PLACEMENTS)
-      : {};
+  const placementFields = resolvePlacementFields(input, resolved);
 
   let leadFormId: string | undefined;
   if (resolved.metaObjective === "OUTCOME_LEADS") {

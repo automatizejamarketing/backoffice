@@ -17,6 +17,14 @@ import { buildConventionalCampaignName, buildConventionalAdName } from "../campa
 import { createAd } from "../creation/create-ad";
 import { deleteMetaObject } from "../creation/delete";
 import { localIssue, type CreateIssue } from "../creation/types";
+import {
+  INSTAGRAM_PLACEMENTS,
+  placementsToTargetingFields,
+  reviewPlacementsFromMode,
+  type PlacementKey,
+} from "../../placements";
+import { updateAdSet } from "../update/update-ad-set";
+import { readAdSet } from "../update/read-current";
 import type { MetaCtx } from "@/lib/meta-business/insights";
 import {
   type PlanAnswers,
@@ -458,6 +466,72 @@ async function applyDeliveryScheduleOverride(args: {
   }
 }
 
+const PLACEMENT_TARGETING_KEYS = [
+  "publisher_platforms",
+  "facebook_positions",
+  "instagram_positions",
+  "audience_network_positions",
+  "messenger_positions",
+  "threads_positions",
+  "device_platforms",
+] as const;
+
+async function applyPlacementsOverride(args: {
+  accessToken: string;
+  adSetIds: string[];
+  answers: PlanAnswers;
+}): Promise<void> {
+  const { accessToken, adSetIds, answers } = args;
+  if (answers.placementsMode == null) return;
+
+  for (const adSetId of adSetIds) {
+    const snap = await readAdSet(adSetId, accessToken);
+    const targeting: Record<string, unknown> = snap.targeting
+      ? (JSON.parse(JSON.stringify(snap.targeting)) as Record<string, unknown>)
+      : {};
+    const platforms = (targeting.publisher_platforms as string[] | undefined) ?? [];
+    const wasInstagramOnly =
+      platforms.length === 1 && platforms[0] === "instagram";
+
+    for (const key of PLACEMENT_TARGETING_KEYS) {
+      delete targeting[key];
+    }
+
+    if (answers.placementsMode === "automatic") {
+      if (wasInstagramOnly) {
+        Object.assign(
+          targeting,
+          placementsToTargetingFields(INSTAGRAM_PLACEMENTS),
+        );
+      }
+    } else {
+      const selected = (answers.selectedPlacements ?? []) as PlacementKey[];
+      if (selected.length === 0) {
+        throw new Error("manual placements require at least one surface");
+      }
+      const allowed = wasInstagramOnly
+        ? selected.filter((key) =>
+            (INSTAGRAM_PLACEMENTS as readonly PlacementKey[]).includes(key),
+          )
+        : selected;
+      if (allowed.length === 0) {
+        throw new Error("no allowed placements remain for this ad set");
+      }
+      Object.assign(targeting, placementsToTargetingFields(allowed));
+    }
+
+    const result = await updateAdSet({
+      adSetId,
+      accessToken,
+      snapshot: snap,
+      targetingRaw: targeting,
+    });
+    if (!result.ok) {
+      throw new Error(result.issues[0]?.reason ?? "placement override failed");
+    }
+  }
+}
+
 function buildDuplicationReview(
   ctx: MetaCtx,
   prepared: DuplicationPrepared,
@@ -541,7 +615,17 @@ function buildDuplicationReview(
       costPerResult: ad.costPerResult,
       resultLabel: ad.resultLabel,
     })),
-    audience: describeAudience(mold),
+    audience: {
+      ...describeAudience(mold),
+      ...(answers.placementsMode
+        ? {
+            placements: reviewPlacementsFromMode(
+              answers.placementsMode,
+              answers.selectedPlacements ?? [],
+            ),
+          }
+        : {}),
+    },
     ...(scheduleSummary ? { schedule: scheduleSummary } : {}),
     identity: {
       ...(mold.identity.pageId ? { pageId: mold.identity.pageId } : {}),
@@ -741,6 +825,11 @@ export async function createDuplicatedCampaign(
         adSetIds: result.adSetIds,
         answers,
       });
+      await applyPlacementsOverride({
+        accessToken: ctx.accessToken,
+        adSetIds: result.adSetIds,
+        answers,
+      });
     } catch {
       const deleted = await deleteMetaObject(result.campaignId, ctx.accessToken);
       return {
@@ -749,9 +838,9 @@ export async function createDuplicatedCampaign(
           localIssue(
             "adset",
             "SCHEDULE_OVERRIDE_FAILED",
-            "A campanha foi criada, mas os horários de veiculação não puderam ser aplicados.",
-            "Tente novamente ou ajuste os horários depois na campanha.",
-            ["adset_schedule"],
+            "A campanha foi criada, mas os horários ou posicionamentos não puderam ser aplicados.",
+            "Tente novamente ou ajuste depois na campanha.",
+            ["adset_schedule", "targeting"],
           ),
         ],
         rolledBack: deleted,

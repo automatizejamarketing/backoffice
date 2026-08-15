@@ -38,6 +38,8 @@ type MediaSourcePickerProps = {
   accountId: string;
   userId: string;
   onChange: (media: SelectedMedia | null) => void;
+  onChangeMany?: (media: SelectedMedia[]) => void;
+  maxSelection?: number;
   /**
    * Instagram Business Account (the ad identity) whose media should be listed.
    * When it changes, the Instagram grid reloads and any previously selected
@@ -46,116 +48,155 @@ type MediaSourcePickerProps = {
   instagramBusinessAccountId?: string;
 };
 
+function toSelectedMedia(
+  igSelected: InstagramMediaItem[],
+  automatizeSelected: AutomatizeMediaSelection[],
+  deviceSelected: DeviceUploadSelection[],
+): SelectedMedia[] {
+  return [
+    ...igSelected.map((post) => ({
+      source: "instagram" as const,
+      instagramMediaId: post.id,
+      previewUrl: post.thumbnail_url ?? post.media_url,
+      isVideo: post.media_type === "VIDEO" || post.media_type === "REELS",
+    })),
+    ...automatizeSelected.map((sel) => ({
+      source: "automatize_media" as const,
+      generatedImageId: sel.generatedImageId,
+      previewUrl: sel.imageUrl,
+    })),
+    ...deviceSelected.map((sel) => ({
+      source: "device" as const,
+      blobUrl: sel.blobUrl,
+      mediaType: sel.mediaType,
+      previewUrl: sel.previewUrl,
+    })),
+  ];
+}
+
 export function MediaSourcePicker({
   accountId,
   userId,
   onChange,
+  onChangeMany,
+  maxSelection = 1,
   instagramBusinessAccountId,
 }: MediaSourcePickerProps) {
   const [igSelected, setIgSelected] = useState<InstagramMediaItem[]>([]);
-  const [automatizeSelected, setAutomatizeSelected] =
-    useState<AutomatizeMediaSelection | null>(null);
-  const [deviceSelected, setDeviceSelected] =
-    useState<DeviceUploadSelection | null>(null);
+  const [automatizeSelected, setAutomatizeSelected] = useState<
+    AutomatizeMediaSelection[]
+  >([]);
+  const [deviceSelected, setDeviceSelected] = useState<DeviceUploadSelection[]>(
+    [],
+  );
 
-  // When the Instagram identity changes, drop any Instagram post that was
-  // selected from the previous account (it no longer belongs to the chosen
-  // identity). Other sources (Automatize/Upload) are identity-agnostic.
+  const emit = (
+    nextIg: InstagramMediaItem[],
+    nextAutomatize: AutomatizeMediaSelection[],
+    nextDevice: DeviceUploadSelection[],
+  ) => {
+    const items = toSelectedMedia(nextIg, nextAutomatize, nextDevice);
+    onChangeMany?.(items);
+    onChange(items[0] ?? null);
+  };
+
   const igSelectedRef = useRef(igSelected);
   igSelectedRef.current = igSelected;
   useEffect(() => {
     if (igSelectedRef.current.length > 0) {
       setIgSelected([]);
-      onChange(null);
+      emit([], automatizeSelected, deviceSelected);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instagramBusinessAccountId]);
 
-  // Single overall selection: choosing in one tab clears the others.
+  const exclusive = maxSelection === 1;
+  const usedSlots =
+    igSelected.length + automatizeSelected.length + deviceSelected.length;
+
   const handleInstagram = (posts: InstagramMediaItem[]) => {
-    setIgSelected(posts);
-    setAutomatizeSelected(null);
-    setDeviceSelected(null);
-    const post = posts[0];
-    onChange(
-      post
-        ? {
-            source: "instagram",
-            instagramMediaId: post.id,
-            previewUrl: post.thumbnail_url ?? post.media_url,
-            isVideo:
-              post.media_type === "VIDEO" || post.media_type === "REELS",
-          }
-        : null,
-    );
+    const nextIg = exclusive ? posts.slice(0, 1) : posts;
+    const nextAutomatize = exclusive ? [] : automatizeSelected;
+    const nextDevice = exclusive ? [] : deviceSelected;
+    setIgSelected(nextIg);
+    if (exclusive) {
+      setAutomatizeSelected([]);
+      setDeviceSelected([]);
+    }
+    emit(nextIg, nextAutomatize, nextDevice);
   };
 
-  const handleAutomatize = (sel: AutomatizeMediaSelection | null) => {
-    setAutomatizeSelected(sel);
-    setIgSelected([]);
-    setDeviceSelected(null);
-    onChange(
-      sel
-        ? {
-            source: "automatize_media",
-            generatedImageId: sel.generatedImageId,
-            previewUrl: sel.imageUrl,
-          }
-        : null,
-    );
+  const handleAutomatize = (sel: AutomatizeMediaSelection[]) => {
+    const nextAutomatize = exclusive ? sel.slice(0, 1) : sel;
+    const nextIg = exclusive ? [] : igSelected;
+    const nextDevice = exclusive ? [] : deviceSelected;
+    setAutomatizeSelected(nextAutomatize);
+    if (exclusive) {
+      setIgSelected([]);
+      setDeviceSelected([]);
+    }
+    emit(nextIg, nextAutomatize, nextDevice);
   };
 
-  const handleDevice = (sel: DeviceUploadSelection | null) => {
-    setDeviceSelected(sel);
-    setIgSelected([]);
-    setAutomatizeSelected(null);
-    onChange(
-      sel
-        ? {
-            source: "device",
-            blobUrl: sel.blobUrl,
-            mediaType: sel.mediaType,
-            previewUrl: sel.previewUrl,
-          }
-        : null,
-    );
+  const handleDevice = (sel: DeviceUploadSelection[]) => {
+    const nextDevice = exclusive ? sel.slice(0, 1) : sel;
+    const nextIg = exclusive ? [] : igSelected;
+    const nextAutomatize = exclusive ? [] : automatizeSelected;
+    setDeviceSelected(nextDevice);
+    if (exclusive) {
+      setIgSelected([]);
+      setAutomatizeSelected([]);
+    }
+    emit(nextIg, nextAutomatize, nextDevice);
   };
+
+  const remaining = Math.max(0, maxSelection - usedSlots);
 
   return (
-    <Tabs defaultValue="instagram" className="w-full">
-      <TabsList className="grid w-full grid-cols-3">
-        <TabsTrigger value="instagram">Instagram</TabsTrigger>
-        <TabsTrigger value="automatize">Automatize</TabsTrigger>
-        <TabsTrigger value="device">Upload</TabsTrigger>
-      </TabsList>
+    <div className="space-y-3">
+      {maxSelection > 1 ? (
+        <p className="text-xs text-muted-foreground">
+          {usedSlots}/{maxSelection} mídias selecionadas. Pode misturar
+          Instagram, Automatize e arquivos do dispositivo.
+        </p>
+      ) : null}
+      <Tabs defaultValue="instagram" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="instagram">Instagram</TabsTrigger>
+          <TabsTrigger value="automatize">Automatize</TabsTrigger>
+          <TabsTrigger value="device">Upload</TabsTrigger>
+        </TabsList>
 
-      <TabsContent value="instagram" className="mt-4">
-        <InstagramPostPicker
-          accountId={accountId}
-          userId={userId}
-          maxSelection={1}
-          selectedPosts={igSelected}
-          onSelectionChange={handleInstagram}
-          instagramBusinessAccountId={instagramBusinessAccountId}
-        />
-      </TabsContent>
+        <TabsContent value="instagram" className="mt-4">
+          <InstagramPostPicker
+            accountId={accountId}
+            userId={userId}
+            maxSelection={igSelected.length + remaining}
+            selectedPosts={igSelected}
+            onSelectionChange={handleInstagram}
+            instagramBusinessAccountId={instagramBusinessAccountId}
+          />
+        </TabsContent>
 
-      <TabsContent value="automatize" className="mt-4">
-        <AutomatizeMediaGrid
-          accountId={accountId}
-          userId={userId}
-          selected={automatizeSelected}
-          onSelect={handleAutomatize}
-        />
-      </TabsContent>
+        <TabsContent value="automatize" className="mt-4">
+          <AutomatizeMediaGrid
+            accountId={accountId}
+            userId={userId}
+            selected={automatizeSelected}
+            onSelect={handleAutomatize}
+            maxSelection={automatizeSelected.length + remaining}
+          />
+        </TabsContent>
 
-      <TabsContent value="device" className="mt-4">
-        <DeviceUploadTab
-          userId={userId}
-          selected={deviceSelected}
-          onSelect={handleDevice}
-        />
-      </TabsContent>
-    </Tabs>
+        <TabsContent value="device" className="mt-4">
+          <DeviceUploadTab
+            userId={userId}
+            selected={deviceSelected}
+            onSelect={handleDevice}
+            maxSelection={deviceSelected.length + remaining}
+          />
+        </TabsContent>
+      </Tabs>
+    </div>
   );
 }

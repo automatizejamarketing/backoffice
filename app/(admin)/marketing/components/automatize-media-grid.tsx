@@ -21,8 +21,9 @@ type AutomatizeMediaItem = {
 type AutomatizeMediaGridProps = {
   accountId: string;
   userId: string;
-  selected: AutomatizeMediaSelection | null;
-  onSelect: (selection: AutomatizeMediaSelection | null) => void;
+  selected: AutomatizeMediaSelection[];
+  onSelect: (selection: AutomatizeMediaSelection[]) => void;
+  maxSelection?: number;
 };
 
 export function AutomatizeMediaGrid({
@@ -30,6 +31,7 @@ export function AutomatizeMediaGrid({
   userId,
   selected,
   onSelect,
+  maxSelection = 1,
 }: AutomatizeMediaGridProps) {
   const [media, setMedia] = useState<AutomatizeMediaItem[]>([]);
   const [page, setPage] = useState(1);
@@ -122,23 +124,39 @@ export function AutomatizeMediaGrid({
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
         {media.map((item) => {
-          const isSelected = selected?.generatedImageId === item.id;
+          const isSelected = selected.some(
+            (entry) => entry.generatedImageId === item.id,
+          );
+          const atMax = selected.length >= maxSelection;
           return (
             <button
               key={item.id}
               type="button"
-              onClick={() =>
-                onSelect(
-                  isSelected
-                    ? null
-                    : { generatedImageId: item.id, imageUrl: item.imageUrl },
-                )
-              }
+              disabled={!isSelected && atMax}
+              onClick={() => {
+                if (isSelected) {
+                  onSelect(
+                    selected.filter((entry) => entry.generatedImageId !== item.id),
+                  );
+                  return;
+                }
+                if (atMax) return;
+                if (maxSelection === 1) {
+                  onSelect([{ generatedImageId: item.id, imageUrl: item.imageUrl }]);
+                  return;
+                }
+                onSelect([
+                  ...selected,
+                  { generatedImageId: item.id, imageUrl: item.imageUrl },
+                ]);
+              }}
               className={cn(
                 "group relative aspect-square overflow-hidden rounded-md border-2 transition-all",
                 isSelected
                   ? "border-primary"
-                  : "border-transparent hover:border-primary/30",
+                  : atMax
+                    ? "border-transparent opacity-50"
+                    : "border-transparent hover:border-primary/30",
               )}
             >
               <img

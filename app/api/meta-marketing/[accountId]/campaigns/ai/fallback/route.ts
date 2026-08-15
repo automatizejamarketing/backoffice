@@ -5,6 +5,7 @@ import type {
   CampaignScheduleBlock,
 } from "@/lib/meta-business/campaign-schedule";
 import type { PlanMedia, PlanTexts } from "@/lib/meta-business/marketing/ai-creation";
+import type { PlacementKey } from "@/lib/meta-business/placements";
 import type { PublishResult } from "@/lib/meta-business/marketing/ai-creation";
 import {
   publishFallbackCampaign,
@@ -36,6 +37,8 @@ export type FallbackAiCampaignRequest = {
   deliveryMode?: CampaignDeliveryMode;
   scheduleBlocks?: CampaignScheduleBlock[];
   period?: FallbackPeriod;
+  placementsMode?: "automatic" | "manual";
+  selectedPlacements?: PlacementKey[];
 };
 
 export type FallbackAiCampaignResponse = { success: true } & PublishResult;
@@ -130,6 +133,8 @@ export async function POST(
         deliveryMode: body.deliveryMode,
         scheduleBlocks: body.scheduleBlocks,
         period: body.period,
+        placementsMode: body.placementsMode,
+        selectedPlacements: body.selectedPlacements,
       },
     });
 

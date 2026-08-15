@@ -407,7 +407,16 @@ export function AdSetDeliveryScheduleEditor({
                 disabled={disabled}
                 onClick={() => updateValue({ scheduleBlocks: createPresetBlocks("weekdays") })}
               >
-                Dias uteis
+                Dias úteis
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={() => updateValue({ scheduleBlocks: createPresetBlocks("weekend") })}
+              >
+                Fim de semana
               </Button>
               <Button
                 type="button"

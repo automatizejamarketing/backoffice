@@ -153,6 +153,39 @@ export function placementsToTargetingFields(
 }
 
 /**
+ * Review-card shape for Advantage+ (no placement fields) vs a manual subset.
+ * Marketing API v25.0: omitting publisher_platforms / *_positions is Advantage+;
+ * sending any of them turns that automation off.
+ */
+export function reviewPlacementsFromMode(
+  mode: "automatic" | "manual",
+  selected: readonly PlacementKey[] = [],
+): {
+  automatic: boolean;
+  platforms?: string[];
+  facebookPositions?: string[];
+  instagramPositions?: string[];
+} {
+  if (mode === "automatic") {
+    return { automatic: true, platforms: [] };
+  }
+  if (selected.length === 0) {
+    return { automatic: false, platforms: [] };
+  }
+  const fields = placementsToTargetingFields(selected);
+  return {
+    automatic: false,
+    platforms: fields.publisher_platforms,
+    ...(fields.facebook_positions
+      ? { facebookPositions: fields.facebook_positions }
+      : {}),
+    ...(fields.instagram_positions
+      ? { instagramPositions: fields.instagram_positions }
+      : {}),
+  };
+}
+
+/**
  * Reverse of placementsToTargetingFields. Inspects a targeting object returned
  * by the Meta Graph API and produces the corresponding PlacementKey set.
  *

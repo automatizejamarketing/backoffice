@@ -1,13 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { addDays, format, startOfDay } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { ArrowLeft, CalendarIcon, Loader2, Sparkles } from "lucide-react";
+import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -35,10 +44,23 @@ import {
   ADVISED_MIN_DAILY_BUDGET,
   DEFAULT_DAILY_BUDGET,
   DEFAULT_FLIGHT_DAYS,
+  MAX_MEDIAS,
+  needsTexts as planNeedsTexts,
   type PlanMedia,
 } from "@/lib/meta-business/marketing/ai-creation/build-tree";
 import type { MoldRef, ProvenAdRef } from "@/lib/meta-business/marketing/ai-creation";
 import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-types";
+import {
+  ALL_PLACEMENTS,
+  INSTAGRAM_PLACEMENTS,
+  type PlacementKey,
+} from "@/lib/meta-business/placements";
+import { cn } from "@/lib/utils";
+import {
+  AiPlacementsEditor,
+  placementsSummary,
+  type PlacementsMode,
+} from "./ai-placements-editor";
 
 type Phase =
   | "objective"
@@ -60,11 +82,47 @@ type VideoUpload = {
   thumbnailUrl?: string;
 };
 
+type PlanIssue = {
+  reason?: string;
+  message?: string;
+  suggestion?: string;
+};
+
 const OBJECTIVE_LABEL: Record<Objective, string> = {
   sales: "Vendas",
   followers: "Seguidores",
   leads: "Leads",
 };
+
+const BUDGET_PRESETS = ["20", "30", "50", "100"] as const;
+
+const CTA_OPTIONS = [
+  "LEARN_MORE",
+  "SHOP_NOW",
+  "ORDER_NOW",
+  "SEE_MENU",
+  "GET_OFFER",
+  "SIGN_UP",
+  "CONTACT_US",
+  "WHATSAPP_MESSAGE",
+  "MESSAGE_PAGE",
+  "SUBSCRIBE",
+  "DOWNLOAD",
+  "APPLY_NOW",
+  "GET_QUOTE",
+  "BOOK_TRAVEL",
+] as const;
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) =>
+  `${hour.toString().padStart(2, "0")}:00`,
+);
+const END_TIME_OPTIONS = [...HOUR_OPTIONS, "23:59"];
+
+function fallbackAcceptsSchedule(niche: string, objective: Objective): boolean {
+  if (objective !== "sales") return false;
+  const normalized = niche === "service" ? "insurance_broker" : niche;
+  return normalized === "food_service" || normalized === "outros";
+}
 
 function apiPath(accountId: string, userId: string, suffix: string) {
   return `/api/meta-marketing/${accountId}/campaigns/ai/${suffix}?userId=${userId}`;
@@ -88,6 +146,13 @@ function mediaToPlan(media: SelectedMedia, video?: VideoUpload): PlanMedia | nul
     return null;
   }
   return { kind: "image", imageUrl: media.blobUrl };
+}
+
+function combineDateTime(date: Date, time: string): string {
+  const [hours, minutes] = time.split(":");
+  const next = new Date(date);
+  next.setHours(Number(hours ?? 0), Number(minutes ?? 0), 0, 0);
+  return next.toISOString();
 }
 
 export function AiCampaignClient() {
@@ -126,11 +191,12 @@ export function AiCampaignClient() {
   const [keepAdIds, setKeepAdIds] = useState<string[]>([]);
   const [currency, setCurrency] = useState("BRL");
   const [dailyBudget, setDailyBudget] = useState(String(DEFAULT_DAILY_BUDGET));
-  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null);
-  const [videoUpload, setVideoUpload] = useState<VideoUpload | null>(null);
+  const [selectedMedias, setSelectedMedias] = useState<SelectedMedia[]>([]);
+  const [videoUploads, setVideoUploads] = useState<Record<string, VideoUpload>>({});
   const [headline, setHeadline] = useState("");
   const [message, setMessage] = useState("");
   const [offer, setOffer] = useState("");
+  const [ctaType, setCtaType] = useState<string>("LEARN_MORE");
   const [isWritingCopy, setIsWritingCopy] = useState(false);
   const [pageId, setPageId] = useState<string | null>(null);
   const [pixelId, setPixelId] = useState<string | null>(null);
@@ -141,18 +207,50 @@ export function AiCampaignClient() {
     deliveryMode: "specific_hours",
     scheduleBlocks: [],
   });
+  const [placementsMode, setPlacementsMode] = useState<PlacementsMode>("automatic");
+  const [selectedPlacements, setSelectedPlacements] = useState<PlacementKey[]>([]);
+  const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
+  const [periodEnd, setPeriodEnd] = useState(() =>
+    addDays(startOfDay(new Date()), DEFAULT_FLIGHT_DAYS - 1),
+  );
+  const [periodStartTime, setPeriodStartTime] = useState("00:00");
+  const [periodEndTime, setPeriodEndTime] = useState("23:59");
+  const [planIssues, setPlanIssues] = useState<PlanIssue[]>([]);
+  const [daypartingAllowed, setDaypartingAllowed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const startedVideos = useRef(new Set<string>());
 
   const selectedPage = pages.find((page) => page.pageId === pageId) ?? pages[0] ?? null;
   const hasMold = Boolean(mold);
-  const needsTexts = selectedMedia?.source !== "instagram";
+  const planMedias = useMemo(
+    () =>
+      selectedMedias
+        .map((media) =>
+          mediaToPlan(
+            media,
+            media.source === "device" ? videoUploads[media.blobUrl] : undefined,
+          ),
+        )
+        .filter((media): media is PlanMedia => media != null),
+    [selectedMedias, videoUploads],
+  );
+  const needsTexts = planNeedsTexts(planMedias);
   const needsPixel = objective === "sales" && !hasMold && !pixelId;
   const effectiveLocations = resolveEffectiveAiLocations(
     manualLocations,
     savedLocations,
   );
   const needsLocation = needsAiLocationStep(hasMold, effectiveLocations);
+  const showDeliverySchedule = hasMold
+    ? daypartingAllowed
+    : fallbackAcceptsSchedule(companyNiche, objective);
+  const pendingVideos = selectedMedias.some(
+    (media) =>
+      media.source === "device" &&
+      media.mediaType === "video" &&
+      videoUploads[media.blobUrl]?.state !== "ready",
+  );
 
   const backHref = `/users/${userId}?tab=marketing`;
 
@@ -191,73 +289,93 @@ export function AiCampaignClient() {
   }, [accountId, userId, pixelId]);
 
   useEffect(() => {
-    if (
-      selectedMedia?.source !== "device" ||
-      selectedMedia.mediaType !== "video" ||
-      !accountId ||
-      !userId
-    ) {
+    if (objective === "followers") {
+      setPlacementsMode("manual");
+      setSelectedPlacements((current) => {
+        const kept = current.filter((key) =>
+          (INSTAGRAM_PLACEMENTS as readonly PlacementKey[]).includes(key),
+        );
+        return kept.length > 0 ? kept : [...INSTAGRAM_PLACEMENTS];
+      });
       return;
     }
-    let cancelled = false;
-    setVideoUpload({ state: "uploading" });
-    fetch(apiPath(accountId, userId, "video"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ videoUrl: selectedMedia.blobUrl }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          throw new Error(data.message ?? "Falha ao enviar o vídeo.");
-        }
-        if (cancelled) return;
-        setVideoUpload({
-          state: "processing",
-          videoId: data.videoId,
-          thumbnailUrl: data.thumbnailUrl,
-        });
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setVideoUpload({ state: "error" });
-          toast.error(err instanceof Error ? err.message : "Falha ao enviar o vídeo.");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accountId, userId, selectedMedia]);
+    setPlacementsMode("automatic");
+    setSelectedPlacements([]);
+  }, [objective]);
 
   useEffect(() => {
-    if (videoUpload?.state !== "processing" || !videoUpload.videoId) return;
+    if (!accountId || !userId) return;
+    for (const media of selectedMedias) {
+      if (media.source !== "device" || media.mediaType !== "video") continue;
+      if (startedVideos.current.has(media.blobUrl)) continue;
+      startedVideos.current.add(media.blobUrl);
+      setVideoUploads((prev) => ({
+        ...prev,
+        [media.blobUrl]: { state: "uploading" },
+      }));
+      fetch(apiPath(accountId, userId, "video"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoUrl: media.blobUrl }),
+      })
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            throw new Error(data.message ?? "Falha ao enviar o vídeo.");
+          }
+          setVideoUploads((prev) => ({
+            ...prev,
+            [media.blobUrl]: {
+              state: "processing",
+              videoId: data.videoId,
+              thumbnailUrl: data.thumbnailUrl,
+            },
+          }));
+        })
+        .catch((err) => {
+          setVideoUploads((prev) => ({
+            ...prev,
+            [media.blobUrl]: { state: "error" },
+          }));
+          toast.error(err instanceof Error ? err.message : "Falha ao enviar o vídeo.");
+        });
+    }
+  }, [accountId, userId, selectedMedias]);
+
+  useEffect(() => {
+    const processing = Object.entries(videoUploads).filter(
+      ([, upload]) => upload.state === "processing" && upload.videoId,
+    );
+    if (processing.length === 0 || !accountId || !userId) return;
+    const ids = processing.map(([, upload]) => upload.videoId).join(",");
     let cancelled = false;
     const timer = window.setInterval(async () => {
       const res = await fetch(
-        `${apiPath(accountId, userId, "video-status")}&videoIds=${videoUpload.videoId}`,
+        `${apiPath(accountId, userId, "video-status")}&videoIds=${ids}`,
       );
       const data = await res.json();
       if (cancelled) return;
-      const status = videoUpload.videoId
-        ? data.data?.statuses?.[videoUpload.videoId]
-        : undefined;
-      if (status?.state === "ready") {
-        setVideoUpload((prev) => (prev ? { ...prev, state: "ready" } : prev));
-      }
-      if (status?.state === "error") {
-        setVideoUpload((prev) => (prev ? { ...prev, state: "error" } : prev));
-      }
+      setVideoUploads((prev) => {
+        const next = { ...prev };
+        for (const [blobUrl, upload] of processing) {
+          const status = upload.videoId
+            ? data.data?.statuses?.[upload.videoId]
+            : undefined;
+          if (status?.state === "ready") {
+            next[blobUrl] = { ...upload, state: "ready" };
+          }
+          if (status?.state === "error") {
+            next[blobUrl] = { ...upload, state: "error" };
+          }
+        }
+        return next;
+      });
     }, 3000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [accountId, userId, videoUpload]);
-
-  const planMedia = useMemo(
-    () => (selectedMedia ? mediaToPlan(selectedMedia, videoUpload ?? undefined) : null),
-    [selectedMedia, videoUpload],
-  );
+  }, [accountId, userId, videoUploads]);
 
   if (!userId || !accountId) {
     return (
@@ -270,6 +388,50 @@ export function AiCampaignClient() {
         </Button>
       </div>
     );
+  }
+
+  function buildAnswers() {
+    return {
+      dailyBudget: Number(dailyBudget) || DEFAULT_DAILY_BUDGET,
+      medias: planMedias,
+      texts: {
+        headline,
+        message,
+        ctaType,
+        link: promotionUrl || undefined,
+      },
+      pageId: selectedPage?.pageId,
+      instagramUserId: selectedPage?.instagramBusinessAccountId,
+      pixelId: pixelId || undefined,
+      keepAdIds: hasMold ? keepAdIds : undefined,
+      ...(showDeliverySchedule
+        ? {
+            deliveryMode: deliverySchedule.deliveryMode,
+            scheduleBlocks:
+              deliverySchedule.deliveryMode === "specific_hours"
+                ? deliverySchedule.scheduleBlocks
+                : [],
+          }
+        : {}),
+      placementsMode,
+      ...(placementsMode === "manual" ? { selectedPlacements } : {}),
+    };
+  }
+
+  async function refreshPlan() {
+    if (!mold) return;
+    try {
+      const res = await fetch(apiPath(accountId, userId, "plan"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mold, answers: buildAnswers() }),
+      });
+      const data = await res.json();
+      setPlanIssues(Array.isArray(data.issues) ? data.issues : []);
+      setDaypartingAllowed(data.review?.budget?.daypartingAllowed !== false);
+    } catch {
+      setPlanIssues([]);
+    }
   }
 
   async function scanAccount() {
@@ -327,9 +489,18 @@ export function AiCampaignClient() {
     }
   }
 
+  async function goToReview() {
+    setPhase("review");
+    if (hasMold) void refreshPlan();
+  }
+
   async function publish() {
-    if (!planMedia) {
-      toast.error("Selecione uma mídia pronta para publicar.");
+    if (planMedias.length === 0) {
+      toast.error("Selecione ao menos uma mídia pronta para publicar.");
+      return;
+    }
+    if (pendingVideos) {
+      toast.error("Aguarde os vídeos ficarem prontos na Meta.");
       return;
     }
     if (!selectedPage) {
@@ -340,28 +511,23 @@ export function AiCampaignClient() {
       toast.error("Selecione ao menos uma localização para segmentação");
       return;
     }
+    if (placementsMode === "manual" && selectedPlacements.length === 0) {
+      toast.error("Escolha ao menos um posicionamento.");
+      return;
+    }
+    if (
+      showDeliverySchedule &&
+      deliverySchedule.deliveryMode === "specific_hours" &&
+      deliverySchedule.scheduleBlocks.length === 0
+    ) {
+      toast.error("Escolha ao menos um horário de veiculação, ou use o dia todo.");
+      return;
+    }
     setIsBusy(true);
     setPhase("publishing");
     setError(null);
     try {
-      const answers = {
-        dailyBudget: Number(dailyBudget) || DEFAULT_DAILY_BUDGET,
-        medias: [planMedia],
-        texts: {
-          headline,
-          message,
-          link: promotionUrl || undefined,
-        },
-        pageId: selectedPage.pageId,
-        instagramUserId: selectedPage.instagramBusinessAccountId,
-        pixelId: pixelId || undefined,
-        keepAdIds: hasMold ? keepAdIds : undefined,
-        deliveryMode: deliverySchedule.deliveryMode,
-        scheduleBlocks:
-          deliverySchedule.deliveryMode === "specific_hours"
-            ? deliverySchedule.scheduleBlocks
-            : [],
-      };
+      const answers = buildAnswers();
 
       if (hasMold && mold) {
         const res = await fetch(apiPath(accountId, userId, "create"), {
@@ -371,11 +537,9 @@ export function AiCampaignClient() {
         });
         const data = await res.json();
         if (!res.ok || !data.success || data.ok === false) {
-          throw new Error(data.message ?? data.issues?.[0]?.message ?? "Falha ao criar.");
+          throw new Error(data.message ?? data.issues?.[0]?.reason ?? data.issues?.[0]?.message ?? "Falha ao criar.");
         }
       } else {
-        const start = new Date();
-        const stop = new Date(start.getTime() + DEFAULT_FLIGHT_DAYS * 86400000);
         const res = await fetch(apiPath(accountId, userId, "fallback"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -392,15 +556,18 @@ export function AiCampaignClient() {
             locations: effectiveLocations,
             deliveryMode: deliverySchedule.deliveryMode,
             scheduleBlocks: answers.scheduleBlocks,
+            placementsMode,
+            selectedPlacements:
+              placementsMode === "manual" ? selectedPlacements : undefined,
             period: {
-              startTime: start.toISOString(),
-              endTime: stop.toISOString(),
+              startTime: combineDateTime(periodStart, periodStartTime),
+              endTime: combineDateTime(periodEnd, periodEndTime),
             },
           }),
         });
         const data = await res.json();
         if (!res.ok || !data.success || data.ok === false) {
-          throw new Error(data.message ?? data.issues?.[0]?.message ?? "Falha ao criar.");
+          throw new Error(data.message ?? data.issues?.[0]?.reason ?? data.issues?.[0]?.message ?? "Falha ao criar.");
         }
       }
 
@@ -427,19 +594,17 @@ export function AiCampaignClient() {
       setPhase("pixel");
       return;
     }
-    setPhase("review");
+    void goToReview();
   }
 
   function goNextFromMedia() {
-    if (!selectedMedia) {
-      toast.error("Escolha uma mídia.");
+    if (selectedMedias.length === 0) {
+      toast.error("Escolha ao menos uma mídia.");
       return;
     }
-    if (selectedMedia.source === "device" && selectedMedia.mediaType === "video") {
-      if (videoUpload?.state !== "ready") {
-        toast.error("Aguarde o vídeo ficar pronto na Meta.");
-        return;
-      }
+    if (pendingVideos) {
+      toast.error("Aguarde o vídeo ficar pronto na Meta.");
+      return;
     }
     if (needsTexts) {
       setPhase("text");
@@ -465,7 +630,7 @@ export function AiCampaignClient() {
       setPhase("pixel");
       return;
     }
-    setPhase("review");
+    void goToReview();
   }
 
   function openLocationStep() {
@@ -474,6 +639,8 @@ export function AiCampaignClient() {
     }
     setPhase("location");
   }
+
+  const periodLabel = `${format(periodStart, "dd/MM/yy")} – ${format(periodEnd, "dd/MM/yy")}`;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
@@ -484,7 +651,7 @@ export function AiCampaignClient() {
         <div>
           <h1 className="text-xl font-semibold">Criar campanha com IA</h1>
           <p className="text-sm text-muted-foreground">
-            Mesmos passos do app do cliente, na conta selecionada.
+            Tudo o que o cliente faz no app, na conta selecionada.
           </p>
         </div>
       </div>
@@ -587,6 +754,23 @@ export function AiCampaignClient() {
                 type="number"
                 value={dailyBudget}
               />
+              <div className="flex flex-wrap gap-2">
+                {BUDGET_PRESETS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setDailyBudget(value)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                      dailyBudget === value
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-background hover:border-primary/40",
+                    )}
+                  >
+                    {currency} {value}
+                  </button>
+                ))}
+              </div>
               <p className="text-xs text-muted-foreground">
                 Recomendado a partir de {currency} {ADVISED_MIN_DAILY_BUDGET}.
               </p>
@@ -605,10 +789,12 @@ export function AiCampaignClient() {
             <MediaSourcePicker
               accountId={accountId}
               instagramBusinessAccountId={selectedPage?.instagramBusinessAccountId}
-              onChange={setSelectedMedia}
+              maxSelection={MAX_MEDIAS}
+              onChange={() => undefined}
+              onChangeMany={setSelectedMedias}
               userId={userId}
             />
-            {videoUpload?.state === "uploading" || videoUpload?.state === "processing" ? (
+            {pendingVideos ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
                 Enviando e processando o vídeo na Meta…
@@ -714,7 +900,7 @@ export function AiCampaignClient() {
                 Nenhum pixel encontrado nesta conta. A campanha de vendas precisa de um pixel.
               </p>
             )}
-            <Button disabled={needsPixel && !pixelId} onClick={() => setPhase("review")}>
+            <Button disabled={needsPixel && !pixelId} onClick={() => void goToReview()}>
               Continuar
             </Button>
           </CardContent>
@@ -730,7 +916,50 @@ export function AiCampaignClient() {
             <p className="text-sm text-muted-foreground">
               Objetivo: {OBJECTIVE_LABEL[objective]} · Orçamento: {currency} {dailyBudget}/dia
               {hasMold ? " · A partir do histórico validado" : " · Campanha nova"}
+              {` · ${selectedMedias.length} mídia(s)`}
             </p>
+
+            {planIssues.length > 0 ? (
+              <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
+                <p className="font-medium">A Meta pode recusar esta campanha</p>
+                {planIssues.map((issue, index) => (
+                  <p key={`${issue.reason ?? issue.message}-${index}`} className="text-muted-foreground">
+                    {issue.reason ?? issue.message}
+                    {issue.suggestion ? ` ${issue.suggestion}` : ""}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
+            {selectedMedias.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                {selectedMedias.map((media, index) => (
+                  <div
+                    key={
+                      media.source === "instagram"
+                        ? media.instagramMediaId
+                        : media.source === "automatize_media"
+                          ? media.generatedImageId
+                          : media.blobUrl
+                    }
+                    className="overflow-hidden rounded-md border"
+                  >
+                    {media.previewUrl ? (
+                      <img
+                        alt={`Mídia ${index + 1}`}
+                        className="aspect-square w-full object-cover"
+                        src={media.previewUrl}
+                      />
+                    ) : (
+                      <div className="flex aspect-square items-center justify-center text-xs text-muted-foreground">
+                        Mídia {index + 1}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             <div className="space-y-2">
               <Label>Identidade</Label>
               <PageSelector
@@ -740,6 +969,98 @@ export function AiCampaignClient() {
                 selectedPageId={pageId}
               />
             </div>
+
+            {needsTexts ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Título</Label>
+                  <Input onChange={(event) => setHeadline(event.target.value)} value={headline} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Botão (CTA)</Label>
+                  <Select onValueChange={setCtaType} value={ctaType}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CTA_OPTIONS.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option.replace(/_/g, " ")}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label>Texto</Label>
+                  <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
+                </div>
+              </div>
+            ) : null}
+
+            {!hasMold ? (
+              <div className="space-y-3">
+                <Label>Período</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button className="justify-start gap-2" type="button" variant="outline">
+                      <CalendarIcon className="size-4" />
+                      {periodLabel}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-auto p-0">
+                    <Calendar
+                      defaultMonth={periodStart}
+                      disabled={{ before: startOfDay(new Date()) }}
+                      locale={ptBR}
+                      mode="range"
+                      onSelect={(range: DateRange | undefined) => {
+                        if (range?.from) setPeriodStart(startOfDay(range.from));
+                        if (range?.to) setPeriodEnd(startOfDay(range.to));
+                      }}
+                      selected={{ from: periodStart, to: periodEnd }}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Início
+                    </Label>
+                    <Select onValueChange={setPeriodStartTime} value={periodStartTime}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOUR_OPTIONS.map((time) => (
+                          <SelectItem key={`start-${time}`} value={time}>
+                            {time}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Término
+                    </Label>
+                    <Select onValueChange={setPeriodEndTime} value={periodEndTime}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {END_TIME_OPTIONS.map((time) => (
+                          <SelectItem key={`end-${time}`} value={time}>
+                            {time}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {!hasMold ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -765,13 +1086,41 @@ export function AiCampaignClient() {
                 )}
               </div>
             ) : null}
-            <AdSetDeliveryScheduleEditor
-              businessUnits={businessUnits}
-              onChange={setDeliverySchedule}
-              value={deliverySchedule}
+
+            <AiPlacementsEditor
+              mode={placementsMode}
+              objective={objective}
+              onChange={setSelectedPlacements}
+              onModeChange={(mode) => {
+                setPlacementsMode(mode);
+                if (mode === "manual" && selectedPlacements.length === 0) {
+                  setSelectedPlacements(
+                    objective === "followers"
+                      ? [...INSTAGRAM_PLACEMENTS]
+                      : [...ALL_PLACEMENTS],
+                  );
+                }
+              }}
+              selectedPlacements={selectedPlacements}
             />
+            <p className="text-xs text-muted-foreground">
+              {placementsSummary(placementsMode, selectedPlacements, objective)}
+            </p>
+
+            {showDeliverySchedule ? (
+              <AdSetDeliveryScheduleEditor
+                businessUnits={businessUnits}
+                onChange={setDeliverySchedule}
+                value={deliverySchedule}
+              />
+            ) : null}
             <Button
-              disabled={isBusy || (!hasMold && effectiveLocations.length === 0)}
+              disabled={
+                isBusy ||
+                pendingVideos ||
+                planMedias.length === 0 ||
+                (!hasMold && effectiveLocations.length === 0)
+              }
               onClick={() => void publish()}
             >
               Publicar campanha
