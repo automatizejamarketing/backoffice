@@ -2276,7 +2276,8 @@ export type MercadoPagoPaymentLinkStatus =
 export type MercadoPagoPaymentLinkSource =
   | "self_service"
   | "backoffice"
-  | "renewal_email";
+  | "renewal_email"
+  | "subscription_recovery";
 
 export const mercadopagoPaymentLink = pgTable(
   "mercadopago_payment_links",
@@ -2301,7 +2302,12 @@ export const mercadopagoPaymentLink = pgTable(
       .notNull()
       .default("pending"),
     source: varchar("source", {
-      enum: ["self_service", "backoffice", "renewal_email"],
+      enum: [
+        "self_service",
+        "backoffice",
+        "renewal_email",
+        "subscription_recovery",
+      ],
     })
       .$type<MercadoPagoPaymentLinkSource>()
       .notNull(),
