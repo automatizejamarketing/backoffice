@@ -5,6 +5,7 @@ import {
   getPrimaryCompanyForUser,
 } from "@/lib/db/admin-queries";
 import type { CompanyLocationsResponse } from "@/lib/db/company-location-queries";
+import { parseLocationHours } from "@/lib/meta-business/location-hours";
 
 export type { CompanyLocationsResponse };
 
@@ -28,7 +29,7 @@ export async function GET(
 
   const locations = await getCompanyLocationsByCompanyId(company.id);
 
-  return NextResponse.json({
+  const body: CompanyLocationsResponse = {
     company: {
       id: company.id,
       name: company.name,
@@ -43,7 +44,11 @@ export async function GET(
       isPrimary: location.isPrimary,
       googlePlaceId: location.googlePlaceId,
       businessAddress: location.businessAddress,
-      businessOperatingHours: location.businessOperatingHours,
+      businessOperatingHours: parseLocationHours(
+        location.businessOperatingHours,
+      ),
     })),
-  });
+  };
+
+  return NextResponse.json(body);
 }
