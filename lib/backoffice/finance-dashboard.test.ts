@@ -38,10 +38,13 @@ describe("finance dashboard", () => {
             netAmount: 47_678,
           },
         ],
+        { grossCentavos: 238_200, payingCustomers: 3 },
       ),
     ).toEqual({
       mrrCentavos: 99_100,
       activeSubscriptions: 3,
+      realizedLtvCentavos: 79_400,
+      lifetimePayingCustomers: 3,
       mrrByProvider: { card: 19_700, pix: 49_700, manual: 29_700 },
       receipts: {
         payments: 2,
@@ -95,6 +98,7 @@ describe("finance dashboard", () => {
         },
       ],
       [],
+      { grossCentavos: 0, payingCustomers: 0 },
     );
 
     expect(result.receipts).toMatchObject({
@@ -105,5 +109,6 @@ describe("finance dashboard", () => {
       netCoveragePayments: 0,
       averageNetTicketCentavos: 0,
     });
+    expect(result.realizedLtvCentavos).toBe(0);
   });
 });

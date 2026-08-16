@@ -23,6 +23,11 @@ export type StripeSettlement = {
   feeAmount: number;
 };
 
+export type CustomerLifetimeRevenue = {
+  grossCentavos: number;
+  payingCustomers: number;
+};
+
 export type FinanceProvider = "card" | "pix" | "manual";
 
 export type FinanceProviderSummary = {
@@ -37,6 +42,8 @@ export type FinanceProviderSummary = {
 export type FinanceDashboardSummary = {
   mrrCentavos: number;
   activeSubscriptions: number;
+  realizedLtvCentavos: number;
+  lifetimePayingCustomers: number;
   mrrByProvider: Record<FinanceProvider, number>;
   receipts: {
     payments: number;
@@ -72,6 +79,7 @@ export function summarizeFinanceDashboard(
   activePlans: ActivePlanForMrr[],
   payments: PaymentForFinance[],
   stripeSettlements: StripeSettlement[],
+  customerLifetimeRevenue: CustomerLifetimeRevenue,
 ): FinanceDashboardSummary {
   const mrrByProvider: Record<FinanceProvider, number> = {
     card: 0,
@@ -132,6 +140,14 @@ export function summarizeFinanceDashboard(
       0,
     ),
     activeSubscriptions: activePlans.length,
+    realizedLtvCentavos:
+      customerLifetimeRevenue.payingCustomers === 0
+        ? 0
+        : Math.round(
+            customerLifetimeRevenue.grossCentavos /
+              customerLifetimeRevenue.payingCustomers,
+          ),
+    lifetimePayingCustomers: customerLifetimeRevenue.payingCustomers,
     mrrByProvider,
     receipts: {
       payments: providerValues.reduce((sum, item) => sum + item.payments, 0),

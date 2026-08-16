@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import {
   CartesianGrid,
   Line,
@@ -27,6 +28,10 @@ const chartConfig = {
     label: "Terminaram onboarding",
     color: "var(--chart-3)",
   },
+  trialStarted: {
+    label: "Iniciaram trial",
+    color: "var(--chart-5)",
+  },
   metaConnected: {
     label: "Conectaram Meta",
     color: "var(--chart-2)",
@@ -36,6 +41,10 @@ const chartConfig = {
     color: "var(--chart-4)",
   },
 } satisfies ChartConfig;
+
+const subscribeToClient = () => () => undefined;
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 function formatShortDate(value: string) {
   const [, month, day] = value.split("-");
@@ -51,10 +60,19 @@ export function ConversionTrendChart({
 }: {
   data: DailyConversionCohort[];
 }) {
+  const mounted = useSyncExternalStore(
+    subscribeToClient,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
   const chartData = data.map((item) => ({
     ...item,
     dateLabel: formatShortDate(item.date),
   }));
+
+  if (!mounted) {
+    return <div className="h-[280px] w-full sm:h-[340px]" aria-hidden />;
+  }
 
   return (
     <ChartContainer
@@ -108,6 +126,14 @@ export function ConversionTrendChart({
           type="linear"
           dataKey="onboardingCompleted"
           stroke="var(--color-onboardingCompleted)"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4 }}
+        />
+        <Line
+          type="linear"
+          dataKey="trialStarted"
+          stroke="var(--color-trialStarted)"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}
