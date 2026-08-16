@@ -208,6 +208,22 @@ export function mergeAdSetTargeting(
         t.targeting_relaxation_types = { custom_audience: 0 };
       }
     }
+    // ADR 0027: included custom audiences force Advantage off. Scoped to patches
+    // that touch customAudiences or the toggle so an unrelated edit does not
+    // flip delivery on an ad set created outside the chat. raw/targetingRaw
+    // still win after this (escape hatch).
+    if (
+      patch.customAudiences !== undefined ||
+      patch.advantageAudience !== undefined
+    ) {
+      const included = Boolean(
+        (t.custom_audiences as unknown[] | undefined)?.length,
+      );
+      if (included) {
+        t.targeting_automation = { advantage_audience: 0 };
+        t.targeting_relaxation_types = { custom_audience: 0 };
+      }
+    }
     if (patch.raw) Object.assign(t, patch.raw);
   }
 
@@ -350,9 +366,25 @@ export function validateUpdateAdSetInput(
   if (input.optimizationGoal !== undefined) changed.add("optimization_goal");
   if (input.billingEvent !== undefined) changed.add("billing_event");
 
+  const askedAdvantageOn = input.targeting?.advantageAudience === true;
+  const mergedHasIncluded = Boolean(
+    (effectiveTargeting?.custom_audiences as unknown[] | undefined)?.length,
+  );
+
   const warnings = collect(
     reviewTriggerWarnings("adset", changed),
     endedFlightWarning({ level: "adset", currentEndTime: snap.end_time, nextEndTime: input.endTime }),
+    askedAdvantageOn && mergedHasIncluded
+      ? [
+          localIssue(
+            "adset",
+            "ADVANTAGE_FORCED_OFF_WITH_INCLUDED_AUDIENCE",
+            "Com público personalizado INCLUÍDO o Advantage Audience é desligado automaticamente — a entrega fica restrita à lista.",
+            "Não envie advantageAudience: true junto com customAudiences. Exclusão-somente não desliga o Advantage.",
+            ["targeting.advantageAudience"],
+          ),
+        ]
+      : [],
   );
 
   return { issues, warnings };

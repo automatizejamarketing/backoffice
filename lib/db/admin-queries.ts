@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -25,6 +26,7 @@ import {
   businessManagedCampaignCache,
   campaignEditLog,
   company,
+  companyLocation,
   generatedImage,
   generatedImageVersion,
   genericGeneratePost,
@@ -49,6 +51,8 @@ import {
   type AdSetPacingTypeData,
   type AdSetScheduleData,
   type AdSetTargetingData,
+  type Company,
+  type CompanyLocation,
   type Payment,
   type MercadoPagoPaymentLink,
   type PendingPlanChange,
@@ -1647,6 +1651,54 @@ export async function getUserMetaBusinessAccount(userId: string) {
     .orderBy(desc(metaBusinessAccount.updatedAt))
     .limit(1);
   return account ?? null;
+}
+
+export type CompanyForUser = Pick<
+  Company,
+  | "id"
+  | "name"
+  | "niche"
+  | "websiteUrl"
+  | "googlePlaceId"
+  | "businessOperatingHours"
+  | "businessAddress"
+> & { role: string };
+
+export async function getCompaniesByUserId(
+  userId: string,
+): Promise<CompanyForUser[]> {
+  return db
+    .select({
+      id: company.id,
+      name: company.name,
+      niche: company.niche,
+      websiteUrl: company.websiteUrl,
+      googlePlaceId: company.googlePlaceId,
+      businessOperatingHours: company.businessOperatingHours,
+      businessAddress: company.businessAddress,
+      role: userCompany.role,
+    })
+    .from(userCompany)
+    .innerJoin(company, eq(userCompany.companyId, company.id))
+    .where(eq(userCompany.userId, userId))
+    .orderBy(desc(company.createdAt));
+}
+
+export async function getPrimaryCompanyForUser(
+  userId: string,
+): Promise<CompanyForUser | null> {
+  const companies = await getCompaniesByUserId(userId);
+  return companies[0] ?? null;
+}
+
+export async function getCompanyLocationsByCompanyId(
+  companyId: string,
+): Promise<CompanyLocation[]> {
+  return db
+    .select()
+    .from(companyLocation)
+    .where(eq(companyLocation.companyId, companyId))
+    .orderBy(asc(companyLocation.sortOrder), asc(companyLocation.createdAt));
 }
 
 // ================================

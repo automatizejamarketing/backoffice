@@ -17,6 +17,7 @@ export const locationTargetingMessages: Record<string, string> = {
     "Não foi possível obter coordenadas para esse endereço. Tente outro resultado.",
   removeLocation: "Remover localização",
   atLeastOneLocation: "Selecione ao menos uma localização para segmentação",
+  useBusinessLocations: "Usar localização do meu negócio",
   radiusLabel: "Raio",
   cityRadiusHint:
     "Defina a distância ao redor do ponto onde o anúncio será exibido com base em até onde você atende",
