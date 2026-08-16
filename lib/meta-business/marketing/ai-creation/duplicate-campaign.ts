@@ -22,7 +22,7 @@ import {
   placementsToTargetingFields,
   reviewPlacementsFromMode,
   type PlacementKey,
-} from "../placements";
+} from "@/lib/meta-business/placements";
 import { updateAdSet } from "../update/update-ad-set";
 import { readAdSet } from "../update/read-current";
 import type { MetaCtx } from "@/lib/meta-business/insights";
