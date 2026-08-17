@@ -1,4 +1,9 @@
-import type { BillingProvider, PlanType, ProductOwnerType } from "@/lib/db/schema";
+import type {
+  BillingProvider,
+  PlanType,
+  ProductFinancialModel,
+  ProductOwnerType,
+} from "@/lib/db/schema";
 import {
   calculateAutomatizeNetRevenueCentavos,
   calculateExpertShare,
@@ -46,11 +51,7 @@ export function describeAutomatizePaymentSequence(paymentNumber: number): {
   };
 }
 
-export type ProductFinancialModel =
-  | "legacy_net_split"
-  | "platform_fee_coproduction"
-  | "platform_fee_coproduction_v2"
-  | "platform_fee_coproduction_v3";
+export type { ProductFinancialModel };
 
 export type FinanceProductPaymentRow = {
   id: string;

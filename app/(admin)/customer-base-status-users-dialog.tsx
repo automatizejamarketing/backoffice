@@ -49,6 +49,7 @@ const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "PIX",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 function formatExpiration(value: string | null) {
