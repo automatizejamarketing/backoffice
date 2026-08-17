@@ -19,6 +19,7 @@ import type {
   PayerRetentionSummary,
 } from "@/lib/backoffice/payer-retention";
 import { cn } from "@/lib/utils";
+import { PayerRetentionCohortUsersDialog } from "./payer-retention-cohort-users-dialog";
 
 const numberFormatter = new Intl.NumberFormat("pt-BR");
 const percentageFormatter = new Intl.NumberFormat("pt-BR", {
@@ -119,6 +120,7 @@ export function PayerRetentionChart({
   summary: PayerRetentionSummary;
 }) {
   const [selectedWeek, setSelectedWeek] = useState("all");
+  const [usersWeek, setUsersWeek] = useState<string | null>(null);
   const matrixViewportRef = useRef<HTMLDivElement>(null);
   const matrixCohorts = useMemo(
     () => [...summary.cohorts].reverse(),
@@ -133,6 +135,19 @@ export function PayerRetentionChart({
           ) ?? null),
     [selectedWeek, summary.cohorts],
   );
+  const usersCohort = useMemo(
+    () =>
+      usersWeek === null
+        ? null
+        : (summary.cohorts.find((cohort) => cohort.weekStart === usersWeek) ??
+          null),
+    [usersWeek, summary.cohorts],
+  );
+
+  function openCohortUsers(weekStart: string) {
+    setSelectedWeek(weekStart);
+    setUsersWeek(weekStart);
+  }
   const maxAgeWeeks = Math.max(
     0,
     ...summary.cohorts.flatMap((cohort) =>
@@ -181,7 +196,8 @@ export function PayerRetentionChart({
             </p>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
               A matriz acompanha quantos clientes mantiveram acesso pago ao fim
-              de cada semana desde o primeiro pagamento.
+              de cada semana desde o primeiro pagamento, nas últimas 12
+              semanas.
             </p>
           </div>
           <Select value={selectedWeek} onValueChange={setSelectedWeek}>
@@ -189,7 +205,7 @@ export function PayerRetentionChart({
               <SelectValue placeholder="Selecionar coorte" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todas as semanas</SelectItem>
+              <SelectItem value="all">Últimas 12 semanas</SelectItem>
               {summary.cohorts.map((cohort) => (
                 <SelectItem key={cohort.weekStart} value={cohort.weekStart}>
                   {formatWeek(cohort.weekStart)}
@@ -206,7 +222,8 @@ export function PayerRetentionChart({
             <div>
               <h3 className="text-sm font-semibold">Matriz de retenção</h3>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                S0 é a semana em que a coorte virou pagante.
+                S0 é a semana em que a coorte virou pagante. Clique em uma
+                coluna para ver quem entrou naquela semana.
               </p>
             </div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
@@ -251,8 +268,8 @@ export function PayerRetentionChart({
                         <button
                           type="button"
                           aria-pressed={selected}
-                          aria-label={`Selecionar coorte de ${formatWeek(cohort.weekStart)}`}
-                          onClick={() => setSelectedWeek(cohort.weekStart)}
+                          aria-label={`Ver usuários da coorte de ${formatWeek(cohort.weekStart)}`}
+                          onClick={() => openCohortUsers(cohort.weekStart)}
                           className="w-full px-2 py-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         >
                           {formatWeekColumn(cohort.weekStart)}
@@ -306,8 +323,8 @@ export function PayerRetentionChart({
                             <TooltipTrigger asChild>
                               <button
                                 type="button"
-                                onClick={() => setSelectedWeek(cohort.weekStart)}
-                                aria-label={`${formatPercentage(cell.retentionRate)} na semana ${ageWeeks}: ${formatNumber(cell.retainedPayers)} de ${formatNumber(cell.initialPayers)} pagantes`}
+                                onClick={() => openCohortUsers(cohort.weekStart)}
+                                aria-label={`${formatPercentage(cell.retentionRate)} na semana ${ageWeeks}: ${formatNumber(cell.retainedPayers)} de ${formatNumber(cell.initialPayers)} pagantes. Ver usuários da coorte.`}
                                 className={cn(
                                   "flex h-10 w-full min-w-[72px] items-center justify-center rounded-[4px] border border-foreground/5 px-2 font-semibold tabular-nums outline-none transition-transform hover:scale-[1.03] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
                                   selected && "ring-1 ring-chart-1/60",
@@ -343,6 +360,18 @@ export function PayerRetentionChart({
           das assinaturas. “Ativo hoje” considera o acesso vigente agora;
           cancelamentos agendados continuam ativos até o vencimento.
         </p>
+
+        <PayerRetentionCohortUsersDialog
+          weekStart={usersWeek}
+          title={
+            usersCohort ? `Coorte de ${formatWeek(usersCohort.weekStart)}` : ""
+          }
+          initialPayers={usersCohort?.initialPayers ?? 0}
+          activeToday={usersCohort?.activeToday ?? 0}
+          onOpenChange={(open) => {
+            if (!open) setUsersWeek(null);
+          }}
+        />
       </div>
     </TooltipProvider>
   );

@@ -1427,6 +1427,7 @@ export async function getPayerRetentionDashboard() {
     date_trunc('week', ${firstPayments.firstPaidAt} - interval '3 hours'),
     'YYYY-MM-DD'
   )`;
+  const cohortWindow = sql`date_trunc('week', now() - interval '3 hours') - interval '11 weeks'`;
 
   const [rows, retentionResult] = await Promise.all([
     db
@@ -1440,6 +1441,9 @@ export async function getPayerRetentionDashboard() {
       })
       .from(firstPayments)
       .innerJoin(user, eq(user.id, firstPayments.userId))
+      .where(
+        sql`date_trunc('week', ${firstPayments.firstPaidAt} - interval '3 hours') >= ${cohortWindow}`,
+      )
       .groupBy(weekStart)
       .orderBy(desc(weekStart)),
     db.execute(sql`
@@ -1456,6 +1460,8 @@ export async function getPayerRetentionDashboard() {
           user_id,
           date_trunc('week', first_paid_at - interval '3 hours') as cohort_week
         from first_payments
+        where date_trunc('week', first_paid_at - interval '3 hours')
+          >= date_trunc('week', now() - interval '3 hours') - interval '11 weeks'
       )
       select
         to_char(cohort_members.cohort_week, 'YYYY-MM-DD') as week_start,
@@ -1513,6 +1519,43 @@ export async function getPayerRetentionDashboard() {
       retainedPayers: Number(row.retained_payers),
     })),
   );
+}
+
+export async function getPayerRetentionCohortUsers(weekStart: string) {
+  const firstPayments = db
+    .select({
+      userId: payment.userId,
+      firstPaidAt:
+        sql<Date>`min(coalesce(${payment.paidAt}, ${payment.createdAt}))`.as(
+          "first_paid_at",
+        ),
+    })
+    .from(payment)
+    .where(eq(payment.status, "succeeded"))
+    .groupBy(payment.userId)
+    .as("first_payments");
+
+  return db
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      firstPaidAt: firstPayments.firstPaidAt,
+      expirationDate: user.expirationDate,
+      activeToday: sql<boolean>`(
+        ${user.expirationDate} is not null and ${user.expirationDate} > now()
+      )`,
+    })
+    .from(firstPayments)
+    .innerJoin(user, eq(user.id, firstPayments.userId))
+    .where(
+      sql`to_char(
+        date_trunc('week', ${firstPayments.firstPaidAt} - interval '3 hours'),
+        'YYYY-MM-DD'
+      ) = ${weekStart}`,
+    )
+    .orderBy(firstPayments.firstPaidAt);
 }
 
 export async function fetchCustomerBaseRows() {
