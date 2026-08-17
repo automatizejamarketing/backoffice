@@ -40,6 +40,7 @@ export const user = pgTable(
     phone: varchar("phone", { length: 16 }),
     stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
     vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
+    registryCode: varchar("registry_code", { length: 20 }),
     expirationDate: timestamp("expiration_date"),
     credits: integer("credits").notNull().default(0),
     referredByAffiliateId: uuid("referred_by_affiliate_id"),
