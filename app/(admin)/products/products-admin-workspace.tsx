@@ -105,6 +105,12 @@ import {
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
 import { calculateVindiSplit } from "@/lib/vindi/split";
+import {
+  describeExpertAffiliateReadiness,
+  evaluateExpertProductSaleGate,
+  formatExpertSaleGateError,
+  VINDI_AFFILIATE_STATUS_LABELS,
+} from "@/lib/vindi/affiliate-gate";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_COVER_OUTPUT_HEIGHT,
@@ -122,6 +128,8 @@ type Expert = {
   platformFeeBasisPoints: number;
   platformFeeFixedCentavos: number;
   marketplaceFeeBasisPoints: number;
+  vindiAffiliateId: string | null;
+  vindiAffiliateStatus: "unverified" | "pending" | "verified" | "rejected";
 };
 
 type Product = {
@@ -260,6 +268,22 @@ const emptyProduct: ProductFormState = {
   termsVersion: "v1",
   expertParticipationPercent: "0%",
 };
+
+function expertSaleGate(input: {
+  ownerType: Product["ownerType"];
+  expert?: Expert | null;
+  vindiProductsEnabled: boolean;
+  offeringForSale: boolean;
+}) {
+  return evaluateExpertProductSaleGate({
+    ownerType: input.ownerType,
+    affiliateStatus:
+      input.expert?.vindiAffiliateStatus ??
+      (input.ownerType === "expert" ? "unverified" : null),
+    vindiProductsEnabled: input.vindiProductsEnabled,
+    offeringForSale: input.offeringForSale,
+  });
+}
 
 function parseExpertParticipationBps(
   ownerType: Product["ownerType"],
@@ -669,6 +693,10 @@ export function ProductsAdminWorkspace({
   const [enablingSalesProductId, setEnablingSalesProductId] = useState<
     string | null
   >(null);
+  const [vindiProductsEnabled, setVindiProductsEnabled] = useState(false);
+  const [ensuringAffiliateExpertId, setEnsuringAffiliateExpertId] = useState<
+    string | null
+  >(null);
   const [paymentsDialogProduct, setPaymentsDialogProduct] = useState<Product | null>(
     null,
   );
@@ -708,6 +736,34 @@ export function ProductsAdminWorkspace({
     productForm.priceReais,
   ]);
 
+  const productFormSaleGate = useMemo(
+    () =>
+      expertSaleGate({
+        ownerType: productForm.ownerType,
+        expert: productForm.expertId
+          ? expertsById.get(productForm.expertId)
+          : null,
+        vindiProductsEnabled,
+        offeringForSale:
+          productForm.status === "published" && productForm.salesEnabled,
+      }),
+    [
+      expertsById,
+      productForm.expertId,
+      productForm.ownerType,
+      productForm.salesEnabled,
+      productForm.status,
+      vindiProductsEnabled,
+    ],
+  );
+  const productFormAffiliateReadiness =
+    productForm.ownerType === "expert"
+      ? describeExpertAffiliateReadiness(
+          expertsById.get(productForm.expertId)?.vindiAffiliateStatus ??
+            "unverified",
+        )
+      : { ready: true as const };
+
   function changeProductOwner(value: string) {
     const owner = parseProductOwnerSelection(value);
     setProductForm((current) => ({
@@ -737,27 +793,30 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
+          fetch("/api/products/admin/settings", { cache: "no-store" }),
         ]);
       if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextSettings] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
+          settingsResponse.ok ? settingsResponse.json() : Promise.resolve(null),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
+      setVindiProductsEnabled(nextSettings?.vindiProductsEnabled === true);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -974,7 +1033,40 @@ export function ProductsAdminWorkspace({
     }
   }
 
+  async function ensureExpertAffiliate(expert: Expert) {
+    setEnsuringAffiliateExpertId(expert.id);
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expert.id}/vindi-affiliate`,
+        { method: "POST" },
+      );
+      if (!response.ok) return toast.error(await readError(response));
+      const updated = (await response.json()) as Pick<
+        Expert,
+        "vindiAffiliateId" | "vindiAffiliateStatus"
+      >;
+      toast.success(
+        updated.vindiAffiliateStatus === "verified"
+          ? "Afiliado Vindi verificado."
+          : "Afiliado Vindi atualizado. A verificação chega por e-mail da Vindi em cerca de 5 minutos.",
+      );
+      await loadAll();
+    } finally {
+      setEnsuringAffiliateExpertId(null);
+    }
+  }
+
   async function publishProduct(row: Product) {
+    const gate = expertSaleGate({
+      ownerType: row.ownerType,
+      expert: row.expertId ? expertsById.get(row.expertId) : null,
+      vindiProductsEnabled,
+      offeringForSale: true,
+    });
+    if (!gate.allowed) {
+      toast.error(formatExpertSaleGateError(gate));
+      return;
+    }
     setPublishingProductId(row.id);
     try {
       const response = await fetch(`/api/products/admin/${row.id}`, {
@@ -993,6 +1085,16 @@ export function ProductsAdminWorkspace({
   }
 
   async function enableProductSales(row: Product) {
+    const gate = expertSaleGate({
+      ownerType: row.ownerType,
+      expert: row.expertId ? expertsById.get(row.expertId) : null,
+      vindiProductsEnabled,
+      offeringForSale: row.status === "published",
+    });
+    if (!gate.allowed) {
+      toast.error(formatExpertSaleGateError(gate));
+      return;
+    }
     setEnablingSalesProductId(row.id);
     try {
       const response = await fetch(`/api/products/admin/${row.id}`, {
@@ -1453,6 +1555,15 @@ export function ProductsAdminWorkspace({
                         : null;
                       const ownerName = ownerExpert?.displayName ?? expertName ?? "Automatize";
                       const statusBadge = getProductStatusBadgeProps(row.status);
+                      const saleGate = expertSaleGate({
+                        ownerType: row.ownerType,
+                        expert: ownerExpert,
+                        vindiProductsEnabled,
+                        offeringForSale: true,
+                      });
+                      const saleGateTitle = saleGate.allowed
+                        ? undefined
+                        : formatExpertSaleGateError(saleGate);
 
                       return (
                         <TableRow key={row.id}>
@@ -1504,6 +1615,15 @@ export function ProductsAdminWorkspace({
                                 Aquisição desabilitada
                               </Badge>
                             ) : null}
+                            {!saleGate.allowed ? (
+                              <Badge
+                                variant="outline"
+                                title={saleGateTitle}
+                                className="border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
+                              >
+                                Venda Vindi bloqueada
+                              </Badge>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
@@ -1522,7 +1642,11 @@ export function ProductsAdminWorkspace({
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-44">
                               {row.status === "draft" ? (
-                                <DropdownMenuItem onSelect={() => void publishProduct(row)} disabled={publishingProductId === row.id}>
+                                <DropdownMenuItem
+                                  onSelect={() => void publishProduct(row)}
+                                  disabled={publishingProductId === row.id || !saleGate.allowed}
+                                  title={saleGateTitle}
+                                >
                                   {publishingProductId === row.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
                                   {publishingProductId === row.id ? "Publicando..." : "Publicar"}
                                 </DropdownMenuItem>
@@ -1530,7 +1654,13 @@ export function ProductsAdminWorkspace({
                               {!row.salesEnabled ? (
                                 <DropdownMenuItem
                                   onSelect={() => void enableProductSales(row)}
-                                  disabled={enablingSalesProductId === row.id}
+                                  disabled={
+                                    enablingSalesProductId === row.id ||
+                                    (row.status === "published" && !saleGate.allowed)
+                                  }
+                                  title={
+                                    row.status === "published" ? saleGateTitle : undefined
+                                  }
                                 >
                                   {enablingSalesProductId === row.id ? (
                                     <Loader2 className="animate-spin" />
@@ -1652,13 +1782,14 @@ export function ProductsAdminWorkspace({
           <Card>
             <CardHeader><CardTitle>Experts</CardTitle></CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1040px]">
+              <Table className="min-w-[1240px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Expert</TableHead>
                     <TableHead className="w-[170px]">WhatsApp</TableHead>
                     <TableHead className="w-[280px]">Chave Pix</TableHead>
                     <TableHead className="w-[190px]">Taxa da plataforma</TableHead>
+                    <TableHead className="w-[190px]">Afiliado Vindi</TableHead>
                     <TableHead className="w-[100px]">Status</TableHead>
                     <TableHead className="w-[110px] text-right">Ações</TableHead>
                   </TableRow>
@@ -1700,6 +1831,18 @@ export function ProductsAdminWorkspace({
                         </div>
                       </TableCell>
                       <TableCell>
+                        <div className="space-y-1">
+                          <Badge variant="outline">
+                            {VINDI_AFFILIATE_STATUS_LABELS[expert.vindiAffiliateStatus]}
+                          </Badge>
+                          {expert.vindiAffiliateId ? (
+                            <p className="font-mono text-xs text-muted-foreground">
+                              #{expert.vindiAffiliateId}
+                            </p>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -1716,9 +1859,22 @@ export function ProductsAdminWorkspace({
                               <MoreHorizontal className="size-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuContent align="end" className="w-56">
                             <DropdownMenuItem onSelect={() => editExpert(expert)}>
                               <Pencil /> Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void ensureExpertAffiliate(expert)}
+                              disabled={ensuringAffiliateExpertId === expert.id}
+                            >
+                              {ensuringAffiliateExpertId === expert.id ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                <RefreshCcw />
+                              )}
+                              {expert.vindiAffiliateId
+                                ? "Atualizar status Vindi"
+                                : "Criar afiliado Vindi"}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -2132,6 +2288,19 @@ export function ProductsAdminWorkspace({
             </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
+            {vindiProductsEnabled && !productFormAffiliateReadiness.ready ? (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 md:col-span-2 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100">
+                <p className="font-medium">{productFormAffiliateReadiness.message}</p>
+                <p className="mt-1 text-amber-900/80 dark:text-amber-100/80">
+                  {productFormAffiliateReadiness.missing}
+                </p>
+                {!productFormSaleGate.allowed ? (
+                  <p className="mt-1 font-medium">
+                    Publique ou habilite a venda só depois da verificação.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <DialogFooter className="md:col-span-2">
               <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
               <Button type="submit" disabled={loading}>

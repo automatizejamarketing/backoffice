@@ -14,6 +14,7 @@ import {
   productOrder,
   productPayment,
   user,
+  type VindiAffiliateStatus,
 } from "./schema";
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
@@ -24,6 +25,12 @@ import {
 } from "@/lib/products/payout";
 import { summarizeProductPaymentsByProduct } from "@/lib/backoffice/finance-payments";
 import { parseProductFinancialSettingsInput } from "@/lib/products/financial-settings";
+import {
+  evaluateExpertProductSaleGate,
+  formatExpertSaleGateError,
+  isProductOfferedForSale,
+} from "@/lib/vindi/affiliate-gate";
+import { isVindiProductsEnabled } from "@/lib/vindi/config";
 
 export async function getProductFinancialSettings() {
   const [settings] = await db
@@ -63,6 +70,8 @@ export async function listExperts() {
       platformFeeBasisPoints: expertProfile.platformFeeBasisPoints,
       platformFeeFixedCentavos: expertProfile.platformFeeFixedCentavos,
       marketplaceFeeBasisPoints: expertProfile.marketplaceFeeBasisPoints,
+      vindiAffiliateId: expertProfile.vindiAffiliateId,
+      vindiAffiliateStatus: expertProfile.vindiAffiliateStatus,
       status: expertProfile.status,
     })
     .from(expertProfile)
@@ -202,6 +211,42 @@ async function resolveParticipationAuditTargetUserId(
   return appUser?.id ?? null;
 }
 
+async function assertExpertProductSaleAllowed(
+  tx: ProductAdminTx,
+  values: {
+    ownerType: "automatize" | "expert";
+    expertId: string | null;
+    status: "draft" | "published" | "archived";
+    salesEnabled: boolean;
+  },
+) {
+  if (!isVindiProductsEnabled() || !isProductOfferedForSale(values)) {
+    return;
+  }
+
+  let affiliateStatus: VindiAffiliateStatus | null = null;
+  if (values.ownerType === "expert" && values.expertId) {
+    const [expert] = await tx
+      .select({
+        vindiAffiliateStatus: expertProfile.vindiAffiliateStatus,
+      })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, values.expertId))
+      .limit(1);
+    affiliateStatus = expert?.vindiAffiliateStatus ?? "unverified";
+  }
+
+  const gate = evaluateExpertProductSaleGate({
+    ownerType: values.ownerType,
+    affiliateStatus,
+    vindiProductsEnabled: true,
+    offeringForSale: true,
+  });
+  if (!gate.allowed) {
+    throw new Error(formatExpertSaleGateError(gate));
+  }
+}
+
 async function insertParticipationAudit(
   tx: ProductAdminTx,
   input: {
@@ -242,6 +287,7 @@ export async function createProductAdmin(
 ) {
   const values = parseProductAdminInput(input);
   return db.transaction(async (tx) => {
+    await assertExpertProductSaleAllowed(tx, values);
     const [created] = await tx.insert(product).values(values).returning();
     await insertParticipationAudit(tx, {
       adminEmail: audit.adminEmail,
@@ -280,6 +326,8 @@ export async function updateProductAdmin(
       .where(eq(product.id, id))
       .limit(1);
     if (!existing) return null;
+
+    await assertExpertProductSaleAllowed(tx, values);
 
     const [updated] = await tx
       .update(product)
