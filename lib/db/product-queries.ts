@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
+  backofficeAuditLog,
   expertLedgerEntry,
   expertPayoutRequest,
   expertProfile,
@@ -171,10 +172,87 @@ export async function listProductsAdmin() {
   }));
 }
 
-export async function createProductAdmin(input: unknown) {
+type ProductAdminAudit = {
+  adminEmail: string;
+};
+
+type ProductAdminTx =
+  | typeof db
+  | Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+
+async function resolveParticipationAuditTargetUserId(
+  tx: ProductAdminTx,
+  expertId: string | null,
+  adminEmail: string,
+) {
+  if (expertId) {
+    const [expert] = await tx
+      .select({ userId: expertProfile.userId })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, expertId))
+      .limit(1);
+    if (expert) return expert.userId;
+  }
+
+  const [appUser] = await tx
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, adminEmail))
+    .limit(1);
+  return appUser?.id ?? null;
+}
+
+async function insertParticipationAudit(
+  tx: ProductAdminTx,
+  input: {
+    adminEmail: string;
+    action: "create_expert_participation" | "update_expert_participation";
+    productId: string;
+    expertId: string | null;
+    oldValue: number | null;
+    newValue: number | null;
+  },
+) {
+  const targetUserId = await resolveParticipationAuditTargetUserId(
+    tx,
+    input.expertId,
+    input.adminEmail,
+  );
+  if (!targetUserId) {
+    if (input.expertId) {
+      throw new Error("não foi possível auditar a participação do expert");
+    }
+    return;
+  }
+
+  await tx.insert(backofficeAuditLog).values({
+    adminEmail: input.adminEmail,
+    targetUserId,
+    action: input.action,
+    fieldName: "expert_participation_bps",
+    oldValue: input.oldValue == null ? null : String(input.oldValue),
+    newValue: input.newValue == null ? "null" : String(input.newValue),
+    note: `product:${input.productId}`,
+  });
+}
+
+export async function createProductAdmin(
+  input: unknown,
+  audit: ProductAdminAudit,
+) {
   const values = parseProductAdminInput(input);
-  const [created] = await db.insert(product).values(values).returning();
-  return created;
+  return db.transaction(async (tx) => {
+    const [created] = await tx.insert(product).values(values).returning();
+    await insertParticipationAudit(tx, {
+      adminEmail: audit.adminEmail,
+      action: "create_expert_participation",
+      productId: created.id,
+      expertId: created.expertId,
+      oldValue: null,
+      newValue: created.expertParticipationBps,
+    });
+    return created;
+  });
 }
 
 export async function productExistsAdmin(id: string) {
@@ -186,14 +264,42 @@ export async function productExistsAdmin(id: string) {
   return Boolean(row);
 }
 
-export async function updateProductAdmin(id: string, input: unknown) {
+export async function updateProductAdmin(
+  id: string,
+  input: unknown,
+  audit: ProductAdminAudit,
+) {
   const values = parseProductAdminInput(input);
-  const [updated] = await db
-    .update(product)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(product.id, id))
-    .returning();
-  return updated ?? null;
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        expertId: product.expertId,
+        expertParticipationBps: product.expertParticipationBps,
+      })
+      .from(product)
+      .where(eq(product.id, id))
+      .limit(1);
+    if (!existing) return null;
+
+    const [updated] = await tx
+      .update(product)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(product.id, id))
+      .returning();
+    if (!updated) return null;
+
+    if (existing.expertParticipationBps !== updated.expertParticipationBps) {
+      await insertParticipationAudit(tx, {
+        adminEmail: audit.adminEmail,
+        action: "update_expert_participation",
+        productId: updated.id,
+        expertId: updated.expertId,
+        oldValue: existing.expertParticipationBps,
+        newValue: updated.expertParticipationBps,
+      });
+    }
+    return updated;
+  });
 }
 
 export async function archiveProductAdmin(id: string) {

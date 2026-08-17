@@ -104,6 +104,7 @@ import {
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
+import { calculateVindiSplit } from "@/lib/vindi/split";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_COVER_OUTPUT_HEIGHT,
@@ -141,6 +142,7 @@ type Product = {
   status: "draft" | "published" | "archived";
   salesEnabled: boolean;
   termsVersion: string;
+  expertParticipationBps: number | null;
 };
 
 type Content = {
@@ -214,6 +216,7 @@ type ProductFormState = {
   status: Product["status"];
   salesEnabled: boolean;
   termsVersion: string;
+  expertParticipationPercent: string;
 };
 
 type ExpertFormState = {
@@ -255,7 +258,22 @@ const emptyProduct: ProductFormState = {
   status: "draft" as const,
   salesEnabled: true,
   termsVersion: "v1",
+  expertParticipationPercent: "0%",
 };
+
+function parseExpertParticipationBps(
+  ownerType: Product["ownerType"],
+  percent: string,
+): number | null {
+  if (ownerType === "automatize") return 0;
+  if (percent.trim() === "") return null;
+  return Math.round(parsePercentageInput(percent) * 100);
+}
+
+function formatExpertParticipationPercent(bps: number | null): string {
+  if (bps == null) return "";
+  return formatPercentageInput(String(bps / 100).replace(".", ","));
+}
 
 const emptyContent = {
   type: "video" as Content["type"],
@@ -659,10 +677,6 @@ export function ProductsAdminWorkspace({
     () => products.find((row) => row.product.id === selectedProductId)?.product,
     [products, selectedProductId],
   );
-  const selectedOwnerExpert = useMemo(
-    () => experts.find((expert) => expert.id === productForm.expertId) ?? null,
-    [experts, productForm.expertId],
-  );
   const expertsById = useMemo(
     () => new Map(experts.map((expert) => [expert.id, expert])),
     [experts],
@@ -671,12 +685,28 @@ export function ProductsAdminWorkspace({
     if (!paymentsDialogProduct) return [];
     return orders.filter((order) => order.productId === paymentsDialogProduct.id);
   }, [orders, paymentsDialogProduct]);
-  const ownerExpertSharePercent = productForm.hasCoproduction
-    ? Math.max(
-        0,
-        100 - parsePercentageInput(productForm.coproducerSharePercent),
-      )
-    : 100;
+  const vindiSplitPreview = useMemo(() => {
+    let priceCentavos: number;
+    try {
+      priceCentavos = parseBrlCurrencyToCentavos(productForm.priceReais);
+    } catch {
+      return null;
+    }
+    const expertParticipationBps = parseExpertParticipationBps(
+      productForm.ownerType,
+      productForm.expertParticipationPercent,
+    );
+    if (expertParticipationBps == null) return null;
+    try {
+      return calculateVindiSplit({ priceCentavos, expertParticipationBps });
+    } catch {
+      return null;
+    }
+  }, [
+    productForm.expertParticipationPercent,
+    productForm.ownerType,
+    productForm.priceReais,
+  ]);
 
   function changeProductOwner(value: string) {
     const owner = parseProductOwnerSelection(value);
@@ -694,22 +724,12 @@ export function ProductsAdminWorkspace({
           : "",
       coproducerSharePercent:
         owner.ownerType === "expert" ? current.coproducerSharePercent : "",
-    }));
-  }
-
-  function changeCoproducer(value: string) {
-    if (value === "automatize") {
-      setProductForm((current) => ({
-        ...current,
-        coproducerType: "automatize",
-        coproducerExpertId: "",
-      }));
-      return;
-    }
-    setProductForm((current) => ({
-      ...current,
-      coproducerType: "expert",
-      coproducerExpertId: value.replace("expert:", ""),
+      expertParticipationPercent:
+        owner.ownerType === "automatize"
+          ? "0%"
+          : current.ownerType === "automatize"
+            ? ""
+            : current.expertParticipationPercent,
     }));
   }
 
@@ -794,6 +814,10 @@ export function ProductsAdminWorkspace({
           productForm.coproducerSharePercent,
         ),
         minimumPlanTier: productForm.minimumPlanTier || null,
+        expertParticipationBps: parseExpertParticipationBps(
+          productForm.ownerType,
+          productForm.expertParticipationPercent,
+        ),
       };
       const response = await fetch(
         editingProductId
@@ -874,6 +898,10 @@ export function ProductsAdminWorkspace({
       status: row.status,
       salesEnabled: row.salesEnabled,
       termsVersion: row.termsVersion,
+      expertParticipationPercent:
+        row.ownerType === "automatize"
+          ? "0%"
+          : formatExpertParticipationPercent(row.expertParticipationBps),
     });
     setProductDialogOpen(true);
   }
@@ -1398,6 +1426,7 @@ export function ProductsAdminWorkspace({
                     <TableHead>Produto</TableHead>
                     <TableHead>Proprietário</TableHead>
                     <TableHead className="text-right">Preço</TableHead>
+                    <TableHead className="text-right">Participação</TableHead>
                     <TableHead className="text-right">Faturamento bruto</TableHead>
                     <TableHead className="text-right">Líquido Automatize</TableHead>
                     <TableHead>Status</TableHead>
@@ -1407,13 +1436,13 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-28 text-center">
+                      <TableCell colSpan={8} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                       </TableCell>
                     </TableRow>
                   ) : products.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
+                      <TableCell colSpan={8} className="h-28 text-center text-muted-foreground">
                         Nenhum produto cadastrado.
                       </TableCell>
                     </TableRow>
@@ -1453,6 +1482,13 @@ export function ProductsAdminWorkspace({
                             </div>
                           </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {row.expertParticipationBps == null
+                            ? "—"
+                            : formatExpertParticipationPercent(
+                                row.expertParticipationBps,
+                              )}
+                        </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
                         <TableCell>
@@ -1940,107 +1976,54 @@ export function ProductsAdminWorkspace({
               />
             </Field>
             <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
-              <p className="text-sm font-medium">Taxa da plataforma</p>
+              <p className="text-sm font-medium">Participação do Expert (Vindi)</p>
               <p className="text-xs leading-5 text-muted-foreground">
-                {productForm.ownerType === "automatize"
-                  ? "Produto próprio: sem taxa da plataforma. O líquido do Automatize é o valor bruto menos o custo do gateway."
-                  : selectedOwnerExpert
-                    ? `Taxa do expert: ${formatExpertPlatformFee(selectedOwnerExpert.platformFeeBasisPoints, selectedOwnerExpert.platformFeeFixedCentavos)}. Ela é congelada no pedido quando a venda é criada.`
-                    : "Selecione o expert proprietário para consultar a taxa aplicável."}
+                Fração do líquido de distribuição — preço menos 5,49% — devida ao
+                expert. O valor em centavos é congelado na venda e enviado à Vindi
+                como split fixo.
               </p>
+              <Field label="Participação">
+                <Input
+                  inputMode="decimal"
+                  placeholder="Ex.: 80%"
+                  value={productForm.expertParticipationPercent}
+                  disabled={productForm.ownerType === "automatize"}
+                  readOnly={productForm.ownerType === "automatize"}
+                  aria-readonly={productForm.ownerType === "automatize"}
+                  className={
+                    productForm.ownerType === "automatize" ? "bg-muted/40" : undefined
+                  }
+                  onChange={(event) =>
+                    setProductForm((current) => ({
+                      ...current,
+                      expertParticipationPercent: formatPercentageInput(
+                        event.target.value,
+                      ),
+                    }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  {productForm.ownerType === "automatize"
+                    ? "Produto do Automatize: a participação do expert é zero."
+                    : "Informe 0% a 100%. A sobra de arredondamento fica com a plataforma."}
+                </p>
+              </Field>
+              {vindiSplitPreview ? (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Neste preço o expert recebe{" "}
+                  {formatBrlCurrencyFromCentavos(vindiSplitPreview.expertAmountCentavos)}{" "}
+                  (fixo). A plataforma fica com{" "}
+                  {formatBrlCurrencyFromCentavos(
+                    vindiSplitPreview.platformTheoreticalAmountCentavos,
+                  )}{" "}
+                  do líquido de{" "}
+                  {formatBrlCurrencyFromCentavos(
+                    vindiSplitPreview.distributionNetCentavos,
+                  )}
+                  .
+                </p>
+              ) : null}
             </div>
-            {productForm.ownerType === "expert" ? (
-              <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Coprodução</p>
-                    <p className="text-xs text-muted-foreground">
-                      O proprietário recebe 100% da base enquanto esta opção estiver desativada.
-                    </p>
-                  </div>
-                  <label className="flex shrink-0 items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={productForm.hasCoproduction}
-                      onChange={(event) =>
-                        setProductForm((current) => ({
-                          ...current,
-                          hasCoproduction: event.target.checked,
-                          coproducerType: "automatize",
-                          coproducerExpertId: "",
-                          coproducerSharePercent: "",
-                        }))
-                      }
-                    />
-                    Tem coprodução
-                  </label>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <Field label="Participação do proprietário">
-                    <Input
-                      value={formatPercentageInput(
-                        String(ownerExpertSharePercent).replace(".", ","),
-                      )}
-                      readOnly
-                      aria-readonly="true"
-                      className="bg-muted/40"
-                    />
-                  </Field>
-
-                  {productForm.hasCoproduction ? (
-                    <>
-                      <Field label="Coprodutor">
-                        <Select
-                          value={
-                            productForm.coproducerType === "automatize"
-                              ? "automatize"
-                              : `expert:${productForm.coproducerExpertId}`
-                          }
-                          onValueChange={changeCoproducer}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="automatize">Automatize</SelectItem>
-                              {experts
-                                .filter((expert) => expert.id !== productForm.expertId)
-                                .map((expert) => (
-                                  <SelectItem key={expert.id} value={`expert:${expert.id}`}>
-                                    {expert.displayName}
-                                    {expert.status === "inactive" ? " (inativo)" : ""}
-                                  </SelectItem>
-                                ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                      <Field label="Participação do coprodutor">
-                        <Input
-                          inputMode="decimal"
-                          placeholder="Ex.: 40%"
-                          value={productForm.coproducerSharePercent}
-                          onChange={(event) =>
-                            setProductForm((current) => ({
-                              ...current,
-                              coproducerSharePercent: formatPercentageInput(
-                                event.target.value,
-                              ),
-                            }))
-                          }
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Aplicado sobre o valor bruto após a taxa da plataforma.
-                        </p>
-                      </Field>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
             <Field label="Incluído a partir do plano">
               <Select
                 value={productForm.minimumPlanTier || "none"}

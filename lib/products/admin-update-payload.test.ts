@@ -19,6 +19,7 @@ describe("buildProductAdminUpdatePayload", () => {
       status: "published" as const,
       salesEnabled: false,
       termsVersion: "v2",
+      expertParticipationBps: 8_000,
     };
 
     expect(
@@ -40,6 +41,7 @@ describe("buildProductAdminUpdatePayload", () => {
       status: "published",
       salesEnabled: true,
       termsVersion: "v2",
+      expertParticipationBps: 8_000,
     });
   });
 });
