@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { UserSubscriptionPanel } from "@/components/user-subscription-panel";
 import { getUserSubscriptionDetails } from "@/lib/db/admin-queries";
+import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
 
 export default async function UserSubscriptionPage({
   params,
@@ -34,7 +35,10 @@ export default async function UserSubscriptionPage({
         </Link>
       </div>
 
-      <UserSubscriptionPanel data={data} />
+      <UserSubscriptionPanel
+        data={data}
+        vindiSubscriptionsEnabled={isVindiSubscriptionsEnabled()}
+      />
     </div>
   );
 }

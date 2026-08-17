@@ -41,6 +41,7 @@ import {
   subscription,
   subscriptionEvent,
   mercadopagoPaymentLink,
+  vindiPaymentLink,
   user,
   userCompany,
   userMarketingConsultant,
@@ -55,6 +56,7 @@ import {
   type CompanyLocation,
   type Payment,
   type MercadoPagoPaymentLink,
+  type VindiPaymentLink,
   type PendingPlanChange,
   type Subscription,
   type SubscriptionEvent,
@@ -1121,6 +1123,7 @@ export interface UserSubscriptionDetails {
   subscriptionHistory: Subscription[];
   payments: Payment[];
   mercadopagoPaymentLinks: MercadoPagoPaymentLink[];
+  vindiPaymentLinks: VindiPaymentLink[];
   events: SubscriptionEvent[];
 }
 
@@ -1146,6 +1149,7 @@ export async function getUserSubscriptionDetails(
     events,
     pendingChanges,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
   ] = await Promise.all([
     db
       .select()
@@ -1181,6 +1185,12 @@ export async function getUserSubscriptionDetails(
       .where(eq(mercadopagoPaymentLink.userId, userId))
       .orderBy(desc(mercadopagoPaymentLink.createdAt))
       .limit(20),
+    db
+      .select()
+      .from(vindiPaymentLink)
+      .where(eq(vindiPaymentLink.userId, userId))
+      .orderBy(desc(vindiPaymentLink.createdAt))
+      .limit(20),
   ]);
 
   return {
@@ -1190,6 +1200,7 @@ export async function getUserSubscriptionDetails(
     subscriptionHistory: subscriptions,
     payments,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
     events,
   };
 }

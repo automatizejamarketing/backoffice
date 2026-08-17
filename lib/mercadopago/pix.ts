@@ -15,6 +15,7 @@ import {
 import { ensurePixCopyPasteCode } from "@/lib/mercadopago/pix-payment";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { formatInSaoPaulo } from "@/lib/backoffice/datetime-format";
+import { assertPixRenewalAllowed } from "@/lib/backoffice/pix-renewal-policy";
 
 const PIX_LINK_VALIDITY_DAYS = 7;
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -122,14 +123,7 @@ export async function createOrReuseBackofficePixLink({
       ),
     );
 
-  const hasStripeBlock = activeSubscriptions.some(
-    (sub) =>
-      (sub.provider ?? "stripe") === "stripe" &&
-      ["active", "trialing", "past_due"].includes(sub.status),
-  );
-  if (hasStripeBlock) {
-    throw new Error("Usuário tem assinatura Stripe ativa.");
-  }
+  assertPixRenewalAllowed(activeSubscriptions);
 
   const [targetUser] = await db
     .select({ id: user.id, email: user.email })

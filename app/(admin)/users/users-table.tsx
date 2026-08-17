@@ -66,6 +66,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 function formatCurrency(value: number) {

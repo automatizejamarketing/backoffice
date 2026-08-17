@@ -23,6 +23,8 @@ import {
   type CancelStripeSubscriptionError,
 } from "@/lib/backoffice/stripe-subscription-cancel";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
+import { markVindiPaidOutOfBandForUser } from "@/lib/vindi/paid-out-of-band-server";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   subscribed: "Assinatura iniciada",
@@ -314,6 +316,52 @@ export async function POST(
       action?: string;
       mode?: string;
     };
+
+    if (body.action === "mark_vindi_paid_out_of_band") {
+      if (!isVindiSubscriptionsEnabled()) {
+        return NextResponse.json(
+          {
+            error: "vindi_disabled",
+            message: "As assinaturas Vindi estão desligadas.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const result = await markVindiPaidOutOfBandForUser({
+        userId,
+        adminEmail: authz.actor.email,
+      });
+
+      if (!result.ok) {
+        const messages = {
+          user_not_found: "Usuário não encontrado.",
+          no_open_bill: "Não há fatura Vindi aberta para cancelar.",
+          no_plan: "Não foi possível determinar o plano para estender o acesso.",
+        } as const;
+        const status =
+          result.error === "user_not_found"
+            ? 404
+            : result.error === "no_open_bill"
+              ? 409
+              : 400;
+        return NextResponse.json(
+          { error: result.error, message: messages[result.error] },
+          { status },
+        );
+      }
+
+      revalidatePath("/users");
+      revalidatePath(`/users/${userId}`);
+      revalidatePath(`/subscriptions/${userId}`);
+
+      return NextResponse.json({
+        success: true,
+        billIds: result.billIds,
+        newExpiration: result.newExpiration.toISOString(),
+        auditAction: result.auditAction,
+      });
+    }
 
     if (body.action === "cancel_stripe_subscription") {
       const result = await cancelStripeSubscriptionAtPeriodEndWithAudit({

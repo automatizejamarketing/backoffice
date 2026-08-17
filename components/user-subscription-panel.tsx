@@ -14,6 +14,7 @@ import {
   type PixLinkView,
 } from "@/components/mercadopago-pix-actions";
 import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
+import { VindiPaidOutOfBandCard } from "@/components/vindi-paid-out-of-band-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -29,6 +30,10 @@ import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
 import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
+import {
+  decideVindiPaidOutOfBand,
+  presentBackofficeVindiPixLink,
+} from "@/lib/vindi/backoffice-pix";
 import {
   describeUpcomingChange,
   formatPlanLabel,
@@ -69,6 +74,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 function formatDate(value: Date | string | null | undefined): string {
@@ -127,9 +133,11 @@ function computeRecoverableInvoice(
 export function UserSubscriptionPanel({
   data,
   showProfileCard = true,
+  vindiSubscriptionsEnabled = false,
 }: {
   data: UserSubscriptionDetails;
   showProfileCard?: boolean;
+  vindiSubscriptionsEnabled?: boolean;
 }) {
   const {
     user,
@@ -138,6 +146,7 @@ export function UserSubscriptionPanel({
     subscriptionHistory,
     payments,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
     events,
   } = data;
 
@@ -164,20 +173,50 @@ export function UserSubscriptionPanel({
     payments,
   );
   const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
-  const pixLinks: PixLinkView[] = mercadopagoPaymentLinks.map((link) => ({
-    id: link.id,
-    planType: link.planType,
-    amount: link.amount,
-    currency: link.currency,
-    preferenceId: link.preferenceId,
-    ...normalizePixInitPoint(link.initPoint),
-    mercadopagoPaymentId: link.mercadopagoPaymentId,
-    status: link.status,
-    source: link.source,
-    adminEmail: link.adminEmail,
-    expiresAt: link.expiresAt.toISOString(),
-    createdAt: link.createdAt.toISOString(),
-  }));
+  const pixLinks: PixLinkView[] = vindiSubscriptionsEnabled
+    ? vindiPaymentLinks.flatMap((link) => {
+        try {
+          return [presentBackofficeVindiPixLink(link)];
+        } catch {
+          return [];
+        }
+      })
+    : mercadopagoPaymentLinks.map((link) => ({
+        id: link.id,
+        planType: link.planType,
+        amount: link.amount,
+        currency: link.currency,
+        preferenceId: link.preferenceId,
+        ...normalizePixInitPoint(link.initPoint),
+        mercadopagoPaymentId: link.mercadopagoPaymentId,
+        status: link.status,
+        source: link.source,
+        adminEmail: link.adminEmail,
+        expiresAt: link.expiresAt.toISOString(),
+        createdAt: link.createdAt.toISOString(),
+      }));
+  const failedVindiBillId =
+    payments.find(
+      (row) =>
+        row.provider === "vindi" &&
+        row.status === "failed" &&
+        row.vindiBillId &&
+        (!activeSubscription || row.subscriptionId === activeSubscription.id),
+    )?.vindiBillId ?? null;
+  const vindiPaidOutOfBand = vindiSubscriptionsEnabled
+    ? decideVindiPaidOutOfBand({
+        planType: activeSubscription?.planType ?? null,
+        currentExpiration: user.expirationDate,
+        openLinks: vindiPaymentLinks.map((link) => ({
+          id: link.id,
+          vindiBillId: link.vindiBillId,
+          planType: link.planType,
+          status: link.status,
+        })),
+        failedPaymentBillId: failedVindiBillId,
+        now: new Date(),
+      })
+    : { ok: false as const, reason: "no_open_bill" as const };
 
   return (
     <div className="space-y-6">
@@ -379,7 +418,7 @@ export function UserSubscriptionPanel({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
-            Mercado Pago Pix
+            {vindiSubscriptionsEnabled ? "Pix de renovação" : "Mercado Pago Pix"}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -391,6 +430,14 @@ export function UserSubscriptionPanel({
           />
         </CardContent>
       </Card>
+
+      {vindiPaidOutOfBand.ok ? (
+        <VindiPaidOutOfBandCard
+          userId={user.id}
+          planType={vindiPaidOutOfBand.planType}
+          newExpiration={vindiPaidOutOfBand.newExpiration}
+        />
+      ) : null}
 
       {recoverableInvoice &&
         (activeSubscription?.status === "past_due" ||
