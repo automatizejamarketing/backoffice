@@ -12,6 +12,7 @@ import {
   isNull,
   like,
   lt,
+  or,
   sql,
 } from "drizzle-orm";
 import { db } from "./index";
@@ -61,7 +62,10 @@ import {
   type Subscription,
   type SubscriptionEvent,
   type User,
+  type BillingProvider,
+  type PaymentSettlementMethod,
 } from "./schema";
+import { BILLING_PAYMENT_PURPOSES } from "@/lib/backoffice/finance-purpose";
 import { buildAccountStatusFilterSql } from "@/lib/backoffice/account-status-filter";
 import {
   resolveAccessExpirationRange,
@@ -1541,12 +1545,14 @@ export async function fetchCustomerBaseRows() {
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
         ), 0)`,
       hasApprovedPayment: sql<boolean>`exists (
           select 1
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
         )`,
       scheduledCancel: sql<boolean>`coalesce((
           select s.cancel_at_period_end = true or s.status = 'canceled'
@@ -1555,11 +1561,21 @@ export async function fetchCustomerBaseRows() {
           order by s.created_at desc
           limit 1
         ), false)`,
-      lastPaymentProvider: sql<"stripe" | "mercadopago" | "manual" | null>`(
+      lastPaymentProvider: sql<BillingProvider | null>`(
           select p.provider
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
+          order by p.paid_at desc nulls last, p.created_at desc
+          limit 1
+        )`,
+      lastPaymentMethod: sql<PaymentSettlementMethod | null>`(
+          select p.payment_method
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
+            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
           order by p.paid_at desc nulls last, p.created_at desc
           limit 1
         )`,
@@ -1587,6 +1603,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         .select({
           provider: subscription.provider,
           planType: subscription.planType,
+          vindiPaymentMethod: subscription.vindiPaymentMethod,
         })
         .from(subscription)
         .where(eq(subscription.status, "active")),
@@ -1599,6 +1616,8 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
           netAmount: payment.netAmount,
           feeAmount: payment.feeAmount,
           stripeInvoiceId: payment.stripeInvoiceId,
+          paymentMethod: payment.paymentMethod,
+          purpose: payment.purpose,
         })
         .from(payment)
         .where(
@@ -1606,6 +1625,10 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
             eq(payment.status, "succeeded"),
             gte(payment.paidAt, window.gte),
             lt(payment.paidAt, window.lt),
+            or(
+              isNull(payment.purpose),
+              inArray(payment.purpose, [...BILLING_PAYMENT_PURPOSES]),
+            ),
           ),
         ),
       db
@@ -1614,7 +1637,15 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
           payingCustomers: sql<number>`count(distinct ${payment.userId})::integer`,
         })
         .from(payment)
-        .where(eq(payment.status, "succeeded")),
+        .where(
+          and(
+            eq(payment.status, "succeeded"),
+            or(
+              isNull(payment.purpose),
+              inArray(payment.purpose, [...BILLING_PAYMENT_PURPOSES]),
+            ),
+          ),
+        ),
     ]);
 
   const stripeSettlements = await getStripeSettlements(

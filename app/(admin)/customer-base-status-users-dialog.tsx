@@ -6,7 +6,8 @@ import { ExternalLink, Users } from "lucide-react";
 import type { CustomerBaseCategory } from "@/lib/backoffice/customer-base-status";
 import { formatBRLFromCentavos } from "@/lib/backoffice/finance-format";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import type { BillingProvider } from "@/lib/db/schema";
+import { financeProviderLabel } from "@/lib/backoffice/finance-purpose";
+import type { BillingProvider, PaymentSettlementMethod } from "@/lib/db/schema";
 import { getWhatsAppUrl } from "@/lib/phone";
 import { CopyEmailButton } from "@/components/copy-email-button";
 import { WhatsAppIcon } from "@/components/whatsapp-icon";
@@ -37,19 +38,13 @@ type CustomerBaseStatusUser = {
   expirationDate: string | null;
   totalPaidCentavos: number;
   lastPaymentProvider: BillingProvider | null;
+  lastPaymentMethod: PaymentSettlementMethod | null;
 };
 
 type CustomerBaseStatusUsersDialogProps = {
   category: CustomerBaseCategory;
   title: string;
   count: number;
-};
-
-const PROVIDER_LABELS: Record<BillingProvider, string> = {
-  stripe: "Cartão",
-  mercadopago: "PIX",
-  manual: "Manual",
-  vindi: "Vindi",
 };
 
 function formatExpiration(value: string | null) {
@@ -70,7 +65,10 @@ function PaymentCell({ user }: { user: CustomerBaseStatusUser }) {
       </p>
       {user.lastPaymentProvider ? (
         <Badge variant="outline" className="text-[10px]">
-          {PROVIDER_LABELS[user.lastPaymentProvider]}
+          {financeProviderLabel({
+            provider: user.lastPaymentProvider,
+            paymentMethod: user.lastPaymentMethod,
+          })}
         </Badge>
       ) : null}
     </div>

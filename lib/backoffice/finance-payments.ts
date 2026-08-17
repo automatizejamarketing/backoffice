@@ -1,5 +1,7 @@
 import type {
   BillingProvider,
+  PaymentPurpose,
+  PaymentSettlementMethod,
   PlanType,
   ProductFinancialModel,
   ProductOwnerType,
@@ -9,6 +11,7 @@ import {
   calculateExpertShare,
 } from "@/lib/products/finance";
 import type { StripeSettlement } from "./finance-dashboard";
+import { isBillingPaymentPurpose } from "./finance-purpose";
 
 export type FinanceAutomatizePaymentRow = {
   id: string;
@@ -25,6 +28,9 @@ export type FinanceAutomatizePaymentRow = {
   currency: string;
   stripeInvoiceId: string | null;
   mercadopagoPaymentId: string | null;
+  vindiChargeId?: string | null;
+  paymentMethod?: PaymentSettlementMethod | null;
+  purpose?: PaymentPurpose | null;
   description: string | null;
   paymentNumber: number;
 };
@@ -128,13 +134,15 @@ export type FinancePaymentsSummary = {
 export type FinancePaymentNetGapReason =
   | "stripe_settlement_unavailable"
   | "mercadopago_fees_pending"
-  | "mercadopago_payment_not_found";
+  | "mercadopago_payment_not_found"
+  | "vindi_settlement_unavailable";
 
 export type FinancePaymentNetGap = {
   paymentId: string;
   userEmail: string;
   paidAt: Date | null;
   provider: FinanceAutomatizePaymentRow["provider"];
+  paymentMethod?: PaymentSettlementMethod | null;
   grossCentavos: number;
   reason: FinancePaymentNetGapReason;
   reference: string | null;
@@ -149,6 +157,8 @@ export function listAutomatizePaymentNetGaps(
   );
 
   return rows.flatMap((row) => {
+    if (!isBillingPaymentPurpose(row.purpose)) return [];
+
     const stripeSettlement = row.stripeInvoiceId
       ? settlementsByInvoice.get(row.stripeInvoiceId)
       : undefined;
@@ -163,9 +173,11 @@ export function listAutomatizePaymentNetGaps(
         userEmail: row.userEmail,
         paidAt: row.paidAt,
         provider: row.provider,
+        paymentMethod: row.paymentMethod ?? null,
         grossCentavos: amounts.gross,
         reason: amounts.missingNetReason,
         reference:
+          row.vindiChargeId ??
           row.mercadopagoPaymentId ??
           row.stripeInvoiceId ??
           row.description ??
@@ -204,6 +216,8 @@ export function resolveAutomatizePaymentAmounts(
       missingNetReason = "stripe_settlement_unavailable";
     } else if (payment.provider === "mercadopago") {
       missingNetReason = "mercadopago_fees_pending";
+    } else if (payment.provider === "vindi") {
+      missingNetReason = "vindi_settlement_unavailable";
     }
   }
 
@@ -233,6 +247,8 @@ export function summarizeAutomatizePayments(
   };
 
   for (const payment of payments) {
+    if (!isBillingPaymentPurpose(payment.purpose)) continue;
+
     const stripeSettlement = payment.stripeInvoiceId
       ? settlementsByInvoice.get(payment.stripeInvoiceId)
       : undefined;
@@ -325,6 +341,21 @@ export function describeProductPaymentProvider(
       methodLabel: "Cartão",
       referenceLabel: payment.providerPaymentId
         ? `Stripe ${payment.providerPaymentId}`
+        : null,
+    };
+  }
+
+  if (payment.provider === "vindi") {
+    const methodLabel =
+      isPix || payment.paymentMethodId === "pix"
+        ? "PIX"
+        : payment.paymentMethodId === "credit_card"
+          ? "Cartão"
+          : "Vindi";
+    return {
+      methodLabel,
+      referenceLabel: payment.providerPaymentId
+        ? `Vindi ${payment.providerPaymentId}`
         : null,
     };
   }

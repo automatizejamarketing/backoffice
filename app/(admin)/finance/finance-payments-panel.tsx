@@ -26,14 +26,9 @@ import {
   formatFinanceNumber,
 } from "@/lib/backoffice/finance-format";
 import type { FinancePaymentSource } from "@/lib/backoffice/finance-search-params";
+import { financeProviderLabel } from "@/lib/backoffice/finance-purpose";
 import { formatPlanLabel } from "@/lib/subscriptions/derive";
 import { FinancePaymentNetGaps } from "./finance-payment-net-gaps";
-
-const PROVIDER_LABELS: Record<string, string> = {
-  stripe: "Cartão",
-  mercadopago: "PIX",
-  manual: "Manual",
-};
 
 type FinancePaymentsPanelProps = {
   source: FinancePaymentSource;
@@ -227,6 +222,7 @@ function AutomatizePaymentsTable({
               stripeSettlement,
             );
             const reference =
+              payment.vindiChargeId ??
               payment.mercadopagoPaymentId ??
               payment.stripeInvoiceId ??
               payment.description;
@@ -262,7 +258,7 @@ function AutomatizePaymentsTable({
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">
-                    {PROVIDER_LABELS[payment.provider] ?? payment.provider}
+                    {financeProviderLabel(payment)}
                   </Badge>
                 </TableCell>
                 <TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">

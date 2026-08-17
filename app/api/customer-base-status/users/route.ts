@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       phone: user.phone,
       totalPaidCentavos: user.totalPaidCentavos,
       lastPaymentProvider: user.lastPaymentProvider,
+      lastPaymentMethod: user.lastPaymentMethod ?? null,
     })),
   });
 }

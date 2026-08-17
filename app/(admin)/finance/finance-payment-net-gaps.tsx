@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { FinancePaymentNetGap } from "@/lib/backoffice/finance-payments";
+import { financeProviderLabel } from "@/lib/backoffice/finance-purpose";
 import {
   formatBRLFromCentavos,
   formatFinanceDateTime,
@@ -27,12 +28,8 @@ const REASON_LABELS: Record<FinancePaymentNetGap["reason"], string> = {
     "Mercado Pago ainda não informou taxas para este PIX",
   mercadopago_payment_not_found:
     "Pagamento PIX não encontrado na conta Mercado Pago configurada",
-};
-
-const PROVIDER_LABELS: Record<string, string> = {
-  stripe: "Cartão",
-  mercadopago: "PIX",
-  manual: "Manual",
+  vindi_settlement_unavailable:
+    "Vindi ainda não informou taxa/líquido para esta cobrança",
 };
 
 type FinancePaymentNetGapsProps = {
@@ -157,7 +154,7 @@ export function FinancePaymentNetGaps({
               <TableCell className="font-medium">{gap.userEmail}</TableCell>
               <TableCell>
                 <Badge variant="outline">
-                  {PROVIDER_LABELS[gap.provider] ?? gap.provider}
+                  {financeProviderLabel(gap)}
                 </Badge>
               </TableCell>
               <TableCell className="max-w-[180px] truncate font-mono text-xs text-muted-foreground">

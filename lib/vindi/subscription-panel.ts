@@ -1,4 +1,5 @@
 import type {
+  BillingProvider,
   VindiConsentStatus,
   VindiSubscriptionPaymentMethod,
 } from "@/lib/db/schema";
@@ -12,7 +13,7 @@ import {
 
 export const VINDI_PROVIDER_LABEL = "Vindi";
 
-export const BILLING_PROVIDER_LABELS: Record<string, string> = {
+export const BILLING_PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
@@ -177,9 +178,13 @@ function presentVindiRecovery(input: {
   };
 }
 
-export function billingProviderLabel(provider: string | null | undefined): string {
+export function billingProviderLabel(
+  provider: BillingProvider | string | null | undefined,
+): string {
   if (!provider) return "—";
-  return BILLING_PROVIDER_LABELS[provider] ?? provider;
+  return (
+    BILLING_PROVIDER_LABELS[provider as BillingProvider] ?? provider
+  );
 }
 
 export function providerExternalId(input: {

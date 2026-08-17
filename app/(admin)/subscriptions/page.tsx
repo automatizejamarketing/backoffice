@@ -27,7 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface SubscriptionData {
   id: string;
   userId: string;
-  provider: "stripe" | "mercadopago" | "manual";
+  provider: "stripe" | "mercadopago" | "manual" | "vindi";
   stripeSubscriptionId: string | null;
   planType: string;
   planName: string;
@@ -61,10 +61,14 @@ const STATUS_LABELS: Record<
   expired: { label: "Expirada", variant: "secondary" },
 };
 
-const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<
+  SubscriptionData["provider"],
+  string
+> = {
   stripe: "Stripe",
   mercadopago: "Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 export default function SubscriptionsPage() {
