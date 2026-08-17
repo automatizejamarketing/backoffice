@@ -2548,7 +2548,12 @@ export const vindiWebhookEvent = pgTable(
 
 export type VindiWebhookEvent = InferSelectModel<typeof vindiWebhookEvent>;
 
-export type BillingNotificationType = "expiration_3d" | "expiration_1d";
+export type BillingNotificationType =
+  | "expiration_3d"
+  | "expiration_1d"
+  | "payment_confirmed"
+  | "dunning"
+  | "dunning_reminder";
 
 export const billingNotificationDelivery = pgTable(
   "billing_notification_deliveries",
@@ -2559,7 +2564,13 @@ export const billingNotificationDelivery = pgTable(
       .references(() => user.id),
     subscriptionId: uuid("subscription_id").references(() => subscription.id),
     notificationType: varchar("notification_type", {
-      enum: ["expiration_3d", "expiration_1d"],
+      enum: [
+        "expiration_3d",
+        "expiration_1d",
+        "payment_confirmed",
+        "dunning",
+        "dunning_reminder",
+      ],
     })
       .$type<BillingNotificationType>()
       .notNull(),
@@ -2567,13 +2578,40 @@ export const billingNotificationDelivery = pgTable(
     mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id").references(
       () => mercadopagoPaymentLink.id,
     ),
-    sentAt: timestamp("sent_at").notNull().defaultNow(),
+    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    channel: varchar("channel", { length: 20 })
+      .$type<"email" | "whatsapp">()
+      .notNull()
+      .default("email"),
+    deliveryStatus: varchar("delivery_status", { length: 20 })
+      .$type<"scheduled" | "sent" | "failed">()
+      .notNull()
+      .default("scheduled"),
+    providerMessageId: text("provider_message_id"),
+    errorMessage: text("error_message"),
+    sentAt: timestamp("sent_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    uniqueDelivery: unique(
+    uniqueDelivery: uniqueIndex(
       "billing_notification_deliveries_user_type_expiration_unique",
-    ).on(table.userId, table.notificationType, table.expirationDate),
+    )
+      .on(
+        table.userId,
+        table.notificationType,
+        table.expirationDate,
+        table.channel,
+      )
+      .where(sql`${table.vindiChargeId} IS NULL`),
+    uniqueLinkDelivery: unique(
+      "billing_notification_deliveries_link_type_channel_unique",
+    ).on(table.mercadopagoPaymentLinkId, table.notificationType, table.channel),
+    uniqueVindiChargeDelivery: uniqueIndex(
+      "billing_notification_deliveries_vindi_charge_type_channel_unique",
+    )
+      .on(table.vindiChargeId, table.notificationType, table.channel)
+      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 
