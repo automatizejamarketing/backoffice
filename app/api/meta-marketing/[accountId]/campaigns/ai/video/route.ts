@@ -92,10 +92,14 @@ export async function POST(
       );
     }
 
+    // new URL().toString() percent-encoda espaços/acentos — URLs antigas gravadas
+    // cruas no banco viram URLs válidas para o fetcher da Meta (erro 389)
+    const normalizedVideoUrl = new URL(videoUrl).toString();
+
     const { id, thumbnailUrl } = await uploadVideoToMeta({
       adAccountId: `act_${auth.accountId}`,
       accessToken: auth.accessToken,
-      videoUrl,
+      videoUrl: normalizedVideoUrl,
     });
 
     const realThumbnail =

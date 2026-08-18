@@ -134,7 +134,10 @@ export function getMediaPublicUrl(objectKey: string): string {
   const key = objectKey.startsWith(MEDIA_KEY_PREFIX)
     ? objectKey
     : `${MEDIA_KEY_PREFIX}${objectKey}`;
-  return `${base.replace(/\/$/, "")}/${key}`;
+  // Percent-encoding por segmento: nomes de arquivo com espaço/acentos viram
+  // URLs válidas (o fetcher da Meta rejeita URL crua com espaço; erro 389)
+  const encoded = key.split("/").map(encodeURIComponent).join("/");
+  return `${base.replace(/\/$/, "")}/${encoded}`;
 }
 
 /**
