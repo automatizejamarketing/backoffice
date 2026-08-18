@@ -45,6 +45,13 @@ const schema = z.object({
     .nullable(),
 });
 
+/** Automatize-owned products lock expert participation at 0 (glossary invariant). */
+export function locksExpertParticipationToZero(
+  ownerType: "automatize" | "expert",
+): boolean {
+  return ownerType === "automatize";
+}
+
 function slugify(value: string): string {
   return value
     .normalize("NFD")
@@ -109,9 +116,8 @@ export function parseProductAdminInput(input: unknown) {
     status: parsed.status,
     salesEnabled: parsed.salesEnabled,
     termsVersion: parsed.termsVersion,
-    expertParticipationBps:
-      parsed.ownerType === "automatize"
-        ? 0
-        : (parsed.expertParticipationBps ?? null),
+    expertParticipationBps: locksExpertParticipationToZero(parsed.ownerType)
+      ? 0
+      : (parsed.expertParticipationBps ?? null),
   };
 }

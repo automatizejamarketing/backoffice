@@ -104,8 +104,10 @@ import {
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
+import { locksExpertParticipationToZero } from "@/lib/products/admin-input";
 import { calculateVindiSplit } from "@/lib/vindi/split";
 import {
+  affiliateStatusForSaleGate,
   describeExpertAffiliateReadiness,
   evaluateExpertProductSaleGate,
   formatExpertSaleGateError,
@@ -269,27 +271,11 @@ const emptyProduct: ProductFormState = {
   expertParticipationPercent: "0%",
 };
 
-function expertSaleGate(input: {
-  ownerType: Product["ownerType"];
-  expert?: Expert | null;
-  vindiProductsEnabled: boolean;
-  offeringForSale: boolean;
-}) {
-  return evaluateExpertProductSaleGate({
-    ownerType: input.ownerType,
-    affiliateStatus:
-      input.expert?.vindiAffiliateStatus ??
-      (input.ownerType === "expert" ? "unverified" : null),
-    vindiProductsEnabled: input.vindiProductsEnabled,
-    offeringForSale: input.offeringForSale,
-  });
-}
-
 function parseExpertParticipationBps(
   ownerType: Product["ownerType"],
   percent: string,
 ): number | null {
-  if (ownerType === "automatize") return 0;
+  if (locksExpertParticipationToZero(ownerType)) return 0;
   if (percent.trim() === "") return null;
   return Math.round(parsePercentageInput(percent) * 100);
 }
@@ -738,11 +724,14 @@ export function ProductsAdminWorkspace({
 
   const productFormSaleGate = useMemo(
     () =>
-      expertSaleGate({
+      evaluateExpertProductSaleGate({
         ownerType: productForm.ownerType,
-        expert: productForm.expertId
-          ? expertsById.get(productForm.expertId)
-          : null,
+        affiliateStatus: affiliateStatusForSaleGate({
+          ownerType: productForm.ownerType,
+          affiliateStatus: productForm.expertId
+            ? expertsById.get(productForm.expertId)?.vindiAffiliateStatus
+            : null,
+        }),
         vindiProductsEnabled,
         offeringForSale:
           productForm.status === "published" && productForm.salesEnabled,
@@ -759,10 +748,16 @@ export function ProductsAdminWorkspace({
   const productFormAffiliateReadiness =
     productForm.ownerType === "expert"
       ? describeExpertAffiliateReadiness(
-          expertsById.get(productForm.expertId)?.vindiAffiliateStatus ??
-            "unverified",
+          affiliateStatusForSaleGate({
+            ownerType: "expert",
+            affiliateStatus: expertsById.get(productForm.expertId)
+              ?.vindiAffiliateStatus,
+          }),
         )
       : { ready: true as const };
+  const expertParticipationLocked = locksExpertParticipationToZero(
+    productForm.ownerType,
+  );
 
   function changeProductOwner(value: string) {
     const owner = parseProductOwnerSelection(value);
@@ -780,12 +775,11 @@ export function ProductsAdminWorkspace({
           : "",
       coproducerSharePercent:
         owner.ownerType === "expert" ? current.coproducerSharePercent : "",
-      expertParticipationPercent:
-        owner.ownerType === "automatize"
-          ? "0%"
-          : current.ownerType === "automatize"
-            ? ""
-            : current.expertParticipationPercent,
+      expertParticipationPercent: locksExpertParticipationToZero(owner.ownerType)
+        ? "0%"
+        : locksExpertParticipationToZero(current.ownerType)
+          ? ""
+          : current.expertParticipationPercent,
     }));
   }
 
@@ -957,10 +951,9 @@ export function ProductsAdminWorkspace({
       status: row.status,
       salesEnabled: row.salesEnabled,
       termsVersion: row.termsVersion,
-      expertParticipationPercent:
-        row.ownerType === "automatize"
-          ? "0%"
-          : formatExpertParticipationPercent(row.expertParticipationBps),
+      expertParticipationPercent: locksExpertParticipationToZero(row.ownerType)
+        ? "0%"
+        : formatExpertParticipationPercent(row.expertParticipationBps),
     });
     setProductDialogOpen(true);
   }
@@ -1057,9 +1050,14 @@ export function ProductsAdminWorkspace({
   }
 
   async function publishProduct(row: Product) {
-    const gate = expertSaleGate({
+    const gate = evaluateExpertProductSaleGate({
       ownerType: row.ownerType,
-      expert: row.expertId ? expertsById.get(row.expertId) : null,
+      affiliateStatus: affiliateStatusForSaleGate({
+        ownerType: row.ownerType,
+        affiliateStatus: row.expertId
+          ? expertsById.get(row.expertId)?.vindiAffiliateStatus
+          : null,
+      }),
       vindiProductsEnabled,
       offeringForSale: true,
     });
@@ -1085,9 +1083,14 @@ export function ProductsAdminWorkspace({
   }
 
   async function enableProductSales(row: Product) {
-    const gate = expertSaleGate({
+    const gate = evaluateExpertProductSaleGate({
       ownerType: row.ownerType,
-      expert: row.expertId ? expertsById.get(row.expertId) : null,
+      affiliateStatus: affiliateStatusForSaleGate({
+        ownerType: row.ownerType,
+        affiliateStatus: row.expertId
+          ? expertsById.get(row.expertId)?.vindiAffiliateStatus
+          : null,
+      }),
       vindiProductsEnabled,
       offeringForSale: row.status === "published",
     });
@@ -1555,9 +1558,12 @@ export function ProductsAdminWorkspace({
                         : null;
                       const ownerName = ownerExpert?.displayName ?? expertName ?? "Automatize";
                       const statusBadge = getProductStatusBadgeProps(row.status);
-                      const saleGate = expertSaleGate({
+                      const saleGate = evaluateExpertProductSaleGate({
                         ownerType: row.ownerType,
-                        expert: ownerExpert,
+                        affiliateStatus: affiliateStatusForSaleGate({
+                          ownerType: row.ownerType,
+                          affiliateStatus: ownerExpert?.vindiAffiliateStatus,
+                        }),
                         vindiProductsEnabled,
                         offeringForSale: true,
                       });
@@ -2143,11 +2149,11 @@ export function ProductsAdminWorkspace({
                   inputMode="decimal"
                   placeholder="Ex.: 80%"
                   value={productForm.expertParticipationPercent}
-                  disabled={productForm.ownerType === "automatize"}
-                  readOnly={productForm.ownerType === "automatize"}
-                  aria-readonly={productForm.ownerType === "automatize"}
+                  disabled={expertParticipationLocked}
+                  readOnly={expertParticipationLocked}
+                  aria-readonly={expertParticipationLocked}
                   className={
-                    productForm.ownerType === "automatize" ? "bg-muted/40" : undefined
+                    expertParticipationLocked ? "bg-muted/40" : undefined
                   }
                   onChange={(event) =>
                     setProductForm((current) => ({
@@ -2159,7 +2165,7 @@ export function ProductsAdminWorkspace({
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  {productForm.ownerType === "automatize"
+                  {expertParticipationLocked
                     ? "Produto do Automatize: a participação do expert é zero."
                     : "Informe 0% a 100%. A sobra de arredondamento fica com a plataforma."}
                 </p>

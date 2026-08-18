@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { presentBackofficeVindiSubscription } from "./subscription-panel";
+import {
+  presentBackofficeVindiSubscription,
+  vindiCancelInWindowNotice,
+} from "./subscription-panel";
 
 const dueAt = new Date("2026-08-24T15:00:00.000Z");
 const now = new Date("2026-08-17T15:00:00.000Z");
@@ -82,6 +85,10 @@ describe("presentBackofficeVindiSubscription", () => {
     assert.equal(
       view?.cancel?.copy.consentRemains,
       "O consentimento do Pix Automático continua registrado no seu banco. A revogação é feita no aplicativo do banco.",
+    );
+    assert.equal(
+      vindiCancelInWindowNotice(view),
+      `${view?.cancel?.copy.inWindow} ${view?.cancel?.copy.consentRemains}`,
     );
   });
 

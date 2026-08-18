@@ -1,6 +1,7 @@
 import { sql, type SQL } from "drizzle-orm";
 import { user } from "@/lib/db/schema";
 import type { CustomerBaseRow } from "@/lib/backoffice/customer-base-status";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 
 export const ACCOUNT_STATUS_FILTER_VALUES = [
   "all",
@@ -105,7 +106,7 @@ export function matchesAccountStatusFilter(
   }
 }
 
-const billingPurposeSql = sql`(p.purpose IS NULL OR p.purpose IN ('subscription', 'legacy_renewal'))`;
+const billingPurposeSql = billingPaymentPurposeSql();
 
 const hasApprovedPaymentSql = sql`EXISTS (
   SELECT 1

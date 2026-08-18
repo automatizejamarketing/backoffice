@@ -26,7 +26,7 @@ import {
   formatFinanceNumber,
 } from "@/lib/backoffice/finance-format";
 import type { FinancePaymentSource } from "@/lib/backoffice/finance-search-params";
-import { financeProviderLabel } from "@/lib/backoffice/finance-purpose";
+import { financeProviderLabel } from "@/lib/backoffice/finance-provider";
 import { formatPlanLabel } from "@/lib/subscriptions/derive";
 import { FinancePaymentNetGaps } from "./finance-payment-net-gaps";
 

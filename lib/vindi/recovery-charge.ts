@@ -7,7 +7,6 @@ import type { VindiClient } from "./client";
 import {
   reissueVindiRecoveryChargeAsPix,
   retryVindiRecoveryCharge,
-  vindiRecoveryRetryAllowed,
   VindiRecoveryRetryNotAllowedError,
 } from "./recovery";
 
@@ -129,10 +128,6 @@ export async function recoverVindiPayment(input: {
   }
 
   if (input.mode === "retry") {
-    if (!vindiRecoveryRetryAllowed(snapshot.subscription.vindiPaymentMethod)) {
-      return { ok: false, error: "retry_not_allowed" };
-    }
-
     try {
       const retried = await retryVindiRecoveryCharge({
         client: input.client,

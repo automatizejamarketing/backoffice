@@ -6,7 +6,7 @@ import { ExternalLink, Users } from "lucide-react";
 import type { CustomerBaseCategory } from "@/lib/backoffice/customer-base-status";
 import { formatBRLFromCentavos } from "@/lib/backoffice/finance-format";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import { financeProviderLabel } from "@/lib/backoffice/finance-purpose";
+import { financeProviderLabel } from "@/lib/backoffice/finance-provider";
 import type { BillingProvider, PaymentSettlementMethod } from "@/lib/db/schema";
 import { getWhatsAppUrl } from "@/lib/phone";
 import { CopyEmailButton } from "@/components/copy-email-button";

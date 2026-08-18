@@ -12,6 +12,7 @@ import {
   findOrCreateVindiCustomer,
   type VindiCustomerDirectory,
 } from "./customer-lookup";
+import { resourceId } from "./payload";
 import {
   parseVindiPixEmv,
   vindiPixEmvUnknownLogFields,
@@ -52,12 +53,6 @@ export type BackofficeVindiPixStore = {
   }): Promise<StoredBackofficeVindiPixLink>;
   markLinksSuperseded(ids: string[], now: Date): Promise<void>;
 };
-
-function resourceId(value: unknown): string | null {
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.length > 0) return value;
-  return null;
-}
 
 async function findVindiPlanProductId(
   client: VindiClient,

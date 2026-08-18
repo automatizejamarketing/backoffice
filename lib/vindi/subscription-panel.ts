@@ -83,6 +83,16 @@ export type BackofficeVindiFailedPayment = {
   createdAt: Date;
 };
 
+export function vindiCancelInWindowNotice(
+  view: BackofficeVindiSubscriptionView | null | undefined,
+): string | null {
+  const copy = view?.cancel?.copy;
+  if (!copy?.inWindow) return null;
+  return copy.consentRemains
+    ? `${copy.inWindow} ${copy.consentRemains}`
+    : copy.inWindow;
+}
+
 export function presentBackofficeVindiSubscription(input: {
   subscription: {
     provider: string;

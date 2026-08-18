@@ -93,6 +93,16 @@ export function mapVindiAffiliateStatus(
   return "unverified";
 }
 
+export function affiliateStatusForSaleGate(input: {
+  ownerType: "automatize" | "expert";
+  affiliateStatus: VindiAffiliateStatus | null | undefined;
+}): VindiAffiliateStatus | null {
+  return (
+    input.affiliateStatus ??
+    (input.ownerType === "expert" ? "unverified" : null)
+  );
+}
+
 export type AffiliateReadinessAudience = "admin" | "expert";
 
 function unreadiness(
@@ -125,7 +135,12 @@ export function evaluateExpertProductSaleGate(
     return { allowed: true };
   }
 
-  const readiness = describeExpertAffiliateReadiness(input.affiliateStatus);
+  const readiness = describeExpertAffiliateReadiness(
+    affiliateStatusForSaleGate({
+      ownerType: input.ownerType,
+      affiliateStatus: input.affiliateStatus,
+    }),
+  );
   if (readiness.ready) return { allowed: true };
   return {
     allowed: false,
@@ -146,6 +161,28 @@ export function isProductOfferedForSale(input: {
   salesEnabled: boolean;
 }): boolean {
   return input.status === "published" && input.salesEnabled;
+}
+
+/** Catalog/API view of `salesEnabled` after the affiliate gate. Flag OFF
+ * leaves the stored flag alone (aceite 1). Flag ON hides expert products
+ * that cannot sell yet (aceite 2). */
+export function catalogSalesEnabled(input: {
+  salesEnabled: boolean;
+  status: "draft" | "published" | "archived";
+  ownerType: "automatize" | "expert";
+  affiliateStatus: VindiAffiliateStatus | null;
+  vindiProductsEnabled: boolean;
+}): boolean {
+  if (!input.salesEnabled) return false;
+  return evaluateExpertProductSaleGate({
+    ownerType: input.ownerType,
+    affiliateStatus: input.affiliateStatus,
+    vindiProductsEnabled: input.vindiProductsEnabled,
+    offeringForSale: isProductOfferedForSale({
+      status: input.status,
+      salesEnabled: input.salesEnabled,
+    }),
+  }).allowed;
 }
 
 export const VINDI_AFFILIATE_STATUS_LABELS: Record<

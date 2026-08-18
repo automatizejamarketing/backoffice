@@ -34,12 +34,14 @@ import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy
 import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
 import {
   decideVindiPaidOutOfBand,
+  pickFailedVindiBillId,
   presentBackofficeVindiPixLink,
 } from "@/lib/vindi/backoffice-pix";
 import {
   billingProviderLabel,
   presentBackofficeVindiSubscription,
   providerExternalId,
+  vindiCancelInWindowNotice,
 } from "@/lib/vindi/subscription-panel";
 import {
   describeUpcomingChange,
@@ -195,18 +197,18 @@ export function UserSubscriptionPanel({
         expiresAt: link.expiresAt.toISOString(),
         createdAt: link.createdAt.toISOString(),
       }));
-  const failedVindiRow =
+  const failedVindiPayment =
     payments.find(
       (row) =>
         row.provider === "vindi" &&
         row.status === "failed" &&
-        (row.vindiChargeId || row.vindiBillId) &&
+        row.vindiChargeId &&
         (!activeSubscription || row.subscriptionId === activeSubscription.id),
     ) ?? null;
-  const failedVindiPayment = failedVindiRow?.vindiChargeId
-    ? failedVindiRow
-    : null;
-  const failedVindiBillId = failedVindiRow?.vindiBillId ?? null;
+  const failedVindiBillId = pickFailedVindiBillId(
+    payments,
+    activeSubscription?.id ?? null,
+  );
   const vindiView = presentBackofficeVindiSubscription({
     subscription: activeSubscription,
     expirationDate: user.expirationDate,
@@ -235,6 +237,7 @@ export function UserSubscriptionPanel({
         now: new Date(),
       })
     : { ok: false as const, reason: "no_open_bill" as const };
+  const cancelInWindowNotice = vindiCancelInWindowNotice(vindiView);
 
   return (
     <div className="space-y-6">
@@ -456,12 +459,9 @@ export function UserSubscriptionPanel({
                   userId={user.id}
                   cancel={vindiView.cancel}
                 />
-              ) : vindiView?.cancel?.copy.inWindow ? (
+              ) : cancelInWindowNotice ? (
                 <p className="text-sm text-muted-foreground">
-                  {vindiView.cancel.copy.inWindow}
-                  {vindiView.cancel.copy.consentRemains
-                    ? ` ${vindiView.cancel.copy.consentRemains}`
-                    : ""}
+                  {cancelInWindowNotice}
                 </p>
               ) : null}
             </div>

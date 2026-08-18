@@ -7,6 +7,7 @@ import {
   calculateVindiAccessExtension,
   decideVindiPaidOutOfBand,
   findReusableVindiPixLink,
+  pickFailedVindiBillId,
   presentBackofficeVindiPixLink,
   vindiBackofficeLinksToSupersede,
   vindiPixLinkExpiresAt,
@@ -240,5 +241,39 @@ describe("decideVindiPaidOutOfBand", () => {
       now,
     });
     assert.deepEqual(decision, { ok: false, reason: "no_open_bill" });
+  });
+});
+
+describe("pickFailedVindiBillId", () => {
+  const vindiFailed = {
+    provider: "vindi",
+    status: "failed",
+    vindiBillId: "1600",
+    subscriptionId: "sub-1",
+  };
+
+  it("picks the failed Vindi bill on the active subscription", () => {
+    assert.equal(
+      pickFailedVindiBillId(
+        [
+          { ...vindiFailed, provider: "stripe", vindiBillId: "stripe-1" },
+          { ...vindiFailed, status: "succeeded", vindiBillId: "1601" },
+          { ...vindiFailed, vindiBillId: null },
+          vindiFailed,
+        ],
+        "sub-1",
+      ),
+      "1600",
+    );
+  });
+
+  it("falls back to any failed Vindi bill when none match the subscription", () => {
+    assert.equal(
+      pickFailedVindiBillId(
+        [{ ...vindiFailed, subscriptionId: "sub-other" }],
+        "sub-1",
+      ),
+      "1600",
+    );
   });
 });

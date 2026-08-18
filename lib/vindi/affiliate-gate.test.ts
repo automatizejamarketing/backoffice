@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  affiliateStatusForSaleGate,
+  catalogSalesEnabled,
   describeExpertAffiliateReadiness,
   evaluateExpertProductSaleGate,
   mapVindiAffiliateStatus,
@@ -23,6 +25,45 @@ describe("mapVindiAffiliateStatus", () => {
     assert.equal(mapVindiAffiliateStatus(""), "unverified");
     assert.equal(mapVindiAffiliateStatus("mystery"), "unverified");
     assert.equal(mapVindiAffiliateStatus(1), "unverified");
+  });
+});
+
+describe("affiliateStatusForSaleGate", () => {
+  it("keeps an explicit affiliate status", () => {
+    assert.equal(
+      affiliateStatusForSaleGate({
+        ownerType: "expert",
+        affiliateStatus: "verified",
+      }),
+      "verified",
+    );
+  });
+
+  it("treats a missing expert affiliate as unverified", () => {
+    assert.equal(
+      affiliateStatusForSaleGate({
+        ownerType: "expert",
+        affiliateStatus: null,
+      }),
+      "unverified",
+    );
+    assert.equal(
+      affiliateStatusForSaleGate({
+        ownerType: "expert",
+        affiliateStatus: undefined,
+      }),
+      "unverified",
+    );
+  });
+
+  it("leaves Automatize-owned products without an affiliate status", () => {
+    assert.equal(
+      affiliateStatusForSaleGate({
+        ownerType: "automatize",
+        affiliateStatus: null,
+      }),
+      null,
+    );
   });
 });
 
@@ -124,6 +165,40 @@ describe("evaluateExpertProductSaleGate", () => {
         affiliateStatus: "verified",
       }),
       { allowed: true },
+    );
+  });
+});
+
+describe("catalogSalesEnabled", () => {
+  const publishedExpert = {
+    salesEnabled: true,
+    status: "published" as const,
+    ownerType: "expert" as const,
+    affiliateStatus: "unverified" as const,
+    vindiProductsEnabled: true,
+  };
+
+  it("keeps the stored flag while the products flag is off", () => {
+    assert.equal(
+      catalogSalesEnabled({
+        ...publishedExpert,
+        vindiProductsEnabled: false,
+      }),
+      true,
+    );
+  });
+
+  it("hides an expert product that cannot sell yet", () => {
+    assert.equal(catalogSalesEnabled(publishedExpert), false);
+  });
+
+  it("keeps a verified expert product for sale", () => {
+    assert.equal(
+      catalogSalesEnabled({
+        ...publishedExpert,
+        affiliateStatus: "verified",
+      }),
+      true,
     );
   });
 });

@@ -1,5 +1,5 @@
 import type { BillingProvider, PaymentSettlementMethod } from "@/lib/db/schema";
-import { financeProvider } from "./finance-purpose";
+import { financeProvider } from "./finance-provider";
 
 export type CustomerBaseRow = {
   expirationDate: Date | null;

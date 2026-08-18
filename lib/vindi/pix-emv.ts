@@ -149,12 +149,3 @@ export function vindiPixEmvUnknownLogFields(
     fieldKeys: result.fieldKeys,
   };
 }
-
-export function noteUnknownVindiPixEmv(
-  liveResource: unknown,
-  log: (event: string, fields: Record<string, unknown>) => void,
-): void {
-  const parsed = parseVindiPixEmv(liveResource);
-  if (parsed.ok || parsed.fieldKeys.length === 0) return;
-  log("unknown_pix_emv_shape", vindiPixEmvUnknownLogFields(parsed));
-}

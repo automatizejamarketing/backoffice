@@ -26,6 +26,7 @@ import {
 import { summarizeProductPaymentsByProduct } from "@/lib/backoffice/finance-payments";
 import { parseProductFinancialSettingsInput } from "@/lib/products/financial-settings";
 import {
+  affiliateStatusForSaleGate,
   evaluateExpertProductSaleGate,
   formatExpertSaleGateError,
   isProductOfferedForSale,
@@ -185,9 +186,7 @@ type ProductAdminAudit = {
   adminEmail: string;
 };
 
-type ProductAdminTx =
-  | typeof db
-  | Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+type ProductAdminTx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
 
 async function resolveParticipationAuditTargetUserId(
   tx: ProductAdminTx,
@@ -233,7 +232,10 @@ async function assertExpertProductSaleAllowed(
       .from(expertProfile)
       .where(eq(expertProfile.id, values.expertId))
       .limit(1);
-    affiliateStatus = expert?.vindiAffiliateStatus ?? "unverified";
+    affiliateStatus = affiliateStatusForSaleGate({
+      ownerType: values.ownerType,
+      affiliateStatus: expert?.vindiAffiliateStatus,
+    });
   }
 
   const gate = evaluateExpertProductSaleGate({

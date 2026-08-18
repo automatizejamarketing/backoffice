@@ -8,12 +8,9 @@ import type {
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import {
   financeProvider,
-  isBillingPaymentPurpose,
   type FinanceProvider,
-} from "./finance-purpose";
-
-export { financeProvider, financeProviderLabel } from "./finance-purpose";
-export type { FinanceProvider } from "./finance-purpose";
+} from "./finance-provider";
+import { isBillingPaymentPurpose } from "./finance-purpose";
 
 export type ActivePlanForMrr = {
   provider: BillingProvider;

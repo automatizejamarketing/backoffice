@@ -119,6 +119,33 @@ export function calculateVindiAccessExtension(input: {
   return new Date(zonedExpiration.getTime());
 }
 
+export type FailedVindiBillPayment = {
+  provider: string | null;
+  status: string;
+  vindiBillId: string | null;
+  subscriptionId: string | null;
+};
+
+export function pickFailedVindiBillId(
+  payments: readonly FailedVindiBillPayment[],
+  activeSubscriptionId?: string | null,
+): string | null {
+  const isFailedVindiBill = (row: FailedVindiBillPayment) =>
+    row.provider === "vindi" &&
+    row.status === "failed" &&
+    Boolean(row.vindiBillId);
+
+  return (
+    payments.find(
+      (row) =>
+        isFailedVindiBill(row) &&
+        (!activeSubscriptionId || row.subscriptionId === activeSubscriptionId),
+    )?.vindiBillId ??
+    payments.find(isFailedVindiBill)?.vindiBillId ??
+    null
+  );
+}
+
 export type VindiPaidOutOfBandOpenLink = {
   id: string;
   vindiBillId: string | null;

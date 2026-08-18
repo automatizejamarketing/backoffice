@@ -8,6 +8,7 @@ import {
   vindiPaymentLink,
 } from "@/lib/db/schema";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import { pickFailedVindiBillId } from "./backoffice-pix";
 import type { VindiPaidOutOfBandStore } from "./paid-out-of-band";
 
 export function createDbVindiPaidOutOfBandStore(): VindiPaidOutOfBandStore {
@@ -38,6 +39,8 @@ export function createDbVindiPaidOutOfBandStore(): VindiPaidOutOfBandStore {
           .orderBy(desc(vindiPaymentLink.createdAt)),
         db
           .select({
+            provider: payment.provider,
+            status: payment.status,
             vindiBillId: payment.vindiBillId,
             subscriptionId: payment.subscriptionId,
           })
@@ -54,14 +57,10 @@ export function createDbVindiPaidOutOfBandStore(): VindiPaidOutOfBandStore {
       ]);
 
       const active = pickActiveSubscription(subscriptions);
-      const failedPaymentBillId =
-        failedPayments.find(
-          (row) =>
-            row.vindiBillId &&
-            (!active || row.subscriptionId === active.id),
-        )?.vindiBillId ??
-        failedPayments.find((row) => row.vindiBillId)?.vindiBillId ??
-        null;
+      const failedPaymentBillId = pickFailedVindiBillId(
+        failedPayments,
+        active?.id ?? null,
+      );
 
       return {
         userId: foundUser.id,

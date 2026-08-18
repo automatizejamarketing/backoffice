@@ -65,7 +65,7 @@ import {
   type BillingProvider,
   type PaymentSettlementMethod,
 } from "./schema";
-import { BILLING_PAYMENT_PURPOSES } from "@/lib/backoffice/finance-purpose";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import { buildAccountStatusFilterSql } from "@/lib/backoffice/account-status-filter";
 import {
   resolveAccessExpirationRange,
@@ -1545,14 +1545,14 @@ export async function fetchCustomerBaseRows() {
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
-            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
+            and ${billingPaymentPurposeSql()}
         ), 0)`,
       hasApprovedPayment: sql<boolean>`exists (
           select 1
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
-            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
+            and ${billingPaymentPurposeSql()}
         )`,
       scheduledCancel: sql<boolean>`coalesce((
           select s.cancel_at_period_end = true or s.status = 'canceled'
@@ -1566,7 +1566,7 @@ export async function fetchCustomerBaseRows() {
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
-            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
+            and ${billingPaymentPurposeSql()}
           order by p.paid_at desc nulls last, p.created_at desc
           limit 1
         )`,
@@ -1575,7 +1575,7 @@ export async function fetchCustomerBaseRows() {
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
-            and (p.purpose is null or p.purpose in ('subscription', 'legacy_renewal'))
+            and ${billingPaymentPurposeSql()}
           order by p.paid_at desc nulls last, p.created_at desc
           limit 1
         )`,
@@ -1625,10 +1625,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
             eq(payment.status, "succeeded"),
             gte(payment.paidAt, window.gte),
             lt(payment.paidAt, window.lt),
-            or(
-              isNull(payment.purpose),
-              inArray(payment.purpose, [...BILLING_PAYMENT_PURPOSES]),
-            ),
+            billingPaymentPurposeSql(payment.purpose),
           ),
         ),
       db
@@ -1640,10 +1637,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         .where(
           and(
             eq(payment.status, "succeeded"),
-            or(
-              isNull(payment.purpose),
-              inArray(payment.purpose, [...BILLING_PAYMENT_PURPOSES]),
-            ),
+            billingPaymentPurposeSql(payment.purpose),
           ),
         ),
     ]);

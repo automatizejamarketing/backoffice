@@ -15,7 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { FinancePaymentNetGap } from "@/lib/backoffice/finance-payments";
-import { financeProviderLabel } from "@/lib/backoffice/finance-purpose";
+import { financeProviderLabel } from "@/lib/backoffice/finance-provider";
 import {
   formatBRLFromCentavos,
   formatFinanceDateTime,

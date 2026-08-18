@@ -1,5 +1,5 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { BILLING_PAYMENT_PURPOSES } from "@/lib/backoffice/finance-purpose";
+import { and, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import {
   summarizeAutomatizePayments,
@@ -47,10 +47,7 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
           from payments earlier_payment
           where earlier_payment.user_id = ${payment.userId}
             and earlier_payment.status = 'succeeded'
-            and (
-              earlier_payment.purpose is null
-              or earlier_payment.purpose in ('subscription', 'legacy_renewal')
-            )
+            and ${billingPaymentPurposeSql("earlier_payment.purpose")}
             and (
               coalesce(earlier_payment.paid_at, earlier_payment.created_at)
                 < coalesce(${payment.paidAt}, ${payment.createdAt})
@@ -70,10 +67,7 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
         eq(payment.status, "succeeded"),
         gte(payment.paidAt, window.gte),
         lt(payment.paidAt, window.lt),
-        or(
-          isNull(payment.purpose),
-          inArray(payment.purpose, [...BILLING_PAYMENT_PURPOSES]),
-        ),
+        billingPaymentPurposeSql(payment.purpose),
       ),
     )
     .orderBy(desc(payment.paidAt));

@@ -1,6 +1,7 @@
 import type { VindiSubscriptionPaymentMethod } from "@/lib/db/schema";
 import type { VindiClient } from "./client";
 import { vindiAmountToCentavos } from "./money";
+import { isRecord, resourceId } from "./payload";
 import {
   parseVindiPixEmv,
   vindiPixEmvUnknownLogFields,
@@ -17,16 +18,6 @@ export class VindiRecoveryRetryNotAllowedError extends Error {
     super("Retry is only available for a card charge");
     this.name = "VindiRecoveryRetryNotAllowedError";
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function resourceId(value: unknown): string | null {
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.length > 0) return value;
-  return null;
 }
 
 function unwrapCharge(payload: unknown): Record<string, unknown> | null {
