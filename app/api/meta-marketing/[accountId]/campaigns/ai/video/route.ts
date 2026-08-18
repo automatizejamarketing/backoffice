@@ -31,7 +31,16 @@ const BLOB_HOST_SUFFIX = ".blob.vercel-storage.com";
 function isOwnBlobUrl(rawUrl: string): boolean {
   try {
     const url = new URL(rawUrl);
-    return url.protocol === "https:" && url.hostname.endsWith(BLOB_HOST_SUFFIX);
+    if (url.protocol !== "https:") return false;
+    if (url.hostname.endsWith(BLOB_HOST_SUFFIX)) return true;
+    // Mídia migrada para o R2: URLs servidas pelo custom domain próprio
+    const mediaBase = process.env.MEDIA_PUBLIC_BASE_URL;
+    if (!mediaBase) return false;
+    try {
+      return url.hostname === new URL(mediaBase).hostname;
+    } catch {
+      return false;
+    }
   } catch {
     return false;
   }
