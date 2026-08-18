@@ -16,6 +16,7 @@ import { ensurePixCopyPasteCode } from "@/lib/mercadopago/pix-payment";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { formatInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { assertPixRenewalAllowed } from "@/lib/backoffice/pix-renewal-policy";
+import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
 
 const PIX_LINK_VALIDITY_DAYS = 7;
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -113,6 +114,11 @@ export async function createOrReuseBackofficePixLink({
   planType: PlanType;
   adminEmail: string;
 }): Promise<BackofficePixLinkResult> {
+  if (isVindiSubscriptionsEnabled()) {
+    throw new Error(
+      "A geração de links Mercado Pago foi desligada no corte. O webhook permanece só para a cauda de 7 dias.",
+    );
+  }
   const activeSubscriptions = await db
     .select()
     .from(subscription)
