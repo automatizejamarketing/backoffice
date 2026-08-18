@@ -396,6 +396,127 @@ describe("finance payments summaries", () => {
     expect(gaps[1]?.reason).toBe("stripe_settlement_unavailable");
   });
 
+  test("flags vindi payments without settlement data", () => {
+    const amounts = resolveAutomatizePaymentAmounts({
+      amount: 29_700,
+      grossAmount: 29_700,
+      netAmount: null,
+      feeAmount: null,
+      provider: "vindi",
+      stripeInvoiceId: null,
+    });
+
+    expect(amounts.net).toBeNull();
+    expect(amounts.hasNetCoverage).toBe(false);
+    expect(amounts.missingNetReason).toBe("vindi_settlement_unavailable");
+  });
+
+  test("lists a classified vindi net gap with the charge id as reference", () => {
+    const gaps = listAutomatizePaymentNetGaps(
+      [
+        {
+          ...automatizePaymentFixture,
+          id: "vindi-gap",
+          provider: "vindi",
+          amount: 29_700,
+          grossAmount: 29_700,
+          stripeInvoiceId: null,
+          mercadopagoPaymentId: null,
+          vindiChargeId: "88002",
+          paymentMethod: "credit_card",
+          purpose: "subscription",
+        },
+        {
+          ...automatizePaymentFixture,
+          id: "product-row",
+          provider: "vindi",
+          amount: 10_000,
+          stripeInvoiceId: null,
+          vindiChargeId: "99",
+          purpose: "product",
+        },
+      ],
+      [],
+    );
+
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({
+      paymentId: "vindi-gap",
+      reason: "vindi_settlement_unavailable",
+      reference: "88002",
+      paymentMethod: "credit_card",
+    });
+  });
+
+  test("keeps product and pack rows out of the automatize billing summary", () => {
+    const summary = summarizeAutomatizePayments(
+      [
+        {
+          ...automatizePaymentFixture,
+          provider: "vindi",
+          amount: 29_700,
+          grossAmount: 29_700,
+          netAmount: 28_353,
+          feeAmount: 1_347,
+          stripeInvoiceId: null,
+          purpose: "subscription",
+        },
+        {
+          ...automatizePaymentFixture,
+          id: "product-row",
+          provider: "vindi",
+          amount: 10_000,
+          grossAmount: 10_000,
+          netAmount: 9_451,
+          feeAmount: 549,
+          stripeInvoiceId: null,
+          purpose: "product",
+        },
+      ],
+      [],
+    );
+
+    expect(summary.count).toBe(1);
+    expect(summary.grossCentavos).toBe(29_700);
+    expect(summary.netCentavos).toBe(28_353);
+  });
+
+  test("labels vindi product payments by method", () => {
+    expect(
+      describeProductPaymentProvider({
+        provider: "vindi",
+        paymentMethodId: "credit_card",
+        paymentTypeId: null,
+        providerPaymentId: "88002",
+      }),
+    ).toEqual({
+      methodLabel: "Cartão",
+      referenceLabel: "Vindi 88002",
+    });
+    expect(
+      describeProductPaymentProvider({
+        provider: "vindi",
+        paymentMethodId: "pix",
+        paymentTypeId: null,
+        providerPaymentId: "88003",
+      }),
+    ).toEqual({
+      methodLabel: "PIX",
+      referenceLabel: "Vindi 88003",
+    });
+    expect(
+      describeProductPaymentProvider({
+        provider: "vindi",
+        paymentMethodId: null,
+        paymentTypeId: null,
+        providerPaymentId: "88004",
+      }),
+    ).toEqual({
+      methodLabel: "Vindi",
+      referenceLabel: "Vindi 88004",
+    });
+  });
+
   test("describes first payment as new subscription and later as renewal", () => {
     expect(describeAutomatizePaymentSequence(1)).toEqual({
       paymentNumber: 1,

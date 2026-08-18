@@ -63,6 +63,30 @@ function thresholdsFor(
   return config?.thresholdsByRuleId?.get(ruleId) ?? {};
 }
 
+function parseTimestamp(value: string | Date | null | undefined): number | null {
+  if (!value) return null;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * A campaign is eligible when it was created on/after the current Meta
+ * connection, or it spent anything in the trailing 10 calendar days.
+ * Missing/invalid createdTime qualifies only through recent spend.
+ * When no connection cutoff is provided, every campaign stays eligible.
+ */
+export function isPlaybookCampaignEligible(args: {
+  campaign: Pick<CampaignMetricsRow, "createdTime" | "spendLast10Days">;
+  connectionCreatedAt?: Date | null;
+}): boolean {
+  if (args.campaign.spendLast10Days > 0) return true;
+  if (!args.connectionCreatedAt) return true;
+  const createdAt = parseTimestamp(args.campaign.createdTime);
+  const cutoff = parseTimestamp(args.connectionCreatedAt);
+  if (createdAt === null || cutoff === null) return false;
+  return createdAt >= cutoff;
+}
+
 /**
  * Deterministic playbook evaluators for consultant-facing suggestions.
  * Source: food-service playbook ROAS/CPA bands + suporte playbook ops heuristics.
@@ -74,6 +98,7 @@ export function evaluatePlaybookInsights(args: {
   now?: Date;
   cpaAlertThreshold?: number;
   config?: PlaybookEvaluationConfig;
+  connectionCreatedAt?: Date | null;
 }): PlaybookEvaluationResult {
   const now = args.now ?? new Date();
   const config: PlaybookEvaluationConfig = {
@@ -81,9 +106,15 @@ export function evaluatePlaybookInsights(args: {
     cpaAlertThreshold:
       args.config?.cpaAlertThreshold ?? args.cpaAlertThreshold,
   };
+  const campaigns = args.campaigns.filter((campaign) =>
+    isPlaybookCampaignEligible({
+      campaign,
+      connectionCreatedAt: args.connectionCreatedAt,
+    }),
+  );
   const candidates: PlaybookInsightCandidate[] = [];
 
-  for (const campaign of args.campaigns) {
+  for (const campaign of campaigns) {
     const status = campaign.effectiveStatus ?? campaign.status;
     const roas = campaign.purchaseRoas;
 
@@ -254,7 +285,7 @@ export function evaluatePlaybookInsights(args: {
 
   return {
     accountId: args.accountId,
-    campaigns: args.campaigns,
+    campaigns,
     candidates,
   };
 }

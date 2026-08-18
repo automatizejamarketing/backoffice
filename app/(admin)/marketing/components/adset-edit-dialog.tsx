@@ -52,6 +52,7 @@ import {
   AdSetDeliveryScheduleEditor,
   type AdSetDeliveryScheduleValue,
 } from "./adset-delivery-schedule-editor";
+import { useCompanyLocations } from "../hooks/use-company-locations";
 import { LocationTargetingSection } from "./location-targeting-section";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import {
@@ -254,6 +255,7 @@ export function AdSetEditDialog({
   onSuccess,
 }: AdSetEditDialogProps) {
   const invalidateMarketing = useMarketingInvalidate(accountId, userId);
+  const { data: businessUnits = [] } = useCompanyLocations(userId);
   const hasCampaignBudget = hasAnyPositiveBudget(adSet.campaign);
   const effectiveBudgetSource = hasCampaignBudget ? adSet.campaign! : adSet;
   const effectiveBudgetType = getBudgetType(effectiveBudgetSource);
@@ -863,6 +865,7 @@ export function AdSetEditDialog({
                   value={deliverySchedule}
                   onChange={setDeliverySchedule}
                   disabled={isSubmitting}
+                  businessUnits={businessUnits}
                 />
               </div>
             )}

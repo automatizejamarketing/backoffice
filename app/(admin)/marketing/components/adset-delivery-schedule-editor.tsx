@@ -1,7 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
-import { Clock3, Plus, Trash2, Zap } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Building2, Clock3, Plus, Trash2, Zap } from "lucide-react";
+import type { CompanyLocationRow } from "@/lib/db/company-location-queries";
+import {
+  locationHasOperatingHours,
+  scheduleFromLocationHours,
+} from "@/lib/meta-business/location-hours";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -29,6 +34,7 @@ type AdSetDeliveryScheduleEditorProps = {
   value: AdSetDeliveryScheduleValue;
   onChange: (nextValue: AdSetDeliveryScheduleValue) => void;
   disabled?: boolean;
+  businessUnits?: CompanyLocationRow[];
 };
 
 const MINUTES_PER_HOUR = 60;
@@ -176,7 +182,10 @@ export function AdSetDeliveryScheduleEditor({
   value,
   onChange,
   disabled = false,
+  businessUnits = [],
 }: AdSetDeliveryScheduleEditorProps) {
+  const [selectedUnitId, setSelectedUnitId] = useState("");
+  const [unitHoursWarning, setUnitHoursWarning] = useState(false);
   const dayCards = useMemo(
     () => blocksToCards(value.scheduleBlocks),
     [value.scheduleBlocks],
@@ -189,6 +198,23 @@ export function AdSetDeliveryScheduleEditor({
 
   const updateDayCards = (nextCards: DayScheduleCard[]) => {
     updateValue({ scheduleBlocks: cardsToBlocks(nextCards) });
+  };
+
+  const applyBusinessUnitHours = (unitId: string) => {
+    setSelectedUnitId(unitId);
+    const unit = businessUnits.find((item) => item.id === unitId);
+    if (!unit) return;
+    if (!locationHasOperatingHours(unit.businessOperatingHours)) {
+      setUnitHoursWarning(true);
+      return;
+    }
+    const preset = scheduleFromLocationHours(unit.businessOperatingHours);
+    if (!preset) {
+      setUnitHoursWarning(true);
+      return;
+    }
+    setUnitHoursWarning(false);
+    updateValue(preset);
   };
 
   const setDeliveryMode = (deliveryMode: CampaignDeliveryMode) => {
@@ -281,6 +307,41 @@ export function AdSetDeliveryScheduleEditor({
         </p>
       </div>
 
+      {businessUnits.length > 0 ? (
+        <div className="space-y-2">
+          <Label className="text-sm font-semibold">Usar horário da unidade</Label>
+          <Select
+            disabled={disabled}
+            onValueChange={applyBusinessUnitHours}
+            value={selectedUnitId || undefined}
+          >
+            <SelectTrigger>
+              <Building2 className="size-4 text-muted-foreground" />
+              <SelectValue placeholder="Selecione uma unidade de negócio" />
+            </SelectTrigger>
+            <SelectContent>
+              {businessUnits.map((unit, index) => (
+                <SelectItem key={unit.id} value={unit.id}>
+                  {unit.name?.trim() || `Unidade ${index + 1}`}
+                  {unit.isPrimary ? " · Principal" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {unitHoursWarning ? (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              Esta unidade não tem horário cadastrado. Os horários atuais foram
+              mantidos.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Os horários da unidade são preenchidos automaticamente. Você ainda
+              pode ajustar dias e turnos.
+            </p>
+          )}
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <button
           type="button"
@@ -346,7 +407,16 @@ export function AdSetDeliveryScheduleEditor({
                 disabled={disabled}
                 onClick={() => updateValue({ scheduleBlocks: createPresetBlocks("weekdays") })}
               >
-                Dias uteis
+                Dias úteis
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={() => updateValue({ scheduleBlocks: createPresetBlocks("weekend") })}
+              >
+                Fim de semana
               </Button>
               <Button
                 type="button"

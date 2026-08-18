@@ -91,6 +91,8 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
       credentials: { accessToken: "token-de-teste" },
     }),
     listKnownAccountIds: async () => [ACCOUNT.accountId],
+    // Vazio = pré-cheque inerte: cada teste que quiser o atalho o liga.
+    listKnownAccountsForPrecheck: async () => [],
     listAdAccounts: async () => {
       recorded.graphCalls.push("listAdAccounts");
       return { accounts: [ACCOUNT], usage: UNKNOWN_QUOTA_USAGE, apiCalls: 1 };
@@ -321,6 +323,57 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.coverage).toHaveLength(0);
     expect(result.accountsAlreadyCovered).toBe(1);
     expect(result.accountsProcessed).toBe(0);
+  });
+
+  test("usuário 100% coberto no pré-cheque não gasta nem a descoberta de contas", async () => {
+    const { ports, recorded } = makePorts({
+      listKnownAccountsForPrecheck: async () => [
+        { accountId: ACCOUNT.accountId, timezoneName: ACCOUNT.timezoneName ?? null },
+      ],
+      getCoverageStatus: async () => "complete",
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    // Nenhuma chamada à Meta — nem a listagem de contas (2–3 chamadas/usuário
+    // que os 32 disparos noturnos pagavam mesmo com tudo já coberto).
+    expect(recorded.graphCalls).toEqual([]);
+    expect(result.accountsAlreadyCovered).toBe(1);
+    expect(result.accountsProcessed).toBe(0);
+  });
+
+  test("pré-cheque com conta descoberta segue para a descoberta normal", async () => {
+    const { ports, recorded } = makePorts({
+      listKnownAccountsForPrecheck: async () => [
+        { accountId: ACCOUNT.accountId, timezoneName: ACCOUNT.timezoneName ?? null },
+      ],
+      getCoverageStatus: async () => null,
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.graphCalls[0]).toBe("listAdAccounts");
+    expect(result.accountsProcessed).toBe(1);
+  });
+
+  test("coleta manual com --all ignora o pré-cheque", async () => {
+    const { ports, recorded } = makePorts({
+      listKnownAccountsForPrecheck: async () => [
+        { accountId: ACCOUNT.accountId, timezoneName: ACCOUNT.timezoneName ?? null },
+      ],
+      getCoverageStatus: async () => "complete",
+    });
+
+    await runDailyTrackingCollection(ports, {
+      triggeredBy: "manual",
+      onlyStale: false,
+    });
+
+    expect(recorded.graphCalls[0]).toBe("listAdAccounts");
   });
 
   test("cobertura parcial fica pendente: o disparo seguinte completa a conta", async () => {

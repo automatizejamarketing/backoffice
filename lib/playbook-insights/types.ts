@@ -6,7 +6,10 @@ export type CampaignMetricsRow = {
   status: string | null;
   effectiveStatus: string | null;
   updatedTime: string | null;
+  createdTime: string | null;
   spend: number;
+  /** Spend in the trailing 10 calendar days; used only for eligibility. */
+  spendLast10Days: number;
   purchaseRoas: number | null;
   purchases: number;
   purchaseValue: number;

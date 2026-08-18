@@ -3,7 +3,11 @@ import { ArrowRight, CalendarClock, CreditCard, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
-import type { PendingPlanChange, Subscription } from "@/lib/db/schema";
+import type {
+  BillingProvider,
+  PendingPlanChange,
+  Subscription,
+} from "@/lib/db/schema";
 import {
   describeUpcomingChange,
   formatPlanLabel,
@@ -18,10 +22,11 @@ interface Props {
   expirationDate: Date | string | null;
 }
 
-const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 function formatDate(value: Date | string | null | undefined): string {

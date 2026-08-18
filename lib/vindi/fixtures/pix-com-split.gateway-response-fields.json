@@ -1,0 +1,9 @@
+{
+  "_source": "Vindi Pagamentos sandbox example — RETURN SUCESSO - PIX COM SPLIT (developers.vindi.com.br/reference/criacao-de-transacoes, 2026-01-06)",
+  "qrcode_original_path": "00020101021126950014BR.GOV.BCB.PIX2573spi.dev.cloud.itau.com.br/documentos/198e49c5-2330-4ad7-9d0b-967c7b5371225204000053039865802BR5923PMD Gotham NegA cios ME6009SAO PAULO62410503***50300017BR.GOV.BCB.BRCODE01051.0.063040866",
+  "qrcode_path": "https://d3qiiqeqvrl56p.cloudfront.net/sandbox/2026/01/06/itau/N101808435_qrcode.svg",
+  "url_payment": "https://intermediador-sandbox.yapay.com.br/orders/pix/b21eead97938c2aa8fcd1b227d617623",
+  "payment_method_name": "Pix",
+  "split": "1",
+  "tid": "326767"
+}

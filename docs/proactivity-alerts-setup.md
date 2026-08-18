@@ -172,18 +172,19 @@ Prints allowlist state and verifies the consultant `full_demo` fixture against D
 
 ---
 
-## Client WhatsApp QA override
+## Client WhatsApp QA override (optional)
 
-To exercise client rules without messaging real customers, set on **automatize-frontend**:
+By default, client alerts have **WhatsApp off**. Admins enable it per rule in
+**Regras → Cliente → Salvar alertas**.
+
+For temporary QA without messaging customers, set on **automatize-frontend**:
 
 | Env | Purpose |
 |-----|---------|
-| `NEXT_PUBLIC_PROACTIVE_SIGNALS_ENABLED=true` | Turn detection cron / post-connect on |
 | `WHATSAPP_PROACTIVITY_OVERRIDE_TO=47992664694` | Redirect every proactivity WhatsApp to this number (55 added if missing) |
 
-While the override is set, no customer phone is used. Fake Meta allowlisted users also send to the override (instead of skipping). Remove the override (and redeploy) before real customer WhatsApp delivery.
-
-Prefer a single-user `fake-run` or one targeted Meta user first — a full cron with WhatsApp enabled on many rules can flood the override phone.
+While the override is set, no customer phone is used. Remove it and redeploy
+before real customer delivery.
 
 ---
 

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +57,7 @@ export function MarketingWorkspace({
   showHeader = true,
   showUserPicker = true,
 }: MarketingWorkspaceProps) {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [selectedUser, setSelectedUser] =
     useState<MarketingWorkspaceUser | null>(initialUser);
@@ -422,6 +424,17 @@ export function MarketingWorkspace({
                   setDatePreset(null);
                 }}
               />
+              <Button
+                onClick={() =>
+                  router.push(
+                    `/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
+                  )
+                }
+                size="sm"
+              >
+                <Sparkles className="size-4" />
+                Criar campanha com IA
+              </Button>
             </div>
           </CardHeader>
           <CardContent>

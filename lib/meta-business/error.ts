@@ -116,6 +116,33 @@ export class GraphApiError extends Error {
 }
 
 /**
+ * Thrown when a Meta user access token is invalid and the user must reconnect
+ * (Graph codes 190 / 102). Distinct from transient throttles.
+ */
+export class MetaTokenInvalidError extends Error {
+  readonly code: number;
+  readonly subcode?: number;
+
+  constructor(message: string, code: number, subcode?: number) {
+    super(message);
+    this.name = "MetaTokenInvalidError";
+    this.code = code;
+    this.subcode = subcode;
+  }
+}
+
+const TOKEN_INVALID_CODES = new Set<number>([190, 102]);
+
+export function isMetaTokenInvalid(error: unknown): boolean {
+  if (error instanceof MetaTokenInvalidError) return true;
+  if (error instanceof GraphApiError) {
+    const code = error.errorReturn.data?.code;
+    return typeof code === "number" && TOKEN_INVALID_CODES.has(code);
+  }
+  return false;
+}
+
+/**
  * Verifica se um objeto JSON é um erro do Graph API.
  */
 function isGraphApiError(json: unknown): json is { error: unknown } {
@@ -263,6 +290,28 @@ const errorMap: Record<string, MappedError> = {
     solution: "Implemente backoff e tente novamente.",
     isTransient: true,
   },
+  "341": {
+    httpStatusCode: 429,
+    title: "Limite do aplicativo atingido",
+    message: "Limite temporário de chamadas no nível do aplicativo.",
+    solution: "Aguarde e tente novamente mais tarde.",
+    isTransient: true,
+  },
+  "613": {
+    httpStatusCode: 429,
+    title: "Limite de taxa excedido",
+    message: "As chamadas para esta API excederam o limite de taxa.",
+    solution: "Aguarde e tente novamente mais tarde.",
+    isTransient: true,
+  },
+  "80004": {
+    httpStatusCode: 429,
+    title: "Muitas chamadas à conta de anúncios",
+    message:
+      "Esta conta de anúncios recebeu chamadas demais em pouco tempo (rate limit da Marketing API).",
+    solution: "Aguarde alguns minutos e tente novamente.",
+    isTransient: true,
+  },
   "100": {
     httpStatusCode: 400,
     title: "Parâmetro inválido",
@@ -361,6 +410,13 @@ export function findMappedError(code: number, subcode?: number): MappedError {
 
   // Se não encontrou, retorna erro genérico
   return genericError;
+}
+
+export function isObjectUnavailableCode(
+  code: number,
+  subcode?: number,
+): boolean {
+  return code === 100 && subcode === 33;
 }
 
 /**

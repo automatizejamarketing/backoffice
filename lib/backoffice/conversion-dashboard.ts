@@ -8,6 +8,7 @@ export type DailyConversionCohort = {
   newUsers: number;
   onboardingCompleted: number;
   metaConnected: number;
+  trialStarted: number;
   paid: number;
 };
 
@@ -16,6 +17,7 @@ export type ConversionWindow = DashboardDateWindow;
 export type ConversionSummary = Omit<DailyConversionCohort, "date"> & {
   onboardingRate: number;
   metaConnectionRate: number;
+  trialStartedRate: number;
   paidRate: number;
 };
 
@@ -57,6 +59,7 @@ export function fillDailyConversionCohorts(
         newUsers: 0,
         onboardingCompleted: 0,
         metaConnected: 0,
+        trialStarted: 0,
         paid: 0,
       },
     );
@@ -79,9 +82,16 @@ export function summarizeConversionCohorts(
       onboardingCompleted:
         acc.onboardingCompleted + row.onboardingCompleted,
       metaConnected: acc.metaConnected + row.metaConnected,
+      trialStarted: acc.trialStarted + row.trialStarted,
       paid: acc.paid + row.paid,
     }),
-    { newUsers: 0, onboardingCompleted: 0, metaConnected: 0, paid: 0 },
+    {
+      newUsers: 0,
+      onboardingCompleted: 0,
+      metaConnected: 0,
+      trialStarted: 0,
+      paid: 0,
+    },
   );
 
   return {
@@ -91,6 +101,7 @@ export function summarizeConversionCohorts(
       totals.newUsers,
     ),
     metaConnectionRate: percentage(totals.metaConnected, totals.newUsers),
+    trialStartedRate: percentage(totals.trialStarted, totals.newUsers),
     paidRate: percentage(totals.paid, totals.newUsers),
   };
 }

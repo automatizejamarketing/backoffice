@@ -176,6 +176,14 @@ export type DailyCollectionPorts = {
   getCredentials: (userId: string) => Promise<TokenLookupResult>;
   /** Contas já vistas antes — é o que permite marcar cobertura sem token. */
   listKnownAccountIds: (userId: string) => Promise<string[]>;
+  /**
+   * Contas já vistas com a timezone da última cobertura — o bastante para o
+   * pré-cheque "este usuário já está 100% coberto hoje?" responder sem gastar
+   * nenhuma chamada de descoberta na Meta.
+   */
+  listKnownAccountsForPrecheck: (
+    userId: string,
+  ) => Promise<Array<{ accountId: string; timezoneName: string | null }>>;
   listAdAccounts: (args: {
     userId: string;
     credentials: TrackingCredentials;
@@ -367,7 +375,10 @@ function errorMessageOf(error: unknown, fallback: string): string {
  * "hoje" para esta conta —, e a resposta precisa ser a mesma nos dois: é ela que
  * decide o que já congelou na série diária.
  */
-export function businessDateFor(account: TrackedAdAccount, now: Date): DayKey {
+export function businessDateFor(
+  account: Pick<TrackedAdAccount, "timezoneName">,
+  now: Date,
+): DayKey {
   const timeZone =
     account.timezoneName && isSupportedTimeZone(account.timezoneName)
       ? account.timezoneName
@@ -451,6 +462,34 @@ export async function runDailyTrackingCollection(
       if (!token.ok) {
         await skipUserWithoutToken({ ports, runId, user, token, result });
         continue;
+      }
+
+      // Pré-cheque de cobertura, ANTES da descoberta de contas: com 32
+      // disparos por noite, na maioria deles o usuário já está 100% coberto —
+      // e mesmo assim cada tick pagava 2–3 chamadas de descoberta na Meta por
+      // usuário. Se TODAS as contas já vistas estão cobertas no dia delas, não
+      // há o que coletar: pula sem nenhuma chamada. Custos aceitos: uma conta
+      // de anúncio recém-atribuída só entra na coleta quando alguma conta do
+      // usuário voltar a ficar descoberta (o mais tardar, no primeiro tick do
+      // dia seguinte); e a timezone usada é a da última cobertura — se mudou,
+      // o erro é para o lado de redescobrir, nunca de pular.
+      if (onlyStale) {
+        const known = await ports.listKnownAccountsForPrecheck(user.id);
+        if (known.length > 0) {
+          const coverages = await Promise.all(
+            known.map((account) =>
+              ports.getCoverageStatus({
+                accountId: account.accountId,
+                businessDate: businessDateFor(account, ports.now()),
+              }),
+            ),
+          );
+          if (coverages.every((covered) => isDayCoveredBy(covered))) {
+            result.accountsSeen += known.length;
+            result.accountsAlreadyCovered += known.length;
+            continue;
+          }
+        }
       }
 
       let accounts: TrackedAdAccount[];

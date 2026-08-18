@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
+import { BackofficePixStripeBlockError } from "@/lib/backoffice/pix-renewal-policy";
 import { db } from "@/lib/db";
 import { PLAN_TYPE_VALUES, user, type PlanType } from "@/lib/db/schema";
 import {
@@ -9,6 +10,9 @@ import {
   sendBackofficePixLinkEmail,
 } from "@/lib/mercadopago/pix";
 import { formatMercadoPagoPixError } from "@/lib/mercadopago/pix-errors";
+import { sendBackofficeVindiPixLinkEmail } from "@/lib/vindi/backoffice-pix-email";
+import { createOrReuseBackofficeVindiPixForUser } from "@/lib/vindi/backoffice-pix-server";
+import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
 
 function isPlanType(value: unknown): value is PlanType {
   return (
@@ -43,6 +47,31 @@ export async function POST(
 
     if (!targetUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    if (isVindiSubscriptionsEnabled()) {
+      const created = await createOrReuseBackofficeVindiPixForUser({
+        userId,
+        planType: body.planType,
+        adminEmail: authz.actor.email,
+      });
+
+      if (body.sendEmail) {
+        await sendBackofficeVindiPixLinkEmail({
+          to: targetUser.email,
+          name: targetUser.name ?? targetUser.email,
+          link: created.link,
+        });
+      }
+
+      revalidatePath(`/users/${userId}`);
+      revalidatePath(`/subscriptions/${userId}`);
+
+      return NextResponse.json({
+        link: created.link,
+        reused: created.reused,
+        emailed: body.sendEmail === true,
+      });
     }
 
     const link = await createOrReuseBackofficePixLink({
@@ -83,13 +112,19 @@ export async function POST(
       emailed: body.sendEmail === true,
     });
   } catch (error) {
+    if (error instanceof BackofficePixStripeBlockError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     const message =
-      error instanceof Error ? error.message : "Failed to create Pix link";
-    const status = message.includes("Stripe ativa") ? 409 : 500;
+      error instanceof Error ? error.message : "Não foi possível gerar o Pix";
     console.error("Error creating backoffice Pix link:", error);
     return NextResponse.json(
-      { error: formatMercadoPagoPixError(message) },
-      { status },
+      {
+        error: isVindiSubscriptionsEnabled()
+          ? message
+          : formatMercadoPagoPixError(message),
+      },
+      { status: 500 },
     );
   }
 }

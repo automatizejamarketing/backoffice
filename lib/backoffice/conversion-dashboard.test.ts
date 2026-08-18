@@ -15,6 +15,7 @@ describe("conversion dashboard", () => {
             newUsers: 4,
             onboardingCompleted: 3,
             metaConnected: 2,
+            trialStarted: 2,
             paid: 1,
           },
         ],
@@ -26,6 +27,7 @@ describe("conversion dashboard", () => {
         newUsers: 0,
         onboardingCompleted: 0,
         metaConnected: 0,
+        trialStarted: 0,
         paid: 0,
       },
       {
@@ -33,6 +35,7 @@ describe("conversion dashboard", () => {
         newUsers: 4,
         onboardingCompleted: 3,
         metaConnected: 2,
+        trialStarted: 2,
         paid: 1,
       },
       {
@@ -40,6 +43,7 @@ describe("conversion dashboard", () => {
         newUsers: 0,
         onboardingCompleted: 0,
         metaConnected: 0,
+        trialStarted: 0,
         paid: 0,
       },
     ]);
@@ -53,6 +57,7 @@ describe("conversion dashboard", () => {
           newUsers: 3,
           onboardingCompleted: 2,
           metaConnected: 2,
+          trialStarted: 2,
           paid: 1,
         },
         {
@@ -60,6 +65,7 @@ describe("conversion dashboard", () => {
           newUsers: 5,
           onboardingCompleted: 4,
           metaConnected: 1,
+          trialStarted: 3,
           paid: 2,
         },
       ]),
@@ -67,9 +73,11 @@ describe("conversion dashboard", () => {
       newUsers: 8,
       onboardingCompleted: 6,
       metaConnected: 3,
+      trialStarted: 5,
       paid: 3,
       onboardingRate: 75,
       metaConnectionRate: 37.5,
+      trialStartedRate: 62.5,
       paidRate: 37.5,
     });
   });

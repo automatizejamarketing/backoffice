@@ -135,11 +135,8 @@ export function InstagramPostPicker({
       onSelectionChange(selectedPosts.filter((p) => p.id !== item.id));
     } else if (selectedPosts.length < maxSelection) {
       onSelectionChange([...selectedPosts, item]);
-    } else {
-      const next = [...selectedPosts];
-      next.shift();
-      next.push(item);
-      onSelectionChange(next);
+    } else if (maxSelection === 1) {
+      onSelectionChange([item]);
     }
   };
 

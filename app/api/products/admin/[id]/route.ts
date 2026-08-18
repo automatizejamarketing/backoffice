@@ -13,7 +13,9 @@ export async function PATCH(
   if (!authz.ok) return authz.response;
   const { id } = await params;
   try {
-    const updated = await updateProductAdmin(id, await request.json());
+    const updated = await updateProductAdmin(id, await request.json(), {
+      adminEmail: authz.actor.email,
+    });
     return updated
       ? NextResponse.json(updated)
       : NextResponse.json({ error: "not_found" }, { status: 404 });

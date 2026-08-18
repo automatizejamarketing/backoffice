@@ -31,6 +31,7 @@ import {
   type InstagramMediaItem,
 } from "./instagram-post-picker";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
+import { useCompanyLocations } from "../hooks/use-company-locations";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import { LocationTargetingSection } from "./location-targeting-section";
 import { PageSelector } from "./page-selector";
@@ -127,6 +128,7 @@ export function AdSetCreateDialog({
   onSuccess,
 }: AdSetCreateDialogProps) {
   const invalidateMarketing = useMarketingInvalidate(accountId, userId);
+  const { data: businessUnits = [] } = useCompanyLocations(userId);
   const [adsetName, setAdsetName] = useState("");
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [budgetType, setBudgetType] = useState<BudgetType>("daily");
@@ -627,6 +629,7 @@ export function AdSetCreateDialog({
                 value={deliverySchedule}
                 onChange={setDeliverySchedule}
                 disabled={isSubmitting}
+                businessUnits={businessUnits}
               />
             )}
 

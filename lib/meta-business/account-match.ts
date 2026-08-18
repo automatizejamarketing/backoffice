@@ -10,6 +10,10 @@ export function stripActPrefix(id: string): string {
   return id.replace(/^act_/, "");
 }
 
+export function withActPrefix(id: string): string {
+  return id.startsWith("act_") ? id : `act_${id}`;
+}
+
 /** True when both ids resolve to the same ad account (prefix-insensitive). */
 export function isSameAccount(a: string, b: string): boolean {
   return stripActPrefix(a) === stripActPrefix(b);

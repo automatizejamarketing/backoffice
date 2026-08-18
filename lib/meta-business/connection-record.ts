@@ -23,6 +23,8 @@ export type SafeMetaConnection = {
   grantedScopes: string[] | null;
   assignedAssets: MetaBusinessAccount["assignedAssets"];
   configId: string | null;
+  /** Original row insert time. Reconnects of the same row keep this cutoff. */
+  createdAt: Date;
 };
 
 /**
@@ -51,5 +53,6 @@ export function mapStoredMetaConnection(
     grantedScopes: row.grantedScopes ?? null,
     assignedAssets: row.assignedAssets ?? null,
     configId: row.configId ?? null,
+    createdAt: row.createdAt,
   };
 }

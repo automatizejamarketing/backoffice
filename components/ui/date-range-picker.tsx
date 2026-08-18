@@ -1,13 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ComponentProps } from "react";
-import {
-  format,
-  isSameDay,
-  startOfMonth,
-  subDays,
-  subMonths,
-} from "date-fns";
+import { format, isSameDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import type { DateRange } from "react-day-picker";
@@ -18,6 +12,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  buildDateRangePresets,
+  type DateRangePreset,
+} from "@/lib/backoffice/date-range-presets";
 import { resolveDateRangeSelection } from "@/lib/backoffice/date-range-selection";
 import { cn } from "@/lib/utils";
 
@@ -30,11 +29,6 @@ type DateRangePickerProps = {
   disabledAfter?: Date;
   active?: boolean;
   triggerVariant?: ComponentProps<typeof Button>["variant"];
-};
-
-type DatePreset = {
-  label: string;
-  range: DateRange;
 };
 
 export function DateRangePicker({
@@ -50,39 +44,10 @@ export function DateRangePicker({
   const [isOpen, setIsOpen] = useState(false);
   const [draftRange, setDraftRange] = useState<DateRange | undefined>(date);
 
-  const presets = useMemo<DatePreset[]>(() => {
-    const today = disabledAfter;
-
-    return [
-      {
-        label: "Este mês",
-        range: { from: startOfMonth(today), to: today },
-      },
-      {
-        label: "Últimos 30 dias",
-        range: { from: subDays(today, 29), to: today },
-      },
-      {
-        label: "Últimos 3 meses",
-        range: { from: subMonths(today, 3), to: today },
-      },
-      {
-        label: "Últimos 6 meses",
-        range: { from: subMonths(today, 6), to: today },
-      },
-      {
-        label: "Últimos 12 meses",
-        range: { from: subMonths(today, 12), to: today },
-      },
-      {
-        label: "Mês passado",
-        range: {
-          from: startOfMonth(subMonths(today, 1)),
-          to: new Date(today.getFullYear(), today.getMonth(), 0, 12),
-        },
-      },
-    ];
-  }, [disabledAfter]);
+  const presets = useMemo(
+    () => buildDateRangePresets(disabledAfter),
+    [disabledAfter],
+  );
 
   const selectedRange = isOpen ? draftRange : date;
 
@@ -98,7 +63,7 @@ export function DateRangePicker({
     return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
   }
 
-  function isSelectedPreset(preset: DatePreset) {
+  function isSelectedPreset(preset: DateRangePreset) {
     return Boolean(
       draftRange?.from &&
         draftRange.to &&
@@ -140,21 +105,23 @@ export function DateRangePicker({
         align="start"
       >
         <div className="flex flex-col sm:flex-row">
-          <div className="grid grid-cols-2 content-start gap-1 border-b p-2 sm:w-40 sm:grid-cols-1 sm:border-r sm:border-b-0">
-            {presets.map((preset) => (
-              <Button
-                key={preset.label}
-                type="button"
-                variant={isSelectedPreset(preset) ? "secondary" : "ghost"}
-                size="sm"
-                className="h-8 justify-start px-2 text-xs font-normal"
-                aria-pressed={isSelectedPreset(preset)}
-                onClick={() => applyRange(preset.range)}
-              >
-                {preset.label}
-              </Button>
-            ))}
-          </div>
+          <ScrollArea className="h-40 border-b sm:h-[20.5rem] sm:w-48 sm:border-r sm:border-b-0">
+            <div className="grid grid-cols-2 content-start gap-1 p-2 sm:grid-cols-1">
+              {presets.map((preset) => (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  variant={isSelectedPreset(preset) ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 justify-start px-2 text-xs font-normal"
+                  aria-pressed={isSelectedPreset(preset)}
+                  onClick={() => applyRange(preset.range)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+          </ScrollArea>
 
           <Calendar
             mode="range"

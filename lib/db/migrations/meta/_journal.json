@@ -243,78 +243,106 @@
     {
       "idx": 34,
       "version": "7",
+      "when": 1792250000000,
+      "tag": "0040_payments_reversal",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1792300000000,
+      "tag": "0041_referral_program_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
       "when": 1793000000000,
       "tag": "0042_payments_generic_external_id",
       "breakpoints": true
     },
     {
-      "idx": 35,
+      "idx": 37,
       "version": "7",
       "when": 1793100000000,
       "tag": "0043_referral_affiliate_blocks",
       "breakpoints": true
     },
     {
-      "idx": 36,
+      "idx": 38,
       "version": "7",
       "when": 1793200000000,
       "tag": "0044_meta_tracking_foundation",
       "breakpoints": true
     },
     {
-      "idx": 37,
+      "idx": 39,
       "version": "7",
       "when": 1793300000000,
       "tag": "0045_meta_tracking_metric_columns",
       "breakpoints": true
     },
     {
-      "idx": 38,
+      "idx": 40,
       "version": "7",
       "when": 1793400000000,
       "tag": "0046_proactivity_alerts",
       "breakpoints": true
     },
     {
-      "idx": 39,
+      "idx": 41,
       "version": "7",
       "when": 1793500000000,
       "tag": "0047_reconcile_payments_external_id",
       "breakpoints": true
     },
     {
-      "idx": 40,
-      "version": "7",
-      "when": 1793700000000,
-      "tag": "0057_food_service_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 41,
-      "version": "7",
-      "when": 1793800000000,
-      "tag": "0058_food_service_whatsapp",
-      "breakpoints": true
-    },
-    {
       "idx": 42,
       "version": "7",
       "when": 1793900000000,
-      "tag": "0059_company_products_and_rbac",
+      "tag": "0048_vindi_expand",
       "breakpoints": true
     },
     {
       "idx": 43,
       "version": "7",
-      "when": 1794000000000,
-      "tag": "0060_food_service_menu_import",
+      "when": 1794100000000,
+      "tag": "0049_vindi_dunning",
       "breakpoints": true
     },
     {
       "idx": 44,
       "version": "7",
-      "when": 1794100000000,
-      "tag": "0061_food_service_ifood_connection",
+      "when": 1794200000000,
+      "tag": "0059_food_service_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0060_food_service_whatsapp",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794400000000,
+      "tag": "0061_company_products_and_rbac",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794500000000,
+      "tag": "0062_food_service_menu_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0063_food_service_ifood_connection",
       "breakpoints": true
     }
   ]

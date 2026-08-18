@@ -19,9 +19,11 @@ function formatCalendarDate(value: Date): string {
 export function DashboardDateFilter({
   basePath,
   window,
+  extraParams,
 }: {
   basePath: string;
   window: DashboardDateWindow;
+  extraParams?: Record<string, string>;
 }) {
   const { navigate } = useDashboardNavigation();
 
@@ -38,6 +40,7 @@ export function DashboardDateFilter({
         onDateChange={({ from, to }) => {
           if (!from || !to) return;
           const params = new URLSearchParams({
+            ...extraParams,
             range: "custom",
             from: formatCalendarDate(from),
             to: formatCalendarDate(to),

@@ -28,6 +28,13 @@ type BuilderTarget =
   | { mode: "edit"; accountId: string; userId: string; adId: string };
 
 const POLL_INTERVAL_MS = 5000;
+/**
+ * Depois de 2 min sem o vídeo ficar pronto, o poll desacelera para 15s: um
+ * encode travado não pode virar 12 chamadas/min à Meta indefinidamente. A UI
+ * segue atualizando sozinha — só mais devagar no caso raro.
+ */
+const POLL_SLOW_AFTER_TICKS = 24;
+const POLL_SLOW_INTERVAL_MS = 15000;
 
 function mediaToRequest(media: SelectedMedia) {
   if (media.source === "instagram") {
@@ -205,9 +212,16 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
           setPhase("processing");
           setVideoProgress(0);
           const videoId = String(data.videoId);
-          pollRef.current = setInterval(() => {
+          let ticks = 0;
+          const tick = () => {
+            ticks += 1;
             void pollVideo(videoId);
-          }, POLL_INTERVAL_MS);
+            if (ticks === POLL_SLOW_AFTER_TICKS && pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = setInterval(tick, POLL_SLOW_INTERVAL_MS);
+            }
+          };
+          pollRef.current = setInterval(tick, POLL_INTERVAL_MS);
           return;
         }
 

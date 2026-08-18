@@ -1,5 +1,5 @@
 /** Rulebook identity for consultant-facing playbook optimization suggestions. */
-export const PLAYBOOK_INSIGHTS_RULEBOOK_VERSION = "food-service-playbook@1";
+export const PLAYBOOK_INSIGHTS_RULEBOOK_VERSION = "food-service-playbook@2";
 
 /** Insights written by this job use this rule id prefix. */
 export const PLAYBOOK_INSIGHTS_RULE_PREFIX = "playbook.";
@@ -11,6 +11,9 @@ export const PLAYBOOK_RULE_STALLED = "playbook.campaign_stalled";
 export const PLAYBOOK_RULE_NO_DELIVERY = "playbook.no_delivery";
 
 export const PLAYBOOK_INSIGHTS_WINDOW = "last_30d" as const;
+
+/** Trailing calendar days (including today) used for recent-spend eligibility. */
+export const PLAYBOOK_RECENT_SPEND_DAYS = 10;
 
 /** Minimum spend (account currency) before ROAS/CPA rules fire. */
 export const PLAYBOOK_MIN_SPEND = 50;

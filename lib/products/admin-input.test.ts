@@ -33,7 +33,56 @@ describe("product admin input", () => {
         status: "published",
         salesEnabled: true,
         termsVersion: "v1",
+        expertParticipationBps: 0,
       },
+    );
+  });
+
+  it("forces Automatize products to zero Vindi participation even when a share is sent", () => {
+    const parsed = parseProductAdminInput({
+      ownerType: "automatize",
+      title: "Oferta da casa",
+      priceCentavos: 10_000,
+      expertParticipationBps: 8_000,
+    });
+
+    assert.equal(parsed.expertParticipationBps, 0);
+    assert.equal(parsed.ownerExpertShareBasisPoints, 0);
+    assert.equal(parsed.coproducerShareBasisPoints, 0);
+  });
+
+  it("stores the Vindi participation in basis points without touching the v3 share", () => {
+    const parsed = parseProductAdminInput({
+      ownerType: "expert",
+      expertId: "11111111-1111-4111-8111-111111111111",
+      title: "Produto",
+      priceCentavos: 10_000,
+      hasCoproduction: false,
+      expertParticipationBps: 8_000,
+    });
+
+    assert.equal(parsed.expertParticipationBps, 8_000);
+    assert.equal(parsed.ownerExpertShareBasisPoints, 10_000);
+    assert.equal(parsed.coproducerType, null);
+    assert.equal(parsed.coproducerShareBasisPoints, 0);
+  });
+
+  it("rejects a Vindi participation outside 0..10000 basis points", () => {
+    const input = {
+      ownerType: "expert" as const,
+      expertId: "11111111-1111-4111-8111-111111111111",
+      title: "Produto",
+      priceCentavos: 10_000,
+      hasCoproduction: false,
+    };
+
+    assert.throws(
+      () => parseProductAdminInput({ ...input, expertParticipationBps: 10_001 }),
+      /10000|participa/i,
+    );
+    assert.throws(
+      () => parseProductAdminInput({ ...input, expertParticipationBps: -1 }),
+      /10000|participa/i,
     );
   });
 
@@ -61,6 +110,7 @@ describe("product admin input", () => {
     assert.equal(parsed.coproducerType, null);
     assert.equal(parsed.coproducerExpertId, null);
     assert.equal(parsed.coproducerShareBasisPoints, 0);
+    assert.equal(parsed.expertParticipationBps, null);
   });
 
   it("supports Automatize as the optional coproducer", () => {

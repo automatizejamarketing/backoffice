@@ -24,6 +24,7 @@ import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refr
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
+import { WhatsappFailureInfo } from "@/components/whatsapp-failure-info";
 import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ import {
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
 import { cn } from "@/lib/utils";
+import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
 
 const TAB_CONFIG: Array<{
   value: UserHubTab;
@@ -209,6 +211,7 @@ export async function UserHubPage({
 
   const phoneFormatted = formatBrazilianPhone(profile.phone);
   const whatsappUrl = getWhatsAppUrl(profile.phone);
+  const vindiSubscriptionsEnabled = isVindiSubscriptionsEnabled();
 
   const [
     detailedUser,
@@ -401,7 +404,10 @@ export async function UserHubPage({
       )}
 
       {activeTab === "subscription" && subscriptionData && (
-        <UserSubscriptionPanel data={subscriptionData} />
+        <UserSubscriptionPanel
+          data={subscriptionData}
+          vindiSubscriptionsEnabled={vindiSubscriptionsEnabled}
+        />
       )}
 
       {activeTab === "marketing" && (
@@ -509,20 +515,10 @@ export async function UserHubPage({
                         />
                       </TableCell>
                       <TableCell className="max-w-72">
-                        {item.failureCode || item.failureDetail ? (
-                          <p
-                            className="line-clamp-2 text-xs text-destructive"
-                            title={[item.failureCode, item.failureDetail]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          >
-                            {[item.failureCode, item.failureDetail]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </p>
-                        ) : (
-                          <span className="text-muted-foreground">—</span>
-                        )}
+                        <WhatsappFailureInfo
+                          failureCode={item.failureCode}
+                          failureDetail={item.failureDetail}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

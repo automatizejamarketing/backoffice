@@ -44,6 +44,12 @@ import {
   type SelectedGeoLocation,
 } from "@/lib/meta-business/geo-targeting-types";
 import {
+  areBusinessUnitLocationsIncludedInSelection,
+  buildBusinessUnitSelectedLocations,
+  type CompanyGeoInput,
+  type CompanyLocationGeoInput,
+} from "@/lib/onboarding/business-geo-defaults";
+import {
   mergeZipGeocodeForMap,
   useZipGeocodeForMap,
 } from "../hooks/use-zip-geocode-for-map";
@@ -73,6 +79,8 @@ type LocationTargetingSectionProps = {
   userId?: string | null;
   selectedLocations: SelectedGeoLocation[];
   onLocationsChange: (locations: SelectedGeoLocation[]) => void;
+  company?: CompanyGeoInput | null;
+  companyLocations?: CompanyLocationGeoInput[];
   disabled?: boolean;
   /** When false, hides the required "*" mark and the empty-state warning (e.g. in the edit dialog). Defaults to true. */
   required?: boolean;
@@ -215,6 +223,8 @@ export function LocationTargetingSection({
   userId,
   selectedLocations,
   onLocationsChange,
+  company = null,
+  companyLocations = [],
   disabled = false,
   required = true,
   minRadiusKm = MIN_RADIUS_KM,
@@ -261,6 +271,16 @@ export function LocationTargetingSection({
 
     return google;
   }, [results]);
+
+  const showUseBusinessLocationsButton = useMemo(
+    () =>
+      !areBusinessUnitLocationsIncludedInSelection(
+        company,
+        companyLocations,
+        selectedLocations,
+      ),
+    [company, companyLocations, selectedLocations],
+  );
 
   const coordinateLocationsByKey = useMemo(() => {
     const map = new Map<
@@ -457,6 +477,23 @@ export function LocationTargetingSection({
           {t("description")}
         </p>
       </div>
+
+      {showUseBusinessLocationsButton ? (
+        <Button
+          className="w-full justify-start gap-2"
+          disabled={disabled}
+          onClick={() =>
+            onLocationsChange(
+              buildBusinessUnitSelectedLocations(company, companyLocations),
+            )
+          }
+          type="button"
+          variant="secondary"
+        >
+          <Building2 className="size-4" />
+          {t("useBusinessLocations")}
+        </Button>
+      ) : null}
 
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
