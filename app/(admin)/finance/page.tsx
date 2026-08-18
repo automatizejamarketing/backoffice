@@ -63,8 +63,8 @@ export default async function FinancePage({
       : [];
 
   return (
-    <div className="mx-auto w-full max-w-[1500px] space-y-8">
-      <DashboardNavigationProvider>
+    <DashboardNavigationProvider>
+      <div className="mx-auto w-full max-w-[1500px] space-y-8">
         <header className="space-y-6">
           <div className="max-w-2xl">
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -80,7 +80,7 @@ export default async function FinancePage({
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {activeTab === "pagamentos"
                 ? "Consulte todos os pagamentos aprovados no período, separados entre receita do Automatize e vendas de produtos."
-                : "Acompanhe o MRR atual e quanto entrou líquido em cada meio de pagamento no período selecionado."}
+                : "Acompanhe a saúde financeira da base e quanto entrou líquido no período selecionado."}
             </p>
           </div>
 
@@ -90,59 +90,63 @@ export default async function FinancePage({
             window={window}
           />
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <p className="text-sm font-semibold">Período financeiro</p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                {activeTab === "pagamentos"
-                  ? "Filtra os pagamentos listados abaixo."
-                  : "Aplica-se ao valor recebido e aos pagamentos abaixo."}
-              </p>
+          {activeTab === "pagamentos" ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold">Período financeiro</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Filtra os pagamentos listados abaixo.
+                </p>
+              </div>
+              <FinanceDateFilter
+                window={window}
+                tab={activeTab}
+                source={activeSource}
+              />
             </div>
-            <FinanceDateFilter
-              window={window}
-              tab={activeTab}
-              source={activeSource}
-            />
-          </div>
+          ) : null}
         </header>
-      </DashboardNavigationProvider>
 
-      {activeTab === "pagamentos" ? (
-        <FinancePaymentsPanel
-          source={activeSource}
-          summary={
-            activeSource === "automatize"
-              ? (automatizePayments?.summary ?? {
-                  count: 0,
-                  grossCentavos: 0,
-                  netCentavos: 0,
-                  feeCentavos: 0,
-                  netCoveragePayments: 0,
-                  netBreakdown: {
-                    newSubscriptionNetCentavos: 0,
-                    renewalNetCentavos: 0,
-                    newSubscriptionCount: 0,
-                    renewalCount: 0,
-                  },
-                })
-              : (productPayments?.summary ?? {
-                  count: 0,
-                  grossCentavos: 0,
-                  netCentavos: 0,
-                  feeCentavos: 0,
-                  netCoveragePayments: 0,
-                })
-          }
-          automatizePayments={automatizePayments?.rows}
-          stripeSettlements={automatizePayments?.stripeSettlements}
-          productPayments={productPayments?.rows}
-          netGaps={netGaps}
-          backfillQuery={backfillQuery}
-        />
-      ) : finance ? (
-        <FinanceOverview summary={finance.summary} window={window} />
-      ) : null}
-    </div>
+        {activeTab === "pagamentos" ? (
+          <FinancePaymentsPanel
+            source={activeSource}
+            summary={
+              activeSource === "automatize"
+                ? (automatizePayments?.summary ?? {
+                    count: 0,
+                    grossCentavos: 0,
+                    netCentavos: 0,
+                    feeCentavos: 0,
+                    netCoveragePayments: 0,
+                    netBreakdown: {
+                      newSubscriptionNetCentavos: 0,
+                      renewalNetCentavos: 0,
+                      newSubscriptionCount: 0,
+                      renewalCount: 0,
+                    },
+                  })
+                : (productPayments?.summary ?? {
+                    count: 0,
+                    grossCentavos: 0,
+                    netCentavos: 0,
+                    feeCentavos: 0,
+                    netCoveragePayments: 0,
+                  })
+            }
+            automatizePayments={automatizePayments?.rows}
+            stripeSettlements={automatizePayments?.stripeSettlements}
+            productPayments={productPayments?.rows}
+            netGaps={netGaps}
+            backfillQuery={backfillQuery}
+          />
+        ) : finance ? (
+          <FinanceOverview
+            summary={finance.summary}
+            window={window}
+            source={activeSource}
+          />
+        ) : null}
+      </div>
+    </DashboardNavigationProvider>
   );
 }

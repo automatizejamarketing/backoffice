@@ -295,6 +295,20 @@
       "when": 1793500000000,
       "tag": "0047_reconcile_payments_external_id",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0048_vindi_expand",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794100000000,
+      "tag": "0049_vindi_dunning",
+      "breakpoints": true
     }
   ]
 }

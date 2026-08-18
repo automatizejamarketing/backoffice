@@ -38,10 +38,13 @@ describe("finance dashboard", () => {
             netAmount: 47_678,
           },
         ],
+        { grossCentavos: 238_200, payingCustomers: 3 },
       ),
     ).toEqual({
       mrrCentavos: 99_100,
       activeSubscriptions: 3,
+      realizedLtvCentavos: 79_400,
+      lifetimePayingCustomers: 3,
       mrrByProvider: { card: 19_700, pix: 49_700, manual: 29_700 },
       receipts: {
         payments: 2,
@@ -95,6 +98,7 @@ describe("finance dashboard", () => {
         },
       ],
       [],
+      { grossCentavos: 0, payingCustomers: 0 },
     );
 
     expect(result.receipts).toMatchObject({
@@ -105,5 +109,108 @@ describe("finance dashboard", () => {
       netCoveragePayments: 0,
       averageNetTicketCentavos: 0,
     });
+    expect(result.realizedLtvCentavos).toBe(0);
+  });
+
+  test("buckets Vindi receipts by payment method and keeps them out of Manual", () => {
+    const result = summarizeFinanceDashboard(
+      [
+        {
+          provider: "vindi",
+          planType: "monthly_starter",
+          vindiPaymentMethod: "credit_card",
+        },
+        {
+          provider: "vindi",
+          planType: "monthly_pro",
+          vindiPaymentMethod: "pix_automatic",
+        },
+      ],
+      [
+        {
+          id: "vindi-card",
+          provider: "vindi",
+          amount: 29_700,
+          grossAmount: 29_700,
+          netAmount: 28_353,
+          feeAmount: 1_347,
+          stripeInvoiceId: null,
+          paymentMethod: "credit_card",
+          purpose: "subscription",
+        },
+        {
+          id: "vindi-pix",
+          provider: "vindi",
+          amount: 49_700,
+          grossAmount: 49_700,
+          netAmount: 49_406,
+          feeAmount: 294,
+          stripeInvoiceId: null,
+          paymentMethod: "pix",
+          purpose: "legacy_renewal",
+        },
+      ],
+      [],
+      { grossCentavos: 79_400, payingCustomers: 2 },
+    );
+
+    expect(result.mrrByProvider).toEqual({
+      card: 29_700,
+      pix: 49_700,
+      manual: 0,
+    });
+    expect(result.receipts.providers.card.payments).toBe(1);
+    expect(result.receipts.providers.pix.payments).toBe(1);
+    expect(result.receipts.providers.manual.payments).toBe(0);
+    expect(result.receipts.payments).toBe(2);
+    expect(result.receipts.netCentavos).toBe(77_759);
+  });
+
+  test("keeps store and pack rows out of billing receipt cards", () => {
+    const result = summarizeFinanceDashboard(
+      [],
+      [
+        {
+          id: "subscription",
+          provider: "vindi",
+          amount: 29_700,
+          grossAmount: 29_700,
+          netAmount: 28_353,
+          feeAmount: 1_347,
+          stripeInvoiceId: null,
+          paymentMethod: "credit_card",
+          purpose: "subscription",
+        },
+        {
+          id: "product",
+          provider: "vindi",
+          amount: 10_000,
+          grossAmount: 10_000,
+          netAmount: 9_451,
+          feeAmount: 549,
+          stripeInvoiceId: null,
+          paymentMethod: "pix",
+          purpose: "product",
+        },
+        {
+          id: "pack",
+          provider: "vindi",
+          amount: 4_700,
+          grossAmount: 4_700,
+          netAmount: 4_700,
+          feeAmount: 0,
+          stripeInvoiceId: null,
+          paymentMethod: "credit_card",
+          purpose: "credit_pack",
+        },
+      ],
+      [],
+      { grossCentavos: 29_700, payingCustomers: 1 },
+    );
+
+    expect(result.receipts.payments).toBe(1);
+    expect(result.receipts.grossCentavos).toBe(29_700);
+    expect(result.receipts.providers.card.payments).toBe(1);
+    expect(result.receipts.providers.pix.payments).toBe(0);
   });
 });

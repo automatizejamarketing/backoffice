@@ -1,4 +1,5 @@
 import { and, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import {
   summarizeAutomatizePayments,
@@ -37,12 +38,16 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
       currency: payment.currency,
       stripeInvoiceId: payment.stripeInvoiceId,
       mercadopagoPaymentId: payment.mercadopagoPaymentId,
+      vindiChargeId: payment.vindiChargeId,
+      paymentMethod: payment.paymentMethod,
+      purpose: payment.purpose,
       description: payment.description,
       paymentNumber: sql<number>`(
           select count(*)::integer + 1
           from payments earlier_payment
           where earlier_payment.user_id = ${payment.userId}
             and earlier_payment.status = 'succeeded'
+            and ${billingPaymentPurposeSql("earlier_payment.purpose")}
             and (
               coalesce(earlier_payment.paid_at, earlier_payment.created_at)
                 < coalesce(${payment.paidAt}, ${payment.createdAt})
@@ -62,6 +67,7 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
         eq(payment.status, "succeeded"),
         gte(payment.paidAt, window.gte),
         lt(payment.paidAt, window.lt),
+        billingPaymentPurposeSql(payment.purpose),
       ),
     )
     .orderBy(desc(payment.paidAt));

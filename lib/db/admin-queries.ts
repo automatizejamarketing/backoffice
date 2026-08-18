@@ -42,6 +42,7 @@ import {
   subscription,
   subscriptionEvent,
   mercadopagoPaymentLink,
+  vindiPaymentLink,
   user,
   userCompany,
   userMarketingConsultant,
@@ -56,11 +57,15 @@ import {
   type CompanyLocation,
   type Payment,
   type MercadoPagoPaymentLink,
+  type VindiPaymentLink,
   type PendingPlanChange,
   type Subscription,
   type SubscriptionEvent,
   type User,
+  type BillingProvider,
+  type PaymentSettlementMethod,
 } from "./schema";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import { buildAccountStatusFilterSql } from "@/lib/backoffice/account-status-filter";
 import {
   resolveAccessExpirationRange,
@@ -83,6 +88,7 @@ import {
   type DailyConversionCohort,
 } from "@/lib/backoffice/conversion-dashboard";
 import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
+import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
 import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
 import {
   listCustomerBaseStatusUsers,
@@ -1121,6 +1127,7 @@ export interface UserSubscriptionDetails {
   subscriptionHistory: Subscription[];
   payments: Payment[];
   mercadopagoPaymentLinks: MercadoPagoPaymentLink[];
+  vindiPaymentLinks: VindiPaymentLink[];
   events: SubscriptionEvent[];
 }
 
@@ -1146,6 +1153,7 @@ export async function getUserSubscriptionDetails(
     events,
     pendingChanges,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
   ] = await Promise.all([
     db
       .select()
@@ -1181,6 +1189,12 @@ export async function getUserSubscriptionDetails(
       .where(eq(mercadopagoPaymentLink.userId, userId))
       .orderBy(desc(mercadopagoPaymentLink.createdAt))
       .limit(20),
+    db
+      .select()
+      .from(vindiPaymentLink)
+      .where(eq(vindiPaymentLink.userId, userId))
+      .orderBy(desc(vindiPaymentLink.createdAt))
+      .limit(20),
   ]);
 
   return {
@@ -1190,6 +1204,7 @@ export async function getUserSubscriptionDetails(
     subscriptionHistory: subscriptions,
     payments,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
     events,
   };
 }
@@ -1283,37 +1298,48 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
   // Drizzle omits the outer table qualifier when a schema column is embedded
   // inside a correlated raw subquery. This is a static identifier, not input.
   const cohortUserId = sql.raw('"users"."id"');
+  const conversionCounts = {
+    newUsers: sql<number>`COUNT(*)::integer`,
+    metaConnected: sql<number>`COUNT(*) FILTER (
+      WHERE EXISTS (
+        SELECT 1
+        FROM meta_business_accounts mba
+        WHERE mba.user_id = ${cohortUserId}
+          AND mba.deleted_at IS NULL
+      )
+    )::integer`,
+    trialStarted: sql<number>`COUNT(*) FILTER (
+      WHERE EXISTS (
+        SELECT 1
+        FROM credit_transactions trial_credit
+        WHERE trial_credit.user_id = ${cohortUserId}
+          AND trial_credit.type = 'trial_grant'
+      )
+    )::integer`,
+    paid: sql<number>`COUNT(*) FILTER (
+      WHERE EXISTS (
+        SELECT 1
+        FROM payments successful_payment
+        WHERE successful_payment.user_id = ${cohortUserId}
+          AND successful_payment.status = 'succeeded'
+      )
+    )::integer`,
+    onboardingCompleted: sql<number>`COUNT(*) FILTER (
+      WHERE EXISTS (
+        SELECT 1
+        FROM user_companies membership
+        INNER JOIN companies linked_company
+          ON linked_company.id = membership.company_id
+        WHERE membership.user_id = ${cohortUserId}
+          AND linked_company.onboarding_completed = true
+      )
+    )::integer`,
+  };
 
   const rows = await db
     .select({
       date: cohortDate,
-      newUsers: sql<number>`COUNT(*)::integer`,
-      metaConnected: sql<number>`COUNT(*) FILTER (
-        WHERE EXISTS (
-          SELECT 1
-          FROM meta_business_accounts mba
-          WHERE mba.user_id = ${cohortUserId}
-            AND mba.deleted_at IS NULL
-        )
-      )::integer`,
-      paid: sql<number>`COUNT(*) FILTER (
-        WHERE EXISTS (
-          SELECT 1
-          FROM payments successful_payment
-          WHERE successful_payment.user_id = ${cohortUserId}
-            AND successful_payment.status = 'succeeded'
-        )
-      )::integer`,
-      onboardingCompleted: sql<number>`COUNT(*) FILTER (
-        WHERE EXISTS (
-          SELECT 1
-          FROM user_companies membership
-          INNER JOIN companies linked_company
-            ON linked_company.id = membership.company_id
-          WHERE membership.user_id = ${cohortUserId}
-            AND linked_company.onboarding_completed = true
-        )
-      )::integer`,
+      ...conversionCounts,
     })
     .from(user)
     .where(
@@ -1332,6 +1358,7 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
         newUsers: Number(row.newUsers),
         onboardingCompleted: Number(row.onboardingCompleted),
         metaConnected: Number(row.metaConnected),
+        trialStarted: Number(row.trialStarted),
         paid: Number(row.paid),
       }),
     ),
@@ -1340,47 +1367,167 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
 
   const summary = summarizeConversionCohorts(daily);
 
-  const [cohortOutcomes] = await db
-    .select({
-      trial: sql<number>`COUNT(*) FILTER (
-        WHERE ${user.expirationDate} IS NOT NULL
-          AND ${user.expirationDate} > NOW()
-          AND NOT EXISTS (
-            SELECT 1
-            FROM payments cohort_payment
-            WHERE cohort_payment.user_id = ${cohortUserId}
-              AND cohort_payment.status = 'succeeded'
-          )
-      )::integer`,
-      churn: sql<number>`COUNT(*) FILTER (
-        WHERE ${user.expirationDate} IS NOT NULL
-          AND ${user.expirationDate} < NOW()
-          AND EXISTS (
-            SELECT 1
-            FROM payments cohort_payment
-            WHERE cohort_payment.user_id = ${cohortUserId}
-              AND cohort_payment.status = 'succeeded'
-          )
-      )::integer`,
-    })
-    .from(user)
-    .where(
-      and(
-        gte(user.createdAt, window.gte),
-        lt(user.createdAt, window.lt),
+  const [[historicalRow], [cohortOutcomes]] = await Promise.all([
+    db.select(conversionCounts).from(user),
+    db
+      .select({
+        trial: sql<number>`COUNT(*) FILTER (
+          WHERE ${user.expirationDate} IS NOT NULL
+            AND ${user.expirationDate} > NOW()
+            AND NOT EXISTS (
+              SELECT 1
+              FROM payments cohort_payment
+              WHERE cohort_payment.user_id = ${cohortUserId}
+                AND cohort_payment.status = 'succeeded'
+            )
+        )::integer`,
+        churn: sql<number>`COUNT(*) FILTER (
+          WHERE ${user.expirationDate} IS NOT NULL
+            AND ${user.expirationDate} < NOW()
+            AND EXISTS (
+              SELECT 1
+              FROM payments cohort_payment
+              WHERE cohort_payment.user_id = ${cohortUserId}
+                AND cohort_payment.status = 'succeeded'
+            )
+        )::integer`,
+      })
+      .from(user)
+      .where(
+        and(
+          gte(user.createdAt, window.gte),
+          lt(user.createdAt, window.lt),
+        ),
       ),
-    );
+  ]);
+
+  const historical = summarizeConversionCohorts([
+    {
+      date: "all-time",
+      newUsers: Number(historicalRow?.newUsers ?? 0),
+      onboardingCompleted: Number(historicalRow?.onboardingCompleted ?? 0),
+      metaConnected: Number(historicalRow?.metaConnected ?? 0),
+      trialStarted: Number(historicalRow?.trialStarted ?? 0),
+      paid: Number(historicalRow?.paid ?? 0),
+    },
+  ]);
 
   return {
     window,
     daily,
     summary,
+    historical,
     outcomes: summarizeCohortOutcomes(
       Number(cohortOutcomes?.trial ?? 0),
       Number(cohortOutcomes?.churn ?? 0),
       summary.newUsers,
     ),
   };
+}
+
+export async function getPayerRetentionDashboard() {
+  const firstPayments = db
+    .select({
+      userId: payment.userId,
+      firstPaidAt:
+        sql<Date>`min(coalesce(${payment.paidAt}, ${payment.createdAt}))`.as(
+          "first_paid_at",
+        ),
+    })
+    .from(payment)
+    .where(eq(payment.status, "succeeded"))
+    .groupBy(payment.userId)
+    .as("first_payments");
+  const weekStart = sql<string>`to_char(
+    date_trunc('week', ${firstPayments.firstPaidAt} - interval '3 hours'),
+    'YYYY-MM-DD'
+  )`;
+
+  const [rows, retentionResult] = await Promise.all([
+    db
+      .select({
+        weekStart,
+        initialPayers: sql<number>`count(*)::integer`,
+        activeToday: sql<number>`count(*) filter (
+          where ${user.expirationDate} is not null
+            and ${user.expirationDate} > now()
+        )::integer`,
+      })
+      .from(firstPayments)
+      .innerJoin(user, eq(user.id, firstPayments.userId))
+      .groupBy(weekStart)
+      .orderBy(desc(weekStart)),
+    db.execute(sql`
+      with first_payments as (
+        select
+          ${payment.userId} as user_id,
+          min(coalesce(${payment.paidAt}, ${payment.createdAt})) as first_paid_at
+        from ${payment}
+        where ${payment.status} = 'succeeded'
+        group by ${payment.userId}
+      ),
+      cohort_members as (
+        select
+          user_id,
+          date_trunc('week', first_paid_at - interval '3 hours') as cohort_week
+        from first_payments
+      )
+      select
+        to_char(cohort_members.cohort_week, 'YYYY-MM-DD') as week_start,
+        age.age_weeks::integer as age_weeks,
+        count(*)::integer as initial_payers,
+        count(*) filter (
+          where age.age_weeks = 0
+            or exists (
+              select 1
+              from ${subscription} historical_subscription
+              where historical_subscription.user_id = cohort_members.user_id
+                and historical_subscription.created_at <= (
+                  cohort_members.cohort_week
+                  + ((age.age_weeks + 1) * interval '1 week')
+                  + interval '3 hours'
+                )
+                and (
+                  historical_subscription.ended_at is null
+                  or historical_subscription.ended_at > (
+                    cohort_members.cohort_week
+                    + ((age.age_weeks + 1) * interval '1 week')
+                    + interval '3 hours'
+                  )
+                )
+            )
+        )::integer as retained_payers
+      from cohort_members
+      cross join generate_series(0, 12) as age(age_weeks)
+      where age.age_weeks = 0
+        or (
+          cohort_members.cohort_week
+          + ((age.age_weeks + 1) * interval '1 week')
+          <= date_trunc('week', now() - interval '3 hours')
+        )
+      group by cohort_members.cohort_week, age.age_weeks
+      order by cohort_members.cohort_week desc, age.age_weeks asc
+    `),
+  ]);
+
+  const retentionRows = retentionResult as unknown as Array<{
+    week_start: string;
+    age_weeks: number;
+    retained_payers: number;
+  }>;
+
+  return summarizePayerRetentionCohorts(
+    rows.map((row) => ({
+      weekStart: row.weekStart,
+      initialPayers: Number(row.initialPayers),
+      activeToday: Number(row.activeToday),
+    })),
+    retentionRows.map((row) => ({
+      weekStart: row.week_start,
+      ageWeeks: Number(row.age_weeks),
+      retainedPayers: Number(row.retained_payers),
+    })),
+  );
 }
 
 export async function fetchCustomerBaseRows() {
@@ -1398,12 +1545,14 @@ export async function fetchCustomerBaseRows() {
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
         ), 0)`,
       hasApprovedPayment: sql<boolean>`exists (
           select 1
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
         )`,
       scheduledCancel: sql<boolean>`coalesce((
           select s.cancel_at_period_end = true or s.status = 'canceled'
@@ -1412,11 +1561,21 @@ export async function fetchCustomerBaseRows() {
           order by s.created_at desc
           limit 1
         ), false)`,
-      lastPaymentProvider: sql<"stripe" | "mercadopago" | "manual" | null>`(
+      lastPaymentProvider: sql<BillingProvider | null>`(
           select p.provider
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
+          order by p.paid_at desc nulls last, p.created_at desc
+          limit 1
+        )`,
+      lastPaymentMethod: sql<PaymentSettlementMethod | null>`(
+          select p.payment_method
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
           order by p.paid_at desc nulls last, p.created_at desc
           limit 1
         )`,
@@ -1438,33 +1597,50 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
   const { getStripeSettlements } = await import(
     "@/lib/backoffice/stripe-finance-settlement"
   );
-  const [activePlans, periodPayments] = await Promise.all([
-    db
-      .select({
-        provider: subscription.provider,
-        planType: subscription.planType,
-      })
-      .from(subscription)
-      .where(eq(subscription.status, "active")),
-    db
-      .select({
-        id: payment.id,
-        provider: payment.provider,
-        amount: payment.amount,
-        grossAmount: payment.grossAmount,
-        netAmount: payment.netAmount,
-        feeAmount: payment.feeAmount,
-        stripeInvoiceId: payment.stripeInvoiceId,
-      })
-      .from(payment)
-      .where(
-        and(
-          eq(payment.status, "succeeded"),
-          gte(payment.paidAt, window.gte),
-          lt(payment.paidAt, window.lt),
+  const [activePlans, periodPayments, [customerLifetimeRevenue]] =
+    await Promise.all([
+      db
+        .select({
+          provider: subscription.provider,
+          planType: subscription.planType,
+          vindiPaymentMethod: subscription.vindiPaymentMethod,
+        })
+        .from(subscription)
+        .where(eq(subscription.status, "active")),
+      db
+        .select({
+          id: payment.id,
+          provider: payment.provider,
+          amount: payment.amount,
+          grossAmount: payment.grossAmount,
+          netAmount: payment.netAmount,
+          feeAmount: payment.feeAmount,
+          stripeInvoiceId: payment.stripeInvoiceId,
+          paymentMethod: payment.paymentMethod,
+          purpose: payment.purpose,
+        })
+        .from(payment)
+        .where(
+          and(
+            eq(payment.status, "succeeded"),
+            gte(payment.paidAt, window.gte),
+            lt(payment.paidAt, window.lt),
+            billingPaymentPurposeSql(payment.purpose),
+          ),
         ),
-      ),
-  ]);
+      db
+        .select({
+          grossCentavos: sql<number>`coalesce(sum(${payment.amount}), 0)::bigint`,
+          payingCustomers: sql<number>`count(distinct ${payment.userId})::integer`,
+        })
+        .from(payment)
+        .where(
+          and(
+            eq(payment.status, "succeeded"),
+            billingPaymentPurposeSql(payment.purpose),
+          ),
+        ),
+    ]);
 
   const stripeSettlements = await getStripeSettlements(
     periodPayments.flatMap((item) =>
@@ -1480,6 +1656,10 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
       activePlans,
       periodPayments,
       stripeSettlements,
+      {
+        grossCentavos: Number(customerLifetimeRevenue?.grossCentavos ?? 0),
+        payingCustomers: Number(customerLifetimeRevenue?.payingCustomers ?? 0),
+      },
     ),
   };
 }

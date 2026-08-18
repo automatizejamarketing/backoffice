@@ -16,7 +16,9 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
   try {
     return NextResponse.json(
-      await createProductAdmin(await request.json()),
+      await createProductAdmin(await request.json(), {
+        adminEmail: authz.actor.email,
+      }),
       { status: 201 },
     );
   } catch (error) {

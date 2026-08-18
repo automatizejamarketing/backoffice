@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { UserWithUsage } from "@/lib/db/admin-queries";
+import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,10 +63,11 @@ const HIDDEN_COLUMN_CLASSES: Record<OptionalColumnId, string> = {
   cost: "[&_[data-column='cost']]:hidden",
 };
 
-const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 function formatCurrency(value: number) {

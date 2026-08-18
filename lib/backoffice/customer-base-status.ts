@@ -1,10 +1,12 @@
-import type { BillingProvider } from "@/lib/db/schema";
+import type { BillingProvider, PaymentSettlementMethod } from "@/lib/db/schema";
+import { financeProvider } from "./finance-provider";
 
 export type CustomerBaseRow = {
   expirationDate: Date | null;
   hasApprovedPayment: boolean;
   scheduledCancel: boolean;
   lastPaymentProvider: BillingProvider | null;
+  lastPaymentMethod?: PaymentSettlementMethod | null;
 };
 
 export type CustomerBaseChurn = {
@@ -92,10 +94,11 @@ export function listCustomerBaseStatusUsers(
 
 function churnProviderBucket(
   provider: BillingProvider | null,
+  paymentMethod?: PaymentSettlementMethod | null,
 ): keyof Pick<CustomerBaseChurn, "card" | "pix"> | null {
-  if (provider === "stripe") return "card";
-  if (provider === "mercadopago") return "pix";
-  return null;
+  if (!provider || provider === "manual") return null;
+  const bucket = financeProvider({ provider, paymentMethod });
+  return bucket === "card" || bucket === "pix" ? bucket : null;
 }
 
 export function summarizeCustomerBaseStatus(
@@ -120,7 +123,10 @@ export function summarizeCustomerBaseStatus(
       summary.trial += 1;
     } else if (customer.hasApprovedPayment && hasExpiredAccess) {
       summary.churn.total += 1;
-      const bucket = churnProviderBucket(customer.lastPaymentProvider);
+      const bucket = churnProviderBucket(
+        customer.lastPaymentProvider,
+        customer.lastPaymentMethod,
+      );
       if (bucket) {
         summary.churn[bucket] += 1;
       }
