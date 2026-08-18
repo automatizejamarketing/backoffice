@@ -38,6 +38,7 @@ export function CriativosValidadosClient({
   const [items, setItems] = useState<CreativeRow[]>(initialData);
   const [filter, setFilter] = useState("");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const [isRefreshing, startRefreshTransition] = useTransition();
 
   useEffect(() => {
@@ -66,23 +67,64 @@ export function CriativosValidadosClient({
 
   async function togglePublish(id: string, nextValue: boolean) {
     const previous = items;
+    setPendingActionId(id);
     setItems((cur) =>
       cur.map((row) => (row.id === id ? { ...row, isPublished: nextValue } : row)),
     );
 
-    const res = await fetch(`/api/backoffice/criativos-validados/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isPublished: nextValue }),
-    });
+    try {
+      const res = await fetch(`/api/backoffice/criativos-validados/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublished: nextValue }),
+      });
 
-    if (!res.ok) {
+      if (!res.ok) {
+        setItems(previous);
+        toast.error("Falha ao atualizar publicação do criativo.");
+        return;
+      }
+
+      toast.success(nextValue ? "Criativo publicado." : "Criativo despublicado.");
+    } catch {
       setItems(previous);
       toast.error("Falha ao atualizar publicação do criativo.");
-      return;
+    } finally {
+      setPendingActionId((current) => (current === id ? null : current));
     }
+  }
 
-    toast.success(nextValue ? "Criativo publicado." : "Criativo despublicado.");
+  async function deleteCreative(id: string) {
+    const confirmed = window.confirm(
+      "Tem certeza que deseja apagar este criativo validado?",
+    );
+    if (!confirmed) return;
+
+    const previous = items;
+    setPendingActionId(id);
+    setItems((cur) => cur.filter((row) => row.id !== id));
+
+    try {
+      const res = await fetch(`/api/backoffice/criativos-validados/${id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        setItems(previous);
+        toast.error("Falha ao apagar o criativo.");
+        return;
+      }
+
+      toast.success("Criativo apagado.");
+      startRefreshTransition(() => {
+        router.refresh();
+      });
+    } catch {
+      setItems(previous);
+      toast.error("Falha ao apagar o criativo.");
+    } finally {
+      setPendingActionId((current) => (current === id ? null : current));
+    }
   }
 
   async function syncPreset() {
@@ -184,8 +226,18 @@ export function CriativosValidadosClient({
                   <Switch
                     checked={item.isPublished}
                     onCheckedChange={(checked) => togglePublish(item.id, checked)}
+                    disabled={pendingActionId === item.id}
                   />
                 </div>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={pendingActionId === item.id}
+                  onClick={() => deleteCreative(item.id)}
+                >
+                  {pendingActionId === item.id ? "Processando..." : "Apagar"}
+                </Button>
                 {item.videoUrl ? (
                   <a
                     href={item.videoUrl}
