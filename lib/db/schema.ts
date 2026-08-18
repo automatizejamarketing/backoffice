@@ -5283,9 +5283,8 @@ export const foodServiceCategory = pgTable(
   "food_service_categories",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    menuId: uuid("menu_id")
-      .notNull()
-      .references(() => foodServiceMenu.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
     name: varchar("name", { length: 120 }).notNull(),
     description: text("description"),
     position: integer("position").notNull().default(0),
@@ -5294,6 +5293,15 @@ export const foodServiceCategory = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    idCompanyUnique: unique("food_service_categories_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_categories_menu_company_fk",
+    }).onDelete("cascade"),
     menuPositionIdx: index(
       "food_service_categories_menu_position_idx",
     ).on(table.menuId, table.position),
@@ -5306,9 +5314,8 @@ export const foodServiceItem = pgTable(
   "food_service_items",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    categoryId: uuid("category_id")
-      .notNull()
-      .references(() => foodServiceCategory.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull(),
+    categoryId: uuid("category_id").notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     description: text("description"),
     imageUrl: text("image_url"),
@@ -5322,6 +5329,15 @@ export const foodServiceItem = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    idCompanyUnique: unique("food_service_items_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    categoryCompanyFk: foreignKey({
+      columns: [table.categoryId, table.companyId],
+      foreignColumns: [foodServiceCategory.id, foodServiceCategory.companyId],
+      name: "food_service_items_category_company_fk",
+    }).onDelete("cascade"),
     categoryPositionIdx: index(
       "food_service_items_category_position_idx",
     ).on(table.categoryId, table.position),
@@ -5353,6 +5369,10 @@ export const foodServiceOptionGroup = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    idCompanyUnique: unique("food_service_option_groups_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
     companyIdx: index("food_service_option_groups_company_id_idx").on(
       table.companyId,
     ),
@@ -5371,9 +5391,8 @@ export const foodServiceOption = pgTable(
   "food_service_options",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    groupId: uuid("group_id")
-      .notNull()
-      .references(() => foodServiceOptionGroup.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").notNull(),
+    groupId: uuid("group_id").notNull(),
     name: varchar("name", { length: 120 }).notNull(),
     description: text("description"),
     priceDeltaCentavos: integer("price_delta_centavos").notNull().default(0),
@@ -5383,6 +5402,14 @@ export const foodServiceOption = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    groupCompanyFk: foreignKey({
+      columns: [table.groupId, table.companyId],
+      foreignColumns: [
+        foodServiceOptionGroup.id,
+        foodServiceOptionGroup.companyId,
+      ],
+      name: "food_service_options_group_company_fk",
+    }).onDelete("cascade"),
     groupPositionIdx: index("food_service_options_group_position_idx").on(
       table.groupId,
       table.position,
@@ -5395,17 +5422,27 @@ export type FoodServiceOption = InferSelectModel<typeof foodServiceOption>;
 export const foodServiceItemOptionGroup = pgTable(
   "food_service_item_option_groups",
   {
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => foodServiceItem.id, { onDelete: "cascade" }),
-    groupId: uuid("group_id")
-      .notNull()
-      .references(() => foodServiceOptionGroup.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id").notNull(),
+    groupId: uuid("group_id").notNull(),
+    companyId: uuid("company_id").notNull(),
     position: integer("position").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.itemId, table.groupId] }),
+    itemCompanyFk: foreignKey({
+      columns: [table.itemId, table.companyId],
+      foreignColumns: [foodServiceItem.id, foodServiceItem.companyId],
+      name: "food_service_item_option_groups_item_company_fk",
+    }).onDelete("cascade"),
+    groupCompanyFk: foreignKey({
+      columns: [table.groupId, table.companyId],
+      foreignColumns: [
+        foodServiceOptionGroup.id,
+        foodServiceOptionGroup.companyId,
+      ],
+      name: "food_service_item_option_groups_group_company_fk",
+    }).onDelete("cascade"),
     itemPositionIdx: index(
       "food_service_item_option_groups_item_position_idx",
     ).on(table.itemId, table.position),
@@ -5419,12 +5456,9 @@ export type FoodServiceItemOptionGroup = InferSelectModel<
 export const foodServiceUnitItemOverride = pgTable(
   "food_service_unit_item_overrides",
   {
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id, { onDelete: "cascade" }),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => foodServiceItem.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id").notNull(),
+    itemId: uuid("item_id").notNull(),
+    companyId: uuid("company_id").notNull(),
     priceCentavos: integer("price_centavos"),
     active: boolean("active"),
     manuallyAvailable: boolean("manually_available"),
@@ -5433,6 +5467,16 @@ export const foodServiceUnitItemOverride = pgTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.locationId, table.itemId] }),
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_unit_item_overrides_location_company_fk",
+    }).onDelete("cascade"),
+    itemCompanyFk: foreignKey({
+      columns: [table.itemId, table.companyId],
+      foreignColumns: [foodServiceItem.id, foodServiceItem.companyId],
+      name: "food_service_unit_item_overrides_item_company_fk",
+    }).onDelete("cascade"),
     itemIdx: index("food_service_unit_item_overrides_item_id_idx").on(
       table.itemId,
     ),
@@ -5470,6 +5514,10 @@ export const foodServiceIngredient = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    idCompanyUnique: unique("food_service_ingredients_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
     companyNameUnique: uniqueIndex(
       "food_service_ingredients_company_name_unique",
     ).on(table.companyId, table.name),
@@ -5577,9 +5625,8 @@ export const foodServiceCart = pgTable(
   "food_service_carts",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
+    companyId: uuid("company_id").notNull(),
+    locationId: uuid("location_id").notNull(),
     channel: varchar("channel", {
       enum: ["web", "whatsapp", "operator", "integration"],
     }).notNull(),
@@ -5599,12 +5646,27 @@ export const foodServiceCart = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    idCompanyUnique: unique("food_service_carts_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    idLocationUnique: unique("food_service_carts_id_location_unique").on(
+      table.id,
+      table.locationId,
+    ),
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_carts_location_company_fk",
+    }),
     locationStatusIdx: index(
       "food_service_carts_location_status_idx",
     ).on(table.locationId, table.status, table.updatedAt),
     customerTokenUnique: uniqueIndex(
       "food_service_carts_location_customer_token_unique",
-    ).on(table.locationId, table.customerTokenHash),
+    )
+      .on(table.locationId, table.customerTokenHash)
+      .where(sql`${table.status} = 'active'`),
     revisionCheck: check(
       "food_service_carts_revision_check",
       sql`${table.revision} >= 0`,
@@ -5625,12 +5687,9 @@ export const foodServiceCartItem = pgTable(
   "food_service_cart_items",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    cartId: uuid("cart_id")
-      .notNull()
-      .references(() => foodServiceCart.id, { onDelete: "cascade" }),
-    itemId: uuid("item_id")
-      .notNull()
-      .references(() => foodServiceItem.id),
+    companyId: uuid("company_id").notNull(),
+    cartId: uuid("cart_id").notNull(),
+    itemId: uuid("item_id").notNull(),
     quantity: integer("quantity").notNull(),
     selectedOptions: jsonb("selected_options")
       .$type<FoodServiceSelectedOptionSnapshot[]>()
@@ -5641,6 +5700,16 @@ export const foodServiceCartItem = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    cartCompanyFk: foreignKey({
+      columns: [table.cartId, table.companyId],
+      foreignColumns: [foodServiceCart.id, foodServiceCart.companyId],
+      name: "food_service_cart_items_cart_company_fk",
+    }).onDelete("cascade"),
+    itemCompanyFk: foreignKey({
+      columns: [table.itemId, table.companyId],
+      foreignColumns: [foodServiceItem.id, foodServiceItem.companyId],
+      name: "food_service_cart_items_item_company_fk",
+    }),
     cartIdx: index("food_service_cart_items_cart_id_idx").on(table.cartId),
     quantityCheck: check(
       "food_service_cart_items_quantity_check",
@@ -5650,6 +5719,44 @@ export const foodServiceCartItem = pgTable(
 );
 
 export type FoodServiceCartItem = InferSelectModel<typeof foodServiceCartItem>;
+
+export type FoodServiceCustomerDefaultAddress = Record<string, unknown>;
+
+export const foodServiceCustomer = pgTable(
+  "food_service_customers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    cpf: varchar("cpf", { length: 11 }),
+    phoneE164: varchar("phone_e164", { length: 20 }).notNull(),
+    email: varchar("email", { length: 255 }),
+    defaultAddress: jsonb("default_address")
+      .$type<FoodServiceCustomerDefaultAddress>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    idCompanyUnique: unique("food_service_customers_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    companyPhoneUnique: unique(
+      "food_service_customers_company_phone_unique",
+    ).on(table.companyId, table.phoneE164),
+    companyCpfIdx: index("food_service_customers_company_cpf_idx")
+      .on(table.companyId, table.cpf)
+      .where(sql`${table.cpf} IS NOT NULL`),
+    cpfCheck: check(
+      "food_service_customers_cpf_check",
+      sql`${table.cpf} IS NULL OR ${table.cpf} ~ '^[0-9]{11}$'`,
+    ),
+  }),
+);
+
+export type FoodServiceCustomer = InferSelectModel<typeof foodServiceCustomer>;
 
 export type FoodServiceOrderChannel =
   | "web"
@@ -5684,17 +5791,14 @@ export const foodServiceOrder = pgTable(
   "food_service_orders",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    displayNumber: bigserial("display_number", { mode: "number" }).notNull(),
+    displayNumber: integer("display_number").notNull(),
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
-    menuId: uuid("menu_id")
-      .notNull()
-      .references(() => foodServiceMenu.id),
-    cartId: uuid("cart_id").references(() => foodServiceCart.id),
+    locationId: uuid("location_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    cartId: uuid("cart_id"),
+    customerId: uuid("customer_id"),
     idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
     status: varchar("status", { length: 24 })
       .$type<FoodServiceOrderStatus>()
@@ -5743,15 +5847,38 @@ export const foodServiceOrder = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_orders_location_company_fk",
+    }),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_orders_menu_company_fk",
+    }),
+    cartLocationFk: foreignKey({
+      columns: [table.cartId, table.locationId],
+      foreignColumns: [foodServiceCart.id, foodServiceCart.locationId],
+      name: "food_service_orders_cart_location_fk",
+    }),
+    customerCompanyFk: foreignKey({
+      columns: [table.customerId, table.companyId],
+      foreignColumns: [foodServiceCustomer.id, foodServiceCustomer.companyId],
+      name: "food_service_orders_customer_company_fk",
+    }),
     locationIdempotencyUnique: uniqueIndex(
       "food_service_orders_location_idempotency_unique",
     ).on(table.locationId, table.idempotencyKey),
-    displayNumberUnique: uniqueIndex(
-      "food_service_orders_display_number_unique",
-    ).on(table.displayNumber),
+    locationDisplayNumberUnique: uniqueIndex(
+      "food_service_orders_location_display_number_unique",
+    ).on(table.locationId, table.displayNumber),
     locationStatusIdx: index(
       "food_service_orders_location_status_idx",
     ).on(table.locationId, table.status, table.createdAt),
+    locationCustomerPhoneIdx: index(
+      "food_service_orders_location_customer_phone_idx",
+    ).on(table.locationId, table.customerPhone),
     companyCreatedIdx: index(
       "food_service_orders_company_created_idx",
     ).on(table.companyId, table.createdAt),
@@ -5863,9 +5990,7 @@ export const foodServiceWhatsappConnection = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id, { onDelete: "cascade" }),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id").notNull(),
     phoneNumberId: varchar("phone_number_id", { length: 64 }).notNull(),
     wabaId: varchar("waba_id", { length: 64 }).notNull(),
     displayPhoneE164: varchar("display_phone_e164", { length: 24 }).notNull(),
@@ -5880,6 +6005,11 @@ export const foodServiceWhatsappConnection = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_whatsapp_connections_location_company_fk",
+    }).onDelete("cascade"),
     phoneNumberUnique: uniqueIndex(
       "food_service_whatsapp_connections_phone_number_unique",
     ).on(table.phoneNumberId),
@@ -6098,9 +6228,9 @@ export const foodServicePurchaseOrder = pgTable(
   "food_service_purchase_orders",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
-    displayNumber: bigserial("display_number", { mode: "number" }).notNull(),
+    displayNumber: integer("display_number").notNull(),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     supplierId: uuid("supplier_id").notNull().references(() => foodServiceSupplier.id),
     status: varchar("status", {
       enum: ["draft", "placed", "partially_received", "received", "closed", "cancelled"],
@@ -6120,9 +6250,14 @@ export const foodServicePurchaseOrder = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    displayNumberUnique: uniqueIndex(
-      "food_service_purchase_orders_display_number_unique",
-    ).on(table.displayNumber),
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_purchase_orders_location_company_fk",
+    }),
+    locationDisplayNumberUnique: uniqueIndex(
+      "food_service_purchase_orders_location_display_number_unique",
+    ).on(table.locationId, table.displayNumber),
     locationStatusIdx: index(
       "food_service_purchase_orders_location_status_idx",
     ).on(table.locationId, table.status, table.createdAt),
@@ -6180,7 +6315,7 @@ export const foodServiceGoodsReceipt = pgTable(
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     purchaseOrderId: uuid("purchase_order_id").notNull().references(() => foodServicePurchaseOrder.id),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     supplierId: uuid("supplier_id").notNull().references(() => foodServiceSupplier.id),
     status: varchar("status", { enum: ["posted", "cancelled"] }).notNull().default("posted"),
     documentNumber: varchar("document_number", { length: 120 }),
@@ -6192,6 +6327,11 @@ export const foodServiceGoodsReceipt = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_goods_receipts_location_company_fk",
+    }),
     orderIdempotencyUnique: uniqueIndex(
       "food_service_goods_receipts_order_idempotency_unique",
     ).on(table.purchaseOrderId, table.idempotencyKey),
@@ -6241,9 +6381,7 @@ export const foodServicePurchaseTemplate = pgTable(
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     supplierId: uuid("supplier_id")
       .notNull()
       .references(() => foodServiceSupplier.id),
@@ -6264,6 +6402,11 @@ export const foodServicePurchaseTemplate = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_purchase_templates_location_company_fk",
+    }),
     locationNameUnique: uniqueIndex(
       "food_service_purchase_templates_location_name_unique",
     ).on(table.locationId, sql`lower(${table.name})`),
@@ -6335,9 +6478,7 @@ export const foodServicePurchaseTemplateRun = pgTable(
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     templateId: uuid("template_id")
       .notNull()
       .references(() => foodServicePurchaseTemplate.id),
@@ -6357,6 +6498,11 @@ export const foodServicePurchaseTemplateRun = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_purchase_template_runs_location_company_fk",
+    }),
     templateDateUnique: uniqueIndex(
       "food_service_purchase_template_runs_template_date_unique",
     ).on(table.templateId, table.operationalDate),
@@ -6431,12 +6577,8 @@ export const foodServiceStockMovement = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
-    ingredientId: uuid("ingredient_id")
-      .notNull()
-      .references(() => foodServiceIngredient.id),
+    locationId: uuid("location_id").notNull(),
+    ingredientId: uuid("ingredient_id").notNull(),
     orderId: uuid("order_id").references(() => foodServiceOrder.id),
     kind: varchar("kind", {
       enum: ["entry", "reserve", "release", "consume", "loss", "correction"],
@@ -6479,6 +6621,19 @@ export const foodServiceStockMovement = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_stock_movements_location_company_fk",
+    }),
+    ingredientCompanyFk: foreignKey({
+      columns: [table.ingredientId, table.companyId],
+      foreignColumns: [
+        foodServiceIngredient.id,
+        foodServiceIngredient.companyId,
+      ],
+      name: "food_service_stock_movements_ingredient_company_fk",
+    }),
     locationIdempotencyUnique: uniqueIndex(
       "food_service_stock_movements_location_idempotency_unique",
     ).on(table.locationId, table.idempotencyKey),
@@ -6573,12 +6728,8 @@ export const foodServiceStockLot = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
-    ingredientId: uuid("ingredient_id")
-      .notNull()
-      .references(() => foodServiceIngredient.id),
+    locationId: uuid("location_id").notNull(),
+    ingredientId: uuid("ingredient_id").notNull(),
     sourceMovementId: uuid("source_movement_id")
       .notNull()
       .references(() => foodServiceStockMovement.id),
@@ -6611,6 +6762,19 @@ export const foodServiceStockLot = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_stock_lots_location_company_fk",
+    }),
+    ingredientCompanyFk: foreignKey({
+      columns: [table.ingredientId, table.companyId],
+      foreignColumns: [
+        foodServiceIngredient.id,
+        foodServiceIngredient.companyId,
+      ],
+      name: "food_service_stock_lots_ingredient_company_fk",
+    }),
     sourceMovementUnique: uniqueIndex(
       "food_service_stock_lots_source_movement_unique",
     ).on(table.sourceMovementId),
@@ -6798,9 +6962,7 @@ export const foodServiceInventoryCount = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     status: varchar("status", {
       enum: ["completed", "cancelled"],
     })
@@ -6816,6 +6978,11 @@ export const foodServiceInventoryCount = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_inventory_counts_location_company_fk",
+    }),
     locationIdempotencyUnique: uniqueIndex(
       "food_service_inventory_counts_location_idempotency_unique",
     ).on(table.locationId, table.idempotencyKey),
@@ -6887,7 +7054,7 @@ export const foodServiceIngredientGroup = pgTable(
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     position: integer("position").notNull().default(0),
     active: boolean("active").notNull().default(true),
@@ -6895,6 +7062,11 @@ export const foodServiceIngredientGroup = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_ingredient_groups_location_company_fk",
+    }),
     locationPositionIdx: index("food_service_ingredient_groups_location_position_idx").on(
       table.locationId,
       table.position,
@@ -6934,7 +7106,7 @@ export const foodServiceInventoryCountModel = pgTable(
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     schedule: jsonb("schedule")
       .$type<FoodServiceRoutineSchedule>()
@@ -6950,6 +7122,11 @@ export const foodServiceInventoryCountModel = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_inventory_count_models_location_company_fk",
+    }),
     locationNameUnique: uniqueIndex(
       "food_service_inventory_count_models_location_name_unique",
     ).on(table.locationId, sql`lower(${table.name})`),
@@ -6991,7 +7168,7 @@ export const foodServiceInventoryCountDraft = pgTable(
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     companyId: uuid("company_id").notNull().references(() => company.id),
-    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     modelId: uuid("model_id")
       .notNull()
       .references(() => foodServiceInventoryCountModel.id),
@@ -7008,6 +7185,11 @@ export const foodServiceInventoryCountDraft = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_inventory_count_drafts_location_company_fk",
+    }),
     modelDateUnique: uniqueIndex(
       "food_service_inventory_count_drafts_model_date_unique",
     ).on(table.modelId, table.operationalDate),
@@ -7059,9 +7241,7 @@ export const foodServiceOperationalChecklist = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     schedule: jsonb("schedule")
       .$type<FoodServiceRoutineSchedule>()
@@ -7077,6 +7257,11 @@ export const foodServiceOperationalChecklist = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_operational_checklists_location_company_fk",
+    }),
     locationNameUnique: uniqueIndex(
       "food_service_operational_checklists_location_name_unique",
     ).on(table.locationId, sql`lower(${table.name})`),
@@ -7126,9 +7311,7 @@ export const foodServiceOperationalChecklistRun = pgTable(
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id),
-    locationId: uuid("location_id")
-      .notNull()
-      .references(() => companyLocation.id),
+    locationId: uuid("location_id").notNull(),
     checklistId: uuid("checklist_id")
       .notNull()
       .references(() => foodServiceOperationalChecklist.id),
@@ -7147,6 +7330,11 @@ export const foodServiceOperationalChecklistRun = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_operational_checklist_runs_location_company_fk",
+    }),
     checklistDateUnique: uniqueIndex(
       "food_service_operational_checklist_runs_checklist_date_unique",
     ).on(table.checklistId, table.operationalDate),

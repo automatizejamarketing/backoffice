@@ -1,6 +1,10 @@
 -- Fundação operacional de cardápio, pedidos, fichas técnicas e estoque.
 -- A migração é somente aditiva. Movimentações de estoque e eventos de pedido
 -- formam ledgers imutáveis; correções devem ser registradas por compensação.
+-- Tenancy: tabelas com escopo de unidade/empresa carregam FKs compostas
+-- ("id", "company_id") para impedir vazamento entre tenants no nível do banco.
+
+ALTER TABLE "company_locations" ADD CONSTRAINT "company_locations_id_company_unique" UNIQUE ("id", "company_id");--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_settings" (
   "location_id" uuid PRIMARY KEY REFERENCES "company_locations"("id") ON DELETE CASCADE,
@@ -36,6 +40,7 @@ CREATE TABLE IF NOT EXISTS "food_service_menus" (
   "active" boolean NOT NULL DEFAULT false,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menus_id_company_unique" UNIQUE ("id", "company_id"),
   CONSTRAINT "food_service_menus_slug_check" CHECK ("slug" ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$')
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menus_slug_unique" ON "food_service_menus"("slug");
@@ -43,19 +48,23 @@ CREATE INDEX IF NOT EXISTS "food_service_menus_company_id_idx" ON "food_service_
 
 CREATE TABLE IF NOT EXISTS "food_service_categories" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "menu_id" uuid NOT NULL REFERENCES "food_service_menus"("id") ON DELETE CASCADE,
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
   "name" varchar(120) NOT NULL,
   "description" text,
   "position" integer NOT NULL DEFAULT 0,
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp NOT NULL DEFAULT now(),
-  "updated_at" timestamp NOT NULL DEFAULT now()
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_categories_id_company_unique" UNIQUE ("id", "company_id"),
+  CONSTRAINT "food_service_categories_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id") ON DELETE CASCADE
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_categories_menu_position_idx" ON "food_service_categories"("menu_id", "position");--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_items" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "category_id" uuid NOT NULL REFERENCES "food_service_categories"("id") ON DELETE CASCADE,
+  "company_id" uuid NOT NULL,
+  "category_id" uuid NOT NULL,
   "name" varchar(160) NOT NULL,
   "description" text,
   "image_url" text,
@@ -67,6 +76,8 @@ CREATE TABLE IF NOT EXISTS "food_service_items" (
   "tags" jsonb NOT NULL DEFAULT '[]'::jsonb,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_items_id_company_unique" UNIQUE ("id", "company_id"),
+  CONSTRAINT "food_service_items_category_company_fk" FOREIGN KEY ("category_id", "company_id") REFERENCES "food_service_categories"("id", "company_id") ON DELETE CASCADE,
   CONSTRAINT "food_service_items_price_check" CHECK ("base_price_centavos" >= 0),
   CONSTRAINT "food_service_items_preparation_check" CHECK ("preparation_minutes" IS NULL OR "preparation_minutes" > 0)
 );--> statement-breakpoint
@@ -81,41 +92,50 @@ CREATE TABLE IF NOT EXISTS "food_service_option_groups" (
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_option_groups_id_company_unique" UNIQUE ("id", "company_id"),
   CONSTRAINT "food_service_option_groups_selection_check" CHECK ("min_selections" >= 0 AND "max_selections" >= "min_selections")
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_option_groups_company_id_idx" ON "food_service_option_groups"("company_id");--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_options" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "group_id" uuid NOT NULL REFERENCES "food_service_option_groups"("id") ON DELETE CASCADE,
+  "company_id" uuid NOT NULL,
+  "group_id" uuid NOT NULL,
   "name" varchar(120) NOT NULL,
   "description" text,
   "price_delta_centavos" integer NOT NULL DEFAULT 0,
   "position" integer NOT NULL DEFAULT 0,
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp NOT NULL DEFAULT now(),
-  "updated_at" timestamp NOT NULL DEFAULT now()
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_options_group_company_fk" FOREIGN KEY ("group_id", "company_id") REFERENCES "food_service_option_groups"("id", "company_id") ON DELETE CASCADE
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_options_group_position_idx" ON "food_service_options"("group_id", "position");--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_item_option_groups" (
-  "item_id" uuid NOT NULL REFERENCES "food_service_items"("id") ON DELETE CASCADE,
-  "group_id" uuid NOT NULL REFERENCES "food_service_option_groups"("id") ON DELETE CASCADE,
+  "item_id" uuid NOT NULL,
+  "group_id" uuid NOT NULL,
+  "company_id" uuid NOT NULL,
   "position" integer NOT NULL DEFAULT 0,
   "created_at" timestamp NOT NULL DEFAULT now(),
-  PRIMARY KEY ("item_id", "group_id")
+  PRIMARY KEY ("item_id", "group_id"),
+  CONSTRAINT "food_service_item_option_groups_item_company_fk" FOREIGN KEY ("item_id", "company_id") REFERENCES "food_service_items"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_item_option_groups_group_company_fk" FOREIGN KEY ("group_id", "company_id") REFERENCES "food_service_option_groups"("id", "company_id") ON DELETE CASCADE
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_item_option_groups_item_position_idx" ON "food_service_item_option_groups"("item_id", "position");--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_unit_item_overrides" (
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id") ON DELETE CASCADE,
-  "item_id" uuid NOT NULL REFERENCES "food_service_items"("id") ON DELETE CASCADE,
+  "location_id" uuid NOT NULL,
+  "item_id" uuid NOT NULL,
+  "company_id" uuid NOT NULL,
   "price_centavos" integer,
   "active" boolean,
   "manually_available" boolean,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
   PRIMARY KEY ("location_id", "item_id"),
+  CONSTRAINT "food_service_unit_item_overrides_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_unit_item_overrides_item_company_fk" FOREIGN KEY ("item_id", "company_id") REFERENCES "food_service_items"("id", "company_id") ON DELETE CASCADE,
   CONSTRAINT "food_service_unit_item_overrides_price_check" CHECK ("price_centavos" IS NULL OR "price_centavos" >= 0)
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_unit_item_overrides_item_id_idx" ON "food_service_unit_item_overrides"("item_id");--> statement-breakpoint
@@ -130,6 +150,7 @@ CREATE TABLE IF NOT EXISTS "food_service_ingredients" (
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_ingredients_id_company_unique" UNIQUE ("id", "company_id"),
   CONSTRAINT "food_service_ingredients_base_unit_check" CHECK ("base_unit" IN ('g', 'ml', 'unit')),
   CONSTRAINT "food_service_ingredients_minimum_check" CHECK ("minimum_quantity_micros" >= 0)
 );--> statement-breakpoint
@@ -167,7 +188,8 @@ CREATE INDEX IF NOT EXISTS "food_service_recipe_components_ingredient_id_idx" ON
 
 CREATE TABLE IF NOT EXISTS "food_service_carts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "company_id" uuid NOT NULL,
+  "location_id" uuid NOT NULL,
   "channel" varchar NOT NULL,
   "fulfillment_type" varchar NOT NULL,
   "status" varchar NOT NULL DEFAULT 'active',
@@ -177,34 +199,57 @@ CREATE TABLE IF NOT EXISTS "food_service_carts" (
   "expires_at" timestamp NOT NULL,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_carts_id_company_unique" UNIQUE ("id", "company_id"),
+  CONSTRAINT "food_service_carts_id_location_unique" UNIQUE ("id", "location_id"),
+  CONSTRAINT "food_service_carts_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_carts_channel_check" CHECK ("channel" IN ('web', 'whatsapp', 'operator', 'integration')),
   CONSTRAINT "food_service_carts_fulfillment_check" CHECK ("fulfillment_type" IN ('delivery', 'pickup', 'counter', 'table')),
   CONSTRAINT "food_service_carts_status_check" CHECK ("status" IN ('active', 'converted', 'abandoned', 'expired')),
   CONSTRAINT "food_service_carts_revision_check" CHECK ("revision" >= 0)
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_carts_location_status_idx" ON "food_service_carts"("location_id", "status", "updated_at");
-CREATE UNIQUE INDEX IF NOT EXISTS "food_service_carts_location_customer_token_unique" ON "food_service_carts"("location_id", "customer_token_hash");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_carts_location_customer_token_unique" ON "food_service_carts"("location_id", "customer_token_hash") WHERE "status" = 'active';--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_cart_items" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "cart_id" uuid NOT NULL REFERENCES "food_service_carts"("id") ON DELETE CASCADE,
-  "item_id" uuid NOT NULL REFERENCES "food_service_items"("id"),
+  "company_id" uuid NOT NULL,
+  "cart_id" uuid NOT NULL,
+  "item_id" uuid NOT NULL,
   "quantity" integer NOT NULL,
   "selected_options" jsonb NOT NULL DEFAULT '[]'::jsonb,
   "notes" text,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_cart_items_cart_company_fk" FOREIGN KEY ("cart_id", "company_id") REFERENCES "food_service_carts"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_cart_items_item_company_fk" FOREIGN KEY ("item_id", "company_id") REFERENCES "food_service_items"("id", "company_id"),
   CONSTRAINT "food_service_cart_items_quantity_check" CHECK ("quantity" > 0)
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_cart_items_cart_id_idx" ON "food_service_cart_items"("cart_id");--> statement-breakpoint
 
+CREATE TABLE IF NOT EXISTS "food_service_customers" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+  "name" varchar(120) NOT NULL,
+  "cpf" varchar(11),
+  "phone_e164" varchar(20) NOT NULL,
+  "email" varchar(255),
+  "default_address" jsonb,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_customers_id_company_unique" UNIQUE ("id", "company_id"),
+  CONSTRAINT "food_service_customers_company_phone_unique" UNIQUE ("company_id", "phone_e164"),
+  CONSTRAINT "food_service_customers_cpf_check" CHECK ("cpf" IS NULL OR "cpf" ~ '^[0-9]{11}$')
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "food_service_customers_company_cpf_idx" ON "food_service_customers"("company_id", "cpf") WHERE "cpf" IS NOT NULL;--> statement-breakpoint
+
 CREATE TABLE IF NOT EXISTS "food_service_orders" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "display_number" bigserial NOT NULL,
+  "display_number" integer NOT NULL,
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
-  "menu_id" uuid NOT NULL REFERENCES "food_service_menus"("id"),
-  "cart_id" uuid REFERENCES "food_service_carts"("id"),
+  "location_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "cart_id" uuid,
+  "customer_id" uuid,
   "idempotency_key" varchar(160) NOT NULL,
   "status" varchar(24) NOT NULL,
   "payment_status" varchar(24) NOT NULL DEFAULT 'not_required',
@@ -234,6 +279,10 @@ CREATE TABLE IF NOT EXISTS "food_service_orders" (
   "cancelled_at" timestamp,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_orders_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
+  CONSTRAINT "food_service_orders_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id"),
+  CONSTRAINT "food_service_orders_cart_location_fk" FOREIGN KEY ("cart_id", "location_id") REFERENCES "food_service_carts"("id", "location_id"),
+  CONSTRAINT "food_service_orders_customer_company_fk" FOREIGN KEY ("customer_id", "company_id") REFERENCES "food_service_customers"("id", "company_id"),
   CONSTRAINT "food_service_orders_status_check" CHECK ("status" IN ('received','accepted','preparing','ready','dispatched','completed','rejected','cancelled','expired')),
   CONSTRAINT "food_service_orders_payment_status_check" CHECK ("payment_status" IN ('not_required','pending','approved','failed','refunded')),
   CONSTRAINT "food_service_orders_fulfillment_check" CHECK ("fulfillment_type" IN ('delivery','pickup','counter','table')),
@@ -242,8 +291,9 @@ CREATE TABLE IF NOT EXISTS "food_service_orders" (
   CONSTRAINT "food_service_orders_cost_completeness_check" CHECK ("cost_completeness" IN ('complete', 'missing_recipe', 'missing_cost'))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_orders_location_idempotency_unique" ON "food_service_orders"("location_id", "idempotency_key");
-CREATE UNIQUE INDEX IF NOT EXISTS "food_service_orders_display_number_unique" ON "food_service_orders"("display_number");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_orders_location_display_number_unique" ON "food_service_orders"("location_id", "display_number");
 CREATE INDEX IF NOT EXISTS "food_service_orders_location_status_idx" ON "food_service_orders"("location_id", "status", "created_at");
+CREATE INDEX IF NOT EXISTS "food_service_orders_location_customer_phone_idx" ON "food_service_orders"("location_id", "customer_phone");
 CREATE INDEX IF NOT EXISTS "food_service_orders_company_created_idx" ON "food_service_orders"("company_id", "created_at");--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "food_service_order_items" (
@@ -322,9 +372,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "food_service_suppliers_company_cnpj_unique" O
 
 CREATE TABLE IF NOT EXISTS "food_service_purchase_orders" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "display_number" bigserial NOT NULL,
+  "display_number" integer NOT NULL,
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "supplier_id" uuid NOT NULL REFERENCES "food_service_suppliers"("id"),
   "status" varchar NOT NULL DEFAULT 'draft',
   "expected_on" date,
@@ -338,9 +388,10 @@ CREATE TABLE IF NOT EXISTS "food_service_purchase_orders" (
   "cancelled_at" timestamp,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_purchase_orders_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_purchase_orders_status_check" CHECK ("status" IN ('draft','placed','partially_received','received','closed','cancelled'))
 );--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "food_service_purchase_orders_display_number_unique" ON "food_service_purchase_orders"("display_number");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_purchase_orders_location_display_number_unique" ON "food_service_purchase_orders"("location_id", "display_number");
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_purchase_orders_location_idempotency_unique" ON "food_service_purchase_orders"("location_id", "idempotency_key");
 CREATE INDEX IF NOT EXISTS "food_service_purchase_orders_location_status_idx" ON "food_service_purchase_orders"("location_id", "status", "created_at");--> statement-breakpoint
 
@@ -365,7 +416,7 @@ CREATE TABLE IF NOT EXISTS "food_service_goods_receipts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "purchase_order_id" uuid NOT NULL REFERENCES "food_service_purchase_orders"("id"),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "supplier_id" uuid NOT NULL REFERENCES "food_service_suppliers"("id"),
   "status" varchar NOT NULL DEFAULT 'posted',
   "document_number" varchar(120),
@@ -375,6 +426,7 @@ CREATE TABLE IF NOT EXISTS "food_service_goods_receipts" (
   "notes" text,
   "posted_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
   "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_goods_receipts_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_goods_receipts_status_check" CHECK ("status" IN ('posted','cancelled'))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_goods_receipts_order_idempotency_unique" ON "food_service_goods_receipts"("purchase_order_id", "idempotency_key");
@@ -410,8 +462,8 @@ CREATE INDEX IF NOT EXISTS "food_service_stock_positions_ingredient_id_idx" ON "
 CREATE TABLE IF NOT EXISTS "food_service_stock_movements" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
-  "ingredient_id" uuid NOT NULL REFERENCES "food_service_ingredients"("id"),
+  "location_id" uuid NOT NULL,
+  "ingredient_id" uuid NOT NULL,
   "order_id" uuid REFERENCES "food_service_orders"("id"),
   "kind" varchar NOT NULL,
   "physical_delta_micros" numeric(24,0) NOT NULL DEFAULT 0,
@@ -428,6 +480,8 @@ CREATE TABLE IF NOT EXISTS "food_service_stock_movements" (
   "actor_user_id" uuid REFERENCES "users"("id"),
   "idempotency_key" varchar(160) NOT NULL,
   "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_stock_movements_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
+  CONSTRAINT "food_service_stock_movements_ingredient_company_fk" FOREIGN KEY ("ingredient_id", "company_id") REFERENCES "food_service_ingredients"("id", "company_id"),
   CONSTRAINT "food_service_stock_movements_kind_check" CHECK ("kind" IN ('entry','reserve','release','consume','loss','correction')),
   CONSTRAINT "food_service_stock_movements_source_check" CHECK ("source" IN ('web','whatsapp','operator','integration','system')),
   CONSTRAINT "food_service_stock_movements_cost_check" CHECK (("unit_cost_microcentavos" IS NULL OR "unit_cost_microcentavos" >= 0) AND ("total_cost_centavos" IS NULL OR "total_cost_centavos" >= 0)),
@@ -464,8 +518,8 @@ CREATE INDEX IF NOT EXISTS "food_service_goods_receipt_lines_receipt_id_idx" ON 
 CREATE TABLE IF NOT EXISTS "food_service_stock_lots" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
-  "ingredient_id" uuid NOT NULL REFERENCES "food_service_ingredients"("id"),
+  "location_id" uuid NOT NULL,
+  "ingredient_id" uuid NOT NULL,
   "source_movement_id" uuid NOT NULL REFERENCES "food_service_stock_movements"("id"),
   "lot_code" varchar(120),
   "expires_on" date,
@@ -477,6 +531,8 @@ CREATE TABLE IF NOT EXISTS "food_service_stock_lots" (
   "status" varchar NOT NULL DEFAULT 'active',
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_stock_lots_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
+  CONSTRAINT "food_service_stock_lots_ingredient_company_fk" FOREIGN KEY ("ingredient_id", "company_id") REFERENCES "food_service_ingredients"("id", "company_id"),
   CONSTRAINT "food_service_stock_lots_quantities_check" CHECK ("physical_quantity_micros" >= 0 AND "reserved_quantity_micros" >= 0 AND "reserved_quantity_micros" <= "physical_quantity_micros"),
   CONSTRAINT "food_service_stock_lots_cost_check" CHECK (("cost_status" = 'known' AND "unit_cost_microcentavos" IS NOT NULL AND "unit_cost_microcentavos" >= 0) OR ("cost_status" = 'missing' AND "unit_cost_microcentavos" IS NULL)),
   CONSTRAINT "food_service_stock_lots_status_check" CHECK (("status" = 'depleted' AND "physical_quantity_micros" = 0 AND "reserved_quantity_micros" = 0) OR ("status" IN ('active','quarantined') AND "physical_quantity_micros" > 0))
@@ -539,7 +595,7 @@ CREATE INDEX IF NOT EXISTS "food_service_order_stock_allocations_lot_status_idx"
 CREATE TABLE IF NOT EXISTS "food_service_inventory_counts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "status" varchar NOT NULL DEFAULT 'completed',
   "idempotency_key" varchar(160) NOT NULL,
   "input_fingerprint" text NOT NULL,
@@ -547,6 +603,7 @@ CREATE TABLE IF NOT EXISTS "food_service_inventory_counts" (
   "counted_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
   "counted_at" timestamp NOT NULL DEFAULT now(),
   "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_inventory_counts_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_inventory_counts_status_check" CHECK ("status" IN ('completed', 'cancelled'))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_inventory_counts_location_idempotency_unique" ON "food_service_inventory_counts"("location_id", "idempotency_key");
@@ -1246,7 +1303,7 @@ FOR EACH ROW EXECUTE FUNCTION validate_food_service_inventory_count_line_scope()
 CREATE TABLE IF NOT EXISTS "food_service_operational_checklists" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "name" varchar(160) NOT NULL,
   "schedule" jsonb NOT NULL DEFAULT '{"frequency":"daily"}'::jsonb,
   "due_time" varchar(5),
@@ -1255,6 +1312,7 @@ CREATE TABLE IF NOT EXISTS "food_service_operational_checklists" (
   "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_operational_checklists_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_operational_checklists_due_time_check" CHECK ("due_time" IS NULL OR "due_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_operational_checklists_location_active_idx" ON "food_service_operational_checklists"("location_id", "active");--> statement-breakpoint
@@ -1274,7 +1332,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "food_service_operational_checklist_items_posi
 CREATE TABLE IF NOT EXISTS "food_service_operational_checklist_runs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "checklist_id" uuid NOT NULL REFERENCES "food_service_operational_checklists"("id"),
   "operational_date" date NOT NULL,
   "status" varchar NOT NULL DEFAULT 'in_progress',
@@ -1285,6 +1343,7 @@ CREATE TABLE IF NOT EXISTS "food_service_operational_checklist_runs" (
   "started_at" timestamp NOT NULL DEFAULT now(),
   "completed_at" timestamp,
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_operational_checklist_runs_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_operational_checklist_runs_lifecycle_check" CHECK (("status" = 'in_progress' AND "completed_at" IS NULL AND "completed_by_user_id" IS NULL) OR ("status" IN ('completed', 'partial') AND "completed_at" IS NOT NULL AND "completed_by_user_id" IS NOT NULL)),
   CONSTRAINT "food_service_operational_checklist_runs_revision_check" CHECK ("revision" >= 0)
 );--> statement-breakpoint
@@ -1363,12 +1422,13 @@ FOR EACH ROW EXECUTE FUNCTION validate_food_service_operational_checklist_run_it
 CREATE TABLE IF NOT EXISTS "food_service_ingredient_groups" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "name" varchar(160) NOT NULL,
   "position" integer NOT NULL DEFAULT 0,
   "active" boolean NOT NULL DEFAULT true,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_ingredient_groups_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_ingredient_groups_position_check" CHECK ("position" >= 0)
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_ingredient_groups_location_position_idx" ON "food_service_ingredient_groups"("location_id", "position");--> statement-breakpoint
@@ -1385,7 +1445,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "food_service_ingredient_group_items_position_
 CREATE TABLE IF NOT EXISTS "food_service_inventory_count_models" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "name" varchar(160) NOT NULL,
   "schedule" jsonb NOT NULL DEFAULT '{"frequency":"daily"}'::jsonb,
   "due_time" varchar(5),
@@ -1394,6 +1454,7 @@ CREATE TABLE IF NOT EXISTS "food_service_inventory_count_models" (
   "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_inventory_count_models_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_inventory_count_models_due_time_check" CHECK ("due_time" IS NULL OR "due_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')
 );--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "food_service_inventory_count_models_location_active_idx" ON "food_service_inventory_count_models"("location_id", "active");--> statement-breakpoint
@@ -1411,7 +1472,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "food_service_inventory_count_model_groups_pos
 CREATE TABLE IF NOT EXISTS "food_service_inventory_count_drafts" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "model_id" uuid NOT NULL REFERENCES "food_service_inventory_count_models"("id"),
   "operational_date" date NOT NULL,
   "status" varchar NOT NULL DEFAULT 'in_progress',
@@ -1422,6 +1483,7 @@ CREATE TABLE IF NOT EXISTS "food_service_inventory_count_drafts" (
   "started_at" timestamp NOT NULL DEFAULT now(),
   "submitted_at" timestamp,
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_inventory_count_drafts_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_inventory_count_drafts_lifecycle_check" CHECK (("status" = 'in_progress' AND "final_count_id" IS NULL AND "submitted_at" IS NULL AND "submitted_by_user_id" IS NULL) OR ("status" = 'submitted' AND "final_count_id" IS NOT NULL AND "submitted_at" IS NOT NULL AND "submitted_by_user_id" IS NOT NULL) OR ("status" = 'cancelled' AND "final_count_id" IS NULL))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_inventory_count_drafts_model_date_unique" ON "food_service_inventory_count_drafts"("model_id", "operational_date");--> statement-breakpoint
@@ -1568,7 +1630,7 @@ FOR EACH ROW EXECUTE FUNCTION validate_food_service_count_draft_line_scope();
 CREATE TABLE IF NOT EXISTS "food_service_purchase_templates" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "supplier_id" uuid NOT NULL REFERENCES "food_service_suppliers"("id"),
   "name" varchar(160) NOT NULL,
   "schedule" jsonb NOT NULL DEFAULT '{"frequency":"weekly","weekdays":[1]}'::jsonb,
@@ -1580,6 +1642,7 @@ CREATE TABLE IF NOT EXISTS "food_service_purchase_templates" (
   "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_purchase_templates_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_purchase_templates_due_time_check" CHECK ("due_time" IS NULL OR "due_time" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
   CONSTRAINT "food_service_purchase_templates_lead_days_check" CHECK ("expected_lead_days" BETWEEN 0 AND 90)
 );--> statement-breakpoint
@@ -1607,7 +1670,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "food_service_purchase_template_lines_template
 CREATE TABLE IF NOT EXISTS "food_service_purchase_template_runs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id"),
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id"),
+  "location_id" uuid NOT NULL,
   "template_id" uuid NOT NULL REFERENCES "food_service_purchase_templates"("id"),
   "operational_date" date NOT NULL,
   "status" varchar NOT NULL DEFAULT 'pending',
@@ -1617,6 +1680,7 @@ CREATE TABLE IF NOT EXISTS "food_service_purchase_template_runs" (
   "resolved_at" timestamp,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_purchase_template_runs_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id"),
   CONSTRAINT "food_service_purchase_template_runs_lifecycle_check" CHECK (("status" = 'pending' AND "purchase_order_id" IS NULL AND "resolution_reason" IS NULL AND "resolved_by_user_id" IS NULL AND "resolved_at" IS NULL) OR ("status" = 'generating' AND "purchase_order_id" IS NULL AND "resolution_reason" IS NULL AND "resolved_by_user_id" IS NOT NULL AND "resolved_at" IS NULL) OR ("status" = 'generated' AND "purchase_order_id" IS NOT NULL AND "resolution_reason" IS NULL AND "resolved_by_user_id" IS NOT NULL AND "resolved_at" IS NOT NULL) OR ("status" = 'skipped' AND "purchase_order_id" IS NULL AND "resolution_reason" IS NOT NULL AND "resolved_by_user_id" IS NOT NULL AND "resolved_at" IS NOT NULL))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_purchase_template_runs_template_date_unique" ON "food_service_purchase_template_runs"("template_id", "operational_date");--> statement-breakpoint

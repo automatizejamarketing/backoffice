@@ -1,7 +1,7 @@
 -- Company-scoped product entitlements are the access authority.
 -- Stripe subscriptions remain billing records and never grant access by query alone.
-
-ALTER TABLE "company_locations" ADD CONSTRAINT "company_locations_id_company_unique" UNIQUE ("id", "company_id");--> statement-breakpoint
+-- A unique composta company_locations_id_company_unique é criada em
+-- 0059_food_service_foundation e é pré-requisito das FKs compostas abaixo.
 
 CREATE TABLE IF NOT EXISTS "company_product_entitlements" (
   "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,

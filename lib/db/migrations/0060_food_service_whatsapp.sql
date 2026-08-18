@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS "food_service_whatsapp_connections" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
-  "location_id" uuid NOT NULL REFERENCES "company_locations"("id") ON DELETE CASCADE,
+  "location_id" uuid NOT NULL,
   "phone_number_id" varchar(64) NOT NULL,
   "waba_id" varchar(64) NOT NULL,
   "display_phone_e164" varchar(24) NOT NULL,
@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS "food_service_whatsapp_connections" (
   "connected_at" timestamp,
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_whatsapp_connections_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id") ON DELETE CASCADE,
   CONSTRAINT "food_service_whatsapp_connections_status_check" CHECK ("status" IN ('pending', 'connected', 'disconnected'))
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "food_service_whatsapp_connections_phone_number_unique" ON "food_service_whatsapp_connections"("phone_number_id");

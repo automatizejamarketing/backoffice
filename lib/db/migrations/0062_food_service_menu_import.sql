@@ -1,4 +1,5 @@
-ALTER TABLE "food_service_menus" ADD CONSTRAINT "food_service_menus_id_company_unique" UNIQUE ("id", "company_id");--> statement-breakpoint
+-- A unique composta food_service_menus_id_company_unique é criada em
+-- 0059_food_service_foundation e é pré-requisito das FKs compostas abaixo.
 
 CREATE TABLE IF NOT EXISTS "food_service_menu_import_jobs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
