@@ -299,15 +299,50 @@
     {
       "idx": 42,
       "version": "7",
-      "when": 1793900000000,
-      "tag": "0048_vindi_expand",
+      "when": 1793700000000,
+      "tag": "0057_food_service_foundation",
       "breakpoints": true
     },
     {
       "idx": 43,
       "version": "7",
+      "when": 1793800000000,
+      "tag": "0058_food_service_whatsapp",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0048_vindi_expand",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1793900000000,
+      "tag": "0059_company_products_and_rbac",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0060_food_service_menu_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
       "when": 1794100000000,
       "tag": "0049_vindi_dunning",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794100000000,
+      "tag": "0061_food_service_ifood_connection",
       "breakpoints": true
     }
   ]

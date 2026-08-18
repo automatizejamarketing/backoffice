@@ -21,6 +21,15 @@ import {
 import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
 import type { BackofficeRole } from "@/lib/auth/rbac-core";
+import {
+  COMPANY_CAPABILITIES,
+  COMPANY_OFFER_CODES,
+  COMPANY_PRODUCT_CODES,
+  type CompanyCapability,
+  type CompanyOfferCode,
+  type CompanyProductCode,
+} from "@/lib/company-access/catalog";
+
 
 export const user = pgTable(
   "users",
@@ -4520,3 +4529,2874 @@ export const metaTrackingCreative = pgTable(
 export type MetaTrackingCreative = InferSelectModel<typeof metaTrackingCreative>;
 
 // ===== END meta_tracking_* =====
+function sqlStringList(values: readonly string[]) {
+  return sql.join(
+    values.map((value) => sql.raw(`'${value.replaceAll("'", "''")}'`)),
+    sql.raw(", "),
+  );
+}
+
+const COMPANY_ENTITLEMENT_STATUSES = ["active", "expired", "revoked"] as const;
+const COMPANY_ENTITLEMENT_SOURCES = [
+  "legacy_subscription",
+  "stripe",
+  "manual",
+] as const;
+const COMPANY_ENTITLEMENT_EVENT_TYPES = [
+  "activated",
+  "renewed",
+  "expired",
+  "revoked",
+  "corrected",
+] as const;
+const COMPANY_MODULE_SUBSCRIPTION_STATUSES = [
+  "incomplete",
+  "trialing",
+  "active",
+  "past_due",
+  "canceled",
+  "unpaid",
+] as const;
+const COMPANY_INVITATION_STATUSES = [
+  "pending",
+  "accepted",
+  "revoked",
+  "expired",
+] as const;
+const COMPANY_INVITATION_ROLES = ["admin", "member"] as const;
+
+export type CompanyEntitlementStatus =
+  (typeof COMPANY_ENTITLEMENT_STATUSES)[number];
+export type CompanyEntitlementSource =
+  (typeof COMPANY_ENTITLEMENT_SOURCES)[number];
+export type CompanyModuleSubscriptionStatus =
+  (typeof COMPANY_MODULE_SUBSCRIPTION_STATUSES)[number];
+export type CompanyInvitationStatus =
+  (typeof COMPANY_INVITATION_STATUSES)[number];
+
+export const companyProductEntitlement = pgTable(
+  "company_product_entitlements",
+  {
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    productCode: varchar("product_code", { enum: [...COMPANY_PRODUCT_CODES] })
+      .$type<CompanyProductCode>()
+      .notNull(),
+    status: varchar("status", { enum: [...COMPANY_ENTITLEMENT_STATUSES] })
+      .$type<CompanyEntitlementStatus>()
+      .notNull(),
+    source: varchar("source", { enum: [...COMPANY_ENTITLEMENT_SOURCES] })
+      .$type<CompanyEntitlementSource>()
+      .notNull(),
+    validFrom: timestamp("valid_from").notNull().defaultNow(),
+    validUntil: timestamp("valid_until"),
+    sourceReference: varchar("source_reference", { length: 255 }),
+    grantedByUserId: uuid("granted_by_user_id").references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.companyId, table.productCode] }),
+    companyStatusIdx: index(
+      "company_product_entitlements_company_status_idx",
+    ).on(table.companyId, table.status),
+    statusCheck: check(
+      "company_product_entitlements_status_check",
+      sql`${table.status} IN (${sqlStringList(COMPANY_ENTITLEMENT_STATUSES)})`,
+    ),
+    sourceCheck: check(
+      "company_product_entitlements_source_check",
+      sql`${table.source} IN (${sqlStringList(COMPANY_ENTITLEMENT_SOURCES)})`,
+    ),
+    productCodeCheck: check(
+      "company_product_entitlements_product_code_check",
+      sql`${table.productCode} IN (${sqlStringList(COMPANY_PRODUCT_CODES)})`,
+    ),
+    validUntilCheck: check(
+      "company_product_entitlements_valid_until_check",
+      sql`${table.source} = 'manual' OR ${table.validUntil} IS NOT NULL`,
+    ),
+    validPeriodCheck: check(
+      "company_product_entitlements_valid_period_check",
+      sql`(${table.status} = 'active' AND (${table.validUntil} IS NULL OR ${table.validUntil} > ${table.validFrom})) OR (${table.status} IN ('expired', 'revoked') AND ${table.validUntil} IS NOT NULL AND ${table.validUntil} >= ${table.validFrom})`,
+    ),
+    lifecycleCheck: check(
+      "company_product_entitlements_lifecycle_check",
+      sql`${table.status} = 'active' OR ${table.validUntil} IS NOT NULL`,
+    ),
+  }),
+);
+
+export type CompanyProductEntitlement = InferSelectModel<
+  typeof companyProductEntitlement
+>;
+
+export const companyProductEntitlementEvent = pgTable(
+  "company_product_entitlement_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    productCode: varchar("product_code", { enum: [...COMPANY_PRODUCT_CODES] })
+      .$type<CompanyProductCode>()
+      .notNull(),
+    eventType: varchar("event_type", {
+      enum: [...COMPANY_ENTITLEMENT_EVENT_TYPES],
+    }).notNull(),
+    status: varchar("status", { enum: [...COMPANY_ENTITLEMENT_STATUSES] })
+      .$type<CompanyEntitlementStatus>()
+      .notNull(),
+    source: varchar("source", { enum: [...COMPANY_ENTITLEMENT_SOURCES] })
+      .$type<CompanyEntitlementSource>()
+      .notNull(),
+    validFrom: timestamp("valid_from").notNull(),
+    validUntil: timestamp("valid_until"),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    actorUserId: uuid("actor_user_id").references(() => user.id),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    entitlementFk: foreignKey({
+      columns: [table.companyId, table.productCode],
+      foreignColumns: [
+        companyProductEntitlement.companyId,
+        companyProductEntitlement.productCode,
+      ],
+      name: "company_product_entitlement_events_entitlement_fk",
+    }),
+    idempotencyUnique: uniqueIndex(
+      "company_product_entitlement_events_idempotency_unique",
+    ).on(table.idempotencyKey),
+    entitlementOccurredIdx: index(
+      "company_product_entitlement_events_entitlement_occurred_idx",
+    ).on(table.companyId, table.productCode, table.occurredAt),
+    eventTypeCheck: check(
+      "company_product_entitlement_events_event_type_check",
+      sql`${table.eventType} IN (${sqlStringList(COMPANY_ENTITLEMENT_EVENT_TYPES)})`,
+    ),
+    statusCheck: check(
+      "company_product_entitlement_events_status_check",
+      sql`${table.status} IN (${sqlStringList(COMPANY_ENTITLEMENT_STATUSES)})`,
+    ),
+    sourceCheck: check(
+      "company_product_entitlement_events_source_check",
+      sql`${table.source} IN (${sqlStringList(COMPANY_ENTITLEMENT_SOURCES)})`,
+    ),
+    productCodeCheck: check(
+      "company_product_entitlement_events_product_code_check",
+      sql`${table.productCode} IN (${sqlStringList(COMPANY_PRODUCT_CODES)})`,
+    ),
+    validUntilCheck: check(
+      "company_product_entitlement_events_valid_until_check",
+      sql`${table.source} = 'manual' OR ${table.validUntil} IS NOT NULL`,
+    ),
+    validPeriodCheck: check(
+      "company_product_entitlement_events_valid_period_check",
+      sql`(${table.status} = 'active' AND (${table.validUntil} IS NULL OR ${table.validUntil} > ${table.validFrom})) OR (${table.status} IN ('expired', 'revoked') AND ${table.validUntil} IS NOT NULL AND ${table.validUntil} >= ${table.validFrom})`,
+    ),
+    lifecycleCheck: check(
+      "company_product_entitlement_events_lifecycle_check",
+      sql`${table.status} = 'active' OR ${table.validUntil} IS NOT NULL`,
+    ),
+  }),
+);
+
+export type CompanyProductEntitlementEvent = InferSelectModel<
+  typeof companyProductEntitlementEvent
+>;
+
+export const companyModuleSubscription = pgTable(
+  "company_module_subscriptions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    billingUserId: uuid("billing_user_id")
+      .notNull()
+      .references(() => user.id),
+    offerCode: varchar("offer_code", { enum: [...COMPANY_OFFER_CODES] })
+      .$type<CompanyOfferCode>()
+      .notNull(),
+    status: varchar("status", {
+      enum: [...COMPANY_MODULE_SUBSCRIPTION_STATUSES],
+    })
+      .$type<CompanyModuleSubscriptionStatus>()
+      .notNull(),
+    stripeCustomerId: varchar("stripe_customer_id", { length: 255 }).notNull(),
+    stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+    stripePriceId: varchar("stripe_price_id", { length: 255 }).notNull(),
+    currentPeriodStart: timestamp("current_period_start"),
+    currentPeriodEnd: timestamp("current_period_end"),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    canceledAt: timestamp("canceled_at"),
+    lastProviderEventAt: timestamp("last_provider_event_at"),
+    lastProviderEventId: varchar("last_provider_event_id", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    stripeSubscriptionUnique: uniqueIndex(
+      "company_module_subscriptions_stripe_subscription_unique",
+    )
+      .on(table.stripeSubscriptionId)
+      .where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
+    companyIdx: index("company_module_subscriptions_company_idx").on(
+      table.companyId,
+    ),
+    statusCheck: check(
+      "company_module_subscriptions_status_check",
+      sql`${table.status} IN (${sqlStringList(COMPANY_MODULE_SUBSCRIPTION_STATUSES)})`,
+    ),
+    offerCodeCheck: check(
+      "company_module_subscriptions_offer_code_check",
+      sql`${table.offerCode} IN (${sqlStringList(COMPANY_OFFER_CODES)})`,
+    ),
+  }),
+);
+
+export type CompanyModuleSubscription = InferSelectModel<
+  typeof companyModuleSubscription
+>;
+
+export const companyMemberAccessGrant = pgTable(
+  "company_member_access_grants",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    capability: varchar("capability", { enum: [...COMPANY_CAPABILITIES] })
+      .$type<CompanyCapability>()
+      .notNull(),
+    locationId: uuid("location_id"),
+    grantedByUserId: uuid("granted_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    membershipFk: foreignKey({
+      columns: [table.userId, table.companyId],
+      foreignColumns: [userCompany.userId, userCompany.companyId],
+      name: "company_member_access_grants_membership_fk",
+    }).onDelete("cascade"),
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "company_member_access_grants_location_company_fk",
+    }).onDelete("cascade"),
+    scopeUnique: uniqueIndex("company_member_access_grants_scope_unique").on(
+      table.companyId,
+      table.userId,
+      table.capability,
+      sql`COALESCE(${table.locationId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+    ),
+    memberIdx: index("company_member_access_grants_member_idx").on(
+      table.companyId,
+      table.userId,
+    ),
+    capabilityCheck: check(
+      "company_member_access_grants_capability_check",
+      sql`${table.capability} IN (${sqlStringList(COMPANY_CAPABILITIES)})`,
+    ),
+  }),
+);
+
+export type CompanyMemberAccessGrant = InferSelectModel<
+  typeof companyMemberAccessGrant
+>;
+
+export const companyInvitation = pgTable(
+  "company_invitations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    companyRole: varchar("company_role", { enum: [...COMPANY_INVITATION_ROLES] })
+      .notNull()
+      .default("member"),
+    tokenHash: text("token_hash").notNull(),
+    status: varchar("status", { enum: [...COMPANY_INVITATION_STATUSES] })
+      .$type<CompanyInvitationStatus>()
+      .notNull()
+      .default("pending"),
+    invitedByUserId: uuid("invited_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    acceptedByUserId: uuid("accepted_by_user_id").references(() => user.id),
+    expiresAt: timestamp("expires_at").notNull(),
+    acceptedAt: timestamp("accepted_at"),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    idCompanyUnique: unique("company_invitations_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    tokenHashUnique: unique("company_invitations_token_hash_unique").on(
+      table.tokenHash,
+    ),
+    companyStatusIdx: index("company_invitations_company_status_idx").on(
+      table.companyId,
+      table.status,
+    ),
+    expiresAtIdx: index("company_invitations_expires_at_idx").on(
+      table.expiresAt,
+    ),
+    statusCheck: check(
+      "company_invitations_status_check",
+      sql`${table.status} IN (${sqlStringList(COMPANY_INVITATION_STATUSES)})`,
+    ),
+    companyRoleCheck: check(
+      "company_invitations_company_role_check",
+      sql`${table.companyRole} IN (${sqlStringList(COMPANY_INVITATION_ROLES)})`,
+    ),
+    expiryCheck: check(
+      "company_invitations_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    lifecycleCheck: check(
+      "company_invitations_lifecycle_check",
+      sql`(${table.status} = 'pending' AND ${table.acceptedByUserId} IS NULL AND ${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL) OR (${table.status} = 'accepted' AND ${table.acceptedByUserId} IS NOT NULL AND ${table.acceptedAt} IS NOT NULL AND ${table.acceptedAt} >= ${table.createdAt} AND ${table.acceptedAt} <= ${table.expiresAt} AND ${table.revokedAt} IS NULL) OR (${table.status} = 'revoked' AND ${table.acceptedByUserId} IS NULL AND ${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NOT NULL AND ${table.revokedAt} >= ${table.createdAt}) OR (${table.status} = 'expired' AND ${table.acceptedByUserId} IS NULL AND ${table.acceptedAt} IS NULL AND ${table.revokedAt} IS NULL)`,
+    ),
+  }),
+);
+
+export type CompanyInvitation = InferSelectModel<typeof companyInvitation>;
+
+export const companyInvitationGrant = pgTable(
+  "company_invitation_grants",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    invitationId: uuid("invitation_id").notNull(),
+    companyId: uuid("company_id").notNull(),
+    capability: varchar("capability", { enum: [...COMPANY_CAPABILITIES] })
+      .$type<CompanyCapability>()
+      .notNull(),
+    locationId: uuid("location_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    invitationCompanyFk: foreignKey({
+      columns: [table.invitationId, table.companyId],
+      foreignColumns: [companyInvitation.id, companyInvitation.companyId],
+      name: "company_invitation_grants_invitation_company_fk",
+    }).onDelete("cascade"),
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "company_invitation_grants_location_company_fk",
+    }).onDelete("cascade"),
+    scopeUnique: uniqueIndex("company_invitation_grants_scope_unique").on(
+      table.invitationId,
+      table.capability,
+      sql`COALESCE(${table.locationId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
+    ),
+    capabilityCheck: check(
+      "company_invitation_grants_capability_check",
+      sql`${table.capability} IN (${sqlStringList(COMPANY_CAPABILITIES)})`,
+    ),
+  }),
+);
+
+export type CompanyInvitationGrant = InferSelectModel<
+  typeof companyInvitationGrant
+>;
+
+// ===== END company_access_* =====
+
+// ===== BEGIN food_service_* — bloco espelhado byte a byte no projeto irmão =====
+
+export const foodServiceSettings = pgTable(
+  "food_service_settings",
+  {
+    locationId: uuid("location_id")
+      .primaryKey()
+      .notNull()
+      .references(() => companyLocation.id, { onDelete: "cascade" }),
+    acceptanceMode: varchar("acceptance_mode", {
+      enum: ["automatic", "manual"],
+    })
+      .notNull()
+      .default("automatic"),
+    allowNegativeStock: boolean("allow_negative_stock").notNull().default(false),
+    paymentReservationMinutes: integer("payment_reservation_minutes")
+      .notNull()
+      .default(15),
+    defaultPreparationMinutes: integer("default_preparation_minutes")
+      .notNull()
+      .default(30),
+    pickupEnabled: boolean("pickup_enabled").notNull().default(true),
+    deliveryEnabled: boolean("delivery_enabled").notNull().default(false),
+    counterEnabled: boolean("counter_enabled").notNull().default(false),
+    tableEnabled: boolean("table_enabled").notNull().default(false),
+    minimumOrderCentavos: integer("minimum_order_centavos")
+      .notNull()
+      .default(0),
+    deliveryFeeCentavos: integer("delivery_fee_centavos")
+      .notNull()
+      .default(0),
+    deliveryAreas: jsonb("delivery_areas")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    reservationMinutesCheck: check(
+      "food_service_settings_reservation_minutes_check",
+      sql`${table.paymentReservationMinutes} BETWEEN 1 AND 1440`,
+    ),
+    preparationMinutesCheck: check(
+      "food_service_settings_preparation_minutes_check",
+      sql`${table.defaultPreparationMinutes} BETWEEN 1 AND 1440`,
+    ),
+    commercialAmountsCheck: check(
+      "food_service_settings_commercial_amounts_check",
+      sql`${table.minimumOrderCentavos} >= 0 AND ${table.deliveryFeeCentavos} >= 0`,
+    ),
+    lotTrackingCheck: check(
+      "food_service_settings_lot_tracking_check",
+      sql`${table.allowNegativeStock} = false`,
+    ),
+  }),
+);
+
+export type FoodServiceSettings = InferSelectModel<typeof foodServiceSettings>;
+
+export const foodServiceMenu = pgTable(
+  "food_service_menus",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    slug: varchar("slug", { length: 120 }).notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    description: text("description"),
+    logoUrl: text("logo_url"),
+    brandColor: varchar("brand_color", { length: 16 }),
+    active: boolean("active").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    idCompanyUnique: unique("food_service_menus_id_company_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    slugUnique: uniqueIndex("food_service_menus_slug_unique").on(table.slug),
+    companyIdx: index("food_service_menus_company_id_idx").on(table.companyId),
+    slugCheck: check(
+      "food_service_menus_slug_check",
+      sql`${table.slug} ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'`,
+    ),
+  }),
+);
+
+export type FoodServiceMenu = InferSelectModel<typeof foodServiceMenu>;
+
+export const foodServiceCategory = pgTable(
+  "food_service_categories",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    menuId: uuid("menu_id")
+      .notNull()
+      .references(() => foodServiceMenu.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    description: text("description"),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    menuPositionIdx: index(
+      "food_service_categories_menu_position_idx",
+    ).on(table.menuId, table.position),
+  }),
+);
+
+export type FoodServiceCategory = InferSelectModel<typeof foodServiceCategory>;
+
+export const foodServiceItem = pgTable(
+  "food_service_items",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => foodServiceCategory.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 160 }).notNull(),
+    description: text("description"),
+    imageUrl: text("image_url"),
+    basePriceCentavos: integer("base_price_centavos").notNull(),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    featured: boolean("featured").notNull().default(false),
+    preparationMinutes: integer("preparation_minutes"),
+    tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    categoryPositionIdx: index(
+      "food_service_items_category_position_idx",
+    ).on(table.categoryId, table.position),
+    priceCheck: check(
+      "food_service_items_price_check",
+      sql`${table.basePriceCentavos} >= 0`,
+    ),
+    preparationCheck: check(
+      "food_service_items_preparation_check",
+      sql`${table.preparationMinutes} IS NULL OR ${table.preparationMinutes} > 0`,
+    ),
+  }),
+);
+
+export type FoodServiceItem = InferSelectModel<typeof foodServiceItem>;
+
+export const foodServiceOptionGroup = pgTable(
+  "food_service_option_groups",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    minSelections: integer("min_selections").notNull().default(0),
+    maxSelections: integer("max_selections").notNull().default(1),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyIdx: index("food_service_option_groups_company_id_idx").on(
+      table.companyId,
+    ),
+    selectionCheck: check(
+      "food_service_option_groups_selection_check",
+      sql`${table.minSelections} >= 0 AND ${table.maxSelections} >= ${table.minSelections}`,
+    ),
+  }),
+);
+
+export type FoodServiceOptionGroup = InferSelectModel<
+  typeof foodServiceOptionGroup
+>;
+
+export const foodServiceOption = pgTable(
+  "food_service_options",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => foodServiceOptionGroup.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    description: text("description"),
+    priceDeltaCentavos: integer("price_delta_centavos").notNull().default(0),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    groupPositionIdx: index("food_service_options_group_position_idx").on(
+      table.groupId,
+      table.position,
+    ),
+  }),
+);
+
+export type FoodServiceOption = InferSelectModel<typeof foodServiceOption>;
+
+export const foodServiceItemOptionGroup = pgTable(
+  "food_service_item_option_groups",
+  {
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => foodServiceItem.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => foodServiceOptionGroup.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.itemId, table.groupId] }),
+    itemPositionIdx: index(
+      "food_service_item_option_groups_item_position_idx",
+    ).on(table.itemId, table.position),
+  }),
+);
+
+export type FoodServiceItemOptionGroup = InferSelectModel<
+  typeof foodServiceItemOptionGroup
+>;
+
+export const foodServiceUnitItemOverride = pgTable(
+  "food_service_unit_item_overrides",
+  {
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => foodServiceItem.id, { onDelete: "cascade" }),
+    priceCentavos: integer("price_centavos"),
+    active: boolean("active"),
+    manuallyAvailable: boolean("manually_available"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.locationId, table.itemId] }),
+    itemIdx: index("food_service_unit_item_overrides_item_id_idx").on(
+      table.itemId,
+    ),
+    priceCheck: check(
+      "food_service_unit_item_overrides_price_check",
+      sql`${table.priceCentavos} IS NULL OR ${table.priceCentavos} >= 0`,
+    ),
+  }),
+);
+
+export type FoodServiceUnitItemOverride = InferSelectModel<
+  typeof foodServiceUnitItemOverride
+>;
+
+export const foodServiceIngredient = pgTable(
+  "food_service_ingredients",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 160 }).notNull(),
+    baseUnit: varchar("base_unit", {
+      enum: ["g", "ml", "unit"],
+    }).notNull(),
+    sku: varchar("sku", { length: 80 }),
+    minimumQuantityMicros: numeric("minimum_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyNameUnique: uniqueIndex(
+      "food_service_ingredients_company_name_unique",
+    ).on(table.companyId, table.name),
+    companyIdx: index("food_service_ingredients_company_id_idx").on(
+      table.companyId,
+    ),
+    minimumCheck: check(
+      "food_service_ingredients_minimum_check",
+      sql`${table.minimumQuantityMicros} >= 0`,
+    ),
+  }),
+);
+
+export type FoodServiceIngredient = InferSelectModel<
+  typeof foodServiceIngredient
+>;
+
+export const foodServiceRecipeVersion = pgTable(
+  "food_service_recipe_versions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    itemId: uuid("item_id").references(() => foodServiceItem.id, {
+      onDelete: "cascade",
+    }),
+    optionId: uuid("option_id").references(() => foodServiceOption.id, {
+      onDelete: "cascade",
+    }),
+    version: integer("version").notNull(),
+    yieldQuantityMicros: numeric("yield_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("1000000"),
+    active: boolean("active").notNull().default(true),
+    validFrom: timestamp("valid_from").notNull().defaultNow(),
+    validTo: timestamp("valid_to"),
+    createdByUserId: uuid("created_by_user_id").references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    itemIdx: index("food_service_recipe_versions_item_id_idx").on(table.itemId),
+    optionIdx: index("food_service_recipe_versions_option_id_idx").on(
+      table.optionId,
+    ),
+    itemVersionUnique: uniqueIndex(
+      "food_service_recipe_versions_item_version_unique",
+    )
+      .on(table.itemId, table.version)
+      .where(sql`${table.itemId} IS NOT NULL`),
+    optionVersionUnique: uniqueIndex(
+      "food_service_recipe_versions_option_version_unique",
+    )
+      .on(table.optionId, table.version)
+      .where(sql`${table.optionId} IS NOT NULL`),
+    targetCheck: check(
+      "food_service_recipe_versions_target_check",
+      sql`(${table.itemId} IS NOT NULL AND ${table.optionId} IS NULL) OR (${table.itemId} IS NULL AND ${table.optionId} IS NOT NULL)`,
+    ),
+    versionCheck: check(
+      "food_service_recipe_versions_version_check",
+      sql`${table.version} > 0 AND ${table.yieldQuantityMicros} > 0`,
+    ),
+  }),
+);
+
+export type FoodServiceRecipeVersion = InferSelectModel<
+  typeof foodServiceRecipeVersion
+>;
+
+export const foodServiceRecipeComponent = pgTable(
+  "food_service_recipe_components",
+  {
+    recipeVersionId: uuid("recipe_version_id")
+      .notNull()
+      .references(() => foodServiceRecipeVersion.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    quantityMicros: numeric("quantity_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.recipeVersionId, table.ingredientId],
+    }),
+    ingredientIdx: index(
+      "food_service_recipe_components_ingredient_id_idx",
+    ).on(table.ingredientId),
+    quantityCheck: check(
+      "food_service_recipe_components_quantity_check",
+      sql`${table.quantityMicros} > 0`,
+    ),
+  }),
+);
+
+export type FoodServiceRecipeComponent = InferSelectModel<
+  typeof foodServiceRecipeComponent
+>;
+
+export const foodServiceCart = pgTable(
+  "food_service_carts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    channel: varchar("channel", {
+      enum: ["web", "whatsapp", "operator", "integration"],
+    }).notNull(),
+    fulfillmentType: varchar("fulfillment_type", {
+      enum: ["delivery", "pickup", "counter", "table"],
+    }).notNull(),
+    status: varchar("status", {
+      enum: ["active", "converted", "abandoned", "expired"],
+    })
+      .notNull()
+      .default("active"),
+    customerTokenHash: text("customer_token_hash"),
+    revision: integer("revision").notNull().default(0),
+    scheduledFor: timestamp("scheduled_for"),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationStatusIdx: index(
+      "food_service_carts_location_status_idx",
+    ).on(table.locationId, table.status, table.updatedAt),
+    customerTokenUnique: uniqueIndex(
+      "food_service_carts_location_customer_token_unique",
+    ).on(table.locationId, table.customerTokenHash),
+    revisionCheck: check(
+      "food_service_carts_revision_check",
+      sql`${table.revision} >= 0`,
+    ),
+  }),
+);
+
+export type FoodServiceCart = InferSelectModel<typeof foodServiceCart>;
+
+export type FoodServiceSelectedOptionSnapshot = {
+  optionId: string;
+  name: string;
+  quantity: number;
+  unitPriceCentavos: number;
+};
+
+export const foodServiceCartItem = pgTable(
+  "food_service_cart_items",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    cartId: uuid("cart_id")
+      .notNull()
+      .references(() => foodServiceCart.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => foodServiceItem.id),
+    quantity: integer("quantity").notNull(),
+    selectedOptions: jsonb("selected_options")
+      .$type<FoodServiceSelectedOptionSnapshot[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    cartIdx: index("food_service_cart_items_cart_id_idx").on(table.cartId),
+    quantityCheck: check(
+      "food_service_cart_items_quantity_check",
+      sql`${table.quantity} > 0`,
+    ),
+  }),
+);
+
+export type FoodServiceCartItem = InferSelectModel<typeof foodServiceCartItem>;
+
+export type FoodServiceOrderChannel =
+  | "web"
+  | "whatsapp"
+  | "operator"
+  | "integration";
+
+export type FoodServiceOrderStatus =
+  | "received"
+  | "accepted"
+  | "preparing"
+  | "ready"
+  | "dispatched"
+  | "completed"
+  | "rejected"
+  | "cancelled"
+  | "expired";
+
+export type FoodServicePaymentStatus =
+  | "not_required"
+  | "pending"
+  | "approved"
+  | "failed"
+  | "refunded";
+
+export type FoodServiceCostCompleteness =
+  | "complete"
+  | "missing_recipe"
+  | "missing_cost";
+
+export const foodServiceOrder = pgTable(
+  "food_service_orders",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    displayNumber: bigserial("display_number", { mode: "number" }).notNull(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    menuId: uuid("menu_id")
+      .notNull()
+      .references(() => foodServiceMenu.id),
+    cartId: uuid("cart_id").references(() => foodServiceCart.id),
+    idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+    status: varchar("status", { length: 24 })
+      .$type<FoodServiceOrderStatus>()
+      .notNull(),
+    paymentStatus: varchar("payment_status", { length: 24 })
+      .$type<FoodServicePaymentStatus>()
+      .notNull()
+      .default("not_required"),
+    fulfillmentType: varchar("fulfillment_type", {
+      enum: ["delivery", "pickup", "counter", "table"],
+    }).notNull(),
+    channel: varchar("channel", { length: 24 })
+      .$type<FoodServiceOrderChannel>()
+      .notNull(),
+    customerName: varchar("customer_name", { length: 160 }).notNull(),
+    customerPhone: varchar("customer_phone", { length: 24 }).notNull(),
+    customerEmail: varchar("customer_email", { length: 160 }),
+    fulfillmentDetails: jsonb("fulfillment_details")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    notes: text("notes"),
+    scheduledFor: timestamp("scheduled_for"),
+    reservationExpiresAt: timestamp("reservation_expires_at"),
+    subtotalCentavos: integer("subtotal_centavos").notNull(),
+    discountCentavos: integer("discount_centavos").notNull().default(0),
+    deliveryFeeCentavos: integer("delivery_fee_centavos").notNull().default(0),
+    totalCentavos: integer("total_centavos").notNull(),
+    theoreticalCmvCentavos: integer("theoretical_cmv_centavos"),
+    realizedCmvCentavos: integer("realized_cmv_centavos"),
+    costCompleteness: varchar("cost_completeness", {
+      enum: ["complete", "missing_recipe", "missing_cost"],
+    })
+      .$type<FoodServiceCostCompleteness>()
+      .notNull()
+      .default("missing_recipe"),
+    acceptedAt: timestamp("accepted_at"),
+    preparationStartedAt: timestamp("preparation_started_at"),
+    readyAt: timestamp("ready_at"),
+    dispatchedAt: timestamp("dispatched_at"),
+    completedAt: timestamp("completed_at"),
+    rejectedAt: timestamp("rejected_at"),
+    expiredAt: timestamp("expired_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationIdempotencyUnique: uniqueIndex(
+      "food_service_orders_location_idempotency_unique",
+    ).on(table.locationId, table.idempotencyKey),
+    displayNumberUnique: uniqueIndex(
+      "food_service_orders_display_number_unique",
+    ).on(table.displayNumber),
+    locationStatusIdx: index(
+      "food_service_orders_location_status_idx",
+    ).on(table.locationId, table.status, table.createdAt),
+    companyCreatedIdx: index(
+      "food_service_orders_company_created_idx",
+    ).on(table.companyId, table.createdAt),
+    amountCheck: check(
+      "food_service_orders_amount_check",
+      sql`${table.subtotalCentavos} >= 0 AND ${table.discountCentavos} >= 0 AND ${table.discountCentavos} <= ${table.subtotalCentavos} AND ${table.deliveryFeeCentavos} >= 0 AND ${table.totalCentavos} = ${table.subtotalCentavos} - ${table.discountCentavos} + ${table.deliveryFeeCentavos}`,
+    ),
+    costCompletenessCheck: check(
+      "food_service_orders_cost_completeness_check",
+      sql`${table.costCompleteness} IN ('complete', 'missing_recipe', 'missing_cost')`,
+    ),
+  }),
+);
+
+export type FoodServiceOrder = InferSelectModel<typeof foodServiceOrder>;
+
+export type FoodServiceRecipeSnapshotComponent = {
+  ingredientId: string;
+  ingredientName: string;
+  quantityMicros: string;
+  unitCostMicrocentavos: string;
+};
+
+export const foodServiceOrderItem = pgTable(
+  "food_service_order_items",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => foodServiceOrder.id),
+    itemId: uuid("item_id").references(() => foodServiceItem.id, {
+      onDelete: "set null",
+    }),
+    itemNameSnapshot: varchar("item_name_snapshot", { length: 160 }).notNull(),
+    categoryNameSnapshot: varchar("category_name_snapshot", { length: 120 }).notNull(),
+    unitPriceCentavos: integer("unit_price_centavos").notNull(),
+    quantity: integer("quantity").notNull(),
+    selectedOptions: jsonb("selected_options")
+      .$type<FoodServiceSelectedOptionSnapshot[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    recipeSnapshot: jsonb("recipe_snapshot")
+      .$type<FoodServiceRecipeSnapshotComponent[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    theoreticalCmvCentavos: integer("theoretical_cmv_centavos"),
+    costCompleteness: varchar("cost_completeness", {
+      enum: ["complete", "missing_recipe", "missing_cost"],
+    })
+      .$type<FoodServiceCostCompleteness>()
+      .notNull()
+      .default("missing_recipe"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIdx: index("food_service_order_items_order_id_idx").on(table.orderId),
+    quantityAndPriceCheck: check(
+      "food_service_order_items_quantity_price_check",
+      sql`${table.quantity} > 0 AND ${table.unitPriceCentavos} >= 0`,
+    ),
+    costCompletenessCheck: check(
+      "food_service_order_items_cost_completeness_check",
+      sql`${table.costCompleteness} IN ('complete', 'missing_recipe', 'missing_cost')`,
+    ),
+  }),
+);
+
+export type FoodServiceOrderItem = InferSelectModel<
+  typeof foodServiceOrderItem
+>;
+
+export const foodServiceOrderEvent = pgTable(
+  "food_service_order_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey().notNull(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => foodServiceOrder.id),
+    type: varchar("type", { length: 48 }).notNull(),
+    fromStatus: varchar("from_status", { length: 24 }),
+    toStatus: varchar("to_status", { length: 24 }),
+    source: varchar("source", {
+      enum: ["web", "whatsapp", "operator", "integration", "system"],
+    }).notNull(),
+    actorUserId: uuid("actor_user_id").references(() => user.id),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIdx: index("food_service_order_events_order_id_idx").on(
+      table.orderId,
+      table.id,
+    ),
+  }),
+);
+
+export type FoodServiceOrderEvent = InferSelectModel<
+  typeof foodServiceOrderEvent
+>;
+
+export const foodServiceWhatsappConnection = pgTable(
+  "food_service_whatsapp_connections",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id, { onDelete: "cascade" }),
+    phoneNumberId: varchar("phone_number_id", { length: 64 }).notNull(),
+    wabaId: varchar("waba_id", { length: 64 }).notNull(),
+    displayPhoneE164: varchar("display_phone_e164", { length: 24 }).notNull(),
+    status: varchar("status", {
+      enum: ["pending", "connected", "disconnected"],
+    })
+      .notNull()
+      .default("pending"),
+    credentialReference: text("credential_reference"),
+    connectedAt: timestamp("connected_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    phoneNumberUnique: uniqueIndex(
+      "food_service_whatsapp_connections_phone_number_unique",
+    ).on(table.phoneNumberId),
+    locationUnique: uniqueIndex(
+      "food_service_whatsapp_connections_location_unique",
+    ).on(table.locationId),
+    companyIdx: index(
+      "food_service_whatsapp_connections_company_idx",
+    ).on(table.companyId),
+  }),
+);
+
+export type FoodServiceWhatsappConnection = InferSelectModel<
+  typeof foodServiceWhatsappConnection
+>;
+
+export const foodServiceWhatsappOperator = pgTable(
+  "food_service_whatsapp_operators",
+  {
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => foodServiceWhatsappConnection.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    phoneE164: varchar("phone_e164", { length: 24 }).notNull(),
+    role: varchar("role", { enum: ["owner", "admin", "member"] }).notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.connectionId, table.userId] }),
+    contactUnique: uniqueIndex(
+      "food_service_whatsapp_operators_contact_unique",
+    ).on(table.connectionId, table.phoneE164),
+  }),
+);
+
+export const foodServiceWhatsappConsumerSession = pgTable(
+  "food_service_whatsapp_consumer_sessions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => foodServiceWhatsappConnection.id, { onDelete: "cascade" }),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id, { onDelete: "cascade" }),
+    customerPhoneE164: varchar("customer_phone_e164", { length: 24 }).notNull(),
+    activeCartId: uuid("active_cart_id").references(() => foodServiceCart.id),
+    lastOrderId: uuid("last_order_id").references(() => foodServiceOrder.id),
+    lastInboundMessageId: varchar("last_inbound_message_id", { length: 255 }),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    contactUnique: uniqueIndex(
+      "food_service_whatsapp_consumer_sessions_contact_unique",
+    ).on(table.connectionId, table.customerPhoneE164),
+    expiryIdx: index(
+      "food_service_whatsapp_consumer_sessions_expiry_idx",
+    ).on(table.expiresAt),
+  }),
+);
+
+export const foodServiceWhatsappOutbox = pgTable(
+  "food_service_whatsapp_outbox",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => foodServiceWhatsappConnection.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").references(() => foodServiceOrder.id),
+    recipientPhoneE164: varchar("recipient_phone_e164", { length: 24 }).notNull(),
+    purpose: varchar("purpose", {
+      enum: [
+        "consumer_reply",
+        "order_received",
+        "order_accepted",
+        "order_status",
+      ],
+    }).notNull(),
+    body: text("body").notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 200 }).notNull(),
+    status: varchar("status", {
+      enum: ["pending", "sending", "sent", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    providerMessageId: varchar("provider_message_id", { length: 255 }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    idempotencyUnique: uniqueIndex(
+      "food_service_whatsapp_outbox_idempotency_unique",
+    ).on(table.connectionId, table.idempotencyKey),
+    pendingIdx: index("food_service_whatsapp_outbox_pending_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const foodServiceWhatsappInbox = pgTable(
+  "food_service_whatsapp_inbox",
+  {
+    messageId: varchar("message_id", { length: 255 }).primaryKey().notNull(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => foodServiceWhatsappConnection.id, { onDelete: "cascade" }),
+    consumerSessionId: uuid("consumer_session_id").references(
+      () => foodServiceWhatsappConsumerSession.id,
+    ),
+    operatorUserId: uuid("operator_user_id").references(() => user.id),
+    senderPhoneE164: varchar("sender_phone_e164", { length: 24 }).notNull(),
+    role: varchar("role", { enum: ["operator", "consumer"] }).notNull(),
+    text: text("text").notNull(),
+    status: varchar("status", {
+      enum: ["pending", "processing", "processed", "failed"],
+    })
+      .notNull()
+      .default("pending"),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pendingIdx: index("food_service_whatsapp_inbox_pending_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  }),
+);
+
+export const foodServicePayment = pgTable(
+  "food_service_payments",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => foodServiceOrder.id),
+    provider: varchar("provider", {
+      enum: ["external", "mercadopago"],
+    }).notNull(),
+    method: varchar("method", {
+      enum: ["pix", "credit_card", "debit_card", "cash", "other"],
+    }).notNull(),
+    status: varchar("status", { length: 24 })
+      .$type<FoodServicePaymentStatus>()
+      .notNull(),
+    providerPaymentId: text("provider_payment_id"),
+    providerPreferenceId: text("provider_preference_id"),
+    amountCentavos: integer("amount_centavos").notNull(),
+    feeCentavos: integer("fee_centavos"),
+    automatizeCommissionCentavos: integer("automatize_commission_centavos"),
+    rawStatus: text("raw_status"),
+    approvedAt: timestamp("approved_at"),
+    refundedAt: timestamp("refunded_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIdx: index("food_service_payments_order_id_idx").on(table.orderId),
+    providerPaymentUnique: uniqueIndex(
+      "food_service_payments_provider_payment_unique",
+    ).on(table.provider, table.providerPaymentId),
+    amountCheck: check(
+      "food_service_payments_amount_check",
+      sql`${table.amountCentavos} >= 0 AND (${table.feeCentavos} IS NULL OR ${table.feeCentavos} >= 0) AND (${table.automatizeCommissionCentavos} IS NULL OR ${table.automatizeCommissionCentavos} >= 0) AND COALESCE(${table.feeCentavos}, 0) + COALESCE(${table.automatizeCommissionCentavos}, 0) <= ${table.amountCentavos}`,
+    ),
+  }),
+);
+
+export type FoodServicePayment = InferSelectModel<typeof foodServicePayment>;
+
+export const foodServiceSupplier = pgTable(
+  "food_service_suppliers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    name: varchar("name", { length: 160 }).notNull(),
+    legalName: varchar("legal_name", { length: 200 }),
+    cnpj: varchar("cnpj", { length: 14 }),
+    phone: varchar("phone", { length: 24 }),
+    email: varchar("email", { length: 160 }),
+    notes: text("notes"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyNameUnique: uniqueIndex(
+      "food_service_suppliers_company_name_unique",
+    ).on(table.companyId, table.name),
+    companyCnpjUnique: uniqueIndex(
+      "food_service_suppliers_company_cnpj_unique",
+    )
+      .on(table.companyId, table.cnpj)
+      .where(sql`${table.cnpj} IS NOT NULL`),
+    cnpjCheck: check(
+      "food_service_suppliers_cnpj_check",
+      sql`${table.cnpj} IS NULL OR ${table.cnpj} ~ '^[0-9]{14}$'`,
+    ),
+  }),
+);
+
+export type FoodServiceSupplier = InferSelectModel<typeof foodServiceSupplier>;
+
+export const foodServicePurchaseOrder = pgTable(
+  "food_service_purchase_orders",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    displayNumber: bigserial("display_number", { mode: "number" }).notNull(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    supplierId: uuid("supplier_id").notNull().references(() => foodServiceSupplier.id),
+    status: varchar("status", {
+      enum: ["draft", "placed", "partially_received", "received", "closed", "cancelled"],
+    }).notNull().default("draft"),
+    expectedOn: date("expected_on"),
+    notes: text("notes"),
+    idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+    inputFingerprint: text("input_fingerprint").notNull(),
+    closeReason: text("close_reason"),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    placedAt: timestamp("placed_at"),
+    closedAt: timestamp("closed_at"),
+    cancelledAt: timestamp("cancelled_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    displayNumberUnique: uniqueIndex(
+      "food_service_purchase_orders_display_number_unique",
+    ).on(table.displayNumber),
+    locationStatusIdx: index(
+      "food_service_purchase_orders_location_status_idx",
+    ).on(table.locationId, table.status, table.createdAt),
+    locationIdempotencyUnique: uniqueIndex(
+      "food_service_purchase_orders_location_idempotency_unique",
+    ).on(table.locationId, table.idempotencyKey),
+    statusCheck: check(
+      "food_service_purchase_orders_status_check",
+      sql`${table.status} IN ('draft','placed','partially_received','received','closed','cancelled')`,
+    ),
+  }),
+);
+
+export type FoodServicePurchaseOrder = InferSelectModel<
+  typeof foodServicePurchaseOrder
+>;
+
+export const foodServicePurchaseOrderLine = pgTable(
+  "food_service_purchase_order_lines",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    purchaseOrderId: uuid("purchase_order_id").notNull().references(() => foodServicePurchaseOrder.id),
+    ingredientId: uuid("ingredient_id").notNull().references(() => foodServiceIngredient.id),
+    ingredientNameSnapshot: varchar("ingredient_name_snapshot", { length: 160 }).notNull(),
+    purchaseUnitLabel: varchar("purchase_unit_label", { length: 80 }).notNull(),
+    orderedPurchaseUnitsMicros: numeric("ordered_purchase_units_micros", { precision: 24, scale: 0 }).notNull(),
+    conversionFactorMicros: numeric("conversion_factor_micros", { precision: 24, scale: 0 }).notNull(),
+    orderedBaseQuantityMicros: numeric("ordered_base_quantity_micros", { precision: 24, scale: 0 }).notNull(),
+    expectedUnitCostMicrocentavos: numeric("expected_unit_cost_microcentavos", { precision: 30, scale: 0 }).notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIngredientUnique: uniqueIndex(
+      "food_service_purchase_order_lines_order_ingredient_unique",
+    ).on(table.purchaseOrderId, table.ingredientId),
+    valuesCheck: check(
+      "food_service_purchase_order_lines_values_check",
+      sql`${table.orderedPurchaseUnitsMicros} > 0 AND ${table.conversionFactorMicros} > 0 AND ${table.orderedBaseQuantityMicros} > 0 AND ${table.expectedUnitCostMicrocentavos} >= 0`,
+    ),
+    conversionCheck: check(
+      "food_service_purchase_order_lines_conversion_check",
+      sql`${table.orderedBaseQuantityMicros} = (${table.orderedPurchaseUnitsMicros} * ${table.conversionFactorMicros}) / 1000000`,
+    ),
+  }),
+);
+
+export type FoodServicePurchaseOrderLine = InferSelectModel<
+  typeof foodServicePurchaseOrderLine
+>;
+
+export const foodServiceGoodsReceipt = pgTable(
+  "food_service_goods_receipts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    purchaseOrderId: uuid("purchase_order_id").notNull().references(() => foodServicePurchaseOrder.id),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    supplierId: uuid("supplier_id").notNull().references(() => foodServiceSupplier.id),
+    status: varchar("status", { enum: ["posted", "cancelled"] }).notNull().default("posted"),
+    documentNumber: varchar("document_number", { length: 120 }),
+    receivedAt: timestamp("received_at").notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+    inputFingerprint: text("input_fingerprint").notNull(),
+    notes: text("notes"),
+    postedByUserId: uuid("posted_by_user_id").notNull().references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIdempotencyUnique: uniqueIndex(
+      "food_service_goods_receipts_order_idempotency_unique",
+    ).on(table.purchaseOrderId, table.idempotencyKey),
+    supplierDocumentUnique: uniqueIndex(
+      "food_service_goods_receipts_supplier_document_unique",
+    )
+      .on(table.companyId, table.supplierId, table.documentNumber)
+      .where(sql`${table.documentNumber} IS NOT NULL`),
+    statusCheck: check(
+      "food_service_goods_receipts_status_check",
+      sql`${table.status} IN ('posted','cancelled')`,
+    ),
+  }),
+);
+
+export type FoodServiceGoodsReceipt = InferSelectModel<
+  typeof foodServiceGoodsReceipt
+>;
+
+export const foodServicePurchaseOrderEvent = pgTable(
+  "food_service_purchase_order_events",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey().notNull(),
+    purchaseOrderId: uuid("purchase_order_id").notNull().references(() => foodServicePurchaseOrder.id),
+    type: varchar("type", { length: 48 }).notNull(),
+    fromStatus: varchar("from_status", { length: 32 }),
+    toStatus: varchar("to_status", { length: 32 }),
+    source: varchar("source", { enum: ["web", "whatsapp", "operator", "integration", "system"] }).notNull(),
+    actorUserId: uuid("actor_user_id").references(() => user.id),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIdx: index("food_service_purchase_order_events_order_id_idx").on(
+      table.purchaseOrderId,
+      table.id,
+    ),
+  }),
+);
+
+export type FoodServicePurchaseOrderEvent = InferSelectModel<
+  typeof foodServicePurchaseOrderEvent
+>;
+
+export const foodServicePurchaseTemplate = pgTable(
+  "food_service_purchase_templates",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    supplierId: uuid("supplier_id")
+      .notNull()
+      .references(() => foodServiceSupplier.id),
+    name: varchar("name", { length: 160 }).notNull(),
+    schedule: jsonb("schedule")
+      .$type<FoodServiceRoutineSchedule>()
+      .notNull()
+      .default(sql`'{"frequency":"weekly","weekdays":[1]}'::jsonb`),
+    dueTime: varchar("due_time", { length: 5 }),
+    expectedLeadDays: integer("expected_lead_days").notNull().default(0),
+    notes: text("notes"),
+    inputFingerprint: text("input_fingerprint").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationNameUnique: uniqueIndex(
+      "food_service_purchase_templates_location_name_unique",
+    ).on(table.locationId, sql`lower(${table.name})`),
+    locationActiveIdx: index(
+      "food_service_purchase_templates_location_active_idx",
+    ).on(table.locationId, table.active, table.dueTime),
+    dueTimeCheck: check(
+      "food_service_purchase_templates_due_time_check",
+      sql`${table.dueTime} IS NULL OR ${table.dueTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`,
+    ),
+    leadDaysCheck: check(
+      "food_service_purchase_templates_lead_days_check",
+      sql`${table.expectedLeadDays} BETWEEN 0 AND 90`,
+    ),
+  }),
+);
+
+export const foodServicePurchaseTemplateLine = pgTable(
+  "food_service_purchase_template_lines",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => foodServicePurchaseTemplate.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    purchaseUnitLabel: varchar("purchase_unit_label", { length: 80 }).notNull(),
+    plannedPurchaseUnitsMicros: numeric("planned_purchase_units_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    conversionFactorMicros: numeric("conversion_factor_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    plannedBaseQuantityMicros: numeric("planned_base_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    expectedUnitCostMicrocentavos: numeric(
+      "expected_unit_cost_microcentavos",
+      { precision: 30, scale: 0 },
+    ).notNull(),
+    notes: text("notes"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    templateIngredientUnique: uniqueIndex(
+      "food_service_purchase_template_lines_template_ingredient_unique",
+    ).on(table.templateId, table.ingredientId),
+    templatePositionUnique: uniqueIndex(
+      "food_service_purchase_template_lines_template_position_unique",
+    ).on(table.templateId, table.position),
+    valuesCheck: check(
+      "food_service_purchase_template_lines_values_check",
+      sql`${table.plannedPurchaseUnitsMicros} > 0 AND ${table.conversionFactorMicros} > 0 AND ${table.plannedBaseQuantityMicros} > 0 AND ${table.expectedUnitCostMicrocentavos} >= 0 AND ${table.position} >= 0`,
+    ),
+    conversionCheck: check(
+      "food_service_purchase_template_lines_conversion_check",
+      sql`${table.plannedBaseQuantityMicros} = (${table.plannedPurchaseUnitsMicros} * ${table.conversionFactorMicros}) / 1000000`,
+    ),
+  }),
+);
+
+export const foodServicePurchaseTemplateRun = pgTable(
+  "food_service_purchase_template_runs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => foodServicePurchaseTemplate.id),
+    operationalDate: date("operational_date").notNull(),
+    status: varchar("status", {
+      enum: ["pending", "generating", "generated", "skipped"],
+    })
+      .notNull()
+      .default("pending"),
+    purchaseOrderId: uuid("purchase_order_id").references(
+      () => foodServicePurchaseOrder.id,
+    ),
+    resolutionReason: text("resolution_reason"),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => user.id),
+    resolvedAt: timestamp("resolved_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    templateDateUnique: uniqueIndex(
+      "food_service_purchase_template_runs_template_date_unique",
+    ).on(table.templateId, table.operationalDate),
+    purchaseOrderUnique: uniqueIndex(
+      "food_service_purchase_template_runs_purchase_order_unique",
+    )
+      .on(table.purchaseOrderId)
+      .where(sql`${table.purchaseOrderId} IS NOT NULL`),
+    locationDateIdx: index(
+      "food_service_purchase_template_runs_location_date_idx",
+    ).on(table.locationId, table.operationalDate, table.status),
+    lifecycleCheck: check(
+      "food_service_purchase_template_runs_lifecycle_check",
+      sql`(${table.status} = 'pending' AND ${table.purchaseOrderId} IS NULL AND ${table.resolutionReason} IS NULL AND ${table.resolvedByUserId} IS NULL AND ${table.resolvedAt} IS NULL) OR (${table.status} = 'generating' AND ${table.purchaseOrderId} IS NULL AND ${table.resolutionReason} IS NULL AND ${table.resolvedByUserId} IS NOT NULL AND ${table.resolvedAt} IS NULL) OR (${table.status} = 'generated' AND ${table.purchaseOrderId} IS NOT NULL AND ${table.resolutionReason} IS NULL AND ${table.resolvedByUserId} IS NOT NULL AND ${table.resolvedAt} IS NOT NULL) OR (${table.status} = 'skipped' AND ${table.purchaseOrderId} IS NULL AND ${table.resolutionReason} IS NOT NULL AND ${table.resolvedByUserId} IS NOT NULL AND ${table.resolvedAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export const foodServiceStockPosition = pgTable(
+  "food_service_stock_positions",
+  {
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id, { onDelete: "cascade" }),
+    physicalQuantityMicros: numeric("physical_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    reservedQuantityMicros: numeric("reserved_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    averageCostMicrocentavos: numeric("average_cost_microcentavos", {
+      precision: 30,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.locationId, table.ingredientId] }),
+    ingredientIdx: index(
+      "food_service_stock_positions_ingredient_id_idx",
+    ).on(table.ingredientId),
+    reservedCheck: check(
+      "food_service_stock_positions_reserved_check",
+      sql`${table.physicalQuantityMicros} >= 0 AND ${table.reservedQuantityMicros} >= 0 AND ${table.reservedQuantityMicros} <= ${table.physicalQuantityMicros}`,
+    ),
+    costCheck: check(
+      "food_service_stock_positions_cost_check",
+      sql`${table.averageCostMicrocentavos} >= 0`,
+    ),
+  }),
+);
+
+export type FoodServiceStockPosition = InferSelectModel<
+  typeof foodServiceStockPosition
+>;
+
+export const foodServiceStockMovement = pgTable(
+  "food_service_stock_movements",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    orderId: uuid("order_id").references(() => foodServiceOrder.id),
+    kind: varchar("kind", {
+      enum: ["entry", "reserve", "release", "consume", "loss", "correction"],
+    }).notNull(),
+    physicalDeltaMicros: numeric("physical_delta_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    reservedDeltaMicros: numeric("reserved_delta_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    unitCostMicrocentavos: numeric("unit_cost_microcentavos", {
+      precision: 30,
+      scale: 0,
+    }),
+    totalCostCentavos: integer("total_cost_centavos"),
+    classification: varchar("classification", {
+      enum: ["sale_cmv", "waste"],
+    }),
+    classifiedQuantityMicros: numeric("classified_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    reclassifiesMovementId: uuid("reclassifies_movement_id"),
+    lotCode: varchar("lot_code", { length: 120 }),
+    expiresAt: timestamp("expires_at"),
+    reason: text("reason"),
+    source: varchar("source", {
+      enum: ["web", "whatsapp", "operator", "integration", "system"],
+    }).notNull(),
+    actorUserId: uuid("actor_user_id").references(() => user.id),
+    idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationIdempotencyUnique: uniqueIndex(
+      "food_service_stock_movements_location_idempotency_unique",
+    ).on(table.locationId, table.idempotencyKey),
+    locationIngredientCreatedIdx: index(
+      "food_service_stock_movements_location_ingredient_created_idx",
+    ).on(table.locationId, table.ingredientId, table.createdAt),
+    orderIdx: index("food_service_stock_movements_order_id_idx").on(
+      table.orderId,
+    ),
+    reclassificationFk: foreignKey({
+      columns: [table.reclassifiesMovementId],
+      foreignColumns: [table.id],
+      name: "food_service_stock_movements_reclassification_fk",
+    }),
+    costCheck: check(
+      "food_service_stock_movements_cost_check",
+      sql`(${table.unitCostMicrocentavos} IS NULL OR ${table.unitCostMicrocentavos} >= 0) AND (${table.totalCostCentavos} IS NULL OR ${table.totalCostCentavos} >= 0)`,
+    ),
+    classifiedQuantityCheck: check(
+      "food_service_stock_movements_classified_quantity_check",
+      sql`${table.classifiedQuantityMicros} >= 0`,
+    ),
+    classificationCheck: check(
+      "food_service_stock_movements_classification_check",
+      sql`${table.classification} IS NULL OR ${table.classification} IN ('sale_cmv', 'waste')`,
+    ),
+    classificationValuesCheck: check(
+      "food_service_stock_movements_classification_values_check",
+      sql`(${table.classification} IS NULL AND ${table.classifiedQuantityMicros} = 0 AND ${table.totalCostCentavos} IS NULL) OR (${table.classification} IS NOT NULL AND ${table.classifiedQuantityMicros} > 0 AND ${table.totalCostCentavos} IS NOT NULL)`,
+    ),
+    shapeCheck: check(
+      "food_service_stock_movements_shape_check",
+      sql`(${table.kind} = 'entry' AND ${table.physicalDeltaMicros} > 0 AND ${table.reservedDeltaMicros} = 0 AND ${table.unitCostMicrocentavos} IS NOT NULL AND ${table.reclassifiesMovementId} IS NULL) OR (${table.kind} = 'reserve' AND ${table.physicalDeltaMicros} = 0 AND ${table.reservedDeltaMicros} > 0 AND ${table.reclassifiesMovementId} IS NULL) OR (${table.kind} = 'release' AND ${table.physicalDeltaMicros} = 0 AND ${table.reservedDeltaMicros} < 0 AND ${table.reclassifiesMovementId} IS NULL) OR (${table.kind} = 'consume' AND ${table.physicalDeltaMicros} < 0 AND ${table.reservedDeltaMicros} = ${table.physicalDeltaMicros} AND ${table.classification} = 'sale_cmv' AND ${table.classifiedQuantityMicros} = -${table.physicalDeltaMicros} AND ${table.reclassifiesMovementId} IS NULL) OR (${table.kind} = 'loss' AND ${table.reservedDeltaMicros} = 0 AND ${table.classification} = 'waste' AND ((${table.physicalDeltaMicros} < 0 AND ${table.classifiedQuantityMicros} = -${table.physicalDeltaMicros} AND ${table.reclassifiesMovementId} IS NULL) OR (${table.physicalDeltaMicros} = 0 AND ${table.reclassifiesMovementId} IS NOT NULL))) OR (${table.kind} = 'correction' AND ${table.physicalDeltaMicros} <> 0 AND ${table.reservedDeltaMicros} = 0 AND ${table.reclassifiesMovementId} IS NULL)`,
+    ),
+    lotCheck: check(
+      "food_service_stock_movements_lot_check",
+      sql`(${table.lotCode} IS NULL AND ${table.expiresAt} IS NULL) OR ${table.kind} = 'entry'`,
+    ),
+  }),
+);
+
+export type FoodServiceStockMovement = InferSelectModel<
+  typeof foodServiceStockMovement
+>;
+
+export const foodServiceGoodsReceiptLine = pgTable(
+  "food_service_goods_receipt_lines",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    receiptId: uuid("receipt_id").notNull().references(() => foodServiceGoodsReceipt.id),
+    purchaseOrderLineId: uuid("purchase_order_line_id").notNull().references(() => foodServicePurchaseOrderLine.id),
+    ingredientId: uuid("ingredient_id").notNull().references(() => foodServiceIngredient.id),
+    acceptedBaseQuantityMicros: numeric("accepted_base_quantity_micros", { precision: 24, scale: 0 }).notNull().default("0"),
+    rejectedBaseQuantityMicros: numeric("rejected_base_quantity_micros", { precision: 24, scale: 0 }).notNull().default("0"),
+    actualUnitCostMicrocentavos: numeric("actual_unit_cost_microcentavos", { precision: 30, scale: 0 }),
+    rejectionReason: text("rejection_reason"),
+    lotCode: varchar("lot_code", { length: 120 }),
+    expiresOn: date("expires_on"),
+    stockMovementId: uuid("stock_movement_id").references(() => foodServiceStockMovement.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    movementUnique: uniqueIndex(
+      "food_service_goods_receipt_lines_movement_unique",
+    ).on(table.stockMovementId),
+    receiptLineIdx: index(
+      "food_service_goods_receipt_lines_receipt_id_idx",
+    ).on(table.receiptId),
+    quantitiesCheck: check(
+      "food_service_goods_receipt_lines_quantities_check",
+      sql`${table.acceptedBaseQuantityMicros} >= 0 AND ${table.rejectedBaseQuantityMicros} >= 0 AND (${table.acceptedBaseQuantityMicros} > 0 OR ${table.rejectedBaseQuantityMicros} > 0)`,
+    ),
+    postingCheck: check(
+      "food_service_goods_receipt_lines_posting_check",
+      sql`(${table.acceptedBaseQuantityMicros} > 0 AND ${table.actualUnitCostMicrocentavos} IS NOT NULL AND ${table.actualUnitCostMicrocentavos} >= 0 AND ${table.stockMovementId} IS NOT NULL) OR (${table.acceptedBaseQuantityMicros} = 0 AND ${table.actualUnitCostMicrocentavos} IS NULL AND ${table.stockMovementId} IS NULL)`,
+    ),
+    rejectionCheck: check(
+      "food_service_goods_receipt_lines_rejection_check",
+      sql`${table.rejectedBaseQuantityMicros} = 0 OR LENGTH(TRIM(COALESCE(${table.rejectionReason}, ''))) >= 3`,
+    ),
+  }),
+);
+
+export type FoodServiceGoodsReceiptLine = InferSelectModel<
+  typeof foodServiceGoodsReceiptLine
+>;
+
+export const foodServiceStockLot = pgTable(
+  "food_service_stock_lots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    sourceMovementId: uuid("source_movement_id")
+      .notNull()
+      .references(() => foodServiceStockMovement.id),
+    lotCode: varchar("lot_code", { length: 120 }),
+    expiresOn: date("expires_on"),
+    receivedAt: timestamp("received_at").notNull().defaultNow(),
+    physicalQuantityMicros: numeric("physical_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    reservedQuantityMicros: numeric("reserved_quantity_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    costStatus: varchar("cost_status", { enum: ["known", "missing"] })
+      .notNull()
+      .default("known"),
+    unitCostMicrocentavos: numeric("unit_cost_microcentavos", {
+      precision: 30,
+      scale: 0,
+    }),
+    status: varchar("status", {
+      enum: ["active", "depleted", "quarantined"],
+    })
+      .notNull()
+      .default("active"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    sourceMovementUnique: uniqueIndex(
+      "food_service_stock_lots_source_movement_unique",
+    ).on(table.sourceMovementId),
+    fefoIdx: index("food_service_stock_lots_fefo_idx").on(
+      table.locationId,
+      table.ingredientId,
+      table.status,
+      table.expiresOn,
+      table.receivedAt,
+    ),
+    quantitiesCheck: check(
+      "food_service_stock_lots_quantities_check",
+      sql`${table.physicalQuantityMicros} >= 0 AND ${table.reservedQuantityMicros} >= 0 AND ${table.reservedQuantityMicros} <= ${table.physicalQuantityMicros}`,
+    ),
+    costCheck: check(
+      "food_service_stock_lots_cost_check",
+      sql`(${table.costStatus} = 'known' AND ${table.unitCostMicrocentavos} IS NOT NULL AND ${table.unitCostMicrocentavos} >= 0) OR (${table.costStatus} = 'missing' AND ${table.unitCostMicrocentavos} IS NULL)`,
+    ),
+    statusCheck: check(
+      "food_service_stock_lots_status_check",
+      sql`(${table.status} = 'depleted' AND ${table.physicalQuantityMicros} = 0 AND ${table.reservedQuantityMicros} = 0) OR (${table.status} IN ('active', 'quarantined') AND ${table.physicalQuantityMicros} > 0)`,
+    ),
+  }),
+);
+
+export type FoodServiceStockLot = InferSelectModel<
+  typeof foodServiceStockLot
+>;
+
+export const foodServiceStockMovementLot = pgTable(
+  "food_service_stock_movement_lots",
+  {
+    movementId: uuid("movement_id")
+      .notNull()
+      .references(() => foodServiceStockMovement.id),
+    stockLotId: uuid("stock_lot_id")
+      .notNull()
+      .references(() => foodServiceStockLot.id),
+    physicalDeltaMicros: numeric("physical_delta_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    reservedDeltaMicros: numeric("reserved_delta_micros", {
+      precision: 24,
+      scale: 0,
+    })
+      .notNull()
+      .default("0"),
+    unitCostMicrocentavos: numeric("unit_cost_microcentavos", {
+      precision: 30,
+      scale: 0,
+    }).notNull(),
+    totalCostCentavos: integer("total_cost_centavos").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.movementId, table.stockLotId] }),
+    lotIdx: index("food_service_stock_movement_lots_lot_id_idx").on(
+      table.stockLotId,
+    ),
+    valuesCheck: check(
+      "food_service_stock_movement_lots_values_check",
+      sql`(${table.physicalDeltaMicros} <> 0 OR ${table.reservedDeltaMicros} <> 0) AND ${table.unitCostMicrocentavos} >= 0 AND ${table.totalCostCentavos} >= 0 AND ${table.totalCostCentavos} = FLOOR((GREATEST(ABS(${table.physicalDeltaMicros}), ABS(${table.reservedDeltaMicros})) * ${table.unitCostMicrocentavos}) / 1000000000000)`,
+    ),
+  }),
+);
+
+export type FoodServiceStockMovementLot = InferSelectModel<
+  typeof foodServiceStockMovementLot
+>;
+
+export const foodServiceOrderStockReservation = pgTable(
+  "food_service_order_stock_reservations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => foodServiceOrder.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    quantityMicros: numeric("quantity_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    unitCostMicrocentavos: numeric("unit_cost_microcentavos", {
+      precision: 30,
+      scale: 0,
+    }).notNull(),
+    status: varchar("status", {
+      enum: ["reserved", "consumed", "released", "lost"],
+    })
+      .notNull()
+      .default("reserved"),
+    consumedAt: timestamp("consumed_at"),
+    releasedAt: timestamp("released_at"),
+    lostAt: timestamp("lost_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderIngredientUnique: uniqueIndex(
+      "food_service_order_stock_reservations_order_ingredient_unique",
+    ).on(table.orderId, table.ingredientId),
+    locationStatusIdx: index(
+      "food_service_order_stock_reservations_location_status_idx",
+    ).on(table.locationId, table.status),
+    quantityAndCostCheck: check(
+      "food_service_order_stock_reservations_quantity_cost_check",
+      sql`${table.quantityMicros} > 0 AND ${table.unitCostMicrocentavos} >= 0`,
+    ),
+    lifecycleCheck: check(
+      "food_service_order_stock_reservations_lifecycle_check",
+      sql`(${table.status} = 'reserved' AND ${table.consumedAt} IS NULL AND ${table.releasedAt} IS NULL AND ${table.lostAt} IS NULL) OR (${table.status} = 'consumed' AND ${table.consumedAt} IS NOT NULL AND ${table.releasedAt} IS NULL AND ${table.lostAt} IS NULL) OR (${table.status} = 'released' AND ${table.consumedAt} IS NULL AND ${table.releasedAt} IS NOT NULL AND ${table.lostAt} IS NULL) OR (${table.status} = 'lost' AND ${table.consumedAt} IS NOT NULL AND ${table.releasedAt} IS NULL AND ${table.lostAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export type FoodServiceOrderStockReservation = InferSelectModel<
+  typeof foodServiceOrderStockReservation
+>;
+
+export const foodServiceOrderStockAllocation = pgTable(
+  "food_service_order_stock_allocations",
+  {
+    reservationId: uuid("reservation_id")
+      .notNull()
+      .references(() => foodServiceOrderStockReservation.id),
+    stockLotId: uuid("stock_lot_id")
+      .notNull()
+      .references(() => foodServiceStockLot.id),
+    quantityMicros: numeric("quantity_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    unitCostMicrocentavos: numeric("unit_cost_microcentavos", {
+      precision: 30,
+      scale: 0,
+    }).notNull(),
+    status: varchar("status", {
+      enum: ["reserved", "consumed", "released", "lost"],
+    })
+      .notNull()
+      .default("reserved"),
+    consumedAt: timestamp("consumed_at"),
+    releasedAt: timestamp("released_at"),
+    lostAt: timestamp("lost_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.reservationId, table.stockLotId] }),
+    lotStatusIdx: index(
+      "food_service_order_stock_allocations_lot_status_idx",
+    ).on(table.stockLotId, table.status),
+    valuesCheck: check(
+      "food_service_order_stock_allocations_values_check",
+      sql`${table.quantityMicros} > 0 AND ${table.unitCostMicrocentavos} >= 0`,
+    ),
+    statusCheck: check(
+      "food_service_order_stock_allocations_status_check",
+      sql`${table.status} IN ('reserved', 'consumed', 'released', 'lost')`,
+    ),
+    lifecycleCheck: check(
+      "food_service_order_stock_allocations_lifecycle_check",
+      sql`(${table.status} = 'reserved' AND ${table.consumedAt} IS NULL AND ${table.releasedAt} IS NULL AND ${table.lostAt} IS NULL) OR (${table.status} = 'consumed' AND ${table.consumedAt} IS NOT NULL AND ${table.releasedAt} IS NULL AND ${table.lostAt} IS NULL) OR (${table.status} = 'released' AND ${table.consumedAt} IS NULL AND ${table.releasedAt} IS NOT NULL AND ${table.lostAt} IS NULL) OR (${table.status} = 'lost' AND ${table.consumedAt} IS NOT NULL AND ${table.releasedAt} IS NULL AND ${table.lostAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export type FoodServiceOrderStockAllocation = InferSelectModel<
+  typeof foodServiceOrderStockAllocation
+>;
+
+
+export const foodServiceInventoryCount = pgTable(
+  "food_service_inventory_counts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    status: varchar("status", {
+      enum: ["completed", "cancelled"],
+    })
+      .notNull()
+      .default("completed"),
+    idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+    inputFingerprint: text("input_fingerprint").notNull(),
+    notes: text("notes"),
+    countedByUserId: uuid("counted_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    countedAt: timestamp("counted_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationIdempotencyUnique: uniqueIndex(
+      "food_service_inventory_counts_location_idempotency_unique",
+    ).on(table.locationId, table.idempotencyKey),
+    locationCountedIdx: index(
+      "food_service_inventory_counts_location_counted_idx",
+    ).on(table.locationId, table.countedAt),
+    statusCheck: check(
+      "food_service_inventory_counts_status_check",
+      sql`${table.status} IN ('completed', 'cancelled')`,
+    ),
+  }),
+);
+
+export type FoodServiceInventoryCount = InferSelectModel<
+  typeof foodServiceInventoryCount
+>;
+
+export const foodServiceInventoryCountLine = pgTable(
+  "food_service_inventory_count_lines",
+  {
+    countId: uuid("count_id")
+      .notNull()
+      .references(() => foodServiceInventoryCount.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    expectedPhysicalMicros: numeric("expected_physical_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    countedPhysicalMicros: numeric("counted_physical_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    varianceMicros: numeric("variance_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    movementId: uuid("movement_id").references(() => foodServiceStockMovement.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.countId, table.ingredientId] }),
+    ingredientIdx: index(
+      "food_service_inventory_count_lines_ingredient_id_idx",
+    ).on(table.ingredientId),
+    countedCheck: check(
+      "food_service_inventory_count_lines_counted_check",
+      sql`${table.countedPhysicalMicros} >= 0`,
+    ),
+    varianceCheck: check(
+      "food_service_inventory_count_lines_variance_check",
+      sql`${table.varianceMicros} = ${table.countedPhysicalMicros} - ${table.expectedPhysicalMicros} AND ((${table.varianceMicros} = 0 AND ${table.movementId} IS NULL) OR (${table.varianceMicros} <> 0 AND ${table.movementId} IS NOT NULL))`,
+    ),
+  }),
+);
+
+export type FoodServiceInventoryCountLine = InferSelectModel<
+  typeof foodServiceInventoryCountLine
+>;
+
+export type FoodServiceRoutineSchedule =
+  | { frequency: "daily" }
+  | { frequency: "weekly"; weekdays: number[] };
+
+
+export const foodServiceIngredientGroup = pgTable(
+  "food_service_ingredient_groups",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    name: varchar("name", { length: 160 }).notNull(),
+    position: integer("position").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationPositionIdx: index("food_service_ingredient_groups_location_position_idx").on(
+      table.locationId,
+      table.position,
+    ),
+    positionCheck: check(
+      "food_service_ingredient_groups_position_check",
+      sql`${table.position} >= 0`,
+    ),
+  }),
+);
+
+export const foodServiceIngredientGroupItem = pgTable(
+  "food_service_ingredient_group_items",
+  {
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => foodServiceIngredientGroup.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.groupId, table.ingredientId] }),
+    groupPositionUnique: uniqueIndex(
+      "food_service_ingredient_group_items_position_unique",
+    ).on(table.groupId, table.position),
+    positionCheck: check(
+      "food_service_ingredient_group_items_position_check",
+      sql`${table.position} >= 0`,
+    ),
+  }),
+);
+
+export const foodServiceInventoryCountModel = pgTable(
+  "food_service_inventory_count_models",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    name: varchar("name", { length: 160 }).notNull(),
+    schedule: jsonb("schedule")
+      .$type<FoodServiceRoutineSchedule>()
+      .notNull()
+      .default(sql`'{"frequency":"daily"}'::jsonb`),
+    dueTime: varchar("due_time", { length: 5 }),
+    assignedUserId: uuid("assigned_user_id").references(() => user.id),
+    active: boolean("active").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationNameUnique: uniqueIndex(
+      "food_service_inventory_count_models_location_name_unique",
+    ).on(table.locationId, sql`lower(${table.name})`),
+    locationActiveIdx: index(
+      "food_service_inventory_count_models_location_active_idx",
+    ).on(table.locationId, table.active),
+    dueTimeCheck: check(
+      "food_service_inventory_count_models_due_time_check",
+      sql`${table.dueTime} IS NULL OR ${table.dueTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`,
+    ),
+  }),
+);
+
+export const foodServiceInventoryCountModelGroup = pgTable(
+  "food_service_inventory_count_model_groups",
+  {
+    modelId: uuid("model_id")
+      .notNull()
+      .references(() => foodServiceInventoryCountModel.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => foodServiceIngredientGroup.id),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.modelId, table.groupId] }),
+    modelPositionUnique: uniqueIndex(
+      "food_service_inventory_count_model_groups_position_unique",
+    ).on(table.modelId, table.position),
+    positionCheck: check(
+      "food_service_inventory_count_model_groups_position_check",
+      sql`${table.position} >= 0`,
+    ),
+  }),
+);
+
+export const foodServiceInventoryCountDraft = pgTable(
+  "food_service_inventory_count_drafts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull().references(() => company.id),
+    locationId: uuid("location_id").notNull().references(() => companyLocation.id),
+    modelId: uuid("model_id")
+      .notNull()
+      .references(() => foodServiceInventoryCountModel.id),
+    operationalDate: date("operational_date").notNull(),
+    status: varchar("status", {
+      enum: ["in_progress", "submitted", "cancelled"],
+    }).notNull().default("in_progress"),
+    revision: integer("revision").notNull().default(0),
+    finalCountId: uuid("final_count_id").references(() => foodServiceInventoryCount.id),
+    startedByUserId: uuid("started_by_user_id").notNull().references(() => user.id),
+    submittedByUserId: uuid("submitted_by_user_id").references(() => user.id),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    submittedAt: timestamp("submitted_at"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    modelDateUnique: uniqueIndex(
+      "food_service_inventory_count_drafts_model_date_unique",
+    ).on(table.modelId, table.operationalDate),
+    locationDateIdx: index(
+      "food_service_inventory_count_drafts_location_date_idx",
+    ).on(table.locationId, table.operationalDate, table.status),
+    lifecycleCheck: check(
+      "food_service_inventory_count_drafts_lifecycle_check",
+      sql`(${table.status} = 'in_progress' AND ${table.finalCountId} IS NULL AND ${table.submittedAt} IS NULL AND ${table.submittedByUserId} IS NULL) OR (${table.status} = 'submitted' AND ${table.finalCountId} IS NOT NULL AND ${table.submittedAt} IS NOT NULL AND ${table.submittedByUserId} IS NOT NULL) OR (${table.status} = 'cancelled' AND ${table.finalCountId} IS NULL)`,
+    ),
+  }),
+);
+
+export const foodServiceInventoryCountDraftLine = pgTable(
+  "food_service_inventory_count_draft_lines",
+  {
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => foodServiceInventoryCountDraft.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => foodServiceIngredientGroup.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => foodServiceIngredient.id),
+    countedPhysicalMicros: numeric("counted_physical_micros", {
+      precision: 24,
+      scale: 0,
+    }).notNull(),
+    updatedByUserId: uuid("updated_by_user_id").notNull().references(() => user.id),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.draftId, table.groupId, table.ingredientId],
+    }),
+    countedCheck: check(
+      "food_service_inventory_count_draft_lines_counted_check",
+      sql`${table.countedPhysicalMicros} >= 0`,
+    ),
+  }),
+);
+
+
+export const foodServiceOperationalChecklist = pgTable(
+  "food_service_operational_checklists",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    name: varchar("name", { length: 160 }).notNull(),
+    schedule: jsonb("schedule")
+      .$type<FoodServiceRoutineSchedule>()
+      .notNull()
+      .default(sql`'{"frequency":"daily"}'::jsonb`),
+    dueTime: varchar("due_time", { length: 5 }),
+    assignedUserId: uuid("assigned_user_id").references(() => user.id),
+    active: boolean("active").notNull().default(true),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    locationNameUnique: uniqueIndex(
+      "food_service_operational_checklists_location_name_unique",
+    ).on(table.locationId, sql`lower(${table.name})`),
+    locationActiveIdx: index(
+      "food_service_operational_checklists_location_active_idx",
+    ).on(table.locationId, table.active),
+    dueTimeCheck: check(
+      "food_service_operational_checklists_due_time_check",
+      sql`${table.dueTime} IS NULL OR ${table.dueTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`,
+    ),
+  }),
+);
+
+export type FoodServiceOperationalChecklist = InferSelectModel<
+  typeof foodServiceOperationalChecklist
+>;
+
+export const foodServiceOperationalChecklistItem = pgTable(
+  "food_service_operational_checklist_items",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    checklistId: uuid("checklist_id")
+      .notNull()
+      .references(() => foodServiceOperationalChecklist.id, {
+        onDelete: "cascade",
+      }),
+    label: varchar("label", { length: 240 }).notNull(),
+    position: integer("position").notNull(),
+    photoRequired: boolean("photo_required").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    checklistPositionUnique: uniqueIndex(
+      "food_service_operational_checklist_items_position_unique",
+    ).on(table.checklistId, table.position),
+    positionCheck: check(
+      "food_service_operational_checklist_items_position_check",
+      sql`${table.position} >= 0`,
+    ),
+  }),
+);
+
+export const foodServiceOperationalChecklistRun = pgTable(
+  "food_service_operational_checklist_runs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    checklistId: uuid("checklist_id")
+      .notNull()
+      .references(() => foodServiceOperationalChecklist.id),
+    operationalDate: date("operational_date").notNull(),
+    status: varchar("status", {
+      enum: ["in_progress", "completed", "partial"],
+    })
+      .notNull()
+      .default("in_progress"),
+    notes: text("notes"),
+    revision: integer("revision").notNull().default(0),
+    assignedUserId: uuid("assigned_user_id").references(() => user.id),
+    completedByUserId: uuid("completed_by_user_id").references(() => user.id),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    completedAt: timestamp("completed_at"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    checklistDateUnique: uniqueIndex(
+      "food_service_operational_checklist_runs_checklist_date_unique",
+    ).on(table.checklistId, table.operationalDate),
+    locationDateIdx: index(
+      "food_service_operational_checklist_runs_location_date_idx",
+    ).on(table.locationId, table.operationalDate, table.status),
+    lifecycleCheck: check(
+      "food_service_operational_checklist_runs_lifecycle_check",
+      sql`(${table.status} = 'in_progress' AND ${table.completedAt} IS NULL AND ${table.completedByUserId} IS NULL) OR (${table.status} IN ('completed', 'partial') AND ${table.completedAt} IS NOT NULL AND ${table.completedByUserId} IS NOT NULL)`,
+    ),
+    revisionCheck: check(
+      "food_service_operational_checklist_runs_revision_check",
+      sql`${table.revision} >= 0`,
+    ),
+  }),
+);
+
+export const foodServiceOperationalChecklistRunItem = pgTable(
+  "food_service_operational_checklist_run_items",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => foodServiceOperationalChecklistRun.id, {
+        onDelete: "cascade",
+      }),
+    checklistItemId: uuid("checklist_item_id")
+      .notNull()
+      .references(() => foodServiceOperationalChecklistItem.id),
+    status: varchar("status", {
+      enum: ["pending", "completed", "not_done"],
+    })
+      .notNull()
+      .default("pending"),
+    note: text("note"),
+    evidenceUrl: text("evidence_url"),
+    updatedByUserId: uuid("updated_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.runId, table.checklistItemId] }),
+    statusCheck: check(
+      "food_service_operational_checklist_run_items_status_check",
+      sql`${table.status} IN ('pending', 'completed', 'not_done')`,
+    ),
+  }),
+);
+
+
+export const foodServiceIfoodConnection = pgTable(
+  "food_service_ifood_connections",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    merchantId: varchar("merchant_id", { length: 200 }).notNull(),
+    merchantName: varchar("merchant_name", { length: 160 }),
+    catalogId: varchar("catalog_id", { length: 200 }),
+    status: varchar("status", {
+      enum: ["connected", "revoked"],
+    })
+      .notNull()
+      .default("connected"),
+    connectedAt: timestamp("connected_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyUnique: uniqueIndex("food_service_ifood_connections_company_unique").on(
+      table.companyId,
+    ),
+    merchantUnique: uniqueIndex(
+      "food_service_ifood_connections_merchant_unique",
+    )
+      .on(table.merchantId)
+      .where(sql`${table.status} = 'connected'`),
+    statusCheck: check(
+      "food_service_ifood_connections_status_check",
+      sql`${table.status} IN ('connected', 'revoked')`,
+    ),
+  }),
+);
+
+export type FoodServiceIfoodConnection = InferSelectModel<
+  typeof foodServiceIfoodConnection
+>;
+
+export const foodServiceMenuImportJob = pgTable(
+  "food_service_menu_import_jobs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    locationId: uuid("location_id").notNull(),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    normalizedUrl: text("normalized_url").notNull(),
+    provider: varchar("provider", {
+      enum: ["anota_ai", "brendi", "ifood", "generic_web"],
+    }).notNull(),
+    adapterVersion: varchar("adapter_version", { length: 80 }).notNull(),
+    status: varchar("status", {
+      enum: [
+        "queued", "extracting", "normalizing", "analyzing", "needs_review",
+        "ready", "publishing", "published", "failed", "cancelled",
+      ],
+    }).notNull().default("queued"),
+    idempotencyKey: varchar("idempotency_key", { length: 200 }).notNull(),
+    requestFingerprint: varchar("request_fingerprint", { length: 64 }).notNull(),
+    sourceFingerprint: varchar("source_fingerprint", { length: 64 }),
+    sourceDocument: jsonb("source_document").$type<Record<string, unknown>>(),
+    workflowRunId: varchar("workflow_run_id", { length: 255 }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    counts: jsonb("counts")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    errorCode: varchar("error_code", { length: 120 }),
+    errorDetail: text("error_detail"),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    idCompanyMenuUnique: unique(
+      "food_service_menu_import_jobs_id_company_menu_unique",
+    ).on(table.id, table.companyId, table.menuId),
+    companyIdempotencyUnique: uniqueIndex(
+      "food_service_menu_import_jobs_company_idempotency_unique",
+    ).on(table.companyId, table.idempotencyKey),
+    companyStatusIdx: index(
+      "food_service_menu_import_jobs_company_status_idx",
+    ).on(table.companyId, table.status, table.createdAt),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_menu_import_jobs_menu_company_fk",
+    }).onDelete("cascade"),
+    locationCompanyFk: foreignKey({
+      columns: [table.locationId, table.companyId],
+      foreignColumns: [companyLocation.id, companyLocation.companyId],
+      name: "food_service_menu_import_jobs_location_company_fk",
+    }).onDelete("cascade"),
+    providerCheck: check(
+      "food_service_menu_import_jobs_provider_check",
+      sql`${table.provider} IN ('anota_ai', 'brendi', 'ifood', 'generic_web')`,
+    ),
+    statusCheck: check(
+      "food_service_menu_import_jobs_status_check",
+      sql`${table.status} IN ('queued', 'extracting', 'normalizing', 'analyzing', 'needs_review', 'ready', 'publishing', 'published', 'failed', 'cancelled')`,
+    ),
+    terminalTimestampCheck: check(
+      "food_service_menu_import_jobs_terminal_timestamp_check",
+      sql`(${table.status} IN ('published', 'failed', 'cancelled') AND ${table.completedAt} IS NOT NULL) OR (${table.status} NOT IN ('published', 'failed', 'cancelled') AND ${table.completedAt} IS NULL)`,
+    ),
+    attemptCountCheck: check(
+      "food_service_menu_import_jobs_attempt_count_check",
+      sql`${table.attemptCount} >= 0`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuImportJob = InferSelectModel<
+  typeof foodServiceMenuImportJob
+>;
+
+export const foodServiceMenuImportDraft = pgTable(
+  "food_service_menu_import_drafts",
+  {
+    jobId: uuid("job_id").primaryKey().notNull(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    revision: integer("revision").notNull().default(1),
+    document: jsonb("document").$type<Record<string, unknown>>().notNull(),
+    resolvedMappings: jsonb("resolved_mappings")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    documentFingerprint: varchar("document_fingerprint", { length: 64 }).notNull(),
+    validationSummary: jsonb("validation_summary")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    jobCompanyMenuUnique: unique(
+      "food_service_menu_import_drafts_job_company_menu_unique",
+    ).on(table.jobId, table.companyId, table.menuId),
+    jobCompanyMenuFk: foreignKey({
+      columns: [table.jobId, table.companyId, table.menuId],
+      foreignColumns: [
+        foodServiceMenuImportJob.id,
+        foodServiceMenuImportJob.companyId,
+        foodServiceMenuImportJob.menuId,
+      ],
+      name: "food_service_menu_import_drafts_job_company_menu_fk",
+    }).onDelete("cascade"),
+    revisionCheck: check(
+      "food_service_menu_import_drafts_revision_check",
+      sql`${table.revision} > 0 AND ${table.schemaVersion} > 0`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuImportDraft = InferSelectModel<
+  typeof foodServiceMenuImportDraft
+>;
+
+export const foodServiceMenuImportIssue = pgTable(
+  "food_service_menu_import_issues",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    jobId: uuid("job_id").notNull(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    fieldPath: text("field_path").notNull(),
+    code: varchar("code", { length: 120 }).notNull(),
+    severity: varchar("severity", { enum: ["blocking", "warning"] }).notNull(),
+    message: text("message").notNull(),
+    confidenceBasisPoints: integer("confidence_basis_points").notNull(),
+    status: varchar("status", { enum: ["open", "resolved"] })
+      .notNull()
+      .default("open"),
+    resolution: text("resolution"),
+    resolvedByUserId: uuid("resolved_by_user_id").references(() => user.id),
+    resolvedAt: timestamp("resolved_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    draftCompanyMenuFk: foreignKey({
+      columns: [table.jobId, table.companyId, table.menuId],
+      foreignColumns: [
+        foodServiceMenuImportDraft.jobId,
+        foodServiceMenuImportDraft.companyId,
+        foodServiceMenuImportDraft.menuId,
+      ],
+      name: "food_service_menu_import_issues_draft_company_menu_fk",
+    }).onDelete("cascade"),
+    jobStatusIdx: index("food_service_menu_import_issues_job_status_idx").on(
+      table.jobId,
+      table.status,
+      table.severity,
+    ),
+    severityCheck: check(
+      "food_service_menu_import_issues_severity_check",
+      sql`${table.severity} IN ('blocking', 'warning')`,
+    ),
+    statusCheck: check(
+      "food_service_menu_import_issues_status_check",
+      sql`${table.status} IN ('open', 'resolved')`,
+    ),
+    confidenceCheck: check(
+      "food_service_menu_import_issues_confidence_check",
+      sql`${table.confidenceBasisPoints} BETWEEN 0 AND 10000`,
+    ),
+    resolutionCheck: check(
+      "food_service_menu_import_issues_resolution_check",
+      sql`(${table.status} = 'open' AND ${table.resolution} IS NULL AND ${table.resolvedByUserId} IS NULL AND ${table.resolvedAt} IS NULL) OR (${table.status} = 'resolved' AND ${table.resolution} IS NOT NULL AND ${table.resolvedByUserId} IS NOT NULL AND ${table.resolvedAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuImportIssue = InferSelectModel<
+  typeof foodServiceMenuImportIssue
+>;
+
+export const foodServiceMenuImportBlob = pgTable(
+  "food_service_menu_import_blobs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    jobId: uuid("job_id").notNull(),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    contentHash: varchar("content_hash", { length: 64 }).notNull(),
+    generationId: uuid("generation_id").notNull(),
+    blobUrl: text("blob_url"),
+    blobEtag: varchar("blob_etag", { length: 256 }),
+    pathname: text("pathname").notNull(),
+    mimeType: varchar("mime_type", {
+      enum: ["image/jpeg", "image/png", "image/webp"],
+    }).notNull(),
+    byteSize: integer("byte_size").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    attemptToken: uuid("attempt_token").notNull(),
+    status: varchar("status", {
+      enum: ["uploading", "temporary", "referenced", "deleting", "deleted"],
+    })
+      .notNull()
+      .default("uploading"),
+    leaseExpiresAt: timestamp("lease_expires_at"),
+    referencedAt: timestamp("referenced_at"),
+    deletedAt: timestamp("deleted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    scopeHashUnique: uniqueIndex(
+      "food_service_menu_import_blobs_scope_hash_unique",
+    ).on(table.companyId, table.menuId, table.contentHash),
+    blobUrlUnique: uniqueIndex(
+      "food_service_menu_import_blobs_blob_url_unique",
+    ).on(table.blobUrl),
+    pathnameUnique: uniqueIndex(
+      "food_service_menu_import_blobs_pathname_unique",
+    ).on(table.pathname),
+    cleanupIndex: index("food_service_menu_import_blobs_cleanup_idx").on(
+      table.status,
+      table.updatedAt,
+    ),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_menu_import_blobs_menu_company_fk",
+    }).onDelete("cascade"),
+    jobCompanyMenuFk: foreignKey({
+      columns: [table.jobId, table.companyId, table.menuId],
+      foreignColumns: [
+        foodServiceMenuImportJob.id,
+        foodServiceMenuImportJob.companyId,
+        foodServiceMenuImportJob.menuId,
+      ],
+      name: "food_service_menu_import_blobs_job_company_menu_fk",
+    }).onDelete("cascade"),
+    hashCheck: check(
+      "food_service_menu_import_blobs_hash_check",
+      sql`${table.contentHash} ~ '^[a-f0-9]{64}$'`,
+    ),
+    boundsCheck: check(
+      "food_service_menu_import_blobs_bounds_check",
+      sql`${table.byteSize} BETWEEN 1 AND 8388608 AND ${table.width} BETWEEN 1 AND 8192 AND ${table.height} BETWEEN 1 AND 8192 AND ${table.width}::bigint * ${table.height}::bigint <= 40000000`,
+    ),
+    statusCheck: check(
+      "food_service_menu_import_blobs_status_check",
+      sql`${table.status} IN ('uploading', 'temporary', 'referenced', 'deleting', 'deleted')`,
+    ),
+    mimeCheck: check(
+      "food_service_menu_import_blobs_mime_check",
+      sql`${table.mimeType} IN ('image/jpeg', 'image/png', 'image/webp')`,
+    ),
+    lifecycleCheck: check(
+      "food_service_menu_import_blobs_lifecycle_check",
+      sql`(${table.status} = 'uploading' AND ${table.blobUrl} IS NULL AND ${table.blobEtag} IS NULL AND ${table.leaseExpiresAt} IS NOT NULL AND ${table.referencedAt} IS NULL AND ${table.deletedAt} IS NULL) OR (${table.status} = 'temporary' AND ${table.blobUrl} IS NOT NULL AND ${table.blobEtag} IS NOT NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.referencedAt} IS NULL AND ${table.deletedAt} IS NULL) OR (${table.status} = 'referenced' AND ${table.blobUrl} IS NOT NULL AND ${table.blobEtag} IS NOT NULL AND ${table.pathname} IS NOT NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.referencedAt} IS NOT NULL AND ${table.deletedAt} IS NULL) OR (${table.status} = 'deleting' AND ${table.blobUrl} IS NOT NULL AND ${table.blobEtag} IS NOT NULL AND ${table.referencedAt} IS NULL AND ${table.deletedAt} IS NULL) OR (${table.status} = 'deleted' AND ${table.blobUrl} IS NULL AND ${table.blobEtag} IS NULL AND ${table.leaseExpiresAt} IS NULL AND ${table.referencedAt} IS NULL AND ${table.deletedAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuImportBlob = InferSelectModel<
+  typeof foodServiceMenuImportBlob
+>;
+
+export const foodServiceMenuCatalogVersion = pgTable(
+  "food_service_menu_catalog_versions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    sourceRefs: jsonb("source_refs")
+      .$type<
+        Array<{
+          provider: string;
+          entityType: string;
+          externalId: string;
+          localEntityId: string;
+        }>
+      >()
+      .notNull()
+      .default([]),
+    warningSummary: jsonb("warning_summary")
+      .$type<{ imageFailures: { count: number; acknowledged: boolean; byCode: Record<string, number> } }>()
+      .notNull()
+      .default(sql`'{"imageFailures":{"count":0,"acknowledged":false,"byCode":{}}}'::jsonb`),
+    fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+    origin: varchar("origin", { enum: ["imported", "restored"] }).notNull(),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => user.id),
+    sourceJobId: uuid("source_job_id"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    menuSequenceUnique: unique(
+      "food_service_menu_catalog_versions_menu_sequence_unique",
+    ).on(table.menuId, table.sequence),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_menu_catalog_versions_menu_company_fk",
+    }).onDelete("cascade"),
+    sourceJobCompanyMenuFk: foreignKey({
+      columns: [table.sourceJobId, table.companyId, table.menuId],
+      foreignColumns: [
+        foodServiceMenuImportJob.id,
+        foodServiceMenuImportJob.companyId,
+        foodServiceMenuImportJob.menuId,
+      ],
+      name: "food_service_menu_catalog_versions_source_job_company_menu_fk",
+    }),
+    originCheck: check(
+      "food_service_menu_catalog_versions_origin_check",
+      sql`${table.origin} IN ('imported', 'restored')`,
+    ),
+    sequenceCheck: check(
+      "food_service_menu_catalog_versions_sequence_check",
+      sql`${table.sequence} > 0`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuCatalogVersion = InferSelectModel<
+  typeof foodServiceMenuCatalogVersion
+>;
+
+export const foodServiceMenuCatalogOperation = pgTable(
+  "food_service_menu_catalog_operations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    operationKey: varchar("operation_key", { length: 200 }).notNull(),
+    requestFingerprint: varchar("request_fingerprint", { length: 64 }).notNull(),
+    origin: varchar("origin", { enum: ["imported", "restored"] }).notNull(),
+    versionId: uuid("version_id").notNull(),
+    versionSequence: integer("version_sequence").notNull(),
+    versionFingerprint: varchar("version_fingerprint", { length: 64 }).notNull(),
+    sourceJobId: uuid("source_job_id"),
+    sourceVersionId: uuid("source_version_id"),
+    failedImageCount: integer("failed_image_count").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    operationKeyUnique: uniqueIndex(
+      "food_service_menu_catalog_operations_operation_key_unique",
+    ).on(table.companyId, table.menuId, table.operationKey),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_menu_catalog_operations_menu_company_fk",
+    }).onDelete("cascade"),
+    originCheck: check(
+      "food_service_menu_catalog_operations_origin_check",
+      sql`${table.origin} IN ('imported', 'restored')`,
+    ),
+    sequenceCheck: check(
+      "food_service_menu_catalog_operations_sequence_check",
+      sql`${table.versionSequence} > 0 AND ${table.failedImageCount} >= 0`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuCatalogOperation = InferSelectModel<
+  typeof foodServiceMenuCatalogOperation
+>;
+
+export const foodServiceMenuSourceRef = pgTable(
+  "food_service_menu_source_refs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id").notNull(),
+    menuId: uuid("menu_id").notNull(),
+    provider: varchar("provider", {
+      enum: ["anota_ai", "brendi", "ifood", "generic_web"],
+    }).notNull(),
+    entityType: varchar("entity_type", {
+      enum: ["category", "item", "option_group", "option"],
+    }).notNull(),
+    externalId: varchar("external_id", { length: 200 }).notNull(),
+    localEntityType: varchar("local_entity_type", {
+      enum: ["category", "item", "option_group", "option"],
+    }).notNull(),
+    localEntityId: uuid("local_entity_id").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    externalIdentityUnique: uniqueIndex(
+      "food_service_menu_source_refs_external_identity_unique",
+    ).on(
+      table.companyId,
+      table.menuId,
+      table.provider,
+      table.entityType,
+      table.externalId,
+    ),
+    localIdentityUnique: uniqueIndex(
+      "food_service_menu_source_refs_local_identity_unique",
+    ).on(
+      table.companyId,
+      table.menuId,
+      table.provider,
+      table.localEntityType,
+      table.localEntityId,
+    ),
+    menuCompanyFk: foreignKey({
+      columns: [table.menuId, table.companyId],
+      foreignColumns: [foodServiceMenu.id, foodServiceMenu.companyId],
+      name: "food_service_menu_source_refs_menu_company_fk",
+    }).onDelete("cascade"),
+    providerCheck: check(
+      "food_service_menu_source_refs_provider_check",
+      sql`${table.provider} IN ('anota_ai', 'brendi', 'ifood', 'generic_web')`,
+    ),
+    entityTypeCheck: check(
+      "food_service_menu_source_refs_entity_type_check",
+      sql`${table.entityType} IN ('category', 'item', 'option_group', 'option') AND ${table.localEntityType} IN ('category', 'item', 'option_group', 'option')`,
+    ),
+  }),
+);
+
+export type FoodServiceMenuSourceRef = InferSelectModel<
+  typeof foodServiceMenuSourceRef
+>;
+
+// ===== END food_service_* =====

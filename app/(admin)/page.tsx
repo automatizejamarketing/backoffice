@@ -368,7 +368,8 @@ export default async function DashboardPage({
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
               Cada coorte começa na semana do primeiro pagamento aprovado e é
-              acompanhada pelas semanas seguintes.
+              acompanhada pelas semanas seguintes. Mostrando as últimas 12
+              semanas.
             </p>
           </div>
           <PayerRetentionChart summary={payerRetention} />
