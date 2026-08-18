@@ -49,6 +49,7 @@
     "@radix-ui/react-tabs": "^1.1.1",
     "@tanstack/react-query": "^5.96.2",
     "@vercel/blob": "^2.3.0",
+    "apify-client": "^2.12.4",
     "ai": "^6.0.103",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

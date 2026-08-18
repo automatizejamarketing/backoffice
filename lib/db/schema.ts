@@ -1646,6 +1646,93 @@ export const aiUsageLog = pgTable("ai_usage_logs", {
 
 export type AiUsageLog = InferSelectModel<typeof aiUsageLog>;
 
+export const advertiser = pgTable(
+  "advertisers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    externalAdvertiserId: varchar("external_advertiser_id", { length: 255 })
+      .notNull()
+      .unique(),
+    name: varchar("name", { length: 255 }).notNull(),
+    instagramHandle: varchar("instagram_handle", { length: 255 }),
+    facebookPageId: varchar("facebook_page_id", { length: 255 }),
+    investmentIntensityScore: integer("investment_intensity_score").default(0),
+    state: varchar("state", { length: 50 }),
+    city: varchar("city", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    instagramHandleIdx: index("advertisers_instagram_handle_idx").on(
+      table.instagramHandle,
+    ),
+    scoreIdx: index("advertisers_investment_intensity_score_idx").on(
+      table.investmentIntensityScore,
+    ),
+  }),
+);
+
+export type Advertiser = InferSelectModel<typeof advertiser>;
+
+export const adCreative = pgTable(
+  "ad_creatives",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    advertiserId: uuid("advertiser_id")
+      .notNull()
+      .references(() => advertiser.id),
+    externalAdId: varchar("external_ad_id", { length: 255 }).notNull().unique(),
+    body: text("body"),
+    headline: text("headline"),
+    description: text("description"),
+    callToAction: varchar("call_to_action", { length: 100 }),
+    videoUrl: text("video_url"),
+    thumbnailUrl: text("thumbnail_url"),
+    category: varchar("category", { length: 100 }).notNull(),
+    subcategory: varchar("subcategory", { length: 100 }).notNull(),
+    categoryConfidence: numeric("category_confidence", { precision: 3, scale: 2 }),
+    productRelevanceScore: integer("product_relevance_score"),
+    creativeStrengthScore: integer("creative_strength_score"),
+    advertiserContinuityScore: integer("advertiser_continuity_score"),
+    creativeType: varchar("creative_type", { length: 50 }),
+    isActive: boolean("is_active").notNull().default(true),
+    isPublished: boolean("is_published").notNull().default(false),
+    platforms: jsonb("platforms"),
+    startDate: timestamp("start_date"),
+    firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    advertiserIdx: index("ad_creatives_advertiser_id_idx").on(table.advertiserId),
+    categoryIdx: index("ad_creatives_category_idx").on(table.category),
+    subcategoryIdx: index("ad_creatives_subcategory_idx").on(table.subcategory),
+    isActiveIdx: index("ad_creatives_is_active_idx").on(table.isActive),
+    isPublishedIdx: index("ad_creatives_is_published_idx").on(table.isPublished),
+  }),
+);
+
+export type AdCreative = InferSelectModel<typeof adCreative>;
+
+export const adSnapshot = pgTable(
+  "ad_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    adCreativeId: uuid("ad_creative_id")
+      .notNull()
+      .references(() => adCreative.id),
+    isActive: boolean("is_active").notNull(),
+    checkedAt: timestamp("checked_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    adCreativeIdx: index("ad_snapshots_ad_creative_id_idx").on(table.adCreativeId),
+    checkedAtIdx: index("ad_snapshots_checked_at_idx").on(table.checkedAt),
+  }),
+);
+
+export type AdSnapshot = InferSelectModel<typeof adSnapshot>;
+
 // Narrative types for JSONB columns
 export type NarrativeOption = {
   title: string;
