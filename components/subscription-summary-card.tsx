@@ -75,9 +75,11 @@ export function SubscriptionSummaryCard({
         ) : (
           <>
             <SubscriptionAccessSyncAlert
-              provider={subscription.provider}
               status={subscription.status}
               expirationDate={expirationDate}
+              providerLabel={
+                PROVIDER_LABELS[subscription.provider] ?? subscription.provider
+              }
             />
 
             <div className="flex flex-wrap items-center gap-3">

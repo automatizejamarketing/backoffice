@@ -21,7 +21,7 @@
 // dívida sumir.
 
 import { useCallback, useEffect, useState } from "react";
-import { uploadMedia } from "@/lib/storage/media-upload-client";
+import { upload } from "@vercel/blob/client";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -257,11 +257,12 @@ export default function ReferralPayoutsPage() {
 
     setUploadingProof(true);
     try {
-      const blob = await uploadMedia(
+      const blob = await upload(
         `referral-payouts/${payTarget.id}/${proofFile.name}`,
         proofFile,
         {
-          endpoint: "/api/referrals/payouts/proof-upload",
+          access: "public",
+          handleUploadUrl: "/api/referrals/payouts/proof-upload",
         },
       );
 

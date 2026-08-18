@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { uploadMedia } from "@/lib/storage/media-upload-client";
+import { upload } from "@vercel/blob/client";
 import { Loader2, UploadCloud, Video as VideoIcon, X } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
@@ -59,8 +59,10 @@ export function DeviceUploadTab({
       setIsUploading(true);
       setProgress(0);
       try {
-        const result = await uploadMedia(file.name, file, {
-          endpoint: "/api/files/upload",
+        const result = await upload(file.name, file, {
+          access: "public",
+          handleUploadUrl: "/api/files/upload",
+          multipart: isVideo,
           clientPayload: JSON.stringify({
             userId,
             source: "campaign_media",

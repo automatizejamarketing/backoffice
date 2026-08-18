@@ -1,4 +1,4 @@
-import { delMediaObjects } from "@/lib/storage/media-r2";
+import { del } from "@vercel/blob";
 import { and, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/index";
 import { blobUpload } from "@/lib/db/schema";
@@ -71,7 +71,7 @@ export async function cleanupBlobAfterMetaIngestion(params: {
       return;
     }
 
-    await delMediaObjects(blobUrls);
+    await del(blobUrls);
     const now = new Date();
 
     await db

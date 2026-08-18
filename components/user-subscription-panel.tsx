@@ -233,9 +233,12 @@ export function UserSubscriptionPanel({
           ) : (
             <div className="space-y-5">
               <SubscriptionAccessSyncAlert
-                provider={activeSubscription.provider}
                 status={activeSubscription.status}
                 expirationDate={user.expirationDate}
+                providerLabel={
+                  PROVIDER_LABELS[activeSubscription.provider] ??
+                  activeSubscription.provider
+                }
               />
 
               <div className="flex flex-wrap items-start gap-6">

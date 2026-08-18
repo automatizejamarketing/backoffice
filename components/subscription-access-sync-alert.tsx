@@ -1,27 +1,27 @@
 import { AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { formatDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import type { BillingProvider, SubscriptionStatus } from "@/lib/db/schema";
+import type { SubscriptionStatus } from "@/lib/db/schema";
 import { getSubscriptionAccessIssue } from "@/lib/subscriptions/derive";
 
 interface SubscriptionAccessSyncAlertProps {
-  provider: BillingProvider;
   status: SubscriptionStatus | null | undefined;
   expirationDate: Date | string | null | undefined;
+  providerLabel: string;
 }
 
 export function SubscriptionAccessSyncAlert({
-  provider,
   status,
   expirationDate,
+  providerLabel,
 }: SubscriptionAccessSyncAlertProps) {
-  const issue = getSubscriptionAccessIssue(provider, status, expirationDate);
+  const issue = getSubscriptionAccessIssue(status, expirationDate);
   if (!issue) return null;
 
   const detail =
     issue.kind === "expired"
-      ? `A assinatura está ativa no Stripe, mas o acesso operacional venceu em ${formatDateInSaoPaulo(issue.expirationDate)}.`
-      : "A assinatura está ativa no Stripe, mas o acesso operacional não tem data definida.";
+      ? `A assinatura está ativa no ${providerLabel}, mas o acesso operacional venceu em ${formatDateInSaoPaulo(issue.expirationDate)}.`
+      : `A assinatura está ativa no ${providerLabel}, mas o acesso operacional não tem data definida.`;
 
   return (
     <Alert className="border-amber-500/40 bg-amber-500/10">

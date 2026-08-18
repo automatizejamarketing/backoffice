@@ -1,5 +1,4 @@
 import type {
-  BillingProvider,
   PendingPlanChange,
   PlanType,
   Subscription,
@@ -50,12 +49,10 @@ export type SubscriptionAccessIssue = {
 };
 
 export function getSubscriptionAccessIssue(
-  provider: BillingProvider,
   status: SubscriptionStatus | null | undefined,
   expirationDate: Date | string | null | undefined,
   now: Date = new Date(),
 ): SubscriptionAccessIssue | null {
-  if (provider !== "stripe") return null;
   if (status !== "active" && status !== "trialing") return null;
   if (!expirationDate) return { kind: "missing", expirationDate: null };
 

@@ -1,6 +1,6 @@
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { requireBackofficePermission } from "@/lib/auth/rbac";
-import { createMediaUploadUrl } from "@/lib/storage/media-r2";
 
 // O comprovante do repasse sobe por AQUI, não por URL colada: o operador anexa
 // o arquivo (print ou PDF do Pix), ele vai para o Vercel Blob e a URL
@@ -22,48 +22,32 @@ const ACCEPTED_TYPES = [
 const PROOF_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as {
-    action?: unknown;
-    pathname?: unknown;
-    contentType?: unknown;
-    size?: unknown;
-  };
-
-  if (
-    body?.action !== "presign" ||
-    typeof body.pathname !== "string" ||
-    typeof body.contentType !== "string" ||
-    typeof body.size !== "number"
-  ) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
-  }
+  const body = (await request.json()) as HandleUploadBody;
 
   try {
-    // Lança 401/403 → devolve o erro sem emitir URL de upload.
-    await requireBackofficePermission("affiliates:manage");
+    const jsonResponse = await handleUpload({
+      body,
+      request,
+      onBeforeGenerateToken: async (pathname) => {
+        // Lança 401/403 → handleUpload devolve o erro sem emitir token.
+        await requireBackofficePermission("affiliates:manage");
 
-    if (!body.pathname.startsWith("referral-payouts/")) {
-      throw new Error("Caminho de comprovante inválido");
-    }
-    if (
-      !ACCEPTED_TYPES.includes(body.contentType) ||
-      body.size <= 0 ||
-      body.size > PROOF_MAX_SIZE_BYTES
-    ) {
-      return NextResponse.json(
-        { error: "Comprovante inválido" },
-        { status: 400 },
-      );
-    }
+        if (!pathname.startsWith("referral-payouts/")) {
+          throw new Error("Caminho de comprovante inválido");
+        }
 
-    // O vínculo com o pedido acontece depois, quando `decide` grava a URL em
-    // `proof_url` — não há nada a registrar aqui. (createMediaUploadUrl sempre
-    // adiciona sufixo aleatório, como o addRandomSuffix do Blob fazia.)
-    const presigned = await createMediaUploadUrl({
-      pathname: body.pathname,
-      contentType: body.contentType,
+        return {
+          allowedContentTypes: ACCEPTED_TYPES,
+          maximumSizeInBytes: PROOF_MAX_SIZE_BYTES,
+          addRandomSuffix: true,
+        };
+      },
+      // O vínculo com o pedido acontece depois, quando `decide` grava a URL em
+      // `proof_url` — não há nada a registrar aqui.
+      onUploadCompleted: async () => {},
     });
-    return NextResponse.json(presigned);
+
+    return NextResponse.json(jsonResponse);
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
