@@ -313,8 +313,9 @@ export async function headMediaObject(url: string): Promise<{
         size: result.ContentLength ?? 0,
         contentType: result.ContentType ?? "application/octet-stream",
       };
-    } catch {
-      throw new MediaObjectNotFoundError(key);
+    } catch (error) {
+      if (isNotFoundError(error)) throw new MediaObjectNotFoundError(key);
+      throw error;
     }
   }
 
@@ -350,6 +351,25 @@ export async function headMediaObject(url: string): Promise<{
 }
 
 /**
+ * Distingue "objeto não existe" (404 do R2) de falha de acesso/rede
+ * (credencial inválida, bucket errado, R2 fora do ar). Sem isso, um problema
+ * de credencial se disfarçaria de 404 e passaria despercebido em produção.
+ */
+function isNotFoundError(error: unknown): boolean {
+  const err = error as {
+    name?: string;
+    Code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  return (
+    err?.name === "NoSuchKey" ||
+    err?.name === "NotFound" ||
+    err?.Code === "NoSuchKey" ||
+    err?.$metadata?.httpStatusCode === 404
+  );
+}
+
+/**
  * Stream do objeto para a rota pública `/api/media/[...key]`.
  */
 export async function getMediaObject(objectKey: string): Promise<{
@@ -372,8 +392,9 @@ export async function getMediaObject(objectKey: string): Promise<{
       typed = await getClient(config).send(
         new GetObjectCommand({ Bucket: config.bucket, Key: key }),
       );
-    } catch {
-      throw new MediaObjectNotFoundError(key);
+    } catch (error) {
+      if (isNotFoundError(error)) throw new MediaObjectNotFoundError(key);
+      throw error;
     }
     if (!typed.Body) throw new MediaObjectNotFoundError(key);
     return {
