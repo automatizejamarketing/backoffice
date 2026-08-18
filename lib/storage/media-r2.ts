@@ -1,5 +1,6 @@
-import "server-only";
-
+// Sem `import "server-only"`: o bundler do eve avalia os módulos do agente
+// (agent/channels/whatsapp → whatsapp-media → este arquivo) e rejeita o guard.
+// O módulo continua sendo de servidor por uso — não importar em componentes client.
 import {
   DeleteObjectsCommand,
   GetObjectCommand,
