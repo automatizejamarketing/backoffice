@@ -49,3 +49,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Backups de env — nunca versionar
+.env*.bak*
+.env.*.local
+*.env.bak

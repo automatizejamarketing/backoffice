@@ -1,5 +1,5 @@
 import { gateway } from "@ai-sdk/gateway";
-import { put } from "@vercel/blob";
+import { putMediaObject } from "@/lib/storage/media-r2";
 import { generateText } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/(auth)/auth";
@@ -184,8 +184,7 @@ Important guidelines:
       const timestamp = Date.now();
       const filename = `backoffice/generated/${session.user.id}/${backofficePost.id}/${timestamp}.png`;
 
-      const blob = await put(filename, imageBuffer, {
-        access: "public",
+      const blob = await putMediaObject(filename, imageBuffer, {
         contentType: imageFile.mediaType ?? "image/png",
       });
 

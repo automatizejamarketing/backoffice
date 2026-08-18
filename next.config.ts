@@ -21,7 +21,17 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         //https://nextjs.org/docs/messages/next-image-unconfigured-host
+        // Legado: URLs antigas do Vercel Blob ainda persistidas no banco
         hostname: "*.public.blob.vercel-storage.com",
+      },
+      {
+        protocol: "https",
+        // Mídia no R2, servida direto pelo custom domain (Range/206 nativo)
+        hostname: "media.automatizemarketing.com",
+      },
+      {
+        protocol: "https",
+        hostname: "media-staging.automatizemarketing.com",
       },
       {
         protocol: "https",

@@ -1,4 +1,3 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
@@ -8,6 +7,7 @@ import {
 } from "@/lib/auth/rbac";
 import { db } from "@/lib/db/index";
 import { blobUpload } from "@/lib/db/schema";
+import { createMediaUploadUrl } from "@/lib/storage/media-r2";
 
 const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/png"];
 const ACCEPTED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
@@ -122,47 +122,54 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   }
 
+  // Presign de upload direto do browser para o R2 (substitui o protocolo
+  // handleUpload do @vercel/blob/client). O registro em blob_uploads continua
+  // sendo o register autenticado acima.
+  const presign = rawBody as {
+    action?: unknown;
+    pathname?: unknown;
+    contentType?: unknown;
+    size?: unknown;
+    clientPayload?: unknown;
+  };
+
+  if (
+    presign?.action !== "presign" ||
+    typeof presign.pathname !== "string" ||
+    typeof presign.contentType !== "string" ||
+    typeof presign.size !== "number"
+  ) {
+    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+  }
+
   try {
-    const jsonResponse = await handleUpload({
-      body: rawBody as HandleUploadBody,
-      request,
-      onBeforeGenerateToken: async (pathname, clientPayload) => {
-        const { userId, source } = parseUploadPayload(clientPayload);
+    const { userId } = parseUploadPayload(
+      typeof presign.clientPayload === "string"
+        ? presign.clientPayload
+        : undefined,
+    );
 
-        // userId is attacker-controllable — authorize the selected end-user
-        // before issuing a Blob token. Throws → handleUpload returns 400.
-        await requireMarketingUserAccess(userId, "marketing:write");
+    // userId is attacker-controllable — authorize the selected end-user
+    // before issuing an upload URL.
+    await requireMarketingUserAccess(userId, "marketing:write");
 
-        const ext = pathname.toLowerCase().slice(pathname.lastIndexOf("."));
-        const isVideo = VIDEO_EXTENSIONS.includes(ext);
-        const maximumSizeInBytes = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    if (!ACCEPTED_TYPES.includes(presign.contentType)) {
+      return NextResponse.json({ error: "Invalid upload" }, { status: 400 });
+    }
+    const ext = presign.pathname
+      .toLowerCase()
+      .slice(presign.pathname.lastIndexOf("."));
+    const isVideo = VIDEO_EXTENSIONS.includes(ext);
+    const maximumSizeInBytes = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    if (presign.size <= 0 || presign.size > maximumSizeInBytes) {
+      return NextResponse.json({ error: "Invalid upload" }, { status: 400 });
+    }
 
-        return {
-          allowedContentTypes: ACCEPTED_TYPES,
-          maximumSizeInBytes,
-          tokenPayload: JSON.stringify({ userId, source }),
-        };
-      },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        // Best-effort: only reached in environments where Vercel can call
-        // back (not blocked by proxy.ts). The authenticated register call is
-        // the reliable path; recordBlobUploadOnce dedups either way.
-        const { userId, source } = parseUploadPayload(tokenPayload);
-        if (source !== CAMPAIGN_MEDIA_SOURCE || !userId) return;
-        try {
-          await recordBlobUploadOnce({
-            userId,
-            blobUrl: blob.url,
-            pathname: blob.pathname,
-            contentType: blob.contentType ?? null,
-          });
-        } catch (error) {
-          console.error("[files/upload] onUploadCompleted insert failed", error);
-        }
-      },
+    const presigned = await createMediaUploadUrl({
+      pathname: presign.pathname,
+      contentType: presign.contentType,
     });
-
-    return NextResponse.json(jsonResponse);
+    return NextResponse.json(presigned);
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
