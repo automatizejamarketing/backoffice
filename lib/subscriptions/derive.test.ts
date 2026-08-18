@@ -7,6 +7,7 @@ describe("getSubscriptionAccessIssue", () => {
   test("flags an active subscription with expired operational access", () => {
     expect(
       getSubscriptionAccessIssue(
+        "stripe",
         "active",
         new Date("2026-08-03T15:00:00.000Z"),
         now,
@@ -15,7 +16,9 @@ describe("getSubscriptionAccessIssue", () => {
   });
 
   test("flags an active subscription without an operational access date", () => {
-    expect(getSubscriptionAccessIssue("active", null, now)).toEqual({
+    expect(
+      getSubscriptionAccessIssue("stripe", "active", null, now),
+    ).toEqual({
       kind: "missing",
       expirationDate: null,
     });
@@ -24,6 +27,7 @@ describe("getSubscriptionAccessIssue", () => {
   test("flags a trial whose operational access date has expired", () => {
     expect(
       getSubscriptionAccessIssue(
+        "stripe",
         "trialing",
         new Date("2026-08-03T15:00:00.000Z"),
         now,
@@ -37,6 +41,7 @@ describe("getSubscriptionAccessIssue", () => {
   test("does not flag active access that is still valid", () => {
     expect(
       getSubscriptionAccessIssue(
+        "stripe",
         "active",
         new Date("2026-09-03T15:00:00.000Z"),
         now,
@@ -47,7 +52,19 @@ describe("getSubscriptionAccessIssue", () => {
   test("does not treat an expired canceled subscription as a sync issue", () => {
     expect(
       getSubscriptionAccessIssue(
+        "stripe",
         "canceled",
+        new Date("2026-08-03T15:00:00.000Z"),
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  test("does not flag expired access for a Mercado Pago Pix renewal", () => {
+    expect(
+      getSubscriptionAccessIssue(
+        "mercadopago",
+        "active",
         new Date("2026-08-03T15:00:00.000Z"),
         now,
       ),
