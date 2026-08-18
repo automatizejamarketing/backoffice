@@ -9,7 +9,7 @@
  * tree (fallback.ts). What remains is the vocabulary both paths share.
  */
 import type { AdCreativeInput } from "../creation/create-ad";
-import type { PlacementKey } from "../../placements";
+import type { PlacementKey } from "../placements";
 import type { CampaignMold } from "./read-mold";
 
 /** What the flow suggests, and the floor it advises (ADR 0022, decision 7). */
@@ -73,6 +73,7 @@ export type PlanAnswers = {
   /**
    * Placement override from the AI review. Absent = keep the mold's targeting
    * (Advantage+ when the source omitted publisher_platforms / *_positions).
+   * `manual` sends those fields and turns Advantage+ placements off (v25.0).
    */
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
