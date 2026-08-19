@@ -26,25 +26,47 @@
 import type { PlacementKey } from "@/lib/meta-business/placements";
 
 /**
- * Medidas de RESERVA — usadas só enquanto a prévia não chegou (skeleton, erro,
- * espera do upload de vídeo). Quando ela chega, a caixa passa a valer o tamanho
- * que o próprio Meta declarou no iframe.
+ * Altura MÍNIMA do quadro por posicionamento, em pixels — medida no conteúdo real
+ * que o Meta renderiza, não no que ele declara.
  *
- * Os números são os que o Meta devolve hoje, medidos ao vivo em 2026-08-19, para
- * a reserva ter o tamanho certo e o layout não pular quando a prévia entra:
- * Stories 320x567, Feed do Instagram 320x525, Feed do Facebook 335x450,
- * Reels 274x213. Aqui ficam agrupados pela proporção, que é o que dá para saber
- * antes da resposta.
+ * O `<iframe>` que o `generatepreviews` devolve traz `width`/`height`, e para
+ * Stories e Feed eles servem. Para REELS eles MENTEM: o Meta declara 274x213 e
+ * renderiza 624px de altura no Instagram e 567 no Facebook — 400px a mais. Uma
+ * caixa do tamanho declarado corta quase tudo, que foi o que apareceu na tela
+ * como uma faixa preta com um pedaço da imagem.
+ *
+ * Medido em 2026-08-19 injetando cada prévia num iframe de 800x1400 e lendo a
+ * altura do `body`. O conteúdo é RESPONSIVO em largura (preenche o que receber) e
+ * tem altura fixa por formato — por isso a largura é uma escolha nossa e a altura,
+ * não.
+ *
+ * Usado como PISO, nunca como valor absoluto: a caixa vale
+ * `max(altura declarada, este piso)`, então se o Meta um dia declarar mais, a UI
+ * acompanha; se declarar de menos, o piso protege.
+ */
+export const MIN_PREVIEW_FRAME_HEIGHT: Record<PlacementKey, number> = {
+  instagram_stories: 567,
+  facebook_stories: 567,
+  instagram_reels: 624,
+  facebook_reels: 567,
+  instagram_feed: 525,
+  facebook_feed: 450,
+};
+
+/**
+ * Largura do quadro. É escolha nossa porque o conteúdo se adapta à largura que
+ * receber; 335 é a maior que o Meta declara e cabe na coluna de 380px do painel.
  */
 export const PREVIEW_FRAME_WIDTH = 335;
 
+/** Altura de reserva enquanto a prévia não chegou (skeleton, erro, espera). */
 export const PREVIEW_FRAME_HEIGHT: Record<"1:1" | "4:5" | "9:16", number> = {
   "9:16": 567,
   "4:5": 525,
   "1:1": 450,
 };
 
-/** Proporção nominal de cada posicionamento — escolhe a altura do quadro acima. */
+/** Proporção nominal de cada posicionamento — escolhe a altura de reserva acima. */
 export const PLACEMENT_ASPECT_RATIO: Record<PlacementKey, "1:1" | "4:5" | "9:16"> = {
   facebook_feed: "4:5",
   facebook_stories: "9:16",
