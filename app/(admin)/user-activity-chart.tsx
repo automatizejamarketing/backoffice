@@ -92,11 +92,15 @@ function writeStoredVisibility(visibility: UserActivitySeriesVisibility) {
   }
 }
 
-function dateFromChartPayload(input: {
-  date?: string;
-  payload?: { date?: string };
-}): string | null {
-  return input.date ?? input.payload?.date ?? null;
+function dateFromChartPayload(input: unknown): string | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as {
+    date?: unknown;
+    payload?: { date?: unknown };
+  };
+  if (typeof record.date === "string") return record.date;
+  if (typeof record.payload?.date === "string") return record.payload.date;
+  return null;
 }
 
 export function UserActivityChart({
@@ -144,7 +148,7 @@ export function UserActivityChart({
   const hasVisibleSeries = showDaily || showStock;
   const visibleCount = SERIES.filter((series) => visible[series.key]).length;
 
-  function openSeries(series: SeriesKey, input: { date?: string; payload?: { date?: string } }) {
+  function openSeries(series: SeriesKey, input: unknown) {
     const date = dateFromChartPayload(input);
     if (!date) return;
     setSelection({ date, series });
