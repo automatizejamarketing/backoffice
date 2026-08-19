@@ -26,6 +26,10 @@ import {
 import { issuesFromError } from "./normalize";
 import { collect, subcodeSuggestion, validateCarouselCards } from "./validation";
 import { deleteMetaObject } from "./delete";
+import {
+  type PlacementAdaptation,
+  buildDegreesOfFreedomSpec,
+} from "@/lib/meta-business/creative-features";
 
 /** Disable multi-advertiser ads (don't show alongside other advertisers'). */
 const OPT_OUT_MULTI_ADS = JSON.stringify({ enroll_status: "OPT_OUT" });
@@ -109,6 +113,16 @@ export type CreateAdInput = {
   conversionDomain?: string;
   /** Defaults to PAUSED. */
   status?: "ACTIVE" | "PAUSED";
+  /**
+   * Como o Meta pode reenquadrar a mídia para os posicionamentos onde ela não
+   * cabe (quadrado → Stories/Reels e vice-versa). Omitido = o padrão do produto
+   * (reenquadra, não expande generativamente).
+   *
+   * Passar `{ enabled: false }` reproduz o comportamento anterior a esta feature:
+   * o criativo sai sem `degrees_of_freedom_spec` e, como o padrão do Meta é TUDO
+   * desligado, sem adaptação nenhuma.
+   */
+  placementAdaptation?: PlacementAdaptation;
   /** Escape hatch merged into the creative POST. */
   creativeExtraFields?: Record<string, unknown>;
   /** Escape hatch merged into the ad POST. */
@@ -218,6 +232,15 @@ export function buildAdCreativeFields(
   }
 
   if (input.urlTags) p.set("url_tags", input.urlTags);
+
+  // Adaptação por posicionamento. Vai em TODO criativo que criamos — sem este
+  // campo o Meta materializa as 82 features como OPT_OUT e o anúncio sai sem
+  // adaptação nenhuma, ao contrário do mesmo anúncio feito no Gerenciador.
+  // Depois de `url_tags` e antes de `creativeExtraFields` de propósito: a escape
+  // hatch continua podendo sobrescrever o campo inteiro.
+  const dof = buildDegreesOfFreedomSpec(input.placementAdaptation);
+  if (dof) p.set("degrees_of_freedom_spec", JSON.stringify(dof));
+
   mergeExtraFields(p, input.creativeExtraFields);
   return p;
 }

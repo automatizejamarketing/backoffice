@@ -1,6 +1,16 @@
 /**
  * No-mold fallback: publish an ACTIVE campaign via createCampaignTree using the
  * same Meta fields the frontend niche creators use (sales / traffic / leads).
+ *
+ * HOJE só o backoffice chama isto (`/api/meta-marketing/[accountId]/campaigns/ai/fallback`):
+ * no app do cliente o caminho sem molde é montado pelo wizard, no browser, e não
+ * por uma primitiva de servidor. Mesmo assim o arquivo vive AQUI, e não lá,
+ * porque `marketing/ai-creation/` é diretório espelhado e o contrato de paridade
+ * exige que os dois projetos tenham exatamente os mesmos arquivos nele — só o
+ * frontend pode introduzir um. Código morto no espelho é aceito de propósito
+ * (é o mesmo trato de `duplicateProvenCampaign`, morto no backoffice): bytes
+ * idênticos são a versão barata e verificável de "os dois lados se comportam
+ * igual".
  */
 import { metaApiCall } from "@/lib/meta-business/api";
 import { getConnectedPageById } from "@/lib/meta-business/get-instagram-connected-page";

@@ -20,7 +20,8 @@ export type AiCampaignAction =
   | "copy"
   | "video"
   | "video-status"
-  | "fallback";
+  | "fallback"
+  | "previews";
 
 export type AiCampaignAuth = {
   actor: BackofficeActor;

@@ -56,6 +56,7 @@ import {
   type PlacementKey,
 } from "@/lib/meta-business/placements";
 import { cn } from "@/lib/utils";
+import { PlacementPreviewStrip } from "./placement-preview-strip";
 import {
   AiPlacementsEditor,
   placementsSummary,
@@ -236,6 +237,31 @@ export function AiCampaignClient() {
     [selectedMedias, videoUploads],
   );
   const needsTexts = planNeedsTexts(planMedias);
+  /**
+   * O que a tira de previews precisa. Usa a PRIMEIRA mídia: o preview responde
+   * "como fica o enquadramento", e as cinco dariam 30 chamadas ao Graph para a
+   * mesma resposta. Sem página resolvida não há o que o Meta renderizar.
+   */
+  const previewMedia = useMemo(() => {
+    const media = planMedias[0];
+    if (!media || !selectedPage?.pageId) return null;
+    return {
+      pageId: selectedPage.pageId,
+      ...(selectedPage.instagramBusinessAccountId
+        ? { instagramUserId: selectedPage.instagramBusinessAccountId }
+        : {}),
+      ...(media.kind === "image" ? { imageUrl: media.imageUrl } : {}),
+      ...(media.kind === "video"
+        ? {
+            videoId: media.videoId,
+            ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl } : {}),
+          }
+        : {}),
+      ...(media.kind === "instagram_post"
+        ? { instagramMediaId: media.instagramMediaId }
+        : {}),
+    };
+  }, [planMedias, selectedPage]);
   const needsPixel = objective === "sales" && !hasMold && !pixelId;
   const effectiveLocations = resolveEffectiveAiLocations(
     manualLocations,
@@ -932,33 +958,55 @@ export function AiCampaignClient() {
             ) : null}
 
             {selectedMedias.length > 0 ? (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                {selectedMedias.map((media, index) => (
-                  <div
-                    key={
-                      media.source === "instagram"
-                        ? media.instagramMediaId
-                        : media.source === "automatize_media"
-                          ? media.generatedImageId
-                          : media.blobUrl
-                    }
-                    className="overflow-hidden rounded-md border"
-                  >
-                    {media.previewUrl ? (
-                      <img
-                        alt={`Mídia ${index + 1}`}
-                        className="aspect-square w-full object-cover"
-                        src={media.previewUrl}
-                      />
-                    ) : (
-                      <div className="flex aspect-square items-center justify-center text-xs text-muted-foreground">
-                        Mídia {index + 1}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : null}
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                  {selectedMedias.map((media, index) => (
+                    <div
+                      key={
+                        media.source === "instagram"
+                          ? media.instagramMediaId
+                          : media.source === "automatize_media"
+                            ? media.generatedImageId
+                            : media.blobUrl
+                      }
+                      className="overflow-hidden rounded-md border"
+                    >
+                      {media.previewUrl ? (
+                        <img
+                          alt={`Mídia ${index + 1}`}
+                          className="aspect-square w-full object-cover"
+                          src={media.previewUrl}
+                        />
+                      ) : (
+                        <div className="flex aspect-square items-center justify-center text-xs text-muted-foreground">
+                          Mídia {index + 1}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+              ) : null}
+            {/*
+              Bloco próprio da revisão — a grade acima mostra a ARTE, isto mostra o
+              ANÚNCIO dentro do frame de cada posicionamento. Empilhado como as
+              demais configurações, igual ao app do cliente em telas estreitas.
+            */}
+            {previewMedia && (
+              <PlacementPreviewStrip
+                accountId={accountId}
+                userId={userId}
+                pageId={previewMedia.pageId}
+                instagramUserId={previewMedia.instagramUserId}
+                imageUrl={previewMedia.imageUrl}
+                videoId={previewMedia.videoId}
+                thumbnailUrl={previewMedia.thumbnailUrl}
+                instagramMediaId={previewMedia.instagramMediaId}
+                headline={headline}
+                message={message}
+                link={promotionUrl}
+                ctaType={ctaType}
+              />
+            )}
 
             <div className="space-y-2">
               <Label>Identidade</Label>
