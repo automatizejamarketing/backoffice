@@ -162,6 +162,34 @@ const SKIPPABLE_AD_SUBCODES = new Set<number>([
 ]);
 
 /**
+ * Meta refuses to copy an ad whose creative points at a media object that no longer
+ * resolves — typically a Facebook video deleted after the ad went live. The running ad
+ * keeps serving from its already-published creative, but `/copies` RE-CREATES the
+ * creative from `object_story_spec` and re-validates every media id, answering
+ * `(#100) Param video_id is not a valid video_id ID`.
+ *
+ * It arrives as code 100 with NO `error_subcode`, so `SKIPPABLE_AD_SUBCODES` cannot
+ * match it — which is why it used to escape as a fatal error and take the whole
+ * duplication down (relatório Vercel 2026-08-18, §4.3).
+ *
+ * Proven on the live account (2026-08-18, ad `120249497107820654`): the id named in the
+ * message answered `code 100 / subcode 33 "does not exist"` for the user token AND for
+ * the owning Page's own token, while the other two videos of the same campaign read
+ * back normally with the same tokens. The media is genuinely gone — not merely
+ * unreadable — so no retry, token refresh or reconnect can ever make this ad copyable.
+ */
+const UNAVAILABLE_MEDIA_PARAM_PATTERN =
+  /Param\s+(video_id|image_hash|image_url|photo_id)\s+is not a valid/i;
+
+/** pt-BR labels for the media params Meta can report as unresolvable. */
+const UNAVAILABLE_MEDIA_LABELS: Record<string, string> = {
+  video_id: "o vídeo",
+  image_hash: "a imagem",
+  image_url: "a imagem",
+  photo_id: "a imagem",
+};
+
+/**
  * Meta subcode 1487202: the token lacks permission to create ads for the ad's
  * Facebook Page. Meta subcode 2446149: a campaign-budget (CBO) campaign's budget is
  * too low to cover an additional ad set. Meta subcode 1885015: an id inside the
@@ -680,6 +708,32 @@ function graphErrorSubcode(err: unknown): number | undefined {
     : undefined;
 }
 
+/**
+ * The creative media param Meta says no longer resolves (`video_id`, `image_hash`…),
+ * or undefined when this is any other error. Matched on the MESSAGE because Meta sends
+ * this one as bare code 100 with no `error_subcode` — see
+ * {@link UNAVAILABLE_MEDIA_PARAM_PATTERN}. Deliberately narrow: it requires code 100,
+ * NO subcode (a subcoded 100 is a different, already-classified rejection) and one of
+ * the known media params, so an unrelated `(#100) Invalid parameter` never lands here.
+ */
+function unavailableMediaParam(err: unknown): string | undefined {
+  if (!(err instanceof GraphApiError)) return undefined;
+  const data = err.errorReturn.data;
+  if (!data || data.code !== 100 || data.errorSubcode != null) return undefined;
+  return UNAVAILABLE_MEDIA_PARAM_PATTERN.exec(data.message ?? "")?.[1];
+}
+
+/** Why this ad can never be copied, in the user's words, for `skippedAds[].reason`. */
+function unavailableMediaReason(param: string): string {
+  const label = UNAVAILABLE_MEDIA_LABELS[param] ?? "a mídia";
+  return (
+    `Não é possível duplicar este anúncio: ${label} do criativo original não existe ` +
+    `mais na Meta. O anúncio atual continua no ar com a mídia já publicada, mas uma ` +
+    `cópia precisa recriar o criativo — e a Meta recusa a mídia apagada. Publique a ` +
+    `mídia novamente ou recrie o anúncio com uma mídia atual e duplique de novo.`
+  );
+}
+
 type CopyResponse = {
   copied_campaign_id?: string;
   copied_adset_id?: string;
@@ -798,6 +852,12 @@ export type SkippedItem = {
   sourceName?: string;
   /** Meta's own reason (error_user_msg + subcode) for surfacing to the admin. */
   reason: string;
+  /**
+   * The creative points at a video/image that no longer exists on Meta
+   * ({@link unavailableMediaParam}). Distinguishes "fix the media, then duplicate"
+   * from every other skip — no retry of the SAME ad can ever succeed.
+   */
+  unavailableMedia?: boolean;
 };
 
 /** A single deprecated detailed-targeting interest swapped for Meta's alternative. */
@@ -940,6 +1000,8 @@ export class DuplicateAtomicError extends GraphApiError {
    * affordance instead of inviting the 8-attempt loop of item B-04.
    */
   readonly promotedObjectUnavailable?: boolean;
+  /** Carried over from a {@link DuplicatePreconditionError}: the creative media is gone. */
+  readonly unavailableMedia?: boolean;
 
   constructor(args: {
     message: string;
@@ -950,6 +1012,7 @@ export class DuplicateAtomicError extends GraphApiError {
     isTransient?: boolean;
     needsPromotionUrl?: boolean;
     promotedObjectUnavailable?: boolean;
+    unavailableMedia?: boolean;
   }) {
     super({
       statusCode: args.statusCode ?? 502,
@@ -965,6 +1028,7 @@ export class DuplicateAtomicError extends GraphApiError {
     this.orphanIds = args.orphanIds;
     this.needsPromotionUrl = args.needsPromotionUrl;
     this.promotedObjectUnavailable = args.promotedObjectUnavailable;
+    this.unavailableMedia = args.unavailableMedia;
   }
 }
 
@@ -1002,12 +1066,21 @@ export class DuplicatePreconditionError extends GraphApiError {
    */
   readonly promotedObjectUnavailable: boolean;
 
+  /**
+   * Every ad of the source refused to copy because its creative media no longer
+   * exists on Meta. Same contract as `promotedObjectUnavailable`: the client uses it
+   * to drop the "Duplicar" affordance, because the identical copy is refused until
+   * the media is republished or the ad is recreated.
+   */
+  readonly unavailableMedia: boolean;
+
   constructor(args: {
     statusCode: number;
     title: string;
     message: string;
     solution: string;
     promotedObjectUnavailable?: boolean;
+    unavailableMedia?: boolean;
   }) {
     super({
       statusCode: args.statusCode,
@@ -1022,6 +1095,50 @@ export class DuplicatePreconditionError extends GraphApiError {
       },
     });
     this.promotedObjectUnavailable = args.promotedObjectUnavailable ?? false;
+    this.unavailableMedia = args.unavailableMedia ?? false;
+  }
+}
+
+/**
+ * Raised when the caller-supplied time budget runs out mid-duplication.
+ *
+ * A serverless function that is killed by the platform answers a bare `504` with no
+ * body: the user sees "timeout" and never learns what happened, support has nothing to
+ * read, and — worse — the rollback is killed with it, leaving a half-built campaign in
+ * the client's ad account (relatório Vercel 2026-08-18, §4.3: two 504s left two orphan
+ * campaigns of 22 and 20 objects). Checking a deadline at every copy boundary turns
+ * that into a normal failure: we stop creating, roll back (one root delete), and answer
+ * with a real status, a real message and — if the rollback itself could not finish —
+ * the orphan ids.
+ *
+ * `503` + `isTransient: true` because nothing is wrong with the account or the
+ * campaign; the operation simply did not fit the window and a retry can work.
+ */
+export class DuplicateTimeBudgetError extends GraphApiError {
+  constructor() {
+    super({
+      statusCode: 503,
+      reason: {
+        httpStatusCode: 503,
+        title: "A duplicação demorou demais",
+        message:
+          "Esta campanha tem itens demais para serem copiados de uma vez e o tempo limite da operação foi atingido. Nada ficou pela metade: a cópia parcial foi removida.",
+        solution:
+          "Tente novamente em alguns instantes. Se voltar a acontecer, duplique conjunto por conjunto em vez da campanha inteira.",
+        isTransient: true,
+      },
+    });
+  }
+}
+
+/**
+ * Throws {@link DuplicateTimeBudgetError} once `deadlineAt` (epoch ms) has passed.
+ * Called at copy boundaries — never mid-call — so we always abort between writes,
+ * with every created id already tracked for the rollback.
+ */
+function assertTimeBudget(deadlineAt: number | undefined): void {
+  if (deadlineAt != null && Date.now() >= deadlineAt) {
+    throw new DuplicateTimeBudgetError();
   }
 }
 
@@ -1030,13 +1147,15 @@ type CreatedObjectKind = "campaign" | "adset" | "ad";
 type CreatedObject = {
   kind: CreatedObjectKind;
   id: string;
+  /** Id of the tracked object this one was created inside, when there is one. */
+  parentId?: string;
 };
 
 class CreatedObjectsTracker {
   private readonly objects: CreatedObject[] = [];
 
-  track(kind: CreatedObjectKind, id: string): void {
-    this.objects.push({ kind, id });
+  track(kind: CreatedObjectKind, id: string, parentId?: string): void {
+    this.objects.push({ kind, id, parentId });
   }
 
   /**
@@ -1049,11 +1168,49 @@ class CreatedObjectsTracker {
     if (idx >= 0) this.objects.splice(idx, 1);
   }
 
+  /** The outermost tracked ancestor of `obj` (itself when it has no tracked parent). */
+  private rootOf(obj: CreatedObject, byId: Map<string, CreatedObject>): CreatedObject {
+    let current = obj;
+    const seen = new Set<string>([obj.id]);
+    for (;;) {
+      const parent = current.parentId ? byId.get(current.parentId) : undefined;
+      if (!parent || seen.has(parent.id)) return current;
+      seen.add(parent.id);
+      current = parent;
+    }
+  }
+
+  /**
+   * Delete every created object, ROOTS FIRST.
+   *
+   * Meta cascades a delete down the tree, so removing the copied CAMPAIGN removes its
+   * ad sets and ads in one call. The old implementation walked the list in reverse
+   * creation order — ads first, campaign last — which on a real tree is ~26 sequential
+   * DELETEs at ~2 s each. On 2026-08-18 that rollback got through 3 of 26 before the
+   * serverless budget ran out, leaving a whole copied campaign orphaned in the client's
+   * account (relatório Vercel 2026-08-18, §4.3). Root-first turns the same rollback
+   * into a single call, so it now finishes inside any sane budget.
+   *
+   * Descendants of a root we DID delete are not touched again (Meta already removed
+   * them). Only the descendants of a root whose delete FAILED are retried one by one,
+   * and whatever still refuses to go is reported as an orphan for manual cleanup.
+   */
   async rollback(accessToken: string): Promise<string[]> {
+    const byId = new Map(this.objects.map((o) => [o.id, o]));
+    const roots = this.objects.filter((o) => this.rootOf(o, byId) === o);
+    const deletedRoots = new Set<string>();
     const failedIds: string[] = [];
+
+    for (const root of roots) {
+      if (await deleteMetaObject(root.id, accessToken)) deletedRoots.add(root.id);
+      else failedIds.push(root.id);
+    }
+
     for (const obj of [...this.objects].reverse()) {
-      const deleted = await deleteMetaObject(obj.id, accessToken);
-      if (!deleted) failedIds.push(obj.id);
+      const root = this.rootOf(obj, byId);
+      if (root === obj) continue; // already handled above
+      if (deletedRoots.has(root.id)) continue; // removed by Meta's cascade
+      if (!(await deleteMetaObject(obj.id, accessToken))) failedIds.push(obj.id);
     }
     return failedIds;
   }
@@ -1103,17 +1260,26 @@ async function rollbackAndThrow(
   // "foi revertida" framing is added on top — the envelope survives intact.
   // Without this, item B-04's named, actionable diagnosis was flattened back
   // into `502` + "tente duplicar novamente" on its way out of here.
+  //
+  // A time-budget abort is the same situation from the other side: the status and the
+  // advice ("tente de novo em instantes") are already correct on the error, and
+  // flattening it into `502` + "corrija o problema indicado" would blame the user's
+  // campaign for our own window running out.
   const precondition =
     cause instanceof DuplicatePreconditionError ? cause : undefined;
+  const envelope =
+    precondition ?? (cause instanceof DuplicateTimeBudgetError ? cause : undefined);
 
   throw new DuplicateAtomicError({
-    message: `A duplicação falhou e foi revertida. ${originalMessage}`,
+    message:
+      cause instanceof DuplicateTimeBudgetError
+        ? originalMessage
+        : `A duplicação falhou e foi revertida. ${originalMessage}`,
     solution:
-      precondition?.errorReturn.reason.solution ??
+      envelope?.errorReturn.reason.solution ??
       "Corrija o problema indicado e tente duplicar novamente.",
-    ...(precondition
-      ? { statusCode: precondition.errorReturn.statusCode }
-      : {}),
+    ...(envelope ? { statusCode: envelope.errorReturn.statusCode } : {}),
+    ...(cause instanceof DuplicateTimeBudgetError ? { isTransient: true } : {}),
     rolledBack: true,
     // Only on a clean rollback do we offer the reactive promotion-URL retry:
     // when objects were orphaned the user must clean those up first, so we
@@ -1122,6 +1288,7 @@ async function rollbackAndThrow(
     ...(precondition?.promotedObjectUnavailable
       ? { promotedObjectUnavailable: true }
       : {}),
+    ...(precondition?.unavailableMedia ? { unavailableMedia: true } : {}),
   });
 }
 
@@ -1131,6 +1298,7 @@ export function duplicateErrorExtras(error: unknown): {
   orphanIds?: string[];
   needsPromotionUrl?: boolean;
   promotedObjectUnavailable?: boolean;
+  unavailableMedia?: boolean;
 } {
   // A precondition raised BEFORE the rollback scope opens never becomes a
   // DuplicateAtomicError, so it is matched on its own: the client needs the
@@ -1141,6 +1309,7 @@ export function duplicateErrorExtras(error: unknown): {
       ...(error.promotedObjectUnavailable
         ? { promotedObjectUnavailable: true }
         : {}),
+      ...(error.unavailableMedia ? { unavailableMedia: true } : {}),
     };
   }
   if (!(error instanceof DuplicateAtomicError)) return {};
@@ -1151,6 +1320,7 @@ export function duplicateErrorExtras(error: unknown): {
     ...(error.promotedObjectUnavailable
       ? { promotedObjectUnavailable: true }
       : {}),
+    ...(error.unavailableMedia ? { unavailableMedia: true } : {}),
   };
 }
 
@@ -2619,16 +2789,30 @@ type CopiedAd = { sourceAd: NamedNode; copiedAdId: string };
 
 type AdCopyOutcome =
   | { kind: "ok"; sourceAd: NamedNode; copiedAdId: string; repairs: CreativeRepairLabel[] }
-  | { kind: "skip"; sourceAd: NamedNode; reason: string }
-  | { kind: "fail"; sourceAd: NamedNode; error: unknown };
+  | {
+      kind: "skip";
+      sourceAd: NamedNode;
+      reason: string;
+      unavailableMedia?: boolean;
+    }
+  | { kind: "fail"; sourceAd: NamedNode; error: unknown }
+  /** Never attempted: an earlier ad in this ad set already failed fatally. */
+  | { kind: "aborted"; sourceAd: NamedNode };
 
 /**
  * Copy every ad in `sourceAds` into `targetAdsetId` with bounded concurrency,
  * tracking each success for rollback. Ads Meta will never accept for an
- * ad-specific reason (`SKIPPABLE_AD_SUBCODES`) are skipped and returned in
- * `skippedAds`. Any OTHER failure rethrows the ORIGINAL Meta error after all
- * workers finish — so every created id is known for rollback and the subcode is
- * preserved (e.g. 2446383 → `needsPromotionUrl`).
+ * ad-specific reason (`SKIPPABLE_AD_SUBCODES`, or a creative media that no longer
+ * exists) are skipped and returned in `skippedAds`. Any OTHER failure rethrows the
+ * ORIGINAL Meta error after the in-flight workers finish — so every created id is
+ * known for rollback and the subcode is preserved (e.g. 2446383 →
+ * `needsPromotionUrl`).
+ *
+ * Once one ad fails fatally the remaining ads are NOT started. The whole tree is about
+ * to be rolled back, so every further copy is an object created only to be deleted —
+ * and it is not free: on 2026-08-18 the engine kept copying for 15 s after the fatal
+ * 400, building 10 more ads that then had to be deleted, which is a large part of why
+ * the function was killed before the rollback finished (relatório Vercel, §4.3).
  */
 async function copyAdsIntoAdset(
   sourceAds: NamedNode[],
@@ -2642,15 +2826,26 @@ async function copyAdsIntoAdset(
   fallbackPromotionUrl?: string,
   statusOption = STATUS_OPTION,
   placementAdaptation?: PlacementAdaptation,
+  deadlineAt?: number,
 ): Promise<{
   copiedAds: CopiedAd[];
   skippedAds: SkippedItem[];
   repairedCreatives: RepairedCreativeItem[];
 }> {
+  /** First fatal error seen; set once, then no further copy is started. */
+  let fatal: unknown;
+
   const outcomes = await mapWithConcurrency<NamedNode, AdCopyOutcome>(
     sourceAds,
     AD_COPY_CONCURRENCY,
     async (ad) => {
+      if (fatal !== undefined) return { kind: "aborted", sourceAd: ad };
+      try {
+        assertTimeBudget(deadlineAt);
+      } catch (err) {
+        fatal = err;
+        return { kind: "fail", sourceAd: ad, error: err };
+      }
       // Pre-skip IG-post boosts whose source media Meta already says can't be promoted
       // as an ad (e.g. copyrighted-music reels). Copying them would 400 with subcode
       // 2875030 — an error against our budget — for the very skip we can decide here
@@ -2674,15 +2869,30 @@ async function copyAdsIntoAdset(
           }),
         );
         if (!copiedAdId) {
-          return { kind: "fail", sourceAd: ad, error: missingCopyIdError("do anúncio") };
+          const error = missingCopyIdError("do anúncio");
+          fatal ??= error;
+          return { kind: "fail", sourceAd: ad, error };
         }
-        tracker.track("ad", copiedAdId);
+        tracker.track("ad", copiedAdId, targetAdsetId);
         return { kind: "ok", sourceAd: ad, copiedAdId, repairs };
       } catch (err) {
         const sub = graphErrorSubcode(err);
         if (sub != null && SKIPPABLE_AD_SUBCODES.has(sub)) {
           return { kind: "skip", sourceAd: ad, reason: errorMessage(err) };
         }
+        // The creative points at a deleted video/image. Meta will refuse this ONE ad
+        // forever, whatever we send — exactly the shape of a skip, except it arrives
+        // without an `error_subcode`, so it has to be matched on the message.
+        const media = unavailableMediaParam(err);
+        if (media) {
+          return {
+            kind: "skip",
+            sourceAd: ad,
+            reason: unavailableMediaReason(media),
+            unavailableMedia: true,
+          };
+        }
+        fatal ??= err;
         return { kind: "fail", sourceAd: ad, error: err };
       }
     },
@@ -2711,6 +2921,7 @@ async function copyAdsIntoAdset(
         sourceId: outcome.sourceAd.id,
         sourceName: outcome.sourceAd.name,
         reason: outcome.reason,
+        ...(outcome.unavailableMedia ? { unavailableMedia: true } : {}),
       });
     }
   }
@@ -2982,8 +3193,16 @@ export async function duplicateCampaign(args: {
   accessToken: string;
   /** Website URL injected into ad copies whose creative lacks one (sales). */
   fallbackPromotionUrl?: string;
+  /**
+   * Epoch ms after which no further object may be created. Checked between copies:
+   * past it we abort, roll back and answer (see {@link DuplicateTimeBudgetError})
+   * instead of letting the platform kill the function mid-rollback. Callers should
+   * leave room for the rollback + response — the route reserves 12 s.
+   */
+  deadlineAt?: number;
 }): Promise<DuplicateResult> {
-  const { accountId, campaignId, accessToken, fallbackPromotionUrl } = args;
+  const { accountId, campaignId, accessToken, fallbackPromotionUrl, deadlineAt } =
+    args;
   const act = formatAccountId(accountId);
 
   // Read-only prep, OUTSIDE the rollback scope (nothing created yet). The single
@@ -3099,6 +3318,7 @@ export async function duplicateCampaign(args: {
     let copiedAdsetCount = 0;
 
     for (const sourceAdset of sourceAdsets) {
+      assertTimeBudget(deadlineAt);
       const {
         id: copiedAdsetId,
         replacedInterests: adsetReplacements,
@@ -3114,7 +3334,7 @@ export async function duplicateCampaign(args: {
         campaignLifetime,
         prefetchedSource: adsetsById.get(sourceAdset.id),
       });
-      tracker.track("adset", copiedAdsetId);
+      tracker.track("adset", copiedAdsetId, newCampaignId);
       if (rebuilt) {
         rebuiltAdsets.push({
           sourceAdsetId: sourceAdset.id,
@@ -3149,6 +3369,9 @@ export async function duplicateCampaign(args: {
         boostIneligibleMedia,
         isSales,
         fallbackPromotionUrl,
+        STATUS_OPTION,
+        undefined,
+        deadlineAt,
       );
       skippedAds.push(...skipped);
       repairedCreatives.push(...repaired);
@@ -3168,18 +3391,22 @@ export async function duplicateCampaign(args: {
     }
 
     if (copiedAdsetCount === 0) {
-      // Nothing copyable anywhere — surface a clear reason and roll back.
-      throw new GraphApiError({
-        statusCode: 502,
-        reason: {
-          httpStatusCode: 502,
-          title: "Falha na duplicação",
-          message:
-            "Nenhum anúncio pôde ser copiado: todos os anúncios desta campanha são inelegíveis para duplicação (por exemplo, reels com música protegida por direitos autorais).",
-          solution:
-            "Ajuste a mídia/música dos anúncios de origem no Gerenciador de Anúncios e tente duplicar novamente.",
-          isTransient: false,
-        },
+      // Nothing copyable anywhere. This is a precondition of the SOURCE campaign, not
+      // a gateway failure: `502` + "tente novamente" blamed Meta for a verdict Meta
+      // reported correctly, and invited a retry that cannot work. Answer `400` and
+      // quote the reason Meta actually gave for the first ad, so the user reads
+      // "o vídeo não existe mais" / "a música é protegida" instead of a generic
+      // "inelegível" that names nothing (relatório Vercel 2026-08-18, §4.3).
+      throw new DuplicatePreconditionError({
+        statusCode: 400,
+        title: "Falha na duplicação",
+        message: `Nenhum anúncio pôde ser copiado: a Meta recusou todos os anúncios desta campanha. ${
+          skippedAds[0]?.reason ??
+          "Os anúncios são inelegíveis para duplicação (por exemplo, reels com música protegida por direitos autorais)."
+        }`,
+        solution:
+          "Corrija a mídia dos anúncios de origem no Gerenciador de Anúncios (republique o vídeo/imagem ou recrie o anúncio) e tente duplicar novamente.",
+        unavailableMedia: skippedAds.some((s) => s.unavailableMedia),
       });
     }
 
@@ -3352,7 +3579,7 @@ export async function duplicateProvenCampaign(args: {
         statusOption: AI_BUILD_STATUS_OPTION,
         prefetchedSource: adsetsById.get(sourceAdset.id),
       });
-      tracker.track("adset", copiedAdsetId);
+      tracker.track("adset", copiedAdsetId, newCampaignId);
       if (rebuilt) {
         rebuiltAdsets.push({
           sourceAdsetId: sourceAdset.id,
@@ -3529,8 +3756,10 @@ export async function duplicateAdSet(args: {
   accessToken: string;
   /** Website URL injected into ad copies whose creative lacks one (sales). */
   fallbackPromotionUrl?: string;
+  /** Epoch ms after which no further ad may be copied — see `duplicateCampaign`. */
+  deadlineAt?: number;
 }): Promise<DuplicateResult> {
-  const { accountId, adsetId, accessToken, fallbackPromotionUrl } = args;
+  const { accountId, adsetId, accessToken, fallbackPromotionUrl, deadlineAt } = args;
   const act = formatAccountId(accountId);
 
   // Read-only prep, OUTSIDE the rollback scope.
@@ -3674,21 +3903,25 @@ export async function duplicateAdSet(args: {
       boostIneligibleMedia,
       isSales,
       fallbackPromotionUrl,
+      STATUS_OPTION,
+      undefined,
+      deadlineAt,
     );
 
     if (copiedAds.length === 0) {
-      // A duplicated ad set with no ads is pointless — fail and roll it back.
-      throw new GraphApiError({
-        statusCode: 502,
-        reason: {
-          httpStatusCode: 502,
-          title: "Falha na duplicação",
-          message:
-            "Nenhum anúncio pôde ser copiado: todos os anúncios deste conjunto são inelegíveis para duplicação (por exemplo, reels com música protegida por direitos autorais).",
-          solution:
-            "Ajuste a mídia/música dos anúncios de origem no Gerenciador de Anúncios e tente duplicar novamente.",
-          isTransient: false,
-        },
+      // A duplicated ad set with no ads is pointless — fail and roll it back. Same
+      // envelope as the campaign path: `400` (a precondition of the SOURCE, not a
+      // gateway failure) quoting Meta's actual reason for the first refused ad.
+      throw new DuplicatePreconditionError({
+        statusCode: 400,
+        title: "Falha na duplicação",
+        message: `Nenhum anúncio pôde ser copiado: a Meta recusou todos os anúncios deste conjunto. ${
+          skippedAds[0]?.reason ??
+          "Os anúncios são inelegíveis para duplicação (por exemplo, reels com música protegida por direitos autorais)."
+        }`,
+        solution:
+          "Corrija a mídia dos anúncios de origem no Gerenciador de Anúncios (republique o vídeo/imagem ou recrie o anúncio) e tente duplicar novamente.",
+        unavailableMedia: skippedAds.some((item) => item.unavailableMedia),
       });
     }
 
