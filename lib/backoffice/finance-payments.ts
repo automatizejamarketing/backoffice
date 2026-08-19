@@ -85,6 +85,9 @@ export type FinanceProductPaymentRow = {
   automatizeTotalNetRevenueCentavos: number | null;
   expertShareBasisPoints: number;
   expertRevenueCentavos: number | null;
+  /** Split Vindi (`vindi_split_v1`), congelado na venda. */
+  expertAmountCentavos: number | null;
+  platformTheoreticalAmountCentavos: number | null;
 };
 
 export type FinanceProductPaymentAmounts = {
@@ -113,6 +116,8 @@ export type FinanceProductPaymentAmountRow = Pick<
   | "automatizeTotalNetRevenueCentavos"
   | "expertShareBasisPoints"
   | "expertRevenueCentavos"
+  | "expertAmountCentavos"
+  | "platformTheoreticalAmountCentavos"
 >;
 
 export type FinancePaymentsNetBreakdown = {
@@ -399,6 +404,8 @@ export function resolveAutomatizeProductNetCentavos(
     | "expertShareBasisPoints"
     | "expertRevenueCentavos"
     | "netAmountCentavos"
+    | "expertAmountCentavos"
+    | "platformTheoreticalAmountCentavos"
   >,
   gatewayNet: number,
 ): number {
@@ -408,6 +415,24 @@ export function resolveAutomatizeProductNetCentavos(
 
   if (payment.ownerType === "automatize") {
     return gatewayNet;
+  }
+
+  // `vindi_split_v1` não entra em nenhum dos ramos abaixo: o modelo zera
+  // `expert_share_basis_points` (a participação real mora em
+  // `expert_participation_bps`) e não preenche as colunas do v3. Sem este
+  // desvio, a conta caía no ramo legado, derivava participação zero e
+  // atribuía a venda INTEIRA à Automatize — a parte do expert virava receita
+  // nossa em todo relatório. Os dois valores já vêm congelados da venda.
+  if (payment.financialModel === "vindi_split_v1") {
+    if (payment.platformTheoreticalAmountCentavos !== null) {
+      return payment.platformTheoreticalAmountCentavos;
+    }
+    if (payment.expertAmountCentavos !== null) {
+      return calculateAutomatizeNetRevenueCentavos(
+        gatewayNet,
+        Math.min(payment.expertAmountCentavos, gatewayNet),
+      );
+    }
   }
 
   if (usesPlatformFeeFinancialModel(payment.financialModel)) {
@@ -459,9 +484,12 @@ export function resolveProductPaymentAmounts<
     payment.netAmountCentavos ?? (fee !== null ? gross - fee : gross);
   const revenueKind = payment.ownerType === "automatize" ? "coproducao" : "taxa";
   const derivedExpertRevenue =
-    payment.expertShareBasisPoints > 0
-      ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
-      : 0;
+    payment.financialModel === "vindi_split_v1" &&
+    payment.expertAmountCentavos !== null
+      ? payment.expertAmountCentavos
+      : payment.expertShareBasisPoints > 0
+        ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
+        : 0;
   const ledgerExpertRevenue = payment.expertRevenueCentavos;
   const expertRevenue =
     ledgerExpertRevenue !== null &&

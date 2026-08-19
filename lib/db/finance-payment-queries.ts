@@ -130,6 +130,12 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       automatizeTotalNetRevenueCentavos:
         productPayment.automatizeTotalNetRevenueCentavos,
       expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+      // Split Vindi: a participação do expert e a sobra da plataforma são
+      // congeladas por venda, e é delas que sai a receita real (ver
+      // `resolveAutomatizeProductNetCentavos`).
+      expertAmountCentavos: productPayment.expertAmountCentavos,
+      platformTheoreticalAmountCentavos:
+        productPayment.platformTheoreticalAmountCentavos,
       expertRevenueCentavos: sql<number>`(
           select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
           from ${expertLedgerEntry}

@@ -55,6 +55,8 @@ const productPaymentFixture = {
   automatizeTotalNetRevenueCentavos: null,
   expertShareBasisPoints: 9000,
   expertRevenueCentavos: 17100,
+  expertAmountCentavos: null,
+  platformTheoreticalAmountCentavos: null,
 };
 
 describe("finance payments summaries", () => {
@@ -159,6 +161,8 @@ describe("finance payments summaries", () => {
       ownerType: "automatize",
       expertShareBasisPoints: 0,
       expertRevenueCentavos: null,
+      expertAmountCentavos: null,
+      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.revenueKind).toBe("coproducao");
@@ -181,6 +185,8 @@ describe("finance payments summaries", () => {
       ownerType: "automatize",
       expertShareBasisPoints: 6000,
       expertRevenueCentavos: 5700,
+      expertAmountCentavos: null,
+      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.revenueKind).toBe("coproducao");
@@ -223,6 +229,8 @@ describe("finance payments summaries", () => {
       priceCentavos: 8799,
       expertShareBasisPoints: 9500,
       expertRevenueCentavos: null,
+      expertAmountCentavos: null,
+      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.revenueKind).toBe("taxa");
@@ -288,6 +296,8 @@ describe("finance payments summaries", () => {
       platformFeeGrossCentavos: null,
       expertShareBasisPoints: 0,
       expertRevenueCentavos: null,
+      expertAmountCentavos: null,
+      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.platformFeeGrossCentavos).toBe(0);
@@ -528,5 +538,58 @@ describe("finance payments summaries", () => {
       kind: "renewal",
       badgeLabel: "Renovação",
     });
+  });
+});
+
+describe("receita de produto no split Vindi", () => {
+  const vindiSplitFixture = {
+    ...productPaymentFixture,
+    financialModel: "vindi_split_v1" as const,
+    // O modelo zera o campo legado; a participação real fica congelada nas
+    // colunas do split.
+    expertShareBasisPoints: 0,
+    expertRevenueCentavos: null,
+    grossAmountCentavos: 10000,
+    netAmountCentavos: 10000,
+    feeAmountCentavos: null,
+    priceCentavos: 10000,
+    expertAmountCentavos: 7561,
+    platformTheoreticalAmountCentavos: 1890,
+  };
+
+  test("a parte do expert não vira receita da Automatize", () => {
+    const amounts = resolveProductPaymentAmounts(vindiSplitFixture);
+
+    expect(amounts.expertRevenueCentavos).toBe(7561);
+    expect(amounts.automatizeNetCentavos).toBe(1890);
+    expect(amounts.grossCentavos).toBe(10000);
+  });
+
+  test("sem a sobra congelada, deriva do valor do expert", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...vindiSplitFixture,
+      platformTheoreticalAmountCentavos: null,
+    });
+
+    expect(amounts.expertRevenueCentavos).toBe(7561);
+    expect(amounts.automatizeNetCentavos).toBe(10000 - 7561);
+  });
+
+  test("produto do Automatize continua ficando com o líquido inteiro", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...vindiSplitFixture,
+      ownerType: "automatize" as const,
+      expertAmountCentavos: 0,
+      platformTheoreticalAmountCentavos: 10000,
+    });
+
+    expect(amounts.automatizeNetCentavos).toBe(10000);
+  });
+
+  test("os modelos antigos não mudam de comportamento", () => {
+    const amounts = resolveProductPaymentAmounts(productPaymentFixture);
+
+    expect(amounts.expertRevenueCentavos).toBe(17100);
+    expect(amounts.automatizeNetCentavos).toBe(1900);
   });
 });
