@@ -64,7 +64,7 @@ function startOfPreviousMonth(value: string): string {
     .slice(0, 10);
 }
 
-function brtStartOfDay(value: string): Date {
+export function brtStartOfCalendarDate(value: string): Date {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(
     Date.UTC(year, month - 1, day, BRT_START_OF_DAY_UTC_HOUR, 0, 0, 0),
@@ -120,7 +120,7 @@ export function resolveDashboardDateWindow(
     preset: normalizedPreset,
     fromDate,
     throughDate,
-    gte: brtStartOfDay(fromDate),
-    lt: brtStartOfDay(shiftCalendarDate(throughDate, 1)),
+    gte: brtStartOfCalendarDate(fromDate),
+    lt: brtStartOfCalendarDate(shiftCalendarDate(throughDate, 1)),
   };
 }

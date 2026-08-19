@@ -28,6 +28,7 @@ describe("normalizeUsersFilterParams", () => {
         planPeriod: "annual",
         metaStatus: "connected",
         activationStatus: "pending",
+        contactStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
@@ -67,6 +68,7 @@ describe("normalizeUsersFilterParams", () => {
         planPeriod: "all",
         metaStatus: "all",
         activationStatus: "all",
+        contactStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
@@ -101,6 +103,14 @@ describe("normalizeUsersFilterParams", () => {
     });
 
     expect(filters.activationStatus).toBe("pending");
+  });
+
+  test("keeps the local contact-status filter", () => {
+    const filters = normalizeUsersFilterParams({
+      contactStatus: "not_contacted",
+    });
+
+    expect(filters.contactStatus).toBe("not_contacted");
   });
 
   test("maps legacy renewal links to the equivalent access window", () => {
