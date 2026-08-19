@@ -109,7 +109,7 @@ cabeçalho: produção é `hosjqwtfjjtmphchsuqf`, staging é `wsbsnzgzqiehqnklzc
 8. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
 9. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.
 
-Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit it.
+The migration set in `lib/db/migrations/` changes too often to enumerate here — `meta/_journal.json` is the authoritative record; do not hand-edit it. When creating a new migration, pick a `when` greater than the highest value in **both** journals (this repo's and `../automatize-frontend/lib/db/migrations/meta/_journal.json`), or it will be silently skipped — see "A marca d'água" above.
 
 The DB client in `lib/db/index.ts` uses `postgres-js` with `prepare: false` intentionally (prepared-statement reuse was returning stale rows on repeated identical UPDATEs — for example credit bumps). Don't flip it back to `prepare: true`.
 
