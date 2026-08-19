@@ -34,7 +34,7 @@ const HIDEABLE_COLUMN_IDS = USERS_TABLE_COLUMNS.filter(
 const LEGACY_OPTIONAL_IDS = HIDEABLE_COLUMN_IDS.filter((id) => id !== "contact");
 
 export function isUsersTableColumnHideable(id: UsersTableColumnId): boolean {
-  return HIDEABLE_COLUMN_IDS.includes(id);
+  return USERS_TABLE_COLUMNS.some((column) => column.id === id && column.hideable);
 }
 
 function isColumnId(value: unknown): value is UsersTableColumnId {
