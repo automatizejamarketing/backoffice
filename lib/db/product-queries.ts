@@ -147,6 +147,10 @@ export async function listProductsAdmin() {
         automatizeTotalNetRevenueCentavos:
           productPayment.automatizeTotalNetRevenueCentavos,
         expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+        // Split Vindi: sem estes dois a parte do expert é contada como nossa.
+        expertAmountCentavos: productPayment.expertAmountCentavos,
+        platformTheoreticalAmountCentavos:
+          productPayment.platformTheoreticalAmountCentavos,
         expertRevenueCentavos: sql<number>`(
           select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
           from ${expertLedgerEntry}
