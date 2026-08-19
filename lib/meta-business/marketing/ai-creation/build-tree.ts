@@ -9,7 +9,8 @@
  * tree (fallback.ts). What remains is the vocabulary both paths share.
  */
 import type { AdCreativeInput } from "../creation/create-ad";
-import type { PlacementKey } from "../../placements";
+import type { PlacementAdaptation } from "@/lib/meta-business/creative-features";
+import type { PlacementKey } from "@/lib/meta-business/placements";
 import type { CampaignMold } from "./read-mold";
 
 /** What the flow suggests, and the floor it advises (ADR 0022, decision 7). */
@@ -73,9 +74,21 @@ export type PlanAnswers = {
   /**
    * Placement override from the AI review. Absent = keep the mold's targeting
    * (Advantage+ when the source omitted publisher_platforms / *_positions).
+   * `manual` sends those fields and turns Advantage+ placements off (v25.0).
    */
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  /**
+   * Como o Meta pode reenquadrar a mídia nos posicionamentos onde ela não cabe
+   * (o quadrado servido em Stories/Reels, o vertical servido no Feed).
+   *
+   * Ausente = o padrão do produto: reenquadra, mas não deixa a IA expandir a
+   * imagem com conteúdo inventado. A tela de revisão só expõe o opt-in da
+   * expansão generativa; o reenquadramento não é uma pergunta que valha fazer ao
+   * usuário, porque a alternativa é o anúncio simplesmente não aparecer em
+   * metade dos posicionamentos.
+   */
+  placementAdaptation?: PlacementAdaptation;
 };
 
 /**

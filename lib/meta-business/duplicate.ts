@@ -1,5 +1,9 @@
 import { metaApiCall } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
+import {
+  type PlacementAdaptation,
+  withPlacementAdaptation,
+} from "@/lib/meta-business/creative-features";
 
 /**
  * MIRRORED FILE — `automatize-frontend` and `backoffice` must hold BYTE-IDENTICAL copies.
@@ -2429,11 +2433,36 @@ function repairLabelForSubcode(subcode: number): CreativeRepairLabel | null {
 
 function buildPreemptiveAdPatch(
   creative: GraphCreativeShape,
-  opts: { isSales: boolean; fallbackPromotionUrl?: string },
+  opts: {
+    isSales: boolean;
+    fallbackPromotionUrl?: string;
+    placementAdaptation?: PlacementAdaptation;
+  },
 ): { patch: Record<string, unknown>; repairs: CreativeRepairLabel[] } {
   const patch: Record<string, unknown> = {};
   const repairs: CreativeRepairLabel[] = [];
-  const strip = buildStripStandardEnhancementsPatch(creative);
+  // Adaptação por posicionamento, quando o chamador pede (hoje: a criação com IA).
+  // Supersedes o strip de `standard_enhancements` — `withPlacementAdaptation` já
+  // remove o bundle descontinuado ao mesclar, então os dois nunca se sobrepõem.
+  if (opts.placementAdaptation) {
+    const sourceFeatures = creative.degrees_of_freedom_spec?.creative_features_spec;
+    const merged = withPlacementAdaptation(sourceFeatures, opts.placementAdaptation);
+    if (merged) {
+      patch.degrees_of_freedom_spec = {
+        ...creative.degrees_of_freedom_spec,
+        creative_features_spec: merged,
+      };
+      // O label é para o usuário e significa "consertamos algo quebrado no
+      // criativo de origem". Ligar a adaptação não é conserto; só marcamos
+      // quando o merge de fato removeu o bundle descontinuado.
+      if (sourceFeatures && "standard_enhancements" in sourceFeatures) {
+        repairs.push("standard-enhancements");
+      }
+    }
+  }
+  const strip = patch.degrees_of_freedom_spec
+    ? null
+    : buildStripStandardEnhancementsPatch(creative);
   if (strip) {
     Object.assign(patch, strip);
     repairs.push("standard-enhancements");
@@ -2511,6 +2540,8 @@ async function copyAdWithRepair(
     isSales?: boolean;
     /** Override Meta `status_option` (AI proven path passes PAUSED). */
     statusOption?: string;
+    /** Liga a adaptação por posicionamento no criativo copiado (caminho de IA). */
+    placementAdaptation?: PlacementAdaptation;
   },
 ): Promise<{ copiedAdId: string | undefined; repairs: CreativeRepairLabel[] }> {
   const fallbackPromotionUrl = opts?.fallbackPromotionUrl;
@@ -2522,6 +2553,7 @@ async function copyAdWithRepair(
     ? buildPreemptiveAdPatch(prefetched, {
         isSales: !!opts?.isSales,
         fallbackPromotionUrl,
+        placementAdaptation: opts?.placementAdaptation,
       })
     : { patch: {} as Record<string, unknown>, repairs: [] as CreativeRepairLabel[] };
   const patch: Record<string, unknown> = pre.patch;
@@ -2609,6 +2641,7 @@ async function copyAdsIntoAdset(
   isSales: boolean,
   fallbackPromotionUrl?: string,
   statusOption = STATUS_OPTION,
+  placementAdaptation?: PlacementAdaptation,
 ): Promise<{
   copiedAds: CopiedAd[];
   skippedAds: SkippedItem[];
@@ -2637,6 +2670,7 @@ async function copyAdsIntoAdset(
             prefetchedCreative: creatives.get(ad.id) ?? null,
             isSales,
             statusOption,
+            placementAdaptation,
           }),
         );
         if (!copiedAdId) {
@@ -3192,6 +3226,12 @@ export async function duplicateProvenCampaign(args: {
   /** Conventional campaign name (not the chat's "- Cópia" suffix). */
   campaignName: string;
   fallbackPromotionUrl?: string;
+  /**
+   * Adaptação da mídia aos posicionamentos onde ela não cabe. Omitido = o
+   * criativo copiado herda exatamente o que o anúncio de origem tinha, que é o
+   * comportamento histórico da duplicação comum.
+   */
+  placementAdaptation?: PlacementAdaptation;
 }): Promise<DuplicateProvenCampaignResult> {
   const {
     accountId,
@@ -3202,6 +3242,7 @@ export async function duplicateProvenCampaign(args: {
     dailyBudgetMajor,
     campaignName,
     fallbackPromotionUrl,
+    placementAdaptation,
   } = args;
   const act = formatAccountId(accountId);
   const keepSet = new Set(keepAdIds);
@@ -3351,6 +3392,7 @@ export async function duplicateProvenCampaign(args: {
         isSales,
         fallbackPromotionUrl,
         AI_BUILD_STATUS_OPTION,
+        placementAdaptation,
       );
       skippedAds.push(...skipped);
       repairedCreatives.push(...repaired);

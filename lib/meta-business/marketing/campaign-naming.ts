@@ -28,6 +28,10 @@ const NICHE_CODE: Record<string, string> = {
   retail: "VJ",
   real_estate_broker: "CI",
   insurance_broker: "SV",
+  // O backoffice usa o nicho `service` como sinônimo de corretor de seguros
+  // (ele mesmo normaliza um para o outro no fluxo de IA). O código existia só
+  // na cópia espelhada; trazê-lo para o lado autoritativo evita que o próximo
+  // `sync:meta` apague o mapeamento e mude o nome das campanhas de lá.
   service: "SV",
   outros: "OUT",
 };
