@@ -82,18 +82,33 @@ function quoteErrorMessage(error: ManualPaymentQuoteError): string {
 
 export function ManualPaymentDialog({
   userId,
+  userEmail,
   currentPlanType,
   currentExpiration,
   disabledReason,
+  open: openProp,
+  onOpenChange,
+  showTrigger = true,
 }: {
   userId: string;
+  userEmail?: string;
   currentPlanType?: PlanType | null;
   currentExpiration: Date | string | null;
   disabledReason?: string | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
 }) {
   const router = useRouter();
   const defaultPlan = currentPlanType ?? "monthly_starter";
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : uncontrolledOpen;
+
+  function setOpen(next: boolean) {
+    if (!isControlled) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  }
   const [planType, setPlanType] = useState<PlanType>(defaultPlan);
   const [paidOn, setPaidOn] = useState(todayYmdInSaoPaulo);
   const [transactionId, setTransactionId] = useState("");
@@ -165,27 +180,32 @@ export function ManualPaymentDialog({
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <Button
-        type="button"
-        variant="outline"
-        disabled={!!disabledReason}
-        onClick={() => setOpen(true)}
-      >
-        <Banknote className="size-4" />
-        Registrar pagamento manual
-      </Button>
-      {disabledReason && (
-        <p className="text-sm text-muted-foreground">{disabledReason}</p>
-      )}
+    <>
+      {showTrigger ? (
+        <div className="flex flex-col gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!!disabledReason}
+            onClick={() => setOpen(true)}
+          >
+            <Banknote className="size-4" />
+            Registrar pagamento manual
+          </Button>
+          {disabledReason ? (
+            <p className="text-sm text-muted-foreground">{disabledReason}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Registrar pagamento manual</DialogTitle>
             <DialogDescription>
-              Registra uma transferência bancária como evento de cobrança, com
-              créditos e nova data de expiração.
+              {userEmail
+                ? `Registra uma transferência bancária para ${userEmail}, com créditos e nova data de expiração.`
+                : "Registra uma transferência bancária como evento de cobrança, com créditos e nova data de expiração."}
             </DialogDescription>
           </DialogHeader>
 
@@ -333,6 +353,6 @@ export function ManualPaymentDialog({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

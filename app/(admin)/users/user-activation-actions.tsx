@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  Banknote,
   Copy,
   CreditCard,
   KeyRound,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/backoffice/stripe-subscription-cancel-policy";
 import { formatPlanLabel } from "@/lib/subscriptions/derive";
 import { formatDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
+import { ManualPaymentDialog } from "@/components/manual-payment-dialog";
 import { UserPixRenewalDialog } from "./user-pix-renewal-dialog";
 import { toast } from "sonner";
 import {
@@ -59,6 +61,7 @@ export function UserActivationActions({
   userId,
   userEmail,
   userPhone,
+  expirationDate,
   activationAvailable,
   activeSubscription,
   canManageBilling,
@@ -68,6 +71,7 @@ export function UserActivationActions({
   userId: string;
   userEmail: string;
   userPhone?: string | null;
+  expirationDate: Date | string | null;
   activationAvailable: boolean;
   activeSubscription: ActiveSubscriptionSummary;
   canManageBilling: boolean;
@@ -82,10 +86,15 @@ export function UserActivationActions({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [cancelStripeOpen, setCancelStripeOpen] = useState(false);
   const [pixDialogOpen, setPixDialogOpen] = useState(false);
+  const [manualPaymentOpen, setManualPaymentOpen] = useState(false);
   const [activationLink, setActivationLink] = useState<ActivationLink | null>(
     null,
   );
   const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
+  const stripeBlocksManualPayment = Boolean(pixDisabledReason);
+  const manualPaymentDisabledReason = stripeBlocksManualPayment
+    ? "Este usuário possui assinatura Stripe ativa."
+    : null;
   const currentPlanType = activeSubscription?.planType ?? null;
   const canCancelStripe = canCancelStripeSubscriptionAtPeriodEnd(
     activeSubscription,
@@ -249,9 +258,16 @@ export function UserActivationActions({
                 <QrCode />
                 Gerar Pix para renovação
               </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={stripeBlocksManualPayment}
+                onSelect={() => setManualPaymentOpen(true)}
+              >
+                <Banknote />
+                Registrar pagamento manual
+              </DropdownMenuItem>
               {pixDisabledReason ? (
                 <p className="px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                  {pixDisabledReason}
+                  Este usuário possui assinatura Stripe ativa.
                 </p>
               ) : null}
               {canCancelStripe ? (
@@ -285,6 +301,17 @@ export function UserActivationActions({
         userPhone={userPhone}
         currentPlanType={currentPlanType}
         disabledReason={pixDisabledReason}
+      />
+
+      <ManualPaymentDialog
+        open={manualPaymentOpen}
+        onOpenChange={setManualPaymentOpen}
+        showTrigger={false}
+        userId={userId}
+        userEmail={userEmail}
+        currentPlanType={currentPlanType}
+        currentExpiration={expirationDate}
+        disabledReason={manualPaymentDisabledReason}
       />
 
       <Dialog
