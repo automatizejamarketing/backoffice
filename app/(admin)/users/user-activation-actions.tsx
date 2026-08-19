@@ -1,16 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Banknote,
+  ContactRound,
   Copy,
   CreditCard,
   KeyRound,
   Loader2,
   MoreHorizontal,
+  Phone,
+  PhoneOff,
   QrCode,
   ShieldCheck,
 } from "lucide-react";
+import {
+  persistUserContactMark,
+  readUserContactMarks,
+} from "@/lib/backoffice/user-contact-marks-client";
+import type { ContactStatusFilter } from "@/lib/backoffice/users-filters";
+import { UserContactDialog } from "./user-contact-dialog";
 import type { ActiveSubscriptionSummary } from "@/lib/db/admin-queries";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
 import {
@@ -60,26 +70,37 @@ type ActivationLink = {
 export function UserActivationActions({
   userId,
   userEmail,
+  userName,
   userPhone,
   expirationDate,
   activationAvailable,
   activeSubscription,
   canManageBilling,
+  initiallyContacted,
+  contactStatus,
   onActivated,
+  onContactedChange,
   onSubscriptionUpdated,
 }: {
   userId: string;
   userEmail: string;
+  userName: string | null;
   userPhone?: string | null;
   expirationDate: Date | string | null;
   activationAvailable: boolean;
   activeSubscription: ActiveSubscriptionSummary;
   canManageBilling: boolean;
+  initiallyContacted: boolean;
+  contactStatus: ContactStatusFilter;
   onActivated: (emailVerified: string) => void;
+  onContactedChange?: (contacted: boolean) => void;
   onSubscriptionUpdated?: (
     subscription: NonNullable<ActiveSubscriptionSummary>,
   ) => void;
 }) {
+  const router = useRouter();
+  const [contactOpen, setContactOpen] = useState(false);
+  const [contacted, setContacted] = useState(initiallyContacted);
   const [isCreatingLink, setIsCreatingLink] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
   const [isCancelingStripe, setIsCancelingStripe] = useState(false);
@@ -101,6 +122,24 @@ export function UserActivationActions({
   );
   const stripeCancellationDate =
     getStripeCancellationExpirationDate(activeSubscription);
+
+  useEffect(() => {
+    setContacted(readUserContactMarks().includes(userId));
+  }, [userId]);
+
+  function toggleContacted(nextContacted: boolean) {
+    persistUserContactMark(userId, nextContacted);
+    setContacted(nextContacted);
+    onContactedChange?.(nextContacted);
+    toast.success(
+      nextContacted
+        ? "Marcado como contatado neste navegador"
+        : "Contato desmarcado neste navegador",
+    );
+    if (contactStatus !== "all") {
+      router.refresh();
+    }
+  }
 
   function formatCancellationDate(value: Date | null): string {
     if (!value) return "a data de expiração do período atual";
@@ -225,10 +264,19 @@ export function UserActivationActions({
             <MoreHorizontal className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuContent align="end" className="w-64">
           <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
             {userEmail}
           </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setContactOpen(true)}>
+            <ContactRound />
+            Dados do contato
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => toggleContacted(!contacted)}>
+            {contacted ? <PhoneOff /> : <Phone />}
+            {contacted ? "Não entrei em contato" : "Já entrei em contato"}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={!activationAvailable || isCreatingLink}
@@ -292,6 +340,16 @@ export function UserActivationActions({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <UserContactDialog
+        open={contactOpen}
+        onOpenChange={setContactOpen}
+        userName={userName}
+        userEmail={userEmail}
+        userPhone={userPhone}
+        contacted={contacted}
+        onToggleContacted={toggleContacted}
+      />
 
       <UserPixRenewalDialog
         open={pixDialogOpen}

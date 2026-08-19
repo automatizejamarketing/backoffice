@@ -62,6 +62,7 @@ type UsersTableToolbarProps = {
     | "planPeriod"
     | "metaStatus"
     | "activationStatus"
+    | "contactStatus"
     | "campaignStatus"
     | "performanceStatus"
     | "accessExpiration"
@@ -118,6 +119,7 @@ type FilterSection = {
     | "campaignStatus"
     | "metaStatus"
     | "activationStatus"
+    | "contactStatus"
     | "subscriptionStatus"
     | "planPeriod"
     | "signupWithin"
@@ -404,6 +406,15 @@ export function UsersTableToolbar({
         ],
       },
       {
+        key: "contactStatus",
+        label: "Contato",
+        options: [
+          { value: "all", label: "Qualquer" },
+          { value: "not_contacted", label: "Ainda não entrei em contato" },
+          { value: "contacted", label: "Já entrei em contato" },
+        ],
+      },
+      {
         key: "metaStatus",
         label: "Meta",
         options: [
@@ -596,6 +607,7 @@ export function UsersTableToolbar({
         campaignStatus: null,
         metaStatus: null,
         activationStatus: null,
+        contactStatus: null,
         subscriptionStatus: null,
         planPeriod: null,
         consultantId: null,

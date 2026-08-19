@@ -12,6 +12,8 @@ import {
   isNull,
   like,
   lt,
+  not,
+  or,
   sql,
 } from "drizzle-orm";
 import { db } from "./index";
@@ -81,6 +83,13 @@ import {
   summarizeConversionCohorts,
   type DailyConversionCohort,
 } from "@/lib/backoffice/conversion-dashboard";
+import {
+  buildActiveUserStock,
+  fillDailyUserActivity,
+  isActivePayingOnDate,
+  summarizeUserActivity,
+  type UserActivitySeriesKey,
+} from "@/lib/backoffice/user-activity-dashboard";
 import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
 import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
 import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
@@ -89,7 +98,11 @@ import {
   summarizeCustomerBaseStatus,
   type CustomerBaseCategory,
 } from "@/lib/backoffice/customer-base-status";
-import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
+import {
+  brtStartOfCalendarDate,
+  shiftCalendarDate,
+  type DashboardDateWindow,
+} from "@/lib/backoffice/dashboard-date-range";
 
 export type ActiveSubscriptionSummary = Pick<
   Subscription,
@@ -157,6 +170,7 @@ export type GetAllUsersWithUsageParams = {
       | "planPeriod"
       | "metaStatus"
       | "activationStatus"
+      | "contactStatus"
       | "campaignStatus"
       | "performanceStatus"
       | "accessExpiration"
@@ -169,6 +183,7 @@ export type GetAllUsersWithUsageParams = {
       | "signupTo"
     >
   >;
+  contactedUserIds?: string[];
 };
 
 export type GetAllUsersWithUsageResult = {
@@ -542,6 +557,20 @@ export async function getAllUsersWithUsage(
   }
   if (signupRange.lt) {
     conditions.push(lt(user.createdAt, signupRange.lt));
+  }
+
+  const contactedUserIds = params.contactedUserIds ?? [];
+  if (params.filters?.contactStatus === "contacted") {
+    conditions.push(
+      contactedUserIds.length > 0
+        ? inArray(user.id, contactedUserIds)
+        : sql`false`,
+    );
+  } else if (
+    params.filters?.contactStatus === "not_contacted" &&
+    contactedUserIds.length > 0
+  ) {
+    conditions.push(not(inArray(user.id, contactedUserIds)));
   }
   const signupFilterActive = Boolean(signupRange.gte || signupRange.lt);
   const sort = params.filters?.sort ?? "default";
@@ -1274,6 +1303,173 @@ export async function getDashboardStats() {
     totalPosts: postCount?.count ?? 0,
     completedOnboarding: completedOnboarding?.count ?? 0,
   };
+}
+
+type PayingAccessUserRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  expirationDate: Date | null;
+  firstPaidAt: Date | null;
+};
+
+async function fetchPayingAccessUsers(): Promise<PayingAccessUserRow[]> {
+  return db
+    .select({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      phone: user.phone,
+      expirationDate: user.expirationDate,
+      firstPaidAt: sql<Date>`min(coalesce(${payment.paidAt}, ${payment.createdAt}))`,
+    })
+    .from(user)
+    .innerJoin(
+      payment,
+      and(eq(payment.userId, user.id), eq(payment.status, "succeeded")),
+    )
+    .where(isNotNull(user.expirationDate))
+    .groupBy(
+      user.id,
+      user.email,
+      user.name,
+      user.phone,
+      user.expirationDate,
+    );
+}
+
+function toPayingAccessRow(row: PayingAccessUserRow) {
+  if (!row.expirationDate || !row.firstPaidAt) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    phone: row.phone,
+    firstPaidAt: new Date(row.firstPaidAt),
+    expirationDate: new Date(row.expirationDate),
+  };
+}
+
+export async function getUserActivityDashboard(window: DashboardDateWindow) {
+  const createdDate = sql<string>`to_char(${user.createdAt} - interval '3 hours', 'YYYY-MM-DD')`;
+
+  const [newUserRows, [baseline], payingUsers] = await Promise.all([
+    db
+      .select({
+        date: createdDate,
+        count: sql<number>`COUNT(*)::integer`,
+      })
+      .from(user)
+      .where(
+        and(gte(user.createdAt, window.gte), lt(user.createdAt, window.lt)),
+      )
+      .groupBy(createdDate)
+      .orderBy(createdDate),
+    db
+      .select({
+        count: sql<number>`COUNT(*)::integer`,
+      })
+      .from(user)
+      .where(or(isNull(user.createdAt), lt(user.createdAt, window.gte))),
+    fetchPayingAccessUsers(),
+  ]);
+
+  const daily = fillDailyUserActivity(
+    {
+      newUsers: newUserRows.map((row) => ({
+        date: row.date,
+        count: Number(row.count),
+      })),
+      activeUsers: buildActiveUserStock(
+        payingUsers.flatMap((row) => {
+          const access = toPayingAccessRow(row);
+          return access
+            ? [
+                {
+                  firstPaidAt: access.firstPaidAt,
+                  expirationDate: access.expirationDate,
+                },
+              ]
+            : [];
+        }),
+        window,
+      ),
+      usersBeforeWindow: Number(baseline?.count ?? 0),
+    },
+    window,
+  );
+
+  return {
+    window,
+    daily,
+    summary: summarizeUserActivity(daily),
+  };
+}
+
+export type UserActivityDayUser = {
+  id: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  expirationDate: Date | null;
+};
+
+export async function getUserActivityDayUsers(
+  date: string,
+  series: UserActivitySeriesKey,
+  now: Date = new Date(),
+): Promise<UserActivityDayUser[]> {
+  const dayStart = brtStartOfCalendarDate(date);
+  const nextDayStart = brtStartOfCalendarDate(shiftCalendarDate(date, 1));
+
+  switch (series) {
+    case "activeUsers": {
+      const payingUsers = await fetchPayingAccessUsers();
+      return payingUsers
+        .flatMap((row) => {
+          const access = toPayingAccessRow(row);
+          if (!access || !isActivePayingOnDate(access, date, now)) return [];
+          return [
+            {
+              id: access.id,
+              email: access.email,
+              name: access.name,
+              phone: access.phone,
+              expirationDate: access.expirationDate,
+            },
+          ];
+        })
+        .sort((left, right) =>
+          left.email.localeCompare(right.email, "pt-BR", {
+            sensitivity: "base",
+          }),
+        );
+    }
+    case "newUsers":
+    case "users": {
+      const createdFilter =
+        series === "newUsers"
+          ? and(gte(user.createdAt, dayStart), lt(user.createdAt, nextDayStart))
+          : or(isNull(user.createdAt), lt(user.createdAt, nextDayStart));
+
+      return db
+        .select({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          phone: user.phone,
+          expirationDate: user.expirationDate,
+        })
+        .from(user)
+        .where(createdFilter)
+        .orderBy(asc(user.email));
+    }
+    default: {
+      const exhaustiveCheck: never = series;
+      return exhaustiveCheck;
+    }
+  }
 }
 
 export async function getConversionDashboard(window: DashboardDateWindow) {

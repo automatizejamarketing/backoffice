@@ -25,6 +25,7 @@ import {
   getCustomerBaseStatus,
   getDashboardStats,
   getPayerRetentionDashboard,
+  getUserActivityDashboard,
 } from "@/lib/db/admin-queries";
 import type {
   ConversionSummary,
@@ -40,6 +41,7 @@ import {
 } from "@/lib/backoffice/dashboard-search-params";
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { ConversionTrendChart } from "./conversion-trend-chart";
+import { UserActivityChart } from "./user-activity-chart";
 import { ConversionPeriodTabs } from "./conversion-period-tabs";
 import { DashboardDateFilter } from "./dashboard-date-filter";
 import {
@@ -297,13 +299,19 @@ export default async function DashboardPage({
   const activeTab = resolveDashboardTab(sp);
   const conversionView = resolveConversionView(sp);
   const selectedWindow = resolveDashboardDateWindow(sp);
-  const [conversion, stats, customerBaseStatus, payerRetention] =
+  const [conversion, stats, customerBaseStatus, payerRetention, userActivity] =
     await Promise.all([
       getConversionDashboard(selectedWindow),
       getDashboardStats(),
       getCustomerBaseStatus(),
       activeTab === "retencao"
         ? getPayerRetentionDashboard()
+        : Promise.resolve(null),
+      activeTab === "visao"
+        ? getUserActivityDashboard(selectedWindow).catch((error) => {
+            console.error("[user-activity-dashboard]", error);
+            return null;
+          })
         : Promise.resolve(null),
     ]);
 
@@ -375,7 +383,61 @@ export default async function DashboardPage({
           <PayerRetentionChart summary={payerRetention} />
         </section>
       ) : (
-        <div className="min-w-0 space-y-6">
+        <div className="flex min-w-0 flex-col gap-6">
+          {userActivity ? (
+            <section
+              aria-labelledby="user-activity-title"
+              className="flex flex-col gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-6"
+            >
+              <UserActivityChart
+                data={userActivity.daily}
+                dateFilter={<DashboardDateFilter basePath="/" window={window} />}
+                heading={
+                  <div>
+                    <h2
+                      id="user-activity-title"
+                      className="text-sm font-semibold"
+                    >
+                      Usuários no período
+                    </h2>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      {formatCalendarDate(window.fromDate, true)} a{" "}
+                      {formatCalendarDate(window.throughDate, true)} · pagantes
+                      têm pagamento aprovado e acesso vigente naquele dia
+                    </p>
+                  </div>
+                }
+              >
+                <dl className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border bg-background px-4 py-3">
+                    <dt className="text-xs text-muted-foreground">
+                      Usuários no fim do período
+                    </dt>
+                    <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                      {formatNumber(userActivity.summary.totalUsers)}
+                    </dd>
+                  </div>
+                  <div className="rounded-lg border bg-background px-4 py-3">
+                    <dt className="text-xs text-muted-foreground">
+                      Novos no período
+                    </dt>
+                    <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                      {formatNumber(userActivity.summary.newUsers)}
+                    </dd>
+                  </div>
+                  <div className="rounded-lg border bg-background px-4 py-3">
+                    <dt className="text-xs text-muted-foreground">
+                      Pagantes no fim do período
+                    </dt>
+                    <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                      {formatNumber(userActivity.summary.activeUsers)}
+                    </dd>
+                  </div>
+                </dl>
+              </UserActivityChart>
+            </section>
+          ) : null}
+
           <ConversionPeriodTabs
             initialView={conversionView}
             dateFilter={
