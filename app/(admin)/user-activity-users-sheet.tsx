@@ -26,12 +26,12 @@ import {
   formatCalendarDateLabel,
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
-import type { UserActivitySeriesKey } from "@/lib/backoffice/user-activity-dashboard";
+import type { UserActivityDaySeriesKey } from "@/lib/backoffice/user-activity-dashboard";
 import { getWhatsAppUrl } from "@/lib/phone";
 
 export type UserActivityDaySelection = {
   date: string;
-  series: UserActivitySeriesKey;
+  series: UserActivityDaySeriesKey;
 };
 
 type UserActivityDayUser = {
@@ -42,8 +42,9 @@ type UserActivityDayUser = {
   expirationDate: string | null;
 };
 
-const SERIES_TITLES: Record<UserActivitySeriesKey, string> = {
+const SERIES_TITLES: Record<UserActivityDaySeriesKey, string> = {
   newUsers: "Usuários novos",
+  newUsersActivated: "Novos com trial ou pagamento",
   users: "Total de usuários",
   activeUsers: "Clientes pagantes",
 };

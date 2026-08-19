@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { formatDateTimeInSaoPaulo } from "./datetime-format";
+import {
+  formatCalendarWeekdayLabel,
+  formatDateTimeInSaoPaulo,
+} from "./datetime-format";
 
 describe("formatDateTimeInSaoPaulo", () => {
   test("formats UTC instants in America/Sao_Paulo regardless of runtime timezone", () => {
@@ -18,5 +21,11 @@ describe("formatDateTimeInSaoPaulo", () => {
         process.env.TZ = originalTz;
       }
     }
+  });
+});
+
+describe("formatCalendarWeekdayLabel", () => {
+  test("includes the weekday before the day and short month", () => {
+    expect(formatCalendarWeekdayLabel("2026-07-26")).toBe("dom. 26 de jul.");
   });
 });

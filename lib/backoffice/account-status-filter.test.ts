@@ -127,6 +127,31 @@ describe("matchesAccountStatusFilter", () => {
     ).toBe(false);
   });
 
+  test("active_plan ignores a canceled Stripe leftover when the last payment is Pix", () => {
+    expect(
+      matchesAccountStatusFilter(
+        customer({
+          hasApprovedPayment: true,
+          scheduledCancel: true,
+          lastPaymentProvider: "mercadopago",
+        }),
+        "active_plan",
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      matchesAccountStatusFilter(
+        customer({
+          hasApprovedPayment: true,
+          scheduledCancel: true,
+          lastPaymentProvider: "mercadopago",
+        }),
+        "active_plan_canceled",
+        now,
+      ),
+    ).toBe(false);
+  });
+
   test("active_plan_canceled matches scheduled cancel with active paying access", () => {
     expect(
       matchesAccountStatusFilter(

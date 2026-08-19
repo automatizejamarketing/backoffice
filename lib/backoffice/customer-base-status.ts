@@ -1,6 +1,27 @@
 import type { BillingProvider } from "@/lib/db/schema";
 
+export const CUSTOMER_BASE_TRIAL_EXCLUDED_EMAILS = [
+  "gabriel06apereira@icloud.com",
+  "junqueira.tiago@gmail.com",
+  "karolina.santos@rioquality.com.br",
+  "lucashaddad@infinitegrowth.com.br",
+  "lucashaddadm@gmail.com",
+  "mariana.grupobastos@gmail.com",
+] as const;
+
+const excludedTrialEmails = new Set(
+  CUSTOMER_BASE_TRIAL_EXCLUDED_EMAILS.map((email) => email.toLowerCase()),
+);
+
+export function isExcludedFromCustomerBaseTrial(
+  email: string | null | undefined,
+): boolean {
+  if (!email) return false;
+  return excludedTrialEmails.has(email.trim().toLowerCase());
+}
+
 export type CustomerBaseRow = {
+  email?: string | null;
   expirationDate: Date | null;
   hasApprovedPayment: boolean;
   scheduledCancel: boolean;
@@ -60,7 +81,11 @@ export function matchesCustomerBaseCategory(
     case "activePaying":
       return customer.hasApprovedPayment && hasActiveAccess;
     case "trial":
-      return !customer.hasApprovedPayment && hasActiveAccess;
+      return (
+        !customer.hasApprovedPayment &&
+        hasActiveAccess &&
+        !isExcludedFromCustomerBaseTrial(customer.email)
+      );
     case "churn":
       return customer.hasApprovedPayment && hasExpiredAccess;
     case "scheduledCancel":
@@ -116,7 +141,11 @@ export function summarizeCustomerBaseStatus(
 
     if (customer.hasApprovedPayment && hasActiveAccess) {
       summary.activePaying += 1;
-    } else if (!customer.hasApprovedPayment && hasActiveAccess) {
+    } else if (
+      !customer.hasApprovedPayment &&
+      hasActiveAccess &&
+      !isExcludedFromCustomerBaseTrial(customer.email)
+    ) {
       summary.trial += 1;
     } else if (customer.hasApprovedPayment && hasExpiredAccess) {
       summary.churn.total += 1;

@@ -106,3 +106,11 @@ export function formatCalendarDateLabel(value: string): string {
     year: "numeric",
   });
 }
+
+export function formatCalendarWeekdayLabel(value: string): string {
+  return formatInSaoPaulo(parseCalendarDate(value), {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).replace(/,\s*/g, " ");
+}

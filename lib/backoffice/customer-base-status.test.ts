@@ -59,6 +59,35 @@ describe("summarizeCustomerBaseStatus", () => {
     });
   });
 
+  test("does not count excluded internal emails as trial", () => {
+    const now = new Date("2026-08-05T12:00:00.000Z");
+    const internal = {
+      email: "lucashaddad@infinitegrowth.com.br",
+      expirationDate: new Date("2026-08-06T12:00:00.000Z"),
+      hasApprovedPayment: false,
+      scheduledCancel: false,
+      lastPaymentProvider: null,
+    };
+
+    expect(summarizeCustomerBaseStatus([internal], now).trial).toBe(0);
+    expect(matchesCustomerBaseCategory(internal, "trial", now)).toBe(false);
+    expect(
+      listCustomerBaseStatusUsers(
+        [
+          {
+            ...internal,
+            id: "1",
+            name: "Lucas",
+            phone: null,
+            totalPaidCentavos: 0,
+          },
+        ],
+        "trial",
+        now,
+      ),
+    ).toEqual([]);
+  });
+
   test("ignores scheduled cancel without approved payment", () => {
     const now = new Date("2026-08-05T12:00:00.000Z");
 

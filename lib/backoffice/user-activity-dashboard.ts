@@ -13,9 +13,18 @@ export const USER_ACTIVITY_SERIES_KEYS = [
 
 export type UserActivitySeriesKey = (typeof USER_ACTIVITY_SERIES_KEYS)[number];
 
+export const USER_ACTIVITY_DAY_SERIES_KEYS = [
+  ...USER_ACTIVITY_SERIES_KEYS,
+  "newUsersActivated",
+] as const;
+
+export type UserActivityDaySeriesKey =
+  (typeof USER_ACTIVITY_DAY_SERIES_KEYS)[number];
+
 export type DailyUserActivity = {
   date: string;
   newUsers: number;
+  newUsersActivated: number;
   totalUsers: number;
   activeUsers: number;
 };
@@ -27,6 +36,7 @@ export type UserActivityCounts = {
 
 export type UserActivitySummary = {
   newUsers: number;
+  newUsersActivated: number;
   totalUsers: number;
   activeUsers: number;
 };
@@ -40,6 +50,14 @@ export function isUserActivitySeriesKey(
   value: string | null | undefined,
 ): value is UserActivitySeriesKey {
   return USER_ACTIVITY_SERIES_KEYS.includes(value as UserActivitySeriesKey);
+}
+
+export function isUserActivityDaySeriesKey(
+  value: string | null | undefined,
+): value is UserActivityDaySeriesKey {
+  return USER_ACTIVITY_DAY_SERIES_KEYS.includes(
+    value as UserActivityDaySeriesKey,
+  );
 }
 
 export function isUserActivityCalendarDate(
@@ -58,6 +76,7 @@ export function isUserActivityCalendarDate(
 export function fillDailyUserActivity(
   input: {
     newUsers: UserActivityCounts[];
+    newUsersActivated?: UserActivityCounts[];
     activeUsers: UserActivityCounts[];
     usersBeforeWindow: number;
   },
@@ -65,6 +84,9 @@ export function fillDailyUserActivity(
 ): DailyUserActivity[] {
   const newUsersByDate = new Map(
     input.newUsers.map((row) => [row.date, row.count]),
+  );
+  const newUsersActivatedByDate = new Map(
+    (input.newUsersActivated ?? []).map((row) => [row.date, row.count]),
   );
   const activeUsersByDate = new Map(
     input.activeUsers.map((row) => [row.date, row.count]),
@@ -78,10 +100,15 @@ export function fillDailyUserActivity(
     date = shiftCalendarDate(date, 1)
   ) {
     const newUsers = newUsersByDate.get(date) ?? 0;
+    const newUsersActivated = Math.min(
+      newUsersActivatedByDate.get(date) ?? 0,
+      newUsers,
+    );
     totalUsers += newUsers;
     result.push({
       date,
       newUsers,
+      newUsersActivated,
       totalUsers,
       activeUsers: activeUsersByDate.get(date) ?? 0,
     });
@@ -97,6 +124,10 @@ export function summarizeUserActivity(
 
   return {
     newUsers: daily.reduce((sum, row) => sum + row.newUsers, 0),
+    newUsersActivated: daily.reduce(
+      (sum, row) => sum + row.newUsersActivated,
+      0,
+    ),
     totalUsers: last?.totalUsers ?? 0,
     activeUsers: last?.activeUsers ?? 0,
   };

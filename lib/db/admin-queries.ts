@@ -88,7 +88,7 @@ import {
   fillDailyUserActivity,
   isActivePayingOnDate,
   summarizeUserActivity,
-  type UserActivitySeriesKey,
+  type UserActivityDaySeriesKey,
 } from "@/lib/backoffice/user-activity-dashboard";
 import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
 import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
@@ -1351,6 +1351,25 @@ function toPayingAccessRow(row: PayingAccessUserRow) {
   };
 }
 
+function userHasActivatedAccessSql() {
+  const userId = sql.raw('"users"."id"');
+  return sql`(
+    ${user.expirationDate} IS NOT NULL
+    OR EXISTS (
+      SELECT 1
+      FROM credit_transactions trial_credit
+      WHERE trial_credit.user_id = ${userId}
+        AND trial_credit.type = 'trial_grant'
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM payments successful_payment
+      WHERE successful_payment.user_id = ${userId}
+        AND successful_payment.status = 'succeeded'
+    )
+  )`;
+}
+
 export async function getUserActivityDashboard(window: DashboardDateWindow) {
   const createdDate = sql<string>`to_char(${user.createdAt} - interval '3 hours', 'YYYY-MM-DD')`;
 
@@ -1359,6 +1378,9 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
       .select({
         date: createdDate,
         count: sql<number>`COUNT(*)::integer`,
+        activated: sql<number>`COUNT(*) FILTER (
+          WHERE ${userHasActivatedAccessSql()}
+        )::integer`,
       })
       .from(user)
       .where(
@@ -1380,6 +1402,10 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
       newUsers: newUserRows.map((row) => ({
         date: row.date,
         count: Number(row.count),
+      })),
+      newUsersActivated: newUserRows.map((row) => ({
+        date: row.date,
+        count: Number(row.activated),
       })),
       activeUsers: buildActiveUserStock(
         payingUsers.flatMap((row) => {
@@ -1417,13 +1443,32 @@ export type UserActivityDayUser = {
 
 export async function getUserActivityDayUsers(
   date: string,
-  series: UserActivitySeriesKey,
+  series: UserActivityDaySeriesKey,
   now: Date = new Date(),
 ): Promise<UserActivityDayUser[]> {
   const dayStart = brtStartOfCalendarDate(date);
   const nextDayStart = brtStartOfCalendarDate(shiftCalendarDate(date, 1));
 
   switch (series) {
+    case "newUsersActivated": {
+      return db
+        .select({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          phone: user.phone,
+          expirationDate: user.expirationDate,
+        })
+        .from(user)
+        .where(
+          and(
+            gte(user.createdAt, dayStart),
+            lt(user.createdAt, nextDayStart),
+            sql`${userHasActivatedAccessSql()}`,
+          ),
+        )
+        .orderBy(asc(user.email));
+    }
     case "activeUsers": {
       const payingUsers = await fetchPayingAccessUsers();
       return payingUsers
