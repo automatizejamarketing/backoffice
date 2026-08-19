@@ -15,6 +15,15 @@
 
 import { metaApiCall } from "@/lib/meta-business/api";
 import { ALL_PLACEMENTS, type PlacementKey } from "@/lib/meta-business/placements";
+import {
+  PLACEMENT_ASPECT_RATIO,
+  PREVIEW_FRAME_HEIGHT,
+  PREVIEW_FRAME_WIDTH,
+} from "./placement-preview-frame";
+
+// Reexportados para quem já os consumia daqui; a definição vive no módulo acima,
+// que não importa nada de runtime e por isso pode ser lido pelo cliente também.
+export { PLACEMENT_ASPECT_RATIO, PREVIEW_FRAME_HEIGHT, PREVIEW_FRAME_WIDTH };
 
 /**
  * `ad_format` de `generatepreviews` para cada posicionamento que o produto expõe.
@@ -34,15 +43,6 @@ export const PLACEMENT_PREVIEW_FORMAT: Record<PlacementKey, string> = {
   instagram_reels: "INSTAGRAM_REELS",
 };
 
-/** Proporção nominal de cada posicionamento — dimensiona o frame do preview na UI. */
-export const PLACEMENT_ASPECT_RATIO: Record<PlacementKey, "1:1" | "4:5" | "9:16"> = {
-  facebook_feed: "4:5",
-  facebook_stories: "9:16",
-  facebook_reels: "9:16",
-  instagram_feed: "4:5",
-  instagram_stories: "9:16",
-  instagram_reels: "9:16",
-};
 
 /** Destino usado quando o anúncio ainda não tem um link utilizável. */
 export const DEFAULT_PREVIEW_LINK = "https://automatizemarketing.com";
@@ -88,6 +88,13 @@ export type PlacementPreview = {
   iframeUrl: string | null;
   /** Motivo legível quando `iframeUrl` é null — a UI mostra no lugar do preview. */
   error?: string;
+  /**
+   * Tamanho que o Meta declarou para ESTE formato. A UI desenha a caixa com
+   * exatamente estas medidas; qualquer outra coisa deixa borda branca sobrando
+   * (caixa maior) ou corta o conteúdo (caixa menor).
+   */
+  width?: number;
+  height?: number;
 };
 
 /** Extrai o `src` do `<iframe …>` que o Meta devolve em `data[0].body`. */
@@ -95,6 +102,28 @@ export function extractIframeUrl(body: unknown): string | null {
   if (typeof body !== "string") return null;
   const match = body.match(/src="([^"]+)"/);
   return match ? match[1].replace(/&amp;/g, "&") : null;
+}
+
+/**
+ * As dimensões que o Meta declara no próprio `<iframe>`.
+ *
+ * Cada `ad_format` tem um tamanho natural PRÓPRIO — Stories 320x567, Feed do
+ * Facebook 335x450, Reels 274x213 — e eles não derivam da proporção da mídia.
+ * Impor um tamanho nosso (era 340x680 para tudo que fosse 9:16) fazia o conteúdo
+ * render menor que a caixa e sobrar a moldura branca do iframe em volta.
+ *
+ * Por isso NÃO pedimos mais `width`/`height`: deixamos o Meta responder no
+ * tamanho dele e desenhamos a caixa exatamente nesse tamanho. Se ele mudar as
+ * medidas um dia, a UI acompanha sozinha.
+ */
+export function extractIframeSize(
+  body: unknown,
+): { width: number; height: number } | null {
+  if (typeof body !== "string") return null;
+  const w = body.match(/width="(\d+)"/);
+  const h = body.match(/height="(\d+)"/);
+  if (!w || !h) return null;
+  return { width: Number(w[1]), height: Number(h[1]) };
 }
 
 type GeneratePreviewsResponse = { data?: Array<{ body?: string }> };
@@ -136,9 +165,11 @@ export async function generatePlacementPreviews(args: {
           }).toString(),
           accessToken,
         });
-        const iframeUrl = extractIframeUrl(res.data?.[0]?.body);
+        const body = res.data?.[0]?.body;
+        const iframeUrl = extractIframeUrl(body);
+        const size = extractIframeSize(body);
         return iframeUrl
-          ? { ...base, iframeUrl }
+          ? { ...base, iframeUrl, ...(size ?? {}) }
           : { ...base, iframeUrl: null, error: "O Meta não retornou preview para este posicionamento." };
       } catch (error) {
         return {
