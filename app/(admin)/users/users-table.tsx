@@ -535,6 +535,7 @@ export function UsersTable({
                         userId={user.id}
                         userEmail={user.email}
                         userPhone={user.phone}
+                        expirationDate={user.expirationDate}
                         activationAvailable={canManageUserActivation(user)}
                         activeSubscription={user.activeSubscription}
                         canManageBilling={canManageBilling}
