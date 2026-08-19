@@ -1,3 +1,4 @@
+-- ==== 0057_food_service_foundation ====
 -- Fundação operacional de cardápio, pedidos, fichas técnicas e estoque.
 -- A migração é somente aditiva. Movimentações de estoque e eventos de pedido
 -- formam ledgers imutáveis; correções devem ser registradas por compensação.
@@ -1766,3 +1767,477 @@ $$;--> statement-breakpoint
 CREATE TRIGGER food_service_inventory_count_draft_lines_terminal_immutable
 BEFORE INSERT OR UPDATE OR DELETE ON food_service_inventory_count_draft_lines
 FOR EACH ROW EXECUTE FUNCTION prevent_terminal_food_service_count_draft_line_change();
+--> statement-breakpoint
+-- ==== 0058_food_service_whatsapp ====
+-- Official WhatsApp channel for each food-service location.
+-- Provider credentials stay outside this schema; only an opaque reference is stored.
+
+CREATE TABLE IF NOT EXISTS "food_service_whatsapp_connections" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+  "location_id" uuid NOT NULL REFERENCES "company_locations"("id") ON DELETE CASCADE,
+  "phone_number_id" varchar(64) NOT NULL,
+  "waba_id" varchar(64) NOT NULL,
+  "display_phone_e164" varchar(24) NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'pending',
+  "credential_reference" text,
+  "connected_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_whatsapp_connections_status_check" CHECK ("status" IN ('pending', 'connected', 'disconnected'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_whatsapp_connections_phone_number_unique" ON "food_service_whatsapp_connections"("phone_number_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_whatsapp_connections_location_unique" ON "food_service_whatsapp_connections"("location_id");
+CREATE INDEX IF NOT EXISTS "food_service_whatsapp_connections_company_idx" ON "food_service_whatsapp_connections"("company_id");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_whatsapp_operators" (
+  "connection_id" uuid NOT NULL REFERENCES "food_service_whatsapp_connections"("id") ON DELETE CASCADE,
+  "user_id" uuid NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+  "phone_e164" varchar(24) NOT NULL,
+  "role" varchar NOT NULL,
+  "active" boolean NOT NULL DEFAULT true,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("connection_id", "user_id"),
+  CONSTRAINT "food_service_whatsapp_operators_role_check" CHECK ("role" IN ('owner', 'admin', 'member'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_whatsapp_operators_contact_unique" ON "food_service_whatsapp_operators"("connection_id", "phone_e164");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_whatsapp_consumer_sessions" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "connection_id" uuid NOT NULL REFERENCES "food_service_whatsapp_connections"("id") ON DELETE CASCADE,
+  "location_id" uuid NOT NULL REFERENCES "company_locations"("id") ON DELETE CASCADE,
+  "customer_phone_e164" varchar(24) NOT NULL,
+  "active_cart_id" uuid REFERENCES "food_service_carts"("id"),
+  "last_order_id" uuid REFERENCES "food_service_orders"("id"),
+  "last_inbound_message_id" varchar(255),
+  "expires_at" timestamp NOT NULL,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now()
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_whatsapp_consumer_sessions_contact_unique" ON "food_service_whatsapp_consumer_sessions"("connection_id", "customer_phone_e164");
+CREATE INDEX IF NOT EXISTS "food_service_whatsapp_consumer_sessions_expiry_idx" ON "food_service_whatsapp_consumer_sessions"("expires_at");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_whatsapp_outbox" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "connection_id" uuid NOT NULL REFERENCES "food_service_whatsapp_connections"("id") ON DELETE CASCADE,
+  "order_id" uuid REFERENCES "food_service_orders"("id"),
+  "recipient_phone_e164" varchar(24) NOT NULL,
+  "purpose" varchar NOT NULL,
+  "body" text NOT NULL,
+  "idempotency_key" varchar(200) NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'pending',
+  "provider_message_id" varchar(255),
+  "attempt_count" integer NOT NULL DEFAULT 0,
+  "last_error" text,
+  "sent_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_whatsapp_outbox_purpose_check" CHECK ("purpose" IN ('consumer_reply', 'order_received', 'order_accepted', 'order_status')),
+  CONSTRAINT "food_service_whatsapp_outbox_status_check" CHECK ("status" IN ('pending', 'sending', 'sent', 'failed')),
+  CONSTRAINT "food_service_whatsapp_outbox_attempt_count_check" CHECK ("attempt_count" >= 0)
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_whatsapp_outbox_idempotency_unique" ON "food_service_whatsapp_outbox"("connection_id", "idempotency_key");
+CREATE INDEX IF NOT EXISTS "food_service_whatsapp_outbox_pending_idx" ON "food_service_whatsapp_outbox"("status", "created_at");
+--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_whatsapp_inbox" (
+  "message_id" varchar(255) PRIMARY KEY,
+  "connection_id" uuid NOT NULL REFERENCES "food_service_whatsapp_connections"("id") ON DELETE CASCADE,
+  "consumer_session_id" uuid REFERENCES "food_service_whatsapp_consumer_sessions"("id"),
+  "operator_user_id" uuid REFERENCES "users"("id"),
+  "sender_phone_e164" varchar(24) NOT NULL,
+  "role" varchar NOT NULL,
+  "text" text NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'pending',
+  "last_error" text,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_whatsapp_inbox_role_check" CHECK ("role" IN ('operator', 'consumer')),
+  CONSTRAINT "food_service_whatsapp_inbox_status_check" CHECK ("status" IN ('pending', 'processing', 'processed', 'failed')),
+  CONSTRAINT "food_service_whatsapp_inbox_identity_check" CHECK (
+    ("role" = 'operator' AND "operator_user_id" IS NOT NULL AND "consumer_session_id" IS NULL)
+    OR
+    ("role" = 'consumer' AND "consumer_session_id" IS NOT NULL AND "operator_user_id" IS NULL)
+  )
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "food_service_whatsapp_inbox_pending_idx" ON "food_service_whatsapp_inbox"("status", "created_at");
+--> statement-breakpoint
+-- ==== 0059_company_products_and_rbac ====
+-- Company-scoped product entitlements are the access authority.
+-- Stripe subscriptions remain billing records and never grant access by query alone.
+
+ALTER TABLE "company_locations" ADD CONSTRAINT "company_locations_id_company_unique" UNIQUE ("id", "company_id");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "company_product_entitlements" (
+  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+  "product_code" varchar NOT NULL,
+  "status" varchar NOT NULL,
+  "source" varchar NOT NULL,
+  "valid_from" timestamp NOT NULL DEFAULT now(),
+  "valid_until" timestamp,
+  "source_reference" varchar(255),
+  "granted_by_user_id" uuid REFERENCES "users"("id"),
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY ("company_id", "product_code"),
+  CONSTRAINT "company_product_entitlements_product_code_check" CHECK ("product_code" IN ('traffic', 'menu_orders', 'inventory_cmv')),
+  CONSTRAINT "company_product_entitlements_status_check" CHECK ("status" IN ('active', 'expired', 'revoked')),
+  CONSTRAINT "company_product_entitlements_source_check" CHECK ("source" IN ('legacy_subscription', 'stripe', 'manual')),
+  CONSTRAINT "company_product_entitlements_valid_until_check" CHECK ("source" = 'manual' OR "valid_until" IS NOT NULL),
+  CONSTRAINT "company_product_entitlements_valid_period_check" CHECK (("status" = 'active' AND ("valid_until" IS NULL OR "valid_until" > "valid_from")) OR ("status" IN ('expired', 'revoked') AND "valid_until" IS NOT NULL AND "valid_until" >= "valid_from")),
+  CONSTRAINT "company_product_entitlements_lifecycle_check" CHECK ("status" = 'active' OR "valid_until" IS NOT NULL)
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "company_product_entitlements_company_status_idx" ON "company_product_entitlements"("company_id", "status");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "company_product_entitlement_events" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "product_code" varchar NOT NULL,
+  "event_type" varchar NOT NULL,
+  "status" varchar NOT NULL,
+  "source" varchar NOT NULL,
+  "valid_from" timestamp NOT NULL,
+  "valid_until" timestamp,
+  "idempotency_key" varchar(255) NOT NULL,
+  "actor_user_id" uuid REFERENCES "users"("id"),
+  "metadata" jsonb,
+  "occurred_at" timestamp NOT NULL DEFAULT now(),
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "company_product_entitlement_events_entitlement_fk" FOREIGN KEY ("company_id", "product_code") REFERENCES "company_product_entitlements"("company_id", "product_code"),
+  CONSTRAINT "company_product_entitlement_events_product_code_check" CHECK ("product_code" IN ('traffic', 'menu_orders', 'inventory_cmv')),
+  CONSTRAINT "company_product_entitlement_events_event_type_check" CHECK ("event_type" IN ('activated', 'renewed', 'expired', 'revoked', 'corrected')),
+  CONSTRAINT "company_product_entitlement_events_status_check" CHECK ("status" IN ('active', 'expired', 'revoked')),
+  CONSTRAINT "company_product_entitlement_events_source_check" CHECK ("source" IN ('legacy_subscription', 'stripe', 'manual')),
+  CONSTRAINT "company_product_entitlement_events_valid_until_check" CHECK ("source" = 'manual' OR "valid_until" IS NOT NULL),
+  CONSTRAINT "company_product_entitlement_events_valid_period_check" CHECK (("status" = 'active' AND ("valid_until" IS NULL OR "valid_until" > "valid_from")) OR ("status" IN ('expired', 'revoked') AND "valid_until" IS NOT NULL AND "valid_until" >= "valid_from")),
+  CONSTRAINT "company_product_entitlement_events_lifecycle_check" CHECK ("status" = 'active' OR "valid_until" IS NOT NULL)
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "company_product_entitlement_events_idempotency_unique" ON "company_product_entitlement_events"("idempotency_key");
+CREATE INDEX IF NOT EXISTS "company_product_entitlement_events_entitlement_occurred_idx" ON "company_product_entitlement_events"("company_id", "product_code", "occurred_at");--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION prevent_company_product_entitlement_event_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'company_product_entitlement_events is append-only';
+END;
+$$;--> statement-breakpoint
+DROP TRIGGER IF EXISTS "company_product_entitlement_events_append_only" ON "company_product_entitlement_events";
+CREATE TRIGGER "company_product_entitlement_events_append_only" BEFORE UPDATE OR DELETE ON "company_product_entitlement_events" FOR EACH ROW EXECUTE FUNCTION prevent_company_product_entitlement_event_mutation();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "company_product_entitlement_events_no_truncate" ON "company_product_entitlement_events";
+CREATE TRIGGER "company_product_entitlement_events_no_truncate" BEFORE TRUNCATE ON "company_product_entitlement_events" FOR EACH STATEMENT EXECUTE FUNCTION prevent_company_product_entitlement_event_mutation();--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "company_module_subscriptions" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+  "billing_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "offer_code" varchar NOT NULL,
+  "status" varchar NOT NULL,
+  "stripe_customer_id" varchar(255) NOT NULL,
+  "stripe_subscription_id" varchar(255),
+  "stripe_price_id" varchar(255) NOT NULL,
+  "current_period_start" timestamp,
+  "current_period_end" timestamp,
+  "cancel_at_period_end" boolean NOT NULL DEFAULT false,
+  "canceled_at" timestamp,
+  "last_provider_event_at" timestamp,
+  "last_provider_event_id" varchar(255),
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "company_module_subscriptions_offer_code_check" CHECK ("offer_code" IN ('menu_orders', 'inventory_cmv', 'operation_complete')),
+  CONSTRAINT "company_module_subscriptions_status_check" CHECK ("status" IN ('incomplete', 'trialing', 'active', 'past_due', 'canceled', 'unpaid'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "company_module_subscriptions_stripe_subscription_unique" ON "company_module_subscriptions"("stripe_subscription_id") WHERE "stripe_subscription_id" IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "company_module_subscriptions_company_idx" ON "company_module_subscriptions"("company_id");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "company_member_access_grants" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "user_id" uuid NOT NULL,
+  "capability" varchar NOT NULL,
+  "location_id" uuid,
+  "granted_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "revoked_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "company_member_access_grants_membership_fk" FOREIGN KEY ("user_id", "company_id") REFERENCES "user_companies"("user_id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "company_member_access_grants_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "company_member_access_grants_capability_check" CHECK ("capability" IN ('company:manage', 'billing:manage', 'members:manage', 'menu:view', 'menu:manage_base', 'menu:manage_unit', 'orders:view', 'orders:operate', 'whatsapp:manage', 'inventory:view', 'inventory:operate', 'inventory:manage', 'purchasing:view', 'purchasing:operate', 'cmv:view'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "company_member_access_grants_scope_unique" ON "company_member_access_grants"("company_id", "user_id", "capability", COALESCE("location_id", '00000000-0000-0000-0000-000000000000'::uuid));
+CREATE INDEX IF NOT EXISTS "company_member_access_grants_member_idx" ON "company_member_access_grants"("company_id", "user_id");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "company_invitations" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+  "email" varchar(320) NOT NULL,
+  "company_role" varchar NOT NULL DEFAULT 'member',
+  "token_hash" text NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'pending',
+  "invited_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "accepted_by_user_id" uuid REFERENCES "users"("id"),
+  "expires_at" timestamp NOT NULL,
+  "accepted_at" timestamp,
+  "revoked_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "company_invitations_token_hash_unique" UNIQUE ("token_hash"),
+  CONSTRAINT "company_invitations_id_company_unique" UNIQUE ("id", "company_id"),
+  CONSTRAINT "company_invitations_company_role_check" CHECK ("company_role" IN ('admin', 'member')),
+  CONSTRAINT "company_invitations_status_check" CHECK ("status" IN ('pending', 'accepted', 'revoked', 'expired')),
+  CONSTRAINT "company_invitations_expiry_check" CHECK ("expires_at" > "created_at"),
+  CONSTRAINT "company_invitations_lifecycle_check" CHECK (("status" = 'pending' AND "accepted_by_user_id" IS NULL AND "accepted_at" IS NULL AND "revoked_at" IS NULL) OR ("status" = 'accepted' AND "accepted_by_user_id" IS NOT NULL AND "accepted_at" IS NOT NULL AND "accepted_at" >= "created_at" AND "accepted_at" <= "expires_at" AND "revoked_at" IS NULL) OR ("status" = 'revoked' AND "accepted_by_user_id" IS NULL AND "accepted_at" IS NULL AND "revoked_at" IS NOT NULL AND "revoked_at" >= "created_at") OR ("status" = 'expired' AND "accepted_by_user_id" IS NULL AND "accepted_at" IS NULL AND "revoked_at" IS NULL))
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "company_invitations_company_status_idx" ON "company_invitations"("company_id", "status");
+CREATE INDEX IF NOT EXISTS "company_invitations_expires_at_idx" ON "company_invitations"("expires_at");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "company_invitation_grants" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "invitation_id" uuid NOT NULL,
+  "company_id" uuid NOT NULL,
+  "capability" varchar NOT NULL,
+  "location_id" uuid,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "company_invitation_grants_invitation_company_fk" FOREIGN KEY ("invitation_id", "company_id") REFERENCES "company_invitations"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "company_invitation_grants_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "company_invitation_grants_capability_check" CHECK ("capability" IN ('company:manage', 'billing:manage', 'members:manage', 'menu:view', 'menu:manage_base', 'menu:manage_unit', 'orders:view', 'orders:operate', 'whatsapp:manage', 'inventory:view', 'inventory:operate', 'inventory:manage', 'purchasing:view', 'purchasing:operate', 'cmv:view'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "company_invitation_grants_scope_unique" ON "company_invitation_grants"("invitation_id", "capability", COALESCE("location_id", '00000000-0000-0000-0000-000000000000'::uuid));
+--> statement-breakpoint
+-- ==== 0060_food_service_menu_import ====
+ALTER TABLE "food_service_menus" ADD CONSTRAINT "food_service_menus_id_company_unique" UNIQUE ("id", "company_id");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_import_jobs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "location_id" uuid NOT NULL,
+  "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "normalized_url" text NOT NULL,
+  "provider" varchar NOT NULL,
+  "adapter_version" varchar(80) NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'queued',
+  "idempotency_key" varchar(200) NOT NULL,
+  "request_fingerprint" varchar(64) NOT NULL,
+  "source_fingerprint" varchar(64),
+  "source_document" jsonb,
+  "workflow_run_id" varchar(255),
+  "attempt_count" integer NOT NULL DEFAULT 0,
+  "counts" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "error_code" varchar(120),
+  "error_detail" text,
+  "started_at" timestamp,
+  "completed_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_import_jobs_id_company_menu_unique" UNIQUE ("id", "company_id", "menu_id"),
+  CONSTRAINT "food_service_menu_import_jobs_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_import_jobs_location_company_fk" FOREIGN KEY ("location_id", "company_id") REFERENCES "company_locations"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_import_jobs_provider_check" CHECK ("provider" IN ('anota_ai', 'brendi', 'ifood', 'generic_web')),
+  CONSTRAINT "food_service_menu_import_jobs_status_check" CHECK ("status" IN ('queued', 'extracting', 'normalizing', 'analyzing', 'needs_review', 'ready', 'publishing', 'published', 'failed', 'cancelled')),
+  CONSTRAINT "food_service_menu_import_jobs_terminal_timestamp_check" CHECK (("status" IN ('published', 'failed', 'cancelled') AND "completed_at" IS NOT NULL) OR ("status" NOT IN ('published', 'failed', 'cancelled') AND "completed_at" IS NULL)),
+  CONSTRAINT "food_service_menu_import_jobs_attempt_count_check" CHECK ("attempt_count" >= 0)
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_import_jobs_company_idempotency_unique" ON "food_service_menu_import_jobs"("company_id", "idempotency_key");
+CREATE INDEX IF NOT EXISTS "food_service_menu_import_jobs_company_status_idx" ON "food_service_menu_import_jobs"("company_id", "status", "created_at");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_import_drafts" (
+  "job_id" uuid PRIMARY KEY,
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "schema_version" integer NOT NULL,
+  "revision" integer NOT NULL DEFAULT 1,
+  "document" jsonb NOT NULL,
+  "resolved_mappings" jsonb NOT NULL DEFAULT '{}'::jsonb,
+  "document_fingerprint" varchar(64) NOT NULL,
+  "validation_summary" jsonb NOT NULL,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_import_drafts_job_company_menu_unique" UNIQUE ("job_id", "company_id", "menu_id"),
+  CONSTRAINT "food_service_menu_import_drafts_job_company_menu_fk" FOREIGN KEY ("job_id", "company_id", "menu_id") REFERENCES "food_service_menu_import_jobs"("id", "company_id", "menu_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_import_drafts_revision_check" CHECK ("revision" > 0 AND "schema_version" > 0)
+);--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_import_issues" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "job_id" uuid NOT NULL,
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "field_path" text NOT NULL,
+  "code" varchar(120) NOT NULL,
+  "severity" varchar NOT NULL,
+  "message" text NOT NULL,
+  "confidence_basis_points" integer NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'open',
+  "resolution" text,
+  "resolved_by_user_id" uuid REFERENCES "users"("id"),
+  "resolved_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_import_issues_draft_company_menu_fk" FOREIGN KEY ("job_id", "company_id", "menu_id") REFERENCES "food_service_menu_import_drafts"("job_id", "company_id", "menu_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_import_issues_severity_check" CHECK ("severity" IN ('blocking', 'warning')),
+  CONSTRAINT "food_service_menu_import_issues_status_check" CHECK ("status" IN ('open', 'resolved')),
+  CONSTRAINT "food_service_menu_import_issues_confidence_check" CHECK ("confidence_basis_points" BETWEEN 0 AND 10000),
+  CONSTRAINT "food_service_menu_import_issues_resolution_check" CHECK (("status" = 'open' AND "resolution" IS NULL AND "resolved_by_user_id" IS NULL AND "resolved_at" IS NULL) OR ("status" = 'resolved' AND "resolution" IS NOT NULL AND "resolved_by_user_id" IS NOT NULL AND "resolved_at" IS NOT NULL))
+);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "food_service_menu_import_issues_job_status_idx" ON "food_service_menu_import_issues"("job_id", "status", "severity");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_import_blobs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "job_id" uuid NOT NULL,
+  "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "content_hash" varchar(64) NOT NULL,
+  "generation_id" uuid NOT NULL,
+  "blob_url" text,
+  "blob_etag" varchar(256),
+  "pathname" text NOT NULL,
+  "mime_type" varchar NOT NULL,
+  "byte_size" integer NOT NULL,
+  "width" integer NOT NULL,
+  "height" integer NOT NULL,
+  "attempt_token" uuid NOT NULL,
+  "status" varchar NOT NULL DEFAULT 'uploading',
+  "lease_expires_at" timestamp,
+  "referenced_at" timestamp,
+  "deleted_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_import_blobs_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_import_blobs_job_company_menu_fk" FOREIGN KEY ("job_id", "company_id", "menu_id") REFERENCES "food_service_menu_import_jobs"("id", "company_id", "menu_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_import_blobs_hash_check" CHECK ("content_hash" ~ '^[a-f0-9]{64}$'),
+  CONSTRAINT "food_service_menu_import_blobs_bounds_check" CHECK ("byte_size" BETWEEN 1 AND 8388608 AND "width" BETWEEN 1 AND 8192 AND "height" BETWEEN 1 AND 8192 AND "width"::bigint * "height"::bigint <= 40000000),
+  CONSTRAINT "food_service_menu_import_blobs_status_check" CHECK ("status" IN ('uploading', 'temporary', 'referenced', 'deleting', 'deleted')),
+  CONSTRAINT "food_service_menu_import_blobs_mime_check" CHECK ("mime_type" IN ('image/jpeg', 'image/png', 'image/webp')),
+  CONSTRAINT "food_service_menu_import_blobs_lifecycle_check" CHECK (("status" = 'uploading' AND "blob_url" IS NULL AND "blob_etag" IS NULL AND "lease_expires_at" IS NOT NULL AND "referenced_at" IS NULL AND "deleted_at" IS NULL) OR ("status" = 'temporary' AND "blob_url" IS NOT NULL AND "blob_etag" IS NOT NULL AND "lease_expires_at" IS NULL AND "referenced_at" IS NULL AND "deleted_at" IS NULL) OR ("status" = 'referenced' AND "blob_url" IS NOT NULL AND "blob_etag" IS NOT NULL AND "pathname" IS NOT NULL AND "lease_expires_at" IS NULL AND "referenced_at" IS NOT NULL AND "deleted_at" IS NULL) OR ("status" = 'deleting' AND "blob_url" IS NOT NULL AND "blob_etag" IS NOT NULL AND "referenced_at" IS NULL AND "deleted_at" IS NULL) OR ("status" = 'deleted' AND "blob_url" IS NULL AND "blob_etag" IS NULL AND "lease_expires_at" IS NULL AND "referenced_at" IS NULL AND "deleted_at" IS NOT NULL))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_import_blobs_scope_hash_unique" ON "food_service_menu_import_blobs"("company_id", "menu_id", "content_hash");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_import_blobs_blob_url_unique" ON "food_service_menu_import_blobs"("blob_url");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_import_blobs_pathname_unique" ON "food_service_menu_import_blobs"("pathname");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "food_service_menu_import_blobs_cleanup_idx" ON "food_service_menu_import_blobs"("status", "updated_at");--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_catalog_versions" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "sequence" integer NOT NULL,
+  "snapshot" jsonb NOT NULL,
+  "source_refs" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "warning_summary" jsonb NOT NULL DEFAULT '{"imageFailures":{"count":0,"acknowledged":false,"byCode":{}}}'::jsonb,
+  "fingerprint" varchar(64) NOT NULL,
+  "origin" varchar NOT NULL,
+  "created_by_user_id" uuid NOT NULL REFERENCES "users"("id"),
+  "source_job_id" uuid,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_catalog_versions_menu_sequence_unique" UNIQUE ("menu_id", "sequence"),
+  CONSTRAINT "food_service_menu_catalog_versions_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_catalog_versions_source_job_company_menu_fk" FOREIGN KEY ("source_job_id", "company_id", "menu_id") REFERENCES "food_service_menu_import_jobs"("id", "company_id", "menu_id"),
+  CONSTRAINT "food_service_menu_catalog_versions_origin_check" CHECK ("origin" IN ('imported', 'restored')),
+  CONSTRAINT "food_service_menu_catalog_versions_sequence_check" CHECK ("sequence" > 0)
+);--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION prevent_food_service_menu_catalog_version_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'food_service_menu_catalog_versions is append-only';
+END;
+$$;--> statement-breakpoint
+DROP TRIGGER IF EXISTS "food_service_menu_catalog_versions_append_only" ON "food_service_menu_catalog_versions";
+CREATE TRIGGER "food_service_menu_catalog_versions_append_only" BEFORE UPDATE OR DELETE ON "food_service_menu_catalog_versions" FOR EACH ROW EXECUTE FUNCTION prevent_food_service_menu_catalog_version_mutation();--> statement-breakpoint
+DROP TRIGGER IF EXISTS "food_service_menu_catalog_versions_no_truncate" ON "food_service_menu_catalog_versions";
+CREATE TRIGGER "food_service_menu_catalog_versions_no_truncate" BEFORE TRUNCATE ON "food_service_menu_catalog_versions" FOR EACH STATEMENT EXECUTE FUNCTION prevent_food_service_menu_catalog_version_mutation();--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION retain_food_service_menu_catalog_versions_after_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM food_service_menu_catalog_versions
+  WHERE id IN (
+    SELECT id
+    FROM food_service_menu_catalog_versions
+    WHERE company_id = NEW.company_id AND menu_id = NEW.menu_id
+    ORDER BY sequence DESC
+    OFFSET 5
+  );
+  RETURN NEW;
+END;
+$$;--> statement-breakpoint
+DROP TRIGGER IF EXISTS "food_service_menu_catalog_versions_retain_five" ON "food_service_menu_catalog_versions";
+CREATE TRIGGER "food_service_menu_catalog_versions_retain_five" AFTER INSERT ON "food_service_menu_catalog_versions" FOR EACH ROW EXECUTE FUNCTION retain_food_service_menu_catalog_versions_after_insert();--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_catalog_operations" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "operation_key" varchar(200) NOT NULL,
+  "request_fingerprint" varchar(64) NOT NULL,
+  "origin" varchar NOT NULL,
+  "version_id" uuid NOT NULL,
+  "version_sequence" integer NOT NULL,
+  "version_fingerprint" varchar(64) NOT NULL,
+  "source_job_id" uuid,
+  "source_version_id" uuid,
+  "failed_image_count" integer NOT NULL DEFAULT 0,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_catalog_operations_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_catalog_operations_origin_check" CHECK ("origin" IN ('imported', 'restored')),
+  CONSTRAINT "food_service_menu_catalog_operations_sequence_check" CHECK ("version_sequence" > 0 AND "failed_image_count" >= 0)
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_catalog_operations_operation_key_unique" ON "food_service_menu_catalog_operations"("company_id", "menu_id", "operation_key");--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION prevent_food_service_menu_catalog_operation_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'food_service_menu_catalog_operations is append-only';
+END;
+$$;--> statement-breakpoint
+CREATE TRIGGER "food_service_menu_catalog_operations_append_only" BEFORE UPDATE OR DELETE ON "food_service_menu_catalog_operations" FOR EACH ROW EXECUTE FUNCTION prevent_food_service_menu_catalog_operation_mutation();--> statement-breakpoint
+CREATE TRIGGER "food_service_menu_catalog_operations_no_truncate" BEFORE TRUNCATE ON "food_service_menu_catalog_operations" FOR EACH STATEMENT EXECUTE FUNCTION prevent_food_service_menu_catalog_operation_mutation();--> statement-breakpoint
+
+CREATE TABLE IF NOT EXISTS "food_service_menu_source_refs" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL,
+  "menu_id" uuid NOT NULL,
+  "provider" varchar NOT NULL,
+  "entity_type" varchar NOT NULL,
+  "external_id" varchar(200) NOT NULL,
+  "local_entity_type" varchar NOT NULL,
+  "local_entity_id" uuid NOT NULL,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_menu_source_refs_menu_company_fk" FOREIGN KEY ("menu_id", "company_id") REFERENCES "food_service_menus"("id", "company_id") ON DELETE CASCADE,
+  CONSTRAINT "food_service_menu_source_refs_provider_check" CHECK ("provider" IN ('anota_ai', 'brendi', 'ifood', 'generic_web')),
+  CONSTRAINT "food_service_menu_source_refs_entity_type_check" CHECK ("entity_type" IN ('category', 'item', 'option_group', 'option') AND "local_entity_type" IN ('category', 'item', 'option_group', 'option'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_source_refs_external_identity_unique" ON "food_service_menu_source_refs"("company_id", "menu_id", "provider", "entity_type", "external_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_menu_source_refs_local_identity_unique" ON "food_service_menu_source_refs"("company_id", "menu_id", "provider", "local_entity_type", "local_entity_id");
+--> statement-breakpoint
+-- ==== 0061_food_service_ifood_connection ====
+-- Company-scoped iFood merchant grant. App credentials and access tokens
+-- stay outside this schema; only the authorized merchant id is stored.
+
+CREATE TABLE IF NOT EXISTS "food_service_ifood_connections" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
+  "merchant_id" varchar(200) NOT NULL,
+  "merchant_name" varchar(160),
+  "catalog_id" varchar(200),
+  "status" varchar NOT NULL DEFAULT 'connected',
+  "connected_at" timestamp,
+  "created_at" timestamp NOT NULL DEFAULT now(),
+  "updated_at" timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT "food_service_ifood_connections_status_check" CHECK ("status" IN ('connected', 'revoked'))
+);--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_ifood_connections_company_unique" ON "food_service_ifood_connections"("company_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "food_service_ifood_connections_merchant_unique" ON "food_service_ifood_connections"("merchant_id") WHERE "status" = 'connected';
