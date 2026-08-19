@@ -2,7 +2,7 @@ import { getUserActivityDayUsers } from "@/lib/db/admin-queries";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   isUserActivityCalendarDate,
-  isUserActivitySeriesKey,
+  isUserActivityDaySeriesKey,
 } from "@/lib/backoffice/user-activity-dashboard";
 
 export async function GET(request: Request) {
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   const date = searchParams.get("date");
   const series = searchParams.get("series");
 
-  if (!isUserActivityCalendarDate(date) || !isUserActivitySeriesKey(series)) {
+  if (!isUserActivityCalendarDate(date) || !isUserActivityDaySeriesKey(series)) {
     return Response.json({ error: "Invalid date or series" }, { status: 400 });
   }
 

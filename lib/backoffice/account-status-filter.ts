@@ -37,9 +37,9 @@ export const ACCOUNT_STATUS_FILTER_DESCRIPTIONS: Record<
   subscribed_expired:
     "Já teve pelo menos um pagamento aprovado e o acesso expirou (data de expiração no passado).",
   active_plan:
-    "Pagamento aprovado, acesso vigente e sem cancelamento Stripe agendado.",
+    "Pagamento aprovado, acesso vigente e sem cancelamento Stripe agendado. Último pagamento via Pix ignora assinatura Stripe cancelada.",
   active_plan_canceled:
-    "Pagamento aprovado, acesso ainda vigente, mas pediu cancelamento no Stripe até o fim do período.",
+    "Pagamento aprovado, acesso ainda vigente, mas pediu cancelamento no Stripe até o fim do período. Não inclui quem pagou por último via Pix.",
   active_plan_pix:
     "Pagamento aprovado, acesso vigente e o último pagamento aprovado foi via Pix (Mercado Pago).",
 };
@@ -47,6 +47,12 @@ export const ACCOUNT_STATUS_FILTER_DESCRIPTIONS: Record<
 export type AccountStatusCustomer = CustomerBaseRow & {
   hasSubscription?: boolean;
 };
+
+function countsAsScheduledCancel(customer: AccountStatusCustomer) {
+  return (
+    customer.scheduledCancel && customer.lastPaymentProvider !== "mercadopago"
+  );
+}
 
 function accessFlags(customer: CustomerBaseRow, referenceDate: Date) {
   const referenceTime = referenceDate.getTime();
@@ -70,6 +76,7 @@ export function matchesAccountStatusFilter(
     referenceDate,
   );
   const hasSubscription = customer.hasSubscription ?? false;
+  const scheduledCancelCounts = countsAsScheduledCancel(customer);
 
   switch (filter) {
     case "no_card_no_payment":
@@ -82,11 +89,11 @@ export function matchesAccountStatusFilter(
       return (
         customer.hasApprovedPayment &&
         hasActiveAccess &&
-        !customer.scheduledCancel
+        !scheduledCancelCounts
       );
     case "active_plan_canceled":
       return (
-        customer.scheduledCancel &&
+        scheduledCancelCounts &&
         hasActiveAccess &&
         customer.hasApprovedPayment
       );
@@ -143,6 +150,10 @@ const lastPaymentProviderIsPixSql = sql`(
   LIMIT 1
 ) = 'mercadopago'`;
 
+const scheduledCancelCountsSql = sql`(
+  ${scheduledCancelSql} AND NOT ${lastPaymentProviderIsPixSql}
+)`;
+
 export function buildAccountStatusFilterSql(
   filter: Exclude<AccountStatusFilter, "all">,
 ): SQL {
@@ -154,9 +165,9 @@ export function buildAccountStatusFilterSql(
     case "subscribed_expired":
       return sql`${hasApprovedPaymentSql} AND ${hasExpiredAccessSql}`;
     case "active_plan":
-      return sql`${hasApprovedPaymentSql} AND ${hasActiveAccessSql} AND NOT ${scheduledCancelSql}`;
+      return sql`${hasApprovedPaymentSql} AND ${hasActiveAccessSql} AND NOT ${scheduledCancelCountsSql}`;
     case "active_plan_canceled":
-      return sql`${hasApprovedPaymentSql} AND ${hasActiveAccessSql} AND ${scheduledCancelSql}`;
+      return sql`${hasApprovedPaymentSql} AND ${hasActiveAccessSql} AND ${scheduledCancelCountsSql}`;
     case "active_plan_pix":
       return sql`${hasApprovedPaymentSql} AND ${hasActiveAccessSql} AND ${lastPaymentProviderIsPixSql}`;
     default: {

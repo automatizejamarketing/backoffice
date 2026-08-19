@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ExternalLink, Users } from "lucide-react";
-import type { CustomerBaseCategory } from "@/lib/backoffice/customer-base-status";
+import { ExternalLink, Info, Users } from "lucide-react";
+import {
+  CUSTOMER_BASE_TRIAL_EXCLUDED_EMAILS,
+  type CustomerBaseCategory,
+} from "@/lib/backoffice/customer-base-status";
 import { formatBRLFromCentavos } from "@/lib/backoffice/finance-format";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { BillingProvider } from "@/lib/db/schema";
@@ -20,6 +23,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -147,7 +155,36 @@ export function CustomerBaseStatusUsersDialog({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle className="flex items-center gap-1.5">
+              {title}
+              {category === "trial" ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="inline-flex rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label="E-mails excluídos desta lista"
+                    >
+                      <Info className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    align="start"
+                    className="z-[100] max-w-xs text-left"
+                  >
+                    <p className="mb-1.5 font-medium text-foreground">
+                      Excluídos desta lista
+                    </p>
+                    <ul className="space-y-0.5 font-mono text-[11px] text-muted-foreground">
+                      {CUSTOMER_BASE_TRIAL_EXCLUDED_EMAILS.map((email) => (
+                        <li key={email}>{email}</li>
+                      ))}
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
+            </DialogTitle>
             <DialogDescription>
               {count === 0
                 ? "Nenhum usuário nesta categoria."

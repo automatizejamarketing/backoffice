@@ -22,11 +22,13 @@ import {
 import {
   ChartContainer,
   ChartTooltip,
-  ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type { DailyUserActivity } from "@/lib/backoffice/user-activity-dashboard";
-import { formatCalendarDateLabel } from "@/lib/backoffice/datetime-format";
+import type {
+  DailyUserActivity,
+  UserActivityDaySeriesKey,
+} from "@/lib/backoffice/user-activity-dashboard";
+import { formatCalendarWeekdayLabel } from "@/lib/backoffice/datetime-format";
 import {
   DEFAULT_USER_ACTIVITY_SERIES_VISIBILITY,
   USER_ACTIVITY_SERIES_STORAGE_KEY,
@@ -45,11 +47,15 @@ const SERIES = [
   { key: "activeUsers", label: "Clientes pagantes", color: "oklch(0.75 0.16 55)" },
 ] as const;
 
-type SeriesKey = (typeof SERIES)[number]["key"];
+const NEW_USERS_ACTIVATED_COLOR = "oklch(0.62 0.16 230)";
 
 const chartConfig = {
-  newUsers: {
-    label: "Usuários novos",
+  newUsersActivated: {
+    label: "Trial ou pagamento",
+    color: NEW_USERS_ACTIVATED_COLOR,
+  },
+  newUsersRest: {
+    label: "Só cadastro",
     color: "oklch(0.72 0.16 155)",
   },
   users: {
@@ -90,6 +96,115 @@ function writeStoredVisibility(visibility: UserActivitySeriesVisibility) {
   } catch {
     // Private mode should still let the user toggle series in this session.
   }
+}
+
+const TOOLTIP_SERIES = [
+  "newUsersActivated",
+  "newUsersRest",
+  "users",
+  "activeUsers",
+] as const;
+
+type TooltipPayloadItem = {
+  dataKey?: string | number;
+  value?: number | string;
+  payload?: {
+    date?: string;
+    newUsers?: number;
+    newUsersActivated?: number;
+    newUsersRest?: number;
+  };
+};
+
+function tooltipValue(
+  payload: TooltipPayloadItem[],
+  key: (typeof TOOLTIP_SERIES)[number],
+) {
+  const item = payload.find((entry) => entry.dataKey === key);
+  if (!item || item.value == null) return null;
+  return Number(item.value);
+}
+
+function UserActivityTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadItem[];
+}) {
+  if (!active || !payload?.length) return null;
+
+  const date = payload.find((item) => item.payload?.date)?.payload?.date;
+  const activated = tooltipValue(payload, "newUsersActivated");
+  const rest = tooltipValue(payload, "newUsersRest");
+  const newUsersTotal =
+    payload.find((item) => item.payload?.newUsers != null)?.payload?.newUsers ??
+    (activated ?? 0) + (rest ?? 0);
+  const rows = [
+    activated != null || rest != null
+      ? {
+          key: "newUsers",
+          value: newUsersTotal,
+          label: "Usuários novos",
+          color: chartConfig.newUsersRest.color,
+        }
+      : null,
+    ...TOOLTIP_SERIES.flatMap((key) => {
+      const value = tooltipValue(payload, key);
+      if (value == null) return [];
+      return [
+        {
+          key,
+          value,
+          label: chartConfig[key].label,
+          color: chartConfig[key].color,
+        },
+      ];
+    }),
+  ].filter((row) => row !== null);
+
+  if (!rows.length) return null;
+
+  return (
+    <div className="grid min-w-[10rem] items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
+      {date ? (
+        <div className="font-medium">{formatCalendarWeekdayLabel(date)}</div>
+      ) : null}
+      <div className="grid gap-1.5">
+        {rows.map((row) => (
+          <div key={row.key} className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2">
+              {row.key === "newUsers" ? (
+                <span
+                  className="flex size-2.5 shrink-0 overflow-hidden rounded-[2px]"
+                  aria-hidden
+                >
+                  <span
+                    className="h-full w-1/2"
+                    style={{ backgroundColor: chartConfig.newUsersActivated.color }}
+                  />
+                  <span
+                    className="h-full w-1/2"
+                    style={{ backgroundColor: chartConfig.newUsersRest.color }}
+                  />
+                </span>
+              ) : (
+                <span
+                  className="size-2.5 shrink-0 rounded-[2px]"
+                  style={{ backgroundColor: row.color }}
+                  aria-hidden
+                />
+              )}
+              <span className="text-muted-foreground">{row.label}</span>
+            </span>
+            <span className="font-mono font-medium tabular-nums text-foreground">
+              {row.value.toLocaleString("pt-BR")}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function dateFromChartPayload(input: unknown): string | null {
@@ -140,6 +255,7 @@ export function UserActivityChart({
   const chartData = data.map((item) => ({
     ...item,
     users: item.totalUsers,
+    newUsersRest: Math.max(item.newUsers - item.newUsersActivated, 0),
     dateLabel: formatShortDate(item.date),
   }));
   const showDaily = visible.newUsers;
@@ -148,7 +264,7 @@ export function UserActivityChart({
   const hasVisibleSeries = showDaily || showStock;
   const visibleCount = SERIES.filter((series) => visible[series.key]).length;
 
-  function openSeries(series: SeriesKey, input: unknown) {
+  function openSeries(series: UserActivityDaySeriesKey, input: unknown) {
     const date = dateFromChartPayload(input);
     if (!date) return;
     setSelection({ date, series });
@@ -189,11 +305,24 @@ export function UserActivityChart({
                   onSelect={(event) => event.preventDefault()}
                 >
                   <span className="flex items-center gap-2">
-                    <span
-                      className="size-2.5 rounded-[2px]"
-                      style={{ background: series.color }}
-                      aria-hidden
-                    />
+                    {series.key === "newUsers" ? (
+                      <span className="flex overflow-hidden rounded-[2px]" aria-hidden>
+                        <span
+                          className="size-2.5"
+                          style={{ background: NEW_USERS_ACTIVATED_COLOR }}
+                        />
+                        <span
+                          className="size-2.5"
+                          style={{ background: series.color }}
+                        />
+                      </span>
+                    ) : (
+                      <span
+                        className="size-2.5 rounded-[2px]"
+                        style={{ background: series.color }}
+                        aria-hidden
+                      />
+                    )}
                     {series.label}
                   </span>
                 </DropdownMenuCheckboxItem>
@@ -242,25 +371,23 @@ export function UserActivityChart({
               width={32}
               hide={!showStock}
             />
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  labelFormatter={(_, payload) => {
-                    const first = payload[0] as
-                      | { payload?: { date?: string } }
-                      | undefined;
-                    return first?.payload?.date
-                      ? formatCalendarDateLabel(first.payload.date)
-                      : null;
-                  }}
-                />
-              }
-            />
+            <ChartTooltip content={<UserActivityTooltip />} />
             {visible.newUsers ? (
               <Bar
                 yAxisId="daily"
-                dataKey="newUsers"
-                fill="var(--color-newUsers)"
+                dataKey="newUsersActivated"
+                stackId="newUsers"
+                fill="var(--color-newUsersActivated)"
+                maxBarSize={18}
+                onClick={(data) => openSeries("newUsersActivated", data)}
+              />
+            ) : null}
+            {visible.newUsers ? (
+              <Bar
+                yAxisId="daily"
+                dataKey="newUsersRest"
+                stackId="newUsers"
+                fill="var(--color-newUsersRest)"
                 maxBarSize={18}
                 radius={[3, 3, 0, 0]}
                 onClick={(data) => openSeries("newUsers", data)}
@@ -303,8 +430,8 @@ export function UserActivityChart({
       {hasVisibleSeries ? (
         <p className="text-[11px] text-muted-foreground">
           {splitAxes
-            ? "O eixo da direita mostra o estoque do dia (total e pagantes), para não esmagar as barras de novos. Clique numa barra ou ponto para ver a lista daquele dia."
-            : "Clique numa barra ou ponto para ver a lista daquele dia."}
+            ? "A fatia mais escura da barra são cadastros que já entraram em trial ou pagaram — não há histórico de trial para todo mundo. O eixo da direita mostra o estoque do dia (total e pagantes). Clique numa barra ou ponto para ver a lista daquele dia."
+            : "A fatia mais escura da barra são cadastros que já entraram em trial ou pagaram. Clique numa barra ou ponto para ver a lista daquele dia."}
         </p>
       ) : null}
 

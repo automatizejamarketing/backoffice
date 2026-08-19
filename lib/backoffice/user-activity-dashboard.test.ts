@@ -4,6 +4,7 @@ import {
   fillDailyUserActivity,
   isActivePayingOnDate,
   isUserActivityCalendarDate,
+  isUserActivityDaySeriesKey,
   isUserActivitySeriesKey,
   summarizeUserActivity,
 } from "./user-activity-dashboard";
@@ -18,6 +19,7 @@ describe("user activity dashboard", () => {
       fillDailyUserActivity(
         {
           newUsers: [{ date: "2026-08-02", count: 4 }],
+          newUsersActivated: [{ date: "2026-08-02", count: 2 }],
           activeUsers: [
             { date: "2026-08-01", count: 2 },
             { date: "2026-08-02", count: 5 },
@@ -30,22 +32,39 @@ describe("user activity dashboard", () => {
       {
         date: "2026-08-01",
         newUsers: 0,
+        newUsersActivated: 0,
         totalUsers: 10,
         activeUsers: 2,
       },
       {
         date: "2026-08-02",
         newUsers: 4,
+        newUsersActivated: 2,
         totalUsers: 14,
         activeUsers: 5,
       },
       {
         date: "2026-08-03",
         newUsers: 0,
+        newUsersActivated: 0,
         totalUsers: 14,
         activeUsers: 0,
       },
     ]);
+  });
+
+  test("never lets activated new users exceed the day's signups", () => {
+    expect(
+      fillDailyUserActivity(
+        {
+          newUsers: [{ date: "2026-08-02", count: 2 }],
+          newUsersActivated: [{ date: "2026-08-02", count: 9 }],
+          activeUsers: [],
+          usersBeforeWindow: 0,
+        },
+        { fromDate: "2026-08-02", throughDate: "2026-08-02" },
+      )[0]?.newUsersActivated,
+    ).toBe(2);
   });
 
   test("summarizes new users and the ending stock totals", () => {
@@ -54,18 +73,21 @@ describe("user activity dashboard", () => {
         {
           date: "2026-08-01",
           newUsers: 0,
+          newUsersActivated: 0,
           totalUsers: 10,
           activeUsers: 2,
         },
         {
           date: "2026-08-02",
           newUsers: 4,
+          newUsersActivated: 2,
           totalUsers: 14,
           activeUsers: 5,
         },
       ]),
     ).toEqual({
       newUsers: 4,
+      newUsersActivated: 2,
       totalUsers: 14,
       activeUsers: 5,
     });
@@ -74,6 +96,7 @@ describe("user activity dashboard", () => {
   test("summarizes an empty window from the baseline total", () => {
     expect(summarizeUserActivity([])).toEqual({
       newUsers: 0,
+      newUsersActivated: 0,
       totalUsers: 0,
       activeUsers: 0,
     });
@@ -83,6 +106,8 @@ describe("user activity dashboard", () => {
     expect(isUserActivityCalendarDate("2026-08-19")).toBe(true);
     expect(isUserActivityCalendarDate("2026-08-32")).toBe(false);
     expect(isUserActivitySeriesKey("activeUsers")).toBe(true);
+    expect(isUserActivitySeriesKey("newUsersActivated")).toBe(false);
+    expect(isUserActivityDaySeriesKey("newUsersActivated")).toBe(true);
     expect(isUserActivitySeriesKey("pagantes")).toBe(false);
   });
 
