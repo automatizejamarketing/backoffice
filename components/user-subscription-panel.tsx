@@ -13,6 +13,7 @@ import {
   MercadoPagoPixActions,
   type PixLinkView,
 } from "@/components/mercadopago-pix-actions";
+import { ManualPaymentDialog } from "@/components/manual-payment-dialog";
 import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -226,11 +227,22 @@ export function UserSubscriptionPanel({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {!activeSubscription ? (
-            <p className="py-4 text-sm text-muted-foreground">
-              Nenhuma assinatura ativa registrada para este usuário.
-            </p>
-          ) : (
+          <div className="flex flex-col gap-4">
+            <ManualPaymentDialog
+              userId={user.id}
+              currentPlanType={activeSubscription?.planType ?? null}
+              currentExpiration={user.expirationDate}
+              disabledReason={
+                pixDisabledReason
+                  ? "Este usuário possui assinatura Stripe ativa."
+                  : null
+              }
+            />
+            {!activeSubscription ? (
+              <p className="py-4 text-sm text-muted-foreground">
+                Nenhuma assinatura ativa registrada para este usuário.
+              </p>
+            ) : (
             <div className="space-y-5">
               <SubscriptionAccessSyncAlert
                 provider={activeSubscription.provider}
@@ -368,7 +380,8 @@ export function UserSubscriptionPanel({
                 />
               </dl>
             </div>
-          )}
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -532,7 +545,7 @@ export function UserSubscriptionPanel({
                     <TableHead>Status</TableHead>
                     <TableHead>Provedor</TableHead>
                     <TableHead>Descrição</TableHead>
-                    <TableHead>Stripe Invoice</TableHead>
+                    <TableHead>ID</TableHead>
                     <TableHead>MP Payment</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -571,7 +584,10 @@ export function UserSubscriptionPanel({
                         {p.description ?? "—"}
                       </TableCell>
                       <TableCell className="max-w-[140px] truncate font-mono text-[11px] text-muted-foreground">
-                        {p.stripeInvoiceId ?? "—"}
+                        {p.externalId ??
+                          p.mercadopagoPaymentId ??
+                          p.stripeInvoiceId ??
+                          "—"}
                       </TableCell>
                       <TableCell className="max-w-[140px] truncate font-mono text-[11px] text-muted-foreground">
                         {p.mercadopagoPaymentId ?? "—"}

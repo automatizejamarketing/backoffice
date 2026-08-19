@@ -23,6 +23,10 @@ import {
   type CancelStripeSubscriptionError,
 } from "@/lib/backoffice/stripe-subscription-cancel";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import {
+  recordManualPaymentForUser,
+  type RecordManualPaymentError,
+} from "@/lib/backoffice/manual-payment-store";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   subscribed: "Assinatura iniciada",
@@ -301,6 +305,37 @@ const CANCEL_STRIPE_ERROR_TO_STATUS: Record<CancelStripeSubscriptionError, numbe
     stripe_error: 502,
   };
 
+const MANUAL_PAYMENT_ERROR_TO_STATUS: Record<RecordManualPaymentError, number> =
+  {
+    user_not_found: 404,
+    stripe_active: 400,
+    duplicate_external_id: 409,
+    invalid_plan: 400,
+    invalid_date: 400,
+    payment_date_in_future: 400,
+  };
+
+function manualPaymentErrorMessage(error: RecordManualPaymentError): string {
+  switch (error) {
+    case "user_not_found":
+      return "Usuário não encontrado.";
+    case "stripe_active":
+      return "Este usuário possui assinatura Stripe ativa.";
+    case "duplicate_external_id":
+      return "Já existe um pagamento com este ID de transação.";
+    case "invalid_plan":
+      return "Plano inválido.";
+    case "invalid_date":
+      return "Data de pagamento inválida.";
+    case "payment_date_in_future":
+      return "A data do pagamento não pode ser no futuro.";
+    default: {
+      const _exhaustive: never = error;
+      return _exhaustive;
+    }
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ userId: string }> },
@@ -313,6 +348,9 @@ export async function POST(
     const body = (await request.json()) as {
       action?: string;
       mode?: string;
+      planType?: unknown;
+      paidOn?: unknown;
+      transactionId?: unknown;
     };
 
     if (body.action === "cancel_stripe_subscription") {
@@ -336,6 +374,50 @@ export async function POST(
         success: true,
         cancelAt: result.cancelAt,
         cancelAtPeriodEnd: result.cancelAtPeriodEnd,
+      });
+    }
+
+    if (body.action === "record_manual_payment") {
+      if (typeof body.planType !== "string" || typeof body.paidOn !== "string") {
+        return NextResponse.json(
+          {
+            error: "invalid_plan",
+            message: "Plano e data de pagamento são obrigatórios.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const result = await recordManualPaymentForUser({
+        userId,
+        planType: body.planType,
+        paidOn: body.paidOn,
+        transactionId:
+          typeof body.transactionId === "string" ? body.transactionId : undefined,
+        adminEmail: authz.actor.email,
+      });
+
+      if (!result.ok) {
+        return NextResponse.json(
+          {
+            error: result.error,
+            message: manualPaymentErrorMessage(result.error),
+          },
+          { status: MANUAL_PAYMENT_ERROR_TO_STATUS[result.error] },
+        );
+      }
+
+      revalidatePath("/users");
+      revalidatePath(`/users/${userId}`);
+      revalidatePath(`/subscriptions/${userId}`);
+
+      return NextResponse.json({
+        success: true,
+        newExpiration: result.newExpiration.toISOString(),
+        creditsGranted: result.creditsGranted,
+        amountCentavos: result.amountCentavos,
+        paymentId: result.paymentId,
+        subscriptionId: result.subscriptionId,
       });
     }
 
@@ -381,9 +463,9 @@ export async function POST(
       hostedInvoiceUrl: result.hostedInvoiceUrl,
     });
   } catch (error) {
-    console.error("Error recovering failed payment:", error);
+    console.error("Error handling subscription action:", error);
     return NextResponse.json(
-      { error: "Failed to recover payment" },
+      { error: "Failed to process subscription action" },
       { status: 500 },
     );
   }
