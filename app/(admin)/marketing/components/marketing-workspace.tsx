@@ -36,7 +36,14 @@ import { MarketingUsersPicker } from "./marketing-users-picker";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
+import { PerformanceReportSection } from "./performance-report/performance-report-section";
 import { useMetricColumnPreferences } from "../hooks/use-metric-column-preferences";
+import type { CampaignReportFact } from "@/lib/performance-report/types";
+import {
+  accountDigits,
+  matchAdAccountId,
+  parseMarketingDeepLink,
+} from "../utils/marketing-deep-link";
 import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
 import { getMetricLabel } from "../utils/metric-formatters";
 
@@ -59,6 +66,7 @@ export function MarketingWorkspace({
 }: MarketingWorkspaceProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const deepLink = parseMarketingDeepLink(searchParams);
   const [selectedUser, setSelectedUser] =
     useState<MarketingWorkspaceUser | null>(initialUser);
   const [metaAccount, setMetaAccount] =
@@ -80,13 +88,25 @@ export function MarketingWorkspace({
 
   // Date filter for the campaigns list (mirrors the in-sheet filter). Default
   // to TODAY so the metric columns show today's numbers at first paint.
-  const [datePreset, setDatePreset] = useState<DatePreset | null>(
-    DatePreset.TODAY,
-  );
+  // Slack/report links hydrate last_30d or the explicit window instead.
+  const [datePreset, setDatePreset] = useState<DatePreset | null>(() => {
+    if (deepLink.since && deepLink.until) return null;
+    if (deepLink.datePreset) return deepLink.datePreset;
+    if (deepLink.view === "report") return DatePreset.LAST_30D;
+    return DatePreset.TODAY;
+  });
   const [customRange, setCustomRange] = useState<{
     since: string;
     until: string;
-  } | null>(null);
+  } | null>(() =>
+    deepLink.since && deepLink.until
+      ? { since: deepLink.since, until: deepLink.until }
+      : null,
+  );
+  const [focusCampaignId, setFocusCampaignId] = useState<string | null>(
+    deepLink.campaignId,
+  );
+  const [showReport, setShowReport] = useState(deepLink.view === "report");
 
   // Campaign list filter/sort controls (rendered next to the date filter).
   const [objectiveFilter, setObjectiveFilter] =
@@ -171,7 +191,10 @@ export function MarketingWorkspace({
           setAdAccountsError(null);
           setIsLoadingAdAccounts(false);
           setSelectedAccountId((prev) => {
-            if (!prev && accounts.length > 0) {
+            if (prev) return prev;
+            const fromLink = matchAdAccountId(accounts, deepLink.accountId);
+            if (fromLink) return fromLink;
+            if (accounts.length > 0) {
               return accounts[0].account_id;
             }
             return prev;
@@ -221,6 +244,11 @@ export function MarketingWorkspace({
   const handleCampaignClick = (campaign: Campaign) => {
     setSelectedCampaign(campaign);
     setIsCampaignDetailOpen(true);
+  };
+
+  const handleOpenReportCampaign = (campaign: CampaignReportFact) => {
+    setSelectedAccountId(accountDigits(campaign.accountId));
+    setFocusCampaignId(campaign.id);
   };
 
   const handleCampaignUpdated = (campaign: Campaign) => {
@@ -331,6 +359,17 @@ export function MarketingWorkspace({
 
               <PlaybookInsightsPanel userId={selectedUser.id} />
 
+              {!showReport ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowReport(true)}
+                >
+                  Carregar relatório consolidado
+                </Button>
+              ) : null}
+
               {metaAccount && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-foreground">
@@ -373,6 +412,19 @@ export function MarketingWorkspace({
           </CardContent>
         </Card>
       )}
+
+      {showReport && selectedUser ? (
+        <PerformanceReportSection
+          userId={selectedUser.id}
+          accountId={deepLink.accountId}
+          campaignId={deepLink.campaignId}
+          datePreset={customRange ? null : datePreset}
+          since={customRange?.since}
+          until={customRange?.until}
+          enabled={showReport}
+          onOpenCampaign={handleOpenReportCampaign}
+        />
+      ) : null}
 
       {selectedAccountId && selectedUser && (
         <Card>
@@ -449,6 +501,7 @@ export function MarketingWorkspace({
               sortMetric={sortMetric}
               sortOrder={sortOrder}
               selectedMetricIds={selectedMetricIds}
+              focusCampaignId={focusCampaignId}
             />
           </CardContent>
         </Card>
