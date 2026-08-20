@@ -136,6 +136,7 @@ export function CustomerBaseStatusPanel({ status }: CustomerBaseStatusPanelProps
           </dd>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
             Pagamento aprovado, acesso vigente e cancelamento agendado.
+            Último pagamento via Pix não entra aqui.
           </p>
           <div className="mt-auto pt-3">
             <CustomerBaseStatusUsersDialog

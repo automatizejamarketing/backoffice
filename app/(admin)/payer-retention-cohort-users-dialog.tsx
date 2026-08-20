@@ -227,6 +227,8 @@ export function PayerRetentionCohortUsersDialog({
                             <Link
                               href={`/users/${cohortUser.id}`}
                               title="Abrir usuário"
+                              target="_blank"
+                              rel="noopener noreferrer"
                             >
                               <ExternalLink className="size-4" />
                             </Link>

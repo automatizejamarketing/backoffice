@@ -88,6 +88,30 @@ describe("summarizeCustomerBaseStatus", () => {
     ).toEqual([]);
   });
 
+  test("does not count a Pix leftover Stripe cancel as scheduled cancel", () => {
+    const now = new Date("2026-08-05T12:00:00.000Z");
+    const pixPayer = {
+      email: "thiagofreteskk@gmail.com",
+      expirationDate: new Date("2026-08-06T12:00:00.000Z"),
+      hasApprovedPayment: true,
+      scheduledCancel: true,
+      lastPaymentProvider: "mercadopago" as const,
+    };
+
+    expect(summarizeCustomerBaseStatus([pixPayer], now)).toEqual({
+      activePaying: 1,
+      trial: 0,
+      churn: { total: 0, card: 0, pix: 0 },
+      scheduledCancel: 0,
+    });
+    expect(matchesCustomerBaseCategory(pixPayer, "scheduledCancel", now)).toBe(
+      false,
+    );
+    expect(matchesCustomerBaseCategory(pixPayer, "activePaying", now)).toBe(
+      true,
+    );
+  });
+
   test("ignores scheduled cancel without approved payment", () => {
     const now = new Date("2026-08-05T12:00:00.000Z");
 

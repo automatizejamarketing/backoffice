@@ -1,6 +1,9 @@
 import { sql, type SQL } from "drizzle-orm";
 import { user } from "@/lib/db/schema";
-import type { CustomerBaseRow } from "@/lib/backoffice/customer-base-status";
+import {
+  countsAsScheduledCancel,
+  type CustomerBaseRow,
+} from "@/lib/backoffice/customer-base-status";
 
 export const ACCOUNT_STATUS_FILTER_VALUES = [
   "all",
@@ -47,12 +50,6 @@ export const ACCOUNT_STATUS_FILTER_DESCRIPTIONS: Record<
 export type AccountStatusCustomer = CustomerBaseRow & {
   hasSubscription?: boolean;
 };
-
-function countsAsScheduledCancel(customer: AccountStatusCustomer) {
-  return (
-    customer.scheduledCancel && customer.lastPaymentProvider !== "mercadopago"
-  );
-}
 
 function accessFlags(customer: CustomerBaseRow, referenceDate: Date) {
   const referenceTime = referenceDate.getTime();

@@ -219,6 +219,8 @@ export function UserActivityUsersSheet({
                             <Link
                               href={`/users/${user.id}`}
                               title="Abrir usuário"
+                              target="_blank"
+                              rel="noopener noreferrer"
                             >
                               <ExternalLink />
                             </Link>
