@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   StatusChangeNoteDialog,
@@ -64,6 +64,8 @@ type CampaignsTableProps = {
   sortMetric: CampaignMetricId | null;
   sortOrder: SortOrder;
   selectedMetricIds?: CampaignMetricId[] | null;
+  /** After the list loads, open this campaign in the existing detail sheet. */
+  focusCampaignId?: string | null;
 };
 
 const PAGE_SIZE = 25;
@@ -79,6 +81,7 @@ export function CampaignsTable({
   sortMetric,
   sortOrder,
   selectedMetricIds,
+  focusCampaignId,
 }: CampaignsTableProps) {
   const [page, setPage] = useState(0);
   const [togglingCampaignId, setTogglingCampaignId] = useState<string | null>(
@@ -100,6 +103,20 @@ export function CampaignsTable({
 
   const campaigns = data?.data ?? [];
   const isInitialLoading = isPending;
+  const openedFocusId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!focusCampaignId || campaigns.length === 0) return;
+    if (openedFocusId.current === focusCampaignId) return;
+    const match = campaigns.find((campaign) => campaign.id === focusCampaignId);
+    if (!match) return;
+    openedFocusId.current = focusCampaignId;
+    const index = campaigns.indexOf(match);
+    if (index >= 0) {
+      setPage(Math.floor(index / PAGE_SIZE));
+    }
+    onCampaignClick(match);
+  }, [campaigns, focusCampaignId, onCampaignClick]);
 
   // Reset to the first page whenever the active filter/sort changes. Done as a
   // render-time adjustment (the React-recommended pattern) instead of an effect.

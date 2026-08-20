@@ -236,6 +236,7 @@ Noteworthy variables:
 - `BACKOFFICE_EMAIL_FROM`, `RESEND_API_KEY` — transactional email via Resend.
 - Meta/Instagram vars — same values as the frontend; redirect URIs point at `automatizemarketing.com` (frontend-hosted callbacks).
 - `GOOGLE_PLACES_API_KEY` — geo targeting search proxy.
+- `MAT_PERFORMANCE_REPORT_SECRET` — shared bearer for `POST /api/internal/mat-performance-report` (Mat Interno). Must match the support-agent env. Do not reuse `CRON_SECRET`.
 
 Do not paste secrets from `.env*` files into commits or external docs.
 
