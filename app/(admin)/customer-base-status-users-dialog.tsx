@@ -289,6 +289,8 @@ export function CustomerBaseStatusUsersDialog({
                               <Link
                                 href={`/users/${user.id}`}
                                 title="Abrir usuário"
+                                target="_blank"
+                                rel="noopener noreferrer"
                               >
                                 <ExternalLink className="size-4" />
                               </Link>

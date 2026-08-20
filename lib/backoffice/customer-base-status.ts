@@ -28,6 +28,12 @@ export type CustomerBaseRow = {
   lastPaymentProvider: BillingProvider | null;
 };
 
+export function countsAsScheduledCancel(customer: CustomerBaseRow): boolean {
+  return (
+    customer.scheduledCancel && customer.lastPaymentProvider !== "mercadopago"
+  );
+}
+
 export type CustomerBaseChurn = {
   total: number;
   card: number;
@@ -90,7 +96,7 @@ export function matchesCustomerBaseCategory(
       return customer.hasApprovedPayment && hasExpiredAccess;
     case "scheduledCancel":
       return (
-        customer.scheduledCancel &&
+        countsAsScheduledCancel(customer) &&
         hasActiveAccess &&
         customer.hasApprovedPayment
       );
@@ -156,7 +162,7 @@ export function summarizeCustomerBaseStatus(
     }
 
     if (
-      customer.scheduledCancel &&
+      countsAsScheduledCancel(customer) &&
       hasActiveAccess &&
       customer.hasApprovedPayment
     ) {

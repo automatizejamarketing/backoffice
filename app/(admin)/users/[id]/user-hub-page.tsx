@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import type { ComponentType } from "react";
 import {
   BarChart3,
   BriefcaseBusiness,
@@ -8,7 +9,6 @@ import {
   FileImage,
   History,
   Megaphone,
-  MessageCircle,
   MessagesSquare,
   UserRound,
 } from "lucide-react";
@@ -22,6 +22,7 @@ import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { MarketingConsultantControl } from "@/components/marketing-consultant-control";
 import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
 import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
+import { WhatsAppIcon } from "@/components/whatsapp-icon";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
 import { WhatsappFailureInfo } from "@/components/whatsapp-failure-info";
@@ -80,14 +81,14 @@ import { cn } from "@/lib/utils";
 const TAB_CONFIG: Array<{
   value: UserHubTab;
   label: string;
-  icon: typeof UserRound;
+  icon: ComponentType<{ className?: string }>;
 }> = [
   { value: "summary", label: "Resumo", icon: UserRound },
   { value: "subscription", label: "Assinatura", icon: CreditCard },
   { value: "business", label: "Business", icon: BriefcaseBusiness },
   { value: "marketing", label: "Marketing", icon: Megaphone },
   { value: "conversations", label: "Conversas", icon: MessagesSquare },
-  { value: "whatsapp", label: "WhatsApp", icon: MessageCircle },
+  { value: "whatsapp", label: "WhatsApp", icon: WhatsAppIcon },
   { value: "usage", label: "Uso", icon: BarChart3 },
   { value: "content", label: "Conteúdo", icon: FileImage },
   { value: "audit", label: "Auditoria", icon: History },
@@ -327,12 +328,12 @@ export async function UserHubPage({
                     className="inline-flex items-center gap-1.5 text-sm text-foreground/80 hover:text-emerald-600 hover:underline"
                     aria-label={`Abrir conversa no WhatsApp com ${phoneFormatted}`}
                   >
-                    <MessageCircle className="size-4 text-emerald-600" />
+                    <WhatsAppIcon className="size-4" />
                     {phoneFormatted}
                   </a>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-sm text-foreground/80">
-                    <MessageCircle className="size-4 text-muted-foreground" />
+                    <WhatsAppIcon muted className="size-4" />
                     {phoneFormatted}
                   </span>
                 ))}
@@ -402,7 +403,7 @@ export async function UserHubPage({
       )}
 
       {activeTab === "subscription" && subscriptionData && (
-        <UserSubscriptionPanel data={subscriptionData} />
+        <UserSubscriptionPanel data={subscriptionData} showProfileCard={false} />
       )}
 
       {activeTab === "marketing" && (
@@ -442,7 +443,7 @@ export async function UserHubPage({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="size-5" />
+              <WhatsAppIcon className="size-5" />
               Histórico de templates WhatsApp
             </CardTitle>
             <p className="text-sm text-muted-foreground">
@@ -453,7 +454,7 @@ export async function UserHubPage({
           <CardContent className="p-0">
             {whatsappHistory.length === 0 ? (
               <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-6 text-center">
-                <MessageCircle className="size-5 text-muted-foreground" />
+                <WhatsAppIcon muted className="size-5" />
                 <p className="text-sm font-medium">Nenhum disparo registrado</p>
                 <p className="text-xs text-muted-foreground">
                   Os próximos templates oficiais enviados para este usuário
