@@ -106,7 +106,7 @@ export function MarketingWorkspace({
   const [focusCampaignId, setFocusCampaignId] = useState<string | null>(
     deepLink.campaignId,
   );
-  const [showReport, setShowReport] = useState(deepLink.view === "report");
+  const openReportFromSlack = deepLink.view === "report";
 
   // Campaign list filter/sort controls (rendered next to the date filter).
   const [objectiveFilter, setObjectiveFilter] =
@@ -359,17 +359,6 @@ export function MarketingWorkspace({
 
               <PlaybookInsightsPanel userId={selectedUser.id} />
 
-              {!showReport ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowReport(true)}
-                >
-                  Carregar relatório consolidado
-                </Button>
-              ) : null}
-
               {metaAccount && (
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium text-foreground">
@@ -413,7 +402,7 @@ export function MarketingWorkspace({
         </Card>
       )}
 
-      {showReport && selectedUser ? (
+      {selectedUser ? (
         <PerformanceReportSection
           userId={selectedUser.id}
           accountId={deepLink.accountId}
@@ -421,7 +410,7 @@ export function MarketingWorkspace({
           datePreset={customRange ? null : datePreset}
           since={customRange?.since}
           until={customRange?.until}
-          enabled={showReport}
+          defaultOpen={openReportFromSlack}
           onOpenCampaign={handleOpenReportCampaign}
         />
       ) : null}
