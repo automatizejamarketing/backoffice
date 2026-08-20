@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 export type InternalAuthResult =
   | { ok: true }
-  | { ok: false; response: NextResponse };
+  | { ok: false; response: NextResponse<never> };
 
 function secretsMatch(expected: string, received: string): boolean {
   const expectedBuffer = Buffer.from(expected);
@@ -21,7 +21,7 @@ export function assertMatReportAuthorized(request: Request): InternalAuthResult 
       response: NextResponse.json(
         { error: "MAT_PERFORMANCE_REPORT_SECRET environment variable is not configured" },
         { status: 500 },
-      ),
+      ) as NextResponse<never>,
     };
   }
 
@@ -30,7 +30,10 @@ export function assertMatReportAuthorized(request: Request): InternalAuthResult 
   if (!header.startsWith(prefix) || !secretsMatch(secret, header.slice(prefix.length))) {
     return {
       ok: false,
-      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+      response: NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 },
+      ) as NextResponse<never>,
     };
   }
 
