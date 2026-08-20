@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Calendar as CalendarIcon, Loader2, Plus, Minus } from "lucide-react";
+import { Calendar as CalendarIcon, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -33,6 +33,8 @@ import { formatNumericDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 interface ExpirationDateControlProps {
   userId: string;
   expirationDate: Date | string | null;
+  variant?: "card" | "plain";
+  onSaved?: () => void;
 }
 
 function normalizeDate(date: Date | string | null): Date | null {
@@ -52,6 +54,8 @@ function formatLocalYmd(d: Date): string {
 export function ExpirationDateControl({
   userId,
   expirationDate: initialExpirationDate,
+  variant = "card",
+  onSaved,
 }: ExpirationDateControlProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -108,6 +112,7 @@ export function ExpirationDateControl({
       startTransition(() => {
         router.refresh();
       });
+      onSaved?.();
       return true;
     }
     console.error("Failed to update expiration date");
@@ -147,141 +152,120 @@ export function ExpirationDateControl({
     openConfirmation(date);
   };
 
+  const getAccessSummary = (): string => {
+    if (!expirationDate) return "Sem data definida";
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const expDate = new Date(expirationDate);
+    expDate.setHours(0, 0, 0, 0);
+    const days = Math.round(
+      (expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+    );
+    if (days < 0) {
+      const ago = Math.abs(days);
+      return ago === 1 ? "Expirado ontem" : `Expirado há ${ago} dias`;
+    }
+    if (days === 0) return "Expira hoje";
+    if (days === 1) return "Expira amanhã";
+    return `${days} dias restantes`;
+  };
+
+  const busy = isSaving || isPending;
+  const adjustSteps = [
+    { days: -30, label: "−30" },
+    { days: -7, label: "−7" },
+    { days: -1, label: "−1" },
+    { days: 1, label: "+1" },
+    { days: 7, label: "+7" },
+    { days: 30, label: "+30" },
+  ] as const;
+
+  const controls = (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              className={cn(
+                "h-11 min-w-[12rem] justify-start px-3 text-left font-medium tabular-nums",
+                !expirationDate && "text-muted-foreground",
+              )}
+              disabled={busy}
+            >
+              <CalendarIcon className="size-4 text-muted-foreground" />
+              {formatDate(expirationDate)}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+              mode="single"
+              selected={expirationDate ?? undefined}
+              onSelect={(d) => handleCalendarSelect(d)}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <Badge variant={getBadgeVariant()} className="w-fit">
+            {getBadgeLabel()}
+          </Badge>
+          <span className="text-xs text-muted-foreground">
+            {getAccessSummary()}
+          </span>
+        </div>
+        {busy ? (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            {isSaving ? "Salvando…" : "Atualizando…"}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Ajuste rápido</span>
+        <div className="inline-flex overflow-hidden rounded-md border">
+          {adjustSteps.map((step, index) => (
+            <Button
+              key={step.days}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "rounded-none px-2.5 tabular-nums",
+                index > 0 && "border-l",
+                step.days < 0
+                  ? "text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                  : "text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400",
+              )}
+              disabled={busy}
+              onClick={() => requestAdjustDate(step.days)}
+            >
+              {step.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <CalendarIcon className="h-5 w-5" />
-            Acesso à plataforma
-          </CardTitle>
-          <CardDescription>
-            Data operacional usada para liberar as áreas protegidas
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm text-muted-foreground">Data atual:</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium">{formatDate(expirationDate)}</span>
-                <Badge variant={getBadgeVariant()}>{getBadgeLabel()}</Badge>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-muted-foreground shrink-0">
-                Escolher data:
-              </span>
-              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={cn(
-                      "justify-start text-left font-normal",
-                      !expirationDate && "text-muted-foreground",
-                    )}
-                    disabled={isSaving || isPending}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {expirationDate
-                      ? formatDate(expirationDate)
-                      : "Selecionar no calendário"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={expirationDate ?? undefined}
-                    onSelect={(d) => handleCalendarSelect(d)}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground flex-1 min-w-[80px]">
-                  Aumentar:
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestAdjustDate(1)}
-                    disabled={isSaving || isPending}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    +1 dia
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestAdjustDate(7)}
-                    disabled={isSaving || isPending}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    +7 dias
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestAdjustDate(30)}
-                    disabled={isSaving || isPending}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    +30 dias
-                  </Button>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-muted-foreground flex-1 min-w-[80px]">
-                  Diminuir:
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestAdjustDate(-1)}
-                    disabled={isSaving || isPending}
-                  >
-                    <Minus className="h-3 w-3 mr-1" />
-                    -1 dia
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestAdjustDate(-7)}
-                    disabled={isSaving || isPending}
-                  >
-                    <Minus className="h-3 w-3 mr-1" />
-                    -7 dias
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => requestAdjustDate(-30)}
-                    disabled={isSaving || isPending}
-                  >
-                    <Minus className="h-3 w-3 mr-1" />
-                    -30 dias
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {(isSaving || isPending) && (
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {isSaving ? "Salvando..." : "Atualizando..."}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {variant === "card" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5" />
+              Acesso à plataforma
+            </CardTitle>
+            <CardDescription>
+              Até quando as áreas protegidas ficam liberadas
+            </CardDescription>
+          </CardHeader>
+          <CardContent>{controls}</CardContent>
+        </Card>
+      ) : (
+        controls
+      )}
 
       <AlertDialog
         open={confirmOpen}
@@ -292,7 +276,7 @@ export function ExpirationDateControl({
           }
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="z-[60]">
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar alteração da data</AlertDialogTitle>
             <AlertDialogDescription>

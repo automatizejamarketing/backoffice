@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Banknote,
+  CalendarClock,
   ContactRound,
   Copy,
   CreditCard,
@@ -30,6 +31,7 @@ import {
 import { formatPlanLabel } from "@/lib/subscriptions/derive";
 import { formatDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { ManualPaymentDialog } from "@/components/manual-payment-dialog";
+import { AccountAccessSheet } from "@/components/account-access-sheet";
 import { UserPixRenewalDialog } from "./user-pix-renewal-dialog";
 import { toast } from "sonner";
 import {
@@ -108,6 +110,7 @@ export function UserActivationActions({
   const [cancelStripeOpen, setCancelStripeOpen] = useState(false);
   const [pixDialogOpen, setPixDialogOpen] = useState(false);
   const [manualPaymentOpen, setManualPaymentOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [activationLink, setActivationLink] = useState<ActivationLink | null>(
     null,
   );
@@ -296,9 +299,13 @@ export function UserActivationActions({
             <ShieldCheck />
             Ativar conta
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setAccessOpen(true)}>
+            <CalendarClock />
+            Alterar acesso
+          </DropdownMenuItem>
           {canManageBilling ? (
             <>
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 disabled={!!pixDisabledReason}
                 onSelect={() => setPixDialogOpen(true)}
@@ -340,6 +347,14 @@ export function UserActivationActions({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <AccountAccessSheet
+        open={accessOpen}
+        onOpenChange={setAccessOpen}
+        userId={userId}
+        userEmail={userEmail}
+        expirationDate={expirationDate}
+      />
 
       <UserContactDialog
         open={contactOpen}

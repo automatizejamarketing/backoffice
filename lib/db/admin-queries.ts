@@ -29,6 +29,7 @@ import {
   campaignEditLog,
   company,
   companyLocation,
+  creditTransaction,
   generatedImage,
   generatedImageVersion,
   genericGeneratePost,
@@ -77,6 +78,11 @@ import {
 import { getBusinessOperatingRules } from "@/lib/db/business-queries";
 import { PERFORMANCE_DROP_RULEBOOK_VERSION } from "@/lib/performance-drop/constants";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import {
+  buildAccountHistory,
+  serializeAccountHistory,
+  type SerializedAccountHistoryItem,
+} from "@/lib/backoffice/account-history";
 import {
   fillDailyConversionCohorts,
   summarizeCohortOutcomes,
@@ -1151,6 +1157,7 @@ export interface UserSubscriptionDetails {
   payments: Payment[];
   mercadopagoPaymentLinks: MercadoPagoPaymentLink[];
   events: SubscriptionEvent[];
+  accountHistory: SerializedAccountHistoryItem[];
 }
 
 /**
@@ -1169,13 +1176,7 @@ export async function getUserSubscriptionDetails(
     .limit(1);
   if (!foundUser) return null;
 
-  const [
-    subscriptions,
-    payments,
-    events,
-    pendingChanges,
-    mercadopagoPaymentLinks,
-  ] = await Promise.all([
+  const [subscriptions, payments, events, pendingChanges] = await Promise.all([
     db
       .select()
       .from(subscription)
@@ -1204,13 +1205,36 @@ export async function getUserSubscriptionDetails(
       )
       .orderBy(desc(pendingPlanChange.createdAt))
       .limit(1),
-    db
-      .select()
-      .from(mercadopagoPaymentLink)
-      .where(eq(mercadopagoPaymentLink.userId, userId))
-      .orderBy(desc(mercadopagoPaymentLink.createdAt))
-      .limit(20),
   ]);
+
+  const [mercadopagoPaymentLinks, trialGrants, expirationAudits] =
+    await Promise.all([
+      safeAccountHistoryQuery("mercadopagoPaymentLinks", () =>
+        db
+          .select()
+          .from(mercadopagoPaymentLink)
+          .where(eq(mercadopagoPaymentLink.userId, userId))
+          .orderBy(desc(mercadopagoPaymentLink.createdAt))
+          .limit(20),
+      ),
+      safeAccountHistoryQuery("trialGrants", () =>
+        db
+          .select({
+            id: creditTransaction.id,
+            createdAt: creditTransaction.createdAt,
+          })
+          .from(creditTransaction)
+          .where(
+            and(
+              eq(creditTransaction.userId, userId),
+              eq(creditTransaction.type, "trial_grant"),
+            ),
+          )
+          .orderBy(desc(creditTransaction.createdAt))
+          .limit(20),
+      ),
+      getExpirationAuditsForUser(userId),
+    ]);
 
   return {
     user: foundUser,
@@ -1220,7 +1244,44 @@ export async function getUserSubscriptionDetails(
     payments,
     mercadopagoPaymentLinks,
     events,
+    accountHistory: serializeAccountHistory(
+      buildAccountHistory({
+        userId: foundUser.id,
+        createdAt: foundUser.createdAt,
+        emailVerified: foundUser.emailVerified,
+        trialGrants,
+        payments,
+        events,
+        expirationAudits,
+        subscriptions,
+      }),
+    ),
   };
+}
+
+async function getExpirationAuditsForUser(userId: string) {
+  try {
+    return await db
+      .select({
+        id: backofficeAuditLog.id,
+        adminEmail: backofficeAuditLog.adminEmail,
+        oldValue: backofficeAuditLog.oldValue,
+        newValue: backofficeAuditLog.newValue,
+        createdAt: backofficeAuditLog.createdAt,
+      })
+      .from(backofficeAuditLog)
+      .where(
+        and(
+          eq(backofficeAuditLog.targetUserId, userId),
+          eq(backofficeAuditLog.fieldName, "expiration_date"),
+        ),
+      )
+      .orderBy(desc(backofficeAuditLog.createdAt))
+      .limit(50);
+  } catch (error) {
+    console.error("[account-history] expirationAudits failed", error);
+    return [];
+  }
 }
 
 function getPostgresErrorCode(error: unknown): string | undefined {
@@ -1262,6 +1323,110 @@ export async function getUserAuditLogs(userId: string, limit = 50) {
     }
     throw error;
   }
+}
+
+async function safeAccountHistoryQuery<T>(
+  label: string,
+  query: () => Promise<T[]>,
+): Promise<T[]> {
+  try {
+    return await query();
+  } catch (error) {
+    console.error(`[account-history] ${label} failed`, error);
+    return [];
+  }
+}
+
+export async function getUserAccountHistory(userId: string) {
+  const [foundUser] = await db
+    .select({
+      id: user.id,
+      createdAt: user.createdAt,
+      emailVerified: user.emailVerified,
+    })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (!foundUser) return [];
+
+  const [trialGrants, payments, events, expirationAudits, subscriptions] =
+    await Promise.all([
+      safeAccountHistoryQuery("trialGrants", () =>
+        db
+          .select({
+            id: creditTransaction.id,
+            createdAt: creditTransaction.createdAt,
+          })
+          .from(creditTransaction)
+          .where(
+            and(
+              eq(creditTransaction.userId, userId),
+              eq(creditTransaction.type, "trial_grant"),
+            ),
+          )
+          .orderBy(desc(creditTransaction.createdAt))
+          .limit(20),
+      ),
+      safeAccountHistoryQuery("payments", () =>
+        db
+          .select({
+            id: payment.id,
+            status: payment.status,
+            paidAt: payment.paidAt,
+            createdAt: payment.createdAt,
+            planType: payment.planType,
+            amount: payment.amount,
+            currency: payment.currency,
+            provider: payment.provider,
+          })
+          .from(payment)
+          .where(eq(payment.userId, userId))
+          .orderBy(desc(payment.createdAt))
+          .limit(50),
+      ),
+      safeAccountHistoryQuery("events", () =>
+        db
+          .select({
+            id: subscriptionEvent.id,
+            eventType: subscriptionEvent.eventType,
+            fromPlan: subscriptionEvent.fromPlan,
+            toPlan: subscriptionEvent.toPlan,
+            createdAt: subscriptionEvent.createdAt,
+          })
+          .from(subscriptionEvent)
+          .where(eq(subscriptionEvent.userId, userId))
+          .orderBy(desc(subscriptionEvent.createdAt))
+          .limit(50),
+      ),
+      getExpirationAuditsForUser(userId),
+      safeAccountHistoryQuery("subscriptions", () =>
+        db
+          .select({
+            id: subscription.id,
+            status: subscription.status,
+            planType: subscription.planType,
+            createdAt: subscription.createdAt,
+            canceledAt: subscription.canceledAt,
+          })
+          .from(subscription)
+          .where(eq(subscription.userId, userId))
+          .orderBy(desc(subscription.createdAt))
+          .limit(20),
+      ),
+    ]);
+
+  return serializeAccountHistory(
+    buildAccountHistory({
+      userId: foundUser.id,
+      createdAt: foundUser.createdAt,
+      emailVerified: foundUser.emailVerified,
+      trialGrants,
+      payments,
+      events,
+      expirationAudits,
+      subscriptions,
+    }),
+  );
 }
 
 // Get dashboard overview stats
