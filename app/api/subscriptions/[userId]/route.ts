@@ -23,8 +23,10 @@ import {
   type CancelStripeSubscriptionError,
 } from "@/lib/backoffice/stripe-subscription-cancel";
 import { pickActiveSubscription } from "@/lib/subscriptions/derive";
+import { VindiApiError } from "@/lib/vindi/client";
 import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
 import { markVindiPaidOutOfBandForUser } from "@/lib/vindi/paid-out-of-band-server";
+import { refundVindiPaymentForUser } from "@/lib/vindi/refund-server";
 import { recoverVindiPaymentForUser } from "@/lib/vindi/recovery-charge-server";
 import { cancelVindiSubscriptionForUser } from "@/lib/vindi/subscription-cancel-server";
 import type { VindiBackofficeRecoveryMode } from "@/lib/vindi/recovery-charge";
@@ -324,7 +326,63 @@ export async function POST(
     const body = (await request.json()) as {
       action?: string;
       mode?: string;
+      paymentId?: string;
     };
+
+    if (body.action === "refund_vindi_charge") {
+      if (typeof body.paymentId !== "string" || !body.paymentId) {
+        return NextResponse.json(
+          { error: "paymentId is required" },
+          { status: 400 },
+        );
+      }
+
+      let result;
+      try {
+        result = await refundVindiPaymentForUser({
+          userId,
+          paymentId: body.paymentId,
+          adminEmail: authz.actor.email,
+        });
+      } catch (error) {
+        // 422 típico: conta Vindi sem saldo disponível no intermediador.
+        if (error instanceof VindiApiError) {
+          return NextResponse.json(
+            { error: "vindi_error", message: error.message },
+            { status: 422 },
+          );
+        }
+        throw error;
+      }
+
+      if (!result.ok) {
+        const messages = {
+          payment_not_found: "Pagamento não encontrado para este usuário.",
+          not_vindi: "Este pagamento não foi feito pela Vindi.",
+          product_payment:
+            "Pagamento de produto: estorne pela aba Produtos, que também reverte o pedido.",
+          already_refunded: "Este pagamento já está reembolsado.",
+          not_paid: "Só é possível estornar pagamento com status Pago.",
+          no_charge_id:
+            "Este pagamento não tem cobrança Vindi associada para estornar.",
+        } as const;
+        const status = result.error === "payment_not_found" ? 404 : 409;
+        return NextResponse.json(
+          { error: result.error, message: messages[result.error] },
+          { status },
+        );
+      }
+
+      revalidatePath("/users");
+      revalidatePath(`/users/${userId}`);
+      revalidatePath(`/subscriptions/${userId}`);
+
+      return NextResponse.json({
+        success: true,
+        chargeId: result.chargeId,
+        chargeStatus: result.chargeStatus,
+      });
+    }
 
     if (body.action === "mark_vindi_paid_out_of_band") {
       if (!isVindiSubscriptionsEnabled()) {

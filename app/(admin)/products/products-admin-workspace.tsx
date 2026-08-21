@@ -179,6 +179,8 @@ type Order = {
   priceCentavos: number;
   status: string;
   createdAt: string;
+  provider: string | null;
+  vindiChargeId: string | null;
   providerPaymentId: string | null;
   paymentStatus: string | null;
   paymentMethodId: string | null;
@@ -1458,8 +1460,12 @@ export function ProductsAdminWorkspace({
     }
   }
 
+  const isVindiRefund =
+    refundTarget?.provider === "vindi" && refundTarget.vindiChargeId !== null;
+
   async function confirmRefund() {
     if (!refundTarget) return;
+    const viaVindi = isVindiRefund;
     setRefunding(true);
     try {
       const response = await fetch(
@@ -1467,7 +1473,11 @@ export function ProductsAdminWorkspace({
         { method: "POST" },
       );
       if (!response.ok) return toast.error(await readError(response));
-      toast.success("Reembolso registrado.");
+      toast.success(
+        viaVindi
+          ? "Estorno solicitado na Vindi — o valor volta ao comprador pelo mesmo método."
+          : "Reembolso registrado.",
+      );
       setRefundTarget(null);
       await loadAll();
     } finally {
@@ -2675,7 +2685,9 @@ export function ProductsAdminWorkspace({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Registrar reembolso</AlertDialogTitle>
+            <AlertDialogTitle>
+              {isVindiRefund ? "Estornar pagamento na Vindi" : "Registrar reembolso"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {refundTarget
                 ? `${refundTarget.productTitle} · ${refundTarget.buyerName} · ${money(refundTarget.priceCentavos)}`
@@ -2684,8 +2696,9 @@ export function ProductsAdminWorkspace({
           </AlertDialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">
-              Isso não devolve o dinheiro — o Pix ao cliente é feito
-              manualmente, fora do sistema.
+              {isVindiRefund
+                ? "O estorno é total e feito pela API da Vindi — o valor volta ao comprador pelo mesmo método do pagamento (requer saldo na conta Vindi)."
+                : "Isso não devolve o dinheiro — o Pix ao cliente é feito manualmente, fora do sistema."}
             </p>
             <ul className="list-disc space-y-1 pl-5">
               <li>Revoga o acesso do comprador ao produto.</li>
@@ -2702,7 +2715,13 @@ export function ProductsAdminWorkspace({
                 void confirmRefund();
               }}
             >
-              {refunding ? "Registrando…" : "Registrar reembolso"}
+              {refunding
+                ? isVindiRefund
+                  ? "Estornando…"
+                  : "Registrando…"
+                : isVindiRefund
+                  ? "Estornar na Vindi"
+                  : "Registrar reembolso"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

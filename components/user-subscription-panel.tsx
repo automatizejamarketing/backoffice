@@ -18,6 +18,7 @@ import {
 import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
 import { VindiPaidOutOfBandCard } from "@/components/vindi-paid-out-of-band-card";
 import { VindiPaymentRecoveryCard } from "@/components/vindi-payment-recovery-card";
+import { VindiRefundPaymentButton } from "@/components/vindi-refund-payment-button";
 import { VindiSubscriptionCancelButton } from "@/components/vindi-subscription-cancel-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +41,7 @@ import {
   pickFailedVindiBillId,
   presentBackofficeVindiPixLink,
 } from "@/lib/vindi/backoffice-pix";
+import { decideVindiPaymentRefund } from "@/lib/vindi/refund";
 import {
   billingProviderLabel,
   presentBackofficeVindiSubscription,
@@ -671,6 +673,7 @@ export function UserSubscriptionPanel({
                     <TableHead>Provedor</TableHead>
                     <TableHead>Descrição</TableHead>
                     <TableHead>ID no provedor</TableHead>
+                    <TableHead>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -714,6 +717,18 @@ export function UserSubscriptionPanel({
                           vindiId: p.vindiChargeId ?? p.vindiBillId,
                           mercadopagoId: p.mercadopagoPaymentId,
                         }) ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        {decideVindiPaymentRefund(p).ok ? (
+                          <VindiRefundPaymentButton
+                            userId={user.id}
+                            paymentId={p.id}
+                            amountLabel={formatMoney(p.amount, p.currency)}
+                            description={
+                              p.description ?? planNameOrDash(p.planType)
+                            }
+                          />
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))}
