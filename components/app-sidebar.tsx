@@ -85,7 +85,8 @@ export function AppSidebar({
   actor: BackofficeActor;
 }) {
   const pathname = usePathname();
-  const { setOpenMobile } = useSidebar();
+  const { setOpenMobile, state, isMobile } = useSidebar();
+  const collapsed = state === "collapsed" && !isMobile;
 
   const isDashboard = pathname === "/";
   const isFinanceSection = pathname?.startsWith("/finance");
@@ -225,12 +226,13 @@ export function AppSidebar({
   });
 
   return (
-    <Sidebar className="group-data-[side=left]:border-r-0">
+    <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <div className="flex flex-row items-center justify-between">
             <Link
-              className="flex flex-row items-center rounded-md hover:bg-muted transition-colors p-2"
+              aria-label="AutomatizeJá Backoffice"
+              className="flex items-center gap-1.5 overflow-hidden rounded-md p-2 transition-colors hover:bg-muted group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-1"
               href={
                 actor.role === "marketing_consultant"
                   ? "/portfolio"
@@ -242,22 +244,20 @@ export function AppSidebar({
                 setOpenMobile(false);
               }}
             >
-              {/* Logo for light mode */}
-              {/* biome-ignore lint/a11y/useAltText: Alt text provided */}
+              {/* biome-ignore lint/a11y/useAltText: Decorative; label is on the link */}
               <img
-                alt="AutomatizeJá Backoffice"
-                className="block dark:hidden"
-                src="/logo/3.png"
-                style={{ height: 28, width: "auto" }}
+                alt=""
+                className="size-7 shrink-0 object-contain"
+                src="/logo/1.png"
               />
-              {/* Logo for dark mode */}
-              {/* biome-ignore lint/a11y/useAltText: Alt text provided */}
-              <img
-                alt="AutomatizeJá Backoffice"
-                className="hidden dark:block"
-                src="/logo/9.png"
-                style={{ height: 28, width: "auto" }}
-              />
+              <span className="relative h-7 w-[168px] shrink-0 overflow-hidden group-data-[collapsible=icon]:invisible">
+                {/* biome-ignore lint/a11y/useAltText: Decorative; label is on the link */}
+                <img
+                  alt=""
+                  className="absolute top-1/2 -left-4 h-[110px] max-w-none -translate-y-1/2"
+                  src="/logo/2.png"
+                />
+              </span>
             </Link>
           </div>
         </SidebarMenu>
@@ -272,12 +272,16 @@ export function AppSidebar({
                   <SidebarMenuButton
                     asChild
                     className={cn(
+                      "group-data-[collapsible=icon]:!h-8 group-data-[collapsible=icon]:!w-full group-data-[collapsible=icon]:justify-start",
                       item.isActive && "bg-primary/10 text-primary",
                     )}
+                    tooltip={item.label}
                   >
                     <Link href={item.href} onClick={() => setOpenMobile(false)}>
-                      <item.icon className="size-4" />
-                      <span>{item.label}</span>
+                      <item.icon className="size-4 shrink-0" />
+                      <span className="min-w-0 truncate group-data-[collapsible=icon]:invisible">
+                        {item.label}
+                      </span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -286,36 +290,46 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="@container">
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton
-                  className="h-10 bg-background data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                  className="h-10 bg-background data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground group-data-[collapsible=icon]:!h-8 group-data-[collapsible=icon]:!w-full group-data-[collapsible=icon]:justify-start @max-[3.5rem]:!justify-center @max-[3.5rem]:!p-0"
                   data-testid="user-nav-button"
                 >
-                  <Avatar className="h-6 w-6">
+                  <Avatar className="size-6 shrink-0">
                     <AvatarImage
                       src={user.image ?? undefined}
                       alt={user.name ?? "Avatar do Admin"}
                     />
-                    <AvatarFallback className="text-xs">
+                    <AvatarFallback className="text-xs uppercase">
                       {user.name?.charAt(0) ?? user.email?.charAt(0) ?? "A"}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="truncate" data-testid="user-email">
+                  <span
+                    className="min-w-0 truncate group-data-[collapsible=icon]:invisible @max-[3.5rem]:hidden"
+                    data-testid="user-email"
+                  >
                     {user.email}
                   </span>
-                  <ChevronUp className="ml-auto" />
+                  <ChevronUp className="ml-auto shrink-0 group-data-[collapsible=icon]:invisible @max-[3.5rem]:hidden" />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
-                className="w-(--radix-popper-anchor-width)"
-                side="top"
+                align={collapsed ? "end" : "start"}
+                className={cn(
+                  "min-w-56",
+                  collapsed
+                    ? "max-w-72"
+                    : "w-(--radix-popper-anchor-width)",
+                )}
+                side={collapsed ? "right" : "top"}
+                sideOffset={collapsed ? 8 : 4}
               >
                 <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">
+                  <p className="truncate text-sm font-medium">
                     {user.name ??
                       (actor.role === "admin"
                         ? "Admin"
@@ -325,7 +339,9 @@ export function AppSidebar({
                             ? "Financeiro"
                             : "Consultor")}
                   </p>
-                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {user.email}
+                  </p>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
