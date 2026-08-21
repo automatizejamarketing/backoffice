@@ -5,6 +5,7 @@ import {
   Copy,
   CreditCard,
   KeyRound,
+  Link2,
   Loader2,
   MoreHorizontal,
   QrCode,
@@ -12,6 +13,8 @@ import {
 } from "lucide-react";
 import type { ActiveSubscriptionSummary } from "@/lib/db/admin-queries";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
+import { getSubscribeLinkDisabledReason } from "@/lib/backoffice/subscribe-link-policy";
+import { UserSubscribeLinkDialog } from "./user-subscribe-link-dialog";
 import {
   canCancelStripeSubscriptionAtPeriodEnd,
   getStripeCancellationExpirationDate,
@@ -59,6 +62,7 @@ export function UserActivationActions({
   userId,
   userEmail,
   userPhone,
+  expirationDate,
   activationAvailable,
   activeSubscription,
   canManageBilling,
@@ -68,6 +72,7 @@ export function UserActivationActions({
   userId: string;
   userEmail: string;
   userPhone?: string | null;
+  expirationDate?: Date | string | null;
   activationAvailable: boolean;
   activeSubscription: ActiveSubscriptionSummary;
   canManageBilling: boolean;
@@ -82,10 +87,15 @@ export function UserActivationActions({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [cancelStripeOpen, setCancelStripeOpen] = useState(false);
   const [pixDialogOpen, setPixDialogOpen] = useState(false);
+  const [subscribeLinkOpen, setSubscribeLinkOpen] = useState(false);
   const [activationLink, setActivationLink] = useState<ActivationLink | null>(
     null,
   );
   const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
+  const subscribeLinkDisabledReason = getSubscribeLinkDisabledReason({
+    expirationDate: expirationDate ?? null,
+    subscriptions: activeSubscription ? [activeSubscription] : [],
+  });
   const currentPlanType = activeSubscription?.planType ?? null;
   const canCancelStripe = canCancelStripeSubscriptionAtPeriodEnd(
     activeSubscription,
@@ -254,6 +264,10 @@ export function UserActivationActions({
                   {pixDisabledReason}
                 </p>
               ) : null}
+              <DropdownMenuItem onSelect={() => setSubscribeLinkOpen(true)}>
+                <Link2 />
+                Gerar link de assinatura
+              </DropdownMenuItem>
               {canCancelStripe ? (
                 <DropdownMenuItem onSelect={() => setCancelStripeOpen(true)}>
                   <CreditCard />
@@ -285,6 +299,15 @@ export function UserActivationActions({
         userPhone={userPhone}
         currentPlanType={currentPlanType}
         disabledReason={pixDisabledReason}
+      />
+
+      <UserSubscribeLinkDialog
+        open={subscribeLinkOpen}
+        onOpenChange={setSubscribeLinkOpen}
+        userId={userId}
+        userEmail={userEmail}
+        userPhone={userPhone}
+        disabledReason={subscribeLinkDisabledReason}
       />
 
       <Dialog

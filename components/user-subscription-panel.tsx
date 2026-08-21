@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   History,
+  Link2,
   Receipt,
   RotateCw,
   Shield,
@@ -8,6 +9,7 @@ import {
   User,
 } from "lucide-react";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
+import { SubscribeLinkActions } from "@/components/subscribe-link-actions";
 import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
 import {
   MercadoPagoPixActions,
@@ -31,6 +33,7 @@ import type { UserSubscriptionDetails } from "@/lib/db/admin-queries";
 import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
+import { getSubscribeLinkDisabledReason } from "@/lib/backoffice/subscribe-link-policy";
 import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
 import {
   decideVindiPaidOutOfBand,
@@ -485,6 +488,28 @@ export function UserSubscriptionPanel({
           />
         </CardContent>
       </Card>
+
+      {vindiSubscriptionsEnabled ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Link de assinatura
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SubscribeLinkActions
+              userId={user.id}
+              userEmail={user.email}
+              userPhone={user.phone}
+              disabledReason={getSubscribeLinkDisabledReason({
+                expirationDate: user.expirationDate,
+                subscriptions: activeSubscription ? [activeSubscription] : [],
+              })}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {vindiPaidOutOfBand.ok ? (
         <VindiPaidOutOfBandCard
