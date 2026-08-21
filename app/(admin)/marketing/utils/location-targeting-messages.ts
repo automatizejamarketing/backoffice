@@ -1,16 +1,16 @@
 export const locationTargetingMessages: Record<string, string> = {
   title: "Geo Localização",
   description:
-    "Busque um endereço, estabelecimento ou ponto no mapa. Cada local usa um raio em torno de coordenadas exatas para permitir áreas menores.",
+    "Busque cidades, estados e regiões (segmentadas direto na Meta) ou endereços e estabelecimentos (com raio ajustável ao redor do ponto).",
   selectedLabel: "selecionado(s)",
-  searchPlaceholder: "Buscar endereço ou estabelecimento...",
-  searchHint: "Busque por rua, nome do negócio, bairro ou ponto de referência",
+  searchPlaceholder: "Buscar cidade, endereço ou estabelecimento...",
+  searchHint: "Busque por cidade, estado, bairro, rua ou nome do negócio",
   searchDisabledHint: "Selecione uma conta de anúncios primeiro",
   selectAccountFirst: "Selecione uma conta para buscar localizações",
   searching: "Buscando...",
-  searchEmptyState: "Digite um endereço, estabelecimento ou local",
+  searchEmptyState: "Digite uma cidade, endereço ou estabelecimento",
   searchError: "Falha ao buscar localizações",
-  noResults: "Nenhum endereço ou estabelecimento encontrado",
+  noResults: "Nenhuma localização encontrada",
   metaLocationsGroup: "Localizações Meta",
   googlePlacesGroup: "Endereços e estabelecimentos",
   placeDetailsError:

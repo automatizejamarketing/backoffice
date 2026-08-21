@@ -71,6 +71,8 @@ export type GeoLocationsPayload = {
     radius?: number;
     distance_unit?: DistanceUnit;
   }>;
+  subcities?: Array<{ key: string }>;
+  neighborhoods?: Array<{ key: string }>;
   zips?: Array<{ key: string }>;
   geo_markets?: Array<{ key: string }>;
   electoral_districts?: Array<{ key: string }>;
@@ -114,16 +116,16 @@ export function applyDefaultBrazilLocationRule(
     : [DEFAULT_BRAZIL_LOCATION];
 }
 
-export function isCityLikeGeoLocation(
+/**
+ * Point-like locations sent to Meta as `custom_locations` (lat/lng + radius):
+ * pin drags and Google Places results (establishments, streets, addresses).
+ * Meta-keyed locations (country, region, city, subcity, neighborhood, zip, …)
+ * are sent by key and NEVER carry a radius — Meta resolves their own boundary.
+ */
+export function isRadiusGeoLocation(
   location: Pick<SelectedGeoLocation, "type">,
 ): boolean {
-  return (
-    location.type === "custom_location" ||
-    location.type === "place" ||
-    location.type === "city" ||
-    location.type === "subcity" ||
-    location.type === "neighborhood"
-  );
+  return location.type === "custom_location" || location.type === "place";
 }
 
 export function hasLocationCoordinates(
@@ -151,7 +153,7 @@ export function normalizeSelectedGeoLocation(
   const distanceUnit =
     "distance_unit" in location ? location.distance_unit : undefined;
 
-  if (location.type === "custom_location") {
+  if (isRadiusGeoLocation(location)) {
     return {
       ...location,
       radius: radius ?? DEFAULT_CITY_RADIUS_KM,
@@ -252,16 +254,40 @@ export function buildGeoLocationsPayload(
       continue;
     }
 
-    if (
-      location.type === "custom_location" ||
-      location.type === "place" ||
-      location.type === "city" ||
-      location.type === "subcity" ||
-      location.type === "neighborhood"
-    ) {
+    if (location.type === "city" && location.key) {
+      payload.cities ??= [];
+      if (!payload.cities.some((city) => city.key === location.key)) {
+        payload.cities.push({ key: location.key });
+      }
+      continue;
+    }
+
+    if (location.type === "subcity" && location.key) {
+      payload.subcities ??= [];
+      if (!payload.subcities.some((subcity) => subcity.key === location.key)) {
+        payload.subcities.push({ key: location.key });
+      }
+      continue;
+    }
+
+    if (location.type === "neighborhood" && location.key) {
+      payload.neighborhoods ??= [];
+      if (
+        !payload.neighborhoods.some(
+          (neighborhood) => neighborhood.key === location.key,
+        )
+      ) {
+        payload.neighborhoods.push({ key: location.key });
+      }
+      continue;
+    }
+
+    if (isRadiusGeoLocation(location)) {
       appendCustomLocation(location);
     }
   }
 
-  return payload;
+  // A summary-bearing `{}` (every location dropped for missing data) must not
+  // reach Meta as an empty geo spec — let callers fall back to their default.
+  return Object.keys(payload).length > 0 ? payload : undefined;
 }

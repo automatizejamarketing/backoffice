@@ -38,6 +38,7 @@ import {
   MIN_RADIUS_KM,
   applyDefaultBrazilLocationRule,
   hasLocationCoordinates,
+  isRadiusGeoLocation,
   normalizeSelectedGeoLocation,
   type GeoLocationSearchResult,
   type GeoLocationType,
@@ -89,6 +90,38 @@ type LocationTargetingSectionProps = {
 };
 
 type LocationTargetingTranslator = ReturnType<typeof useLocationTargetingT>;
+
+/**
+ * Meta results the picker offers: only Meta-KEYED entities (targeted by key,
+ * no radius). Meta's `place_fallback` street/place results are filtered out —
+ * establishments, streets, and addresses come from the Google group instead,
+ * as `custom_locations` (lat/lng + radius).
+ */
+const META_KEYED_TYPES = new Set<GeoLocationType>([
+  "country",
+  "country_group",
+  "region",
+  "city",
+  "subcity",
+  "neighborhood",
+  "zip",
+  "geo_market",
+  "electoral_district",
+]);
+
+const LOCATION_RESULT_ORDER: GeoLocationType[] = [
+  "city",
+  "subcity",
+  "neighborhood",
+  "region",
+  "zip",
+  "geo_market",
+  "electoral_district",
+  "country",
+  "country_group",
+  "place",
+  "custom_location",
+];
 
 function getLocationTypeIcon(type: GeoLocationType) {
   if (type === "country" || type === "region") {
@@ -254,22 +287,43 @@ export function LocationTargetingSection({
     placesSessionToken,
     selectedLocations,
     enabled: open,
-    googleOnly: true,
     locationBias: browserLocationBias,
   });
 
   const { geocodeByKey, isGeocoding, geocodeError } =
     useZipGeocodeForMap(selectedLocations);
 
-  const googleResults = useMemo(() => {
-    const google = results.filter((result) => result.source === "google_places");
+  const { groupedMetaResults, googleResults } = useMemo(() => {
+    const meta: GeoLocationSearchResult[] = [];
+    const google: GeoLocationSearchResult[] = [];
+
+    for (const result of results) {
+      if (result.source === "google_places") {
+        google.push(result);
+      } else if (META_KEYED_TYPES.has(result.type)) {
+        meta.push(result);
+      }
+    }
 
     // Prioritize businesses (establishments) above addresses in the Google list.
     google.sort(
       (a, b) => Number(b.is_business ?? false) - Number(a.is_business ?? false),
     );
 
-    return google;
+    const groups = new Map<GeoLocationType, GeoLocationSearchResult[]>();
+    for (const result of meta) {
+      const existing = groups.get(result.type) ?? [];
+      existing.push(result);
+      groups.set(result.type, existing);
+    }
+
+    return {
+      groupedMetaResults: Array.from(groups.entries()).sort(
+        ([left], [right]) =>
+          LOCATION_RESULT_ORDER.indexOf(left) - LOCATION_RESULT_ORDER.indexOf(right),
+      ),
+      googleResults: google,
+    };
   }, [results]);
 
   const showUseBusinessLocationsButton = useMemo(
@@ -320,7 +374,12 @@ export function LocationTargetingSection({
   const commitSelectedLocation = (location: GeoLocationSearchResult) => {
     const normalizedLocation = normalizeSelectedGeoLocation(location);
 
-    if (!hasLocationCoordinates(normalizedLocation)) {
+    // Only radius (lat/lng) locations need coordinates to be targetable;
+    // Meta-keyed ones are sent by key and get map coordinates via geocoding.
+    if (
+      isRadiusGeoLocation(normalizedLocation) &&
+      !hasLocationCoordinates(normalizedLocation)
+    ) {
       setPlaceDetailsError(t("placeDetailsError"));
       return;
     }
@@ -339,6 +398,8 @@ export function LocationTargetingSection({
 
   const handleSelectLocation = async (location: GeoLocationSearchResult) => {
     if (location.source !== "google_places") {
+      // Meta-keyed result: no place-details roundtrip needed.
+      commitSelectedLocation(location);
       return;
     }
 
@@ -394,7 +455,7 @@ export function LocationTargetingSection({
 
     onLocationsChange(
       selectedLocations.map((location) => {
-        if (location.key !== locationKey) {
+        if (location.key !== locationKey || !isRadiusGeoLocation(location)) {
           return location;
         }
 
@@ -414,7 +475,7 @@ export function LocationTargetingSection({
   const handleRadiusStep = (locationKey: string, delta: number) => {
     onLocationsChange(
       selectedLocations.map((location) => {
-        if (location.key !== locationKey) {
+        if (location.key !== locationKey || !isRadiusGeoLocation(location)) {
           return location;
         }
 
@@ -561,6 +622,47 @@ export function LocationTargetingSection({
                   <CommandEmpty>
                     <span className="block">{t("noResults")}</span>
                   </CommandEmpty>
+                  {groupedMetaResults.map(([type, locations]) => (
+                    <CommandGroup
+                      key={type}
+                      heading={getLocationTypeLabel(type, t)}
+                    >
+                      {locations.map((location) => {
+                        const Icon = getLocationTypeIcon(location.type);
+
+                        return (
+                          <CommandItem
+                            key={`meta-${location.type}-${location.key}`}
+                            value={`${location.name}-${location.key}`}
+                            disabled={resolvingPlaceId !== null}
+                            onSelect={() => handleSelectLocation(location)}
+                            className="text-foreground data-[selected=true]:text-foreground **:[[cmdk-item-subtitle]]:text-muted-foreground"
+                          >
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                              <Icon className="size-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium">
+                                {location.name}
+                              </p>
+                              <p
+                                cmdk-item-subtitle=""
+                                className="truncate text-xs text-muted-foreground"
+                              >
+                                {getLocationMeta(location, t)}
+                              </p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                            >
+                              {getLocationTypeLabel(location.type, t)}
+                            </Badge>
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  ))}
                   {googleResults.length > 0 ? (
                     <CommandGroup heading={t("googlePlacesGroup")}>
                       {googleResults.map((location) => {
@@ -631,10 +733,12 @@ export function LocationTargetingSection({
               !hasLocationCoordinates(location) &&
               !geocodeByKey[location.key];
 
-            const pinSource =
-              location.type === "zip" && !hasLocationCoordinates(location)
-                ? "openstreetmap"
-                : "meta";
+            // A pin without the location's own coordinates was geocoded via
+            // OpenStreetMap (zip/city/subcity/neighborhood) — disclose that.
+            const pinSource = !hasLocationCoordinates(location)
+              ? "openstreetmap"
+              : "meta";
+            const showRadiusControls = isRadiusGeoLocation(location);
 
             return (
               <div
@@ -707,13 +811,18 @@ export function LocationTargetingSection({
                   <div className="space-y-3 border-t border-border/40 p-3">
                     <LocationTargetingMapPreview
                       location={coordLocation}
-                      radiusKm={coordLocation.radius ?? DEFAULT_CITY_RADIUS_KM}
+                      radiusKm={
+                        showRadiusControls
+                          ? (coordLocation.radius ?? DEFAULT_CITY_RADIUS_KM)
+                          : undefined
+                      }
                       pinSource={pinSource}
                       onLocationDrag={(lat, lng) =>
                         handleLocationDrag(locationIndex, lat, lng)
                       }
                     />
 
+                    {showRadiusControls && (
                     <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
                       <div className="mb-2 flex items-center justify-between gap-3">
                         <div>
@@ -778,6 +887,7 @@ export function LocationTargetingSection({
                         disabled={disabled}
                       />
                     </div>
+                    )}
                   </div>
                 )}
 

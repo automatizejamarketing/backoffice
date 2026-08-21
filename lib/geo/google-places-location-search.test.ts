@@ -123,12 +123,14 @@ describe("Google Places location search", () => {
     expect(result).toBeNull();
   });
 
-  test("buildGeoLocationsPayload never emits Meta city-like keys", () => {
+  test("buildGeoLocationsPayload targets Meta-keyed locations by key, never with a radius", () => {
     const payload = buildGeoLocationsPayload([
       {
         key: "2684440",
         name: "Campos dos Goytacazes",
         type: "city",
+        // A stray radius on a keyed location must NOT reach the payload —
+        // Meta resolves the city's own boundary.
         radius: 5,
         distance_unit: "kilometer",
       },
@@ -141,7 +143,8 @@ describe("Google Places location search", () => {
       },
     ]);
 
-    expect(payload?.cities).toBeUndefined();
+    expect(payload?.cities).toEqual([{ key: "2684440" }]);
+    expect(payload?.neighborhoods).toEqual([{ key: "2786077" }]);
     expect(payload?.custom_locations).toBeUndefined();
   });
 

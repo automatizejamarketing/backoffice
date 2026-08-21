@@ -166,8 +166,13 @@ async function fetchLocations(
     ),
   ]);
 
+  // One degraded source must not blank the whole picker: surface whichever
+  // side answered. Only fail when BOTH did.
   if (metaResult.status === "rejected") {
-    throw metaResult.reason;
+    console.warn("metaGeoSearch.clientFailed", metaResult.reason);
+    if (googleResult.status === "rejected") {
+      throw metaResult.reason;
+    }
   }
 
   if (googleResult.status === "rejected") {
@@ -176,7 +181,7 @@ async function fetchLocations(
 
   return {
     data: mergeGeoLocationSearchResults(
-      metaResult.value.data,
+      metaResult.status === "fulfilled" ? metaResult.value.data : [],
       googleResult.status === "fulfilled" ? googleResult.value.data : [],
     ),
   };

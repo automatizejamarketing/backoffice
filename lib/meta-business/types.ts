@@ -422,6 +422,8 @@ export type AdSetGeoLocations = {
   countries?: string[];
   country_groups?: string[];
   cities?: Array<TargetingEntity & { key: string; region?: string }>;
+  subcities?: TargetingEntity[];
+  neighborhoods?: TargetingEntity[];
   regions?: Array<TargetingEntity & { key: string }>;
   zips?: TargetingEntity[];
   geo_markets?: TargetingEntity[];

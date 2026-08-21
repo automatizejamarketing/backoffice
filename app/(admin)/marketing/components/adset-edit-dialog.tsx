@@ -185,6 +185,22 @@ function geoLocationsToSelectedLocations(
       }),
     });
   }
+  for (const subcity of geo.subcities ?? []) {
+    if (!subcity.key) continue;
+    locations.push({
+      key: subcity.key,
+      name: subcity.name ?? subcity.key,
+      type: "subcity",
+    });
+  }
+  for (const neighborhood of geo.neighborhoods ?? []) {
+    if (!neighborhood.key) continue;
+    locations.push({
+      key: neighborhood.key,
+      name: neighborhood.name ?? neighborhood.key,
+      type: "neighborhood",
+    });
+  }
   for (const zip of geo.zips ?? []) {
     if (!zip.key) continue;
     locations.push({ key: zip.key, name: zip.name ?? zip.key, type: "zip" });

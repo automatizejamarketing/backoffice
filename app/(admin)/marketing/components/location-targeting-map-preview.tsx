@@ -12,7 +12,12 @@ import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-type
 
 type LocationTargetingMapPreviewProps = {
   location: SelectedGeoLocation & { latitude: number; longitude: number };
-  radiusKm: number;
+  /**
+   * Radius circle around the pin, in km. Omit for Meta-keyed locations
+   * (city/neighborhood/…): Meta resolves their own boundary, so drawing a
+   * radius would misrepresent what is actually targeted.
+   */
+  radiusKm?: number;
   /** When the pin comes from OpenStreetMap geocoding (ZIP), not Meta coordinates */
   pinSource?: "meta" | "openstreetmap";
   /** Called when the user drags the pin to a new position */
@@ -67,13 +72,22 @@ function MapViewportSync({
 }: {
   latitude: number;
   longitude: number;
-  radiusKm: number;
+  radiusKm?: number;
 }) {
   const map = useMap();
   const prevCenter = useRef<[number, number] | null>(null);
 
   useEffect(() => {
-    const zoom = radiusKm <= 3 ? 15 : radiusKm <= 8 ? 14 : radiusKm <= 20 ? 13 : 12;
+    const zoom =
+      radiusKm === undefined
+        ? 11
+        : radiusKm <= 3
+          ? 15
+          : radiusKm <= 8
+            ? 14
+            : radiusKm <= 20
+              ? 13
+              : 12;
     map.invalidateSize({ animate: false });
 
     const prev = prevCenter.current;
@@ -151,16 +165,18 @@ export function LocationTargetingMapPreview({
             longitude={location.longitude}
             radiusKm={radiusKm}
           />
-          <Circle
-            center={center}
-            radius={radiusKm * 1000}
-            pathOptions={{
-              color: "#4C49BE",
-              fillColor: "#7A7ADB",
-              fillOpacity: 0.18,
-              weight: 2,
-            }}
-          />
+          {radiusKm !== undefined ? (
+            <Circle
+              center={center}
+              radius={radiusKm * 1000}
+              pathOptions={{
+                color: "#4C49BE",
+                fillColor: "#7A7ADB",
+                fillOpacity: 0.18,
+                weight: 2,
+              }}
+            />
+          ) : null}
           <Marker
             ref={markerRef}
             position={center}

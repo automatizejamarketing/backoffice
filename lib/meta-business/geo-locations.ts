@@ -6,6 +6,8 @@ const GEO_LOCATION_COLLECTION_KEYS = [
   "countries",
   "country_groups",
   "cities",
+  "subcities",
+  "neighborhoods",
   "regions",
   "zips",
   "geo_markets",
@@ -39,6 +41,9 @@ export function sanitizeGeoLocationsForMeta(
   if (hasItems(geoLocations.country_groups))
     cleanGeo.country_groups = geoLocations.country_groups;
   if (hasItems(geoLocations.cities)) cleanGeo.cities = geoLocations.cities;
+  if (hasItems(geoLocations.subcities)) cleanGeo.subcities = geoLocations.subcities;
+  if (hasItems(geoLocations.neighborhoods))
+    cleanGeo.neighborhoods = geoLocations.neighborhoods;
   if (hasItems(geoLocations.regions)) cleanGeo.regions = geoLocations.regions;
   if (hasItems(geoLocations.zips)) cleanGeo.zips = geoLocations.zips;
   if (hasItems(geoLocations.geo_markets))
