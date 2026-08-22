@@ -3,7 +3,12 @@ import { TZDateMini } from "@date-fns/tz";
 import type { PlanType, VindiPaymentLinkSource } from "@/lib/db/schema";
 import { getCommitmentMonths } from "@/lib/stripe/plans";
 
-export const VINDI_PIX_QR_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Prazo do Pix: SEMPRE 24 horas (decisão do Rafael, 22/08/2026 — alinhado ao
+ * prazo real do QR no gateway). O prazo reportado pelo gateway continua
+ * mandando quando for MENOR (`resolveVindiPixLinkExpiresAt`).
+ */
+export const VINDI_PIX_QR_TTL_MS = 24 * 60 * 60 * 1000;
 export const VINDI_PAID_OUT_OF_BAND_ACTION = "mark_vindi_paid_out_of_band";
 
 export type ReusableVindiPixLink = {

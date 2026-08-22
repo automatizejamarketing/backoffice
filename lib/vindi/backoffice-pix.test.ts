@@ -143,11 +143,11 @@ describe("presentBackofficeVindiPixLink", () => {
 });
 
 describe("backoffice Vindi Pix validity and email key", () => {
-  it("expires the QR after the account duration of 7 days", () => {
-    assert.equal(VINDI_PIX_QR_TTL_MS, 7 * 24 * 60 * 60 * 1000);
+  it("expires the QR after the 24-hour payment window (decision 2026-08-22)", () => {
+    assert.equal(VINDI_PIX_QR_TTL_MS, 24 * 60 * 60 * 1000);
     assert.equal(
       vindiPixLinkExpiresAt(now).toISOString(),
-      "2026-08-24T15:00:00.000Z",
+      "2026-08-18T15:00:00.000Z",
     );
   });
 
