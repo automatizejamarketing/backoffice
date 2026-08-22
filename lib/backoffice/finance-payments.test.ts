@@ -592,4 +592,17 @@ describe("receita de produto no split Vindi", () => {
     expect(amounts.expertRevenueCentavos).toBe(17100);
     expect(amounts.automatizeNetCentavos).toBe(1900);
   });
+
+  test("split gerido no painel (valores NULL, 22/08/2026): nada vira receita da Automatize até o settlement", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...vindiSplitFixture,
+      expertAmountCentavos: null,
+      platformTheoreticalAmountCentavos: null,
+    });
+
+    // A venda de expert sem valores congelados fica PENDENTE — o ramo legado
+    // atribuiria os R$100,00 inteiros à Automatize.
+    expect(amounts.automatizeNetCentavos).toBe(0);
+    expect(amounts.grossCentavos).toBe(10000);
+  });
 });

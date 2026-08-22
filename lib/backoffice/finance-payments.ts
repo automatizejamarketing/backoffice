@@ -433,6 +433,11 @@ export function resolveAutomatizeProductNetCentavos(
         Math.min(payment.expertAmountCentavos, gatewayNet),
       );
     }
+    // Vendas a partir de 22/08/2026: o split é a regra configurada no painel
+    // da Vindi e os dois valores ficam NULL — a nossa parte é DESCONHECIDA
+    // até o settlement reportar. Zero (pendente) em vez de deixar cair no
+    // ramo legado, que atribuiria a venda INTEIRA à Automatize.
+    return 0;
   }
 
   if (usesPlatformFeeFinancialModel(payment.financialModel)) {
