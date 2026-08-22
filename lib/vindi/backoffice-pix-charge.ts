@@ -12,6 +12,7 @@ import { VindiApiError, type VindiClient } from "./client";
 import {
   findOrCreateVindiCustomer,
   type VindiCustomerDirectory,
+  type VindiCustomerIdentity,
 } from "./customer-lookup";
 import { resourceId } from "./payload";
 import {
