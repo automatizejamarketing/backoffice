@@ -1,4 +1,5 @@
 import type { VindiClient } from "./client";
+import type { VindiCustomerAddress } from "./sandbox";
 import type { VindiCustomer, VindiCustomerResponse } from "./types";
 
 export type VindiCustomerDirectory = {
@@ -11,7 +12,37 @@ export type VindiCustomerIdentity = {
   name: string;
   email: string;
   registryCode?: string;
+  address?: VindiCustomerAddress;
 };
+
+function vindiCustomerProfileBody(buyer: VindiCustomerIdentity) {
+  return {
+    ...(buyer.registryCode ? { registry_code: buyer.registryCode } : {}),
+    ...(buyer.address ? { address: buyer.address } : {}),
+  };
+}
+
+/**
+ * Um customer criado antes de o usuário ter CPF (ou sem o endereço que o
+ * sandbox exige) recusa toda bill Pix ("CPF não pode ficar em branco"). O PUT
+ * de melhor esforço completa o perfil quando temos os dados — igual ao
+ * frontend.
+ */
+async function putVindiCustomerProfile(
+  client: VindiClient,
+  customerId: number,
+  buyer: VindiCustomerIdentity,
+): Promise<void> {
+  const body = vindiCustomerProfileBody(buyer);
+  if (!body.registry_code && !body.address) {
+    return;
+  }
+  await client.request<VindiCustomerResponse>({
+    method: "PUT",
+    path: `/v1/customers/${customerId}`,
+    body,
+  });
+}
 
 export async function findOrCreateVindiCustomer(
   client: VindiClient,
@@ -19,7 +50,11 @@ export async function findOrCreateVindiCustomer(
   buyer: VindiCustomerIdentity,
 ): Promise<number> {
   const stored = await customers.getCustomerId(buyer.userId);
-  if (stored) return Number(stored);
+  if (stored) {
+    const customerId = Number(stored);
+    await putVindiCustomerProfile(client, customerId, buyer);
+    return customerId;
+  }
 
   const listed = await client.request<{ customers: VindiCustomer[] }>({
     method: "GET",
@@ -28,6 +63,7 @@ export async function findOrCreateVindiCustomer(
   const existing = listed.customers[0];
   if (existing) {
     await customers.saveCustomerId(buyer.userId, String(existing.id));
+    await putVindiCustomerProfile(client, existing.id, buyer);
     return existing.id;
   }
 
@@ -38,6 +74,7 @@ export async function findOrCreateVindiCustomer(
       name: buyer.name,
       email: buyer.email,
       code: buyer.userId,
+      ...vindiCustomerProfileBody(buyer),
       metadata: { app_user_id: buyer.userId },
     },
   });

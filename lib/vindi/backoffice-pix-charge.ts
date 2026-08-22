@@ -3,10 +3,11 @@ import { assertPixRenewalAllowed } from "@/lib/backoffice/pix-renewal-policy";
 import {
   presentBackofficeVindiPixLink,
   findReusableVindiPixLink,
+  resolveVindiPixLinkExpiresAt,
   vindiBackofficeLinksToSupersede,
-  vindiPixLinkExpiresAt,
   type BackofficeVindiPixLinkView,
 } from "./backoffice-pix";
+import { vindiPixAddressForEnv } from "./sandbox";
 import { VindiApiError, type VindiClient } from "./client";
 import {
   findOrCreateVindiCustomer,
@@ -84,10 +85,31 @@ export async function deleteVindiBill(
   }
 }
 
+/** Prazo que a Vindi informou para esta fatura Pix, se informou algum. */
+function vindiReportedPixExpiry(bill: unknown): Date | null {
+  if (bill === null || typeof bill !== "object") return null;
+  const record = bill as {
+    due_at?: unknown;
+    charges?: Array<{
+      last_transaction?: {
+        gateway_response_fields?: Record<string, string | undefined>;
+      };
+    }>;
+  };
+  const fields = record.charges?.[0]?.last_transaction?.gateway_response_fields;
+  const candidates = [fields?.max_days_to_keep_waiting_payment, record.due_at];
+  for (const value of candidates) {
+    if (typeof value !== "string" || !value.trim()) continue;
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
 export async function createBackofficeVindiPixBill(input: {
   client: VindiClient;
   customers: VindiCustomerDirectory;
-  buyer: { userId: string; name: string; email: string };
+  buyer: VindiCustomerIdentity;
   planType: PlanType;
   pixMethodCode: string;
   vindiSubscriptionsEnabled: boolean;
@@ -97,6 +119,7 @@ export async function createBackofficeVindiPixBill(input: {
   chargeId: string | null;
   emvPayload: string;
   amountCentavos: number;
+  gatewayExpiresAt: Date | null;
 }> {
   if (input.vindiSubscriptionsEnabled !== true) {
     throw new Error("As cobranças Vindi de assinatura estão desligadas.");
@@ -135,6 +158,7 @@ export async function createBackofficeVindiPixBill(input: {
     chargeId: resourceId(charge?.id),
     emvPayload: parsedEmv.emvPayload,
     amountCentavos: quoteBackofficeVindiPixAmount(input.planType),
+    gatewayExpiresAt: vindiReportedPixExpiry(created.bill),
   };
 }
 
@@ -142,7 +166,7 @@ export async function createOrReuseBackofficeVindiPix(input: {
   client: VindiClient;
   customers: VindiCustomerDirectory;
   store: BackofficeVindiPixStore;
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; registryCode?: string };
   subscriptions: Array<{
     provider?: string | null;
     status?: string | null;
@@ -194,6 +218,8 @@ export async function createOrReuseBackofficeVindiPix(input: {
       userId: input.user.id,
       name: input.user.name,
       email: input.user.email,
+      registryCode: input.user.registryCode,
+      address: vindiPixAddressForEnv(),
     },
     planType: input.planType,
     pixMethodCode: input.pixMethodCode,
@@ -207,7 +233,10 @@ export async function createOrReuseBackofficeVindiPix(input: {
     emvPayload: created.emvPayload,
     vindiBillId: created.billId,
     vindiChargeId: created.chargeId,
-    expiresAt: vindiPixLinkExpiresAt(input.now),
+    expiresAt: resolveVindiPixLinkExpiresAt({
+      now: input.now,
+      gatewayExpiresAt: created.gatewayExpiresAt,
+    }),
     now: input.now,
   });
 

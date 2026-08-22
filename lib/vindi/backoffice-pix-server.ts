@@ -19,6 +19,7 @@ export async function createOrReuseBackofficeVindiPixForUser(input: {
       id: user.id,
       email: user.email,
       name: user.name,
+      registryCode: user.registryCode,
     })
     .from(user)
     .where(eq(user.id, input.userId))
@@ -48,6 +49,7 @@ export async function createOrReuseBackofficeVindiPixForUser(input: {
       id: targetUser.id,
       name: targetUser.name?.trim() || targetUser.email,
       email: targetUser.email,
+      registryCode: targetUser.registryCode ?? undefined,
     },
     subscriptions,
     planType: input.planType,

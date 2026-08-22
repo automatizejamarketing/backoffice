@@ -98,6 +98,21 @@ export function vindiPixLinkExpiresAt(now: Date): Date {
   return new Date(now.getTime() + VINDI_PIX_QR_TTL_MS);
 }
 
+/**
+ * O TTL de 7 dias é NOSSO; a Vindi tem o dela (~24h no sandbox, via
+ * `max_days_to_keep_waiting_payment`). Mostrar o link como válido além do
+ * prazo do PSP fazia o cliente copiar um código morto — manda quem expira
+ * PRIMEIRO (mesma regra do frontend, fix #10 da rodada 1).
+ */
+export function resolveVindiPixLinkExpiresAt(input: {
+  now: Date;
+  gatewayExpiresAt: Date | null;
+}): Date {
+  const ceiling = vindiPixLinkExpiresAt(input.now);
+  if (!input.gatewayExpiresAt) return ceiling;
+  return input.gatewayExpiresAt < ceiling ? input.gatewayExpiresAt : ceiling;
+}
+
 export function backofficeVindiPixEmailIdempotencyKey(linkId: string): string {
   return `backoffice-vindi-pix-link:${linkId}`;
 }
