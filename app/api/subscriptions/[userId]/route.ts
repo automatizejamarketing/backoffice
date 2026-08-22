@@ -491,11 +491,14 @@ export async function POST(
           no_failed_charge: "Nenhuma cobrança Vindi falha encontrada.",
           retry_not_allowed:
             "Retentar no cartão só está disponível para cobrança de cartão.",
+          pix_pending:
+            "Esta fatura já tem um Pix gerado. O cliente paga pelo QR, ou aguarde o código expirar para retentar no cartão.",
         } as const;
         const status =
           result.error === "user_not_found"
             ? 404
-            : result.error === "retry_not_allowed"
+            : result.error === "retry_not_allowed" ||
+                result.error === "pix_pending"
               ? 409
               : 400;
         return NextResponse.json(

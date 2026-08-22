@@ -93,7 +93,8 @@ export type VindiBackofficeRecoveryResult =
         | "no_vindi_subscription"
         | "subscription_not_recoverable"
         | "no_failed_charge"
-        | "retry_not_allowed";
+        | "retry_not_allowed"
+        | "pix_pending";
     };
 
 export async function recoverVindiPayment(input: {
@@ -128,6 +129,19 @@ export async function recoverVindiPayment(input: {
   }
 
   if (input.mode === "retry") {
+    // Depois do reissue a cobrança virou Pix e a charge do cartão foi
+    // cancelada — retentar devolvia o "invalid_parameter: inválido(a)" cru da
+    // Vindi como 500. Com um Pix de recuperação pendente, a ação certa é
+    // pagá-lo (ou esperar expirar).
+    if (
+      isReusableRecoveryLink(
+        snapshot.pendingRecoveryLink,
+        snapshot.failedPayment,
+        input.now,
+      )
+    ) {
+      return { ok: false, error: "pix_pending" };
+    }
     try {
       const retried = await retryVindiRecoveryCharge({
         client: input.client,
