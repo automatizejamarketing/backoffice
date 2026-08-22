@@ -96,19 +96,30 @@ const USER_FIELDS = [
   "short_name",
 ] as const;
 
+/**
+ * Campos do `/me/adaccounts` no caminho de token de USUÁRIO.
+ *
+ * `owner` e `business{id}` foram removidos em 2026-08-21: são campos de
+ * Business Manager, e pedi-los com um token cujo app está sem Acesso Avançado a
+ * `business_management` (o estado desde o incidente de 2026-08-12) faz a Meta
+ * recusar a listagem INTEIRA com `(#200) Requires business_management
+ * permission` — era isso que derrubava o /api/cron-job/meta-tracking/daily em
+ * todos os 32 ticks do dia. Nenhum consumidor do backoffice lê esses dois
+ * campos (`balance` sim — ad-account-money.ts — e fica).
+ */
 const AD_ACCOUNT_FIELDS = [
   "id",
   "account_id",
   "name",
-  "owner",
   "account_status",
   "balance",
   "currency",
-  "business{id}",
 ] as const;
 
-const BISU_AD_ACCOUNT_FIELDS =
-  "id,account_id,name,account_status,currency,business{id,name}";
+// Sem `business{id,name}` pelo mesmo motivo acima: com o app degradado, o campo
+// derruba também o fallback `/me/adaccounts` do caminho BISU — que hoje falha em
+// silêncio (catch → lista vazia) e aparece como "cliente sem contas".
+const BISU_AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency";
 
 const AD_ACCOUNTS_PAGE_LIMIT = "100";
 
