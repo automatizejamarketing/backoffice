@@ -24,6 +24,10 @@ export type ManagedCampaignBatchRefreshResult = {
   activeCount: number;
   inactiveCount: number;
   errorCount: number;
+  /** True when the soft deadline stopped the loop before the last user. */
+  stoppedForBudget: boolean;
+  /** Users never reached because the deadline hit first. */
+  skippedForBudget: number;
   results: ManagedCampaignBatchRefreshItem[];
 };
 
@@ -31,6 +35,15 @@ export type RefreshManagedCampaignsBatchOptions = {
   /** When true, skip users already checked today (America/Sao_Paulo). */
   onlyStale?: boolean;
   pageSize?: number;
+  /**
+   * Epoch ms after which no NEW user is started (the one in flight finishes).
+   * The `/campaigns?fields=...adsets.limit(200){...}` read is the most
+   * expensive listing in the Marketing API, and this loop runs it serially for
+   * every account of every user — without a deadline the route's `maxDuration`
+   * kills the whole invocation as a 504. Combined with `onlyStale`, the next
+   * invocation resumes from whoever was left.
+   */
+  softDeadlineAt?: number;
   onProgress?: (progress: {
     done: number;
     total: number;
@@ -70,8 +83,23 @@ export async function refreshManagedCampaignsBatch(
 
   const results: ManagedCampaignBatchRefreshItem[] = [];
   let eligible = 0;
+  let stoppedForBudget = false;
+  let skippedForBudget = 0;
 
   for (let index = 0; index < allUsers.length; index += 1) {
+    if (
+      options.softDeadlineAt !== undefined &&
+      Date.now() >= options.softDeadlineAt
+    ) {
+      stoppedForBudget = true;
+      skippedForBudget = allUsers.length - index;
+      console.warn("[managed-campaigns] soft deadline reached", {
+        refreshed: results.length,
+        skippedForBudget,
+      });
+      break;
+    }
+
     const target = allUsers[index];
     options.onProgress?.({
       done: index,
@@ -119,6 +147,8 @@ export async function refreshManagedCampaignsBatch(
       (row) => !row.hasActiveManagedCampaign && !row.errorMessage,
     ).length,
     errorCount: results.filter((row) => row.errorMessage).length,
+    stoppedForBudget,
+    skippedForBudget,
     results,
   };
 }

@@ -6,11 +6,11 @@
     },
     {
       "path": "/api/cron-job/business/managed-campaigns/refresh",
-      "schedule": "0 11 * * *"
+      "schedule": "0 11,13 * * *"
     },
     {
       "path": "/api/cron-job/business/performance-drop/refresh",
-      "schedule": "30 11 * * *"
+      "schedule": "30 11,13 * * *"
     },
     {
       "path": "/api/cron-job/business/playbook-insights/refresh",

@@ -36,6 +36,10 @@ export type PerformanceDropBatchResult = {
   warningCount: number;
   criticalCount: number;
   errorCount: number;
+  /** True when the soft deadline stopped the loop before the last user. */
+  stoppedForBudget: boolean;
+  /** Users never reached because the deadline hit first. */
+  skippedForBudget: number;
   results: PerformanceDropBatchItem[];
 };
 
@@ -47,6 +51,15 @@ export type RunPerformanceDropBatchOptions = {
   pageSize?: number;
   /** Optional allow-list for testing. */
   userIds?: string[];
+  /**
+   * Epoch ms after which no NEW user is started (the one in flight finishes).
+   * The whole loop is serial — users × accounts × 2 insights reads, with no
+   * fetch timeout under `metaApiCall` — so without a deadline a growing base
+   * runs straight into the route's `maxDuration` and dies as a 504, losing the
+   * run bookkeeping. Combined with `onlyStale`, the next invocation resumes
+   * from whoever was left.
+   */
+  softDeadlineAt?: number;
   onProgress?: (progress: {
     done: number;
     total: number;
@@ -91,9 +104,24 @@ export async function runPerformanceDropBatch(
   const results: PerformanceDropBatchItem[] = [];
   let eligible = 0;
   let insightsCreated = 0;
+  let stoppedForBudget = false;
+  let skippedForBudget = 0;
 
   try {
     for (let index = 0; index < allUsers.length; index += 1) {
+      if (
+        options.softDeadlineAt !== undefined &&
+        Date.now() >= options.softDeadlineAt
+      ) {
+        stoppedForBudget = true;
+        skippedForBudget = allUsers.length - index;
+        console.warn("[performance-drop] soft deadline reached", {
+          evaluated: results.length,
+          skippedForBudget,
+        });
+        break;
+      }
+
       const target = allUsers[index];
       options.onProgress?.({
         done: index,
@@ -251,6 +279,8 @@ export async function runPerformanceDropBatch(
       criticalCount: results.filter((row) => row.severity === "critical")
         .length,
       errorCount,
+      stoppedForBudget,
+      skippedForBudget,
       results,
     };
   } catch (error) {
