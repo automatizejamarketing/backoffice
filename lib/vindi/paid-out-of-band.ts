@@ -67,8 +67,23 @@ export async function markVindiPaidOutOfBand(input: {
     return { ok: false, error: decision.reason };
   }
 
+  // Anulação de MELHOR ESFORÇO: o gateway pode recusar o cancelamento de uma
+  // fatura Pix (no sandbox recusa sempre — defeito #9 da rodada 1). O registro
+  // do admin vale mais que a anulação: seguimos com a extensão, logamos alto e
+  // a fatura que sobrar viva, se paga, é honrada pela reconciliação do webhook.
+  const canceledBillIds: string[] = [];
+  const survivingBillIds: string[] = [];
   for (const billId of decision.billIds) {
-    await deleteVindiBill(input.client, billId);
+    try {
+      await deleteVindiBill(input.client, billId);
+      canceledBillIds.push(billId);
+    } catch (error) {
+      survivingBillIds.push(billId);
+      console.warn("[vindi/paid-out-of-band] bill_cancel_failed", {
+        billId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
   await input.store.markLinksCanceled(decision.linkIds, input.now);
   await input.store.setExpiration(input.userId, decision.newExpiration);
@@ -80,7 +95,9 @@ export async function markVindiPaidOutOfBand(input: {
     fieldName: "expiration_date",
     oldValue: snapshot.expirationDate?.toISOString() ?? null,
     newValue: decision.newExpiration.toISOString(),
-    note: `Canceled Vindi bills: ${decision.billIds.join(", ")}`,
+    note: survivingBillIds.length
+      ? `Canceled Vindi bills: ${canceledBillIds.join(", ") || "nenhuma"}; o gateway recusou anular: ${survivingBillIds.join(", ")}`
+      : `Canceled Vindi bills: ${canceledBillIds.join(", ")}`,
   });
 
   return {
