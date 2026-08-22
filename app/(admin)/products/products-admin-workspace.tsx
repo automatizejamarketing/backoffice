@@ -199,6 +199,9 @@ type Order = {
   automatizeTotalNetRevenueCentavos: number | null;
   expertAvailableAt: string | null;
   expertLedgerAmountCentavos: number | null;
+  financialModel: string | null;
+  expertAmountCentavos: number | null;
+  platformTheoreticalAmountCentavos: number | null;
 };
 
 type Payout = {
@@ -1960,7 +1963,13 @@ export function ProductsAdminWorkspace({
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                           <p>{paymentMethod(order)}</p>
-                          <p>{order.providerPaymentId ? `MP ${order.providerPaymentId}` : "—"}</p>
+                          <p>
+                            {order.provider === "vindi"
+                              ? `Vindi ${order.vindiChargeId ?? order.providerPaymentId ?? "—"}`
+                              : order.providerPaymentId
+                                ? `MP ${order.providerPaymentId}`
+                                : "—"}
+                          </p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {money(order.priceCentavos)}
@@ -1979,15 +1988,19 @@ export function ProductsAdminWorkspace({
                           </p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.ownerExpertReceivableCentavos !== null ||
-                          order.coproducerExpertReceivableCentavos !== null
-                            ? money(
-                                (order.ownerExpertReceivableCentavos ?? 0) +
-                                  (order.coproducerExpertReceivableCentavos ?? 0),
-                              )
-                            : order.expertLedgerAmountCentavos !== null
-                              ? money(order.expertLedgerAmountCentavos)
-                              : "—"}
+                          {order.financialModel === "vindi_split_v1"
+                            ? order.expertAmountCentavos !== null
+                              ? money(order.expertAmountCentavos)
+                              : "—"
+                            : order.ownerExpertReceivableCentavos !== null ||
+                                order.coproducerExpertReceivableCentavos !== null
+                              ? money(
+                                  (order.ownerExpertReceivableCentavos ?? 0) +
+                                    (order.coproducerExpertReceivableCentavos ?? 0),
+                                )
+                              : order.expertLedgerAmountCentavos !== null
+                                ? money(order.expertLedgerAmountCentavos)
+                                : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {order.automatizeCoproductionRevenueCentavos !== null
@@ -1997,11 +2010,15 @@ export function ProductsAdminWorkspace({
                               : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.automatizeTotalNetRevenueCentavos !== null
-                            ? money(order.automatizeTotalNetRevenueCentavos)
-                            : order.netAmountCentavos !== null
-                              ? money(order.netAmountCentavos - (order.expertLedgerAmountCentavos ?? 0))
-                              : "—"}
+                          {order.financialModel === "vindi_split_v1"
+                            ? order.platformTheoreticalAmountCentavos !== null
+                              ? money(order.platformTheoreticalAmountCentavos)
+                              : "—"
+                            : order.automatizeTotalNetRevenueCentavos !== null
+                              ? money(order.automatizeTotalNetRevenueCentavos)
+                              : order.netAmountCentavos !== null
+                                ? money(order.netAmountCentavos - (order.expertLedgerAmountCentavos ?? 0))
+                                : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">
                           {order.expertAvailableAt

@@ -435,6 +435,10 @@ export async function listProductOrders() {
       provider: productPayment.provider,
       vindiChargeId: productPayment.vindiChargeId,
       providerPaymentId: productPayment.providerPaymentId,
+      financialModel: productOrder.financialModel,
+      expertAmountCentavos: productPayment.expertAmountCentavos,
+      platformTheoreticalAmountCentavos:
+        productPayment.platformTheoreticalAmountCentavos,
       paymentStatus: productPayment.status,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
