@@ -1828,9 +1828,11 @@ export async function getTrialActivationDashboard(
   const firstTrial = db
     .select({
       userId: creditTransaction.userId,
-      activatedAt: sql<Date>`min(${creditTransaction.createdAt})`.as(
-        "activated_at",
-      ),
+      // mapWith reuses the column's timestamp decoder (naive UTC → Date);
+      // without it postgres-js parses the value in the process time zone.
+      activatedAt: sql<Date>`min(${creditTransaction.createdAt})`
+        .mapWith(creditTransaction.createdAt)
+        .as("activated_at"),
     })
     .from(creditTransaction)
     .where(eq(creditTransaction.type, "trial_grant"))
