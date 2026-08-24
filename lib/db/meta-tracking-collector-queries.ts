@@ -23,6 +23,7 @@ import {
   metaTrackingAccountCoverage,
   metaTrackingChangeEvent,
   metaTrackingConfigVersion,
+  metaTrackingInsightsStrategy,
   metaTrackingRun,
   type MetaTrackingCoverageStatus,
   type MetaTrackingRunKind,
@@ -33,36 +34,60 @@ import {
   buildTrackedEntityStates,
   type TrackedEntityState,
 } from "@/lib/meta-tracking/daily-collection-plan";
+import { insertChangeEvents } from "@/lib/db/meta-tracking-change-event-insert";
+import {
+  assertDeadlineBudget,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type {
   RecentInternalChange,
   TrackingDelta,
 } from "@/lib/meta-tracking/compute-tracking-delta";
 import type { MetaTrackingChangedFields } from "@/lib/db/schema";
 import type { DayKey } from "@/lib/meta-tracking/correlation";
+import { sanitizeMetaLogText } from "@/lib/observability/meta-log-safety";
 import type {
   AccountCoverageRecord,
   PersistDeltaResult,
 } from "@/lib/meta-tracking/run-daily-collection";
+import type {
+  InsightsFetchStrategies,
+  InsightsFetchStrategy,
+} from "@/lib/meta-tracking/collect-daily-metrics";
 
 /**
- * Run parado em `running` além disso foi morto pela plataforma no meio. Igual
- * ao padrão já em produção nos jobs de negócio: um pouco acima do
- * `maxDuration` (300 s) da rota de cron, para que o disparo seguinte recupere o
- * anterior sem esperar meia hora.
+ * O daily pode viver 800 s na Vercel. Quatorze minutos ficam acima desse teto e
+ * abaixo do próximo disparo de 15 min, evitando marcar como stale uma função
+ * ainda válida sem atrasar a recuperação no tick seguinte.
+ *
+ * O backfill conserva 10 min: é o TTL do claim renovado a cada checkpoint e
+ * não compartilha a rota de 800 s.
  */
-const STUCK_RUN_TIMEOUT_MS = 10 * 60 * 1000;
+export const DAILY_STUCK_RUN_TIMEOUT_MS = 14 * 60 * 1000;
+export const BACKFILL_STUCK_RUN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Runs travados viram `failed` antes de um run novo do mesmo tipo nascer. */
 export async function markStuckTrackingRunsFailed(
   kind: MetaTrackingRunKind = "daily",
+  deadline?: CollectionDeadline,
 ): Promise<number> {
-  const cutoff = new Date(Date.now() - STUCK_RUN_TIMEOUT_MS);
+  assertDeadlineBudget(
+    deadline,
+    "recuperar runs travados",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
+  const timeoutMs =
+    kind === "daily"
+      ? DAILY_STUCK_RUN_TIMEOUT_MS
+      : BACKFILL_STUCK_RUN_TIMEOUT_MS;
+  const cutoff = new Date(Date.now() - timeoutMs);
   const updated = await db
     .update(metaTrackingRun)
     .set({
       status: "failed",
       completedAt: new Date(),
-      errorMessage: `Timed out: still running after ${STUCK_RUN_TIMEOUT_MS / 60000} minutes`,
+      errorMessage: `Timed out: still running after ${timeoutMs / 60000} minutes`,
     })
     .where(
       and(
@@ -79,10 +104,16 @@ export async function markStuckTrackingRunsFailed(
 export async function createTrackingRun(args: {
   triggeredBy: MetaTrackingRunTriggeredBy;
   kind?: MetaTrackingRunKind;
+  deadline?: CollectionDeadline;
 }): Promise<string> {
   const kind = args.kind ?? "daily";
-  await markStuckTrackingRunsFailed(kind);
+  await markStuckTrackingRunsFailed(kind, args.deadline);
 
+  assertDeadlineBudget(
+    args.deadline,
+    "criar run de tracking",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const [row] = await db
     .insert(metaTrackingRun)
     .values({ kind, triggeredBy: args.triggeredBy, status: "running" })
@@ -104,7 +135,10 @@ export async function finishTrackingRun(args: {
       status: args.status,
       completedAt: new Date(),
       summary: args.summary,
-      errorMessage: args.errorMessage,
+      errorMessage:
+        args.errorMessage === null
+          ? null
+          : sanitizeMetaLogText(args.errorMessage, 1_000),
     })
     .where(eq(metaTrackingRun.id, args.runId));
 }
@@ -117,7 +151,13 @@ export async function finishTrackingRun(args: {
 export async function getAccountCoverageStatus(args: {
   accountId: string;
   businessDate: DayKey;
+  deadline?: CollectionDeadline;
 }): Promise<MetaTrackingCoverageStatus | null> {
+  assertDeadlineBudget(
+    args.deadline,
+    "consultar cobertura da conta",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const [row] = await db
     .select({ status: metaTrackingAccountCoverage.status })
     .from(metaTrackingAccountCoverage)
@@ -132,6 +172,96 @@ export async function getAccountCoverageStatus(args: {
   return row?.status ?? null;
 }
 
+/**
+ * Estratégias degradadas conhecidas desta conta. Ausência de um nível significa
+ * "comece pela janela síncrona inteira", o caminho barato para contas comuns.
+ */
+export async function loadInsightsStrategies(args: {
+  accountId: string;
+  deadline?: CollectionDeadline;
+}): Promise<InsightsFetchStrategies> {
+  assertDeadlineBudget(
+    args.deadline,
+    "carregar estratégia de insights",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
+  const rows = await db
+    .select({
+      entityLevel: metaTrackingInsightsStrategy.entityLevel,
+      mode: metaTrackingInsightsStrategy.mode,
+      maxRangeDays: metaTrackingInsightsStrategy.maxRangeDays,
+    })
+    .from(metaTrackingInsightsStrategy)
+    .where(eq(metaTrackingInsightsStrategy.accountId, args.accountId));
+
+  const strategies: InsightsFetchStrategies = {};
+  for (const row of rows) {
+    strategies[row.entityLevel] =
+      row.mode === "async"
+        ? { mode: "async" }
+        : { mode: "sync", maxRangeDays: row.maxRangeDays! };
+  }
+  return strategies;
+}
+
+/**
+ * Guarda somente estratégias que já completaram o nível.
+ *
+ * O conflito é monotônico: uma corrida entre dois crons conserva a menor
+ * janela, e `async` nunca regride para `sync`. Assim uma escrita atrasada não
+ * reintroduz exatamente a sondagem excessiva que esta tabela evita.
+ */
+export async function saveInsightsStrategy(args: {
+  accountId: string;
+  entityLevel: keyof InsightsFetchStrategies;
+  strategy: InsightsFetchStrategy;
+  deadline?: CollectionDeadline;
+}): Promise<void> {
+  assertDeadlineBudget(
+    args.deadline,
+    "persistir estratégia de insights",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
+  await db
+    .insert(metaTrackingInsightsStrategy)
+    .values({
+      accountId: args.accountId,
+      entityLevel: args.entityLevel,
+      mode: args.strategy.mode,
+      maxRangeDays:
+        args.strategy.mode === "sync" ? args.strategy.maxRangeDays : null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [
+        metaTrackingInsightsStrategy.accountId,
+        metaTrackingInsightsStrategy.entityLevel,
+      ],
+      set: {
+        mode: sql`
+          CASE
+            WHEN ${metaTrackingInsightsStrategy.mode} = 'async'
+              OR excluded."mode" = 'async'
+            THEN 'async'
+            ELSE 'sync'
+          END
+        `,
+        maxRangeDays: sql`
+          CASE
+            WHEN ${metaTrackingInsightsStrategy.mode} = 'async'
+              OR excluded."mode" = 'async'
+            THEN NULL
+            ELSE LEAST(
+              ${metaTrackingInsightsStrategy.maxRangeDays},
+              excluded."max_range_days"
+            )
+          END
+        `,
+        updatedAt: new Date(),
+      },
+    });
+}
+
 /** Upsert pela unicidade `(account_id, business_date)`: um dia, uma linha. */
 export async function upsertAccountCoverage(
   record: AccountCoverageRecord,
@@ -144,7 +274,10 @@ export async function upsertAccountCoverage(
       accountId: record.accountId,
       businessDate: record.businessDate,
       status: record.status,
-      errorMessage: record.errorMessage,
+      errorMessage:
+        record.errorMessage === null
+          ? null
+          : sanitizeMetaLogText(record.errorMessage, 1_000),
       entitiesSeen: record.entitiesSeen,
       apiCallsUsed: record.apiCallsUsed,
       currency: record.currency,
@@ -160,7 +293,10 @@ export async function upsertAccountCoverage(
         runId: record.runId,
         userId: record.userId,
         status: record.status,
-        errorMessage: record.errorMessage,
+        errorMessage:
+          record.errorMessage === null
+            ? null
+            : sanitizeMetaLogText(record.errorMessage, 1_000),
         entitiesSeen: record.entitiesSeen,
         apiCallsUsed: record.apiCallsUsed,
         currency: record.currency,
@@ -178,7 +314,13 @@ export async function upsertAccountCoverage(
  */
 export async function listKnownTrackedAccountIds(
   userId: string,
+  deadline?: CollectionDeadline,
 ): Promise<string[]> {
+  assertDeadlineBudget(
+    deadline,
+    "listar contas conhecidas",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const rows = await db
     .selectDistinct({ accountId: metaTrackingAccountCoverage.accountId })
     .from(metaTrackingAccountCoverage)
@@ -194,7 +336,13 @@ export async function listKnownTrackedAccountIds(
  */
 export async function listKnownTrackedAccountsForPrecheck(
   userId: string,
+  deadline?: CollectionDeadline,
 ): Promise<Array<{ accountId: string; timezoneName: string | null }>> {
+  assertDeadlineBudget(
+    deadline,
+    "listar contas para pré-cheque",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   return db
     .selectDistinctOn([metaTrackingAccountCoverage.accountId], {
       accountId: metaTrackingAccountCoverage.accountId,
@@ -220,7 +368,13 @@ export async function listKnownTrackedAccountsForPrecheck(
 export async function loadAccountTrackedState(args: {
   userId: string;
   accountId: string;
+  deadline?: CollectionDeadline;
 }): Promise<TrackedEntityState[]> {
+  assertDeadlineBudget(
+    args.deadline,
+    "carregar versões vigentes",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const versions = await db
     .select({
       id: metaTrackingConfigVersion.id,
@@ -243,6 +397,11 @@ export async function loadAccountTrackedState(args: {
 
   // `jsonb_exists_any` é a forma funcional do operador `?` — preferida porque o
   // `?` literal é ambíguo para drivers que o usam como placeholder.
+  assertDeadlineBudget(
+    args.deadline,
+    "carregar ciclo de vida da conta",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const lifecycle = await db
     .selectDistinctOn(
       [metaTrackingChangeEvent.entityLevel, metaTrackingChangeEvent.entityId],
@@ -288,7 +447,13 @@ export async function loadAccountTrackedState(args: {
 export async function loadRecentInternalChangeEvents(args: {
   accountId: string;
   since: Date;
+  deadline?: CollectionDeadline;
 }): Promise<RecentInternalChange[]> {
+  assertDeadlineBudget(
+    args.deadline,
+    "carregar mudanças internas recentes",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const rows = await db
     .select({
       changeEventId: metaTrackingChangeEvent.id,
@@ -333,8 +498,9 @@ export async function loadRecentInternalChangeEvents(args: {
 export async function persistAccountTrackingDelta(args: {
   runId: string;
   delta: TrackingDelta;
+  deadline?: CollectionDeadline;
 }): Promise<PersistDeltaResult> {
-  const { runId, delta } = args;
+  const { runId, delta, deadline } = args;
   if (
     delta.versions.length === 0 &&
     delta.events.length === 0 &&
@@ -351,6 +517,11 @@ export async function persistAccountTrackingDelta(args: {
 
   return db.transaction(async (tx) => {
     for (const confirmation of delta.confirmations) {
+      assertDeadlineBudget(
+        deadline,
+        "persistir confirmação de versão",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
       await tx
         .update(metaTrackingConfigVersion)
         .set({
@@ -362,6 +533,11 @@ export async function persistAccountTrackingDelta(args: {
 
     const versionIdByRef = new Map<string, string>();
     for (const version of delta.versions) {
+      assertDeadlineBudget(
+        deadline,
+        "persistir versão de configuração",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
       if (version.supersedesVersionId) {
         await tx
           .update(metaTrackingConfigVersion)
@@ -404,32 +580,33 @@ export async function persistAccountTrackingDelta(args: {
       versionIdByRef.set(version.ref, inserted.id);
     }
 
-    if (delta.events.length > 0) {
-      await tx.insert(metaTrackingChangeEvent).values(
-        delta.events.map((event) => ({
-          userId: event.userId,
-          accountId: event.accountId,
-          entityLevel: event.entityLevel,
-          entityId: event.entityId,
-          entityName: event.entityName,
-          campaignId: event.campaignId,
-          adsetId: event.adsetId,
-          changeKind: event.changeKind,
-          changedFields: event.changedFields,
-          fromConfigVersionId: event.fromConfigVersionId,
-          toConfigVersionId: event.toVersionRef
-            ? (versionIdByRef.get(event.toVersionRef) ?? null)
-            : null,
-          source: event.source,
-          occurredAt: event.occurredAt,
-          detectedAt: event.detectedAt,
-          detectionRunId: runId,
-        })),
-      );
-    }
+    // Os chunks continuam dentro desta transação da conta: se qualquer um
+    // falhar, os anteriores são revertidos junto com versões/confirmações.
+    // Não há chave semântica unique nesta tabela, portanto ON CONFLICT não
+    // deduplicaria uma reexecução; dedup cross-run exigiria schema próprio.
+    const eventsCreated = await insertChangeEvents({
+      events: delta.events,
+      runId,
+      versionIdByRef,
+      writeBatch: async (rows) => {
+        // O driver não cancela uma query em voo, mas nenhum chunk novo começa
+        // depois do deadline de trabalho.
+        assertDeadlineBudget(
+          deadline,
+          "persistir lote de eventos de mudança",
+          MIN_PERSISTENCE_START_BUDGET_MS,
+        );
+        await tx.insert(metaTrackingChangeEvent).values(rows);
+      },
+    });
 
     let eventsLinked = 0;
     for (const link of delta.versionLinks) {
+      assertDeadlineBudget(
+        deadline,
+        "persistir vínculo de versão",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
       const versionId = versionIdByRef.get(link.toVersionRef);
       if (!versionId) continue;
       await tx
@@ -441,7 +618,7 @@ export async function persistAccountTrackingDelta(args: {
 
     return {
       versionsCreated: delta.versions.length,
-      eventsCreated: delta.events.length,
+      eventsCreated,
       versionsConfirmed: delta.confirmations.length,
       eventsLinked,
     };

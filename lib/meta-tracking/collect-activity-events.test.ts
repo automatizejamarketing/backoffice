@@ -258,4 +258,22 @@ describe("collectActivityEvents", () => {
     expect(result.usage.utilizationPercent).toBe(64);
     expect(result.apiCalls).toBe(2);
   });
+
+  test("propaga o alerta quando o poll atinge o teto de páginas", async () => {
+    const { ports } = makePorts({
+      overrides: {
+        fetchActivities: async () => ({
+          rows: [],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 25,
+          paginationTruncated: true,
+        }),
+      },
+    });
+
+    const result = await collectActivityEvents(ports, ARGS);
+
+    expect(result.paginationTruncated).toBe(true);
+    expect(result.apiCalls).toBe(25);
+  });
 });

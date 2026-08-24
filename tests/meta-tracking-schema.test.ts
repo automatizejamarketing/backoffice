@@ -29,6 +29,7 @@ import {
   metaTrackingConfigVersion,
   metaTrackingCreative,
   metaTrackingDailyMetric,
+  metaTrackingInsightsStrategy,
   metaTrackingRun,
 } from "../lib/db/schema";
 
@@ -57,8 +58,8 @@ function indexColumns(table: PgTable, name: string): string[] {
   );
 }
 
-describe("meta tracking — tabelas da fundação", () => {
-  it("nomeia as sete tabelas com o prefixo de domínio meta_tracking_", () => {
+describe("meta tracking — tabelas do domínio", () => {
+  it("nomeia as oito tabelas com o prefixo de domínio meta_tracking_", () => {
     assert.deepEqual(
       [
         metaTrackingConfigVersion,
@@ -67,6 +68,7 @@ describe("meta tracking — tabelas da fundação", () => {
         metaTrackingActivityEvent,
         metaTrackingRun,
         metaTrackingAccountCoverage,
+        metaTrackingInsightsStrategy,
         metaTrackingCreative,
       ].map((table) => getTableConfig(table).name),
       [
@@ -76,6 +78,7 @@ describe("meta tracking — tabelas da fundação", () => {
         "meta_tracking_activity_events",
         "meta_tracking_runs",
         "meta_tracking_account_coverage",
+        "meta_tracking_insights_strategies",
         "meta_tracking_creatives",
       ],
     );

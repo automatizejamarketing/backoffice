@@ -5,8 +5,8 @@
  * Executor fino: monta URL, pagina, lê os headers de uso e devolve dados crus.
  * Nenhuma decisão mora aqui — quem escolhe o que buscar é `planDeepFetch`, quem
  * decide parar é `shouldStopForQuota`, quem interpreta a resposta é a costura do
- * delta. Por isso este arquivo não tem teste unitário: não há o que testar sem
- * a Meta do outro lado, e o que valeria a pena testar já foi extraído daqui.
+ * delta. A única regra local testada aqui é a fronteira de I/O: toda chamada
+ * recebe o AbortSignal do deadline absoluto.
  *
  * ## Por que não reusar `metaApiCall`
  *
@@ -44,7 +44,13 @@ import {
   facebookAppSecret,
 } from "@/lib/meta-business/appsecret-proof";
 import { GraphApiError, genericError, parseGraphError } from "@/lib/meta-business/error";
-import { logMetaCall } from "@/lib/observability/meta-logger";
+import {
+  logMetaCall,
+  type MetaMutationEntity,
+  type MetaMutationOperation,
+} from "@/lib/observability/meta-logger";
+import { getMetaLogContext } from "@/lib/observability/meta-log-context";
+import { safeErrorSummary } from "@/lib/observability/meta-log-safety";
 import {
   DEEP_FETCH_CHUNK_SIZE,
   LISTING_EFFECTIVE_STATUSES,
@@ -58,6 +64,12 @@ import {
   UNKNOWN_QUOTA_USAGE,
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
+import {
+  assertDeadlineBudget,
+  deadlineExceededFrom,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import {
   isInsightsTooHeavyError,
   type InsightsRange,
@@ -197,6 +209,27 @@ const DEEP_FETCH_CORE_FIELDS: Record<MetaTrackingEntityLevel, string> = {
 /** Erro de parâmetro inválido da Meta — o sintoma de campo inexistente. */
 const INVALID_PARAMETER_ERROR_CODE = 100;
 
+function logCollectorFallback(args: {
+  entity: MetaMutationEntity;
+  operation: MetaMutationOperation;
+  reason: string;
+  error: unknown;
+}): void {
+  const context = getMetaLogContext();
+  console.warn(
+    JSON.stringify({
+      evt: "meta_tracking_graph_fallback",
+      runId: context?.runId,
+      correlationId: context?.correlationId,
+      category: "degraded_component",
+      operation: args.operation,
+      entity: args.entity,
+      reason: args.reason,
+      error: safeErrorSummary(args.error),
+    }),
+  );
+}
+
 function isInvalidParameterError(error: unknown): boolean {
   return (
     error instanceof GraphApiError &&
@@ -219,16 +252,52 @@ async function graphGet<T>(args: {
   path: string;
   params: string;
   accessToken: string;
+  deadline?: CollectionDeadline;
+  entity?: MetaMutationEntity;
+  operation?: MetaMutationOperation;
 }): Promise<GraphResponse<T>> {
+  assertDeadlineBudget(
+    args.deadline,
+    "iniciar chamada GET à Graph API",
+    MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  );
   const proof = appSecretProofParam(args.accessToken, facebookAppSecret());
   const query = [args.params, proof].filter(Boolean).join("&");
   const endpoint = `${graphFacebookBaseUrl}/${graphApiVersion}/${args.path}`;
   const startedAt = Date.now();
 
-  const response = await fetch(`${endpoint}?${query}`, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${args.accessToken}` },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${endpoint}?${query}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${args.accessToken}` },
+      signal: args.deadline?.signal,
+    });
+  } catch (error) {
+    const deadlineError = deadlineExceededFrom(
+      args.deadline,
+      "aguardar chamada GET à Graph API",
+      error,
+    );
+    if (deadlineError) throw deadlineError;
+    logMetaCall({
+      phase: "error",
+      method: "GET",
+      endpoint,
+      requestParams: args.params,
+      durationMs: Date.now() - startedAt,
+      errorData: {
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          is_transient: true,
+        },
+      },
+      category: "external_transient",
+      entity: args.entity,
+      operation: args.operation,
+    });
+    throw error;
+  }
   const usage = readQuotaUsage(response.headers);
   const durationMs = Date.now() - startedAt;
 
@@ -236,7 +305,13 @@ async function graphGet<T>(args: {
     let payload: unknown;
     try {
       payload = await response.json();
-    } catch {
+    } catch (error) {
+      const deadlineError = deadlineExceededFrom(
+        args.deadline,
+        "ler erro da Graph API",
+        error,
+      );
+      if (deadlineError) throw deadlineError;
       payload = undefined;
     }
     logMetaCall({
@@ -247,6 +322,8 @@ async function graphGet<T>(args: {
       httpStatus: response.status,
       durationMs,
       errorData: payload,
+      entity: args.entity,
+      operation: args.operation,
     });
     const parsed = payload ? parseGraphError(payload) : undefined;
     throw new GraphApiError(
@@ -256,7 +333,18 @@ async function graphGet<T>(args: {
     );
   }
 
-  const json = (await response.json()) as T;
+  let json: T;
+  try {
+    json = (await response.json()) as T;
+  } catch (error) {
+    const deadlineError = deadlineExceededFrom(
+      args.deadline,
+      "ler resposta da Graph API",
+      error,
+    );
+    if (deadlineError) throw deadlineError;
+    throw error;
+  }
   logMetaCall({
     phase: "success",
     method: "GET",
@@ -264,6 +352,9 @@ async function graphGet<T>(args: {
     requestParams: args.params,
     httpStatus: response.status,
     durationMs,
+    entity: args.entity,
+    operation: args.operation,
+    sampleSuccess: true,
   });
 
   return { json, usage };
@@ -314,6 +405,7 @@ function toListedEntity(
 export async function fetchTrackedAdAccounts(args: {
   accountIds: readonly string[];
   credentials: TrackingCredentials;
+  deadline?: CollectionDeadline;
 }): Promise<{ accounts: TrackedAdAccount[]; usage: QuotaUsage; apiCalls: number }> {
   if (args.accountIds.length === 0) {
     return { accounts: [], usage: UNKNOWN_QUOTA_USAGE, apiCalls: 0 };
@@ -346,6 +438,9 @@ export async function fetchTrackedAdAccounts(args: {
       path: "",
       params: params.toString(),
       accessToken: args.credentials.accessToken,
+      deadline: args.deadline,
+      entity: "adaccount",
+      operation: "read",
     });
     usage = mergeQuotaUsage(usage, pageUsage);
     apiCalls += 1;
@@ -373,8 +468,15 @@ export async function fetchTrackedAdAccounts(args: {
 export async function listTrackedEntities(args: {
   accountId: string;
   credentials: TrackingCredentials;
-}): Promise<{ entities: ListedEntity[]; usage: QuotaUsage; apiCalls: number }> {
+  deadline?: CollectionDeadline;
+}): Promise<{
+  entities: ListedEntity[];
+  usage: QuotaUsage;
+  apiCalls: number;
+  truncatedLevels: MetaTrackingEntityLevel[];
+}> {
   const entities: ListedEntity[] = [];
+  const truncatedLevels: MetaTrackingEntityLevel[] = [];
   let usage = UNKNOWN_QUOTA_USAGE;
   let apiCalls = 0;
 
@@ -400,6 +502,9 @@ export async function listTrackedEntities(args: {
         path: `${accountPath(args.accountId)}/${LISTING_EDGE[entityLevel]}`,
         params: params.toString(),
         accessToken: args.credentials.accessToken,
+        deadline: args.deadline,
+        entity: entityLevel,
+        operation: "list",
       });
       usage = mergeQuotaUsage(usage, pageUsage);
       apiCalls += 1;
@@ -411,9 +516,10 @@ export async function listTrackedEntities(args: {
 
       after = json.paging?.next ? json.paging.cursors?.after : undefined;
     } while (after && pages < MAX_LISTING_PAGES);
+    if (after) truncatedLevels.push(entityLevel);
   }
 
-  return { entities, usage, apiCalls };
+  return { entities, usage, apiCalls, truncatedLevels };
 }
 
 /**
@@ -430,6 +536,7 @@ export async function fetchTrackedConfigs(args: {
   credentials: TrackingCredentials;
   chunks: readonly DeepFetchChunk[];
   usage?: QuotaUsage;
+  deadline?: CollectionDeadline;
 }): Promise<{
   configs: TrackingConfigObservation[];
   usage: QuotaUsage;
@@ -454,6 +561,9 @@ export async function fetchTrackedConfigs(args: {
           fields,
         }).toString(),
         accessToken: args.credentials.accessToken,
+        deadline: args.deadline,
+        entity: chunk.entityLevel,
+        operation: "read",
       });
 
     let response: GraphResponse<Record<string, Record<string, unknown>>>;
@@ -464,10 +574,12 @@ export async function fetchTrackedConfigs(args: {
       if (!isInvalidParameterError(error)) throw error;
       apiCalls += 1;
       // Um campo do catálogo mudou: salva o essencial em vez de perder o dia.
-      console.warn(
-        `[meta-tracking] field set rejeitado em ${chunk.entityLevel}; recuando para o essencial`,
-        error instanceof Error ? error.message : error,
-      );
+      logCollectorFallback({
+        entity: chunk.entityLevel,
+        operation: "read",
+        reason: "field_set_rejected",
+        error,
+      });
       response = await request(DEEP_FETCH_CORE_FIELDS[chunk.entityLevel]);
       apiCalls += 1;
     }
@@ -538,6 +650,7 @@ export async function fetchAdCreatives(args: {
   accountId: string;
   credentials: TrackingCredentials;
   creativeIds: readonly string[];
+  deadline?: CollectionDeadline;
 }): Promise<{
   creatives: RawCreative[];
   usage: QuotaUsage;
@@ -555,6 +668,9 @@ export async function fetchAdCreatives(args: {
         fields: fields.join(","),
       }).toString(),
       accessToken: args.credentials.accessToken,
+      deadline: args.deadline,
+      entity: "adcreative",
+      operation: "read",
     });
 
   let response: GraphResponse<Record<string, unknown>>;
@@ -563,10 +679,12 @@ export async function fetchAdCreatives(args: {
     response = await request(CREATIVE_FIELDS);
   } catch (error) {
     if (!isInvalidParameterError(error)) throw error;
-    console.warn(
-      "[meta-tracking] field set de criativos rejeitado; recuando para o essencial",
-      error instanceof Error ? error.message : error,
-    );
+    logCollectorFallback({
+      entity: "adcreative",
+      operation: "read",
+      reason: "field_set_rejected",
+      error,
+    });
     response = await request(CREATIVE_CORE_FIELDS);
     apiCalls = 2;
   }
@@ -674,6 +792,7 @@ export async function fetchAccountInsights(args: {
   credentials: TrackingCredentials;
   entityLevel: MetaTrackingEntityLevel;
   range: InsightsRange;
+  deadline?: CollectionDeadline;
 }): Promise<InsightsFetchResult> {
   let usage = UNKNOWN_QUOTA_USAGE;
   let apiCalls = 0;
@@ -706,6 +825,9 @@ export async function fetchAccountInsights(args: {
         path: `${accountPath(args.accountId)}/insights`,
         params: params.toString(),
         accessToken: args.credentials.accessToken,
+        deadline: args.deadline,
+        entity: args.entityLevel,
+        operation: "insights",
       });
       usage = mergeQuotaUsage(usage, pageUsage);
       apiCalls += 1;
@@ -728,10 +850,12 @@ export async function fetchAccountInsights(args: {
     if (isInsightsTooHeavyError(error) || !isInvalidParameterError(error)) {
       throw error;
     }
-    console.warn(
-      `[meta-tracking] field set de insights rejeitado em ${args.entityLevel}; recuando para o essencial`,
-      error instanceof Error ? error.message : error,
-    );
+    logCollectorFallback({
+      entity: args.entityLevel,
+      operation: "insights",
+      reason: "field_set_rejected",
+      error,
+    });
     const rows = await fetchAllPages(INSIGHTS_CORE_METRIC_FIELDS);
     return { rows, usage, apiCalls };
   }
@@ -785,13 +909,19 @@ export async function fetchAccountActivities(args: {
   credentials: TrackingCredentials;
   since: Date;
   until: Date;
-}): Promise<{ rows: RawActivity[]; usage: QuotaUsage; apiCalls: number }> {
+  deadline?: CollectionDeadline;
+}): Promise<{
+  rows: RawActivity[];
+  usage: QuotaUsage;
+  apiCalls: number;
+  paginationTruncated: boolean;
+}> {
   let usage = UNKNOWN_QUOTA_USAGE;
   let apiCalls = 0;
 
   const fetchAllPages = async (
     fields: readonly string[],
-  ): Promise<RawActivity[]> => {
+  ): Promise<{ rows: RawActivity[]; paginationTruncated: boolean }> => {
     const rows: RawActivity[] = [];
     let after: string | undefined;
     let pages = 0;
@@ -810,6 +940,9 @@ export async function fetchAccountActivities(args: {
           path: `${accountPath(args.accountId)}/activities`,
           params: params.toString(),
           accessToken: args.credentials.accessToken,
+          deadline: args.deadline,
+          entity: "adaccount",
+          operation: "activities",
         },
       );
       usage = mergeQuotaUsage(usage, pageUsage);
@@ -820,20 +953,22 @@ export async function fetchAccountActivities(args: {
       after = json.paging?.next ? json.paging.cursors?.after : undefined;
     } while (after && pages < MAX_ACTIVITIES_PAGES);
 
-    return rows;
+    return { rows, paginationTruncated: after !== undefined };
   };
 
   try {
-    const rows = await fetchAllPages(ACTIVITY_FIELDS);
-    return { rows, usage, apiCalls };
+    const fetched = await fetchAllPages(ACTIVITY_FIELDS);
+    return { ...fetched, usage, apiCalls };
   } catch (error) {
     if (!isInvalidParameterError(error)) throw error;
-    console.warn(
-      "[meta-tracking] field set de activities rejeitado; recuando sem extra_data",
-      error instanceof Error ? error.message : error,
-    );
-    const rows = await fetchAllPages(ACTIVITY_CORE_FIELDS);
-    return { rows, usage, apiCalls };
+    logCollectorFallback({
+      entity: "adaccount",
+      operation: "activities",
+      reason: "extra_data_field_rejected",
+      error,
+    });
+    const fetched = await fetchAllPages(ACTIVITY_CORE_FIELDS);
+    return { ...fetched, usage, apiCalls };
   }
 }
 
@@ -854,20 +989,56 @@ async function graphPost<T>(args: {
   path: string;
   params: string;
   accessToken: string;
+  deadline?: CollectionDeadline;
+  entity?: MetaMutationEntity;
+  operation?: MetaMutationOperation;
 }): Promise<GraphResponse<T>> {
+  assertDeadlineBudget(
+    args.deadline,
+    "iniciar chamada POST à Graph API",
+    MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  );
   const proof = appSecretProofParam(args.accessToken, facebookAppSecret());
   const body = [args.params, proof].filter(Boolean).join("&");
   const endpoint = `${graphFacebookBaseUrl}/${graphApiVersion}/${args.path}`;
   const startedAt = Date.now();
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${args.accessToken}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+      signal: args.deadline?.signal,
+    });
+  } catch (error) {
+    const deadlineError = deadlineExceededFrom(
+      args.deadline,
+      "aguardar chamada POST à Graph API",
+      error,
+    );
+    if (deadlineError) throw deadlineError;
+    logMetaCall({
+      phase: "error",
+      method: "POST",
+      endpoint,
+      requestParams: args.params,
+      durationMs: Date.now() - startedAt,
+      errorData: {
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          is_transient: true,
+        },
+      },
+      category: "external_transient",
+      entity: args.entity,
+      operation: args.operation,
+    });
+    throw error;
+  }
   const usage = readQuotaUsage(response.headers);
   const durationMs = Date.now() - startedAt;
 
@@ -875,7 +1046,13 @@ async function graphPost<T>(args: {
     let payload: unknown;
     try {
       payload = await response.json();
-    } catch {
+    } catch (error) {
+      const deadlineError = deadlineExceededFrom(
+        args.deadline,
+        "ler erro da Graph API",
+        error,
+      );
+      if (deadlineError) throw deadlineError;
       payload = undefined;
     }
     logMetaCall({
@@ -886,6 +1063,8 @@ async function graphPost<T>(args: {
       httpStatus: response.status,
       durationMs,
       errorData: payload,
+      entity: args.entity,
+      operation: args.operation,
     });
     const parsed = payload ? parseGraphError(payload) : undefined;
     throw new GraphApiError(
@@ -893,7 +1072,18 @@ async function graphPost<T>(args: {
     );
   }
 
-  const json = (await response.json()) as T;
+  let json: T;
+  try {
+    json = (await response.json()) as T;
+  } catch (error) {
+    const deadlineError = deadlineExceededFrom(
+      args.deadline,
+      "ler resposta da Graph API",
+      error,
+    );
+    if (deadlineError) throw deadlineError;
+    throw error;
+  }
   logMetaCall({
     phase: "success",
     method: "POST",
@@ -901,6 +1091,9 @@ async function graphPost<T>(args: {
     requestParams: args.params,
     httpStatus: response.status,
     durationMs,
+    entity: args.entity,
+    operation: args.operation,
+    sampleSuccess: true,
   });
 
   return { json, usage };
@@ -931,12 +1124,16 @@ export async function startInsightsReport(args: {
   credentials: TrackingCredentials;
   entityLevel: MetaTrackingEntityLevel;
   range: InsightsRange;
+  deadline?: CollectionDeadline;
 }): Promise<{ reportRunId: string; usage: QuotaUsage; apiCalls: number }> {
   const request = (metricFields: readonly string[]) =>
     graphPost<{ report_run_id?: string }>({
       path: `${accountPath(args.accountId)}/insights`,
       params: insightsParams({ ...args, metricFields }).toString(),
       accessToken: args.credentials.accessToken,
+      deadline: args.deadline,
+      entity: args.entityLevel,
+      operation: "insights",
     });
 
   let response: GraphResponse<{ report_run_id?: string }>;
@@ -949,10 +1146,12 @@ export async function startInsightsReport(args: {
     // falharia o backfill todas as noites, para sempre. A ordem das guardas
     // importa — volume e campo inválido chegam os dois como erro 100.
     if (isInsightsTooHeavyError(error) || !isInvalidParameterError(error)) throw error;
-    console.warn(
-      `[meta-tracking] field set do relatório assíncrono rejeitado em ${args.entityLevel}; recuando para o essencial`,
-      error instanceof Error ? error.message : error,
-    );
+    logCollectorFallback({
+      entity: args.entityLevel,
+      operation: "insights",
+      reason: "async_field_set_rejected",
+      error,
+    });
     response = await request(INSIGHTS_CORE_METRIC_FIELDS);
     apiCalls = 2;
   }
@@ -971,6 +1170,7 @@ export async function startInsightsReport(args: {
 export async function readInsightsReport(args: {
   reportRunId: string;
   credentials: TrackingCredentials;
+  deadline?: CollectionDeadline;
 }): Promise<{ node: unknown; usage: QuotaUsage; apiCalls: number }> {
   const { json, usage } = await graphGet<Record<string, unknown>>({
     path: args.reportRunId,
@@ -978,6 +1178,9 @@ export async function readInsightsReport(args: {
       fields: "id,async_status,async_percent_completion,is_running",
     }).toString(),
     accessToken: args.credentials.accessToken,
+    deadline: args.deadline,
+    entity: "insights_report",
+    operation: "read",
   });
 
   return { node: json, usage, apiCalls: 1 };
@@ -987,6 +1190,7 @@ export async function readInsightsReport(args: {
 export async function fetchInsightsReportRows(args: {
   reportRunId: string;
   credentials: TrackingCredentials;
+  deadline?: CollectionDeadline;
 }): Promise<{ rows: RawInsightsRow[]; usage: QuotaUsage; apiCalls: number }> {
   const rows: RawInsightsRow[] = [];
   let usage = UNKNOWN_QUOTA_USAGE;
@@ -1002,6 +1206,9 @@ export async function fetchInsightsReportRows(args: {
       path: `${args.reportRunId}/insights`,
       params: params.toString(),
       accessToken: args.credentials.accessToken,
+      deadline: args.deadline,
+      entity: "insights_report",
+      operation: "insights",
     });
     usage = mergeQuotaUsage(usage, pageUsage);
     apiCalls += 1;

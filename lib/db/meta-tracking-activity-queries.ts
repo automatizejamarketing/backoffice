@@ -37,6 +37,11 @@ import type {
   ActivityEventRow,
   EnrichableChange,
 } from "@/lib/meta-tracking/activity-enrichment";
+import {
+  assertDeadlineBudget,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 
 /**
  * Linhas por comando. Cada evento ocupa ~13 parâmetros; 400 deixa o comando bem
@@ -55,10 +60,16 @@ const UPSERT_BATCH_SIZE = 400;
  */
 export async function upsertActivityEvents(
   rows: readonly ActivityEventRow[],
+  deadline?: CollectionDeadline,
 ): Promise<StoredActivityEvent[]> {
   const stored: StoredActivityEvent[] = [];
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
+    assertDeadlineBudget(
+      deadline,
+      "persistir lote de atividades",
+      MIN_PERSISTENCE_START_BUDGET_MS,
+    );
     const batch = rows.slice(i, i + UPSERT_BATCH_SIZE);
     if (batch.length === 0) continue;
 
@@ -116,7 +127,13 @@ export async function upsertActivityEvents(
 export async function loadEnrichableChangeEvents(args: {
   accountId: string;
   since: Date;
+  deadline?: CollectionDeadline;
 }): Promise<EnrichableChange[]> {
+  assertDeadlineBudget(
+    args.deadline,
+    "carregar mudanças enriquecíveis",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const rows = await db
     .select({
       changeEventId: metaTrackingChangeEvent.id,
@@ -150,6 +167,7 @@ export async function loadEnrichableChangeEvents(args: {
  */
 export async function linkActivityMatches(
   links: readonly ActivityLink[],
+  deadline?: CollectionDeadline,
 ): Promise<number> {
   if (links.length === 0) return 0;
 
@@ -157,6 +175,11 @@ export async function linkActivityMatches(
     let linked = 0;
 
     for (const link of links) {
+      assertDeadlineBudget(
+        deadline,
+        "persistir vínculo de atividade",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
       const applied = await tx
         .update(metaTrackingChangeEvent)
         .set({

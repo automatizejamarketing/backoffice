@@ -5,6 +5,7 @@ import {
   isFinalMetricDay,
   isInsightsTooHeavyError,
   metricsWindowFor,
+  partitionInsightsRange,
   rangeDays,
   splitInsightsRange,
   toDailyMetricRows,
@@ -270,6 +271,29 @@ describe("splitInsightsRange", () => {
     expect(
       splitInsightsRange({ since: "2026-08-09", until: "2026-08-01" }),
     ).toEqual([]);
+  });
+});
+
+describe("partitionInsightsRange", () => {
+  test("a janela aprendida cobre o alvo inteiro sem buraco nem sobreposição", () => {
+    const window = metricsWindowFor(TODAY);
+
+    const slices = partitionInsightsRange(window, 14);
+
+    expect(slices).toEqual([
+      { since: "2026-07-12", until: "2026-07-25" },
+      { since: "2026-07-26", until: "2026-08-08" },
+      { since: "2026-08-09", until: "2026-08-09" },
+    ]);
+    expect(slices.reduce((total, slice) => total + rangeDays(slice), 0)).toBe(
+      rangeDays(window),
+    );
+  });
+
+  test("limite inválido é recusado em vez de produzir período incorreto", () => {
+    expect(() => partitionInsightsRange(metricsWindowFor(TODAY), 0)).toThrow(
+      "maxRangeDays",
+    );
   });
 });
 

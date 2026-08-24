@@ -47,9 +47,9 @@ const result = await runDailyTrackingCollection(createDailyCollectionPorts(), {
   onlyStale,
   userIds: userIds.length > 0 ? userIds : undefined,
   maxAccounts: Number.isFinite(maxAccounts) && maxAccounts > 0 ? maxAccounts : undefined,
-  onProgress: ({ userEmail, accountId, status, metricRowsUpserted, errorMessage }) => {
+  onProgress: ({ userRef, accountRef, status, metricRowsUpserted, errorMessage }) => {
     console.log(
-      `[meta-tracking] ${userEmail} ${accountId} → ${status} (${metricRowsUpserted} dias de métrica)${
+      `[meta-tracking] ${userRef} ${accountRef} → ${status} (${metricRowsUpserted} dias de métrica)${
         errorMessage ? ` — ${errorMessage}` : ""
       }`,
     );
@@ -77,6 +77,8 @@ console.log(
       activityEventsMatched: result.activityEventsMatched,
       metricRowsUpserted: result.metricRowsUpserted,
       metricSlicesDegraded: result.metricSlicesDegraded,
+      metricStrategyLoadFailures: result.metricStrategyLoadFailures,
+      metricStrategySaveFailures: result.metricStrategySaveFailures,
       creativesFetched: result.creativesFetched,
       creativesPending: result.creativesPending,
       stoppedForBudget: result.stoppedForBudget,
@@ -96,7 +98,9 @@ if (result.errors.length > 0) {
   console.log(`\n=== Erros (${result.errors.length}) ===`);
   for (const error of result.errors.slice(0, 50)) {
     console.log(
-      `- ${error.userEmail}${error.accountId ? ` ${error.accountId}` : ""}: ${error.message}`,
+      `- [${error.category}] ${error.userRef ?? "run"}${
+        error.accountRef ? ` ${error.accountRef}` : ""
+      }: ${error.message}`,
     );
   }
 }

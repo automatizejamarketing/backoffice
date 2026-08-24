@@ -18,9 +18,11 @@ import {
   getAccountCoverageStatus,
   listKnownTrackedAccountIds,
   listKnownTrackedAccountsForPrecheck,
+  loadInsightsStrategies,
   loadAccountTrackedState,
   loadRecentInternalChangeEvents,
   persistAccountTrackingDelta,
+  saveInsightsStrategy,
   upsertAccountCoverage,
 } from "@/lib/db/meta-tracking-collector-queries";
 import {
@@ -32,6 +34,7 @@ import {
   insertCreativeSnapshots,
   listUnknownCreativeIds,
 } from "@/lib/db/meta-tracking-creative-queries";
+import { markMetaConnectionNeedsReconnect } from "@/lib/db/meta-connection-queries";
 import { upsertDailyMetricRows } from "@/lib/db/meta-tracking-metrics-queries";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
@@ -56,6 +59,12 @@ import {
   fetchTrackedConfigs,
   listTrackedEntities,
 } from "@/lib/meta-tracking/graph-collector-gateway";
+import {
+  assertDeadlineBudget,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type {
   DailyCollectionPorts,
   TrackedUser,
@@ -75,6 +84,8 @@ const USER_PAGE_SIZE = 100;
 const DAILY_METRICS_PORTS: DailyMetricsPorts = {
   fetchInsights: fetchAccountInsights,
   fetchInsightsAsync: fetchAccountInsightsAsync,
+  loadInsightsStrategies,
+  saveInsightsStrategy,
   upsertRows: upsertDailyMetricRows,
 };
 
@@ -101,11 +112,17 @@ const CREATIVE_PORTS: CreativeSnapshotPorts = {
 /** Todos os usuários com conta Meta conectada, paginados até o fim. */
 async function listAllUsersWithMeta(options: {
   userIds?: string[];
+  deadline?: CollectionDeadline;
 }): Promise<TrackedUser[]> {
   const users: TrackedUser[] = [];
   let page = 1;
 
   for (;;) {
+    assertDeadlineBudget(
+      options.deadline,
+      "paginar usuários com Meta",
+      MIN_PERSISTENCE_START_BUDGET_MS,
+    );
     const batch = await getUsersWithMetaBusinessAccount({
       page,
       limit: USER_PAGE_SIZE,
@@ -126,23 +143,39 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
     // Sem o `unstable_cache` do Next de propósito: o coletor roda também fora do
     // runtime do Next (`scripts/collect-meta-tracking.ts`), onde o cache lança
     // `Invariant: incrementalCache missing`. É uma leitura por execução.
-    getManagedCampaignPrefix: async () =>
-      (await getBusinessOperatingRulesUncached()).managedCampaignNamePrefix,
+    getManagedCampaignPrefix: async (deadline) => {
+      assertDeadlineBudget(
+        deadline,
+        "carregar regras de negócio",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
+      return (await getBusinessOperatingRulesUncached()).managedCampaignNamePrefix;
+    },
 
     listUsersWithMeta: listAllUsersWithMeta,
 
-    getCredentials: async (userId) => {
+    getCredentials: async (userId, deadline) => {
+      assertDeadlineBudget(
+        deadline,
+        "carregar credenciais Meta",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
       const result = await getUserAccessTokenByUserId(userId);
       if (!result.success) {
         return {
           ok: false,
           needsReconnect: result.error.needsReconnect === true,
+          classification:
+            result.error.statusCode >= 500
+              ? "technical_failure"
+              : "customer_action_required",
           message: result.error.message || "Cliente sem conta Meta conectada.",
         };
       }
       return {
         ok: true,
         credentials: {
+          connectionId: result.connection.id,
           accessToken: result.accessToken,
           tokenKind: result.connection.tokenKind,
           bisuAppScopedId: result.connection.bisuAppScopedId,
@@ -152,13 +185,20 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
       };
     },
 
+    markConnectionNeedsReconnect: markMetaConnectionNeedsReconnect,
+
     listKnownAccountIds: listKnownTrackedAccountIds,
 
     listKnownAccountsForPrecheck: listKnownTrackedAccountsForPrecheck,
 
     // Duas etapas de propósito: o edge de contas atribuídas devolve a lista mas
     // não a timezone, e é a timezone da conta que define o "dia" da cobertura.
-    listAdAccounts: async ({ credentials }) => {
+    listAdAccounts: async ({ credentials, deadline }) => {
+      assertDeadlineBudget(
+        deadline,
+        "descobrir contas de anúncio",
+        MIN_EXTERNAL_OPERATION_BUDGET_MS,
+      );
       const identity = await getUserWithAdAccounts(credentials.accessToken, {
         tokenKind:
           credentials.tokenKind === "bisu" || credentials.tokenKind === "user"
@@ -167,6 +207,7 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
         bisuAppScopedId: credentials.bisuAppScopedId,
         clientBusinessId: credentials.clientBusinessId,
         connectionName: credentials.connectionName,
+        deadline,
       });
       const accountIds = (identity.adaccounts?.data ?? []).map(
         (account) => account.id,
@@ -174,6 +215,7 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
       const enriched = await fetchTrackedAdAccounts({
         accountIds,
         credentials,
+        deadline,
       });
       return {
         accounts: enriched.accounts,
@@ -203,7 +245,8 @@ export function createDailyCollectionPorts(): DailyCollectionPorts {
 
     collectCreativeSnapshots: (args) => runCreativeStep(CREATIVE_PORTS, args),
 
-    createRun: ({ triggeredBy }) => createTrackingRun({ triggeredBy }),
+    createRun: ({ triggeredBy, deadline }) =>
+      createTrackingRun({ triggeredBy, deadline }),
 
     finishRun: finishTrackingRun,
   };

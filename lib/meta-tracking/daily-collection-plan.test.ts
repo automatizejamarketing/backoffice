@@ -7,6 +7,7 @@ import {
   coverageStatusForTokenFailure,
   DEEP_FETCH_CHUNK_SIZE,
   hasCollectionBudgetLeft,
+  isAppWideRateLimitError,
   isDayCoveredBy,
   LISTING_EFFECTIVE_STATUSES,
   planDeepFetch,
@@ -383,10 +384,25 @@ describe("isDayCoveredBy", () => {
 });
 
 describe("coverageStatusForCollectionError", () => {
-  function graphError(code: number): unknown {
+  function graphError(
+    code: number,
+    options: {
+      errorSubcode?: number;
+      isTransient?: boolean;
+      statusCode?: number;
+    } = {},
+  ): unknown {
     return {
       name: "GraphApiError",
-      errorReturn: { statusCode: 403, data: { code, errorSubcode: 1504022 } },
+      errorReturn: {
+        statusCode: options.statusCode ?? 403,
+        reason: { isTransient: options.isTransient ?? false },
+        data: {
+          code,
+          errorSubcode:
+            "errorSubcode" in options ? options.errorSubcode : 1504022,
+        },
+      },
     };
   }
 
@@ -399,13 +415,51 @@ describe("coverageStatusForCollectionError", () => {
     }
   });
 
-  test("erro que não é throttle encerra o dia da conta", () => {
+  test("indisponibilidade explicitamente transitória fica pendente para o próximo cron", () => {
+    const outage = graphError(2, {
+      errorSubcode: undefined,
+      isTransient: true,
+      statusCode: 503,
+    });
+
+    expect(coverageStatusForCollectionError(outage)).toBe("partial");
+    expect(isDayCoveredBy(coverageStatusForCollectionError(outage))).toBe(false);
+  });
+
+  test("2/1504044 continua reservado ao fallback de volume de Insights", () => {
+    expect(
+      coverageStatusForCollectionError(
+        graphError(2, {
+          errorSubcode: 1504044,
+          isTransient: true,
+          statusCode: 503,
+        }),
+      ),
+    ).toBe("failed");
+  });
+
+  test("erro permanente de parâmetro ou autenticação encerra o dia da conta", () => {
     // Insistir num erro permanente a cada disparo só piora a taxa de erro, que
     // é justamente o que a licença do app mede.
     expect(coverageStatusForCollectionError(graphError(100))).toBe("failed");
+    expect(coverageStatusForCollectionError(graphError(190))).toBe("failed");
+    expect(
+      coverageStatusForCollectionError(
+        graphError(2, { isTransient: false, statusCode: 503 }),
+      ),
+    ).toBe("failed");
     expect(coverageStatusForCollectionError(new Error("banco fora"))).toBe("failed");
     expect(coverageStatusForCollectionError(null)).toBe("failed");
     expect(coverageStatusForCollectionError({ errorReturn: {} })).toBe("failed");
+  });
+
+  test("breaker da run é só para códigos inequivocamente globais", () => {
+    expect(isAppWideRateLimitError(graphError(4))).toBe(true);
+    expect(isAppWideRateLimitError(graphError(341))).toBe(true);
+
+    for (const accountScopedCode of [17, 32, 613, 80000, 80004]) {
+      expect(isAppWideRateLimitError(graphError(accountScopedCode))).toBe(false);
+    }
   });
 });
 

@@ -28,6 +28,11 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 
 import { db } from "@/lib/db";
 import { metaTrackingDailyMetric } from "@/lib/db/schema";
+import {
+  assertDeadlineBudget,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type { DailyMetricRow } from "@/lib/meta-tracking/daily-metrics";
 import type { MetricColumns } from "@/lib/meta-tracking/metric-columns";
 
@@ -95,10 +100,16 @@ function conflictUpdateSet(
  */
 export async function upsertDailyMetricRows(
   rows: readonly DailyMetricRow[],
+  deadline?: CollectionDeadline,
 ): Promise<number> {
   let written = 0;
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
+    assertDeadlineBudget(
+      deadline,
+      "persistir lote de métricas",
+      MIN_PERSISTENCE_START_BUDGET_MS,
+    );
     const batch = rows.slice(i, i + UPSERT_BATCH_SIZE);
     if (batch.length === 0) continue;
 

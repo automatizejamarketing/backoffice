@@ -3545,8 +3545,8 @@ export type ConversationEvent = InferSelectModel<typeof conversationEvent>;
 
 // ===== BEGIN meta_tracking_* — bloco espelhado byte a byte no projeto irmão =====
 //
-// Fundação de tracking de campanhas Meta (§4 do plano
-// `backoffice/docs/plans/campaign-tracking-foundation.md`). Sete tabelas
+// Domínio de tracking de campanhas Meta (§4 do plano
+// `backoffice/docs/plans/campaign-tracking-foundation.md`). Oito tabelas
 // registram, para toda conta de anúncio conectada, três coisas em três formatos
 // diferentes porque elas mudam em ritmos diferentes: a CONFIGURAÇÃO de cada
 // entidade ao longo do tempo (versões), os RESULTADOS dia a dia (série) e as
@@ -3727,6 +3727,49 @@ export const metaTrackingAccountCoverage = pgTable(
 
 export type MetaTrackingAccountCoverage = InferSelectModel<
   typeof metaTrackingAccountCoverage
+>;
+
+export type MetaTrackingInsightsStrategyMode = "sync" | "async";
+
+/**
+ * Última estratégia degradada que completou Insights para uma conta × nível.
+ *
+ * Só contas que precisaram de recuo têm linha aqui: ausência significa a
+ * consulta síncrona padrão pela janela inteira. A chave pequena e durável é
+ * necessária porque uma instância serverless não sobrevive de forma confiável
+ * até a coleta do dia seguinte.
+ */
+export const metaTrackingInsightsStrategy = pgTable(
+  "meta_tracking_insights_strategies",
+  {
+    accountId: text("account_id").notNull(),
+    entityLevel: varchar("entity_level", { length: 16 })
+      .$type<MetaTrackingEntityLevel>()
+      .notNull(),
+    mode: varchar("mode", { length: 16 })
+      .$type<MetaTrackingInsightsStrategyMode>()
+      .notNull(),
+    maxRangeDays: integer("max_range_days"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.accountId, table.entityLevel] }),
+    entityLevelCheck: check(
+      "meta_tracking_insights_strategies_entity_level_check",
+      sql`${table.entityLevel} IN ('campaign', 'adset', 'ad')`,
+    ),
+    strategyShapeCheck: check(
+      "meta_tracking_insights_strategies_shape_check",
+      sql`(
+        (${table.mode} = 'sync' AND ${table.maxRangeDays} IS NOT NULL AND ${table.maxRangeDays} >= 1)
+        OR (${table.mode} = 'async' AND ${table.maxRangeDays} IS NULL)
+      )`,
+    ),
+  }),
+);
+
+export type MetaTrackingInsightsStrategy = InferSelectModel<
+  typeof metaTrackingInsightsStrategy
 >;
 
 /**

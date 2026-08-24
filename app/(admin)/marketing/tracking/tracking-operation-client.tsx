@@ -123,16 +123,31 @@ function RunCard({ run }: { run: SerializedTrackingRunView }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-9">
         <CounterPill label="Contas" value={run.counters.accountsCovered} />
         <CounterPill label="Parciais" value={run.counters.accountsPartial} />
         <CounterPill label="Falhas" value={run.counters.accountsFailed} />
         <CounterPill label="Puladas" value={run.counters.accountsSkipped} />
+        <CounterPill
+          label="Reconexão"
+          value={run.counters.accountsSkippedReconnect}
+        />
         <CounterPill label="Versões" value={run.counters.versionsCreated} />
         <CounterPill label="Ações" value={run.counters.eventsCreated} />
         <CounterPill label="Métricas" value={run.counters.metricRowsUpserted} />
         <CounterPill label="Criativos" value={run.counters.creativesFetched} />
       </div>
+
+      {run.counters.customerActionsRequired > 0 ? (
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          {run.counters.customerActionsRequired} cliente(s) precisam reconectar
+          a Meta
+          {run.counters.usersWithoutKnownAccounts > 0
+            ? `; ${run.counters.usersWithoutKnownAccounts} ainda não têm conta conhecida para registrar cobertura`
+            : ""}
+          . Este é um bloqueio do cliente, não uma falha técnica da execução.
+        </p>
+      ) : null}
 
       {run.counters.eventsLinked > 0 ? (
         <p className="text-xs text-muted-foreground">

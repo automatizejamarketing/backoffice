@@ -4,6 +4,7 @@ import {
   mergeQuotaUsage,
   QUOTA_STOP_THRESHOLD_PERCENT,
   readQuotaUsage,
+  shouldStopForAppQuota,
   shouldStopForQuota,
   UNKNOWN_QUOTA_USAGE,
 } from "@/lib/meta-tracking/quota-usage";
@@ -84,7 +85,9 @@ describe("readQuotaUsage", () => {
     );
 
     expect(usage.utilizationPercent).toBe(92.25);
+    expect(usage.appUtilizationPercent).toBe(3.5);
     expect(shouldStopForQuota(usage)).toBe(true);
+    expect(shouldStopForAppQuota(usage)).toBe(false);
   });
 
   test("X-Ad-Account-Usage também é lido", () => {
@@ -99,6 +102,37 @@ describe("readQuotaUsage", () => {
 
     expect(usage.utilizationPercent).toBe(81);
     expect(usage.estimatedRegainMs).toBe(120_000);
+  });
+
+  test("X-App-Usage preserva o escopo global em vez de parecer cota da conta", () => {
+    const usage = readQuotaUsage(
+      headersOf({
+        "x-app-usage": JSON.stringify({
+          call_count: 82,
+          total_cputime: 35,
+          total_time: 20,
+        }),
+      }),
+    );
+
+    expect(usage.utilizationPercent).toBe(82);
+    expect(usage.appUtilizationPercent).toBe(82);
+    expect(shouldStopForAppQuota(usage)).toBe(true);
+  });
+
+  test("BUC alto continua restrito à conta", () => {
+    const usage = readQuotaUsage(
+      headersOf({
+        "x-business-use-case-usage": JSON.stringify({
+          "998877665544332": [{ call_count: 91 }],
+        }),
+      }),
+    );
+
+    expect(usage.utilizationPercent).toBe(91);
+    expect(usage.appUtilizationPercent).toBeUndefined();
+    expect(shouldStopForQuota(usage)).toBe(true);
+    expect(shouldStopForAppQuota(usage)).toBe(false);
   });
 
   test("header malformado é ignorado em vez de derrubar a coleta", () => {
@@ -163,5 +197,26 @@ describe("mergeQuotaUsage", () => {
     );
 
     expect(merged).toEqual({ utilizationPercent: 55, estimatedRegainMs: 1_000 });
+  });
+
+  test("a pior leitura global sobrevive ao merge", () => {
+    const merged = mergeQuotaUsage(
+      {
+        utilizationPercent: 81,
+        estimatedRegainMs: null,
+        appUtilizationPercent: 81,
+      },
+      {
+        utilizationPercent: 92,
+        estimatedRegainMs: null,
+        appUtilizationPercent: 40,
+      },
+    );
+
+    expect(merged).toEqual({
+      utilizationPercent: 92,
+      estimatedRegainMs: null,
+      appUtilizationPercent: 81,
+    });
   });
 });

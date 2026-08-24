@@ -16,12 +16,30 @@ import {
   FIXTURE_CREATIVE_ID,
   FIXTURE_USER_ID,
 } from "@/lib/meta-tracking/fixtures/graph-api-v25";
+import {
+  findMappedError,
+  GraphApiError,
+  MetaTokenInvalidError,
+} from "@/lib/meta-business/error";
 
 const ARGS = {
   userId: FIXTURE_USER_ID,
   accountId: FIXTURE_ACCOUNT_ID,
   credentials: { accessToken: "token-de-teste" },
 };
+
+function appRateLimitError(): GraphApiError {
+  return new GraphApiError({
+    statusCode: 403,
+    reason: findMappedError(4, 1504022),
+    data: {
+      message: "Application request limit reached",
+      type: "OAuthException",
+      code: 4,
+      errorSubcode: 1504022,
+    },
+  });
+}
 
 type Recorded = {
   /** Cada node batch pedido à Meta, na ordem. */
@@ -177,6 +195,23 @@ describe("collectCreativeSnapshots", () => {
     expect(result.failureMessage).toContain("Unsupported get request");
   });
 
+  test("Graph 190 não é engolido como falha de criativo", async () => {
+    const invalid = new MetaTokenInvalidError(
+      "Sessão invalidada",
+      190,
+      460,
+    );
+    const { ports } = makePorts({
+      overrides: {
+        fetchCreatives: async () => {
+          throw invalid;
+        },
+      },
+    });
+
+    await expect(collectCreativeSnapshots(ports, ARGS)).rejects.toBe(invalid);
+  });
+
   test("recusas seguidas encerram a conta no dia em vez de multiplicar erros", async () => {
     const unknownIds = Array.from({ length: 300 }, (_, i) => `creative-${i}`);
     const { ports, recorded } = makePorts({
@@ -193,6 +228,29 @@ describe("collectCreativeSnapshots", () => {
 
     expect(recorded.batches).toHaveLength(MAX_CREATIVE_FETCH_FAILURES);
     expect(result).toMatchObject({ creativesFetched: 0, creativesPending: 300 });
+  });
+
+  test("code 4 encerra no primeiro lote e propaga o breaker global", async () => {
+    const unknownIds = Array.from({ length: 120 }, (_, i) => `creative-${i}`);
+    const { ports, recorded } = makePorts({
+      unknownIds,
+      overrides: {
+        fetchCreatives: async ({ creativeIds }) => {
+          recorded.batches.push([...creativeIds]);
+          throw appRateLimitError();
+        },
+      },
+    });
+
+    const result = await collectCreativeSnapshots(ports, ARGS);
+
+    expect(recorded.batches).toHaveLength(1);
+    expect(result).toMatchObject({
+      creativesFetched: 0,
+      creativesPending: 120,
+      stoppedForQuota: true,
+      appRateLimitEvents: 1,
+    });
   });
 
   test("id que a Meta não devolve continua pendente em vez de sumir", async () => {

@@ -23,6 +23,11 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { metaTrackingConfigVersion, metaTrackingCreative } from "@/lib/db/schema";
+import {
+  assertDeadlineBudget,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type { CreativeSnapshotRow } from "@/lib/meta-tracking/creative-snapshot";
 
 /**
@@ -46,7 +51,13 @@ const INSERT_BATCH_SIZE = 400;
  */
 export async function listUnknownCreativeIds(args: {
   accountId: string;
+  deadline?: CollectionDeadline;
 }): Promise<string[]> {
+  assertDeadlineBudget(
+    args.deadline,
+    "listar criativos desconhecidos",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const rows = await db
     .selectDistinct({ creativeId: metaTrackingConfigVersion.creativeId })
     .from(metaTrackingConfigVersion)
@@ -79,10 +90,16 @@ export async function listUnknownCreativeIds(args: {
  */
 export async function insertCreativeSnapshots(
   rows: readonly CreativeSnapshotRow[],
+  deadline?: CollectionDeadline,
 ): Promise<number> {
   let written = 0;
 
   for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
+    assertDeadlineBudget(
+      deadline,
+      "persistir lote de criativos",
+      MIN_PERSISTENCE_START_BUDGET_MS,
+    );
     const batch = rows.slice(i, i + INSERT_BATCH_SIZE);
     if (batch.length === 0) continue;
 

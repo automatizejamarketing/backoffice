@@ -7,6 +7,10 @@ import {
   runAsyncInsightsReport,
   type AsyncInsightsJobPorts,
 } from "@/lib/meta-tracking/async-insights-job";
+import {
+  COLLECTION_DEADLINE_ERROR_CODE,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import { UNKNOWN_QUOTA_USAGE } from "@/lib/meta-tracking/quota-usage";
 import {
   FIXTURE_ACCOUNT_ID,
@@ -205,6 +209,66 @@ describe("runAsyncInsightsReport", () => {
     expect(trace.some((step) => step.startsWith("rows:"))).toBe(false);
     // E o prazo é respeitado: o poll não fica girando para sempre.
     expect(trace.filter((step) => step.startsWith("sleep:")).length).toBeLessThan(10);
+  });
+
+  test("o último sleep é limitado ao tempo restante do polling", async () => {
+    const startedAt = new Date("2026-08-09T05:00:00.000Z");
+    const { ports, trace, clock } = makePorts({
+      statuses: ["Job Running"],
+      startedAt,
+    });
+
+    await expect(
+      runAsyncInsightsReport(ports, {
+        ...ARGS,
+        pollIntervalMs: 5_000,
+        pollTimeoutMs: 12_000,
+      }),
+    ).rejects.toThrow(/prazo|timeout/i);
+
+    expect(trace.filter((step) => step.startsWith("sleep:"))).toEqual([
+      "sleep:5000",
+      "sleep:5000",
+      "sleep:2000",
+    ]);
+    expect(clock.value.getTime() - startedAt.getTime()).toBe(12_000);
+  });
+
+  test("job pendurado respeita o deadline absoluto e não abre nova tentativa", async () => {
+    const startedAt = new Date("2026-08-09T05:00:00.000Z");
+    const { ports, trace, clock } = makePorts({
+      statuses: ["Job Running"],
+      startedAt,
+    });
+    const workDeadlineAt = new Date(startedAt.getTime() + 20_000);
+    const controller = new AbortController();
+    const deadline: CollectionDeadline = {
+      startedAt,
+      workDeadlineAt,
+      finalizationDeadlineAt: new Date(workDeadlineAt.getTime() + 30_000),
+      signal: controller.signal,
+      now: () => clock.value,
+      remainingWorkMs: () =>
+        workDeadlineAt.getTime() - clock.value.getTime(),
+      remainingFinalizationMs: () =>
+        workDeadlineAt.getTime() + 30_000 - clock.value.getTime(),
+      dispose: () => undefined,
+    };
+
+    await expect(
+      runAsyncInsightsReport(ports, {
+        ...ARGS,
+        deadline,
+        pollIntervalMs: 5_000,
+        pollTimeoutMs: 180_000,
+      }),
+    ).rejects.toMatchObject({ code: COLLECTION_DEADLINE_ERROR_CODE });
+
+    expect(clock.value.getTime()).toBe(workDeadlineAt.getTime());
+    expect(trace.filter((step) => step.startsWith("start:"))).toEqual([
+      "start:report-1",
+    ]);
+    expect(trace.some((step) => step.startsWith("rows:"))).toBe(false);
   });
 
   test("erro de volume de linhas sobe intocado — quem fatia é o passo, não o job", async () => {

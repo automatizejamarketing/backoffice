@@ -38,6 +38,12 @@ import {
   type RawActivity,
 } from "@/lib/meta-tracking/activity-enrichment";
 import type { QuotaUsage } from "@/lib/meta-tracking/quota-usage";
+import {
+  assertDeadlineBudget,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type { TrackingCredentials } from "@/lib/meta-tracking/run-daily-collection";
 
 /** Um evento cru já gravado: a chave de dedup e o uuid que ela ganhou. */
@@ -74,18 +80,30 @@ export type ActivityCollectionPorts = {
     credentials: TrackingCredentials;
     since: Date;
     until: Date;
-  }) => Promise<{ rows: RawActivity[]; usage: QuotaUsage; apiCalls: number }>;
+    deadline?: CollectionDeadline;
+  }) => Promise<{
+    rows: RawActivity[];
+    usage: QuotaUsage;
+    apiCalls: number;
+    /** O endpoint ainda tinha página seguinte quando atingiu o teto. */
+    paginationTruncated?: boolean;
+  }>;
   /** Upsert por `dedup_hash`; devolve o uuid de cada linha, nova ou já existente. */
   upsertActivityEvents: (
     rows: readonly ActivityEventRow[],
+    deadline?: CollectionDeadline,
   ) => Promise<StoredActivityEvent[]>;
   /** Ações detectadas pelo diff que ainda não têm autor, da mais recente para a mais antiga. */
   loadEnrichableChanges: (args: {
     accountId: string;
     since: Date;
+    deadline?: CollectionDeadline;
   }) => Promise<EnrichableChange[]>;
   /** Escreve os dois lados da ponte; devolve quantas ações foram enriquecidas. */
-  linkActivityMatches: (links: readonly ActivityLink[]) => Promise<number>;
+  linkActivityMatches: (
+    links: readonly ActivityLink[],
+    deadline?: CollectionDeadline,
+  ) => Promise<number>;
 };
 
 export type CollectActivityEventsArgs = {
@@ -94,6 +112,7 @@ export type CollectActivityEventsArgs = {
   credentials: TrackingCredentials;
   /** O instante da coleta — define a janela de sobreposição do poll. */
   now: Date;
+  deadline?: CollectionDeadline;
 };
 
 export type ActivityCollectionResult = {
@@ -103,6 +122,7 @@ export type ActivityCollectionResult = {
   eventsMatched: number;
   usage: QuotaUsage;
   apiCalls: number;
+  paginationTruncated: boolean;
 };
 
 export async function collectActivityEvents(
@@ -111,11 +131,17 @@ export async function collectActivityEvents(
 ): Promise<ActivityCollectionResult> {
   const since = new Date(args.now.getTime() - ACTIVITY_POLL_OVERLAP_MS);
 
+  assertDeadlineBudget(
+    args.deadline,
+    "buscar audit trail",
+    MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  );
   const fetched = await ports.fetchActivities({
     accountId: args.accountId,
     credentials: args.credentials,
     since,
     until: args.now,
+    deadline: args.deadline,
   });
 
   const result: ActivityCollectionResult = {
@@ -123,6 +149,7 @@ export async function collectActivityEvents(
     eventsMatched: 0,
     usage: fetched.usage,
     apiCalls: fetched.apiCalls,
+    paginationTruncated: fetched.paginationTruncated ?? false,
   };
 
   const rows = toActivityEventRows({
@@ -132,7 +159,12 @@ export async function collectActivityEvents(
   });
   if (rows.length === 0) return result;
 
-  const stored = await ports.upsertActivityEvents(rows);
+  assertDeadlineBudget(
+    args.deadline,
+    "persistir audit trail",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
+  const stored = await ports.upsertActivityEvents(rows, args.deadline);
   result.eventsUpserted = stored.length;
 
   // Quem já explicou uma ação está fora: um evento cru é a causa de um fato só,
@@ -144,9 +176,15 @@ export async function collectActivityEvents(
   );
   if (idByDedupHash.size === 0) return result;
 
+  assertDeadlineBudget(
+    args.deadline,
+    "carregar ações para enriquecer",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const changes = await ports.loadEnrichableChanges({
     accountId: args.accountId,
     since,
+    deadline: args.deadline,
   });
   if (changes.length === 0) return result;
 
@@ -164,7 +202,15 @@ export async function collectActivityEvents(
   }));
 
   if (links.length > 0) {
-    result.eventsMatched = await ports.linkActivityMatches(links);
+    assertDeadlineBudget(
+      args.deadline,
+      "persistir vínculos do audit trail",
+      MIN_PERSISTENCE_START_BUDGET_MS,
+    );
+    result.eventsMatched = await ports.linkActivityMatches(
+      links,
+      args.deadline,
+    );
   }
 
   return result;

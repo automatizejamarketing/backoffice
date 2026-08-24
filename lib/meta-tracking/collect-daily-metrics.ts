@@ -31,6 +31,8 @@
 import {
   isInsightsTooHeavyError,
   metricsWindowFor,
+  partitionInsightsRange,
+  rangeDays,
   splitInsightsRange,
   toDailyMetricRows,
   type DailyMetricRow,
@@ -43,6 +45,12 @@ import {
   UNKNOWN_QUOTA_USAGE,
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
+import {
+  assertDeadlineBudget,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type { DayKey } from "@/lib/meta-tracking/correlation";
 import type { TrackingCredentials } from "@/lib/meta-tracking/run-daily-collection";
 import type { MetaTrackingEntityLevel } from "@/lib/db/schema";
@@ -65,7 +73,26 @@ export type InsightsFetchArgs = {
   credentials: TrackingCredentials;
   entityLevel: MetaTrackingEntityLevel;
   range: InsightsRange;
+  deadline?: CollectionDeadline;
 };
+
+/**
+ * Último degrau que completou este nível da conta.
+ *
+ * `sync` guarda o maior tamanho conservador de fatia: ele só diminui quando uma
+ * janela antes segura volta a estourar. `async` é terminal na escada
+ * split → async → abandon e evita repetir todas as sondagens síncronas que já
+ * provaram não caber. O `async` sempre representa sucesso do job para
+ * `fullRange`: o dia único que falhou só dispara esse degrau, nunca é promovido
+ * por engano ao período inteiro na execução seguinte.
+ */
+export type InsightsFetchStrategy =
+  | { mode: "sync"; maxRangeDays: number }
+  | { mode: "async" };
+
+export type InsightsFetchStrategies = Partial<
+  Record<MetaTrackingEntityLevel, InsightsFetchStrategy>
+>;
 
 export type DailyMetricsPorts = {
   /** Insights de um nível num período, já paginados. */
@@ -77,8 +104,26 @@ export type DailyMetricsPorts = {
    * onde recuar depois dele.
    */
   fetchInsightsAsync?: (args: InsightsFetchArgs) => Promise<InsightsFetchResult>;
+  /** Estratégias aprendidas em execuções anteriores desta conta. */
+  loadInsightsStrategies?: (args: {
+    accountId: string;
+    deadline?: CollectionDeadline;
+  }) => Promise<InsightsFetchStrategies>;
+  /**
+   * Persiste somente um degrau novo e bem-sucedido. A implementação real faz
+   * upsert monotônico para uma corrida nunca voltar a uma janela mais larga.
+   */
+  saveInsightsStrategy?: (args: {
+    accountId: string;
+    entityLevel: MetaTrackingEntityLevel;
+    strategy: InsightsFetchStrategy;
+    deadline?: CollectionDeadline;
+  }) => Promise<void>;
   /** Upsert por (nível, entidade, dia); devolve quantas linhas gravou. */
-  upsertRows: (rows: readonly DailyMetricRow[]) => Promise<number>;
+  upsertRows: (
+    rows: readonly DailyMetricRow[],
+    deadline?: CollectionDeadline,
+  ) => Promise<number>;
 };
 
 export type CollectDailyMetricsArgs = {
@@ -95,6 +140,8 @@ export type CollectDailyMetricsArgs = {
   range?: InsightsRange;
   /** Cota já gasta pelas etapas anteriores da conta. */
   usage?: QuotaUsage;
+  /** Deadline absoluto da coleta diária; scripts de backfill podem omiti-lo. */
+  deadline?: CollectionDeadline;
 };
 
 export type DailyMetricsResult = {
@@ -103,8 +150,19 @@ export type DailyMetricsResult = {
   apiCalls: number;
   /** A coleta parou no meio para não estourar a cota da conta. */
   stoppedForQuota: boolean;
-  /** Quantas vezes um período precisou ser partido por volume de linhas. */
+  /**
+   * Quantas decisões de recuo foram usadas: partição por volume, modo
+   * assíncrono ou reaplicação de uma estratégia aprendida. Um fallback que
+   * completou continua visível como degradação tratada.
+   */
   slicesDegraded: number;
+  /** Leitura da otimização falhou; a coleta seguiu pela estratégia padrão. */
+  strategyLoadFailures: number;
+  /**
+   * Escrita do aprendizado falhou depois dos dados; a próxima run pode
+   * reaprender, mas esta coleta continua válida.
+   */
+  strategySaveFailures: number;
   /**
    * Níveis que estouraram o teto de linhas até num dia único e ficaram sem
    * série hoje. Não é motivo para tentar de novo no mesmo dia: o erro veio da
@@ -128,39 +186,107 @@ export async function collectDailyMetrics(
     apiCalls: 0,
     stoppedForQuota: false,
     slicesDegraded: 0,
+    strategyLoadFailures: 0,
+    strategySaveFailures: 0,
     levelsAbandoned: [],
   };
 
+  let preferredStrategies: InsightsFetchStrategies = {};
+  if (!shouldStopForQuota(result.usage) && ports.loadInsightsStrategies) {
+    try {
+      preferredStrategies = await ports.loadInsightsStrategies({
+        accountId: args.accountId,
+        deadline: args.deadline,
+      });
+    } catch {
+      // Esta tabela é só memória de otimização. Durante rollout (ou numa falha
+      // pontual do Postgres), ausência dela não pode transformar uma coleta
+      // funcional em falha nem expor SQL/identificadores no resultado.
+      result.strategyLoadFailures += 1;
+    }
+  }
+
   for (const entityLevel of METRIC_LEVELS) {
+    assertDeadlineBudget(
+      args.deadline,
+      `iniciar insights de ${entityLevel}`,
+      MIN_EXTERNAL_OPERATION_BUDGET_MS,
+    );
     if (shouldStopForQuota(result.usage)) {
       result.stoppedForQuota = true;
       break;
     }
 
-    const raw = await fetchLevel({
+    const fetchedLevel = await fetchLevel({
       ports,
       accountId: args.accountId,
       credentials: args.credentials,
       entityLevel,
       fullRange: targetRange,
+      preferredStrategy: preferredStrategies[entityLevel],
       result,
+      deadline: args.deadline,
     });
+    const learnedStrategyChanged =
+      fetchedLevel.completed &&
+      fetchedLevel.learnedStrategy !== undefined &&
+      !sameInsightsStrategy(
+        preferredStrategies[entityLevel],
+        fetchedLevel.learnedStrategy,
+      );
+
     const rows = toDailyMetricRows({
       userId: args.userId,
       accountId: args.accountId,
       entityLevel,
       today: args.today,
-      rows: raw,
+      rows: fetchedLevel.rows,
     });
 
     if (rows.length > 0) {
-      result.rowsUpserted += await ports.upsertRows(rows);
+      assertDeadlineBudget(
+        args.deadline,
+        `persistir insights de ${entityLevel}`,
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
+      result.rowsUpserted += await ports.upsertRows(rows, args.deadline);
+    }
+
+    if (
+      learnedStrategyChanged &&
+      fetchedLevel.learnedStrategy &&
+      ports.saveInsightsStrategy
+    ) {
+      try {
+        // Depois do upsert: perder esta escrita perde só o aprendizado, nunca
+        // as métricas que a estratégia acabou de recuperar.
+        await ports.saveInsightsStrategy({
+          accountId: args.accountId,
+          entityLevel,
+          strategy: fetchedLevel.learnedStrategy,
+          deadline: args.deadline,
+        });
+        preferredStrategies[entityLevel] = fetchedLevel.learnedStrategy;
+      } catch {
+        result.strategySaveFailures += 1;
+      }
     }
 
     if (result.stoppedForQuota) break;
   }
 
   return result;
+}
+
+function sameInsightsStrategy(
+  left: InsightsFetchStrategy | undefined,
+  right: InsightsFetchStrategy,
+): boolean {
+  if (!left || left.mode !== right.mode) return false;
+  return (
+    left.mode === "async" ||
+    (right.mode === "sync" && left.maxRangeDays === right.maxRangeDays)
+  );
 }
 
 /**
@@ -177,13 +303,79 @@ async function fetchLevel(args: {
   entityLevel: MetaTrackingEntityLevel;
   /** O período do nível inteiro, antes de qualquer recuo por volume. */
   fullRange: InsightsRange;
+  preferredStrategy?: InsightsFetchStrategy;
   result: DailyMetricsResult;
-}): Promise<RawInsightsRow[]> {
-  const { ports, accountId, credentials, entityLevel, result } = args;
-  const pending: InsightsRange[] = [args.fullRange];
+  deadline?: CollectionDeadline;
+}): Promise<{
+  rows: RawInsightsRow[];
+  completed: boolean;
+  learnedStrategy?: InsightsFetchStrategy;
+}> {
+  const {
+    ports,
+    accountId,
+    credentials,
+    entityLevel,
+    preferredStrategy,
+    result,
+    deadline,
+  } = args;
+
+  if (preferredStrategy?.mode === "async" && ports.fetchInsightsAsync) {
+    try {
+      assertDeadlineBudget(
+        deadline,
+        `iniciar estratégia assíncrona de ${entityLevel}`,
+        MIN_EXTERNAL_OPERATION_BUDGET_MS,
+      );
+      const fetched = await ports.fetchInsightsAsync({
+        accountId,
+        credentials,
+        entityLevel,
+        range: args.fullRange,
+        deadline,
+      });
+      result.usage = mergeQuotaUsage(result.usage, fetched.usage);
+      result.apiCalls += fetched.apiCalls;
+      result.slicesDegraded += 1;
+      return {
+        rows: fetched.rows,
+        completed: true,
+        learnedStrategy: preferredStrategy,
+      };
+    } catch (error) {
+      if (!isInsightsTooHeavyError(error)) throw error;
+      result.levelsAbandoned.push(entityLevel);
+      return { rows: [], completed: false };
+    }
+  }
+
+  const fullRangeDays = rangeDays(args.fullRange);
+  const preferredSyncMaxRangeDays =
+    preferredStrategy?.mode === "sync" &&
+    preferredStrategy.maxRangeDays < fullRangeDays
+      ? preferredStrategy.maxRangeDays
+      : null;
+  const pending: InsightsRange[] =
+    preferredSyncMaxRangeDays === null
+      ? [args.fullRange]
+      : partitionInsightsRange(args.fullRange, preferredSyncMaxRangeDays);
   const rows: RawInsightsRow[] = [];
+  let learnedMaxRangeDays: number | null = null;
+  let abandoned = false;
+
+  if (preferredSyncMaxRangeDays !== null) {
+    // Mesmo sem novo erro, este nível completou por uma estratégia degradada e
+    // precisa continuar aparecendo no contador operacional.
+    result.slicesDegraded += 1;
+  }
 
   while (pending.length > 0) {
+    assertDeadlineBudget(
+      deadline,
+      `buscar insights de ${entityLevel}`,
+      MIN_EXTERNAL_OPERATION_BUDGET_MS,
+    );
     if (shouldStopForQuota(result.usage)) {
       result.stoppedForQuota = true;
       break;
@@ -196,6 +388,7 @@ async function fetchLevel(args: {
         credentials,
         entityLevel,
         range,
+        deadline,
       });
       result.usage = mergeQuotaUsage(result.usage, fetched.usage);
       result.apiCalls += fetched.apiCalls;
@@ -206,6 +399,11 @@ async function fetchLevel(args: {
       const halves = splitInsightsRange(range);
       if (halves.length > 0) {
         result.slicesDegraded += 1;
+        const conservativeHalfDays = Math.min(...halves.map(rangeDays));
+        learnedMaxRangeDays =
+          learnedMaxRangeDays === null
+            ? conservativeHalfDays
+            : Math.min(learnedMaxRangeDays, conservativeHalfDays);
         pending.unshift(...halves);
         continue;
       }
@@ -222,28 +420,51 @@ async function fetchLevel(args: {
       // árvore inteira de fatias condenadas.
       if (!ports.fetchInsightsAsync) {
         result.levelsAbandoned.push(entityLevel);
+        abandoned = true;
         break;
       }
       try {
+        assertDeadlineBudget(
+          deadline,
+          `iniciar fallback assíncrono de ${entityLevel}`,
+          MIN_EXTERNAL_OPERATION_BUDGET_MS,
+        );
         const fetched = await ports.fetchInsightsAsync({
           accountId,
           credentials,
           entityLevel,
           range: args.fullRange,
+          deadline,
         });
         result.usage = mergeQuotaUsage(result.usage, fetched.usage);
         result.apiCalls += fetched.apiCalls;
         result.slicesDegraded += 1;
-        return fetched.rows;
+        return {
+          rows: fetched.rows,
+          completed: true,
+          // O modo só é aprendido depois de o job pelo PERÍODO INTEIRO
+          // completar. A fatia de um dia apenas disparou o degrau; não é ela
+          // que será indevidamente ampliada na execução seguinte.
+          learnedStrategy: { mode: "async" },
+        };
       } catch (asyncError) {
         // Volume que estoura até no relatório assíncrono não tem mais recurso.
         // Qualquer outra falha sobe: o operador precisa ver o job que quebrou.
         if (!isInsightsTooHeavyError(asyncError)) throw asyncError;
         result.levelsAbandoned.push(entityLevel);
+        abandoned = true;
         break;
       }
     }
   }
 
-  return rows;
+  return {
+    rows,
+    completed:
+      pending.length === 0 && !result.stoppedForQuota && !abandoned,
+    learnedStrategy:
+      learnedMaxRangeDays === null
+        ? undefined
+        : { mode: "sync", maxRangeDays: learnedMaxRangeDays },
+  };
 }

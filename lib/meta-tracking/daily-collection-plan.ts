@@ -299,16 +299,17 @@ export function buildTrackedEntityStates(
 /**
  * Status de cobertura que encerram a conta NO DIA.
  *
- * Só `partial` fica pendente, e por um motivo exato: parcial não é erro, é a
- * parada preventiva por cota — o disparo seguinte do cron existe para terminar
- * o que ela interrompeu.
+ * Só `partial` fica pendente. Ele cobre a parada preventiva por cota e erros
+ * externos explicitamente transitórios: o disparo seguinte do cron fornece o
+ * resfriamento antes de terminar o que a invocação anterior interrompeu.
  *
  * `failed` é terminal por duas razões que puxam para o mesmo lado. A licença
  * Meta do app é throttled por TAXA DE ERRO: reinsistir em cada disparo da
  * madrugada multiplicaria por nove os erros de uma conta que está falhando
  * sistematicamente. E o lote de cada invocação é finito — conta que falha
- * sempre roubaria a vaga de conta que ainda não foi tentada nenhuma vez. Falha
- * transitória volta amanhã; quem quiser hoje roda o script com `--all`.
+ * sempre roubaria a vaga de conta que ainda não foi tentada nenhuma vez. Só
+ * throttles e indisponibilidade de serviço inequivocamente transitória voltam
+ * no cron; quem quiser forçar outro erro hoje roda o script com `--all`.
  *
  * `skipped_*` é terminal pelo motivo mais simples: sem token não há o que
  * tentar de novo no mesmo dia.
@@ -354,6 +355,69 @@ const THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([
   80014,
 ]);
 
+/** Códigos cujo escopo é inequivocamente o app inteiro, não uma conta. */
+const APP_WIDE_THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([
+  4, // application request limit reached
+  341, // application limit reached
+]);
+
+function graphErrorCodeOf(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (
+    error as { errorReturn?: { data?: { code?: unknown } } }
+  ).errorReturn?.data?.code;
+  return typeof code === "number" ? code : undefined;
+}
+
+/** Qualquer throttle conhecido, independentemente do escopo conta/app. */
+export function isRateLimitError(error: unknown): boolean {
+  const code = graphErrorCodeOf(error);
+  return code !== undefined && THROTTLE_ERROR_CODES.has(code);
+}
+
+/**
+ * Um throttle que torna contraproducente tentar qualquer outra conta nesta
+ * invocação. O cron seguinte é o cooldown; não há sleep nem retry local.
+ */
+export function isAppWideRateLimitError(error: unknown): boolean {
+  const code = graphErrorCodeOf(error);
+  return code !== undefined && APP_WIDE_THROTTLE_ERROR_CODES.has(code);
+}
+
+const META_SERVICE_UNAVAILABLE_CODE = 2;
+const INSIGHTS_TOO_HEAVY_SUBCODE = 1504044;
+
+/**
+ * Indisponibilidade externa que pode ser retomada sem abrir retry genérico.
+ *
+ * O formato é o `GraphErrorReturn` produzido por `parseGraphError`: código 2 é
+ * normalizado para HTTP 503 e `isTransient=true`. Exigimos os três sinais para
+ * que um objeto parcial, um erro de rede ou o `genericError` não ganhem retry.
+ *
+ * `2/1504044` fica de fora deliberadamente. Em Insights esse par significa que
+ * a consulta síncrona foi pesada demais e já possui a escada split/async em
+ * `daily-metrics.ts`; tratá-lo aqui como outage misturaria volume com serviço.
+ */
+function isExplicitMetaServiceOutage(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const errorReturn = (
+    error as {
+      errorReturn?: {
+        statusCode?: unknown;
+        reason?: { isTransient?: unknown };
+        data?: { code?: unknown; errorSubcode?: unknown };
+      };
+    }
+  ).errorReturn;
+
+  return (
+    errorReturn?.statusCode === 503 &&
+    errorReturn.reason?.isTransient === true &&
+    errorReturn.data?.code === META_SERVICE_UNAVAILABLE_CODE &&
+    errorReturn.data.errorSubcode !== INSIGHTS_TOO_HEAVY_SUBCODE
+  );
+}
+
 /**
  * O status de cobertura de uma conta que quebrou no meio da coleta.
  *
@@ -369,17 +433,15 @@ const THROTTLE_ERROR_CODES: ReadonlySet<number> = new Set([
  * request limit reached", `is_transient: true`) no meio dos insights, foi
  * gravada como `failed` e os oito disparos restantes da madrugada a pularam.
  *
+ * Indisponibilidade de serviço explicitamente transitória segue a mesma
+ * retomada entre invocações, sem uma segunda tentativa dentro da request.
  * Qualquer outro erro continua `failed`: aí sim insistir no mesmo dia só piora
  * a taxa de erro, que é o que a licença do app mede.
  */
 export function coverageStatusForCollectionError(
   error: unknown,
 ): MetaTrackingCoverageStatus {
-  if (typeof error !== "object" || error === null) return "failed";
-  const code = (
-    error as { errorReturn?: { data?: { code?: unknown } } }
-  ).errorReturn?.data?.code;
-  return typeof code === "number" && THROTTLE_ERROR_CODES.has(code)
+  return isRateLimitError(error) || isExplicitMetaServiceOutage(error)
     ? "partial"
     : "failed";
 }

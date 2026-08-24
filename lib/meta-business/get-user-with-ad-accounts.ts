@@ -3,6 +3,16 @@ import { appSecretProof, facebookAppSecret } from "./appsecret-proof";
 import { GraphApiError, parseGraphError } from "./error";
 import { cachedMetaRead, tokenCacheId } from "./read-cache";
 import type { MetaTokenKind } from "./connection-record";
+import {
+  assertDeadlineBudget,
+  deadlineExceededFrom,
+  isCollectionDeadlineExceeded,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
+import { logMetaCall } from "@/lib/observability/meta-logger";
+import { getMetaLogContext } from "@/lib/observability/meta-log-context";
+import { safeErrorSummary } from "@/lib/observability/meta-log-safety";
 
 /** Appends appsecret_proof when META_GENERAL_APP_SECRET is set (user/BISU token call). */
 function appendAppSecretProof(
@@ -74,6 +84,8 @@ export type GetUserWithAdAccountsOptions = {
   bisuAppScopedId?: string | null;
   clientBusinessId?: string | null;
   connectionName?: string | null;
+  /** Deadline absoluto dos jobs; chamadas interativas deixam ausente. */
+  deadline?: CollectionDeadline;
 };
 
 type AssignedAdAccount = {
@@ -123,12 +135,84 @@ const BISU_AD_ACCOUNT_FIELDS = "id,account_id,name,account_status,currency";
 
 const AD_ACCOUNTS_PAGE_LIMIT = "100";
 
-async function fetchGraphJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  const data = await response.json();
+function logDiscoveryFallback(edge: string, error: unknown): void {
+  const context = getMetaLogContext();
+  console.warn(
+    JSON.stringify({
+      evt: "meta_account_discovery_fallback",
+      runId: context?.runId,
+      correlationId: context?.correlationId,
+      category: "degraded_component",
+      operation: "list",
+      entity: "adaccount",
+      edge,
+      error: safeErrorSummary(error),
+    }),
+  );
+}
+
+async function fetchGraphJson<T>(
+  url: string,
+  deadline?: CollectionDeadline,
+): Promise<T> {
+  assertDeadlineBudget(
+    deadline,
+    "descobrir contas na Graph API",
+    MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  );
+  const startedAt = Date.now();
+  const parsedUrl = new URL(url);
+  const endpoint = `${parsedUrl.origin}${parsedUrl.pathname}`;
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: deadline?.signal });
+  } catch (error) {
+    const deadlineError = deadlineExceededFrom(
+      deadline,
+      "aguardar descoberta de contas na Graph API",
+      error,
+    );
+    if (deadlineError) throw deadlineError;
+    logMetaCall({
+      phase: "error",
+      method: "GET",
+      endpoint,
+      requestParams: parsedUrl.searchParams,
+      durationMs: Date.now() - startedAt,
+      errorData: {
+        error: {
+          message: error instanceof Error ? error.message : String(error),
+          is_transient: true,
+        },
+      },
+      category: "external_transient",
+    });
+    throw error;
+  }
+
+  let data: Record<string, unknown>;
+  try {
+    data = (await response.json()) as Record<string, unknown>;
+  } catch (error) {
+    const deadlineError = deadlineExceededFrom(
+      deadline,
+      "ler descoberta de contas da Graph API",
+      error,
+    );
+    if (deadlineError) throw deadlineError;
+    throw error;
+  }
 
   if (!response.ok || data.error) {
-    console.error("Error fetching Facebook Graph data:", data);
+    logMetaCall({
+      phase: "error",
+      method: "GET",
+      endpoint,
+      requestParams: parsedUrl.searchParams,
+      httpStatus: response.status,
+      durationMs: Date.now() - startedAt,
+      errorData: data,
+    });
     // Typed error carries code/error_subcode so callers can detect 190/460
     // (session invalidated — user must reconnect) and surface it precisely.
     throw new GraphApiError(parseGraphError(data));
@@ -139,6 +223,7 @@ async function fetchGraphJson<T>(url: string): Promise<T> {
 
 async function paginateGraph<T>(
   initialUrl: string,
+  deadline?: CollectionDeadline,
 ): Promise<T[]> {
   const visitedUrls = new Set<string>();
   const all: T[] = [];
@@ -154,7 +239,7 @@ async function paginateGraph<T>(
     const page = await fetchGraphJson<{
       data: T[];
       paging?: { next?: string };
-    }>(nextUrl);
+    }>(nextUrl, deadline);
 
     all.push(...(page.data ?? []));
     nextUrl = page.paging?.next ?? "";
@@ -165,6 +250,7 @@ async function paginateGraph<T>(
 
 async function getFacebookUserProfile(
   accessToken: string,
+  deadline?: CollectionDeadline,
 ): Promise<FacebookUserBasicInfo> {
   const params = new URLSearchParams({
     fields: USER_FIELDS.join(","),
@@ -174,11 +260,13 @@ async function getFacebookUserProfile(
 
   return fetchGraphJson<FacebookUserBasicInfo>(
     `${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`,
+    deadline,
   );
 }
 
 async function getAdAccounts(
   accessToken: string,
+  deadline?: CollectionDeadline,
 ): Promise<FacebookUserWithAdAccountsResponse["adaccounts"]> {
   const params = new URLSearchParams({
     fields: AD_ACCOUNT_FIELDS.join(","),
@@ -204,7 +292,7 @@ async function getAdAccounts(
 
     const page = await fetchGraphJson<
       NonNullable<FacebookUserWithAdAccountsResponse["adaccounts"]>
-    >(nextUrl);
+    >(nextUrl, deadline);
 
     lastPage = page;
     allAccounts.push(...page.data);
@@ -219,6 +307,7 @@ async function getAdAccounts(
 
 async function getBisuIdentity(
   accessToken: string,
+  deadline?: CollectionDeadline,
 ): Promise<{ id: string; clientBusinessId: string }> {
   const params = new URLSearchParams({
     fields: "id,client_business_id",
@@ -229,7 +318,10 @@ async function getBisuIdentity(
   const data = await fetchGraphJson<{
     id?: string;
     client_business_id?: string;
-  }>(`${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`);
+  }>(
+    `${graphFacebookBaseUrl}/${graphApiVersion}/me?${params.toString()}`,
+    deadline,
+  );
 
   if (!data.id || !data.client_business_id) {
     throw new Error(
@@ -246,6 +338,7 @@ async function getBisuIdentity(
 async function getAssignedAdAccounts(
   bisuAppScopedId: string,
   accessToken: string,
+  deadline?: CollectionDeadline,
 ): Promise<AssignedAdAccount[]> {
   const params = new URLSearchParams({
     fields: BISU_AD_ACCOUNT_FIELDS,
@@ -256,11 +349,13 @@ async function getAssignedAdAccounts(
 
   return paginateGraph<AssignedAdAccount>(
     `${graphFacebookBaseUrl}/${graphApiVersion}/${bisuAppScopedId}/assigned_ad_accounts?${params.toString()}`,
+    deadline,
   );
 }
 
 async function getMeAdAccountsAsAssigned(
   accessToken: string,
+  deadline?: CollectionDeadline,
 ): Promise<AssignedAdAccount[]> {
   const params = new URLSearchParams({
     fields: BISU_AD_ACCOUNT_FIELDS,
@@ -271,6 +366,7 @@ async function getMeAdAccountsAsAssigned(
 
   return paginateGraph<AssignedAdAccount>(
     `${graphFacebookBaseUrl}/${graphApiVersion}/me/adaccounts?${params.toString()}`,
+    deadline,
   );
 }
 
@@ -332,6 +428,14 @@ export async function getUserWithAdAccounts(
   accessToken: string,
   options?: GetUserWithAdAccountsOptions,
 ): Promise<FacebookUserWithAdAccountsResponse> {
+  // Uma requisição abortável não compartilha `inflight` com telas ou outros
+  // jobs: o deadline de um chamador não pode cancelar a descoberta dos demais.
+  // O coletor chama isto uma vez por usuário e seu cron é mais espaçado que o
+  // TTL, então o bypass não cria retry nem muda o volume normal entre ticks.
+  if (options?.deadline) {
+    return fetchUserWithAdAccounts(accessToken, options);
+  }
+
   const cacheKey = [
     "adaccounts",
     tokenCacheId(accessToken),
@@ -359,15 +463,19 @@ async function fetchUserWithAdAccounts(
             id: options.bisuAppScopedId,
             clientBusinessId: options.clientBusinessId,
           }
-        : await getBisuIdentity(accessToken);
+        : await getBisuIdentity(accessToken, options.deadline);
 
     const [assigned, mine] = await Promise.all([
-      getAssignedAdAccounts(identity.id, accessToken).catch((error) => {
-        console.warn("assigned_ad_accounts failed for BISU token", error);
-        return [] as AssignedAdAccount[];
-      }),
-      getMeAdAccountsAsAssigned(accessToken).catch((error) => {
-        console.warn("me/adaccounts failed for BISU token", error);
+      getAssignedAdAccounts(identity.id, accessToken, options.deadline).catch(
+        (error) => {
+          if (isCollectionDeadlineExceeded(error)) throw error;
+          logDiscoveryFallback("assigned_ad_accounts", error);
+          return [] as AssignedAdAccount[];
+        },
+      ),
+      getMeAdAccountsAsAssigned(accessToken, options.deadline).catch((error) => {
+        if (isCollectionDeadlineExceeded(error)) throw error;
+        logDiscoveryFallback("me/adaccounts", error);
         return [] as AssignedAdAccount[];
       }),
     ]);
@@ -386,8 +494,8 @@ async function fetchUserWithAdAccounts(
   }
 
   const [userProfile, adAccounts] = await Promise.all([
-    getFacebookUserProfile(accessToken),
-    getAdAccounts(accessToken),
+    getFacebookUserProfile(accessToken, options?.deadline),
+    getAdAccounts(accessToken, options?.deadline),
   ]);
 
   return {

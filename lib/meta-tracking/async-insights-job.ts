@@ -33,6 +33,12 @@ import {
   UNKNOWN_QUOTA_USAGE,
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
+import {
+  assertDeadlineBudget,
+  deadlineExceededFrom,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
 import type { InsightsFetchResult } from "@/lib/meta-tracking/collect-daily-metrics";
 import type { InsightsRange, RawInsightsRow } from "@/lib/meta-tracking/daily-metrics";
 import type { TrackingCredentials } from "@/lib/meta-tracking/run-daily-collection";
@@ -47,9 +53,13 @@ export const ASYNC_REPORT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Intervalo entre polls. Curto o bastante para não desperdiçar a invocação. */
 export const DEFAULT_ASYNC_POLL_INTERVAL_MS = 5_000;
 
+/** Um POST, ao menos um poll e uma espera curta antes de abrir um job caro. */
+const MIN_ASYNC_REPORT_START_BUDGET_MS =
+  DEFAULT_ASYNC_POLL_INTERVAL_MS * 2;
+
 /**
- * Prazo de espera por relatório. Abaixo do limite de duração da plataforma com
- * folga para a fatia anterior ter sido gravada e a próxima começar.
+ * Teto por tentativa. Na coleta diária ele é ainda limitado pelo deadline
+ * absoluto restante; no backfill sem deadline global continua valendo inteiro.
  */
 export const DEFAULT_ASYNC_POLL_TIMEOUT_MS = 180_000;
 
@@ -91,18 +101,21 @@ export type AsyncInsightsJobPorts = {
     credentials: TrackingCredentials;
     entityLevel: MetaTrackingEntityLevel;
     range: InsightsRange;
+    deadline?: CollectionDeadline;
   }) => Promise<{ reportRunId: string; usage: QuotaUsage; apiCalls: number }>;
   /** `GET /{report_run_id}` — o nó de status, cru. */
   readReport: (args: {
     reportRunId: string;
     credentials: TrackingCredentials;
+    deadline?: CollectionDeadline;
   }) => Promise<{ node: unknown; usage: QuotaUsage; apiCalls: number }>;
   /** `GET /{report_run_id}/insights` — as linhas, já paginadas. */
   fetchReportRows: (args: {
     reportRunId: string;
     credentials: TrackingCredentials;
+    deadline?: CollectionDeadline;
   }) => Promise<{ rows: RawInsightsRow[]; usage: QuotaUsage; apiCalls: number }>;
-  sleep: (ms: number) => Promise<void>;
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   now: () => Date;
 };
 
@@ -114,6 +127,8 @@ export type RunAsyncInsightsReportArgs = {
   pollIntervalMs?: number;
   pollTimeoutMs?: number;
   maxAttempts?: number;
+  /** Deadline absoluto do run diário; ausente nos scripts sem limite global. */
+  deadline?: CollectionDeadline;
 };
 
 /** Uma tentativa terminou sem linhas; a fatia pode ser tentada de novo. */
@@ -125,8 +140,14 @@ export async function runAsyncInsightsReport(
   ports: AsyncInsightsJobPorts,
   args: RunAsyncInsightsReportArgs,
 ): Promise<InsightsFetchResult> {
-  const pollIntervalMs = args.pollIntervalMs ?? DEFAULT_ASYNC_POLL_INTERVAL_MS;
-  const pollTimeoutMs = args.pollTimeoutMs ?? DEFAULT_ASYNC_POLL_TIMEOUT_MS;
+  const pollIntervalMs = Math.max(
+    1,
+    args.pollIntervalMs ?? DEFAULT_ASYNC_POLL_INTERVAL_MS,
+  );
+  const pollTimeoutMs = Math.max(
+    1,
+    args.pollTimeoutMs ?? DEFAULT_ASYNC_POLL_TIMEOUT_MS,
+  );
   const maxAttempts = Math.max(1, args.maxAttempts ?? DEFAULT_ASYNC_ATTEMPTS);
 
   let usage = UNKNOWN_QUOTA_USAGE;
@@ -142,6 +163,11 @@ export async function runAsyncInsightsReport(
   };
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    assertDeadlineBudget(
+      args.deadline,
+      "iniciar relatório assíncrono de insights",
+      MIN_ASYNC_REPORT_START_BUDGET_MS,
+    );
     // Erro de volume sobe intocado: quem encolhe o período é o passo de
     // métricas, e re-tentar o mesmo período grande demais é erro garantido.
     const started = account(
@@ -150,6 +176,7 @@ export async function runAsyncInsightsReport(
         credentials: args.credentials,
         entityLevel: args.entityLevel,
         range: args.range,
+        deadline: args.deadline,
       }),
     );
     const startedAt = ports.now();
@@ -162,6 +189,7 @@ export async function runAsyncInsightsReport(
       pollIntervalMs,
       pollTimeoutMs,
       account,
+      deadline: args.deadline,
     });
 
     if (outcome.done) return { rows: outcome.rows, usage, apiCalls };
@@ -181,12 +209,28 @@ async function awaitReport(args: {
   pollIntervalMs: number;
   pollTimeoutMs: number;
   account: <T extends { usage: QuotaUsage; apiCalls: number }>(response: T) => T;
+  deadline?: CollectionDeadline;
 }): Promise<AttemptOutcome> {
   const { ports, reportRunId, startedAt, account } = args;
 
   for (;;) {
+    const elapsedMs = ports.now().getTime() - startedAt.getTime();
+    if (elapsedMs >= args.pollTimeoutMs) {
+      throw new Error(
+        `Job assíncrono de insights excedeu o prazo de ${Math.round(args.pollTimeoutMs / 1000)}s (relatório ${reportRunId})`,
+      );
+    }
+    assertDeadlineBudget(
+      args.deadline,
+      "consultar status do relatório assíncrono",
+      MIN_EXTERNAL_OPERATION_BUDGET_MS,
+    );
     const status = account(
-      await ports.readReport({ reportRunId, credentials: args.credentials }),
+      await ports.readReport({
+        reportRunId,
+        credentials: args.credentials,
+        deadline: args.deadline,
+      }),
     );
     const phase = readAsyncReportPhase(status.node);
 
@@ -200,13 +244,24 @@ async function awaitReport(args: {
         // silencioso na série. Melhor pagar outro relatório.
         return { done: false, reason: "o report_run_id expirou antes da leitura" };
       }
+      assertDeadlineBudget(
+        args.deadline,
+        "ler linhas do relatório assíncrono",
+        MIN_EXTERNAL_OPERATION_BUDGET_MS,
+      );
       const page = account(
-        await ports.fetchReportRows({ reportRunId, credentials: args.credentials }),
+        await ports.fetchReportRows({
+          reportRunId,
+          credentials: args.credentials,
+          deadline: args.deadline,
+        }),
       );
       return { done: true, rows: page.rows };
     }
 
-    if (ports.now().getTime() - startedAt.getTime() >= args.pollTimeoutMs) {
+    const remainingPollMs =
+      args.pollTimeoutMs - (ports.now().getTime() - startedAt.getTime());
+    if (remainingPollMs <= 0) {
       // Prazo estourado NÃO é re-tentativa: a fatia não é marcada como coberta e
       // a próxima invocação a refaz. Insistir aqui gastaria a invocação inteira.
       throw new Error(
@@ -214,6 +269,29 @@ async function awaitReport(args: {
       );
     }
 
-    await ports.sleep(args.pollIntervalMs);
+    const remainingDeadlineMs =
+      args.deadline?.remainingWorkMs() ?? Number.POSITIVE_INFINITY;
+    const sleepMs = Math.min(
+      args.pollIntervalMs,
+      remainingPollMs,
+      remainingDeadlineMs,
+    );
+    if (sleepMs <= 0) {
+      assertDeadlineBudget(args.deadline, "aguardar relatório assíncrono");
+      throw new Error(
+        `Job assíncrono de insights excedeu o prazo de ${Math.round(args.pollTimeoutMs / 1000)}s (relatório ${reportRunId})`,
+      );
+    }
+    try {
+      await ports.sleep(sleepMs, args.deadline?.signal);
+    } catch (error) {
+      const deadlineError = deadlineExceededFrom(
+        args.deadline,
+        "aguardar relatório assíncrono",
+        error,
+      );
+      if (deadlineError) throw deadlineError;
+      throw error;
+    }
   }
 }

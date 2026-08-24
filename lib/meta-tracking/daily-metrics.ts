@@ -108,6 +108,37 @@ export function splitInsightsRange(range: InsightsRange): InsightsRange[] {
 }
 
 /**
+ * Cobre um período com fatias cronológicas de no máximo `maxRangeDays`.
+ *
+ * É a forma de reaplicar uma janela que já coube para esta conta/nível sem
+ * sondar primeiro o período inteiro sabidamente excessivo. As fatias são
+ * fechadas, contíguas e sem sobreposição; portanto mudam apenas o número de
+ * chamadas, nunca os dias nem os dados pedidos.
+ */
+export function partitionInsightsRange(
+  range: InsightsRange,
+  maxRangeDays: number,
+): InsightsRange[] {
+  if (!Number.isInteger(maxRangeDays) || maxRangeDays < 1) {
+    throw new RangeError("maxRangeDays must be a positive integer");
+  }
+
+  const days = rangeDays(range);
+  if (days === 0) return [];
+
+  const slices: InsightsRange[] = [];
+  for (let offset = 0; offset < days; offset += maxRangeDays) {
+    const since = shiftDayKey(range.since, offset);
+    const sliceDays = Math.min(maxRangeDays, days - offset);
+    slices.push({
+      since,
+      until: shiftDayKey(since, sliceDays - 1),
+    });
+  }
+  return slices;
+}
+
+/**
  * As formas com que a Meta recusa uma consulta síncrona de insights por ser
  * cara demais. São `[code, subcode]`, e são TRÊS porque a Meta não usa uma só.
  *

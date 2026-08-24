@@ -188,6 +188,8 @@ function metricsResult(
     apiCalls: 12,
     stoppedForQuota: false,
     slicesDegraded: 0,
+    strategyLoadFailures: 0,
+    strategySaveFailures: 0,
     levelsAbandoned: [],
     ...overrides,
   };

@@ -48,7 +48,23 @@ import {
   UNKNOWN_QUOTA_USAGE,
   type QuotaUsage,
 } from "@/lib/meta-tracking/quota-usage";
+import {
+  assertDeadlineBudget,
+  isCollectionDeadlineExceeded,
+  MIN_EXTERNAL_OPERATION_BUDGET_MS,
+  MIN_PERSISTENCE_START_BUDGET_MS,
+  type CollectionDeadline,
+} from "@/lib/meta-tracking/collection-deadline";
+import {
+  isAppWideRateLimitError,
+  isRateLimitError,
+} from "@/lib/meta-tracking/daily-collection-plan";
 import type { TrackingCredentials } from "@/lib/meta-tracking/run-daily-collection";
+import {
+  safeErrorSummary,
+  type SafeErrorSummary,
+} from "@/lib/observability/meta-log-safety";
+import { isMetaTokenInvalid } from "@/lib/meta-business/error";
 
 /**
  * Lotes recusados que encerram a conta no dia.
@@ -65,19 +81,26 @@ export type CreativeSnapshotPorts = {
    * Os `creative_id` referenciados por versões de anúncio desta conta que ainda
    * não têm snapshot. É a varredura: ausência de linha é a pendência.
    */
-  listUnknownCreativeIds: (args: { accountId: string }) => Promise<string[]>;
+  listUnknownCreativeIds: (args: {
+    accountId: string;
+    deadline?: CollectionDeadline;
+  }) => Promise<string[]>;
   /** Um node batch de criativos, já com o field set e o recuo de campo. */
   fetchCreatives: (args: {
     accountId: string;
     credentials: TrackingCredentials;
     creativeIds: readonly string[];
+    deadline?: CollectionDeadline;
   }) => Promise<{
     creatives: RawCreative[];
     usage: QuotaUsage;
     apiCalls: number;
   }>;
   /** Insert idempotente por id; devolve quantos snapshots nasceram. */
-  insertCreatives: (rows: readonly CreativeSnapshotRow[]) => Promise<number>;
+  insertCreatives: (
+    rows: readonly CreativeSnapshotRow[],
+    deadline?: CollectionDeadline,
+  ) => Promise<number>;
 };
 
 export type CollectCreativeSnapshotsArgs = {
@@ -86,6 +109,7 @@ export type CollectCreativeSnapshotsArgs = {
   credentials: TrackingCredentials;
   /** Cota já gasta pelas etapas anteriores desta conta. */
   usage?: QuotaUsage;
+  deadline?: CollectionDeadline;
 };
 
 export type CreativeSnapshotResult = {
@@ -101,8 +125,12 @@ export type CreativeSnapshotResult = {
   apiCalls: number;
   /** A busca parou no meio para não estourar a cota da conta. */
   stoppedForQuota: boolean;
+  /** Throttles reativos cujo código identifica cota do app inteiro. */
+  appRateLimitEvents: number;
   /** A Meta recusou algum lote; os ids dele continuam pendentes. */
   failureMessage: string | null;
+  /** Versão limitada do último erro, com code/subcode/cause quando disponíveis. */
+  failure?: SafeErrorSummary;
 };
 
 export async function collectCreativeSnapshots(
@@ -115,11 +143,18 @@ export async function collectCreativeSnapshots(
     usage: args.usage ?? UNKNOWN_QUOTA_USAGE,
     apiCalls: 0,
     stoppedForQuota: false,
+    appRateLimitEvents: 0,
     failureMessage: null,
   };
 
+  assertDeadlineBudget(
+    args.deadline,
+    "listar criativos pendentes",
+    MIN_PERSISTENCE_START_BUDGET_MS,
+  );
   const unknownIds = await ports.listUnknownCreativeIds({
     accountId: args.accountId,
+    deadline: args.deadline,
   });
   if (unknownIds.length === 0) return result;
 
@@ -132,6 +167,11 @@ export async function collectCreativeSnapshots(
     plan.chunks.slice(index).reduce((total, chunk) => total + chunk.length, 0);
 
   for (const [index, creativeIds] of plan.chunks.entries()) {
+    assertDeadlineBudget(
+      args.deadline,
+      "buscar lote de criativos",
+      MIN_EXTERNAL_OPERATION_BUDGET_MS,
+    );
     if (shouldStopForQuota(result.usage)) {
       result.stoppedForQuota = true;
       result.creativesPending += idsFrom(index);
@@ -148,19 +188,37 @@ export async function collectCreativeSnapshots(
         accountId: args.accountId,
         credentials: args.credentials,
         creativeIds,
+        deadline: args.deadline,
       });
       result.usage = mergeQuotaUsage(result.usage, fetched.usage);
       result.apiCalls += fetched.apiCalls;
       creatives = fetched.creatives;
     } catch (error) {
+      if (isCollectionDeadlineExceeded(error)) throw error;
+      // 190/102 invalidam a conexão inteira. Engolir aqui faria o
+      // orquestrador continuar chamando a Graph com o mesmo token morto.
+      if (isMetaTokenInvalid(error)) throw error;
+      const failure = safeErrorSummary(
+        error,
+        "Erro ao buscar criativos na Meta.",
+      );
+      const message = failure.message;
+      if (isRateLimitError(error)) {
+        // Retry do lote seguinte dentro da mesma conta só aumenta a taxa de
+        // erro. Tudo continua pendente e volta numa invocação posterior.
+        result.stoppedForQuota = true;
+        result.creativesPending += idsFrom(index);
+        result.failure = failure;
+        result.failureMessage = message;
+        if (isAppWideRateLimitError(error)) result.appRateLimitEvents += 1;
+        break;
+      }
       // Não sobe: a falha aqui não pode custar a cobertura da conta, e o
       // orquestrador precisa do contador de pendentes para o resumo do run.
       failures += 1;
       result.creativesPending += creativeIds.length;
-      result.failureMessage =
-        error instanceof Error && error.message
-          ? error.message
-          : "Erro ao buscar criativos na Meta.";
+      result.failure = failure;
+      result.failureMessage = message;
       continue;
     }
 
@@ -177,7 +235,15 @@ export async function collectCreativeSnapshots(
     // encontra de novo, e criativo não some sozinho.
     result.creativesPending += creativeIds.length - rows.length;
     if (rows.length > 0) {
-      result.creativesFetched += await ports.insertCreatives(rows);
+      assertDeadlineBudget(
+        args.deadline,
+        "persistir criativos",
+        MIN_PERSISTENCE_START_BUDGET_MS,
+      );
+      result.creativesFetched += await ports.insertCreatives(
+        rows,
+        args.deadline,
+      );
     }
   }
 

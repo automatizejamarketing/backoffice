@@ -45,7 +45,10 @@ export type TrackingRunCounters = {
   accountsPartial: number;
   accountsFailed: number;
   accountsSkipped: number;
+  accountsSkippedReconnect: number;
   accountsAlreadyCovered: number;
+  customerActionsRequired: number;
+  usersWithoutKnownAccounts: number;
   entitiesSeen: number;
   versionsCreated: number;
   eventsCreated: number;
@@ -58,6 +61,10 @@ export type TrackingRunCounters = {
   metricRowsUpserted: number;
   /** Diferente de zero = alguma conta está encostando no teto de linhas da Meta. */
   metricSlicesDegraded: number;
+  /** Loads fail-soft da memória adaptativa de Insights. */
+  metricStrategyLoadFailures: number;
+  /** Saves fail-soft da memória adaptativa de Insights. */
+  metricStrategySaveFailures: number;
   /** Snapshots de criativo gravados — foto única, nunca rebuscada. */
   creativesFetched: number;
   /**
@@ -65,6 +72,8 @@ export type TrackingRunCounters = {
    * conta recém-ativada drena; teimoso é sinal de lote recusado pela Meta.
    */
   creativesPending: number;
+  /** 1 quando o run parou cooperativamente e deixou trabalho para o próximo. */
+  stoppedForBudget: number;
 };
 
 const COUNTER_KEYS = [
@@ -73,7 +82,10 @@ const COUNTER_KEYS = [
   "accountsPartial",
   "accountsFailed",
   "accountsSkipped",
+  "accountsSkippedReconnect",
   "accountsAlreadyCovered",
+  "customerActionsRequired",
+  "usersWithoutKnownAccounts",
   "entitiesSeen",
   "versionsCreated",
   "eventsCreated",
@@ -81,8 +93,11 @@ const COUNTER_KEYS = [
   "eventsLinked",
   "metricRowsUpserted",
   "metricSlicesDegraded",
+  "metricStrategyLoadFailures",
+  "metricStrategySaveFailures",
   "creativesFetched",
   "creativesPending",
+  "stoppedForBudget",
 ] as const satisfies readonly (keyof TrackingRunCounters)[];
 
 export type TrackingRunRow = {

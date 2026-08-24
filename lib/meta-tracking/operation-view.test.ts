@@ -22,7 +22,10 @@ const RUN_BASE = {
     accountsPartial: 1,
     accountsFailed: 0,
     accountsSkipped: 2,
+    accountsSkippedReconnect: 2,
     accountsAlreadyCovered: 4,
+    customerActionsRequired: 2,
+    usersWithoutKnownAccounts: 1,
     entitiesSeen: 340,
     versionsCreated: 7,
     eventsCreated: 9,
@@ -30,8 +33,11 @@ const RUN_BASE = {
     eventsLinked: 2,
     metricRowsUpserted: 9520,
     metricSlicesDegraded: 0,
+    metricStrategyLoadFailures: 1,
+    metricStrategySaveFailures: 2,
     creativesFetched: 31,
     creativesPending: 4,
+    stoppedForBudget: 1,
   },
 };
 
@@ -44,11 +50,17 @@ describe("summarizeTrackingRun", () => {
     expect(view.durationMs).toBe(252_000);
     expect(view.counters.accountsCovered).toBe(18);
     expect(view.counters.metricRowsUpserted).toBe(9520);
+    expect(view.counters.metricStrategyLoadFailures).toBe(1);
+    expect(view.counters.metricStrategySaveFailures).toBe(2);
     expect(view.counters.eventsLinked).toBe(2);
+    expect(view.counters.accountsSkippedReconnect).toBe(2);
+    expect(view.counters.customerActionsRequired).toBe(2);
+    expect(view.counters.usersWithoutKnownAccounts).toBe(1);
     // Contador fora de `COUNTER_KEYS` não chega à tela — ver o aviso 3 do
     // ticket 09.
     expect(view.counters.creativesFetched).toBe(31);
     expect(view.counters.creativesPending).toBe(4);
+    expect(view.counters.stoppedForBudget).toBe(1);
   });
 
   test("execução com erros parciais é parcial, não falha", () => {

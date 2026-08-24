@@ -16,6 +16,8 @@ export type MetaLogActor =
 
 export type MetaLogContext = {
   correlationId: string;
+  /** Run persistido do coletor, quando a chamada pertence a um job. */
+  runId?: string;
   app: "automatize-frontend" | "backoffice";
   route: string;
   actor?: MetaLogActor;
@@ -70,7 +72,12 @@ export function enterMetaMutationLog(
 
 /** Merges actor/parentIds into the active mutation-log context (after auth). */
 export function updateMetaMutationContext(
-  patch: Partial<Pick<MetaLogContext, "actor" | "parentIds" | "operationHint" | "entityHint">>,
+  patch: Partial<
+    Pick<
+      MetaLogContext,
+      "actor" | "parentIds" | "operationHint" | "entityHint" | "runId"
+    >
+  >,
 ): void {
   const current = storage.getStore();
   if (!current) return;

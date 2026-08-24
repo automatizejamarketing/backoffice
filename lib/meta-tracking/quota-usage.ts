@@ -35,6 +35,12 @@ export type QuotaUsage = {
   utilizationPercent: number | null;
   /** Espera sugerida pela Meta quando o bloqueio já existe, em ms. */
   estimatedRegainMs: number | null;
+  /**
+   * Parcela do percentual acima que veio inequivocamente da cota do app.
+   * Ausente = nenhum header global foi observado. Separar o escopo permite
+   * interromper a run inteira sem tratar um BUC por conta como bloqueio global.
+   */
+  appUtilizationPercent?: number | null;
 };
 
 /** Resposta que não trouxe header de uso nenhum. */
@@ -56,6 +62,14 @@ const USAGE_PERCENT_KEYS = [
   "total_cputime",
   "total_time",
   "acc_id_util_pct",
+  "app_id_util_pct",
+] as const;
+
+/** Percentuais que, nos headers globais, pertencem ao app inteiro. */
+const APP_USAGE_PERCENT_KEYS = [
+  "call_count",
+  "total_cputime",
+  "total_time",
   "app_id_util_pct",
 ] as const;
 
@@ -90,16 +104,25 @@ function highest(current: number | null, candidate: number | null): number | nul
   return Math.max(current, candidate);
 }
 
+function highestUsagePercent(
+  entry: Record<string, unknown>,
+  keys: readonly string[],
+): number | null {
+  let value: number | null = null;
+  for (const key of keys) {
+    value = highest(value, finitePositive(entry[key]));
+  }
+  return value;
+}
+
 /** Percentuais e tempo de espera de um objeto de uso, seja de que header for. */
 function readUsageEntry(entry: unknown, into: QuotaUsage): void {
   if (!isRecord(entry)) return;
 
-  for (const key of USAGE_PERCENT_KEYS) {
-    into.utilizationPercent = highest(
-      into.utilizationPercent,
-      finitePositive(entry[key]),
-    );
-  }
+  into.utilizationPercent = highest(
+    into.utilizationPercent,
+    highestUsagePercent(entry, USAGE_PERCENT_KEYS),
+  );
 
   const regainMinutes = finitePositive(entry["estimated_time_to_regain_access"]);
   if (regainMinutes !== null && regainMinutes > 0) {
@@ -116,6 +139,16 @@ function readUsageEntry(entry: unknown, into: QuotaUsage): void {
       resetSeconds * 1_000,
     );
   }
+}
+
+function readAppUsageEntry(entry: unknown, into: QuotaUsage): void {
+  if (!isRecord(entry)) return;
+  const candidate = highestUsagePercent(entry, APP_USAGE_PERCENT_KEYS);
+  if (candidate === null) return;
+  into.appUtilizationPercent = highest(
+    into.appUtilizationPercent ?? null,
+    candidate,
+  );
 }
 
 /**
@@ -139,23 +172,38 @@ export function readQuotaUsage(
     }
   }
 
-  for (const name of [
-    "x-fb-ads-insights-throttle",
-    "x-ad-account-usage",
-    "x-app-usage",
-  ]) {
-    readUsageEntry(parseJsonHeader(headers, name), usage);
+  const insightsUsage = parseJsonHeader(headers, "x-fb-ads-insights-throttle");
+  readUsageEntry(insightsUsage, usage);
+  // Este header mistura percentuais da conta e do app; só `app_id_util_pct`
+  // alimenta o breaker global.
+  if (isRecord(insightsUsage)) {
+    const appPercent = finitePositive(insightsUsage["app_id_util_pct"]);
+    if (appPercent !== null) usage.appUtilizationPercent = appPercent;
   }
+
+  readUsageEntry(parseJsonHeader(headers, "x-ad-account-usage"), usage);
+
+  const appUsage = parseJsonHeader(headers, "x-app-usage");
+  readUsageEntry(appUsage, usage);
+  readAppUsageEntry(appUsage, usage);
 
   return usage;
 }
 
 /** A pior das duas leituras — é ela que decide se a conta continua. */
 export function mergeQuotaUsage(a: QuotaUsage, b: QuotaUsage): QuotaUsage {
-  return {
+  const merged: QuotaUsage = {
     utilizationPercent: highest(a.utilizationPercent, b.utilizationPercent),
     estimatedRegainMs: highest(a.estimatedRegainMs, b.estimatedRegainMs),
   };
+  const appUtilizationPercent = highest(
+    a.appUtilizationPercent ?? null,
+    b.appUtilizationPercent ?? null,
+  );
+  if (appUtilizationPercent !== null) {
+    merged.appUtilizationPercent = appUtilizationPercent;
+  }
+  return merged;
 }
 
 /**
@@ -173,5 +221,20 @@ export function shouldStopForQuota(
   return (
     usage.utilizationPercent !== null &&
     usage.utilizationPercent >= thresholdPercent
+  );
+}
+
+/**
+ * Hora de interromper a run inteira? Só um percentual explicitamente global
+ * conta. BUC e `X-Ad-Account-Usage` continuam limitando apenas a conta atual.
+ */
+export function shouldStopForAppQuota(
+  usage: QuotaUsage,
+  thresholdPercent: number = QUOTA_STOP_THRESHOLD_PERCENT,
+): boolean {
+  return (
+    usage.appUtilizationPercent !== undefined &&
+    usage.appUtilizationPercent !== null &&
+    usage.appUtilizationPercent >= thresholdPercent
   );
 }

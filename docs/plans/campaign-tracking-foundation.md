@@ -25,7 +25,7 @@ A base é multi-propósito por design (informacional, tomada de decisão, criaç
 | 4 | **Fontes de ação**: diff do coletor = fonte de verdade; poll diário de `/act_{id}/activities` persistido cru e usado como **enriquecimento** (autor, horário exato) por match; escritas diretas do backoffice (motivo **obrigatório**) e do frontend (source `user`, motivo n/a). Dual-write nas tabelas legadas de edit log. |
 | 5 | **Métricas**: 3 níveis (campaign/adset/ad), upsert diário da janela móvel de **28 dias** com `time_increment=1`; persistência **sempre por dia** — janelas de análise são consulta, nunca armazenamento. Campos = conjunto já usado pelo backoffice. `use_unified_attribution_setting=true`. Sem breakdowns na v1. |
 | 6 | **Backfill**: 13 meses, 3 níveis, na ativação (janela de 37 meses da Meta desliza; capturar agora). Config histórica não existe na API — estado atual vira a versão inicial. |
-| 7 | **Execução**: cron Vercel no backoffice (~05:00 BRT, fora da janela 08:00–09:15 BRT dos crons existentes), múltiplos disparos drenando lotes por invocação (300 s), `onlyStale` por dia, recuperação de runs travados, `CRON_SECRET`. Sem fila nova. |
+| 7 | **Execução**: cron Vercel no backoffice (00:00–07:45 BRT, fora da janela 08:00–09:15 BRT dos crons existentes), múltiplos disparos drenando lotes por invocação (`maxDuration=800 s`, deadline interno total de 600 s com reserva de finalização), `onlyStale` por dia, recuperação de runs travados, `CRON_SECRET`. Sem fila nova. |
 | 8 | **Correlação**: computada na leitura via helpers (janelas antes/depois, flag de ações concorrentes). Nada materializado na v1. |
 | 9 | **Cross-cliente**: consumo apenas via padrões agregados/anonimizados (precedente `client_fingerprint`). Na v1 a regra é documentada; a camada concreta nasce com o primeiro consumidor. |
 | 10 | **Escopo v1**: fundação + visibilidade mínima de operação no backoffice (status/cobertura/erros dos runs + histórico unificado de ações com motivo). Sem dashboards analíticos. |
@@ -118,7 +118,7 @@ Toda mudança em qualquer nível é uma linha. É a tabela que os propósitos fu
 
 ### 4.5 `meta_tracking_runs` + `meta_tracking_account_coverage` — operação
 
-- `meta_tracking_runs`: `id`, `kind` (`daily | backfill`), `triggered_by` (`cron | script | manual`), `status` (`running | completed | completed_with_errors | failed`), `started_at`, `completed_at`, `error_message`, `summary` jsonb (contas cobertas, entidades vistas, versões criadas, eventos criados, linhas de métricas upsertadas, contas puladas). Mesmo padrão de recuperação de runs travados (timeout 10 min) dos jobs existentes.
+- `meta_tracking_runs`: `id`, `kind` (`daily | backfill`), `triggered_by` (`cron | script | manual`), `status` (`running | completed | completed_with_errors | failed`), `started_at`, `completed_at`, `error_message`, `summary` jsonb (contas cobertas, entidades vistas, versões criadas, eventos criados, linhas de métricas upsertadas, contas puladas e parada por orçamento). Runs daily ainda `running` após 14 min são recuperados no tick seguinte; backfills conservam 10 min para acompanhar o TTL renovável do claim.
 - `meta_tracking_account_coverage`: `id`, `run_id`, `user_id`, `account_id`, `business_date` date, `status` (`complete | partial | failed | skipped_reconnect | skipped_no_token`), `error_message`, `entities_seen`, `api_calls_used`, `currency`, `timezone_name`, `completed_at`. Unique `(account_id, business_date)`. É a fonte da tela de operação e do claim `onlyStale` (conta sem coverage `complete` hoje = pendente).
 
 ### 4.6 `meta_tracking_creatives` — snapshot de criativos
@@ -174,7 +174,7 @@ Módulo de consulta no backoffice (sem UI analítica na v1):
 
 | Job | Slot (UTC) | Mecanismo |
 |---|---|---|
-| Coletor diário | `*/20 8-10 * * *` (05:00–07:40 BRT, múltiplos disparos até cobertura completa) | Vercel Cron backoffice, `CRON_SECRET`, `maxDuration 300`, claim por lote + `onlyStale` via coverage |
+| Coletor diário | `*/15 3-10 * * *` (00:00–07:45 BRT, múltiplos disparos até cobertura completa) | Vercel Cron backoffice, `CRON_SECRET`, `maxDuration 800`, deadline absoluto de 600 s + reserva de finalização, claim por lote + `onlyStale` via coverage |
 | Backfill | disparo manual por script + cron noturno temporário durante rollout | idem |
 
 Fora da janela 11:00–12:15 UTC dos 4 crons existentes do backoffice.
@@ -203,7 +203,7 @@ Fora da janela 11:00–12:15 UTC dos 4 crons existentes do backoffice.
 |---|---|
 | `extra_data`/retenção do `/activities` não documentados | Enriquecimento oportunista apenas; diff nunca depende dele; poll diário com overlap 48 h |
 | Limite de linhas de insights em contas grandes | Chunk por semana → async job; nível ad é o primeiro a degradar |
-| 300 s do Vercel × base crescente | Lotes pequenos por invocação + cron re-disparando na janela até coverage completa; tudo idempotente |
+| 800 s do Vercel × base crescente | Deadline interno absoluto de 600 s, reserva de finalização, lotes por invocação + cron re-disparando na janela até coverage completa; tudo idempotente |
 | Token quebrado = buraco irrecuperável na série de config | Coverage `skipped_reconnect` visível na tela de operação desde a F2 |
 | Meta pausará ASC/AAC legadas na v26 (~set/2026) | `advantage_state`/`smart_promotion_type` capturados; onda de `status_transition` esperada, não é bug |
 | Renomeio de campanha muda `isManaged` (prefixo) | Flag avaliada por versão (histórico preserva a época em que era gerenciada) |

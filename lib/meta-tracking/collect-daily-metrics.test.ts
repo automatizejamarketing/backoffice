@@ -3,9 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   collectDailyMetrics,
   type DailyMetricsPorts,
+  type InsightsFetchStrategies,
 } from "@/lib/meta-tracking/collect-daily-metrics";
 import {
   metricsWindowFor,
+  rangeDays,
   type DailyMetricRow,
   type InsightsRange,
 } from "@/lib/meta-tracking/daily-metrics";
@@ -153,6 +155,67 @@ describe("collectDailyMetrics", () => {
       pausedCampaignId,
     ]);
     expect(result.rowsUpserted).toBe(1);
+  });
+
+  test("falha ao carregar estratégia é fail-soft e usa a janela padrão", async () => {
+    const { ports, asked } = makePorts({
+      loadInsightsStrategies: async () => {
+        throw new Error('relation "meta_tracking_insights_strategies" does not exist');
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(asked).toEqual([
+      { entityLevel: "campaign", range: WINDOW },
+      { entityLevel: "adset", range: WINDOW },
+      { entityLevel: "ad", range: WINDOW },
+    ]);
+    expect(result).toMatchObject({
+      rowsUpserted: 3,
+      strategyLoadFailures: 1,
+      strategySaveFailures: 0,
+      levelsAbandoned: [],
+    });
+  });
+
+  test("falha ao salvar estratégia acontece depois do upsert e perde só o aprendizado", async () => {
+    let adsetRowsUpserted = false;
+    const { ports } = makePorts({
+      loadInsightsStrategies: async () => ({}),
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "adset" && rangeDays(range) > 15) {
+          throw serverTimeoutError();
+        }
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+      upsertRows: async (rows) => {
+        if (rows.some((row) => row.entityLevel === "adset")) {
+          adsetRowsUpserted = true;
+        }
+        return rows.length;
+      },
+      saveInsightsStrategy: async ({ entityLevel }) => {
+        if (entityLevel === "adset") {
+          expect(adsetRowsUpserted).toBe(true);
+          throw new Error("strategy table unavailable");
+        }
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(adsetRowsUpserted).toBe(true);
+    expect(result).toMatchObject({
+      rowsUpserted: 4,
+      strategyLoadFailures: 0,
+      strategySaveFailures: 1,
+      levelsAbandoned: [],
+    });
   });
 
   test("erro de volume corta o período ao meio e a conta é completada assim mesmo", async () => {
@@ -369,6 +432,156 @@ describe("collectDailyMetrics", () => {
     expect(pedidosDeAdset[1].startsWith(WINDOW.since)).toBe(true);
     expect(pedidosDeAdset[2].endsWith(WINDOW.until)).toBe(true);
     expect(upserted.flat().some((row) => row.entityLevel === "adset")).toBe(true);
+  });
+
+  test("conta recorrente grande reutiliza a janela segura sem repetir a consulta excessiva", async () => {
+    let run = 0;
+    let learned: InsightsFetchStrategies = {};
+    const adsetCalls: InsightsRange[][] = [[], []];
+    const { ports } = makePorts({
+      loadInsightsStrategies: async () => ({ ...learned }),
+      saveInsightsStrategy: async ({ entityLevel, strategy }) => {
+        learned = { ...learned, [entityLevel]: strategy };
+      },
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "adset") {
+          adsetCalls[run].push(range);
+          if (rangeDays(range) > 15) throw serverTimeoutError();
+        }
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+    });
+
+    const first = await collectDailyMetrics(ports, ARGS);
+    run = 1;
+    const second = await collectDailyMetrics(ports, ARGS);
+
+    expect(first.levelsAbandoned).toEqual([]);
+    expect(adsetCalls[0]).toEqual([
+      WINDOW,
+      { since: "2026-07-12", until: "2026-07-25" },
+      { since: "2026-07-26", until: "2026-08-09" },
+    ]);
+    expect(learned.adset).toEqual({ mode: "sync", maxRangeDays: 14 });
+    expect(adsetCalls[1]).toEqual([
+      { since: "2026-07-12", until: "2026-07-25" },
+      { since: "2026-07-26", until: "2026-08-08" },
+      { since: "2026-08-09", until: "2026-08-09" },
+    ]);
+    expect(
+      adsetCalls[1].some(
+        (range) =>
+          range.since === WINDOW.since && range.until === WINDOW.until,
+      ),
+    ).toBe(false);
+    // O recuo conhecido continua aparecendo como degradação tratada, mesmo
+    // sem provocar outro erro da Meta.
+    expect(second.slicesDegraded).toBe(1);
+  });
+
+  test("a janela aprendida ainda recua quando o volume volta a crescer", async () => {
+    let learned: InsightsFetchStrategies = {
+      adset: { mode: "sync", maxRangeDays: 14 },
+    };
+    const adsetCalls: InsightsRange[] = [];
+    const { ports, upserted } = makePorts({
+      loadInsightsStrategies: async () => ({ ...learned }),
+      saveInsightsStrategy: async ({ entityLevel, strategy }) => {
+        learned = { ...learned, [entityLevel]: strategy };
+      },
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "adset") {
+          adsetCalls.push(range);
+          if (rangeDays(range) > 7) throw rowLimitError();
+        }
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(adsetCalls).toEqual([
+      { since: "2026-07-12", until: "2026-07-25" },
+      { since: "2026-07-12", until: "2026-07-18" },
+      { since: "2026-07-19", until: "2026-07-25" },
+      { since: "2026-07-26", until: "2026-08-08" },
+      { since: "2026-07-26", until: "2026-08-01" },
+      { since: "2026-08-02", until: "2026-08-08" },
+      { since: "2026-08-09", until: "2026-08-09" },
+    ]);
+    expect(learned.adset).toEqual({ mode: "sync", maxRangeDays: 7 });
+    expect(result.levelsAbandoned).toEqual([]);
+    expect(result.slicesDegraded).toBe(3);
+    expect(upserted.flat().some((row) => row.entityLevel === "adset")).toBe(true);
+  });
+
+  test("modo assíncrono só é aprendido pelo range completo e é reaplicado igual", async () => {
+    let learned: InsightsFetchStrategies = {};
+    const syncAdCalls: InsightsRange[] = [];
+    const asyncAdCalls: InsightsRange[] = [];
+    const { ports } = makePorts({
+      loadInsightsStrategies: async () => ({ ...learned }),
+      saveInsightsStrategy: async ({ entityLevel, strategy }) => {
+        learned = { ...learned, [entityLevel]: strategy };
+      },
+      fetchInsights: async ({ entityLevel, range }) => {
+        if (entityLevel === "ad") {
+          syncAdCalls.push(range);
+          throw rowLimitError();
+        }
+        return {
+          rows: [dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        };
+      },
+      fetchInsightsAsync: async ({ entityLevel, range }) => {
+        if (entityLevel === "ad") asyncAdCalls.push(range);
+        return {
+          rows: [dayFor(entityLevel, range.since), dayFor(entityLevel, range.until)],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+    });
+
+    const first = await collectDailyMetrics(ports, ARGS);
+    const syncCallsAfterLearning = syncAdCalls.length;
+    const second = await collectDailyMetrics(ports, ARGS);
+
+    // O dia único apenas dispara o último degrau. O job que valida `async` e a
+    // reaplicação seguinte recebem ambos o alvo diário INTEIRO.
+    expect(asyncAdCalls).toEqual([WINDOW, WINDOW]);
+    expect(learned.ad).toEqual({ mode: "async" });
+    expect(syncCallsAfterLearning).toBe(5);
+    expect(syncAdCalls).toHaveLength(syncCallsAfterLearning);
+    expect(first.levelsAbandoned).toEqual([]);
+    expect(second.slicesDegraded).toBe(1);
+    expect(second.levelsAbandoned).toEqual([]);
+  });
+
+  test("falha final do modo assíncrono aprendido continua estruturada", async () => {
+    const { ports } = makePorts({
+      loadInsightsStrategies: async () => ({
+        ad: { mode: "async" },
+      }),
+      saveInsightsStrategy: async () => {},
+      fetchInsightsAsync: async () => {
+        throw rowLimitError();
+      },
+    });
+
+    const result = await collectDailyMetrics(ports, ARGS);
+
+    expect(result.levelsAbandoned).toEqual(["ad"]);
   });
 
   test("nível que falha do começo ao fim desce UMA vez, não uma árvore de fatias", async () => {

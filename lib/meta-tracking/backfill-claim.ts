@@ -27,8 +27,8 @@
  *
  * 1. **Expira sozinho.** O dono pode morrer sem soltar o claim — a plataforma
  *    mata a invocação no meio, e não há `finally` que sobreviva a isso. O TTL é
- *    o mesmo dos runs travados (10 min): passado esse tempo a conta volta a
- *    estar livre, exatamente como o run volta a `failed`.
+ *    o mesmo dos runs de backfill travados (10 min): passado esse tempo a
+ *    conta volta a estar livre, exatamente como o run volta a `failed`.
  * 2. **É renovado a cada checkpoint.** Uma conta grande leva mais que o TTL para
  *    fechar, e o checkpoint por fatia já acontece — ele carimba de novo. Claim
  *    parado é claim de dono morto.
@@ -41,11 +41,10 @@
 /**
  * Quanto tempo um claim vale sem ser renovado.
  *
- * Igual ao `STUCK_RUN_TIMEOUT_MS` de `meta-tracking-collector-queries.ts`, e
- * pela mesma razão: um pouco acima do `maxDuration` de 300 s das rotas de cron,
- * para que o disparo seguinte recupere o anterior sem esperar meia hora. Se os
- * dois divergirem, o run vira `failed` enquanto o claim dele ainda bloqueia a
- * conta (ou o contrário) — mantenha-os juntos.
+ * Igual ao `BACKFILL_STUCK_RUN_TIMEOUT_MS` de
+ * `meta-tracking-collector-queries.ts`. O daily usa outro timeout porque sua
+ * rota admite 800 s; se o timeout do backfill e este TTL divergirem, o run vira
+ * `failed` enquanto o claim dele ainda bloqueia a conta (ou o contrário).
  */
 export const BACKFILL_CLAIM_TTL_MS = 10 * 60 * 1000;
 

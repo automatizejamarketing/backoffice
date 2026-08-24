@@ -27,7 +27,22 @@ const ASYNC_INSIGHTS_JOB_PORTS: AsyncInsightsJobPorts = {
   startReport: startInsightsReport,
   readReport: readInsightsReport,
   fetchReportRows: fetchInsightsReportRows,
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep: (ms, signal) =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal?.reason);
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }),
   now: () => new Date(),
 };
 

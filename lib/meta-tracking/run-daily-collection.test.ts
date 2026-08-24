@@ -16,6 +16,11 @@ import {
   hashTrackedConfig,
   normalizeTrackedConfig,
 } from "@/lib/meta-tracking/config-version";
+import { MetaTokenInvalidError } from "@/lib/meta-business/error";
+import {
+  findMappedError,
+  GraphApiError,
+} from "@/lib/meta-business/error";
 import {
   adsetConfigV25,
   campaignConfigV25,
@@ -32,6 +37,19 @@ const ACCOUNT: TrackedAdAccount = {
   timezoneName: "America/Sao_Paulo",
 };
 const NOW = new Date("2026-08-09T08:05:00Z");
+
+function graphThrottleError(code: number, subcode = 1504022): GraphApiError {
+  return new GraphApiError({
+    statusCode: 403,
+    reason: findMappedError(code, subcode),
+    data: {
+      message: "Application request limit reached",
+      type: "OAuthException",
+      code,
+      errorSubcode: subcode,
+    },
+  });
+}
 
 /** A listagem de uma conta com campanha e conjunto entregando. */
 function activeListing(): ListedEntity[] {
@@ -88,8 +106,12 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
     listUsersWithMeta: async () => [USER],
     getCredentials: async () => ({
       ok: true,
-      credentials: { accessToken: "token-de-teste" },
+      credentials: {
+        connectionId: "meta-connection-1",
+        accessToken: "token-de-teste",
+      },
     }),
+    markConnectionNeedsReconnect: async () => {},
     listKnownAccountIds: async () => [ACCOUNT.accountId],
     // Vazio = pré-cheque inerte: cada teste que quiser o atalho o liga.
     listKnownAccountsForPrecheck: async () => [],
@@ -125,8 +147,8 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
       };
     },
     loadAccountState: async () => [],
-    loadRecentInternalChanges: async (args) => {
-      recorded.internalChangeWindows.push(args);
+    loadRecentInternalChanges: async ({ accountId, since }) => {
+      recorded.internalChangeWindows.push({ accountId, since });
       return [];
     },
     getCoverageStatus: async () => null,
@@ -150,6 +172,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         eventsMatched: 2,
         usage: UNKNOWN_QUOTA_USAGE,
         apiCalls: 1,
+        paginationTruncated: false,
       };
     },
     collectDailyMetrics: async ({ accountId, today, usage }) => {
@@ -161,6 +184,8 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         apiCalls: 3,
         stoppedForQuota: false,
         slicesDegraded: 0,
+        strategyLoadFailures: 0,
+        strategySaveFailures: 0,
         levelsAbandoned: [],
       };
     },
@@ -173,6 +198,7 @@ function makePorts(overrides: Partial<DailyCollectionPorts> = {}): {
         usage: UNKNOWN_QUOTA_USAGE,
         apiCalls: 1,
         stoppedForQuota: false,
+        appRateLimitEvents: 0,
         failureMessage: null,
       };
     },
@@ -389,6 +415,59 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.coverage[0].status).toBe("complete");
   });
 
+  test("indisponibilidade transitória vira parcial e o cron seguinte retoma sem retry imediato", async () => {
+    let coverageStatus: AccountCoverageRecord["status"] | null = null;
+    let listingAttempts = 0;
+    const coverage: AccountCoverageRecord[] = [];
+    const outage = Object.assign(
+      new Error("O serviço da Meta está temporariamente indisponível."),
+      {
+        name: "GraphApiError",
+        errorReturn: {
+          statusCode: 503,
+          reason: { isTransient: true },
+          data: { code: 2 },
+        },
+      },
+    );
+    const { ports } = makePorts({
+      getCoverageStatus: async () => coverageStatus,
+      listEntities: async () => {
+        listingAttempts += 1;
+        if (listingAttempts === 1) throw outage;
+        return {
+          entities: activeListing(),
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+      recordCoverage: async (record) => {
+        coverageStatus = record.status;
+        coverage.push(record);
+      },
+    });
+
+    const firstRun = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(listingAttempts).toBe(1);
+    expect(firstRun.accountsPartial).toBe(1);
+    expect(coverage[0]).toMatchObject({
+      status: "partial",
+      errorMessage:
+        "O serviço da Meta está temporariamente indisponível. [code=2]",
+    });
+
+    const nextRun = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(listingAttempts).toBe(2);
+    expect(nextRun.accountsCovered).toBe(1);
+    expect(coverage.map((row) => row.status)).toEqual(["partial", "complete"]);
+  });
+
   test("configuração idêntica à vigente não abre versão nem evento — só confirma", async () => {
     const campaign = campaignConfigV25();
     const { ports, recorded } = makePorts({
@@ -489,7 +568,7 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.deltas[0].versions).toHaveLength(0);
   });
 
-  test("reconexão pendente vira cobertura skipped_reconnect com o erro registrado", async () => {
+  test("reconexão pendente vira skipped_reconnect sem contaminar falhas técnicas", async () => {
     const { ports, recorded } = makePorts({
       getCredentials: async () => ({
         ok: false,
@@ -510,15 +589,73 @@ describe("runDailyTrackingCollection", () => {
       errorMessage: "A conexão com o Facebook expirou e precisa ser refeita.",
     });
     expect(result.accountsSkipped).toBe(1);
+    expect(result.accountsSkippedReconnect).toBe(1);
+    expect(result.customerActionsRequired).toBe(1);
+    expect(result.errors).toEqual([]);
     expect(recorded.runs[0].status).toBe("completed");
+    expect(recorded.runs[0].summary).toMatchObject({
+      accountsSkippedReconnect: 1,
+      customerActionsRequired: 1,
+      issuesCustomerActionRequired: 1,
+      issuesInternalFailure: 0,
+    });
   });
 
-  test("token quebrado de usuário nunca coletado não some: entra no resumo do run", async () => {
+  test("reconexão já registrada no dia não regrava a mesma cobertura", async () => {
     const { ports, recorded } = makePorts({
       getCredentials: async () => ({
         ok: false,
-        needsReconnect: false,
-        message: "Cliente sem conta Meta conectada.",
+        needsReconnect: true,
+        message: "A conexão com o Facebook expirou e precisa ser refeita.",
+      }),
+      getCoverageStatus: async () => "skipped_reconnect",
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage).toHaveLength(0);
+    expect(result.accountsAlreadyCovered).toBe(1);
+    expect(result.accountsSkipped).toBe(0);
+    expect(result.customerActionsRequired).toBe(1);
+    expect(recorded.runs[0].status).toBe("completed");
+  });
+
+  test("reconexão usa o dia e timezone conhecidos da conta", async () => {
+    const { ports, recorded } = makePorts({
+      getCredentials: async () => ({
+        ok: false,
+        needsReconnect: true,
+        message: "Reconexão pendente.",
+      }),
+      listKnownAccountsForPrecheck: async () => [
+        {
+          accountId: ACCOUNT.accountId,
+          timezoneName: "Pacific/Honolulu",
+        },
+      ],
+      listKnownAccountIds: async () => {
+        throw new Error("fallback de IDs não deveria ser consultado");
+      },
+    });
+
+    await runDailyTrackingCollection(ports, { triggeredBy: "cron" });
+
+    expect(recorded.coverage[0]).toMatchObject({
+      accountId: ACCOUNT.accountId,
+      businessDate: "2026-08-08",
+      timezoneName: "Pacific/Honolulu",
+      status: "skipped_reconnect",
+    });
+  });
+
+  test("token quebrado de usuário nunca coletado fica visível sem virar falha técnica", async () => {
+    const { ports, recorded } = makePorts({
+      getCredentials: async () => ({
+        ok: false,
+        needsReconnect: true,
+        message: "Reconexão pendente.",
       }),
       listKnownAccountIds: async () => [],
     });
@@ -529,8 +666,95 @@ describe("runDailyTrackingCollection", () => {
 
     expect(recorded.coverage).toHaveLength(0);
     expect(result.usersWithoutKnownAccounts).toBe(1);
-    expect(result.errors).toHaveLength(1);
+    expect(result.customerActionsRequired).toBe(1);
+    expect(result.errors).toHaveLength(0);
+    expect(recorded.runs[0].status).toBe("completed");
   });
+
+  test("falha técnica ao obter credencial continua deixando a run amarela", async () => {
+    const { ports, recorded } = makePorts({
+      getCredentials: async () => ({
+        ok: false,
+        needsReconnect: false,
+        classification: "technical_failure",
+        message: "Falha interna ao descriptografar a credencial.",
+      }),
+      listKnownAccountIds: async () => [],
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(result.customerActionsRequired).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].message).toContain("descriptografar");
+    expect(recorded.runs[0].status).toBe("completed_with_errors");
+  });
+
+  for (const code of [190, 102]) {
+    test(`Graph ${code} mid-flight marca a conexão e não reconsulta as demais contas`, async () => {
+      const secondAccount: TrackedAdAccount = {
+        accountId: "act_112233445566778",
+        name: "Segunda conta",
+        currency: "BRL",
+        timezoneName: "America/Sao_Paulo",
+      };
+      let listEntitiesCalls = 0;
+      const marked: Array<{
+        userId: string;
+        connectionId: string;
+        code: number;
+        subcode?: number;
+      }> = [];
+      const { ports, recorded } = makePorts({
+        listAdAccounts: async () => ({
+          accounts: [ACCOUNT, secondAccount],
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 1,
+        }),
+        listEntities: async () => {
+          listEntitiesCalls += 1;
+          throw new MetaTokenInvalidError(
+            "Sessão invalidada pela Meta.",
+            code,
+            code === 190 ? 460 : undefined,
+          );
+        },
+        markConnectionNeedsReconnect: async (input: {
+          userId: string;
+          connectionId: string;
+          code: number;
+          subcode?: number;
+        }) => {
+          marked.push(input);
+        },
+      } as Partial<DailyCollectionPorts>);
+
+      const result = await runDailyTrackingCollection(ports, {
+        triggeredBy: "cron",
+      });
+
+      expect(listEntitiesCalls).toBe(1);
+      expect(marked).toEqual([
+        {
+          userId: USER.id,
+          connectionId: "meta-connection-1",
+          code,
+          ...(code === 190 ? { subcode: 460 } : {}),
+        },
+      ]);
+      expect(recorded.coverage.map((row) => row.status)).toEqual([
+        "skipped_reconnect",
+        "skipped_reconnect",
+      ]);
+      expect(result.accountsSkipped).toBe(2);
+      expect(result.accountsFailed).toBe(0);
+      expect(result.customerActionsRequired).toBe(1);
+      expect(result.errors).toHaveLength(0);
+      expect(recorded.runs[0].status).toBe("completed");
+    });
+  }
 
   test("cota apertada interrompe a conta com cobertura parcial e guarda o que já veio", async () => {
     const { ports, recorded } = makePorts({
@@ -573,6 +797,165 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
   });
 
+  test("code 4 abre o circuit breaker da run; contas seguintes aguardam e o cron seguinte retoma", async () => {
+    const otherAccount: TrackedAdAccount = {
+      accountId: "act_112233445566778",
+      name: "Segunda conta",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+    };
+    let throttleFirstAttempt = true;
+    const attemptedAccounts: string[] = [];
+    const { ports, recorded } = makePorts({
+      listAdAccounts: async () => ({
+        accounts: [ACCOUNT, otherAccount],
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+      }),
+      listEntities: async ({ accountId }) => {
+        attemptedAccounts.push(accountId);
+        if (accountId === ACCOUNT.accountId && throttleFirstAttempt) {
+          throttleFirstAttempt = false;
+          throw graphThrottleError(4);
+        }
+        return {
+          entities: activeListing(),
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+    });
+    const coverageByAccount = new Map<string, AccountCoverageRecord["status"]>();
+    const recordCoverage = ports.recordCoverage;
+    ports.recordCoverage = async (record) => {
+      coverageByAccount.set(record.accountId, record.status);
+      await recordCoverage(record);
+    };
+    ports.getCoverageStatus = async ({ accountId }) =>
+      coverageByAccount.get(accountId) ?? null;
+
+    const throttledRun = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(attemptedAccounts).toEqual([ACCOUNT.accountId]);
+    expect(recorded.coverage.map((row) => row.status)).toEqual(["partial"]);
+    expect(throttledRun.stoppedForAppQuota).toBe(true);
+    expect(throttledRun.stoppedForBudget).toBe(false);
+    expect(throttledRun.appRateLimitEvents).toBe(1);
+    expect(recorded.runs[0].summary).toMatchObject({
+      accountsPartial: 1,
+      appRateLimitEvents: 1,
+      appQuotaStops: 1,
+    });
+
+    const resumedRun = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(attemptedAccounts).toEqual([
+      ACCOUNT.accountId,
+      ACCOUNT.accountId,
+      otherAccount.accountId,
+    ]);
+    expect(recorded.coverage.map((row) => row.status)).toEqual([
+      "partial",
+      "complete",
+      "complete",
+    ]);
+    expect(resumedRun.stoppedForAppQuota).toBe(false);
+    expect(resumedRun.appRateLimitEvents).toBe(0);
+    expect(resumedRun.accountsCovered).toBe(2);
+  });
+
+  test("header global acima de 80% para a run antes da conta seguinte", async () => {
+    const otherAccount: TrackedAdAccount = {
+      accountId: "act_112233445566778",
+      name: "Segunda conta",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+    };
+    const attemptedAccounts: string[] = [];
+    const { ports, recorded } = makePorts({
+      listAdAccounts: async () => ({
+        accounts: [ACCOUNT, otherAccount],
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+      }),
+      listEntities: async ({ accountId }) => {
+        attemptedAccounts.push(accountId);
+        return {
+          entities: activeListing(),
+          usage:
+            accountId === ACCOUNT.accountId
+              ? {
+                  utilizationPercent: 84,
+                  estimatedRegainMs: null,
+                  appUtilizationPercent: 84,
+                }
+              : UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(attemptedAccounts).toEqual([ACCOUNT.accountId]);
+    expect(recorded.coverage.map((row) => row.status)).toEqual(["partial"]);
+    expect(result.stoppedForAppQuota).toBe(true);
+    expect(result.appRateLimitEvents).toBe(0);
+    expect(result.maxAppQuotaUtilizationPercent).toBe(84);
+    expect(recorded.runs[0].summary).toMatchObject({
+      appRateLimitEvents: 0,
+      appQuotaStops: 1,
+      maxAppQuotaUtilizationPercent: 84,
+    });
+  });
+
+  test("throttle restrito à conta não bloqueia contas independentes", async () => {
+    const otherAccount: TrackedAdAccount = {
+      accountId: "act_112233445566778",
+      name: "Segunda conta",
+      currency: "BRL",
+      timezoneName: "America/Sao_Paulo",
+    };
+    const attemptedAccounts: string[] = [];
+    const { ports, recorded } = makePorts({
+      listAdAccounts: async () => ({
+        accounts: [ACCOUNT, otherAccount],
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 1,
+      }),
+      listEntities: async ({ accountId }) => {
+        attemptedAccounts.push(accountId);
+        if (accountId === ACCOUNT.accountId) throw graphThrottleError(80004);
+        return {
+          entities: activeListing(),
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(attemptedAccounts).toEqual([
+      ACCOUNT.accountId,
+      otherAccount.accountId,
+    ]);
+    expect(recorded.coverage.map((row) => row.status)).toEqual([
+      "partial",
+      "complete",
+    ]);
+    expect(result.stoppedForAppQuota).toBe(false);
+    expect(result.appRateLimitEvents).toBe(0);
+  });
+
   test("erro em uma conta não derruba as outras e o run termina com erros", async () => {
     const otherAccount: TrackedAdAccount = {
       accountId: "act_112233445566778",
@@ -612,11 +995,10 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.runs[0].status).toBe("completed_with_errors");
   });
 
-  test("o rastro de progresso carrega o motivo e o erro cru — é o que o log do cron consome", async () => {
+  test("o rastro de progresso preserva diagnóstico sem expor ids crus", async () => {
     // O contrato de observabilidade: `onAccountStart` marca a conta em voo
     // (pós-morte de invocação morta pela plataforma) e `onProgress` entrega o
-    // motivo e o erro original (stack) da conta que não fechou. Sem isto o log
-    // de produção só teria contagens.
+    // motivo e um erro limitado com stack da conta que não fechou.
     const otherAccount: TrackedAdAccount = {
       accountId: "act_112233445566778",
       name: "Segunda conta",
@@ -642,7 +1024,7 @@ describe("runDailyTrackingCollection", () => {
 
     const started: string[] = [];
     const progressed: {
-      accountId: string;
+      accountRef: string;
       status: string;
       errorMessage: string | null;
       error?: unknown;
@@ -650,20 +1032,27 @@ describe("runDailyTrackingCollection", () => {
 
     await runDailyTrackingCollection(ports, {
       triggeredBy: "cron",
-      onAccountStart: ({ accountId }) => started.push(accountId),
-      onProgress: ({ accountId, status, errorMessage, error }) =>
-        progressed.push({ accountId, status, errorMessage, error }),
+      onAccountStart: ({ accountRef }) => started.push(accountRef),
+      onProgress: ({ accountRef, status, errorMessage, error }) =>
+        progressed.push({ accountRef, status, errorMessage, error }),
     });
 
-    expect(started).toEqual([ACCOUNT.accountId, otherAccount.accountId]);
+    expect(started).toHaveLength(2);
+    expect(started[0]).toMatch(/^account-[a-f0-9]{12}$/);
+    expect(started[1]).toMatch(/^account-[a-f0-9]{12}$/);
+    expect(started[0]).not.toBe(started[1]);
+    expect(JSON.stringify(started)).not.toContain(ACCOUNT.accountId);
+    expect(JSON.stringify(started)).not.toContain(otherAccount.accountId);
 
-    const failed = progressed.find((p) => p.accountId === ACCOUNT.accountId);
+    const failed = progressed.find((p) => p.status === "failed");
     expect(failed?.status).toBe("failed");
     expect(failed?.errorMessage).toContain("500");
-    // O erro CRU, não uma cópia achatada: é ele que carrega o stack.
-    expect(failed?.error).toBe(boom);
+    expect(failed?.error).toMatchObject({
+      name: "Error",
+      message: "Meta devolveu 500 para a listagem",
+    });
 
-    const covered = progressed.find((p) => p.accountId === otherAccount.accountId);
+    const covered = progressed.find((p) => p.status === "complete");
     expect(covered?.status).toBe("complete");
     expect(covered?.errorMessage).toBeNull();
     expect(covered?.error).toBeUndefined();
@@ -696,6 +1085,7 @@ describe("runDailyTrackingCollection", () => {
 
   test("prazo da invocação estourado encerra o disparo sem matar o run", async () => {
     let clock = new Date("2026-08-09T08:00:00Z").getTime();
+    const started: string[] = [];
     const accounts: TrackedAdAccount[] = Array.from({ length: 3 }, (_, i) => ({
       accountId: `act_00000000000000${i}`,
       name: `Conta ${i}`,
@@ -722,11 +1112,50 @@ describe("runDailyTrackingCollection", () => {
     const result = await runDailyTrackingCollection(ports, {
       triggeredBy: "cron",
       softDeadlineMs: 150_000,
+      onAccountStart: ({ accountRef }) => started.push(accountRef),
     });
 
-    expect(recorded.coverage).toHaveLength(2);
+    // A segunda conta não começa com apenas 20 s antes do deadline de trabalho.
+    expect(recorded.coverage).toHaveLength(1);
+    expect(started).toHaveLength(1);
+    expect(started[0]).toMatch(/^account-[a-f0-9]{12}$/);
     expect(result.stoppedForBudget).toBe(true);
     expect(recorded.runs[0].status).toBe("completed");
+    expect(recorded.runs[0].summary.stoppedForBudget).toBe(1);
+  });
+
+  test("deadline alcançado dentro da conta preserva checkpoint e fecha o run explicitamente", async () => {
+    let clock = new Date("2026-08-09T08:00:00Z").getTime();
+    const { ports, recorded } = makePorts({
+      now: () => new Date(clock),
+      listEntities: async () => {
+        // A listagem começou com orçamento, mas terminou depois do deadline de
+        // trabalho. Nenhuma etapa cara seguinte pode nascer a partir daqui.
+        clock += 151_000;
+        return {
+          entities: activeListing(),
+          usage: UNKNOWN_QUOTA_USAGE,
+          apiCalls: 3,
+        };
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+      softDeadlineMs: 180_000,
+    });
+
+    expect(recorded.graphCalls).toEqual(["listAdAccounts"]);
+    expect(recorded.deltas).toHaveLength(0);
+    expect(recorded.coverage).toHaveLength(1);
+    expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
+    expect(recorded.coverage[0].errorMessage).toMatch(/orçamento|deadline/i);
+    expect(result.stoppedForBudget).toBe(true);
+    expect(recorded.runs).toHaveLength(1);
+    expect(recorded.runs[0]).toMatchObject({
+      status: "completed",
+      summary: { stoppedForBudget: 1 },
+    });
   });
 
   test("falha antes do primeiro lote marca o run como falho em vez de deixá-lo pendurado", async () => {
@@ -811,6 +1240,8 @@ describe("runDailyTrackingCollection", () => {
         apiCalls: 2,
         stoppedForQuota: true,
         slicesDegraded: 0,
+        strategyLoadFailures: 0,
+        strategySaveFailures: 0,
         levelsAbandoned: [],
       }),
     });
@@ -832,6 +1263,8 @@ describe("runDailyTrackingCollection", () => {
         apiCalls: 6,
         stoppedForQuota: false,
         slicesDegraded: 3,
+        strategyLoadFailures: 0,
+        strategySaveFailures: 0,
         levelsAbandoned: ["ad"],
       }),
     });
@@ -848,6 +1281,36 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.runs[0].status).toBe("completed_with_errors");
     // O fatiamento é sinal de conta encostando no teto de linhas da Meta.
     expect(recorded.runs[0].summary).toMatchObject({ metricSlicesDegraded: 3 });
+  });
+
+  test("falhas fail-soft da estratégia ficam estruturadas sem sujar os erros", async () => {
+    const { ports, recorded } = makePorts({
+      collectDailyMetrics: async () => ({
+        rowsUpserted: 40,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 4,
+        stoppedForQuota: false,
+        slicesDegraded: 1,
+        strategyLoadFailures: 1,
+        strategySaveFailures: 2,
+        levelsAbandoned: [],
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage[0]).toMatchObject({ status: "complete" });
+    expect(result.errors).toEqual([]);
+    expect(result).toMatchObject({
+      metricStrategyLoadFailures: 1,
+      metricStrategySaveFailures: 2,
+    });
+    expect(recorded.runs[0].summary).toMatchObject({
+      metricStrategyLoadFailures: 1,
+      metricStrategySaveFailures: 2,
+    });
   });
 
   test("falha na coleta de métricas não desfaz a configuração já gravada", async () => {
@@ -912,6 +1375,7 @@ describe("runDailyTrackingCollection", () => {
         usage: UNKNOWN_QUOTA_USAGE,
         apiCalls: 2,
         stoppedForQuota: false,
+        appRateLimitEvents: 0,
         failureMessage: "(#100) Unsupported get request",
       }),
     });
@@ -935,6 +1399,8 @@ describe("runDailyTrackingCollection", () => {
         apiCalls: 2,
         stoppedForQuota: true,
         slicesDegraded: 0,
+        strategyLoadFailures: 0,
+        strategySaveFailures: 0,
         levelsAbandoned: [],
       }),
     });
@@ -969,6 +1435,36 @@ describe("runDailyTrackingCollection", () => {
       activityEventsUpserted: 9,
       activityEventsMatched: 2,
     });
+  });
+
+  test("quota global observada no audit trail impede Insights na mesma conta", async () => {
+    const { ports, recorded } = makePorts({
+      collectActivityEvents: async ({ accountId, now }) => {
+        recorded.graphCalls.push("collectActivityEvents");
+        recorded.activityCalls.push({ accountId, now });
+        return {
+          eventsUpserted: 3,
+          eventsMatched: 1,
+          usage: {
+            utilizationPercent: 83,
+            estimatedRegainMs: null,
+            appUtilizationPercent: 83,
+          },
+          apiCalls: 1,
+          paginationTruncated: false,
+        };
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.metricCalls).toEqual([]);
+    expect(recorded.creativeCalls).toEqual([]);
+    expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
+    expect(result.stoppedForAppQuota).toBe(true);
+    expect(result.maxAppQuotaUtilizationPercent).toBe(83);
   });
 
   test("falha do audit trail não derruba a cobertura: a coleta segue e o enriquecimento fica pendente", async () => {
@@ -1010,5 +1506,173 @@ describe("runDailyTrackingCollection", () => {
     expect(recorded.activityCalls).toEqual([]);
     expect(result.activityEventsUpserted).toBe(0);
     expect(recorded.coverage[0]).toMatchObject({ status: "partial" });
+  });
+
+  test("falha de descoberta fica estruturada no run sem inventar cobertura", async () => {
+    const discoveryError = Object.assign(new Error("Meta temporariamente indisponível"), {
+      errorReturn: {
+        reason: { isTransient: true },
+        data: { code: 2, errorSubcode: 99, fbtraceId: "trace-discovery" },
+      },
+    });
+    const { ports, recorded } = makePorts({
+      listAdAccounts: async () => {
+        throw discoveryError;
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage).toEqual([]);
+    expect(result.accountsSeen).toBe(0);
+    expect(result.discoveryAttempts).toBe(1);
+    expect(result.discoveryFailures).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      category: "external_transient",
+      operation: "account_discovery",
+      accountRef: null,
+      error: {
+        code: 2,
+        subcode: 99,
+        traceId: "trace-discovery",
+      },
+    });
+    expect(result.errors[0]).not.toHaveProperty("userEmail");
+    expect(result.errors[0]).not.toHaveProperty("accountId");
+    expect(recorded.runs[0]).toMatchObject({
+      status: "completed_with_errors",
+      summary: {
+        discoveryAttempts: 1,
+        discoveryFailures: 1,
+        hasDiscoveryFailure: 1,
+        issuesExternalTransient: 1,
+      },
+    });
+  });
+
+  test("componentes degradados e paginação truncada não alteram a cobertura principal", async () => {
+    const { ports, recorded } = makePorts({
+      listEntities: async () => ({
+        entities: activeListing(),
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 75,
+        truncatedLevels: ["ad"],
+      }),
+      collectActivityEvents: async () => ({
+        eventsUpserted: 25,
+        eventsMatched: 3,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 25,
+        paginationTruncated: true,
+      }),
+      collectDailyMetrics: async () => ({
+        rowsUpserted: 40,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 6,
+        stoppedForQuota: false,
+        slicesDegraded: 3,
+        strategyLoadFailures: 0,
+        strategySaveFailures: 0,
+        levelsAbandoned: ["adset"],
+      }),
+      collectCreativeSnapshots: async () => ({
+        creativesFetched: 10,
+        creativesPending: 4,
+        usage: UNKNOWN_QUOTA_USAGE,
+        apiCalls: 2,
+        stoppedForQuota: false,
+        appRateLimitEvents: 0,
+        failureMessage: "Meta recusou parte dos criativos",
+      }),
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage[0]).toMatchObject({ status: "complete" });
+    expect(result).toMatchObject({
+      accountsCovered: 1,
+      listingPaginationTruncated: 1,
+      activityAccountsAttempted: 1,
+      activityAccountsFailed: 0,
+      activityPaginationTruncated: 1,
+      insightsAccountsAttempted: 1,
+      insightsAccountsFailed: 0,
+      insightsLevelsAbandoned: 1,
+      insightsAdsetLevelsAbandoned: 1,
+      creativeAccountsAttempted: 1,
+      creativeAccountsFailed: 1,
+      issuesDegradedComponent: 4,
+    });
+    expect(recorded.runs[0].summary).toMatchObject({
+      hasDegradedComponents: 1,
+      hasPaginationTruncation: 1,
+      listingPaginationTruncated: 1,
+      activityPaginationTruncated: 1,
+      insightsLevelsAbandoned: 1,
+      creativeAccountsFailed: 1,
+    });
+  });
+
+  test("callbacks e issues expõem somente referências pseudonimizadas", async () => {
+    const started: Array<{ userRef: string; accountRef: string }> = [];
+    const issues: Array<{
+      userRef: string | null;
+      accountRef: string | null;
+      category: string;
+    }> = [];
+    const { ports } = makePorts({
+      collectActivityEvents: async () => {
+        throw new Error(
+          `activities falhou para ${USER.email} e ${ACCOUNT.accountId}`,
+        );
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+      onAccountStart: ({ userRef, accountRef }) =>
+        started.push({ userRef, accountRef }),
+      onIssue: ({ userRef, accountRef, category }) =>
+        issues.push({ userRef, accountRef, category }),
+    });
+
+    expect(started).toHaveLength(1);
+    expect(started[0].userRef).not.toContain(USER.id);
+    expect(started[0].accountRef).not.toContain(ACCOUNT.accountId);
+    expect(issues).toHaveLength(1);
+    expect(issues[0].category).toBe("degraded_component");
+    expect(JSON.stringify(result.errors)).not.toContain(USER.email);
+    expect(JSON.stringify(result.errors)).not.toContain(ACCOUNT.accountId);
+  });
+
+  test("erro ORM enorme é limitado antes de cobertura e resumo", async () => {
+    const cause = Object.assign(new Error("bind limit"), { code: "08P01" });
+    const huge = new Error(
+      `Failed query: insert ${"x".repeat(2_500_000)} ${USER.email} ${ACCOUNT.accountId}`,
+      { cause },
+    );
+    const { ports, recorded } = makePorts({
+      persistAccountDelta: async () => {
+        throw huge;
+      },
+    });
+
+    const result = await runDailyTrackingCollection(ports, {
+      triggeredBy: "cron",
+    });
+
+    expect(recorded.coverage[0].errorMessage!.length).toBeLessThanOrEqual(1_000);
+    expect(recorded.coverage[0].errorMessage).not.toContain(USER.email);
+    expect(recorded.coverage[0].errorMessage).not.toContain(ACCOUNT.accountId);
+    expect(recorded.coverage[0].errorMessage).toContain("cause=08P01:bind limit");
+    expect(result.errors[0].error).toMatchObject({
+      cause: { code: "08P01" },
+    });
+    expect(JSON.stringify(recorded.runs[0]).length).toBeLessThan(10_000);
   });
 });

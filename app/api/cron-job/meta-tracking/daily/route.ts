@@ -1,11 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { assertCronAuthorized } from "@/lib/auth/cron-auth";
 import { createDailyCollectionPorts } from "@/lib/meta-tracking/daily-collection-ports";
-import { runDailyTrackingCollection } from "@/lib/meta-tracking/run-daily-collection";
+import {
+  runDailyTrackingCollection,
+  type DailyCollectionError,
+  type DailyCollectionResult,
+} from "@/lib/meta-tracking/run-daily-collection";
+import {
+  newCorrelationId,
+  runWithMetaLogContextAsync,
+} from "@/lib/observability/meta-log-context";
+import { safeErrorSummary } from "@/lib/observability/meta-log-safety";
 
-// 800 s é o máximo GA do plano Pro. O prazo interno fica em 600 s
-// (`DEFAULT_SOFT_DEADLINE_MS`); a folga de 200 s deixa a pior conta única
-// terminar e gravar a cobertura antes de a plataforma matar a invocação.
+// 800 s é o máximo GA do plano Pro. O deadline interno total fica em 600 s
+// (`DEFAULT_SOFT_DEADLINE_MS`): o trabalho normal para 30 s antes para gravar
+// coverage + run, e os 200 s restantes são a última proteção para persistências
+// já iniciadas, que o driver Postgres não cancela cooperativamente.
 export const maxDuration = 800;
 
 /**
@@ -24,47 +34,100 @@ export const maxDuration = 800;
  * reprocessada, a configuração idêntica só atualiza `last_confirmed_at`.
  *
  * Dimensionamento (medido em staging, 2026-08-10): conta típica 11–15 s,
- * conta de ~2.400 entidades ~2 min. 32 disparos × 600 s ≈ 19.200 s por
- * madrugada ≈ 1.400 contas típicas — folga para uma base de 1.000.
+ * conta de ~2.400 entidades ~2 min. 32 disparos × 570 s de trabalho ≈ 18.240 s
+ * por madrugada ≈ 1.300 contas típicas — folga para uma base de 1.000.
  */
-/**
- * Erros do lote despejados no log ao fim do disparo. Limitado porque num lote
- * de 40 contas quase tudo pode falhar de uma vez (ex.: banco fora) e o log
- * vira ruído; 50 cobre o lote inteiro com folga.
- */
-const MAX_ERRORS_LOGGED = 50;
+function emitCronLog(
+  event: string,
+  payload: Record<string, unknown>,
+  level: "info" | "error" = "info",
+): void {
+  const line = JSON.stringify({
+    evt: "meta_tracking_cron",
+    event,
+    ts: new Date().toISOString(),
+    level,
+    ...payload,
+  });
+  if (level === "error") console.error(line);
+  else console.log(line);
+}
 
-/**
- * O código/subcódigo da Meta escondido dentro do erro, achatado para a linha
- * de log.
- *
- * Existe porque `console.error` do Node imprime objetos aninhados como
- * `[Object]` a partir do segundo nível: um `GraphApiError` sai com o stack
- * inteiro mas com `errorReturn: [Object]`, e é justamente ali que mora o par
- * código/subcódigo que identifica O QUE a Meta recusou. O payload completo
- * está na linha `meta_mutation` do gateway, mas num lote de 40 contas as
- * linhas se intercalam — a de desfecho da conta precisa se bastar.
- */
-function metaErrorCodeOf(
-  error: unknown,
-): { code?: number; subcode?: number } | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
-  const data = (
-    error as {
-      errorReturn?: { data?: { code?: unknown; errorSubcode?: unknown } };
-    }
-  ).errorReturn?.data;
-  if (!data) return undefined;
-  const code = typeof data.code === "number" ? data.code : undefined;
-  const subcode =
-    typeof data.errorSubcode === "number" ? data.errorSubcode : undefined;
-  return code === undefined && subcode === undefined ? undefined : { code, subcode };
+function issueCounts(result: DailyCollectionResult): Record<string, number> {
+  return {
+    customerActionRequired: result.issuesCustomerActionRequired,
+    externalTransient: result.issuesExternalTransient,
+    degradedComponent: result.issuesDegradedComponent,
+    internalFailure: result.issuesInternalFailure,
+  };
+}
+
+function componentSummary(result: DailyCollectionResult) {
+  return {
+    discovery: {
+      attempts: result.discoveryAttempts,
+      failures: result.discoveryFailures,
+    },
+    listing: {
+      paginationTruncated: result.listingPaginationTruncated,
+    },
+    activities: {
+      attempted: result.activityAccountsAttempted,
+      failed: result.activityAccountsFailed,
+      paginationTruncated: result.activityPaginationTruncated,
+    },
+    insights: {
+      attempted: result.insightsAccountsAttempted,
+      failed: result.insightsAccountsFailed,
+      levelsAbandoned: result.insightsLevelsAbandoned,
+      campaignLevelsAbandoned: result.insightsCampaignLevelsAbandoned,
+      adsetLevelsAbandoned: result.insightsAdsetLevelsAbandoned,
+      adLevelsAbandoned: result.insightsAdLevelsAbandoned,
+    },
+    creatives: {
+      attempted: result.creativeAccountsAttempted,
+      failed: result.creativeAccountsFailed,
+      fetched: result.creativesFetched,
+      pending: result.creativesPending,
+    },
+  };
+}
+
+function logIssue(issue: DailyCollectionError): void {
+  // Reconexão é estado operacional agregado no summary, não erro repetido por
+  // usuário a cada tick. As outras categorias mantêm uma linha por ocorrência.
+  if (issue.category === "customer_action_required") return;
+  emitCronLog(
+    "issue",
+    {
+      runId: issue.runId,
+      category: issue.category,
+      operation: issue.operation,
+      entity: issue.entity,
+      userRef: issue.userRef,
+      accountRef: issue.accountRef,
+      message: issue.message,
+      error: issue.error,
+    },
+    "error",
+  );
 }
 
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[meta-tracking-cron]");
   if (!auth.ok) return auth.response;
 
+  return runWithMetaLogContextAsync(
+    {
+      correlationId: newCorrelationId(),
+      app: "backoffice",
+      route: "/api/cron-job/meta-tracking/daily",
+    },
+    runAuthorizedCollection,
+  );
+}
+
+async function runAuthorizedCollection() {
   try {
     const result = await runDailyTrackingCollection(
       createDailyCollectionPorts(),
@@ -75,59 +138,54 @@ export async function GET(request: NextRequest) {
         // invocação no limite de duração, o último "coletando" sem o "→ status"
         // correspondente é a conta que morreu no meio — sem isso a invocação
         // morta não deixa vestígio nenhum no log.
-        onAccountStart: ({ userEmail, accountId }) => {
-          console.log("[meta-tracking-cron] coletando", { userEmail, accountId });
+        onAccountStart: ({ runId, userRef, accountRef }) => {
+          emitCronLog("account_started", { runId, userRef, accountRef });
         },
         onProgress: (progress) => {
-          if (progress.status === "complete") {
-            console.log("[meta-tracking-cron] conta coberta", {
-              userEmail: progress.userEmail,
-              accountId: progress.accountId,
-              metricRowsUpserted: progress.metricRowsUpserted,
-            });
-            return;
-          }
-          // Falha e parcial saem por `console.error` COM o erro cru: o código
-          // da Meta diz O QUE foi recusado e o stack diz ONDE — exceção
-          // inesperada sem stack não tem investigação possível.
-          console.error(
-            "[meta-tracking-cron] conta não fechou",
+          // Mantém o par start/finish por conta: se a plataforma matar a
+          // invocação, somente a conta em voo fica sem término.
+          emitCronLog(
+            "account_finished",
             {
-              userEmail: progress.userEmail,
-              accountId: progress.accountId,
+              runId: progress.runId,
+              userRef: progress.userRef,
+              accountRef: progress.accountRef,
               status: progress.status,
+              metricRowsUpserted: progress.metricRowsUpserted,
               errorMessage: progress.errorMessage,
-              metaError: metaErrorCodeOf(progress.error),
+              error: progress.error,
             },
-            ...(progress.error !== undefined ? [progress.error] : []),
+            progress.status === "failed" ? "error" : "info",
           );
         },
+        onIssue: logIssue,
       },
     );
 
-    // As mensagens completas, não só as contagens do summary: o corpo da
-    // resposta de um cron não fica registrado em lugar nenhum — o log da
-    // função é o único lugar onde a causa sobrevive.
-    if (result.errors.length > 0) {
-      console.error("[meta-tracking-cron] erros do lote", {
-        total: result.errors.length,
-        errors: result.errors.slice(0, MAX_ERRORS_LOGGED),
-      });
-    }
-
-    console.log("[meta-tracking-cron] completed", {
+    emitCronLog("completed", {
       runId: result.runId,
       usersConsidered: result.usersConsidered,
+      accountsSeen: result.accountsSeen,
       accountsProcessed: result.accountsProcessed,
       accountsCovered: result.accountsCovered,
       accountsPartial: result.accountsPartial,
       accountsSkipped: result.accountsSkipped,
+      accountsSkippedReconnect: result.accountsSkippedReconnect,
       accountsFailed: result.accountsFailed,
+      customerActionsRequired: result.customerActionsRequired,
+      usersWithoutKnownAccounts: result.usersWithoutKnownAccounts,
+      graphApiCalls: result.graphApiCalls,
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
       metricRowsUpserted: result.metricRowsUpserted,
       creativesFetched: result.creativesFetched,
+      appRateLimitEvents: result.appRateLimitEvents,
+      maxAppQuotaUtilizationPercent:
+        result.maxAppQuotaUtilizationPercent,
+      stoppedForAppQuota: result.stoppedForAppQuota,
       stoppedForBudget: result.stoppedForBudget,
+      issues: issueCounts(result),
+      components: componentSummary(result),
     });
 
     return NextResponse.json({
@@ -140,36 +198,60 @@ export async function GET(request: NextRequest) {
       accountsPartial: result.accountsPartial,
       accountsFailed: result.accountsFailed,
       accountsSkipped: result.accountsSkipped,
+      accountsSkippedReconnect: result.accountsSkippedReconnect,
       accountsAlreadyCovered: result.accountsAlreadyCovered,
+      customerActionsRequired: result.customerActionsRequired,
+      usersWithoutKnownAccounts: result.usersWithoutKnownAccounts,
       entitiesSeen: result.entitiesSeen,
+      graphApiCalls: result.graphApiCalls,
       versionsCreated: result.versionsCreated,
       eventsCreated: result.eventsCreated,
       versionsConfirmed: result.versionsConfirmed,
-      /** Eventos crus do audit trail gravados neste disparo. */
       activityEventsUpserted: result.activityEventsUpserted,
-      /** Ações que ganharam autor e horário exato do audit trail. */
       activityEventsMatched: result.activityEventsMatched,
-      /** Dias da série diária inseridos ou atualizados neste disparo. */
       metricRowsUpserted: result.metricRowsUpserted,
-      /** Acima de zero = alguma conta está encostando no teto de linhas. */
       metricSlicesDegraded: result.metricSlicesDegraded,
+      /** Falhas de leitura da otimização; a coleta seguiu pelo caminho padrão. */
+      metricStrategyLoadFailures: result.metricStrategyLoadFailures,
+      /** Falhas de escrita da otimização; as métricas já estavam gravadas. */
+      metricStrategySaveFailures: result.metricStrategySaveFailures,
       /** Snapshots de criativo gravados neste disparo (foto única por criativo). */
       creativesFetched: result.creativesFetched,
-      /** Criativos ainda sem snapshot; a próxima varredura os encontra de novo. */
       creativesPending: result.creativesPending,
+      /** Throttles observados cujo código identifica limite do app inteiro. */
+      appRateLimitEvents: result.appRateLimitEvents,
+      /** Maior percentual global anunciado nos headers desta invocação. */
+      maxAppQuotaUtilizationPercent:
+        result.maxAppQuotaUtilizationPercent,
+      /** Verdadeiro = o breaker global deixou as próximas contas para outro cron. */
+      stoppedForAppQuota: result.stoppedForAppQuota,
       /** Verdadeiro = ainda há base a cobrir; o próximo disparo continua. */
       stoppedForBudget: result.stoppedForBudget,
-      // Primeiras falhas ajudam a diagnosticar sem despejar o lote inteiro.
+      issues: issueCounts(result),
+      components: componentSummary(result),
+      // Compatibilidade: o nome legado continua, mas agora só contém refs e
+      // erros limitados; `sampleIssues` explicita a nova semântica.
       sampleErrors: result.errors.slice(0, 5),
+      sampleIssues: result.errors.slice(0, 5),
     });
   } catch (error) {
-    console.error("[meta-tracking-cron] failed", error);
+    const safeError = safeErrorSummary(
+      error,
+      "Failed to run meta tracking collection",
+    );
+    emitCronLog(
+      "failed",
+      {
+        category: "internal_failure",
+        operation: "run",
+        entity: "run",
+        error: safeError,
+      },
+      "error",
+    );
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to run meta tracking collection",
+        error: safeError.message,
       },
       { status: 500 },
     );
