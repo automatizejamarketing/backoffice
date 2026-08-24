@@ -109,6 +109,10 @@ import {
   shiftCalendarDate,
   type DashboardDateWindow,
 } from "@/lib/backoffice/dashboard-date-range";
+import {
+  buildTrialActivationDashboard,
+  type TrialActivationDashboard,
+} from "@/lib/backoffice/trial-activation";
 
 export type ActiveSubscriptionSummary = Pick<
   Subscription,
@@ -1814,6 +1818,51 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
       summary.newUsers,
     ),
   };
+}
+
+export async function getTrialActivationDashboard(
+  window: DashboardDateWindow,
+): Promise<TrialActivationDashboard> {
+  // A user's trial starts at their first `trial_grant` credit transaction.
+  // Grouping guards against a user who trials twice being counted twice.
+  const firstTrial = db
+    .select({
+      userId: creditTransaction.userId,
+      activatedAt: sql<Date>`min(${creditTransaction.createdAt})`.as(
+        "activated_at",
+      ),
+    })
+    .from(creditTransaction)
+    .where(eq(creditTransaction.type, "trial_grant"))
+    .groupBy(creditTransaction.userId)
+    .as("first_trial");
+
+  const rows = await db
+    .select({
+      userId: firstTrial.userId,
+      activatedAt: firstTrial.activatedAt,
+      signedUpAt: user.createdAt,
+    })
+    .from(firstTrial)
+    .innerJoin(user, eq(user.id, firstTrial.userId))
+    // `activated_at` is a derived column, so Drizzle has no timestamp mapper
+    // for it — bind ISO strings, the same wire format schema columns use.
+    .where(
+      and(
+        sql`${firstTrial.activatedAt} >= ${window.gte.toISOString()}`,
+        sql`${firstTrial.activatedAt} < ${window.lt.toISOString()}`,
+      ),
+    )
+    .orderBy(asc(firstTrial.activatedAt));
+
+  return buildTrialActivationDashboard(
+    rows.map((row) => ({
+      userId: row.userId,
+      activatedAt: new Date(row.activatedAt),
+      signedUpAt: row.signedUpAt ? new Date(row.signedUpAt) : null,
+    })),
+    window,
+  );
 }
 
 export async function getPayerRetentionDashboard() {

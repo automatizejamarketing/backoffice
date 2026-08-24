@@ -25,6 +25,7 @@ import {
   getCustomerBaseStatus,
   getDashboardStats,
   getPayerRetentionDashboard,
+  getTrialActivationDashboard,
   getUserActivityDashboard,
 } from "@/lib/db/admin-queries";
 import type {
@@ -51,6 +52,7 @@ import {
 import { CustomerBaseStatusPanel } from "./customer-base-status";
 import { DashboardTabsNav } from "./dashboard-tabs-nav";
 import { PayerRetentionChart } from "./payer-retention-chart";
+import { TrialActivationPanel } from "./trial-activation-panel";
 import {
   formatInSaoPaulo,
   parseCalendarDate,
@@ -299,7 +301,14 @@ export default async function DashboardPage({
   const activeTab = resolveDashboardTab(sp);
   const conversionView = resolveConversionView(sp);
   const selectedWindow = resolveDashboardDateWindow(sp);
-  const [conversion, stats, customerBaseStatus, payerRetention, userActivity] =
+  const [
+    conversion,
+    stats,
+    customerBaseStatus,
+    payerRetention,
+    userActivity,
+    trialActivation,
+  ] =
     await Promise.all([
       getConversionDashboard(selectedWindow),
       getDashboardStats(),
@@ -312,6 +321,9 @@ export default async function DashboardPage({
             console.error("[user-activity-dashboard]", error);
             return null;
           })
+        : Promise.resolve(null),
+      activeTab === "trials"
+        ? getTrialActivationDashboard(selectedWindow)
         : Promise.resolve(null),
     ]);
 
@@ -357,7 +369,9 @@ export default async function DashboardPage({
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
               {activeTab === "retencao"
                 ? "Compare a evolução semanal de cada grupo de clientes desde o primeiro pagamento."
-                : "Acompanhe a conversão histórica e a jornada das pessoas que entraram no período selecionado."}
+                : activeTab === "trials"
+                  ? "Quantos trials começaram em cada dia e quanto tempo cada pessoa levou entre criar a conta e ativar."
+                  : "Acompanhe a conversão histórica e a jornada das pessoas que entraram no período selecionado."}
             </p>
           </div>
 
@@ -382,6 +396,17 @@ export default async function DashboardPage({
           </div>
           <PayerRetentionChart summary={payerRetention} />
         </section>
+      ) : activeTab === "trials" && trialActivation ? (
+        <TrialActivationPanel
+          dashboard={trialActivation}
+          dateFilter={
+            <DashboardDateFilter
+              basePath="/"
+              window={window}
+              extraParams={{ tab: "trials" }}
+            />
+          }
+        />
       ) : (
         <div className="flex min-w-0 flex-col gap-6">
           {userActivity ? (

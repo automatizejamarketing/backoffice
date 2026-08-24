@@ -3,7 +3,7 @@ import type {
   DashboardDateWindow,
 } from "./dashboard-date-range";
 
-export const DASHBOARD_TAB_VALUES = ["visao", "retencao"] as const;
+export const DASHBOARD_TAB_VALUES = ["visao", "retencao", "trials"] as const;
 export type DashboardTab = (typeof DASHBOARD_TAB_VALUES)[number];
 
 export type DashboardSearchParams = DashboardDateSearchParams & {
@@ -19,7 +19,9 @@ function firstValue(value: string | string[] | undefined) {
 
 export function resolveDashboardTab(params: DashboardSearchParams): DashboardTab {
   const tab = firstValue(params.tab);
-  return tab === "retencao" ? "retencao" : "visao";
+  return DASHBOARD_TAB_VALUES.includes(tab as DashboardTab)
+    ? (tab as DashboardTab)
+    : "visao";
 }
 
 export function resolveConversionView(
@@ -37,6 +39,6 @@ export function buildDashboardHref(
     from: window.fromDate,
     to: window.throughDate,
   });
-  if (tab === "retencao") params.set("tab", tab);
+  if (tab !== "visao") params.set("tab", tab);
   return `/?${params.toString()}`;
 }
