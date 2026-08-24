@@ -7093,3 +7093,122 @@ export type FoodServiceMenuSourceRef = InferSelectModel<
 >;
 
 // ===== END food_service_* =====
+
+// ===== BEGIN winning_creatives_* — bloco espelhado byte a byte no projeto irmão =====
+//
+// Ranking do Dia / Criativos Vencedores. O frontend é o dono da migration;
+// este bloco vive nos dois schema.ts porque o Postgres é um só. A API de
+// leitura nunca seleciona aggregated_roas / aggregated_spend — colunas
+// privadas do pipeline.
+
+export type WinningCreativeRankingRunStatus =
+  | "building"
+  | "active"
+  | "failed";
+
+export type WinningCreativeFormat = "feed" | "stories_reels" | "carrossel";
+
+export type WinningCreativeRowStatus = "active" | "archived";
+
+export type WinningCreativeAnalysisStatus = "pending" | "ready" | "failed";
+
+export type WinningCreativeMediaItem = {
+  r2Key: string;
+  type: "image" | "video";
+  order: number;
+};
+
+/**
+ * Um ciclo do Ranking do Dia. Só um run fica `active` — a Troca Atômica
+ * publica o run novo quando a seleção está persistida.
+ */
+export const winningCreativeRankingRun = pgTable(
+  "winning_creative_ranking_runs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    /** Âncora = max(metric_date) da série, nunca CURRENT_DATE. */
+    rankingDate: date("ranking_date").notNull(),
+    status: varchar("status", { length: 16 })
+      .$type<WinningCreativeRankingRunStatus>()
+      .notNull()
+      .default("building"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    dateStatusIdx: index("winning_creative_ranking_runs_date_status_idx").on(
+      table.rankingDate,
+      table.status,
+    ),
+  }),
+);
+
+export type WinningCreativeRankingRun = InferSelectModel<
+  typeof winningCreativeRankingRun
+>;
+
+/**
+ * Uma linha do Ranking do Dia: o Criativo Vencedor persistido naquele run.
+ * Copy e datas vêm do snapshot de tracking; mídia e análise entram depois.
+ */
+export const winningCreative = pgTable(
+  "winning_creatives",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => winningCreativeRankingRun.id),
+    creativeId: text("creative_id").notNull(),
+    advertiserCompanyId: uuid("advertiser_company_id")
+      .notNull()
+      .references(() => company.id),
+    subNiche: varchar("sub_niche", { length: 32 }).notNull(),
+    format: varchar("format", { length: 16 })
+      .$type<WinningCreativeFormat>()
+      .notNull(),
+    aspectRatio: varchar("aspect_ratio", { length: 16 }),
+    medias: jsonb("medias")
+      .$type<WinningCreativeMediaItem[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    headline: text("headline"),
+    primaryText: text("primary_text"),
+    cta: text("cta"),
+    firstDeliveredOn: date("first_delivered_on").notNull(),
+    position: integer("position").notNull(),
+    /** Privado do pipeline — a leitura pública nunca seleciona. */
+    aggregatedRoas: numeric("aggregated_roas"),
+    /** Privado do pipeline — a leitura pública nunca seleciona. */
+    aggregatedSpend: numeric("aggregated_spend"),
+    analysis: jsonb("analysis"),
+    analysisStatus: varchar("analysis_status", { length: 16 })
+      .$type<WinningCreativeAnalysisStatus>()
+      .notNull()
+      .default("pending"),
+    status: varchar("status", { length: 16 })
+      .$type<WinningCreativeRowStatus>()
+      .notNull()
+      .default("active"),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    runPositionUnique: uniqueIndex("winning_creatives_run_position_unique").on(
+      table.runId,
+      table.position,
+    ),
+    runCreativeUnique: uniqueIndex("winning_creatives_run_creative_unique").on(
+      table.runId,
+      table.creativeId,
+    ),
+    runIdx: index("winning_creatives_run_idx").on(table.runId),
+    companyIdx: index("winning_creatives_company_idx").on(
+      table.advertiserCompanyId,
+    ),
+  }),
+);
+
+export type WinningCreative = InferSelectModel<typeof winningCreative>;
+
+// ===== END winning_creatives_* =====
