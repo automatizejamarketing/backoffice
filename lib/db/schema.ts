@@ -345,9 +345,7 @@ export const masterclassLesson = pgTable(
 
 export type MasterclassLesson = InferSelectModel<typeof masterclassLesson>;
 
-// =============================================
 // Digital Products
-// =============================================
 
 export const PRODUCT_OWNER_VALUES = ["automatize", "expert"] as const;
 export type ProductOwnerType = (typeof PRODUCT_OWNER_VALUES)[number];
@@ -1795,9 +1793,7 @@ export const narrativeSession = pgTable("narrative_sessions", {
 
 export type NarrativeSession = InferSelectModel<typeof narrativeSession>;
 
-// =============================================
 // AI Generated Images (Gerar Imagem feature)
-// =============================================
 
 // Aspect ratio type for generated images
 export type AspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "21:9";
@@ -1921,9 +1917,7 @@ export const referenceImage = pgTable("reference_images", {
 
 export type ReferenceImage = InferSelectModel<typeof referenceImage>;
 
-// =============================================
 // AI Text Generation
-// =============================================
 export type AiGeneratedTextStatus = string;
 
 export const aiGeneratedText = pgTable("ai_generated_text", {
@@ -1946,9 +1940,7 @@ export const aiGeneratedText = pgTable("ai_generated_text", {
 
 export type AiGeneratedText = InferSelectModel<typeof aiGeneratedText>;
 
-// =============================================
 // Generic Generate Post (Gerar Imagem feature)
-// =============================================
 
 export const genericGeneratePost = pgTable("generic_generate_post", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -1973,9 +1965,7 @@ export const genericGeneratePost = pgTable("generic_generate_post", {
 
 export type GenericGeneratePost = InferSelectModel<typeof genericGeneratePost>;
 
-// =============================================
 // Food Service Posts
-// =============================================
 export type CaptionObjective = string;
 export type CaptionLength = string;
 
@@ -2075,9 +2065,7 @@ export const foodServiceFlyer = pgTable("food_service_flyer", {
 
 export type FoodServiceFlyer = InferSelectModel<typeof foodServiceFlyer>;
 
-// =============================================
 // Backoffice Generated Posts
-// =============================================
 
 export const backofficeGeneratedPost = pgTable("backoffice_generated_posts", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -2111,9 +2099,7 @@ export type BackofficeGeneratedPost = InferSelectModel<
   typeof backofficeGeneratedPost
 >;
 
-// =============================================
 // Video Templates (Creatomate)
-// =============================================
 
 export type VideoTemplateStatus = "active" | "inactive";
 
@@ -2139,9 +2125,7 @@ export const videoTemplate = pgTable("video_templates", {
 
 export type VideoTemplate = InferSelectModel<typeof videoTemplate>;
 
-// =============================================
 // Stripe Subscription Management
-// =============================================
 
 // Plan type enum - compound: {period}_{tier}
 export const PLAN_TYPE_VALUES = [
@@ -2732,9 +2716,7 @@ export const planPriceConfig = pgTable("plan_price_configs", {
 
 export type PlanPriceConfig = InferSelectModel<typeof planPriceConfig>;
 
-// =============================================
 // Affiliate System
-// =============================================
 
 export type AffiliateStatus = "pending" | "approved" | "rejected" | "blocked";
 
@@ -2837,7 +2819,6 @@ export const affiliateConversion = pgTable("affiliate_conversions", {
 
 export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
 
-// =============================================
 // Programa de afiliados v2 — namespace `referral_*`
 //
 // Deliberadamente separado das tabelas do v1 acima (`affiliates`,
@@ -2848,7 +2829,6 @@ export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
 //
 // Dinheiro é sempre centavos em `integer`. Manter byte-equivalente com o
 // `lib/db/schema.ts` do projeto irmão — os dois descrevem o mesmo Postgres.
-// =============================================
 
 export const REFERRAL_ATTRIBUTION_MODEL_VALUES = ["last_click"] as const;
 export type ReferralAttributionModel =
@@ -3513,9 +3493,7 @@ export const referralAdminAction = pgTable(
 
 export type ReferralAdminAction = InferSelectModel<typeof referralAdminAction>;
 
-// =============================================
 // Trackable Links (Links Rastreáveis)
-// =============================================
 
 export const trackableLink = pgTable("trackable_links", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -3574,14 +3552,12 @@ export type CustomerBaseDailySnapshot = InferSelectModel<
   typeof customerBaseDailySnapshot
 >;
 
-// =============================================
 // Performance Insights + Masterclass extras
 // These tables were created out-of-band in PRODUCTION (the feature code was
 // never committed to this repo). Mirrored here 2026-06-09 from the live prod
 // DDL so schema.ts describes the real database. Keep byte-equal with
 // automatize-frontend/lib/db/schema.ts. When the original feature code is
 // recovered, reconcile it with these definitions.
-// =============================================
 
 export const performanceSnapshotRun = pgTable(
   "performance_snapshot_runs",
@@ -7400,3 +7376,85 @@ export type FoodServiceMenuSourceRef = InferSelectModel<
 >;
 
 // ===== END food_service_* =====
+
+export const radarSearchConfigurations = pgTable("radar_search_configurations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  niche: text("niche"),
+  subNiche: text("sub_niche"),
+  keywords: jsonb("keywords").$type<string[]>(),
+  hashtags: jsonb("hashtags").$type<string[]>(),
+  profiles: jsonb("profiles").$type<string[]>(),
+  platforms: jsonb("platforms").$type<string[]>(),
+  formats: jsonb("formats").$type<string[]>(),
+  country: text("country"),
+  state: text("state"),
+  city: text("city"),
+  frequency: text("frequency"),
+  maxResults: integer("max_results"),
+  minScore: integer("min_score"),
+  requiresApproval: boolean("requires_approval").default(true).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  createdBy: uuid("created_by").references(() => user.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const radarCollectionRuns = pgTable("radar_collection_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  configurationId: uuid("configuration_id").references(() => radarSearchConfigurations.id, { onDelete: "cascade" }),
+  origin: text("origin").notNull(),
+  status: text("status").notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  itemsFound: integer("items_found").default(0).notNull(),
+  itemsNew: integer("items_new").default(0).notNull(),
+  itemsUpdated: integer("items_updated").default(0).notNull(),
+  itemsDuplicated: integer("items_duplicated").default(0).notNull(),
+  errorsCount: integer("errors_count").default(0).notNull(),
+  creditsConsumed: integer("credits_consumed").default(0).notNull(),
+  errorMessage: text("error_message"),
+  executedBy: uuid("executed_by").references(() => user.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const radarContents = pgTable("radar_contents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  externalId: text("external_id").notNull(),
+  platform: text("platform").notNull(),
+  format: text("format"),
+  profileHandle: text("profile_handle"),
+  caption: text("caption"),
+  thumbnailUrl: text("thumbnail_url"),
+  previewUrl: text("preview_url"),
+  originalUrl: text("original_url"),
+  currentMetrics: jsonb("current_metrics"),
+  trendScore: numeric("trend_score"),
+  classification: text("classification"),
+  trendStatus: text("trend_status"),
+  niche: text("niche"),
+  subNiche: text("sub_niche"),
+  location: text("location"),
+  publishedAt: timestamp("published_at"),
+  firstDetectedAt: timestamp("first_detected_at").defaultNow().notNull(),
+  lastUpdatedAt: timestamp("last_updated_at").defaultNow().notNull(),
+  publicationStatus: text("publication_status").default('pending').notNull(),
+  isPinned: boolean("is_pinned").default(false).notNull(),
+  adminNotes: text("admin_notes"),
+}, (table) => ({
+  unqPlatformExternalId: uniqueIndex("radar_content_platform_external_id_idx").on(table.platform, table.externalId),
+}));
+
+export const radarContentSnapshots = pgTable("radar_content_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contentId: uuid("content_id").references(() => radarContents.id, { onDelete: "cascade" }).notNull(),
+  collectedAt: timestamp("collected_at").defaultNow().notNull(),
+  views: integer("views"),
+  likes: integer("likes"),
+  comments: integer("comments"),
+  shares: integer("shares"),
+  saves: integer("saves"),
+  profileFollowers: integer("profile_followers"),
+});
