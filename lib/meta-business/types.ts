@@ -175,10 +175,18 @@ export type GraphApiInsights = {
   spend?: string;
   impressions?: string;
   clicks?: string;
+  /** Link clicks only — what Ads Manager calls "Cliques no link". */
+  inline_link_clicks?: string;
   reach?: string;
+  /** All-clicks CPC. Ads Manager exposes this as "CPC (todos)". */
   cpc?: string;
+  /** Ads Manager's default "CPC (custo por clique no link)". */
+  cost_per_inline_link_click?: string;
   cpm?: string;
+  /** All-clicks CTR. Ads Manager exposes this as "CTR (todos)". */
   ctr?: string;
+  /** Ads Manager's default "CTR (taxa de cliques no link)". */
+  inline_link_click_ctr?: string;
   cpp?: string;
   frequency?: string;
   actions?: Array<{
@@ -201,13 +209,18 @@ export type GraphApiInsights = {
     action_type: string;
     value: string;
   }>;
+  /** v24 shape: the cost is nested under `values`, not on the entry. */
   cost_per_result?: Array<{
+    indicator?: string;
     action_type?: string;
     value?: string;
+    values?: Array<{ value?: string; attribution_windows?: string[] }>;
   }>;
   cost_per_objective_result?: Array<{
+    indicator?: string;
     action_type?: string;
     value?: string;
+    values?: Array<{ value?: string; attribution_windows?: string[] }>;
   }>;
   date_start?: string;
   date_stop?: string;
@@ -221,8 +234,10 @@ export type InsightsMetrics = {
   impressions?: string;
   clicks?: string;
   reach?: string;
+  /** Cost per **link** click, mirroring Ads Manager's "CPC". See `adsManagerCpc`. */
   cpc?: string;
   cpm?: string;
+  /** **Link** click-through rate, mirroring Ads Manager's "CTR". See `adsManagerCtr`. */
   ctr?: string;
   cpp?: string;
   frequency?: string;

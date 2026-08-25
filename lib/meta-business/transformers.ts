@@ -16,6 +16,11 @@ import type {
   GraphApiAdReviewFeedback,
   PaginationInfo,
 } from "./types";
+import {
+  adsManagerCpc,
+  adsManagerCtr,
+  costPerResultValue,
+} from "./insights-fields";
 
 const PURCHASE_ACTION_TYPES = [
   "purchase",
@@ -70,14 +75,6 @@ function getActionValue(
   return matchingAction?.value;
 }
 
-function getFirstMetricValue(
-  actions:
-    | GraphApiInsights["cost_per_result"]
-    | GraphApiInsights["cost_per_objective_result"],
-): string | undefined {
-  return actions?.find((action) => action.value !== undefined)?.value;
-}
-
 function subtractMetricValues(
   minuend: string | undefined,
   subtrahend: string | undefined,
@@ -125,9 +122,7 @@ export function transformInsightsData(data: GraphApiInsights): InsightsMetrics {
     addToCartCount,
     purchaseCount,
   );
-  const costPerResult =
-    getFirstMetricValue(data.cost_per_result) ??
-    getFirstMetricValue(data.cost_per_objective_result);
+  const costPerResult = costPerResultValue(data);
   const conversions = purchaseCount ?? leadCount;
   const costPerConversion = purchaseCost ?? leadCost;
 
@@ -136,9 +131,9 @@ export function transformInsightsData(data: GraphApiInsights): InsightsMetrics {
     impressions: data.impressions,
     clicks: data.clicks,
     reach: data.reach,
-    cpc: data.cpc,
+    cpc: adsManagerCpc(data),
     cpm: data.cpm,
-    ctr: data.ctr,
+    ctr: adsManagerCtr(data),
     cpp: data.cpp,
     frequency: data.frequency,
     conversions,

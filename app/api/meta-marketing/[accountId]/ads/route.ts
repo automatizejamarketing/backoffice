@@ -62,7 +62,7 @@ function buildAdFields(options?: {
   until?: string | null;
 }): string {
   let insightsFields =
-    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
+    "insights{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
 
   const insightsParams: string[] = [];
   if (options?.datePreset) {
@@ -76,7 +76,7 @@ function buildAdFields(options?: {
   if (insightsParams.length > 0) {
     insightsFields = `insights.${insightsParams.join(
       ".",
-    )}{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}`;
+    )}{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}`;
   }
 
   return [

@@ -13,6 +13,7 @@ import type {
   GraphApiInsights,
   InsightsMetrics,
 } from "@/lib/meta-business/types";
+import { MARKETING_INSIGHTS_FIELDS_PARAM } from "@/lib/meta-business/insights-fields";
 
 type GraphApiInsightsResponse = {
   data: GraphApiInsights[];
@@ -73,25 +74,7 @@ export async function GET(
     const until = searchParams.get("until");
     const timeIncrement = searchParams.get("timeIncrement");
 
-    const fields = [
-      "spend",
-      "impressions",
-      "clicks",
-      "reach",
-      "cpc",
-      "cpm",
-      "ctr",
-      "cpp",
-      "frequency",
-      "actions",
-      "cost_per_action_type",
-      "cost_per_result",
-      "action_values",
-      "purchase_roas",
-      "website_purchase_roas",
-      "date_start",
-      "date_stop",
-    ].join(",");
+    const fields = MARKETING_INSIGHTS_FIELDS_PARAM;
 
     const queryParams: string[] = [`fields=${fields}`];
 

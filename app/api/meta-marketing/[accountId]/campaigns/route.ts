@@ -168,7 +168,7 @@ function buildCampaignFields(options?: {
   until?: string | null;
 }): string {
   const insightsBody =
-    "{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
+    "{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}";
 
   // Meta Graph "field-level parameters" use parentheses around the value, not
   // `=`. Wrong syntax surfaces as a 400 with "Expected '(' instead of '{'".

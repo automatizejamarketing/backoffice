@@ -68,8 +68,8 @@ function buildAdSetDetailFields(
     "pacing_type",
     "adset_schedule",
     "campaign{id,name,status,effective_status,objective,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,is_adset_budget_sharing_enabled,created_time,updated_time}",
-    "insights{spend,impressions,clicks,reach,cpc,cpm,ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}",
-    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{${creativeFields}},insights{spend,impressions,clicks,reach,cpc,cpm,ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
+    "insights{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}",
+    `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{${creativeFields}},insights{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
   ].join(",");
 }
 

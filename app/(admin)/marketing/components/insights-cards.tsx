@@ -157,7 +157,7 @@ export function InsightsCards({
   );
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-2.5">
       {metrics.map((metric) => (
         <Card key={metric.label} className="bg-card border-border/60">
           <CardContent className="p-3 sm:p-3.5">
@@ -258,8 +258,8 @@ function MetricInfoButton({
 
 function InsightsCardsSkeleton() {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
-      {Array.from({ length: 7 }).map((_, i) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-2.5">
+      {Array.from({ length: 8 }).map((_, i) => (
         <Card key={i} className="bg-card border-border/60">
           <CardContent className="p-3 sm:p-3.5">
             <Skeleton className="size-6 rounded-md mb-2.5" />
