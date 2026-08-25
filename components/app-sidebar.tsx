@@ -202,12 +202,27 @@ export function AppSidebar({
       permission: "posts:manage",
     },
     {
+      href: "/masterclass",
+      label: "Masterclass & Tutoriais",
+      icon: GraduationCap,
+      isActive: pathname.startsWith("/masterclass"),
+      permission: "posts:manage",
+    },
+    {
+      href: "/radar",
+      label: "Radar de Conteúdos",
+      icon: Radar,
+      isActive: pathname.startsWith("/radar"),
+      permission: "posts:manage",
+    },
+    {
       href: "/criativos-validados",
       label: "Criativos Validados",
       icon: Image,
       isActive: isCriativosValidadosSection,
       permission: "posts:manage",
     },
+    
     {
       href: "/team",
       label: "Equipe",
