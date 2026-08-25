@@ -1820,12 +1820,10 @@ export async function getConversionDashboard(window: DashboardDateWindow) {
   };
 }
 
-export async function getTrialActivationDashboard(
-  window: DashboardDateWindow,
-): Promise<TrialActivationDashboard> {
-  // A user's trial starts at their first `trial_grant` credit transaction.
-  // Grouping guards against a user who trials twice being counted twice.
-  const firstTrial = db
+// A user's trial starts at their first `trial_grant` credit transaction.
+// Grouping guards against a user who trials twice being counted twice.
+function firstTrialGrantSubquery() {
+  return db
     .select({
       userId: creditTransaction.userId,
       // mapWith reuses the column's timestamp decoder (naive UTC → Date);
@@ -1838,6 +1836,43 @@ export async function getTrialActivationDashboard(
     .where(eq(creditTransaction.type, "trial_grant"))
     .groupBy(creditTransaction.userId)
     .as("first_trial");
+}
+
+export async function getTrialActivationUsers(date: string) {
+  const firstTrial = firstTrialGrantSubquery();
+  const cohortUserId = sql.raw('"users"."id"');
+
+  return db
+    .select({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      signedUpAt: user.createdAt,
+      activatedAt: firstTrial.activatedAt,
+      expirationDate: user.expirationDate,
+      activeToday: sql<boolean>`(
+        ${user.expirationDate} is not null and ${user.expirationDate} > now()
+      )`,
+      paid: sql<boolean>`EXISTS (
+        SELECT 1
+        FROM payments successful_payment
+        WHERE successful_payment.user_id = ${cohortUserId}
+          AND successful_payment.status = 'succeeded'
+      )`,
+    })
+    .from(firstTrial)
+    .innerJoin(user, eq(user.id, firstTrial.userId))
+    .where(
+      sql`to_char(${firstTrial.activatedAt} - interval '3 hours', 'YYYY-MM-DD') = ${date}`,
+    )
+    .orderBy(asc(firstTrial.activatedAt));
+}
+
+export async function getTrialActivationDashboard(
+  window: DashboardDateWindow,
+): Promise<TrialActivationDashboard> {
+  const firstTrial = firstTrialGrantSubquery();
 
   const rows = await db
     .select({

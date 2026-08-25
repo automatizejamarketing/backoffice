@@ -108,10 +108,16 @@ function TrialActivationTooltip({
   );
 }
 
+type ChartClickState = {
+  activePayload?: Array<{ payload?: DailyTrialActivation }>;
+};
+
 export function TrialActivationChart({
   data,
+  onSelectDay,
 }: {
   data: DailyTrialActivation[];
+  onSelectDay?: (day: DailyTrialActivation) => void;
 }) {
   const mounted = useSyncExternalStore(
     subscribeToClient,
@@ -128,6 +134,13 @@ export function TrialActivationChart({
     ...data.map((item) => item.activations),
   );
 
+  // Bars get their own handler: the chart-level onClick only knows the
+  // hovered column, which is unset on touch and on synthetic clicks.
+  const selectFromBar = (entry: unknown) => {
+    const day = (entry as { payload?: DailyTrialActivation } | null)?.payload;
+    if (day && day.activations > 0) onSelectDay?.(day);
+  };
+
   if (!mounted) {
     return <div className="h-[280px] w-full sm:h-[340px]" aria-hidden />;
   }
@@ -142,6 +155,12 @@ export function TrialActivationChart({
         data={chartData}
         margin={{ top: 12, right: 10, bottom: 4, left: -18 }}
         barCategoryGap="22%"
+        style={onSelectDay ? { cursor: "pointer" } : undefined}
+        onClick={(state) => {
+          const day = (state as ChartClickState | null)?.activePayload?.[0]
+            ?.payload;
+          if (day && day.activations > 0) onSelectDay?.(day);
+        }}
       >
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
         <XAxis
@@ -188,6 +207,7 @@ export function TrialActivationChart({
           stackId="trials"
           fill="var(--color-sameDay)"
           maxBarSize={28}
+          onClick={selectFromBar}
         />
         <Bar
           dataKey="existingAccount"
@@ -195,6 +215,7 @@ export function TrialActivationChart({
           fill="var(--color-existingAccount)"
           maxBarSize={28}
           radius={[3, 3, 0, 0]}
+          onClick={selectFromBar}
         />
       </BarChart>
     </ChartContainer>
