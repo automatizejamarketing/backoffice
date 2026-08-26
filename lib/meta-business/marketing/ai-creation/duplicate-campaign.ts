@@ -13,7 +13,7 @@ import {
   type DuplicateProvenCampaignReports,
 } from "@/lib/meta-business/duplicate";
 import { metaApiCall } from "@/lib/meta-business/api";
-import { DEFAULT_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
+import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
 import { buildConventionalCampaignName, buildConventionalAdName } from "../campaign-naming";
 import { createAd } from "../creation/create-ad";
 import { deleteMetaObject } from "../creation/delete";
@@ -708,7 +708,7 @@ async function createNewMediaAds(args: {
       creative: creativeForMedia(media, mold, answers),
       // A mídia nova do usuário é justamente a que mais precisa: ela nasce num
       // formato só e vai para os 6 posicionamentos.
-      placementAdaptation: answers.placementAdaptation ?? DEFAULT_PLACEMENT_ADAPTATION,
+      placementAdaptation: answers.placementAdaptation ?? AI_PLACEMENT_ADAPTATION,
       ...(conversionDomain ? { conversionDomain } : {}),
       ...(mold.adSet.optimizationGoal
         ? { optimizationGoal: mold.adSet.optimizationGoal }
@@ -789,7 +789,7 @@ export async function createDuplicatedCampaign(
       // Sem este campo o criativo copiado herda o do anúncio de origem, e um
       // criativo que nasceu neste produto tem TODAS as features em OPT_OUT —
       // ou seja, a campanha da IA sairia sem adaptação de posicionamento.
-      placementAdaptation: answers.placementAdaptation ?? DEFAULT_PLACEMENT_ADAPTATION,
+      placementAdaptation: answers.placementAdaptation ?? AI_PLACEMENT_ADAPTATION,
     });
 
     const winningCopiedAdSetId = copiedAdSetForSource(

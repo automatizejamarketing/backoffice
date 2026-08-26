@@ -82,11 +82,9 @@ export type PlanAnswers = {
    * Como o Meta pode reenquadrar a mídia nos posicionamentos onde ela não cabe
    * (o quadrado servido em Stories/Reels, o vertical servido no Feed).
    *
-   * Ausente = o padrão do produto: reenquadra, mas não deixa a IA expandir a
-   * imagem com conteúdo inventado. A tela de revisão só expõe o opt-in da
-   * expansão generativa; o reenquadramento não é uma pergunta que valha fazer ao
-   * usuário, porque a alternativa é o anúncio simplesmente não aparecer em
-   * metade dos posicionamentos.
+   * Ausente no POST da campanha com IA = AI_PLACEMENT_ADAPTATION: reenquadra
+   * e pede expansão (`image_uncrop` / `video_uncrop`) para o criativo único
+   * caber em Feed + Stories + Reels sem o crop 1:1 do Feed.
    */
   placementAdaptation?: PlacementAdaptation;
 };

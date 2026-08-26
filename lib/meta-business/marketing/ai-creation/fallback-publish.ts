@@ -13,6 +13,7 @@
  * igual".
  */
 import { metaApiCall } from "@/lib/meta-business/api";
+import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
 import { getConnectedPageById } from "@/lib/meta-business/get-instagram-connected-page";
 import {
   buildGeoLocationsPayload,
@@ -631,6 +632,7 @@ export async function publishFallbackCampaign(args: {
             instagramProfileUrl,
             leadFormId,
           }),
+          placementAdaptation: AI_PLACEMENT_ADAPTATION,
           ...(conversionDomain ? { conversionDomain } : {}),
         })),
       },
