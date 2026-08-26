@@ -531,6 +531,18 @@ export async function createAd(
       body: adBody,
       accessToken: input.accessToken,
     });
+    if (typeof res.id !== "string" || res.id.length === 0) {
+      return fail([
+        {
+          stage: "create",
+          level: "ad",
+          code: "META_AD_ID_MISSING",
+          reason: "A Meta não devolveu o id do anúncio.",
+          suggestion:
+            "Nada foi ligado ao conjunto. Tente de novo; se persistir, confira a conta no Gerenciador de Anúncios.",
+        },
+      ]);
+    }
     return ok(res.id, { id: res.id, creativeId });
   } catch (error) {
     // Self-rollback: if we just created the creative, delete it so a failed ad
