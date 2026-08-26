@@ -23,6 +23,7 @@ import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-acco
 import { PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE } from "@/lib/playbook-insights/constants";
 import { evaluatePlaybookInsights } from "@/lib/playbook-insights/evaluate";
 import { fetchCampaignMetricsForAccount } from "@/lib/playbook-insights/fetch-campaign-metrics";
+import { loadReadyCreativeDiagnosesForUser } from "@/lib/playbook-insights/load-creative-diagnoses";
 import { deliverPlaybookInsightsToSlack } from "@/lib/proactivity/slack-delivery";
 
 function formatBatchError(error: unknown): string {
@@ -147,11 +148,15 @@ export async function runPlaybookInsightsBatch(
         if (isMetaFakeScenarioUser(target.id)) {
           const now = new Date();
           const campaigns = buildFullDemoCampaignMetrics(now);
+          const creativeDiagnoses = await loadReadyCreativeDiagnosesForUser(
+            target.id,
+          );
           const evaluation = evaluatePlaybookInsights({
             accountId: FULL_DEMO_PLAYBOOK_ACCOUNT_ID,
             campaigns,
             now,
             config: evaluationConfig,
+            creativeDiagnoses,
           });
           const persisted = await persistPlaybookInsightsForUser({
             runId,
@@ -215,16 +220,20 @@ export async function runPlaybookInsightsBatch(
             accountId: null,
             campaigns: [],
             config: evaluationConfig,
+            creativeDiagnoses: await loadReadyCreativeDiagnosesForUser(
+              target.id,
+            ),
           });
-          await persistPlaybookInsightsForUser({
+          const persisted = await persistPlaybookInsightsForUser({
             runId,
             userId: target.id,
             evaluation: empty,
           });
+          insightsCreated += persisted.insightsCreated;
           results.push({
             userId: target.id,
             email: target.email,
-            insightsCreated: 0,
+            insightsCreated: persisted.insightsCreated,
             campaignsEvaluated: 0,
             errorMessage: null,
           });
@@ -244,6 +253,7 @@ export async function runPlaybookInsightsBatch(
           campaigns,
           config: evaluationConfig,
           connectionCreatedAt: connection.createdAt,
+          creativeDiagnoses: await loadReadyCreativeDiagnosesForUser(target.id),
         });
         const persisted = await persistPlaybookInsightsForUser({
           runId,

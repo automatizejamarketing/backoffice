@@ -5,6 +5,7 @@ import {
   PLAYBOOK_ROAS_TRIGGER,
   PLAYBOOK_ROAS_VALIDATED,
   PLAYBOOK_RULE_CPA_ALERT,
+  PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
   PLAYBOOK_RULE_NO_DELIVERY,
   PLAYBOOK_RULE_ROAS_SCALE,
   PLAYBOOK_RULE_ROAS_TRIGGER,
@@ -13,6 +14,7 @@ import {
 } from "./constants";
 import type {
   CampaignMetricsRow,
+  CreativeDiagnosisPlaybookRow,
   PlaybookEvaluationResult,
   PlaybookInsightCandidate,
 } from "./types";
@@ -87,6 +89,102 @@ export function isPlaybookCampaignEligible(args: {
   return createdAt >= cutoff;
 }
 
+function asDiagnosis(value: unknown): {
+  likelyContributor: boolean;
+  confidence: "high" | "medium" | "low";
+  summary: string;
+  alternativeExplanations: string[];
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.likelyContributor !== "boolean") return null;
+  if (
+    record.confidence !== "high" &&
+    record.confidence !== "medium" &&
+    record.confidence !== "low"
+  ) {
+    return null;
+  }
+  if (typeof record.summary !== "string" || record.summary.trim() === "") {
+    return null;
+  }
+  const alternatives = Array.isArray(record.alternativeExplanations)
+    ? record.alternativeExplanations.filter(
+        (item): item is string => typeof item === "string" && item.trim() !== "",
+      )
+    : [];
+  return {
+    likelyContributor: record.likelyContributor,
+    confidence: record.confidence,
+    summary: record.summary.trim(),
+    alternativeExplanations: alternatives,
+  };
+}
+
+export function creativeDiagnosisCandidate(
+  row: CreativeDiagnosisPlaybookRow,
+  campaignNameById: ReadonlyMap<string, string>,
+): PlaybookInsightCandidate | null {
+  const parsed = asDiagnosis(row.diagnosis);
+  if (!parsed) return null;
+  if (parsed.confidence === "low") return null;
+
+  const adName = row.adName?.trim() || row.adId;
+  const campaignLabel =
+    (row.campaignId && campaignNameById.get(row.campaignId)) ||
+    row.campaignId ||
+    "campanha";
+
+  if (parsed.likelyContributor) {
+    if (parsed.confidence !== "high") return null;
+    return {
+      ruleId: PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
+      severity: "warning",
+      confidence: "high",
+      entityLevel: "ad",
+      entityId: row.adId,
+      entityName: adName,
+      actionType: "review_creative",
+      title: "Criativo pode estar pesando no resultado",
+      evidence: `Anúncio "${adName}" (${campaignLabel}): ${parsed.summary}`,
+      recommendation:
+        "Tratar como uma hipótese entre outras. Conferir a peça (gancho, produto, CTA) e só então testar variação — não pausar por impulso.",
+      metrics: {
+        diagnosisId: row.id,
+        adId: row.adId,
+        campaignId: row.campaignId,
+        likelyContributor: true,
+        confidence: parsed.confidence,
+      },
+    };
+  }
+
+  const alternatives =
+    parsed.alternativeExplanations.length > 0
+      ? parsed.alternativeExplanations.join(" ")
+      : "Oferta, público, tracking ou orçamento podem explicar o gap.";
+
+  return {
+    ruleId: PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
+    severity: "info",
+    confidence: parsed.confidence,
+    entityLevel: "ad",
+    entityId: row.adId,
+    entityName: adName,
+    actionType: "review_other_causes",
+    title: "Criativo parece ok — investigar outra causa",
+    evidence: `Anúncio "${adName}" (${campaignLabel}) está abaixo dos irmãos, mas a peça não parece o problema. ${parsed.summary}`,
+    recommendation: alternatives,
+    metrics: {
+      diagnosisId: row.id,
+      adId: row.adId,
+      campaignId: row.campaignId,
+      likelyContributor: false,
+      confidence: parsed.confidence,
+    },
+  };
+}
+
 /**
  * Deterministic playbook evaluators for consultant-facing suggestions.
  * Source: food-service playbook ROAS/CPA bands + suporte playbook ops heuristics.
@@ -99,6 +197,7 @@ export function evaluatePlaybookInsights(args: {
   cpaAlertThreshold?: number;
   config?: PlaybookEvaluationConfig;
   connectionCreatedAt?: Date | null;
+  creativeDiagnoses?: CreativeDiagnosisPlaybookRow[];
 }): PlaybookEvaluationResult {
   const now = args.now ?? new Date();
   const config: PlaybookEvaluationConfig = {
@@ -280,6 +379,16 @@ export function evaluatePlaybookInsights(args: {
           },
         });
       }
+    }
+  }
+
+  if (isEnabled(config, PLAYBOOK_RULE_CREATIVE_DIAGNOSIS)) {
+    const campaignNameById = new Map(
+      campaigns.map((campaign) => [campaign.id, campaign.name]),
+    );
+    for (const row of args.creativeDiagnoses ?? []) {
+      const candidate = creativeDiagnosisCandidate(row, campaignNameById);
+      if (candidate) candidates.push(candidate);
     }
   }
 

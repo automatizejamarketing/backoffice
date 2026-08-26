@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   PLAYBOOK_RULE_CPA_ALERT,
+  PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
   PLAYBOOK_RULE_NO_DELIVERY,
   PLAYBOOK_RULE_ROAS_SCALE,
   PLAYBOOK_RULE_ROAS_TRIGGER,
@@ -300,5 +301,73 @@ describe("evaluatePlaybookInsights", () => {
       ],
     });
     expect(result.campaigns.map((row) => row.id)).toEqual(["c-cutoff"]);
+  });
+
+  test("creative diagnosis can blame the piece or say the piece looks fine", () => {
+    const blamed = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [campaign({ id: "camp-1", name: "Vendas" })],
+      creativeDiagnoses: [
+        {
+          id: "d-blame",
+          adId: "ad-weak",
+          campaignId: "camp-1",
+          adName: "Combo",
+          likelyContributor: true,
+          confidence: "high",
+          diagnosis: {
+            likelyContributor: true,
+            confidence: "high",
+            summary: "O gancho dos 3s não mostra o prato.",
+            alternativeExplanations: [],
+            craftGaps: [],
+            citations: [],
+          },
+        },
+        {
+          id: "d-ok",
+          adId: "ad-ok",
+          campaignId: "camp-1",
+          adName: "Story",
+          likelyContributor: false,
+          confidence: "high",
+          diagnosis: {
+            likelyContributor: false,
+            confidence: "high",
+            summary: "A peça está alinhada ao ofício.",
+            alternativeExplanations: ["Tracking do pixel pode estar atrasado."],
+            craftGaps: [],
+            citations: [],
+          },
+        },
+        {
+          id: "d-medium-blame",
+          adId: "ad-maybe",
+          campaignId: "camp-1",
+          adName: "Feed",
+          likelyContributor: true,
+          confidence: "medium",
+          diagnosis: {
+            likelyContributor: true,
+            confidence: "medium",
+            summary: "Talvez o CTA.",
+            alternativeExplanations: [],
+            craftGaps: [],
+            citations: [],
+          },
+        },
+      ],
+    });
+    const creative = blamed.candidates.filter(
+      (row) => row.ruleId === PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
+    );
+    expect(creative.map((row) => row.entityId).sort()).toEqual(["ad-ok", "ad-weak"]);
+    expect(creative.find((row) => row.entityId === "ad-weak")?.severity).toBe(
+      "warning",
+    );
+    expect(creative.find((row) => row.entityId === "ad-ok")?.severity).toBe("info");
+    expect(creative.find((row) => row.entityId === "ad-ok")?.recommendation).toMatch(
+      /pixel/i,
+    );
   });
 });

@@ -7219,3 +7219,102 @@ export const winningCreative = pgTable(
 export type WinningCreative = InferSelectModel<typeof winningCreative>;
 
 // ===== END winning_creatives_* =====
+
+// ===== BEGIN creative_diagnoses_* — bloco espelhado byte a byte no projeto irmão =====
+//
+// Diagnóstico de criativo contra o rubric destilado do Ranking do Dia.
+// O frontend é o dono da migration; este bloco vive nos dois schema.ts
+// porque o Postgres é um só. Nunca gravar identidade, copy ou métricas de
+// outro anunciante em `evidence` / `diagnosis`.
+
+export type CreativeDiagnosisStatus =
+  | "pending"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+export type CreativeDiagnosisConfidence = "high" | "medium" | "low";
+
+export type CreativeDiagnosisMediaItem = {
+  r2Key: string;
+  type: "image" | "video";
+  order: number;
+};
+
+export type CreativeDiagnosisUsage = {
+  promptTokens?: number;
+  completionTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+/**
+ * Resultado persistido de uma análise: o anúncio candidato, a janela de
+ * métricas, a versão do rubric do ranking e o parecer estruturado do modelo.
+ * `cache_key` torna reexecução idempotente (mesmo criativo × janela × run).
+ */
+export const creativeDiagnosis = pgTable(
+  "creative_diagnoses",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    accountId: text("account_id").notNull(),
+    adId: text("ad_id").notNull(),
+    creativeId: text("creative_id").notNull(),
+    campaignId: text("campaign_id"),
+    adsetId: text("adset_id"),
+    cacheKey: text("cache_key").notNull(),
+    rankingRunId: uuid("ranking_run_id").references(
+      () => winningCreativeRankingRun.id,
+    ),
+    rankingDate: date("ranking_date"),
+    rubricVersion: text("rubric_version").notNull(),
+    modelId: text("model_id").notNull(),
+    metricWindowStart: date("metric_window_start").notNull(),
+    metricWindowEnd: date("metric_window_end").notNull(),
+    evidence: jsonb("evidence")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    diagnosis: jsonb("diagnosis"),
+    confidence: varchar("confidence", { length: 16 }).$type<
+      CreativeDiagnosisConfidence
+    >(),
+    likelyContributor: boolean("likely_contributor"),
+    status: varchar("status", { length: 16 })
+      .$type<CreativeDiagnosisStatus>()
+      .notNull()
+      .default("pending"),
+    errorMessage: text("error_message"),
+    usage: jsonb("usage").$type<CreativeDiagnosisUsage>(),
+    mediaItems: jsonb("media_items")
+      .$type<CreativeDiagnosisMediaItem[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    cacheKeyUnique: uniqueIndex("creative_diagnoses_cache_key_unique").on(
+      table.cacheKey,
+    ),
+    userAdIdx: index("creative_diagnoses_user_ad_idx").on(
+      table.userId,
+      table.adId,
+    ),
+    accountStatusIdx: index("creative_diagnoses_account_status_idx").on(
+      table.accountId,
+      table.status,
+    ),
+    rankingRunIdx: index("creative_diagnoses_ranking_run_idx").on(
+      table.rankingRunId,
+    ),
+  }),
+);
+
+export type CreativeDiagnosis = InferSelectModel<typeof creativeDiagnosis>;
+
+// ===== END creative_diagnoses_* =====

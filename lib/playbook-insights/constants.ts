@@ -9,6 +9,7 @@ export const PLAYBOOK_RULE_ROAS_SCALE = "playbook.roas_scale";
 export const PLAYBOOK_RULE_CPA_ALERT = "playbook.cpa_alert";
 export const PLAYBOOK_RULE_STALLED = "playbook.campaign_stalled";
 export const PLAYBOOK_RULE_NO_DELIVERY = "playbook.no_delivery";
+export const PLAYBOOK_RULE_CREATIVE_DIAGNOSIS = "playbook.creative_diagnosis";
 
 export const PLAYBOOK_INSIGHTS_WINDOW = "last_30d" as const;
 

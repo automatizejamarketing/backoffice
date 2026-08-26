@@ -21,7 +21,7 @@ export type PlaybookInsightCandidate = {
   ruleId: string;
   severity: PlaybookSeverity;
   confidence: "low" | "medium" | "high";
-  entityLevel: "campaign" | "account";
+  entityLevel: "campaign" | "account" | "ad";
   entityId: string;
   entityName: string;
   actionType: string;
@@ -29,6 +29,16 @@ export type PlaybookInsightCandidate = {
   evidence: string;
   recommendation: string;
   metrics: Record<string, unknown>;
+};
+
+export type CreativeDiagnosisPlaybookRow = {
+  id: string;
+  adId: string;
+  campaignId: string | null;
+  adName: string | null;
+  likelyContributor: boolean | null;
+  confidence: "high" | "medium" | "low" | null;
+  diagnosis: unknown;
 };
 
 export type PlaybookEvaluationResult = {

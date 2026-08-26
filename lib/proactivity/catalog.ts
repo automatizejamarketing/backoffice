@@ -102,6 +102,16 @@ export const PROACTIVITY_ALERT_DEFINITIONS: readonly ProactivityAlertDefinition[
       thresholdFields: [],
       defaultThresholds: {},
     },
+    {
+      ruleKey: "creative_diagnosis",
+      title: "Diagnóstico de criativo (consultor)",
+      description:
+        "Anúncio com métricas fracas vs irmãos: o criativo pode estar pesando, ou a peça parece ok e a causa é outra (oferta, público, tracking).",
+      audience: "consultant",
+      playbookRuleId: "playbook.creative_diagnosis",
+      thresholdFields: [],
+      defaultThresholds: {},
+    },
 
     // —— Client (proactive signals) ——
     {
