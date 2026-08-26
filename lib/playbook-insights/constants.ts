@@ -36,3 +36,6 @@ export const PLAYBOOK_INSIGHTS_TIME_ZONE = "America/Sao_Paulo";
 
 /** Cron: users claimed per invocation. */
 export const PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE = 25;
+
+/** One-click scale: Meta’s usual 20% budget step, without jumping the learning phase. */
+export const PLAYBOOK_SCALE_BUDGET_FACTOR = 1.2;

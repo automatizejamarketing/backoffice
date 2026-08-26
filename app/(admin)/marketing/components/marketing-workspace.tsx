@@ -357,7 +357,10 @@ export function MarketingWorkspace({
                 )}
               </div>
 
-              <PlaybookInsightsPanel userId={selectedUser.id} />
+              <PlaybookInsightsPanel
+                userId={selectedUser.id}
+                accountId={selectedAccountId}
+              />
 
               {metaAccount && (
                 <div className="space-y-2">

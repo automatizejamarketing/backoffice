@@ -7,6 +7,15 @@ import {
   listOpenPlaybookInsightsForUser,
   updatePlaybookInsightStatus,
 } from "@/lib/db/playbook-insights-queries";
+import { applyPlaybookInsightAction } from "@/lib/playbook-insights/apply-action";
+import { isPlaybookApplyActionId } from "@/lib/playbook-insights/actions";
+import {
+  enterMetaMutationLog,
+  updateMetaMutationContext,
+} from "@/lib/observability/meta-log-context";
+
+/** Duplicate can poll Meta's copy job inside the request. */
+export const maxDuration = 60;
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -113,6 +122,94 @@ export async function PATCH(request: Request, context: RouteContext) {
     console.error("[playbook-insights] PATCH failed", error);
     return NextResponse.json(
       { error: "Failed to update playbook insight" },
+      { status: 500 },
+    );
+  }
+}
+
+type PostBody = {
+  insightId?: string;
+  action?: string;
+};
+
+export async function POST(request: Request, context: RouteContext) {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "POST /api/users/{id}/playbook-insights",
+    operationHint: "update",
+    entityHint: "campaign",
+  });
+  try {
+    const { id: userId } = await context.params;
+    const actor = await requireMarketingUserAccess(userId, "marketing:write");
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: actor.id,
+        email: actor.email,
+        role: actor.role,
+        targetUserId: userId,
+      },
+    });
+
+    let body: PostBody;
+    try {
+      body = (await request.json()) as PostBody;
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    if (!body.insightId) {
+      return NextResponse.json(
+        { error: "insightId is required" },
+        { status: 400 },
+      );
+    }
+    if (!isPlaybookApplyActionId(body.action)) {
+      return NextResponse.json(
+        { error: "action must be reactivate, archive, scale_budget, or duplicate" },
+        { status: 400 },
+      );
+    }
+
+    const result = await applyPlaybookInsightAction({
+      userId,
+      insightId: body.insightId,
+      action: body.action,
+      actorEmail: actor.email,
+    });
+
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          error: result.error,
+          code: result.code,
+          ...(result.needsPromotionUrl ? { needsPromotionUrl: true } : {}),
+        },
+        { status: result.status },
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      id: result.insightId,
+      action: result.action,
+      summary: result.summary,
+      skippedMeta: result.skippedMeta ?? false,
+      duplicatedCampaignId: result.duplicatedCampaignId ?? null,
+      duplicatedCampaignName: result.duplicatedCampaignName ?? null,
+      inProgress: result.inProgress ?? false,
+    });
+  } catch (error) {
+    if (error instanceof BackofficeAuthorizationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status },
+      );
+    }
+    console.error("[playbook-insights] POST apply failed", error);
+    return NextResponse.json(
+      { error: "Failed to apply playbook insight" },
       { status: 500 },
     );
   }
