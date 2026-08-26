@@ -3480,9 +3480,12 @@ export const conversation = pgTable(
      * their conversations exist. The lone sanctioned eraser is the ops script
      * `automatize-frontend/scripts/delete-user.ts` (ADR 0018).
      */
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => user.id),
+    userId: uuid("user_id").references(() => user.id),
+    /**
+     * WhatsApp E.164. Present on unlinked closer threads (user_id is null) and
+     * stamped onto linked threads so a later 6-digit link can attach the same row.
+     */
+    phoneE164: varchar("phone_e164", { length: 20 }),
     channel: varchar("channel", { length: 16 })
       .$type<ConversationChannel>()
       .notNull(),
@@ -3502,10 +3505,14 @@ export const conversation = pgTable(
     webSessionUnique: uniqueIndex("conversations_web_session_unique")
       .on(table.eveSessionId)
       .where(sql`"channel" = 'web'`),
-    /** whatsapp: one continuous thread per user — no invented boundaries. */
+    /** whatsapp: one continuous thread per linked user — no invented boundaries. */
     whatsappUserUnique: uniqueIndex("conversations_whatsapp_user_unique")
       .on(table.userId)
-      .where(sql`"channel" = 'whatsapp'`),
+      .where(sql`"channel" = 'whatsapp' AND "user_id" IS NOT NULL`),
+    /** whatsapp: one closer thread per phone while the number is not linked. */
+    whatsappPhoneUnique: uniqueIndex("conversations_whatsapp_phone_unique")
+      .on(table.phoneE164)
+      .where(sql`"channel" = 'whatsapp' AND "phone_e164" IS NOT NULL`),
   }),
 );
 
