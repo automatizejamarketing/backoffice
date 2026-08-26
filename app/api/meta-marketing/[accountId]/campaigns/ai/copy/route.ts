@@ -2,6 +2,7 @@ import { gateway } from "@ai-sdk/gateway";
 import { generateObject } from "ai";
 import { NextRequest, NextResponse } from "next/server";
 import { AI_MODELS } from "@/lib/config/models";
+import { gatewayProviderOptions } from "@/lib/ai/gateway-tags";
 import { trackAiUsage } from "@/lib/ai/usage-tracker";
 import { getPrimaryCompanyForUser } from "@/lib/db/admin-queries";
 import {
@@ -87,6 +88,7 @@ export async function POST(
       model: gateway.languageModel(AI_MODELS.TEXT_GENERATION),
       schema: generatedCopySchema,
       prompt,
+      providerOptions: gatewayProviderOptions("campanha"),
     });
 
     await trackAiUsage({

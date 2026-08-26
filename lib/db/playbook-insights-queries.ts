@@ -289,6 +289,26 @@ export async function listOpenPlaybookInsightsForUser(
   });
 }
 
+export async function getOpenPlaybookInsightForUser(args: {
+  insightId: string;
+  userId: string;
+}): Promise<PerformanceInsight | null> {
+  const [row] = await db
+    .select()
+    .from(performanceInsight)
+    .where(
+      and(
+        eq(performanceInsight.id, args.insightId),
+        eq(performanceInsight.userId, args.userId),
+        eq(performanceInsight.status, "open"),
+        like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 export async function updatePlaybookInsightStatus(args: {
   insightId: string;
   userId: string;

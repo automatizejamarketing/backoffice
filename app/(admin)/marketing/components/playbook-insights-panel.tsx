@@ -1,10 +1,25 @@
 "use client";
 
+import { useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  listPlaybookApplyActions,
+  type PlaybookApplyActionDef,
+} from "@/lib/playbook-insights/actions";
+import {
   type PlaybookInsightRow,
+  useApplyPlaybookInsight,
   usePlaybookInsights,
   useUpdatePlaybookInsightStatus,
 } from "../hooks/use-playbook-insights";
@@ -25,14 +40,47 @@ function severityLabel(severity: PlaybookInsightRow["severity"]) {
   return "Info";
 }
 
-type PlaybookInsightsPanelProps = {
-  userId: string;
+type PendingApply = {
+  insight: PlaybookInsightRow;
+  action: PlaybookApplyActionDef;
 };
 
-export function PlaybookInsightsPanel({ userId }: PlaybookInsightsPanelProps) {
+type PlaybookInsightsPanelProps = {
+  userId: string;
+  accountId?: string | null;
+};
+
+export function PlaybookInsightsPanel({
+  userId,
+  accountId,
+}: PlaybookInsightsPanelProps) {
   const query = usePlaybookInsights(userId);
   const updateStatus = useUpdatePlaybookInsightStatus(userId);
+  const applyAction = useApplyPlaybookInsight(userId, accountId);
   const insights = query.data ?? [];
+  const [pending, setPending] = useState<PendingApply | null>(null);
+  const busy = updateStatus.isPending || applyAction.isPending;
+
+  const runApply = () => {
+    if (!pending) return;
+    const { insight, action } = pending;
+    applyAction.mutate(
+      { insightId: insight.id, action: action.id },
+      {
+        onSuccess: (result) => {
+          toast.success(result.summary);
+          setPending(null);
+        },
+        onError: (error) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Falha ao aplicar a sugestão na Meta",
+          );
+        },
+      },
+    );
+  };
 
   return (
     <div className="space-y-2">
@@ -65,80 +113,127 @@ export function PlaybookInsightsPanel({ userId }: PlaybookInsightsPanelProps) {
         </p>
       ) : (
         <ul className="space-y-3">
-          {insights.map((insight) => (
-            <li key={insight.id}>
-              <Card className="border-border/80 shadow-none">
-                <CardHeader className="space-y-2 p-4 pb-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={`text-xs ${severityBadgeClass(insight.severity)}`}
-                    >
-                      {severityLabel(insight.severity)}
-                    </Badge>
-                    <CardTitle className="text-sm font-medium">
-                      {insight.title}
-                    </CardTitle>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {insight.entityName}
-                  </p>
-                </CardHeader>
-                <CardContent className="space-y-3 p-4 pt-0">
-                  <p className="text-sm text-foreground">{insight.evidence}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {insight.recommendation}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={updateStatus.isPending}
-                      onClick={() =>
-                        updateStatus.mutate({
-                          insightId: insight.id,
-                          status: "acknowledged",
-                        })
-                      }
-                    >
-                      Reconhecer
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="default"
-                      disabled={updateStatus.isPending}
-                      onClick={() =>
-                        updateStatus.mutate({
-                          insightId: insight.id,
-                          status: "done",
-                        })
-                      }
-                    >
-                      Feito
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      disabled={updateStatus.isPending}
-                      onClick={() =>
-                        updateStatus.mutate({
-                          insightId: insight.id,
-                          status: "dismissed",
-                        })
-                      }
-                    >
-                      Dispensar
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
+          {insights.map((insight) => {
+            const actions = listPlaybookApplyActions(insight);
+            return (
+              <li key={insight.id}>
+                <Card className="border-border/80 shadow-none">
+                  <CardHeader className="space-y-2 p-4 pb-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${severityBadgeClass(insight.severity)}`}
+                      >
+                        {severityLabel(insight.severity)}
+                      </Badge>
+                      <CardTitle className="text-sm font-medium">
+                        {insight.title}
+                      </CardTitle>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {insight.entityName}
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-3 p-4 pt-0">
+                    <p className="text-sm text-foreground">{insight.evidence}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {insight.recommendation}
+                    </p>
+                    {actions.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Diagnóstico — não há alteração automática na Meta.
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {actions.map((action) => (
+                        <Button
+                          key={action.id}
+                          type="button"
+                          size="sm"
+                          variant={action.variant}
+                          disabled={busy}
+                          onClick={() => setPending({ insight, action })}
+                        >
+                          {action.label}
+                        </Button>
+                      ))}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() =>
+                          updateStatus.mutate({
+                            insightId: insight.id,
+                            status: "done",
+                            reviewNote: "Tratado fora do botão de aplicar",
+                          })
+                        }
+                      >
+                        Já tratei
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() =>
+                          updateStatus.mutate({
+                            insightId: insight.id,
+                            status: "dismissed",
+                          })
+                        }
+                      >
+                        Dispensar
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </li>
+            );
+          })}
         </ul>
       )}
+
+      <AlertDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (applyAction.isPending) return;
+          if (!open) setPending(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pending?.action.confirmTitle ?? "Aplicar na Meta?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pending?.insight.entityName
+                ? `"${pending.insight.entityName}". `
+                : ""}
+              {pending?.action.confirmDescription}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={applyAction.isPending}
+              onClick={() => setPending(null)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant={pending?.action.variant ?? "default"}
+              disabled={applyAction.isPending}
+              onClick={runApply}
+            >
+              {applyAction.isPending ? "Aplicando..." : "Aplicar na Meta"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

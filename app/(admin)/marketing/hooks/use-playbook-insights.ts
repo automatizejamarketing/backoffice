@@ -1,6 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PlaybookApplyActionId } from "@/lib/playbook-insights/actions";
+import { invalidateMarketingAccount } from "./marketing-queries";
 
 export type PlaybookInsightRow = {
   id: string;
@@ -80,6 +82,53 @@ export function useUpdatePlaybookInsightStatus(userId: string | null) {
       void queryClient.invalidateQueries({
         queryKey: playbookInsightKeys.all(userId),
       });
+    },
+  });
+}
+
+export type { PlaybookApplyActionId };
+
+export function useApplyPlaybookInsight(
+  userId: string | null,
+  accountId?: string | null,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (args: {
+      insightId: string;
+      action: PlaybookApplyActionId;
+    }) => {
+      if (!userId) throw new Error("userId is required");
+      const response = await fetch(`/api/users/${userId}/playbook-insights`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        summary?: string;
+        skippedMeta?: boolean;
+      } | null;
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to apply playbook insight");
+      }
+      return body as {
+        ok: true;
+        id: string;
+        action: PlaybookApplyActionId;
+        summary: string;
+        skippedMeta: boolean;
+      };
+    },
+    onSuccess: () => {
+      if (!userId) return;
+      void queryClient.invalidateQueries({
+        queryKey: playbookInsightKeys.all(userId),
+      });
+      if (accountId) {
+        void invalidateMarketingAccount(queryClient, accountId, userId);
+      }
     },
   });
 }
