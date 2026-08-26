@@ -229,7 +229,7 @@ Noteworthy variables:
 - `AUTH_URL` / `NEXTAUTH_URL` / `NEXT_PUBLIC_APP_URL` — backoffice URL (magic links). Local dev: `http://localhost:3006`.
 - `FRONTEND_URL` / `FRONTEND_APP_URL` — customer-facing frontend URL (trackable links, Mercado Pago). Not the backoffice URL.
 - `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` — dedicated Google OAuth client for the backoffice (distinct from the frontend's client).
-- `AI_GATEWAY_API_KEY` — Vercel AI Gateway key for AI post/caption generation (`app/api/posts/generate`). On Vercel deploys OIDC handles this automatically.
+- `AI_GATEWAY_API_KEY` — local/Portless fallback for AI Gateway (`app/api/posts/generate`). Must be scoped to this Vercel project. Leave unset on Vercel deploys so OIDC attributes spend here.
 - `BLOB_READ_WRITE_TOKEN` — Vercel Blob token (shared with frontend).
 - `REDIS_URL` — Upstash Redis (shared).
 - `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_AFFILIATE_COUPON_ID` — Stripe credentials.

@@ -4,6 +4,7 @@ import { generateText } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/app/(auth)/auth";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
+import { gatewayProviderOptions } from "@/lib/ai/gateway-tags";
 import { trackAiUsage } from "@/lib/ai/usage-tracker";
 import { AI_MODELS, ASPECT_RATIO_DIMENSIONS } from "@/lib/config/models";
 import {
@@ -154,6 +155,7 @@ Important guidelines:
         model: gateway.languageModel(AI_MODELS.IMAGE_GENERATION),
         providerOptions: {
           google: { responseModalities: ["TEXT", "IMAGE"] },
+          ...gatewayProviderOptions("imagem"),
         },
         messages: [{ role: "user", content }],
       });
@@ -235,6 +237,7 @@ Return ONLY the caption text, without any quotes or preamble.`;
 
         const captionGen = await generateText({
           model: gateway.languageModel(AI_MODELS.TEXT_GENERATION),
+          providerOptions: gatewayProviderOptions("imagem"),
           messages: [
             {
               role: "user",
