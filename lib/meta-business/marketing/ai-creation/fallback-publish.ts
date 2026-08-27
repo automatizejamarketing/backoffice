@@ -576,6 +576,12 @@ export async function publishFallbackCampaign(args: {
       lifetimeBudgetCents: flight.lifetimeCents,
       startTime: flight.startTime,
       stopTime: flight.endTime,
+      // CBO + dayparting without an explicit campaign bid_strategy makes Meta
+      // infer TARGET_COST / LOWEST_COST_WITH_BID_CAP and reject the ad set
+      // with 100/1815857 (bid_amount required). The wizard always pairs
+      // Advantage campaign budget with LOWEST_COST_WITHOUT_CAP; the ad set
+      // then carries no bid (parentUsesCampaignBudget).
+      bidStrategy: "LOWEST_COST_WITHOUT_CAP",
     },
     adSets: [
       {
