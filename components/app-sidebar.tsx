@@ -210,7 +210,7 @@ export function AppSidebar({
     },
     {
       href: "/radar",
-      label: "Radar de Conteúdos",
+      label: "Conteúdos em Alta",
       icon: Radar,
       isActive: pathname.startsWith("/radar"),
       permission: "posts:manage",

@@ -13,9 +13,7 @@ import {
 } from "@/components/ui/table";
 
 const MOCK_RUNS = [
-  { id: 1, date: "Hoje, 14:35", search: "Hamburguerias - Brasil", origin: "Programada", platforms: ["Instagram", "TikTok"], status: "Concluída", found: 145, new: 23, updated: 120, duplicated: 2, duration: "4m 12s", user: "Sistema" },
-  { id: 2, date: "Hoje, 12:00", search: "Nutrição Esportiva", origin: "Manual", platforms: ["TikTok"], status: "Concluída", found: 45, new: 12, updated: 30, duplicated: 3, duration: "1m 45s", user: "Ana S." },
-  { id: 3, date: "Hoje, 10:00", search: "Direito Trabalhista", origin: "Programada", platforms: ["Instagram", "YouTube"], status: "Falhou", found: 0, new: 0, updated: 0, duplicated: 0, duration: "0m 15s", user: "Sistema" },
+  { id: 1, date: "Agora", search: "Hamburguerias - Brasil", origin: "Manual", platforms: ["TikTok"], status: "Concluída", found: 20, new: 20, updated: 0, duplicated: 0, duration: "1m 12s", user: "Admin" },
 ];
 
 function getRunStatusBadge(status: string) {

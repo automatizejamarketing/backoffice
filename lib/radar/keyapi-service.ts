@@ -42,34 +42,79 @@ export interface KeyApiSearchResult {
 }
 
 export async function searchContentOnKeyApi(params: KeyApiSearchParams): Promise<KeyApiSearchResult> {
-  // TODO: Implementar a chamada HTTP real para a KeyAPI aqui usando fetch ou axios.
-  // Como a documentação não forneceu o endpoint real, este é um mock/stub.
+  const apiKey = process.env.KEYAPI_TOKEN || "sk_live_-Vc6LbPKX43J-8uDM1m8k9jWSiFv1FPV";
+  const url = new URL("https://api.keyapi.ai/v1/tiktok/video/search");
   
-  console.log("[KeyAPI] Buscando conteúdos com parâmetros:", JSON.stringify(params));
+  if (params.keywords && params.keywords.length > 0) {
+    url.searchParams.append("keyword", params.keywords[0]);
+  } else if (params.hashtags && params.hashtags.length > 0) {
+    url.searchParams.append("keyword", params.hashtags[0]);
+  } else {
+    url.searchParams.append("keyword", "marketing"); // default fallback
+  }
+
+  // A API exige a região (ex: BR, US)
+  url.searchParams.append("region", params.country || "BR");
   
-  // Simulando um delay de rede
-  await new Promise((resolve) => setTimeout(resolve, 1500));
-  
-  // Retornando resultados simulados
-  return {
-    creditsConsumed: 1,
-    results: [
-      {
-        externalId: `mock-${Date.now()}-1`,
-        platform: params.platforms?.[0] || "Instagram",
-        format: params.formats?.[0] || "Reels",
-        profileHandle: params.profiles?.[0] || "@mock_user",
-        caption: `Exemplo de conteúdo coletado para ${params.keywords?.[0] || "teste"}!`,
-        originalUrl: "https://instagram.com/p/mock1",
-        publishedAt: new Date(Date.now() - 86400000), // 1 day ago
-        metrics: {
-          views: Math.floor(Math.random() * 10000),
-          likes: Math.floor(Math.random() * 1000),
-          comments: Math.floor(Math.random() * 100),
-          shares: Math.floor(Math.random() * 50),
-          saves: Math.floor(Math.random() * 20),
-        }
+  console.log(`[KeyAPI] Buscando conteúdos: ${url.toString()}`);
+
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
       }
-    ]
-  };
+    });
+
+    if (!response.ok) {
+      throw new Error(`KeyAPI error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    if (data.code !== 0) {
+      throw new Error(data.message || "Erro na KeyAPI");
+    }
+
+    const awemeList = (data.data?.aweme_list?.length > 0 
+      ? data.data.aweme_list 
+      : data.data?.search_item_list?.map((item: any) => item.aweme_info)) || [];
+    
+    const results: KeyApiContentResult[] = awemeList.slice(0, params.maxResults || 20).map((aweme: any) => {
+      const stats = aweme.statistics || {};
+      const author = aweme.author || {};
+      
+      return {
+        externalId: aweme.aweme_id,
+        platform: "TikTok",
+        format: "Vídeo",
+        profileHandle: author.unique_id || author.nickname || "user",
+        caption: aweme.desc || "",
+        thumbnailUrl: aweme.video?.cover?.url_list?.[0] || "",
+        previewUrl: aweme.video?.play_addr?.url_list?.[0] || "",
+        originalUrl: `https://www.tiktok.com/@${author.unique_id}/video/${aweme.aweme_id}`,
+        publishedAt: new Date(aweme.create_time * 1000),
+        metrics: {
+          views: stats.play_count || 0,
+          likes: stats.digg_count || 0,
+          comments: stats.comment_count || 0,
+          shares: stats.share_count || 0,
+          saves: stats.collect_count || 0,
+          profileFollowers: author.follower_count || 0,
+        }
+      };
+    });
+
+    return {
+      creditsConsumed: 1,
+      results
+    };
+  } catch (error: any) {
+    console.error("[KeyAPI] Erro:", error.message);
+    return {
+      creditsConsumed: 0,
+      results: [],
+      error: error.message
+    };
+  }
 }

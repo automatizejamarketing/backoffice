@@ -14,7 +14,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export function RadarOverview() {
+export function RadarOverview({ initialData = [] }: { initialData?: any[] }) {
+  const contents = initialData.length > 0 ? initialData : [];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
@@ -43,7 +45,7 @@ export function RadarOverview() {
             <Search className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">24</div>
+            <div className="text-2xl font-bold">1</div>
           </CardContent>
         </Card>
         <Card>
@@ -52,7 +54,7 @@ export function RadarOverview() {
             <ImageIcon className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">1,248</div>
+            <div className="text-2xl font-bold">{contents.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -61,7 +63,7 @@ export function RadarOverview() {
             <Clock className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-amber-500">142</div>
+            <div className="text-2xl font-bold text-amber-500">{contents.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -70,7 +72,7 @@ export function RadarOverview() {
             <CheckCircle2 className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-500">892</div>
+            <div className="text-2xl font-bold text-emerald-500">0</div>
           </CardContent>
         </Card>
         <Card>
@@ -79,7 +81,7 @@ export function RadarOverview() {
             <AlertTriangle className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-destructive">3</div>
+            <div className="text-2xl font-bold text-destructive">0</div>
           </CardContent>
         </Card>
         <Card>
@@ -88,7 +90,7 @@ export function RadarOverview() {
             <History className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">14:35</div>
+            <div className="text-2xl font-bold">Agora</div>
           </CardContent>
         </Card>
       </div>

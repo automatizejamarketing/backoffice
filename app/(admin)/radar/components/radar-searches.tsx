@@ -21,11 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const MOCK_SEARCHES = [
-  { id: 1, name: "Hamburguerias - Brasil", niche: "Food > Hamburgueria", platforms: ["Instagram", "TikTok"], terms: 12, freq: "A cada 3 horas", last: "Hoje, 14:35", next: "Hoje, 17:35", status: "Ativa" },
-  { id: 2, name: "Odonto - Estética", niche: "Odontologia > Estética", platforms: ["Instagram"], terms: 8, freq: "Diariamente", last: "Ontem, 08:00", next: "Hoje, 08:00", status: "Ativa" },
-  { id: 3, name: "Pizzarias - SP", niche: "Food > Pizzaria", platforms: ["Instagram", "TikTok"], terms: 15, freq: "Manual", last: "12/08/2026", next: "-", status: "Pausada" },
-  { id: 4, name: "Nutrição Esportiva", niche: "Nutrição > Esportiva", platforms: ["TikTok"], terms: 5, freq: "A cada 6 horas", last: "Hoje, 12:00", next: "Hoje, 18:00", status: "Em execução" },
-  { id: 5, name: "Direito Trabalhista", niche: "Direito > Trabalhista", platforms: ["Instagram", "YouTube"], terms: 20, freq: "A cada 12 horas", last: "Hoje, 10:00", next: "Hoje, 22:00", status: "Com erro" },
+  { id: 1, name: "Hamburguerias - Brasil", niche: "Food > Hamburgueria", platforms: ["Instagram", "TikTok", "YouTube"], terms: 12, freq: "A cada 3 horas", last: "Agora", next: "Hoje, 17:35", status: "Ativa" },
 ];
 
 function getStatusBadge(status: string) {
