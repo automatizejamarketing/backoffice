@@ -1,4 +1,7 @@
-import { creativeSkipReasonLabel } from "@/lib/creative-analysis/labels";
+import {
+  creativeSkipReasonLabel,
+  normalizeCreativeErrorCode,
+} from "@/lib/creative-analysis/labels";
 
 export const CREATIVE_ANALYSIS_LIMITS = [1, 3, 5, "all"] as const;
 
@@ -239,9 +242,7 @@ function toIso(value: Date | string): string {
 
 function safeErrorMessage(value: string | null): string | null {
   if (!value) return null;
-  return /^[a-z0-9_:-]{1,120}$/i.test(value)
-    ? value
-    : "processing_failed";
+  return normalizeCreativeErrorCode(value);
 }
 
 export function parseCreativeAnalysisRequest(

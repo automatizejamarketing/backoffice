@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   creativeSkipReasonLabel,
   creativeDimensionLabel,
+  normalizeCreativeErrorCode,
 } from "./labels";
 
 describe("creativeSkipReasonLabel", () => {
@@ -17,6 +18,22 @@ describe("creativeSkipReasonLabel", () => {
 
   test("falls back to a readable code", () => {
     expect(creativeSkipReasonLabel("new_gate_reason")).toBe("new gate reason");
+  });
+
+  test("maps Graph permission copy to a stable code", () => {
+    expect(
+      normalizeCreativeErrorCode(
+        "O usuário não tem permissão para realizar esta ação.",
+      ),
+    ).toBe("media_permission_denied");
+    expect(
+      normalizeCreativeErrorCode(
+        "winning-creatives: live creative refresh failed for 1985776498804715",
+      ),
+    ).toBe("media_permission_denied");
+    expect(
+      normalizeCreativeErrorCode("https://secret-host.internal?token=abc"),
+    ).toBe("processing_failed");
   });
 });
 

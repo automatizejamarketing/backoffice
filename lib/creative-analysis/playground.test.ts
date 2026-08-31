@@ -237,6 +237,17 @@ describe("summarizeCreativeAnalyses", () => {
 
     expect(result.records[0]?.errorMessage).toBe("processing_failed");
   });
+
+  test("maps Meta permission failures instead of hiding them", () => {
+    const result = summarizeCreativeAnalyses([
+      row({
+        status: "failed",
+        likelyContributor: null,
+        errorMessage: "O usuário não tem permissão para realizar esta ação.",
+      }),
+    ]);
+    expect(result.records[0]?.errorMessage).toBe("media_permission_denied");
+  });
 });
 
 describe("filterCreativeAnalysisViews", () => {

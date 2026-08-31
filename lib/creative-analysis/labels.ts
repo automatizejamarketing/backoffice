@@ -61,6 +61,11 @@ export const CREATIVE_SKIP_REASON_LABELS: Record<string, string> = {
   ad_not_found: "Anúncio não encontrado no snapshot",
   forced_control: "Controle forçado (gate contornado)",
   processing_failed: "Falha no processamento",
+  media_permission_denied:
+    "Sem permissão na Meta para baixar a mídia desta conta",
+  media_unresolved: "Não foi possível obter a mídia do criativo",
+  model_output_invalid: "O modelo devolveu um parecer inválido",
+  model_output_leaky: "O parecer foi descartado por vazar identidade",
   missing_or_disconnected: "Conta desconectada ou sem dados",
   analysis_disabled: "Análise desligada neste ambiente",
   global_budget_exhausted: "Orçamento diário de análises esgotado",
@@ -69,4 +74,25 @@ export const CREATIVE_SKIP_REASON_LABELS: Record<string, string> = {
 
 export function creativeSkipReasonLabel(code: string): string {
   return CREATIVE_SKIP_REASON_LABELS[code] ?? code.replace(/[_-]+/g, " ");
+}
+
+/**
+ * `error_message` antigo às vezes guarda copy da Graph, não um código.
+ * Qualquer coisa que não seja snake_case vira um código estável — nunca URL.
+ */
+export function normalizeCreativeErrorCode(value: string): string {
+  const trimmed = value.trim();
+  if (/^[a-z0-9_:-]{1,120}$/i.test(trimmed)) return trimmed;
+  if (/não tem permissão/i.test(trimmed)) return "media_permission_denied";
+  if (/live creative refresh failed/i.test(trimmed)) {
+    return "media_permission_denied";
+  }
+  if (
+    /no downloadable (media|video source)|no media cards|no adimages url|media download \d+/i.test(
+      trimmed,
+    )
+  ) {
+    return "media_unresolved";
+  }
+  return "processing_failed";
 }
