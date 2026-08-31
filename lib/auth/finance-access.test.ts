@@ -8,6 +8,7 @@ describe("finance access", () => {
     expect(canAccessFinance("lucashaddadm@gmail.com")).toBe(true);
     expect(canAccessFinance("rafael@layback.me")).toBe(true);
     expect(canAccessFinance("gustavo@layback.trade")).toBe(true);
+    expect(canAccessFinance("gustavoomarcelinoo@gmail.com")).toBe(true);
     expect(canAccessFinance("educacaoleg@gmail.com")).toBe(true);
     expect(canAccessFinance("admin@example.com")).toBe(false);
   });

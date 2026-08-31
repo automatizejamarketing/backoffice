@@ -4,6 +4,7 @@ const FINANCE_ACCESS_EMAILS = new Set([
   "lucashaddadm@gmail.com",
   "rafael@layback.me",
   "gustavo@layback.trade",
+  "gustavoomarcelinoo@gmail.com",
   "educacaoleg@gmail.com",
 ]);
 
