@@ -17,6 +17,7 @@ import {
   Radar,
   Settings2,
   Shield,
+  Sparkles,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -101,6 +102,7 @@ export function AppSidebar({
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
   const isMetaTrackingSection = pathname?.startsWith("/marketing/tracking");
+  const isCreativeAnalysisSection = pathname?.startsWith("/creative-analysis");
 
   const allNavItems: NavItem[] = [
     {
@@ -140,6 +142,13 @@ export function AppSidebar({
       icon: Settings2,
       isActive: isBusinessRulesSection,
       permission: "business:manage",
+    },
+    {
+      href: "/creative-analysis",
+      label: "Análise IA",
+      icon: Sparkles,
+      isActive: isCreativeAnalysisSection,
+      permission: "creative-analysis:manage",
     },
     {
       href: "/users",
