@@ -72,6 +72,7 @@ import {
   creativeSkipReasonLabel,
 } from "@/lib/creative-analysis/labels";
 import { cn } from "@/lib/utils";
+import { buildMarketingAdHref } from "@/app/(admin)/marketing/utils/marketing-deep-link";
 
 const API_PATH = "/api/backoffice/creative-analysis-playground";
 
@@ -742,6 +743,36 @@ function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
   );
 }
 
+function MarketingAdLink({
+  record,
+  className,
+}: {
+  record: CreativeAnalysisView;
+  className?: string;
+}) {
+  if (!record.userId || !record.accountId || !record.adId) return null;
+  return (
+    <a
+      href={buildMarketingAdHref({
+        userId: record.userId,
+        userEmail: record.userEmail,
+        accountId: record.accountId,
+        campaignId: record.campaignId,
+        adsetId: record.adsetId,
+        adId: record.adId,
+      })}
+      onClick={(event) => event.stopPropagation()}
+      className={cn(
+        "inline-flex items-center gap-1 text-[11px] font-medium text-foreground/80 hover:text-foreground",
+        className,
+      )}
+    >
+      <ExternalLink className="size-3" />
+      Ver no Marketing
+    </a>
+  );
+}
+
 function DiagnosisAccordion({
   record,
   open,
@@ -808,6 +839,9 @@ function DiagnosisAccordion({
           )}
         />
       </button>
+      <div className="flex items-center justify-end border-t px-4 py-2">
+        <MarketingAdLink record={record} />
+      </div>
       {open ? (
         <CardContent className="border-t pt-4">
           <DiagnosisDetail record={record} />
@@ -837,12 +871,12 @@ function DiagnosisGridCard({
   const thumb = thumbnailFromPlayable(record, playable);
 
   return (
-    <div ref={ref} className="h-full">
+    <div ref={ref} className="flex h-full flex-col">
     <button
       type="button"
       onClick={onOpen}
       className={cn(
-        "flex h-full w-full flex-col overflow-hidden rounded-xl border border-l-4 bg-card p-4 text-left text-card-foreground transition hover:bg-muted/40 hover:shadow-sm",
+        "flex h-full w-full flex-col overflow-hidden rounded-xl rounded-b-none border border-b-0 border-l-4 bg-card p-4 text-left text-card-foreground transition hover:bg-muted/40 hover:shadow-sm",
         meta.barClassName,
       )}
     >
@@ -866,6 +900,14 @@ function DiagnosisGridCard({
         {formatDateTime(record.updatedAt)} · abrir detalhe
       </p>
     </button>
+    <div
+      className={cn(
+        "flex justify-end rounded-b-xl border border-t-0 border-l-4 bg-card px-4 py-2",
+        meta.barClassName,
+      )}
+    >
+      <MarketingAdLink record={record} />
+    </div>
     </div>
   );
 }
@@ -1516,6 +1558,7 @@ export function CreativeAnalysisPlayground() {
                   {sheetRecord.userName || "Usuário sem nome"} · conta{" "}
                   {sheetRecord.accountId}
                 </SheetDescription>
+                <MarketingAdLink record={sheetRecord} className="pt-1" />
               </SheetHeader>
               <div className="mt-4">
                 <DiagnosisBadges record={sheetRecord} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   StatusChangeNoteDialog,
@@ -69,6 +69,7 @@ type AdsTableProps = {
   onAdClick?: (ad: Ad) => void;
   /** Disparado ao clicar na miniatura do anúncio. */
   onMediaClick?: (ad: Ad) => void;
+  highlightAdId?: string | null;
 };
 
 export function AdsTable({
@@ -84,6 +85,7 @@ export function AdsTable({
   sortOrder = "desc",
   onAdClick,
   onMediaClick,
+  highlightAdId,
 }: AdsTableProps) {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [togglingAdId, setTogglingAdId] = useState<string | null>(null);
@@ -130,6 +132,19 @@ export function AdsTable({
     );
     return map;
   }, [diagnosesQuery.data]);
+
+  useEffect(() => {
+    if (!highlightAdId || ads.length === 0) return;
+    const nodes = document.querySelectorAll(
+      `[data-marketing-ad="${highlightAdId}"]`,
+    );
+    for (const node of nodes) {
+      if (node instanceof HTMLElement && node.offsetParent !== null) {
+        node.scrollIntoView({ block: "center", behavior: "smooth" });
+        break;
+      }
+    }
+  }, [ads.length, highlightAdId]);
 
   const filterSignature = `${datePreset ?? ""}|${customRange?.since ?? ""}|${
     customRange?.until ?? ""
@@ -248,7 +263,12 @@ export function AdsTable({
                 onAdClick?.(ad);
               }
             }}
-            className="w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "w-full cursor-pointer text-left rounded-xl border border-border/60 bg-card p-4 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              highlightAdId === ad.id &&
+                "ring-2 ring-orange-500/50 bg-orange-500/5",
+            )}
+            data-marketing-ad={ad.id}
           >
             <div className="flex gap-3">
               <div onClick={(e) => e.stopPropagation()}>
@@ -393,7 +413,12 @@ export function AdsTable({
                 : ads.map((ad) => (
                     <TableRow
                       key={ad.id}
-                      className="cursor-pointer hover:bg-accent/40"
+                      data-marketing-ad={ad.id}
+                      className={cn(
+                        "cursor-pointer hover:bg-accent/40",
+                        highlightAdId === ad.id &&
+                          "bg-orange-500/5 ring-2 ring-inset ring-orange-500/40",
+                      )}
                       onClick={() => onAdClick?.(ad)}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>

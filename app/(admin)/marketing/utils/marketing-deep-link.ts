@@ -5,6 +5,8 @@ export type MarketingDeepLink = {
   view: string | null;
   accountId: string | null;
   campaignId: string | null;
+  adsetId: string | null;
+  adId: string | null;
   datePreset: DatePreset | null;
   since: string | null;
   until: string | null;
@@ -26,6 +28,8 @@ export function parseMarketingDeepLink(
     view: searchParams.get("view"),
     accountId: searchParams.get("accountId"),
     campaignId: searchParams.get("campaignId"),
+    adsetId: searchParams.get("adsetId"),
+    adId: searchParams.get("adId"),
     datePreset,
     since: since && until ? since : null,
     until: since && until ? until : null,
@@ -50,4 +54,22 @@ export function matchAdAccountId(
       accountDigits(account.id) === digits,
   );
   return match?.account_id ?? null;
+}
+
+export function buildMarketingAdHref(input: {
+  userId: string;
+  userEmail?: string | null;
+  accountId: string;
+  campaignId?: string | null;
+  adsetId?: string | null;
+  adId?: string | null;
+}): string {
+  const params = new URLSearchParams();
+  params.set("userId", input.userId);
+  if (input.userEmail) params.set("email", input.userEmail);
+  params.set("accountId", accountDigits(input.accountId));
+  if (input.campaignId) params.set("campaignId", input.campaignId);
+  if (input.adsetId) params.set("adsetId", input.adsetId);
+  if (input.adId) params.set("adId", input.adId);
+  return `/marketing?${params.toString()}`;
 }

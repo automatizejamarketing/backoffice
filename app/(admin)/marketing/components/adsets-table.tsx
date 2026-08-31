@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   StatusChangeNoteDialog,
@@ -56,6 +56,7 @@ type AdSetsTableProps = {
   sortMetric?: CampaignMetricId | null;
   sortOrder?: SortOrder;
   onAdSetClick: (adSet: AdSet) => void;
+  focusAdSetId?: string | null;
 };
 
 export function AdSetsTable({
@@ -69,6 +70,7 @@ export function AdSetsTable({
   sortMetric = null,
   sortOrder = "desc",
   onAdSetClick,
+  focusAdSetId,
 }: AdSetsTableProps) {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [togglingAdSetId, setTogglingAdSetId] = useState<string | null>(null);
@@ -106,6 +108,16 @@ export function AdSetsTable({
   const adSets = data?.data ?? [];
   const pagination = data?.pagination ?? null;
   const isInitialLoading = isPending;
+  const openedFocusId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!focusAdSetId || adSets.length === 0) return;
+    if (openedFocusId.current === focusAdSetId) return;
+    const match = adSets.find((adSet) => adSet.id === focusAdSetId);
+    if (!match) return;
+    openedFocusId.current = focusAdSetId;
+    onAdSetClick(match);
+  }, [adSets, focusAdSetId, onAdSetClick]);
 
   const filterSignature = `${datePreset ?? ""}|${customRange?.since ?? ""}|${
     customRange?.until ?? ""

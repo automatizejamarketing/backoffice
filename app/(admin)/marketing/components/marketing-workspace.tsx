@@ -124,9 +124,11 @@ export function MarketingWorkspace({
     if (initialUser || !showUserPicker) return;
     const userId = searchParams.get("userId");
     const email = searchParams.get("email");
-    if (!userId || !email) return;
+    if (!userId) return;
     setSelectedUser((prev) =>
-      prev?.id === userId ? prev : { id: userId, email, image_url: null },
+      prev?.id === userId
+        ? prev
+        : { id: userId, email: email ?? "", image_url: null },
     );
   }, [initialUser, searchParams, showUserPicker]);
 
@@ -513,6 +515,8 @@ export function MarketingWorkspace({
           selectedMetricIds={selectedMetricIds}
           parentDatePreset={datePreset}
           parentCustomRange={customRange}
+          focusAdSetId={deepLink.adsetId}
+          focusAdId={deepLink.adId}
         />
       )}
     </div>

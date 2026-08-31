@@ -59,6 +59,8 @@ type CampaignDetailProps = {
   selectedMetricIds?: CampaignMetricId[] | null;
   parentDatePreset?: DatePreset | null;
   parentCustomRange?: { since: string; until: string } | null;
+  focusAdSetId?: string | null;
+  focusAdId?: string | null;
 };
 
 export function CampaignDetail({
@@ -71,6 +73,8 @@ export function CampaignDetail({
   selectedMetricIds,
   parentDatePreset,
   parentCustomRange,
+  focusAdSetId,
+  focusAdId,
 }: CampaignDetailProps) {
   const [campaign, setCampaign] = useState<Campaign>(campaignProp);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -436,6 +440,7 @@ export function CampaignDetail({
                 sortMetric={adSetSortMetric}
                 sortOrder={adSetSortOrder}
                 onAdSetClick={handleAdSetClick}
+                focusAdSetId={focusAdSetId}
               />
             </section>
 
@@ -466,6 +471,7 @@ export function CampaignDetail({
           onClose={handleCloseAdSetDetail}
           parentDatePreset={datePreset}
           parentCustomRange={customRange}
+          highlightAdId={focusAdId}
         />
       )}
 

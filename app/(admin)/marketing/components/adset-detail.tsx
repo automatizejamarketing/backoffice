@@ -86,6 +86,7 @@ type AdSetDetailProps = {
   onRenamed?: () => void;
   parentDatePreset?: DatePreset | null;
   parentCustomRange?: { since: string; until: string } | null;
+  highlightAdId?: string | null;
 };
 
 export function AdSetDetail({
@@ -100,6 +101,7 @@ export function AdSetDetail({
   onRenamed,
   parentDatePreset,
   parentCustomRange,
+  highlightAdId,
 }: AdSetDetailProps) {
   const [adSet, setAdSet] = useState<AdSet>(adSetProp);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -492,6 +494,7 @@ export function AdSetDetail({
                 sortMetric={adSortMetric}
                 sortOrder={adSortOrder}
                 onMediaClick={(ad) => setSelectedAdForMedia(ad)}
+                highlightAdId={highlightAdId}
               />
             </section>
 
