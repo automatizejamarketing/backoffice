@@ -18,6 +18,7 @@ import {
   List,
   Loader2,
   Play,
+  Quote,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -58,7 +59,7 @@ import type { AdMediaItem } from "@/lib/meta-business/ad-media-types";
 import type {
   CreativeAnalysisBucket,
   CreativeAnalysisLimit,
-  CreativeAnalysisMedia,
+  CreativeAnalysisMediaKind,
   CreativeAnalysisMetricComparison,
   CreativeAnalysisSummary,
   CreativeAnalysisView,
@@ -99,43 +100,53 @@ const EMPTY_SUMMARY: CreativeAnalysisSummary = {
 
 const BUCKET_META: Record<
   CreativeAnalysisBucket,
-  { label: string; icon: typeof CheckCircle2; className: string }
+  {
+    label: string;
+    icon: typeof CheckCircle2;
+    barClassName: string;
+    badgeClassName: string;
+  }
 > = {
   positive: {
     label: "Contribuidor provável",
     icon: AlertTriangle,
-    className:
-      "border-amber-500/35 bg-amber-500/5 text-amber-800 dark:text-amber-300",
+    barClassName: "border-l-orange-500",
+    badgeClassName:
+      "border-orange-500/30 bg-orange-500/10 text-orange-800 dark:text-orange-200",
   },
   negative: {
     label: "Criativo parece ok",
     icon: CheckCircle2,
-    className:
-      "border-emerald-500/35 bg-emerald-500/5 text-emerald-800 dark:text-emerald-300",
+    barClassName: "border-l-emerald-500",
+    badgeClassName:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
   },
   pending: {
     label: "Em análise",
     icon: Clock3,
-    className:
-      "border-blue-500/35 bg-blue-500/5 text-blue-800 dark:text-blue-300",
+    barClassName: "border-l-sky-500",
+    badgeClassName:
+      "border-sky-500/30 bg-sky-500/10 text-sky-800 dark:text-sky-200",
   },
   skipped: {
     label: "Ignorado",
     icon: CircleSlash2,
-    className:
-      "border-slate-500/30 bg-slate-500/5 text-slate-700 dark:text-slate-300",
+    barClassName: "border-l-zinc-400",
+    badgeClassName:
+      "border-zinc-400/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
   },
   control: {
     label: "Controle forçado",
     icon: FlaskConical,
-    className:
-      "border-violet-500/35 bg-violet-500/5 text-violet-800 dark:text-violet-300",
+    barClassName: "border-l-violet-500",
+    badgeClassName:
+      "border-violet-500/30 bg-violet-500/10 text-violet-800 dark:text-violet-200",
   },
   failed: {
     label: "Falhou",
     icon: XCircle,
-    className:
-      "border-destructive/35 bg-destructive/5 text-destructive",
+    barClassName: "border-l-destructive",
+    badgeClassName: "border-destructive/30 bg-destructive/10 text-destructive",
   },
 };
 
@@ -155,9 +166,37 @@ const GAP_LABELS: Record<string, string> = {
   p25_view_rate_7d: "View 25% 7d",
   landing_page_rate_7d: "LP / clique 7d",
   cpa_7d: "CPA 7d",
+  cpa_14d: "CPA 14d",
   roas_7d: "ROAS 7d",
   roas_14d: "ROAS 14d",
 };
+
+const DIMENSION_LABELS: Record<string, string> = {
+  hook: "Gancho",
+  pacing: "Ritmo",
+  productVisibility: "Visibilidade do produto",
+  offerClarity: "Clareza da oferta",
+  proof: "Prova social",
+  cta: "Chamada para ação",
+  textReadability: "Legibilidade do texto",
+  audio: "Áudio",
+  duration: "Duração",
+  format: "Formato",
+};
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+  high: "alta",
+  medium: "média",
+  low: "baixa",
+};
+
+function dimensionLabel(dimension: string): string {
+  if (DIMENSION_LABELS[dimension]) return DIMENSION_LABELS[dimension];
+  return dimension
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -295,53 +334,65 @@ function MetricComparison({
   );
 }
 
+function useInViewOnce() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    if (inView) return;
+    const node = ref.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setInView(true);
+        }
+      },
+      { rootMargin: "160px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [inView]);
+  return { ref, inView };
+}
+
 function DiagnosisThumbnail({
-  media,
+  src,
+  kind,
   className,
 }: {
-  media: CreativeAnalysisMedia[];
+  src: string | null;
+  kind: CreativeAnalysisMediaKind;
   className?: string;
 }) {
-  const first = media[0];
-  if (!first) {
-    return (
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground",
-          className,
-        )}
-      >
-        <ImageIcon className="size-4" />
-      </div>
-    );
-  }
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+  const showImage = Boolean(src) && !failed;
 
   return (
     <div
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-md bg-black/80 pointer-events-none",
+        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md bg-zinc-900 pointer-events-none",
         className,
       )}
     >
-      {first.type === "video" ? (
-        <video
-          src={first.url}
-          muted
-          playsInline
-          preload="metadata"
-          className="size-full object-cover"
-        />
-      ) : (
+      {showImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={first.url}
+          src={src ?? ""}
           alt=""
           className="size-full object-cover"
+          onError={() => setFailed(true)}
         />
+      ) : kind === "video" ? (
+        <Play className="size-5 fill-white text-white" />
+      ) : (
+        <ImageIcon className="size-4 text-zinc-400" />
       )}
-      {first.type === "video" ? (
-        <span className="absolute bottom-1 right-1 rounded bg-black/70 p-0.5 text-white">
-          <Film className="size-3" />
+      {kind === "video" && showImage ? (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/40">
+          <Play className="size-4 fill-white text-white" />
         </span>
       ) : null}
     </div>
@@ -354,6 +405,22 @@ type PlayableCreative = {
   posterUrl?: string;
   permalinkUrl?: string;
 };
+
+function thumbnailFromPlayable(
+  record: CreativeAnalysisView,
+  playable: PlayableCreative[],
+): { src: string | null; kind: CreativeAnalysisMediaKind } {
+  const live = playable[0];
+  if (live?.type === "video") {
+    return { src: live.posterUrl ?? null, kind: "video" };
+  }
+  if (live?.type === "image") {
+    return { src: live.url, kind: "image" };
+  }
+  if (record.mediaKind === "video") return { src: null, kind: "video" };
+  if (record.mediaKind === "image") return { src: null, kind: "image" };
+  return { src: null, kind: "unknown" };
+}
 
 function playableFromAdMedia(items: AdMediaItem[]): PlayableCreative[] {
   const playable: PlayableCreative[] = [];
@@ -508,7 +575,7 @@ function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <Badge variant="outline" className="border-current/25 bg-background/70">
+      <Badge variant="outline" className={cn("bg-background/80", meta.badgeClassName)}>
         <StatusIcon
           className={cn(
             "size-3",
@@ -518,7 +585,9 @@ function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
         {meta.label}
       </Badge>
       {record.confidence ? (
-        <Badge variant="secondary">confiança {record.confidence}</Badge>
+        <Badge variant="secondary">
+          confiança {CONFIDENCE_LABELS[record.confidence] ?? record.confidence}
+        </Badge>
       ) : null}
       {record.siblingCount !== null ? (
         <span className="text-[11px] text-muted-foreground">
@@ -534,9 +603,33 @@ function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
     <div className="space-y-4 text-sm">
       <DiagnosisMediaPanel record={record} />
       {record.summary ? (
-        <div className="rounded-lg bg-background/75 p-4 leading-relaxed text-foreground">
-          {record.summary}
-        </div>
+        <section
+          className={cn(
+            "rounded-xl border px-4 py-4",
+            record.bucket === "positive"
+              ? "border-sky-500/30 bg-sky-500/10"
+              : record.bucket === "negative"
+                ? "border-emerald-500/25 bg-emerald-500/10"
+                : "border-border bg-muted/40",
+          )}
+        >
+          <p
+            className={cn(
+              "mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide",
+              record.bucket === "positive"
+                ? "text-sky-800 dark:text-sky-200"
+                : record.bucket === "negative"
+                  ? "text-emerald-800 dark:text-emerald-200"
+                  : "text-muted-foreground",
+            )}
+          >
+            <Quote className="size-3.5" />
+            Parecer da análise
+          </p>
+          <p className="text-base leading-relaxed text-foreground">
+            {record.summary}
+          </p>
+        </section>
       ) : record.bucket === "pending" ? (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
@@ -601,7 +694,7 @@ function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
                 key={`${gap.dimension}-${index}`}
                 className="rounded-lg border bg-background/60 p-3"
               >
-                <Badge variant="secondary">{gap.dimension}</Badge>
+                <Badge variant="secondary">{dimensionLabel(gap.dimension)}</Badge>
                 <p className="mt-2 text-foreground">{gap.finding}</p>
                 <p className="mt-1 text-muted-foreground">
                   <span className="font-medium text-foreground">Sugestão:</span>{" "}
@@ -657,18 +750,35 @@ function DiagnosisAccordion({
   onToggle: () => void;
 }) {
   const meta = BUCKET_META[record.bucket];
+  const { ref, inView } = useInViewOnce();
+  const live = useAdMedia(
+    record.accountId,
+    record.userId,
+    record.adId,
+    inView || open,
+  );
+  const playable = playableFromAdMedia(live.data?.items ?? []);
+  const thumb = thumbnailFromPlayable(record, playable);
 
   return (
-    <Card className={cn("overflow-hidden border-l-4 ring-0 border", meta.className)}>
+    <div ref={ref}>
+    <Card
+      className={cn(
+        "overflow-hidden border-l-4 bg-card text-card-foreground ring-0 border",
+        meta.barClassName,
+      )}
+    >
       <button
         type="button"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-background/40"
+        className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-muted/40"
       >
-        {record.media.length > 0 ? (
-          <DiagnosisThumbnail media={record.media} className="size-14" />
-        ) : null}
+        <DiagnosisThumbnail
+          src={thumb.src}
+          kind={thumb.kind}
+          className="size-14"
+        />
         <div className="min-w-0 flex-1 space-y-1.5">
           <DiagnosisBadges record={record} />
           <p className="truncate font-medium text-foreground">
@@ -696,11 +806,12 @@ function DiagnosisAccordion({
         />
       </button>
       {open ? (
-        <CardContent className="border-t border-current/10 pt-4">
+        <CardContent className="border-t pt-4">
           <DiagnosisDetail record={record} />
         </CardContent>
       ) : null}
     </Card>
+    </div>
   );
 }
 
@@ -712,22 +823,31 @@ function DiagnosisGridCard({
   onOpen: () => void;
 }) {
   const meta = BUCKET_META[record.bucket];
+  const { ref, inView } = useInViewOnce();
+  const live = useAdMedia(
+    record.accountId,
+    record.userId,
+    record.adId,
+    inView,
+  );
+  const playable = playableFromAdMedia(live.data?.items ?? []);
+  const thumb = thumbnailFromPlayable(record, playable);
 
   return (
+    <div ref={ref} className="h-full">
     <button
       type="button"
       onClick={onOpen}
       className={cn(
-        "flex h-full flex-col overflow-hidden rounded-xl border border-l-4 p-4 text-left transition hover:bg-background/50 hover:shadow-sm",
-        meta.className,
+        "flex h-full w-full flex-col overflow-hidden rounded-xl border border-l-4 bg-card p-4 text-left text-card-foreground transition hover:bg-muted/40 hover:shadow-sm",
+        meta.barClassName,
       )}
     >
-      {record.media.length > 0 ? (
-        <DiagnosisThumbnail
-          media={record.media}
-          className="-mx-4 -mt-4 mb-3 h-40 w-[calc(100%+2rem)] rounded-none"
-        />
-      ) : null}
+      <DiagnosisThumbnail
+        src={thumb.src}
+        kind={thumb.kind}
+        className="-mx-4 -mt-4 mb-3 h-40 w-[calc(100%+2rem)] rounded-none"
+      />
       <DiagnosisBadges record={record} />
       <p className="mt-3 truncate font-medium">Anúncio {record.adId}</p>
       <p className="truncate font-mono text-[11px] text-muted-foreground">
@@ -746,6 +866,7 @@ function DiagnosisGridCard({
         {formatDateTime(record.updatedAt)} · abrir detalhe
       </p>
     </button>
+    </div>
   );
 }
 

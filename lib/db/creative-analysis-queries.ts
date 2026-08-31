@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 
 import {
+  creativeSpecMediaKind,
   previewFromCreativeSpec,
   type CreativeAnalysisMedia,
   type CreativeAnalysisRow,
@@ -88,6 +89,9 @@ export async function listLatestCreativeDiagnoses(
     return {
       ...row,
       media: persisted.length > 0 ? persisted : previewFromCreativeSpec(spec),
+      mediaKind: persisted.some((item) => item.type === "video")
+        ? "video"
+        : creativeSpecMediaKind(spec),
     };
   });
 }
