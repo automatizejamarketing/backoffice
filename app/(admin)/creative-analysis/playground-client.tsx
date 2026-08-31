@@ -5,9 +5,14 @@ import {
   BarChart3,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronsDownUp,
+  ChevronsUpDown,
   CircleSlash2,
   Clock3,
   FlaskConical,
+  LayoutGrid,
+  List,
   Loader2,
   Play,
   RefreshCw,
@@ -23,7 +28,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -38,6 +42,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import type {
   CreativeAnalysisBucket,
@@ -278,165 +289,240 @@ function MetricComparison({
   );
 }
 
-function DiagnosisCard({ record }: { record: CreativeAnalysisView }) {
+function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
   const meta = BUCKET_META[record.bucket];
   const StatusIcon = meta.icon;
 
   return (
-    <Card className={cn("border-l-4 ring-0 border", meta.className)}>
-      <CardHeader className="border-b border-current/10">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Badge variant="outline" className="border-current/25 bg-background/70">
-            <StatusIcon
-              className={cn(
-                "size-3",
-                record.bucket === "pending" && "animate-pulse",
-              )}
-            />
-            {meta.label}
-          </Badge>
-          {record.confidence ? (
-            <Badge variant="secondary">
-              confiança {record.confidence}
-            </Badge>
-          ) : null}
-          {record.siblingCount !== null ? (
-            <span className="text-[11px] text-muted-foreground">
-              {record.siblingCount} irmão(s) comparável(is)
-            </span>
-          ) : null}
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <Badge variant="outline" className="border-current/25 bg-background/70">
+        <StatusIcon
+          className={cn(
+            "size-3",
+            record.bucket === "pending" && "animate-pulse",
+          )}
+        />
+        {meta.label}
+      </Badge>
+      {record.confidence ? (
+        <Badge variant="secondary">confiança {record.confidence}</Badge>
+      ) : null}
+      {record.siblingCount !== null ? (
+        <span className="text-[11px] text-muted-foreground">
+          {record.siblingCount} irmão(s)
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
+  return (
+    <div className="space-y-4 text-sm">
+      {record.summary ? (
+        <div className="rounded-lg bg-background/75 p-4 leading-relaxed text-foreground">
+          {record.summary}
         </div>
-        <CardTitle className="mt-2 flex flex-wrap items-baseline gap-x-2 text-base">
-          <span>Anúncio {record.adId}</span>
-          <span className="font-mono text-[11px] font-normal text-muted-foreground">
-            conta {record.accountId}
-          </span>
-        </CardTitle>
-        <CardDescription>
-          {record.userName || "Usuário sem nome"} ·{" "}
-          {record.userEmail || record.userId}
-        </CardDescription>
-        <CardAction className="text-right text-[10px] text-muted-foreground">
-          <p>Atualizado {formatDateTime(record.updatedAt)}</p>
-          <p>Criado {formatDateTime(record.createdAt)}</p>
-        </CardAction>
-      </CardHeader>
+      ) : record.bucket === "pending" ? (
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          O workflow recebeu o diagnóstico e ainda está processando.
+        </div>
+      ) : null}
 
-      <CardContent className="space-y-4">
-        {record.summary ? (
-          <div className="rounded-lg bg-background/75 p-4 text-sm leading-relaxed text-foreground">
-            {record.summary}
-          </div>
-        ) : record.bucket === "pending" ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            O workflow recebeu o diagnóstico e ainda está processando.
-          </div>
-        ) : null}
-
-        {record.evidenceGaps.length > 0 || record.citations.length > 0 ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            <section className="rounded-lg border bg-background/60 p-3">
-              <h3 className="mb-2 flex items-center gap-2 font-medium text-foreground">
-                <BarChart3 className="size-3.5" />
-                Gaps de evidência
-              </h3>
-              <div className="flex flex-wrap gap-1.5">
-                {record.evidenceGaps.map((gap) => (
-                  <Badge key={gap} variant="outline">
-                    {GAP_LABELS[gap] ?? gap}
-                  </Badge>
-                ))}
-              </div>
-            </section>
-            <section className="rounded-lg border bg-background/60 p-3">
-              <h3 className="mb-2 font-medium text-foreground">Citações</h3>
-              <ul className="space-y-1.5 text-muted-foreground">
-                {record.citations.map((citation) => (
-                  <li key={citation} className="flex gap-2">
-                    <span aria-hidden>↳</span>
-                    <span>{citation}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-        ) : null}
-
-        {record.metricComparisons.length > 0 ? (
-          <section>
-            <h3 className="mb-2 font-medium text-foreground">
-              Comparações métricas
-            </h3>
-            <div className="grid gap-2 lg:grid-cols-2">
-              {record.metricComparisons.map((comparison) => (
-                <MetricComparison
-                  key={`${comparison.window}-${comparison.metric}`}
-                  comparison={comparison}
-                />
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        {record.craftGaps.length > 0 ? (
-          <section>
+      {record.evidenceGaps.length > 0 || record.citations.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <section className="rounded-lg border bg-background/60 p-3">
             <h3 className="mb-2 flex items-center gap-2 font-medium text-foreground">
-              <Sparkles className="size-3.5" />
-              Gaps de craft e sugestões
+              <BarChart3 className="size-3.5" />
+              Gaps de evidência
             </h3>
-            <div className="grid gap-2 md:grid-cols-2">
-              {record.craftGaps.map((gap, index) => (
-                <div
-                  key={`${gap.dimension}-${index}`}
-                  className="rounded-lg border bg-background/60 p-3"
-                >
-                  <Badge variant="secondary">{gap.dimension}</Badge>
-                  <p className="mt-2 text-foreground">{gap.finding}</p>
-                  <p className="mt-1 text-muted-foreground">
-                    <span className="font-medium text-foreground">
-                      Sugestão:
-                    </span>{" "}
-                    {gap.suggestion}
-                  </p>
-                </div>
+            <div className="flex flex-wrap gap-1.5">
+              {record.evidenceGaps.map((gap) => (
+                <Badge key={gap} variant="outline">
+                  {GAP_LABELS[gap] ?? gap}
+                </Badge>
               ))}
             </div>
           </section>
-        ) : null}
-
-        {record.alternativeExplanations.length > 0 ? (
-          <section className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-            <h3 className="mb-2 font-medium text-foreground">
-              Explicações alternativas
-            </h3>
-            <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
-              {record.alternativeExplanations.map((explanation) => (
-                <li key={explanation}>{explanation}</li>
+          <section className="rounded-lg border bg-background/60 p-3">
+            <h3 className="mb-2 font-medium text-foreground">Citações</h3>
+            <ul className="space-y-1.5 text-muted-foreground">
+              {record.citations.map((citation) => (
+                <li key={citation} className="flex gap-2">
+                  <span aria-hidden>↳</span>
+                  <span>{citation}</span>
+                </li>
               ))}
             </ul>
           </section>
-        ) : null}
-
-        {record.errorMessage &&
-        record.errorMessage !== "forced_control" ? (
-          <p className="rounded-md bg-background/70 p-3 font-mono text-[11px] text-muted-foreground">
-            Motivo: {record.errorMessage}
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-current/10 pt-3 text-[10px] text-muted-foreground">
-          <span>campanha {record.campaignId ?? "—"}</span>
-          <span>conjunto {record.adsetId ?? "—"}</span>
-          <span>criativo {record.creativeId}</span>
-          <span>
-            janela {record.metricWindowStart} → {record.metricWindowEnd}
-          </span>
-          <span>rubric {record.rubricVersion}</span>
-          <span>modelo {record.modelId}</span>
         </div>
-      </CardContent>
+      ) : null}
+
+      {record.metricComparisons.length > 0 ? (
+        <section>
+          <h3 className="mb-2 font-medium text-foreground">
+            Comparações métricas
+          </h3>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {record.metricComparisons.map((comparison) => (
+              <MetricComparison
+                key={`${comparison.window}-${comparison.metric}`}
+                comparison={comparison}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {record.craftGaps.length > 0 ? (
+        <section>
+          <h3 className="mb-2 flex items-center gap-2 font-medium text-foreground">
+            <Sparkles className="size-3.5" />
+            Gaps de craft e sugestões
+          </h3>
+          <div className="grid gap-2 md:grid-cols-2">
+            {record.craftGaps.map((gap, index) => (
+              <div
+                key={`${gap.dimension}-${index}`}
+                className="rounded-lg border bg-background/60 p-3"
+              >
+                <Badge variant="secondary">{gap.dimension}</Badge>
+                <p className="mt-2 text-foreground">{gap.finding}</p>
+                <p className="mt-1 text-muted-foreground">
+                  <span className="font-medium text-foreground">Sugestão:</span>{" "}
+                  {gap.suggestion}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {record.alternativeExplanations.length > 0 ? (
+        <section className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+          <h3 className="mb-2 font-medium text-foreground">
+            Explicações alternativas
+          </h3>
+          <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
+            {record.alternativeExplanations.map((explanation) => (
+              <li key={explanation}>{explanation}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {record.errorMessage && record.errorMessage !== "forced_control" ? (
+        <p className="rounded-md bg-background/70 p-3 font-mono text-[11px] text-muted-foreground">
+          Motivo: {record.errorMessage}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-current/10 pt-3 text-[10px] text-muted-foreground">
+        <span>campanha {record.campaignId ?? "—"}</span>
+        <span>conjunto {record.adsetId ?? "—"}</span>
+        <span>criativo {record.creativeId}</span>
+        <span>
+          janela {record.metricWindowStart} → {record.metricWindowEnd}
+        </span>
+        <span>rubric {record.rubricVersion}</span>
+        <span>modelo {record.modelId}</span>
+        <span>criado {formatDateTime(record.createdAt)}</span>
+      </div>
+    </div>
+  );
+}
+
+function DiagnosisAccordion({
+  record,
+  open,
+  onToggle,
+}: {
+  record: CreativeAnalysisView;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const meta = BUCKET_META[record.bucket];
+
+  return (
+    <Card className={cn("overflow-hidden border-l-4 ring-0 border", meta.className)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-background/40"
+      >
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <DiagnosisBadges record={record} />
+          <p className="truncate font-medium text-foreground">
+            Anúncio {record.adId}
+            <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
+              {record.accountId}
+            </span>
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {record.userName || "Usuário sem nome"} ·{" "}
+            {record.userEmail || record.userId} · atualizado{" "}
+            {formatDateTime(record.updatedAt)}
+          </p>
+          {!open && record.summary ? (
+            <p className="line-clamp-2 text-sm leading-relaxed text-foreground/90">
+              {record.summary}
+            </p>
+          ) : null}
+        </div>
+        <ChevronDown
+          className={cn(
+            "mt-1 size-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open ? (
+        <CardContent className="border-t border-current/10 pt-4">
+          <DiagnosisDetail record={record} />
+        </CardContent>
+      ) : null}
     </Card>
+  );
+}
+
+function DiagnosisGridCard({
+  record,
+  onOpen,
+}: {
+  record: CreativeAnalysisView;
+  onOpen: () => void;
+}) {
+  const meta = BUCKET_META[record.bucket];
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        "flex h-full flex-col rounded-xl border border-l-4 p-4 text-left transition hover:bg-background/50 hover:shadow-sm",
+        meta.className,
+      )}
+    >
+      <DiagnosisBadges record={record} />
+      <p className="mt-3 truncate font-medium">Anúncio {record.adId}</p>
+      <p className="truncate font-mono text-[11px] text-muted-foreground">
+        {record.accountId}
+      </p>
+      <p className="mt-1 truncate text-[11px] text-muted-foreground">
+        {record.userName || "Usuário sem nome"}
+      </p>
+      <p className="mt-3 line-clamp-3 min-h-[4.5rem] flex-1 text-sm leading-relaxed">
+        {record.summary ||
+          (record.bucket === "pending"
+            ? "Processando…"
+            : "Sem resumo disponível.")}
+      </p>
+      <p className="mt-3 text-[10px] text-muted-foreground">
+        {formatDateTime(record.updatedAt)} · abrir detalhe
+      </p>
+    </button>
   );
 }
 
@@ -497,6 +583,9 @@ export function CreativeAnalysisPlayground() {
   const [bucket, setBucket] = useState<CreativeAnalysisBucket | "all">("all");
   const [confidence, setConfidence] = useState("all");
   const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [openIds, setOpenIds] = useState<string[]>([]);
+  const [sheetId, setSheetId] = useState<string | null>(null);
   const [pollingDeadline, setPollingDeadline] = useState<number | null>(null);
   const zeroPendingPolls = useRef(0);
 
@@ -622,6 +711,19 @@ export function CreativeAnalysisPlayground() {
       ].some((value) => value?.toLowerCase().includes(normalizedQuery));
     });
   }, [bucket, confidence, data.records, query]);
+
+  const sheetRecord = useMemo(
+    () => data.records.find((record) => record.id === sheetId) ?? null,
+    [data.records, sheetId],
+  );
+
+  const toggleOpen = (id: string) => {
+    setOpenIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  };
 
   return (
     <main className="mx-auto flex w-full max-w-[1500px] flex-col gap-6">
@@ -898,49 +1000,113 @@ export function CreativeAnalysisPlayground() {
         />
       </section>
 
-      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar por anúncio, conta, campanha, usuário ou email"
-            className="h-8 pl-8"
-          />
+      <div className="flex flex-col gap-3 rounded-xl border bg-card p-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar por anúncio, conta, campanha, usuário ou email"
+              className="h-8 pl-8"
+            />
+          </div>
+          <Select value={confidence} onValueChange={setConfidence}>
+            <SelectTrigger className="h-8 w-full sm:w-44">
+              <SelectValue placeholder="Confiança" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Toda confiança</SelectItem>
+              <SelectItem value="high">Alta</SelectItem>
+              <SelectItem value="medium">Média</SelectItem>
+              <SelectItem value="low">Baixa</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex items-center gap-2 px-2 text-[11px] text-muted-foreground">
+            {pollingDeadline !== null ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                acompanhando workflows
+              </>
+            ) : (
+              `${visibleRecords.length} resultado(s)`
+            )}
+          </div>
         </div>
-        <Select value={confidence} onValueChange={setConfidence}>
-          <SelectTrigger className="h-8 w-full sm:w-44">
-            <SelectValue placeholder="Confiança" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Toda confiança</SelectItem>
-            <SelectItem value="high">Alta</SelectItem>
-            <SelectItem value="medium">Média</SelectItem>
-            <SelectItem value="low">Baixa</SelectItem>
-          </SelectContent>
-        </Select>
-        <div className="flex items-center gap-2 px-2 text-[11px] text-muted-foreground">
-          {pollingDeadline !== null ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border p-0.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === "list" ? "secondary" : "ghost"}
+              className="h-7"
+              onClick={() => setViewMode("list")}
+            >
+              <List />
+              Lista
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              className="h-7"
+              onClick={() => setViewMode("grid")}
+            >
+              <LayoutGrid />
+              Grade
+            </Button>
+          </div>
+          {viewMode === "list" ? (
             <>
-              <Loader2 className="size-3.5 animate-spin" />
-              acompanhando workflows
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7"
+                disabled={visibleRecords.length === 0}
+                onClick={() =>
+                  setOpenIds(visibleRecords.map((record) => record.id))
+                }
+              >
+                <ChevronsUpDown />
+                Abrir todos
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7"
+                disabled={openIds.length === 0}
+                onClick={() => setOpenIds([])}
+              >
+                <ChevronsDownUp />
+                Fechar todos
+              </Button>
             </>
           ) : (
-            `${visibleRecords.length} resultado(s)`
+            <p className="text-[11px] text-muted-foreground">
+              Clique no card para abrir o diagnóstico completo.
+            </p>
           )}
         </div>
       </div>
 
-      <section className="space-y-4">
+      <section
+        className={cn(
+          viewMode === "grid"
+            ? "grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+            : "space-y-2",
+        )}
+      >
         {loading ? (
-          <Card className="items-center py-14">
+          <Card className="col-span-full items-center py-14">
             <Loader2 className="size-6 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               Carregando diagnósticos…
             </p>
           </Card>
         ) : visibleRecords.length === 0 ? (
-          <Card className="items-center py-14 text-center">
+          <Card className="col-span-full items-center py-14 text-center">
             <CircleSlash2 className="size-7 text-muted-foreground" />
             <div>
               <p className="font-medium">Nenhum diagnóstico neste recorte</p>
@@ -949,12 +1115,55 @@ export function CreativeAnalysisPlayground() {
               </p>
             </div>
           </Card>
+        ) : viewMode === "grid" ? (
+          visibleRecords.map((record) => (
+            <DiagnosisGridCard
+              key={record.id}
+              record={record}
+              onOpen={() => setSheetId(record.id)}
+            />
+          ))
         ) : (
           visibleRecords.map((record) => (
-            <DiagnosisCard key={record.id} record={record} />
+            <DiagnosisAccordion
+              key={record.id}
+              record={record}
+              open={openIds.includes(record.id)}
+              onToggle={() => toggleOpen(record.id)}
+            />
           ))
         )}
       </section>
+
+      <Sheet
+        open={sheetRecord !== null}
+        onOpenChange={(open) => {
+          if (!open) setSheetId(null);
+        }}
+      >
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto sm:max-w-2xl"
+        >
+          {sheetRecord ? (
+            <>
+              <SheetHeader className="pr-8 text-left">
+                <SheetTitle>Anúncio {sheetRecord.adId}</SheetTitle>
+                <SheetDescription>
+                  {sheetRecord.userName || "Usuário sem nome"} · conta{" "}
+                  {sheetRecord.accountId}
+                </SheetDescription>
+              </SheetHeader>
+              <div className="mt-4">
+                <DiagnosisBadges record={sheetRecord} />
+                <div className="mt-4">
+                  <DiagnosisDetail record={sheetRecord} />
+                </div>
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </main>
   );
 }
