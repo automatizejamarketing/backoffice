@@ -115,6 +115,44 @@ function asFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function httpUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !/^https?:\/\//i.test(value.trim())) {
+    return null;
+  }
+  return value.trim();
+}
+
+export function previewFromCreativeSpec(
+  spec: unknown,
+): CreativeAnalysisMedia[] {
+  const record = asRecord(spec);
+  if (!record) return [];
+  const story = asRecord(record.object_story_spec);
+  const video = asRecord(story?.video_data);
+  const link = asRecord(story?.link_data);
+  const asset = asRecord(record.asset_feed_spec);
+  const media: CreativeAnalysisMedia[] = [];
+  const push = (type: CreativeAnalysisMedia["type"], url: string | null) => {
+    if (!url || media.some((item) => item.url === url)) return;
+    media.push({ type, order: media.length, url });
+  };
+  push("image", httpUrl(record.thumbnail_url));
+  push("image", httpUrl(record.image_url));
+  push("image", httpUrl(video?.image_url));
+  push("image", httpUrl(link?.picture));
+  if (Array.isArray(asset?.images)) {
+    for (const image of asset.images) {
+      push("image", httpUrl(asRecord(image)?.url));
+    }
+  }
+  if (Array.isArray(link?.child_attachments)) {
+    for (const child of link.child_attachments) {
+      push("image", httpUrl(asRecord(child)?.picture));
+    }
+  }
+  return media.slice(0, 4);
+}
+
 function toIso(value: Date | string): string {
   if (value instanceof Date) return value.toISOString();
   const parsed = new Date(value);

@@ -1,12 +1,14 @@
 import { desc, eq } from "drizzle-orm";
 
-import type {
-  CreativeAnalysisMedia,
-  CreativeAnalysisRow,
+import {
+  previewFromCreativeSpec,
+  type CreativeAnalysisMedia,
+  type CreativeAnalysisRow,
 } from "@/lib/creative-analysis/playground";
 import { db } from "@/lib/db";
 import {
   creativeDiagnosis,
+  metaTrackingCreative,
   user,
   type CreativeDiagnosisMediaItem,
 } from "@/lib/db/schema";
@@ -68,16 +70,24 @@ export async function listLatestCreativeDiagnoses(
       evidence: creativeDiagnosis.evidence,
       diagnosis: creativeDiagnosis.diagnosis,
       mediaItems: creativeDiagnosis.mediaItems,
+      spec: metaTrackingCreative.spec,
       createdAt: creativeDiagnosis.createdAt,
       updatedAt: creativeDiagnosis.updatedAt,
     })
     .from(creativeDiagnosis)
     .leftJoin(user, eq(creativeDiagnosis.userId, user.id))
+    .leftJoin(
+      metaTrackingCreative,
+      eq(creativeDiagnosis.creativeId, metaTrackingCreative.id),
+    )
     .orderBy(desc(creativeDiagnosis.updatedAt))
     .limit(Math.max(1, Math.min(100, limit)));
 
-  return rows.map(({ mediaItems, ...row }) => ({
-    ...row,
-    media: toPublicMedia(mediaItems),
-  }));
+  return rows.map(({ mediaItems, spec, ...row }) => {
+    const persisted = toPublicMedia(mediaItems);
+    return {
+      ...row,
+      media: persisted.length > 0 ? persisted : previewFromCreativeSpec(spec),
+    };
+  });
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   parseCreativeAnalysisRequest,
+  previewFromCreativeSpec,
   summarizeCreativeAnalyses,
   type CreativeAnalysisRow,
 } from "./playground";
@@ -192,6 +193,20 @@ describe("summarizeCreativeAnalyses", () => {
     ];
     const result = summarizeCreativeAnalyses([row({ media })]);
     expect(result.records[0]?.media).toEqual(media);
+  });
+
+  test("extracts a tracking spec poster when diagnosis media was deleted", () => {
+    expect(
+      previewFromCreativeSpec({
+        thumbnail_url: "https://cdn.meta/thumb.jpg",
+        object_story_spec: {
+          video_data: { image_url: "https://cdn.meta/poster.jpg" },
+        },
+      }),
+    ).toEqual([
+      { type: "image", order: 0, url: "https://cdn.meta/thumb.jpg" },
+      { type: "image", order: 1, url: "https://cdn.meta/poster.jpg" },
+    ]);
   });
 
   test("does not expose arbitrary persisted failure details", () => {
