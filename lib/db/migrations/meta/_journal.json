@@ -323,6 +323,13 @@
       "when": 1794500000000,
       "tag": "0061_creative_diagnoses",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794600000000,
+      "tag": "0062_comment_automation_opt_in",
+      "breakpoints": true
     }
   ]
 }

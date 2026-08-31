@@ -1233,6 +1233,7 @@ export const instagramAccount = pgTable(
     mediaCount: integer("media_count"),
     accessToken: text("access_token").notNull(),
     tokenExpiresAt: timestamp("token_expires_at"),
+    needsReconnectAt: timestamp("needs_reconnect_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     deletedAt: timestamp("deleted_at"),
@@ -1245,6 +1246,175 @@ export const instagramAccount = pgTable(
 );
 
 export type InstagramAccount = InferSelectModel<typeof instagramAccount>;
+
+/**
+ * Evento de Webhook do Instagram — notificação assinada persistida com chave
+ * de dedupe por evento. A Meta reenvia por até 36h e agrupa até 1000 entries
+ * por POST; o índice único de `dedupe_key` impede segunda linha.
+ */
+export const instagramWebhookEvent = pgTable(
+  "instagram_webhook_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    field: varchar("field", { length: 64 }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    dedupeKey: varchar("dedupe_key", { length: 255 }).notNull(),
+    receivedAt: timestamp("received_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    dedupeKeyUnique: unique("instagram_webhook_events_dedupe_key_unique").on(
+      table.dedupeKey,
+    ),
+    receivedAtIdx: index("instagram_webhook_events_received_at_idx").on(
+      table.receivedAt,
+    ),
+  }),
+);
+
+export type InstagramWebhookEvent = InferSelectModel<
+  typeof instagramWebhookEvent
+>;
+
+/**
+ * Automação de Comentário→DM. Status and postSelector are strings
+ * (no Postgres enum). At most one active row per Post Alvo.
+ */
+export const instagramCommentAutomation = pgTable(
+  "instagram_comment_automations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    instagramAccountId: text("instagram_account_id")
+      .notNull()
+      .references(() => instagramAccount.id),
+    postSelector: varchar("post_selector", { length: 32 })
+      .notNull()
+      .default("specific"),
+    targetMediaId: text("target_media_id").notNull(),
+    targetPermalink: text("target_permalink"),
+    targetCaption: text("target_caption"),
+    targetThumbnailUrl: text("target_thumbnail_url"),
+    commentMatch: jsonb("comment_match")
+      .$type<{ mode: "any" | "contains_any"; keywords: string[] }>()
+      .notNull(),
+    publicReplies: jsonb("public_replies").$type<string[]>().notNull(),
+    openingDm: jsonb("opening_dm")
+      .$type<{ enabled: boolean; text: string; buttonLabel: string }>()
+      .notNull(),
+    deliveryDm: jsonb("delivery_dm")
+      .$type<{
+        text: string;
+        links: Array<{ label: string; url: string }>;
+      }>()
+      .notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("draft"),
+    suspensionReason: text("suspension_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("instagram_comment_automations_user_id_idx").on(table.userId),
+    accountStatusIdx: index(
+      "instagram_comment_automations_account_status_idx",
+    ).on(table.instagramAccountId, table.status),
+    oneActivePerMedia: uniqueIndex(
+      "instagram_comment_automations_one_active_media",
+    )
+      .on(table.instagramAccountId, table.targetMediaId)
+      .where(sql`${table.status} = 'active'`),
+  }),
+);
+
+export type InstagramCommentAutomation = InferSelectModel<
+  typeof instagramCommentAutomation
+>;
+
+/** Once-per-user-per-post claim. Survives pause and edit of the automation. */
+export const instagramCommentAutomationClaim = pgTable(
+  "instagram_comment_automation_claims",
+  {
+    mediaId: text("media_id").notNull(),
+    commenterIgsid: text("commenter_igsid").notNull(),
+    claimedAt: timestamp("claimed_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.mediaId, table.commenterIgsid] }),
+  }),
+);
+
+export type InstagramCommentAutomationClaim = InferSelectModel<
+  typeof instagramCommentAutomationClaim
+>;
+
+/** Execução — one row per Comentário Elegível that fired. */
+export const instagramCommentAutomationExecution = pgTable(
+  "instagram_comment_automation_executions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => instagramCommentAutomation.id),
+    commentId: text("comment_id").notNull(),
+    commenterIgsid: text("commenter_igsid").notNull(),
+    commenterUsername: text("commenter_username"),
+    mediaId: text("media_id").notNull(),
+    matchedAt: timestamp("matched_at"),
+    publicReplySentAt: timestamp("public_reply_sent_at"),
+    publicReplyText: text("public_reply_text"),
+    privateReplySentAt: timestamp("private_reply_sent_at"),
+    optedInAt: timestamp("opted_in_at"),
+    deliverySentAt: timestamp("delivery_sent_at"),
+    failedAt: timestamp("failed_at"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    commentIdUnique: unique(
+      "instagram_comment_automation_executions_comment_id_unique",
+    ).on(table.commentId),
+    automationIdx: index(
+      "instagram_comment_automation_executions_automation_idx",
+    ).on(table.automationId),
+    commenterIdx: index(
+      "instagram_comment_automation_executions_commenter_idx",
+    ).on(table.commenterIgsid),
+  }),
+);
+
+export type InstagramCommentAutomationExecution = InferSelectModel<
+  typeof instagramCommentAutomationExecution
+>;
+
+/** Outbox job created on webhook ingest (pipeline B2). */
+export const instagramCommentAutomationJob = pgTable(
+  "instagram_comment_automation_jobs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    commentId: text("comment_id").notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+    lastError: text("last_error"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    commentIdUnique: unique(
+      "instagram_comment_automation_jobs_comment_id_unique",
+    ).on(table.commentId),
+    dueIdx: index("instagram_comment_automation_jobs_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+  }),
+);
+
+export type InstagramCommentAutomationJob = InferSelectModel<
+  typeof instagramCommentAutomationJob
+>;
 
 // Meta Business Account table for storing Facebook/BISU connections (Marketing API)
 export const metaBusinessAccount = pgTable(
