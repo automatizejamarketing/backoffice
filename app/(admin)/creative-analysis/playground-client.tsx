@@ -10,6 +10,7 @@ import {
   ChevronsUpDown,
   CircleSlash2,
   Clock3,
+  ExternalLink,
   Film,
   FlaskConical,
   ImageIcon,
@@ -52,6 +53,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import { useAdMedia } from "@/app/(admin)/marketing/hooks/use-ad-media";
+import type { AdMediaItem } from "@/lib/meta-business/ad-media-types";
 import type {
   CreativeAnalysisBucket,
   CreativeAnalysisLimit,
@@ -345,16 +348,68 @@ function DiagnosisThumbnail({
   );
 }
 
-function DiagnosisMediaPanel({ media }: { media: CreativeAnalysisMedia[] }) {
-  const [visible, setVisible] = useState(true);
-  if (media.length === 0) return null;
+function playableFromAdMedia(items: AdMediaItem[]): Array<{
+  type: "image" | "video";
+  url: string;
+  posterUrl?: string;
+  permalinkUrl?: string;
+}> {
+  return items.flatMap((item) => {
+    if (item.kind === "video" && item.previewUrl && item.videoStatus !== "error") {
+      return [
+        {
+          type: "video" as const,
+          url: item.previewUrl,
+          posterUrl: item.posterUrl,
+          permalinkUrl: item.permalinkUrl,
+        },
+      ];
+    }
+    if (item.kind === "image" && item.previewUrl) {
+      return [{ type: "image" as const, url: item.previewUrl }];
+    }
+    if (item.posterUrl) {
+      return [
+        {
+          type: "image" as const,
+          url: item.posterUrl,
+          permalinkUrl: item.permalinkUrl,
+        },
+      ];
+    }
+    return [];
+  });
+}
 
-  const label =
-    media.length === 1
-      ? media[0]?.type === "video"
+function DiagnosisMediaPanel({ record }: { record: CreativeAnalysisView }) {
+  const [visible, setVisible] = useState(true);
+  const live = useAdMedia(
+    record.accountId,
+    record.userId,
+    record.adId,
+    visible,
+  );
+  const liveItems = playableFromAdMedia(live.data?.items ?? []);
+  const playable =
+    liveItems.length > 0
+      ? liveItems
+      : record.media.map((item) => ({
+          type: item.type,
+          url: item.url,
+        }));
+  const permalink = live.data?.items?.find((item) => item.permalinkUrl)
+    ?.permalinkUrl;
+  const label = live.isLoading
+    ? "carregando"
+    : playable.some((item) => item.type === "video")
+      ? playable.length === 1
         ? "Vídeo"
-        : "Imagem"
-      : `${media.length} peças`;
+        : `${playable.length} peças`
+      : playable.length === 1
+        ? "Imagem"
+        : playable.length > 1
+          ? `${playable.length} peças`
+          : "mídia";
 
   return (
     <section className="overflow-hidden rounded-lg border bg-background/60">
@@ -365,7 +420,7 @@ function DiagnosisMediaPanel({ media }: { media: CreativeAnalysisMedia[] }) {
         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-background/70"
       >
         <span className="flex items-center gap-2 font-medium text-foreground">
-          {media[0]?.type === "video" ? (
+          {playable.some((item) => item.type === "video") ? (
             <Film className="size-3.5" />
           ) : (
             <ImageIcon className="size-3.5" />
@@ -384,32 +439,58 @@ function DiagnosisMediaPanel({ media }: { media: CreativeAnalysisMedia[] }) {
         </span>
       </button>
       {visible ? (
-        <div
-          className={cn(
-            "border-t border-current/10 p-3",
-            media.length > 1 && "grid gap-2 sm:grid-cols-2",
+        <div className="border-t border-current/10 p-3">
+          {live.isLoading && playable.length === 0 ? (
+            <div className="flex h-64 items-center justify-center rounded-md bg-black/40 text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" />
+              <span className="ml-2 text-sm">Carregando o criativo…</span>
+            </div>
+          ) : playable.length > 0 ? (
+            <div
+              className={cn(
+                playable.length > 1 && "grid gap-2 sm:grid-cols-2",
+              )}
+            >
+              {playable.map((item, index) =>
+                item.type === "video" ? (
+                  <video
+                    key={`${item.url}-${index}`}
+                    src={item.url}
+                    poster={item.posterUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="max-h-[28rem] w-full rounded-md bg-black object-contain"
+                  />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`${item.url}-${index}`}
+                    src={item.url}
+                    alt={`Criativo ${index + 1}`}
+                    className="max-h-[28rem] w-full rounded-md bg-muted object-contain"
+                  />
+                ),
+              )}
+            </div>
+          ) : (
+            <p className="rounded-md bg-muted/40 px-3 py-8 text-center text-sm text-muted-foreground">
+              {live.isError
+                ? "Não foi possível buscar a mídia deste anúncio na Meta."
+                : "Este diagnóstico não tem mídia reproduzível agora."}
+            </p>
           )}
-        >
-          {media.map((item) =>
-            item.type === "video" ? (
-              <video
-                key={`${item.order}-${item.url}`}
-                src={item.url}
-                controls
-                playsInline
-                preload="metadata"
-                className="max-h-80 w-full rounded-md bg-black object-contain"
-              />
-            ) : (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={`${item.order}-${item.url}`}
-                src={item.url}
-                alt={`Criativo ${item.order + 1}`}
-                className="max-h-80 w-full rounded-md bg-muted object-contain"
-              />
-            ),
-          )}
+          {permalink ? (
+            <a
+              href={permalink}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="size-3" />
+              Abrir publicação original
+            </a>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -446,7 +527,7 @@ function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
 function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
   return (
     <div className="space-y-4 text-sm">
-      <DiagnosisMediaPanel media={record.media} />
+      <DiagnosisMediaPanel record={record} />
       {record.summary ? (
         <div className="rounded-lg bg-background/75 p-4 leading-relaxed text-foreground">
           {record.summary}
