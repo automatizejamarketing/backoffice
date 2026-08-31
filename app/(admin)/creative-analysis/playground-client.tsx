@@ -395,7 +395,7 @@ function DiagnosisMediaPanel({ record }: { record: CreativeAnalysisView }) {
     visible,
   );
   const liveItems = playableFromAdMedia(live.data?.items ?? []);
-  const playable =
+  const playable: PlayableCreative[] =
     liveItems.length > 0
       ? liveItems
       : record.media.map((item) => ({
