@@ -348,37 +348,42 @@ function DiagnosisThumbnail({
   );
 }
 
-function playableFromAdMedia(items: AdMediaItem[]): Array<{
+type PlayableCreative = {
   type: "image" | "video";
   url: string;
   posterUrl?: string;
   permalinkUrl?: string;
-}> {
-  return items.flatMap((item) => {
-    if (item.kind === "video" && item.previewUrl && item.videoStatus !== "error") {
-      return [
-        {
-          type: "video" as const,
-          url: item.previewUrl,
-          posterUrl: item.posterUrl,
-          permalinkUrl: item.permalinkUrl,
-        },
-      ];
+};
+
+function playableFromAdMedia(items: AdMediaItem[]): PlayableCreative[] {
+  const playable: PlayableCreative[] = [];
+  for (const item of items) {
+    if (
+      item.kind === "video" &&
+      item.previewUrl &&
+      item.videoStatus !== "error"
+    ) {
+      playable.push({
+        type: "video",
+        url: item.previewUrl,
+        posterUrl: item.posterUrl,
+        permalinkUrl: item.permalinkUrl,
+      });
+      continue;
     }
     if (item.kind === "image" && item.previewUrl) {
-      return [{ type: "image" as const, url: item.previewUrl }];
+      playable.push({ type: "image", url: item.previewUrl });
+      continue;
     }
     if (item.posterUrl) {
-      return [
-        {
-          type: "image" as const,
-          url: item.posterUrl,
-          permalinkUrl: item.permalinkUrl,
-        },
-      ];
+      playable.push({
+        type: "image",
+        url: item.posterUrl,
+        permalinkUrl: item.permalinkUrl,
+      });
     }
-    return [];
-  });
+  }
+  return playable;
 }
 
 function DiagnosisMediaPanel({ record }: { record: CreativeAnalysisView }) {
