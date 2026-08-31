@@ -33,6 +33,12 @@ export type CreativeAnalysisCraftGap = {
   suggestion: string;
 };
 
+export type CreativeAnalysisMedia = {
+  type: "image" | "video";
+  order: number;
+  url: string;
+};
+
 export type CreativeAnalysisRow = {
   id: string;
   userId: string;
@@ -54,6 +60,7 @@ export type CreativeAnalysisRow = {
   errorMessage: string | null;
   evidence: unknown;
   diagnosis: unknown;
+  media: CreativeAnalysisMedia[];
   createdAt: Date | string;
   updatedAt: Date | string;
 };
@@ -308,6 +315,7 @@ export function buildCreativeAnalysisView(
   void _diagnosis;
   return {
     ...identity,
+    media: Array.isArray(row.media) ? row.media : [],
     errorMessage: safeErrorMessage(row.errorMessage),
     bucket: bucketCreativeAnalysis(row),
     summary:

@@ -30,6 +30,7 @@ function row(
     errorMessage: null,
     evidence: {},
     diagnosis: {},
+    media: [],
     createdAt: new Date("2026-08-30T12:00:00Z"),
     updatedAt: new Date("2026-08-30T12:05:00Z"),
     ...overrides,
@@ -179,6 +180,18 @@ describe("summarizeCreativeAnalyses", () => {
         deltaPercent: -50,
       },
     ]);
+  });
+
+  test("passes through persisted diagnosis media urls", () => {
+    const media = [
+      {
+        type: "video" as const,
+        order: 0,
+        url: "https://media.example/creative.mp4",
+      },
+    ];
+    const result = summarizeCreativeAnalyses([row({ media })]);
+    expect(result.records[0]?.media).toEqual(media);
   });
 
   test("does not expose arbitrary persisted failure details", () => {
