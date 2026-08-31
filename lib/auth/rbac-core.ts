@@ -22,6 +22,7 @@ export type BackofficePermission =
   | "trackable-links:manage"
   | "masterclass:manage"
   | "products:manage"
+  | "creative-analysis:manage"
   | "team:manage";
 
 export type BackofficeActorSource =
@@ -81,6 +82,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "trackable-links:manage",
     "masterclass:manage",
     "products:manage",
+    "creative-analysis:manage",
     "team:manage",
   ],
   dev: [
@@ -94,6 +96,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "trackable-links:manage",
     "masterclass:manage",
     "products:manage",
+    "creative-analysis:manage",
   ],
   marketing_consultant: ["marketing:read", "marketing:write"],
   finance_viewer: ["finance:view"],

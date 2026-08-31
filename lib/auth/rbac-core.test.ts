@@ -43,6 +43,9 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(admin, "finance:view")).toBe(true);
     expect(hasBackofficePermission(admin, "emails:view")).toBe(true);
     expect(hasBackofficePermission(admin, "whatsapp:view")).toBe(true);
+    expect(
+      hasBackofficePermission(admin, "creative-analysis:manage"),
+    ).toBe(true);
   });
 
   test("limits marketing consultants to marketing portfolio access", () => {
@@ -51,6 +54,9 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(consultant, "users:manage")).toBe(false);
     expect(hasBackofficePermission(consultant, "billing:manage")).toBe(false);
     expect(hasBackofficePermission(consultant, "whatsapp:view")).toBe(false);
+    expect(
+      hasBackofficePermission(consultant, "creative-analysis:manage"),
+    ).toBe(false);
   });
 
   test("limits finance viewers to the financial area", () => {
@@ -60,6 +66,9 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(financeViewer, "emails:view")).toBe(false);
     expect(hasBackofficePermission(financeViewer, "marketing:read")).toBe(false);
     expect(hasBackofficePermission(financeViewer, "whatsapp:view")).toBe(false);
+    expect(
+      hasBackofficePermission(financeViewer, "creative-analysis:manage"),
+    ).toBe(false);
   });
 
   test("gives dev technical access without finance, billing, or team", () => {
@@ -72,6 +81,7 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(dev, "team:manage")).toBe(false);
     expect(hasBackofficePermission(dev, "business:manage")).toBe(false);
     expect(hasBackofficePermission(dev, "whatsapp:view")).toBe(true);
+    expect(hasBackofficePermission(dev, "creative-analysis:manage")).toBe(true);
   });
 });
 
