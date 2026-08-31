@@ -1346,6 +1346,69 @@ export type InstagramCommentAutomationJob = InferSelectModel<
   typeof instagramCommentAutomationJob
 >;
 
+/**
+ * Link Rastreado — unique short code per delivery and per destination URL.
+ * Distinct from trackable_links (signup attribution).
+ */
+export const instagramCommentAutomationTrackedLink = pgTable(
+  "instagram_comment_automation_tracked_links",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    executionId: uuid("execution_id")
+      .notNull()
+      .references(() => instagramCommentAutomationExecution.id),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => instagramCommentAutomation.id),
+    code: varchar("code", { length: 32 }).notNull(),
+    originalUrl: text("original_url").notNull(),
+    label: text("label").notNull().default(""),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    codeUnique: unique(
+      "instagram_comment_automation_tracked_links_code_unique",
+    ).on(table.code),
+    executionUrlUnique: unique(
+      "instagram_comment_automation_tracked_links_execution_url_unique",
+    ).on(table.executionId, table.originalUrl),
+    automationIdx: index(
+      "instagram_comment_automation_tracked_links_automation_idx",
+    ).on(table.automationId),
+  }),
+);
+
+export type InstagramCommentAutomationTrackedLink = InferSelectModel<
+  typeof instagramCommentAutomationTrackedLink
+>;
+
+/** Clicks on a Link Rastreado. CTR counts distinct executions, not rows. */
+export const instagramCommentAutomationLinkClick = pgTable(
+  "instagram_comment_automation_link_clicks",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    trackedLinkId: uuid("tracked_link_id")
+      .notNull()
+      .references(() => instagramCommentAutomationTrackedLink.id),
+    executionId: uuid("execution_id")
+      .notNull()
+      .references(() => instagramCommentAutomationExecution.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    executionIdx: index(
+      "instagram_comment_automation_link_clicks_execution_idx",
+    ).on(table.executionId),
+    linkIdx: index(
+      "instagram_comment_automation_link_clicks_link_idx",
+    ).on(table.trackedLinkId),
+  }),
+);
+
+export type InstagramCommentAutomationLinkClick = InferSelectModel<
+  typeof instagramCommentAutomationLinkClick
+>;
+
 // Meta Business Account table for storing Facebook/BISU connections (Marketing API)
 export const metaBusinessAccount = pgTable(
   "meta_business_accounts",
