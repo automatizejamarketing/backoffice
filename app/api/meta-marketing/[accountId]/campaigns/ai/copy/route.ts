@@ -88,7 +88,7 @@ export async function POST(
       model: gateway.languageModel(AI_MODELS.TEXT_GENERATION),
       schema: generatedCopySchema,
       prompt,
-      providerOptions: gatewayProviderOptions("campanha"),
+      providerOptions: gatewayProviderOptions("ai-campanha-copy"),
     });
 
     await trackAiUsage({

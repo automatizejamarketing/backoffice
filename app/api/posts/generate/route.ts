@@ -155,7 +155,7 @@ Important guidelines:
         model: gateway.languageModel(AI_MODELS.IMAGE_GENERATION),
         providerOptions: {
           google: { responseModalities: ["TEXT", "IMAGE"] },
-          ...gatewayProviderOptions("imagem"),
+          ...gatewayProviderOptions("ai-imagem"),
         },
         messages: [{ role: "user", content }],
       });
@@ -237,7 +237,7 @@ Return ONLY the caption text, without any quotes or preamble.`;
 
         const captionGen = await generateText({
           model: gateway.languageModel(AI_MODELS.TEXT_GENERATION),
-          providerOptions: gatewayProviderOptions("imagem"),
+          providerOptions: gatewayProviderOptions("ai-legenda"),
           messages: [
             {
               role: "user",

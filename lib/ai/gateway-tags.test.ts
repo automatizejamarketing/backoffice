@@ -4,14 +4,17 @@ import { GATEWAY_TAG, gatewayProviderOptions } from "./gateway-tags";
 
 describe("gatewayProviderOptions", () => {
   it("tags a request with a single Gateway reporting tag", () => {
-    assert.deepEqual(gatewayProviderOptions("imagem"), {
-      gateway: { tags: [GATEWAY_TAG.imagem] },
+    assert.deepEqual(gatewayProviderOptions("ai-imagem"), {
+      gateway: { tags: [GATEWAY_TAG.aiImagem] },
     });
   });
 
   it("attaches the end-user id when provided", () => {
-    assert.deepEqual(gatewayProviderOptions("campanha", { user: "user-99" }), {
-      gateway: { tags: [GATEWAY_TAG.campanha], user: "user-99" },
-    });
+    assert.deepEqual(
+      gatewayProviderOptions("ai-campanha-copy", { user: "user-99" }),
+      {
+        gateway: { tags: [GATEWAY_TAG.aiCampanhaCopy], user: "user-99" },
+      },
+    );
   });
 });

@@ -1,7 +1,11 @@
+/**
+ * One tag per Gateway request. Keep slugs aligned with automatize-frontend:
+ * `mat-*` is the Eve agent; `ai-*` is a direct model call.
+ */
 export const GATEWAY_TAG = {
-  mat: "mat",
-  campanha: "campanha",
-  imagem: "imagem",
+  aiCampanhaCopy: "ai-campanha-copy",
+  aiImagem: "ai-imagem",
+  aiLegenda: "ai-legenda",
 } as const;
 
 export type GatewayTag = (typeof GATEWAY_TAG)[keyof typeof GATEWAY_TAG];
