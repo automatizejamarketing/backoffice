@@ -1,3 +1,5 @@
+import { creativeSkipReasonLabel } from "@/lib/creative-analysis/labels";
+
 export const CREATIVE_ANALYSIS_LIMITS = [1, 3, 5, "all"] as const;
 
 export type CreativeAnalysisLimit =
@@ -425,4 +427,101 @@ export function summarizeCreativeAnalyses(
       failed: count("failed"),
     },
   };
+}
+
+export type CreativeAnalysisListFilters = {
+  bucket: CreativeAnalysisBucket | "all";
+  showSkipped: boolean;
+  confidence: string;
+  query: string;
+};
+
+export function filterCreativeAnalysisViews(
+  records: CreativeAnalysisView[],
+  filters: CreativeAnalysisListFilters,
+): CreativeAnalysisView[] {
+  const normalizedQuery = filters.query.trim().toLowerCase();
+  return records.filter((record) => {
+    if (filters.bucket !== "all" && record.bucket !== filters.bucket) {
+      return false;
+    }
+    if (
+      filters.bucket === "all" &&
+      !filters.showSkipped &&
+      record.bucket === "skipped"
+    ) {
+      return false;
+    }
+    if (
+      filters.confidence !== "all" &&
+      record.confidence !== filters.confidence
+    ) {
+      return false;
+    }
+    if (!normalizedQuery) return true;
+    return [
+      record.adId,
+      record.accountId,
+      record.userName,
+      record.userEmail,
+      record.userId,
+      record.campaignId,
+      record.errorMessage,
+    ].some((value) => value?.toLowerCase().includes(normalizedQuery));
+  });
+}
+
+export function creativeAnalysisListPreview(
+  record: CreativeAnalysisView,
+): string | null {
+  if (record.summary) return record.summary;
+  if (record.bucket === "pending") return "Processando…";
+  if (record.bucket === "skipped" && record.errorMessage) {
+    return creativeSkipReasonLabel(record.errorMessage);
+  }
+  if (record.bucket === "failed") {
+    return creativeSkipReasonLabel(
+      record.errorMessage ?? "processing_failed",
+    );
+  }
+  return null;
+}
+
+export type AdCreativeDiagnosisMini = {
+  diagnosisId: string;
+  adId: string;
+  confidence: "high" | "medium";
+  summary: string;
+  craftGaps: CreativeAnalysisCraftGap[];
+};
+
+export function parseLikelyContributorMini(row: {
+  id: string;
+  adId: string;
+  status: string;
+  likelyContributor: boolean | null;
+  confidence: string | null;
+  diagnosis: unknown;
+}): AdCreativeDiagnosisMini | null {
+  if (row.status !== "ready" || row.likelyContributor !== true) return null;
+  if (row.confidence !== "high" && row.confidence !== "medium") return null;
+  const diagnosis = asRecord(row.diagnosis);
+  const summary =
+    typeof diagnosis?.summary === "string" ? diagnosis.summary.trim() : "";
+  if (!summary) return null;
+  return {
+    diagnosisId: row.id,
+    adId: row.adId,
+    confidence: row.confidence,
+    summary,
+    craftGaps: craftGaps(diagnosis?.craftGaps).slice(0, 3),
+  };
+}
+
+/** Marketing usa dígitos; tracking às vezes grava `act_`. */
+export function creativeDiagnosisAccountIds(accountId: string): string[] {
+  const trimmed = accountId.trim();
+  if (!trimmed) return [];
+  const digits = trimmed.replace(/^act_/i, "");
+  return [...new Set([trimmed, digits, `act_${digits}`])];
 }

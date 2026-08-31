@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  creativeAnalysisListPreview,
   creativeSpecMediaKind,
+  filterCreativeAnalysisViews,
   parseCreativeAnalysisRequest,
+  parseLikelyContributorMini,
   previewFromCreativeSpec,
   summarizeCreativeAnalyses,
+  creativeDiagnosisAccountIds,
   type CreativeAnalysisRow,
 } from "./playground";
 
@@ -231,5 +235,158 @@ describe("summarizeCreativeAnalyses", () => {
     ]);
 
     expect(result.records[0]?.errorMessage).toBe("processing_failed");
+  });
+});
+
+describe("filterCreativeAnalysisViews", () => {
+  const listed = summarizeCreativeAnalyses([
+    row(),
+    row({
+      id: "skipped",
+      status: "skipped",
+      likelyContributor: null,
+      errorMessage: "insufficient_sample",
+    }),
+    row({
+      id: "negative",
+      likelyContributor: false,
+      confidence: "medium",
+    }),
+  ]).records;
+
+  test("hides skipped rows in the default Recentes recorte", () => {
+    expect(
+      filterCreativeAnalysisViews(listed, {
+        bucket: "all",
+        showSkipped: false,
+        confidence: "all",
+        query: "",
+      }).map((item) => item.id),
+    ).toEqual(["diagnosis-1", "negative"]);
+  });
+
+  test("includes skipped rows when asked", () => {
+    expect(
+      filterCreativeAnalysisViews(listed, {
+        bucket: "all",
+        showSkipped: true,
+        confidence: "all",
+        query: "",
+      }).map((item) => item.id),
+    ).toEqual(["diagnosis-1", "skipped", "negative"]);
+  });
+
+  test("the Ignorados chip still lists only skipped rows", () => {
+    expect(
+      filterCreativeAnalysisViews(listed, {
+        bucket: "skipped",
+        showSkipped: false,
+        confidence: "all",
+        query: "",
+      }).map((item) => item.id),
+    ).toEqual(["skipped"]);
+  });
+});
+
+describe("creativeAnalysisListPreview", () => {
+  test("shows the Portuguese skip reason when there is no summary", () => {
+    const [skipped] = summarizeCreativeAnalyses([
+      row({
+        status: "skipped",
+        likelyContributor: null,
+        errorMessage: "metrics_do_not_underperform",
+        diagnosis: {},
+      }),
+    ]).records;
+    expect(creativeAnalysisListPreview(skipped!)).toContain("Não está pior");
+  });
+});
+
+describe("parseLikelyContributorMini", () => {
+  test("keeps the latest ready likely-contributor diagnosis for the ads table", () => {
+    expect(
+      parseLikelyContributorMini({
+        id: "diag-1",
+        adId: "ad-1",
+        status: "ready",
+        likelyContributor: true,
+        confidence: "high",
+        diagnosis: {
+          summary: "O gancho demora a mostrar o produto.",
+          craftGaps: [
+            {
+              dimension: "hook",
+              finding: "Produto aparece tarde.",
+              suggestion: "Abrir com o prato.",
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      diagnosisId: "diag-1",
+      adId: "ad-1",
+      confidence: "high",
+      summary: "O gancho demora a mostrar o produto.",
+      craftGaps: [
+        {
+          dimension: "hook",
+          finding: "Produto aparece tarde.",
+          suggestion: "Abrir com o prato.",
+        },
+      ],
+    });
+  });
+
+  test("drops skipped, negative, low-confidence and empty summaries", () => {
+    expect(
+      parseLikelyContributorMini({
+        id: "skip",
+        adId: "ad-1",
+        status: "skipped",
+        likelyContributor: true,
+        confidence: "high",
+        diagnosis: { summary: "não deveria aparecer" },
+      }),
+    ).toBeNull();
+    expect(
+      parseLikelyContributorMini({
+        id: "ok",
+        adId: "ad-1",
+        status: "ready",
+        likelyContributor: false,
+        confidence: "high",
+        diagnosis: { summary: "criativo parece ok" },
+      }),
+    ).toBeNull();
+    expect(
+      parseLikelyContributorMini({
+        id: "low",
+        adId: "ad-1",
+        status: "ready",
+        likelyContributor: true,
+        confidence: "low",
+        diagnosis: { summary: "incerto" },
+      }),
+    ).toBeNull();
+    expect(
+      parseLikelyContributorMini({
+        id: "empty",
+        adId: "ad-1",
+        status: "ready",
+        likelyContributor: true,
+        confidence: "medium",
+        diagnosis: { summary: "  " },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("creativeDiagnosisAccountIds", () => {
+  test("matches both digit and act_ account ids", () => {
+    expect(creativeDiagnosisAccountIds("act_123")).toEqual([
+      "act_123",
+      "123",
+    ]);
+    expect(creativeDiagnosisAccountIds("123")).toEqual(["123", "act_123"]);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   StatusChangeNoteDialog,
@@ -9,6 +9,7 @@ import {
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAds, useToggleAdStatus } from "../hooks/marketing-queries";
+import { useAdCreativeDiagnoses } from "../hooks/use-ad-creative-diagnoses";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -39,6 +40,7 @@ import {
 import { DeliveryStatus } from "./delivery-status";
 import { DuplicateButton } from "./duplicate-button";
 import { EditCreativeButton } from "./edit-creative-button";
+import { CreativeDiagnosisMiniChip } from "./creative-diagnosis-mini";
 import { IssuesIcon } from "./issues-icon";
 import { NameEditButton } from "./name-edit-button";
 import { PromotionLinkEditDialog } from "./promotion-link-edit-dialog";
@@ -121,6 +123,13 @@ export function AdsTable({
   const ads = data?.data ?? [];
   const pagination = data?.pagination ?? null;
   const isInitialLoading = isPending;
+  const diagnosesQuery = useAdCreativeDiagnoses(accountId, userId);
+  const diagnosisByAdId = useMemo(() => {
+    const map = new Map(
+      (diagnosesQuery.data ?? []).map((row) => [row.adId, row] as const),
+    );
+    return map;
+  }, [diagnosesQuery.data]);
 
   const filterSignature = `${datePreset ?? ""}|${customRange?.since ?? ""}|${
     customRange?.until ?? ""
@@ -267,6 +276,9 @@ export function AdsTable({
                     />
                   </div>
                   <div className="flex items-center gap-2">
+                    <CreativeDiagnosisMiniChip
+                      diagnosis={diagnosisByAdId.get(ad.id)}
+                    />
                     {canToggle(ad) && (
                       <div
                         onClick={(e) => handleToggleStatus(ad, e)}
@@ -342,7 +354,7 @@ export function AdsTable({
                 <TableHead className="w-[60px] text-xs">Ativo</TableHead>
                 <TableHead className="w-[60px] text-xs">Preview</TableHead>
                 <TableHead className="min-w-[150px] text-xs">Anúncio</TableHead>
-                <TableHead className="w-[40px] text-xs" aria-label="Avisos" />
+                <TableHead className="w-[72px] text-xs" aria-label="Avisos" />
                 <TableHead className="w-[130px] text-xs">Veiculação</TableHead>
                 <TableHead className="text-xs" style={{ minWidth: desktopMetricsMinWidth }}>
                   Métricas principais
@@ -430,7 +442,12 @@ export function AdsTable({
                         className="text-center"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <IssuesIcon entity={ad} entityType="ad" />
+                        <div className="flex items-center justify-center gap-1">
+                          <CreativeDiagnosisMiniChip
+                            diagnosis={diagnosisByAdId.get(ad.id)}
+                          />
+                          <IssuesIcon entity={ad} entityType="ad" />
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">

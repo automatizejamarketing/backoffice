@@ -56,14 +56,21 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useAdMedia } from "@/app/(admin)/marketing/hooks/use-ad-media";
 import type { AdMediaItem } from "@/lib/meta-business/ad-media-types";
-import type {
-  CreativeAnalysisBucket,
-  CreativeAnalysisLimit,
-  CreativeAnalysisMediaKind,
-  CreativeAnalysisMetricComparison,
-  CreativeAnalysisSummary,
-  CreativeAnalysisView,
+import {
+  creativeAnalysisListPreview,
+  filterCreativeAnalysisViews,
+  type CreativeAnalysisBucket,
+  type CreativeAnalysisLimit,
+  type CreativeAnalysisMediaKind,
+  type CreativeAnalysisMetricComparison,
+  type CreativeAnalysisSummary,
+  type CreativeAnalysisView,
 } from "@/lib/creative-analysis/playground";
+import {
+  creativeConfidenceLabel,
+  creativeDimensionLabel,
+  creativeSkipReasonLabel,
+} from "@/lib/creative-analysis/labels";
 import { cn } from "@/lib/utils";
 
 const API_PATH = "/api/backoffice/creative-analysis-playground";
@@ -170,33 +177,6 @@ const GAP_LABELS: Record<string, string> = {
   roas_7d: "ROAS 7d",
   roas_14d: "ROAS 14d",
 };
-
-const DIMENSION_LABELS: Record<string, string> = {
-  hook: "Gancho",
-  pacing: "Ritmo",
-  productVisibility: "Visibilidade do produto",
-  offerClarity: "Clareza da oferta",
-  proof: "Prova social",
-  cta: "Chamada para ação",
-  textReadability: "Legibilidade do texto",
-  audio: "Áudio",
-  duration: "Duração",
-  format: "Formato",
-};
-
-const CONFIDENCE_LABELS: Record<string, string> = {
-  high: "alta",
-  medium: "média",
-  low: "baixa",
-};
-
-function dimensionLabel(dimension: string): string {
-  if (DIMENSION_LABELS[dimension]) return DIMENSION_LABELS[dimension];
-  return dimension
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .toLowerCase();
-}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -586,12 +566,17 @@ function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
       </Badge>
       {record.confidence ? (
         <Badge variant="secondary">
-          confiança {CONFIDENCE_LABELS[record.confidence] ?? record.confidence}
+          confiança {creativeConfidenceLabel(record.confidence)}
         </Badge>
       ) : null}
       {record.siblingCount !== null ? (
         <span className="text-[11px] text-muted-foreground">
           {record.siblingCount} irmão(s)
+        </span>
+      ) : null}
+      {record.bucket === "skipped" && record.errorMessage ? (
+        <span className="line-clamp-1 text-[11px] text-muted-foreground">
+          {creativeSkipReasonLabel(record.errorMessage)}
         </span>
       ) : null}
     </div>
@@ -694,7 +679,7 @@ function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
                 key={`${gap.dimension}-${index}`}
                 className="rounded-lg border bg-background/60 p-3"
               >
-                <Badge variant="secondary">{dimensionLabel(gap.dimension)}</Badge>
+                <Badge variant="secondary">{creativeDimensionLabel(gap.dimension)}</Badge>
                 <p className="mt-2 text-foreground">{gap.finding}</p>
                 <p className="mt-1 text-muted-foreground">
                   <span className="font-medium text-foreground">Sugestão:</span>{" "}
@@ -720,9 +705,26 @@ function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
       ) : null}
 
       {record.errorMessage && record.errorMessage !== "forced_control" ? (
-        <p className="rounded-md bg-background/70 p-3 font-mono text-[11px] text-muted-foreground">
-          Motivo: {record.errorMessage}
-        </p>
+        <section
+          className={cn(
+            "rounded-xl border px-4 py-3",
+            record.bucket === "skipped"
+              ? "border-zinc-400/30 bg-zinc-500/10"
+              : "border-border bg-muted/40",
+          )}
+        >
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {record.bucket === "skipped"
+              ? "Por que foi ignorado"
+              : "Motivo"}
+          </p>
+          <p className="text-sm leading-relaxed text-foreground">
+            {creativeSkipReasonLabel(record.errorMessage)}
+          </p>
+          <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+            {record.errorMessage}
+          </p>
+        </section>
       ) : null}
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-current/10 pt-3 text-[10px] text-muted-foreground">
@@ -759,6 +761,7 @@ function DiagnosisAccordion({
   );
   const playable = playableFromAdMedia(live.data?.items ?? []);
   const thumb = thumbnailFromPlayable(record, playable);
+  const preview = creativeAnalysisListPreview(record);
 
   return (
     <div ref={ref}>
@@ -792,9 +795,9 @@ function DiagnosisAccordion({
             {record.userEmail || record.userId} · atualizado{" "}
             {formatDateTime(record.updatedAt)}
           </p>
-          {!open && record.summary ? (
+          {!open && preview ? (
             <p className="line-clamp-2 text-sm leading-relaxed text-foreground/90">
-              {record.summary}
+              {preview}
             </p>
           ) : null}
         </div>
@@ -857,10 +860,7 @@ function DiagnosisGridCard({
         {record.userName || "Usuário sem nome"}
       </p>
       <p className="mt-3 line-clamp-3 min-h-[4.5rem] flex-1 text-sm leading-relaxed">
-        {record.summary ||
-          (record.bucket === "pending"
-            ? "Processando…"
-            : "Sem resumo disponível.")}
+        {creativeAnalysisListPreview(record) ?? "Sem resumo disponível."}
       </p>
       <p className="mt-3 text-[10px] text-muted-foreground">
         {formatDateTime(record.updatedAt)} · abrir detalhe
@@ -925,6 +925,7 @@ export function CreativeAnalysisPlayground() {
   const [adId, setAdId] = useState("");
   const [force, setForce] = useState(false);
   const [bucket, setBucket] = useState<CreativeAnalysisBucket | "all">("all");
+  const [showSkipped, setShowSkipped] = useState(false);
   const [confidence, setConfidence] = useState("all");
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
@@ -1037,24 +1038,20 @@ export function CreativeAnalysisPlayground() {
     }
   };
 
-  const visibleRecords = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return data.records.filter((record) => {
-      if (bucket !== "all" && record.bucket !== bucket) return false;
-      if (confidence !== "all" && record.confidence !== confidence) {
-        return false;
-      }
-      if (!normalizedQuery) return true;
-      return [
-        record.adId,
-        record.accountId,
-        record.userName,
-        record.userEmail,
-        record.userId,
-        record.campaignId,
-      ].some((value) => value?.toLowerCase().includes(normalizedQuery));
-    });
-  }, [bucket, confidence, data.records, query]);
+  const visibleRecords = useMemo(
+    () =>
+      filterCreativeAnalysisViews(data.records, {
+        bucket,
+        showSkipped,
+        confidence,
+        query,
+      }),
+    [bucket, confidence, data.records, query, showSkipped],
+  );
+
+  const recentCount = showSkipped
+    ? data.summary.total
+    : data.summary.total - data.summary.skipped;
 
   const sheetRecord = useMemo(
     () => data.records.find((record) => record.id === sheetId) ?? null,
@@ -1288,8 +1285,10 @@ export function CreativeAnalysisPlayground() {
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <SummaryCard
           label="Recentes"
-          value={data.summary.total}
-          detail="até 100 registros"
+          value={recentCount}
+          detail={
+            showSkipped ? "incluindo ignorados" : "ignorados ocultos por padrão"
+          }
           icon={BarChart3}
           active={bucket === "all"}
           onClick={() => setBucket("all")}
@@ -1321,7 +1320,7 @@ export function CreativeAnalysisPlayground() {
         <SummaryCard
           label="Ignorados"
           value={data.summary.skipped}
-          detail="gate ou amostra"
+          detail="clique para ver o motivo"
           icon={CircleSlash2}
           active={bucket === "skipped"}
           onClick={() => setBucket("skipped")}
@@ -1366,6 +1365,22 @@ export function CreativeAnalysisPlayground() {
               <SelectItem value="low">Baixa</SelectItem>
             </SelectContent>
           </Select>
+          <div className="flex items-center gap-2 px-1">
+            <Switch
+              id="show-skipped"
+              checked={showSkipped || bucket === "skipped"}
+              onCheckedChange={(checked) => {
+                setShowSkipped(checked);
+                if (!checked && bucket === "skipped") setBucket("all");
+              }}
+            />
+            <Label
+              htmlFor="show-skipped"
+              className="text-xs font-normal text-muted-foreground"
+            >
+              Mostrar ignorados
+            </Label>
+          </div>
           <div className="flex items-center gap-2 px-2 text-[11px] text-muted-foreground">
             {pollingDeadline !== null ? (
               <>
@@ -1455,7 +1470,11 @@ export function CreativeAnalysisPlayground() {
             <div>
               <p className="font-medium">Nenhum diagnóstico neste recorte</p>
               <p className="mt-1 text-muted-foreground">
-                Ajuste os filtros ou rode um preview para investigar elegíveis.
+                {data.summary.skipped > 0 &&
+                bucket === "all" &&
+                !showSkipped
+                  ? `${data.summary.skipped} ignorado(s) oculto(s). Clique em Ignorados ou ligue "Mostrar ignorados".`
+                  : "Ajuste os filtros ou rode um preview para investigar elegíveis."}
               </p>
             </div>
           </Card>

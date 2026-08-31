@@ -1,8 +1,11 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import {
+  creativeDiagnosisAccountIds,
   creativeSpecMediaKind,
+  parseLikelyContributorMini,
   previewFromCreativeSpec,
+  type AdCreativeDiagnosisMini,
   type CreativeAnalysisMedia,
   type CreativeAnalysisRow,
 } from "@/lib/creative-analysis/playground";
@@ -93,5 +96,46 @@ export async function listLatestCreativeDiagnoses(
         ? "video"
         : creativeSpecMediaKind(spec),
     };
+  });
+}
+
+const LIKELY_CONTRIBUTOR_LIMIT = 500;
+
+/**
+ * Último diagnóstico pronto por anúncio em que a peça é hipótese de problema.
+ * Consultores leem isso na tabela de ads — sem ir ao playground.
+ */
+export async function listLikelyContributorDiagnosesForAccount(input: {
+  userId: string;
+  accountId: string;
+}): Promise<AdCreativeDiagnosisMini[]> {
+  const accountIds = creativeDiagnosisAccountIds(input.accountId);
+  if (accountIds.length === 0) return [];
+
+  const rows = await db
+    .selectDistinctOn([creativeDiagnosis.adId], {
+      id: creativeDiagnosis.id,
+      adId: creativeDiagnosis.adId,
+      status: creativeDiagnosis.status,
+      likelyContributor: creativeDiagnosis.likelyContributor,
+      confidence: creativeDiagnosis.confidence,
+      diagnosis: creativeDiagnosis.diagnosis,
+    })
+    .from(creativeDiagnosis)
+    .where(
+      and(
+        eq(creativeDiagnosis.userId, input.userId),
+        inArray(creativeDiagnosis.accountId, accountIds),
+        eq(creativeDiagnosis.status, "ready"),
+        eq(creativeDiagnosis.likelyContributor, true),
+        inArray(creativeDiagnosis.confidence, ["high", "medium"]),
+      ),
+    )
+    .orderBy(creativeDiagnosis.adId, desc(creativeDiagnosis.updatedAt))
+    .limit(LIKELY_CONTRIBUTOR_LIMIT);
+
+  return rows.flatMap((row) => {
+    const parsed = parseLikelyContributorMini(row);
+    return parsed ? [parsed] : [];
   });
 }
