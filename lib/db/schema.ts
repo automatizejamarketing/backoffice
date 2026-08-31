@@ -1409,6 +1409,32 @@ export type InstagramCommentAutomationLinkClick = InferSelectModel<
   typeof instagramCommentAutomationLinkClick
 >;
 
+/**
+ * Monthly usage of Comentário→DM per Instagram account (disparos /
+ * Respostas Privadas and entregas). Recorded for future monetization.
+ */
+export const instagramCommentAutomationUsageMonth = pgTable(
+  "instagram_comment_automation_usage_months",
+  {
+    instagramAccountId: text("instagram_account_id")
+      .notNull()
+      .references(() => instagramAccount.id),
+    yearMonth: varchar("year_month", { length: 7 }).notNull(),
+    privateReplies: integer("private_replies").notNull().default(0),
+    deliveries: integer("deliveries").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({
+      columns: [table.instagramAccountId, table.yearMonth],
+    }),
+  }),
+);
+
+export type InstagramCommentAutomationUsageMonth = InferSelectModel<
+  typeof instagramCommentAutomationUsageMonth
+>;
+
 // Meta Business Account table for storing Facebook/BISU connections (Marketing API)
 export const metaBusinessAccount = pgTable(
   "meta_business_accounts",
