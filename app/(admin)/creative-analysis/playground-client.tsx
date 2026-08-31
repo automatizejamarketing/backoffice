@@ -10,7 +10,9 @@ import {
   ChevronsUpDown,
   CircleSlash2,
   Clock3,
+  Film,
   FlaskConical,
+  ImageIcon,
   LayoutGrid,
   List,
   Loader2,
@@ -53,6 +55,7 @@ import { Switch } from "@/components/ui/switch";
 import type {
   CreativeAnalysisBucket,
   CreativeAnalysisLimit,
+  CreativeAnalysisMedia,
   CreativeAnalysisMetricComparison,
   CreativeAnalysisSummary,
   CreativeAnalysisView,
@@ -289,6 +292,130 @@ function MetricComparison({
   );
 }
 
+function DiagnosisThumbnail({
+  media,
+  className,
+}: {
+  media: CreativeAnalysisMedia[];
+  className?: string;
+}) {
+  const first = media[0];
+  if (!first) {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground",
+          className,
+        )}
+      >
+        <ImageIcon className="size-4" />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "relative shrink-0 overflow-hidden rounded-md bg-black/80 pointer-events-none",
+        className,
+      )}
+    >
+      {first.type === "video" ? (
+        <video
+          src={first.url}
+          muted
+          playsInline
+          preload="metadata"
+          className="size-full object-cover"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={first.url}
+          alt=""
+          className="size-full object-cover"
+        />
+      )}
+      {first.type === "video" ? (
+        <span className="absolute bottom-1 right-1 rounded bg-black/70 p-0.5 text-white">
+          <Film className="size-3" />
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function DiagnosisMediaPanel({ media }: { media: CreativeAnalysisMedia[] }) {
+  const [visible, setVisible] = useState(true);
+  if (media.length === 0) return null;
+
+  const label =
+    media.length === 1
+      ? media[0]?.type === "video"
+        ? "Vídeo"
+        : "Imagem"
+      : `${media.length} peças`;
+
+  return (
+    <section className="overflow-hidden rounded-lg border bg-background/60">
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        aria-expanded={visible}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-background/70"
+      >
+        <span className="flex items-center gap-2 font-medium text-foreground">
+          {media[0]?.type === "video" ? (
+            <Film className="size-3.5" />
+          ) : (
+            <ImageIcon className="size-3.5" />
+          )}
+          Criativo
+          <Badge variant="outline">{label}</Badge>
+        </span>
+        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          {visible ? "ocultar" : "mostrar"}
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform",
+              visible && "rotate-180",
+            )}
+          />
+        </span>
+      </button>
+      {visible ? (
+        <div
+          className={cn(
+            "border-t border-current/10 p-3",
+            media.length > 1 && "grid gap-2 sm:grid-cols-2",
+          )}
+        >
+          {media.map((item) =>
+            item.type === "video" ? (
+              <video
+                key={`${item.order}-${item.url}`}
+                src={item.url}
+                controls
+                playsInline
+                preload="metadata"
+                className="max-h-80 w-full rounded-md bg-black object-contain"
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={`${item.order}-${item.url}`}
+                src={item.url}
+                alt={`Criativo ${item.order + 1}`}
+                className="max-h-80 w-full rounded-md bg-muted object-contain"
+              />
+            ),
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
   const meta = BUCKET_META[record.bucket];
   const StatusIcon = meta.icon;
@@ -319,6 +446,7 @@ function DiagnosisBadges({ record }: { record: CreativeAnalysisView }) {
 function DiagnosisDetail({ record }: { record: CreativeAnalysisView }) {
   return (
     <div className="space-y-4 text-sm">
+      <DiagnosisMediaPanel media={record.media} />
       {record.summary ? (
         <div className="rounded-lg bg-background/75 p-4 leading-relaxed text-foreground">
           {record.summary}
@@ -452,6 +580,9 @@ function DiagnosisAccordion({
         onClick={onToggle}
         className="flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-background/40"
       >
+        {record.media.length > 0 ? (
+          <DiagnosisThumbnail media={record.media} className="size-14" />
+        ) : null}
         <div className="min-w-0 flex-1 space-y-1.5">
           <DiagnosisBadges record={record} />
           <p className="truncate font-medium text-foreground">
@@ -501,10 +632,16 @@ function DiagnosisGridCard({
       type="button"
       onClick={onOpen}
       className={cn(
-        "flex h-full flex-col rounded-xl border border-l-4 p-4 text-left transition hover:bg-background/50 hover:shadow-sm",
+        "flex h-full flex-col overflow-hidden rounded-xl border border-l-4 p-4 text-left transition hover:bg-background/50 hover:shadow-sm",
         meta.className,
       )}
     >
+      {record.media.length > 0 ? (
+        <DiagnosisThumbnail
+          media={record.media}
+          className="-mx-4 -mt-4 mb-3 h-40 w-[calc(100%+2rem)] rounded-none"
+        />
+      ) : null}
       <DiagnosisBadges record={record} />
       <p className="mt-3 truncate font-medium">Anúncio {record.adId}</p>
       <p className="truncate font-mono text-[11px] text-muted-foreground">
