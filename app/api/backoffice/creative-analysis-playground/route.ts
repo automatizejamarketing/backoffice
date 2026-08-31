@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   CreativeAnalysisRequestError,
+  describePlaygroundUpstreamFailure,
   parseCreativeAnalysisRequest,
   summarizeCreativeAnalyses,
 } from "@/lib/creative-analysis/playground";
@@ -96,16 +97,18 @@ export async function POST(request: Request) {
     }
 
     if (!upstream.ok) {
+      const upstreamBody: unknown = await upstream.json().catch(() => null);
       console.error(
         "[creative-analysis-playground] frontend rejected request",
         upstream.status,
+        upstreamBody,
       );
       return NextResponse.json(
         {
-          error:
-            upstream.status === 403
-              ? "O playground está bloqueado pelo endpoint do frontend neste ambiente."
-              : "O endpoint do frontend recusou a solicitação.",
+          error: describePlaygroundUpstreamFailure({
+            status: upstream.status,
+            body: upstreamBody,
+          }),
           upstreamStatus: upstream.status,
         },
         {

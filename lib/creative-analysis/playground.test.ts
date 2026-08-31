@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import {
   creativeAnalysisListPreview,
+  creativeDiagnosisAccountIds,
   creativeSpecMediaKind,
+  describePlaygroundUpstreamFailure,
   filterCreativeAnalysisViews,
   parseCreativeAnalysisRequest,
   parseLikelyContributorMini,
   previewFromCreativeSpec,
   summarizeCreativeAnalyses,
-  creativeDiagnosisAccountIds,
   type CreativeAnalysisRow,
 } from "./playground";
 
@@ -388,5 +389,45 @@ describe("creativeDiagnosisAccountIds", () => {
       "123",
     ]);
     expect(creativeDiagnosisAccountIds("123")).toEqual(["123", "act_123"]);
+  });
+});
+
+describe("describePlaygroundUpstreamFailure", () => {
+  test("explains auth, playground lock and delivery lock", () => {
+    expect(
+      describePlaygroundUpstreamFailure({
+        status: 401,
+        body: { error: "Unauthorized" },
+      }),
+    ).toContain("autenticação (401)");
+    expect(
+      describePlaygroundUpstreamFailure({ status: 403, body: {} }),
+    ).toContain("CREATIVE_ANALYSIS_PLAYGROUND_ENABLED");
+    expect(
+      describePlaygroundUpstreamFailure({
+        status: 409,
+        body: {
+          error:
+            "Disable CREATIVE_ANALYSIS_DELIVERY_ENABLED before using the playground",
+        },
+      }),
+    ).toContain("DELIVERY_ENABLED");
+  });
+
+  test("keeps a short upstream error and hides urls", () => {
+    expect(
+      describePlaygroundUpstreamFailure({
+        status: 500,
+        body: { error: "Failed to run creative analysis playground" },
+      }),
+    ).toBe(
+      "O frontend recusou a solicitação (500): Failed to run creative analysis playground",
+    );
+    expect(
+      describePlaygroundUpstreamFailure({
+        status: 502,
+        body: { error: "https://secret-host.internal/fail" },
+      }),
+    ).toBe("O frontend recusou a solicitação (502).");
   });
 });

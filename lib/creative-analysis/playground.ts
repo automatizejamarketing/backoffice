@@ -109,6 +109,57 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function safeUpstreamError(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 240 || /^https?:/i.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+export function describePlaygroundUpstreamFailure(input: {
+  status: number;
+  body: unknown;
+}): string {
+  const record = asRecord(input.body);
+  const upstream = safeUpstreamError(record?.error);
+  const status = input.status;
+
+  if (status === 401) {
+    return upstream
+      ? `O frontend recusou a autenticação (${status}): ${upstream}`
+      : `O frontend recusou a autenticação (${status}). Confira se FRONTEND_CRON_SECRET do backoffice bate com CRON_SECRET do frontend.`;
+  }
+  if (status === 403) {
+    return "O playground está bloqueado neste ambiente (CREATIVE_ANALYSIS_PLAYGROUND_ENABLED).";
+  }
+  if (status === 409) {
+    if (upstream?.includes("DELIVERY")) {
+      return `A entrega ao cliente está ligada — desligue CREATIVE_ANALYSIS_DELIVERY_ENABLED para usar o playground (${status}).`;
+    }
+    if (upstream?.toLowerCase().includes("disabled")) {
+      return `A análise está desligada neste ambiente (${status}): ${upstream}`;
+    }
+    return upstream
+      ? `O frontend recusou a execução (${status}): ${upstream}`
+      : `O frontend recusou a execução (${status}).`;
+  }
+  if (status === 404) {
+    return upstream
+      ? `Anúncio não encontrado no tracking (${status}): ${upstream}`
+      : `Anúncio não encontrado no tracking (${status}).`;
+  }
+  if (status === 400) {
+    return upstream
+      ? `Pedido inválido (${status}): ${upstream}`
+      : `Pedido inválido (${status}).`;
+  }
+  return upstream
+    ? `O frontend recusou a solicitação (${status}): ${upstream}`
+    : `O frontend recusou a solicitação (${status}).`;
+}
+
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter(

@@ -38,7 +38,8 @@ export function creativeDimensionLabel(dimension: string): string {
 export const CREATIVE_SKIP_REASON_LABELS: Record<string, string> = {
   metrics_do_not_underperform:
     "Não está pior que os anúncios irmãos o bastante para analisar",
-  no_fair_comparator: "Não há irmão comparável no mesmo recorte",
+  no_fair_comparator:
+    "Não há pelo menos 2 irmãos comparáveis no mesmo recorte",
   insufficient_sample:
     "Amostra insuficiente (gasto ou impressões nos últimos 7 dias)",
   is_ranking_winner:

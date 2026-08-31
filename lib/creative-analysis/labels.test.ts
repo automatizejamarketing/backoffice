@@ -12,6 +12,7 @@ describe("creativeSkipReasonLabel", () => {
     );
     expect(creativeSkipReasonLabel("insufficient_sample")).toContain("Amostra");
     expect(creativeSkipReasonLabel("is_ranking_winner")).toContain("vencedora");
+    expect(creativeSkipReasonLabel("no_fair_comparator")).toContain("2 irmãos");
   });
 
   test("falls back to a readable code", () => {
