@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  creativeSpecMediaKind,
   parseCreativeAnalysisRequest,
   previewFromCreativeSpec,
   summarizeCreativeAnalyses,
@@ -32,6 +33,7 @@ function row(
     evidence: {},
     diagnosis: {},
     media: [],
+    mediaKind: "unknown",
     createdAt: new Date("2026-08-30T12:00:00Z"),
     updatedAt: new Date("2026-08-30T12:05:00Z"),
     ...overrides,
@@ -207,6 +209,15 @@ describe("summarizeCreativeAnalyses", () => {
       { type: "image", order: 0, url: "https://cdn.meta/thumb.jpg" },
       { type: "image", order: 1, url: "https://cdn.meta/poster.jpg" },
     ]);
+  });
+
+  test("classifies video specs even without a poster url", () => {
+    expect(
+      creativeSpecMediaKind({
+        object_type: "VIDEO",
+        object_story_spec: { video_data: { video_id: "123" } },
+      }),
+    ).toBe("video");
   });
 
   test("does not expose arbitrary persisted failure details", () => {

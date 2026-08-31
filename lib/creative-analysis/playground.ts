@@ -39,6 +39,8 @@ export type CreativeAnalysisMedia = {
   url: string;
 };
 
+export type CreativeAnalysisMediaKind = "image" | "video" | "unknown";
+
 export type CreativeAnalysisRow = {
   id: string;
   userId: string;
@@ -61,6 +63,7 @@ export type CreativeAnalysisRow = {
   evidence: unknown;
   diagnosis: unknown;
   media: CreativeAnalysisMedia[];
+  mediaKind: CreativeAnalysisMediaKind;
   createdAt: Date | string;
   updatedAt: Date | string;
 };
@@ -151,6 +154,28 @@ export function previewFromCreativeSpec(
     }
   }
   return media.slice(0, 4);
+}
+
+export function creativeSpecMediaKind(
+  spec: unknown,
+): CreativeAnalysisMediaKind {
+  const record = asRecord(spec);
+  if (!record) return "unknown";
+  const story = asRecord(record.object_story_spec);
+  const video = asRecord(story?.video_data);
+  const asset = asRecord(record.asset_feed_spec);
+  const objectType =
+    typeof record.object_type === "string" ? record.object_type : "";
+  if (
+    typeof record.video_id === "string" ||
+    typeof video?.video_id === "string" ||
+    /video/i.test(objectType) ||
+    (Array.isArray(asset?.videos) && asset.videos.length > 0)
+  ) {
+    return "video";
+  }
+  if (previewFromCreativeSpec(record).length > 0) return "image";
+  return "unknown";
 }
 
 function toIso(value: Date | string): string {
@@ -354,6 +379,13 @@ export function buildCreativeAnalysisView(
   return {
     ...identity,
     media: Array.isArray(row.media) ? row.media : [],
+    mediaKind:
+      row.mediaKind === "video" ||
+      row.media?.some((item) => item.type === "video")
+        ? "video"
+        : row.mediaKind === "image" || (row.media?.length ?? 0) > 0
+          ? "image"
+          : "unknown",
     errorMessage: safeErrorMessage(row.errorMessage),
     bucket: bucketCreativeAnalysis(row),
     summary:
