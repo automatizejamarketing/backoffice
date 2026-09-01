@@ -165,7 +165,7 @@ describe("matchesAccountStatusFilter", () => {
     ).toBe(true);
   });
 
-  test("active_plan_pix matches active paying users on mercadopago", () => {
+  test("active_plan_pix matches active paying users on mercadopago or Vindi Pix", () => {
     expect(
       matchesAccountStatusFilter(
         customer({
@@ -176,6 +176,28 @@ describe("matchesAccountStatusFilter", () => {
         now,
       ),
     ).toBe(true);
+    expect(
+      matchesAccountStatusFilter(
+        customer({
+          hasApprovedPayment: true,
+          lastPaymentProvider: "vindi",
+          lastPaymentMethod: "pix",
+        }),
+        "active_plan_pix",
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      matchesAccountStatusFilter(
+        customer({
+          hasApprovedPayment: true,
+          lastPaymentProvider: "vindi",
+          lastPaymentMethod: "credit_card",
+        }),
+        "active_plan_pix",
+        now,
+      ),
+    ).toBe(false);
     expect(
       matchesAccountStatusFilter(
         customer({

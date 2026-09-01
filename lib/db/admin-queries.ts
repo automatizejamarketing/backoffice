@@ -44,6 +44,7 @@ import {
   subscription,
   subscriptionEvent,
   mercadopagoPaymentLink,
+  vindiPaymentLink,
   user,
   userCompany,
   userMarketingConsultant,
@@ -58,11 +59,15 @@ import {
   type CompanyLocation,
   type Payment,
   type MercadoPagoPaymentLink,
+  type VindiPaymentLink,
   type PendingPlanChange,
   type Subscription,
   type SubscriptionEvent,
   type User,
+  type BillingProvider,
+  type PaymentSettlementMethod,
 } from "./schema";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import { buildAccountStatusFilterSql } from "@/lib/backoffice/account-status-filter";
 import {
   resolveAccessExpirationRange,
@@ -1160,6 +1165,7 @@ export interface UserSubscriptionDetails {
   subscriptionHistory: Subscription[];
   payments: Payment[];
   mercadopagoPaymentLinks: MercadoPagoPaymentLink[];
+  vindiPaymentLinks: VindiPaymentLink[];
   events: SubscriptionEvent[];
   accountHistory: SerializedAccountHistoryItem[];
 }
@@ -1180,7 +1186,14 @@ export async function getUserSubscriptionDetails(
     .limit(1);
   if (!foundUser) return null;
 
-  const [subscriptions, payments, events, pendingChanges] = await Promise.all([
+  const [
+    subscriptions,
+    payments,
+    events,
+    pendingChanges,
+    mercadopagoPaymentLinks,
+    vindiPaymentLinks,
+  ] = await Promise.all([
     db
       .select()
       .from(subscription)
@@ -1209,6 +1222,18 @@ export async function getUserSubscriptionDetails(
       )
       .orderBy(desc(pendingPlanChange.createdAt))
       .limit(1),
+    db
+      .select()
+      .from(mercadopagoPaymentLink)
+      .where(eq(mercadopagoPaymentLink.userId, userId))
+      .orderBy(desc(mercadopagoPaymentLink.createdAt))
+      .limit(20),
+    db
+      .select()
+      .from(vindiPaymentLink)
+      .where(eq(vindiPaymentLink.userId, userId))
+      .orderBy(desc(vindiPaymentLink.createdAt))
+      .limit(20),
   ]);
 
   const [mercadopagoPaymentLinks, trialGrants, expirationAudits] =
@@ -1247,6 +1272,7 @@ export async function getUserSubscriptionDetails(
     subscriptionHistory: subscriptions,
     payments,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
     events,
     accountHistory: serializeAccountHistory(
       buildAccountHistory({
@@ -2065,12 +2091,14 @@ export async function fetchCustomerBaseRows() {
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
         ), 0)`,
       hasApprovedPayment: sql<boolean>`exists (
           select 1
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
         )`,
       scheduledCancel: sql<boolean>`coalesce((
           select s.cancel_at_period_end = true or s.status = 'canceled'
@@ -2079,11 +2107,21 @@ export async function fetchCustomerBaseRows() {
           order by s.created_at desc
           limit 1
         ), false)`,
-      lastPaymentProvider: sql<"stripe" | "mercadopago" | "manual" | null>`(
+      lastPaymentProvider: sql<BillingProvider | null>`(
           select p.provider
           from payments p
           where p.user_id = ${financeUserId}
             and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
+          order by p.paid_at desc nulls last, p.created_at desc
+          limit 1
+        )`,
+      lastPaymentMethod: sql<PaymentSettlementMethod | null>`(
+          select p.payment_method
+          from payments p
+          where p.user_id = ${financeUserId}
+            and p.status = 'succeeded'
+            and ${billingPaymentPurposeSql()}
           order by p.paid_at desc nulls last, p.created_at desc
           limit 1
         )`,
@@ -2111,6 +2149,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         .select({
           provider: subscription.provider,
           planType: subscription.planType,
+          vindiPaymentMethod: subscription.vindiPaymentMethod,
         })
         .from(subscription)
         .where(eq(subscription.status, "active")),
@@ -2123,6 +2162,8 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
           netAmount: payment.netAmount,
           feeAmount: payment.feeAmount,
           stripeInvoiceId: payment.stripeInvoiceId,
+          paymentMethod: payment.paymentMethod,
+          purpose: payment.purpose,
         })
         .from(payment)
         .where(
@@ -2130,6 +2171,7 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
             eq(payment.status, "succeeded"),
             gte(payment.paidAt, window.gte),
             lt(payment.paidAt, window.lt),
+            billingPaymentPurposeSql(payment.purpose),
           ),
         ),
       db
@@ -2138,7 +2180,12 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
           payingCustomers: sql<number>`count(distinct ${payment.userId})::integer`,
         })
         .from(payment)
-        .where(eq(payment.status, "succeeded")),
+        .where(
+          and(
+            eq(payment.status, "succeeded"),
+            billingPaymentPurposeSql(payment.purpose),
+          ),
+        ),
     ]);
 
   const stripeSettlements = await getStripeSettlements(

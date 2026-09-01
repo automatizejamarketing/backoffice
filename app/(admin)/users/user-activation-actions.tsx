@@ -9,6 +9,7 @@ import {
   Copy,
   CreditCard,
   KeyRound,
+  Link2,
   Loader2,
   MoreHorizontal,
   Phone,
@@ -24,6 +25,8 @@ import type { ContactStatusFilter } from "@/lib/backoffice/users-filters";
 import { UserContactDialog } from "./user-contact-dialog";
 import type { ActiveSubscriptionSummary } from "@/lib/db/admin-queries";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
+import { getSubscribeLinkDisabledReason } from "@/lib/backoffice/subscribe-link-policy";
+import { UserSubscribeLinkDialog } from "./user-subscribe-link-dialog";
 import {
   canCancelStripeSubscriptionAtPeriodEnd,
   getStripeCancellationExpirationDate,
@@ -111,6 +114,7 @@ export function UserActivationActions({
   const [pixDialogOpen, setPixDialogOpen] = useState(false);
   const [manualPaymentOpen, setManualPaymentOpen] = useState(false);
   const [accessOpen, setAccessOpen] = useState(false);
+  const [subscribeLinkOpen, setSubscribeLinkOpen] = useState(false);
   const [activationLink, setActivationLink] = useState<ActivationLink | null>(
     null,
   );
@@ -119,6 +123,10 @@ export function UserActivationActions({
   const manualPaymentDisabledReason = stripeBlocksManualPayment
     ? "Este usuário possui assinatura Stripe ativa."
     : null;
+  const subscribeLinkDisabledReason = getSubscribeLinkDisabledReason({
+    expirationDate: expirationDate ?? null,
+    subscriptions: activeSubscription ? [activeSubscription] : [],
+  });
   const currentPlanType = activeSubscription?.planType ?? null;
   const canCancelStripe = canCancelStripeSubscriptionAtPeriodEnd(
     activeSubscription,
@@ -325,6 +333,10 @@ export function UserActivationActions({
                   Este usuário possui assinatura Stripe ativa.
                 </p>
               ) : null}
+              <DropdownMenuItem onSelect={() => setSubscribeLinkOpen(true)}>
+                <Link2 />
+                Gerar link de assinatura
+              </DropdownMenuItem>
               {canCancelStripe ? (
                 <DropdownMenuItem onSelect={() => setCancelStripeOpen(true)}>
                   <CreditCard />
@@ -385,6 +397,15 @@ export function UserActivationActions({
         currentPlanType={currentPlanType}
         currentExpiration={expirationDate}
         disabledReason={manualPaymentDisabledReason}
+      />
+
+      <UserSubscribeLinkDialog
+        open={subscribeLinkOpen}
+        onOpenChange={setSubscribeLinkOpen}
+        userId={userId}
+        userEmail={userEmail}
+        userPhone={userPhone}
+        disabledReason={subscribeLinkDisabledReason}
       />
 
       <Dialog

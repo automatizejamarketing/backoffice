@@ -206,4 +206,30 @@ describe("summarizeCustomerBaseStatus", () => {
       matchesCustomerBaseCategory(customers[1], "scheduledCancel", now),
     ).toBe(false);
   });
+
+  test("buckets Vindi churn by settlement method instead of dropping it", () => {
+    const now = new Date("2026-08-05T12:00:00.000Z");
+
+    expect(
+      summarizeCustomerBaseStatus(
+        [
+          {
+            expirationDate: new Date("2026-08-04T12:00:00.000Z"),
+            hasApprovedPayment: true,
+            scheduledCancel: false,
+            lastPaymentProvider: "vindi",
+            lastPaymentMethod: "credit_card",
+          },
+          {
+            expirationDate: new Date("2026-08-04T12:00:00.000Z"),
+            hasApprovedPayment: true,
+            scheduledCancel: false,
+            lastPaymentProvider: "vindi",
+            lastPaymentMethod: "pix",
+          },
+        ],
+        now,
+      ).churn,
+    ).toEqual({ total: 2, card: 1, pix: 1 });
+  });
 });

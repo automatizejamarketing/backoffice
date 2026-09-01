@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
+  backofficeAuditLog,
   expertLedgerEntry,
   expertPayoutRequest,
   expertProfile,
@@ -13,6 +14,7 @@ import {
   productOrder,
   productPayment,
   user,
+  type VindiAffiliateStatus,
 } from "./schema";
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
@@ -23,6 +25,13 @@ import {
 } from "@/lib/products/payout";
 import { summarizeProductPaymentsByProduct } from "@/lib/backoffice/finance-payments";
 import { parseProductFinancialSettingsInput } from "@/lib/products/financial-settings";
+import {
+  affiliateStatusForSaleGate,
+  evaluateExpertProductSaleGate,
+  formatExpertSaleGateError,
+  isProductOfferedForSale,
+} from "@/lib/vindi/affiliate-gate";
+import { isVindiProductsEnabled } from "@/lib/vindi/config";
 
 export async function getProductFinancialSettings() {
   const [settings] = await db
@@ -62,6 +71,8 @@ export async function listExperts() {
       platformFeeBasisPoints: expertProfile.platformFeeBasisPoints,
       platformFeeFixedCentavos: expertProfile.platformFeeFixedCentavos,
       marketplaceFeeBasisPoints: expertProfile.marketplaceFeeBasisPoints,
+      vindiAffiliateId: expertProfile.vindiAffiliateId,
+      vindiAffiliateStatus: expertProfile.vindiAffiliateStatus,
       status: expertProfile.status,
     })
     .from(expertProfile)
@@ -136,6 +147,10 @@ export async function listProductsAdmin() {
         automatizeTotalNetRevenueCentavos:
           productPayment.automatizeTotalNetRevenueCentavos,
         expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+        // Split Vindi: sem estes dois a parte do expert é contada como nossa.
+        expertAmountCentavos: productPayment.expertAmountCentavos,
+        platformTheoreticalAmountCentavos:
+          productPayment.platformTheoreticalAmountCentavos,
         expertRevenueCentavos: sql<number>`(
           select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
           from ${expertLedgerEntry}
@@ -171,10 +186,125 @@ export async function listProductsAdmin() {
   }));
 }
 
-export async function createProductAdmin(input: unknown) {
+type ProductAdminAudit = {
+  adminEmail: string;
+};
+
+type ProductAdminTx = Parameters<Parameters<(typeof db)["transaction"]>[0]>[0];
+
+async function resolveParticipationAuditTargetUserId(
+  tx: ProductAdminTx,
+  expertId: string | null,
+  adminEmail: string,
+) {
+  if (expertId) {
+    const [expert] = await tx
+      .select({ userId: expertProfile.userId })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, expertId))
+      .limit(1);
+    if (expert) return expert.userId;
+  }
+
+  const [appUser] = await tx
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, adminEmail))
+    .limit(1);
+  return appUser?.id ?? null;
+}
+
+async function assertExpertProductSaleAllowed(
+  tx: ProductAdminTx,
+  values: {
+    ownerType: "automatize" | "expert";
+    expertId: string | null;
+    status: "draft" | "published" | "archived";
+    salesEnabled: boolean;
+  },
+) {
+  if (!isVindiProductsEnabled() || !isProductOfferedForSale(values)) {
+    return;
+  }
+
+  let affiliateStatus: VindiAffiliateStatus | null = null;
+  if (values.ownerType === "expert" && values.expertId) {
+    const [expert] = await tx
+      .select({
+        vindiAffiliateStatus: expertProfile.vindiAffiliateStatus,
+      })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, values.expertId))
+      .limit(1);
+    affiliateStatus = affiliateStatusForSaleGate({
+      ownerType: values.ownerType,
+      affiliateStatus: expert?.vindiAffiliateStatus,
+    });
+  }
+
+  const gate = evaluateExpertProductSaleGate({
+    ownerType: values.ownerType,
+    affiliateStatus,
+    vindiProductsEnabled: true,
+    offeringForSale: true,
+  });
+  if (!gate.allowed) {
+    throw new Error(formatExpertSaleGateError(gate));
+  }
+}
+
+async function insertParticipationAudit(
+  tx: ProductAdminTx,
+  input: {
+    adminEmail: string;
+    action: "create_expert_participation" | "update_expert_participation";
+    productId: string;
+    expertId: string | null;
+    oldValue: number | null;
+    newValue: number | null;
+  },
+) {
+  const targetUserId = await resolveParticipationAuditTargetUserId(
+    tx,
+    input.expertId,
+    input.adminEmail,
+  );
+  if (!targetUserId) {
+    if (input.expertId) {
+      throw new Error("não foi possível auditar a participação do expert");
+    }
+    return;
+  }
+
+  await tx.insert(backofficeAuditLog).values({
+    adminEmail: input.adminEmail,
+    targetUserId,
+    action: input.action,
+    fieldName: "expert_participation_bps",
+    oldValue: input.oldValue == null ? null : String(input.oldValue),
+    newValue: input.newValue == null ? "null" : String(input.newValue),
+    note: `product:${input.productId}`,
+  });
+}
+
+export async function createProductAdmin(
+  input: unknown,
+  audit: ProductAdminAudit,
+) {
   const values = parseProductAdminInput(input);
-  const [created] = await db.insert(product).values(values).returning();
-  return created;
+  return db.transaction(async (tx) => {
+    await assertExpertProductSaleAllowed(tx, values);
+    const [created] = await tx.insert(product).values(values).returning();
+    await insertParticipationAudit(tx, {
+      adminEmail: audit.adminEmail,
+      action: "create_expert_participation",
+      productId: created.id,
+      expertId: created.expertId,
+      oldValue: null,
+      newValue: created.expertParticipationBps,
+    });
+    return created;
+  });
 }
 
 export async function productExistsAdmin(id: string) {
@@ -186,14 +316,44 @@ export async function productExistsAdmin(id: string) {
   return Boolean(row);
 }
 
-export async function updateProductAdmin(id: string, input: unknown) {
+export async function updateProductAdmin(
+  id: string,
+  input: unknown,
+  audit: ProductAdminAudit,
+) {
   const values = parseProductAdminInput(input);
-  const [updated] = await db
-    .update(product)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(product.id, id))
-    .returning();
-  return updated ?? null;
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        expertId: product.expertId,
+        expertParticipationBps: product.expertParticipationBps,
+      })
+      .from(product)
+      .where(eq(product.id, id))
+      .limit(1);
+    if (!existing) return null;
+
+    await assertExpertProductSaleAllowed(tx, values);
+
+    const [updated] = await tx
+      .update(product)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(product.id, id))
+      .returning();
+    if (!updated) return null;
+
+    if (existing.expertParticipationBps !== updated.expertParticipationBps) {
+      await insertParticipationAudit(tx, {
+        adminEmail: audit.adminEmail,
+        action: "update_expert_participation",
+        productId: updated.id,
+        expertId: updated.expertId,
+        oldValue: existing.expertParticipationBps,
+        newValue: updated.expertParticipationBps,
+      });
+    }
+    return updated;
+  });
 }
 
 export async function archiveProductAdmin(id: string) {
@@ -271,7 +431,14 @@ export async function listProductOrders() {
       createdAt: productOrder.createdAt,
       checkoutChannel: productOrder.checkoutChannel,
       marketplaceFeeBasisPoints: productOrder.marketplaceFeeBasisPoints,
+      buyerUserId: productOrder.userId,
+      provider: productPayment.provider,
+      vindiChargeId: productPayment.vindiChargeId,
       providerPaymentId: productPayment.providerPaymentId,
+      financialModel: productOrder.financialModel,
+      expertAmountCentavos: productPayment.expertAmountCentavos,
+      platformTheoreticalAmountCentavos:
+        productPayment.platformTheoreticalAmountCentavos,
       paymentStatus: productPayment.status,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,

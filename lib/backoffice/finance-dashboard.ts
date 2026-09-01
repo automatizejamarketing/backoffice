@@ -1,9 +1,21 @@
-import type { BillingProvider, PlanType } from "@/lib/db/schema";
+import type {
+  BillingProvider,
+  PaymentPurpose,
+  PaymentSettlementMethod,
+  PlanType,
+  VindiSubscriptionPaymentMethod,
+} from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
+import {
+  financeProvider,
+  type FinanceProvider,
+} from "./finance-provider";
+import { isBillingPaymentPurpose } from "./finance-purpose";
 
 export type ActivePlanForMrr = {
   provider: BillingProvider;
   planType: PlanType;
+  vindiPaymentMethod?: VindiSubscriptionPaymentMethod | null;
 };
 
 export type PaymentForFinance = {
@@ -14,6 +26,8 @@ export type PaymentForFinance = {
   netAmount: number | null;
   feeAmount: number | null;
   stripeInvoiceId: string | null;
+  paymentMethod?: PaymentSettlementMethod | null;
+  purpose?: PaymentPurpose | null;
 };
 
 export type StripeSettlement = {
@@ -27,8 +41,6 @@ export type CustomerLifetimeRevenue = {
   grossCentavos: number;
   payingCustomers: number;
 };
-
-export type FinanceProvider = "card" | "pix" | "manual";
 
 export type FinanceProviderSummary = {
   provider: FinanceProvider;
@@ -56,12 +68,6 @@ export type FinanceDashboardSummary = {
   };
 };
 
-function financeProvider(provider: BillingProvider): FinanceProvider {
-  if (provider === "stripe") return "card";
-  if (provider === "mercadopago") return "pix";
-  return "manual";
-}
-
 function emptyProviderSummary(
   provider: FinanceProvider,
 ): FinanceProviderSummary {
@@ -86,10 +92,13 @@ export function summarizeFinanceDashboard(
     pix: 0,
     manual: 0,
   };
+  let mrrCentavos = 0;
 
   for (const plan of activePlans) {
-    mrrByProvider[financeProvider(plan.provider)] +=
-      PLAN_DEFINITIONS[plan.planType].monthlyPriceCentavos;
+    const monthly = PLAN_DEFINITIONS[plan.planType].monthlyPriceCentavos;
+    mrrCentavos += monthly;
+    const provider = financeProvider(plan);
+    if (provider) mrrByProvider[provider] += monthly;
   }
 
   const providers: Record<FinanceProvider, FinanceProviderSummary> = {
@@ -100,10 +109,16 @@ export function summarizeFinanceDashboard(
   const settlementsByInvoice = new Map(
     stripeSettlements.map((settlement) => [settlement.invoiceId, settlement]),
   );
+  let paymentsCount = 0;
+  let grossCentavos = 0;
+  let feeCentavos = 0;
+  let netCentavos = 0;
+  let netCoveragePayments = 0;
 
   for (const payment of payments) {
-    const provider = financeProvider(payment.provider);
-    const providerSummary = providers[provider];
+    if (!isBillingPaymentPurpose(payment.purpose)) continue;
+
+    const provider = financeProvider(payment);
     const stripeSettlement = payment.stripeInvoiceId
       ? settlementsByInvoice.get(payment.stripeInvoiceId)
       : undefined;
@@ -115,6 +130,17 @@ export function summarizeFinanceDashboard(
       payment.netAmount ??
       (fee !== null ? gross - fee : provider === "manual" ? gross : null);
 
+    paymentsCount += 1;
+    grossCentavos += gross;
+    if (fee !== null) feeCentavos += fee;
+    if (net !== null) {
+      netCentavos += net;
+      netCoveragePayments += 1;
+    }
+
+    if (!provider) continue;
+
+    const providerSummary = providers[provider];
     providerSummary.payments += 1;
     providerSummary.grossCentavos += gross;
     if (fee !== null) providerSummary.feeCentavos += fee;
@@ -124,21 +150,8 @@ export function summarizeFinanceDashboard(
     }
   }
 
-  const providerValues = Object.values(providers);
-  const netCentavos = providerValues.reduce(
-    (sum, item) => sum + item.netCentavos,
-    0,
-  );
-  const netCoveragePayments = providerValues.reduce(
-    (sum, item) => sum + item.netCoveragePayments,
-    0,
-  );
-
   return {
-    mrrCentavos: Object.values(mrrByProvider).reduce(
-      (sum, amount) => sum + amount,
-      0,
-    ),
+    mrrCentavos,
     activeSubscriptions: activePlans.length,
     realizedLtvCentavos:
       customerLifetimeRevenue.payingCustomers === 0
@@ -150,15 +163,9 @@ export function summarizeFinanceDashboard(
     lifetimePayingCustomers: customerLifetimeRevenue.payingCustomers,
     mrrByProvider,
     receipts: {
-      payments: providerValues.reduce((sum, item) => sum + item.payments, 0),
-      grossCentavos: providerValues.reduce(
-        (sum, item) => sum + item.grossCentavos,
-        0,
-      ),
-      feeCentavos: providerValues.reduce(
-        (sum, item) => sum + item.feeCentavos,
-        0,
-      ),
+      payments: paymentsCount,
+      grossCentavos,
+      feeCentavos,
       netCentavos,
       netCoveragePayments,
       averageNetTicketCentavos:

@@ -1,13 +1,26 @@
-import { CalendarClock, CreditCard, History, Receipt, RotateCw, Shield } from "lucide-react";
-import { AccountHistoryTimeline } from "@/components/account-history-timeline";
+import {
+  CalendarClock,
+  History,
+  Link2,
+  Receipt,
+  RotateCw,
+  Shield,
+  Sparkles,
+  User,
+} from "lucide-react";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
+import { SubscribeLinkActions } from "@/components/subscribe-link-actions";
+import { AccountHistoryTimeline } from "@/components/account-history-timeline";
 import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
 import {
   MercadoPagoPixActions,
   type PixLinkView,
 } from "@/components/mercadopago-pix-actions";
-import { ManualPaymentDialog } from "@/components/manual-payment-dialog";
 import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
+import { VindiPaidOutOfBandCard } from "@/components/vindi-paid-out-of-band-card";
+import { VindiPaymentRecoveryCard } from "@/components/vindi-payment-recovery-card";
+import { VindiRefundPaymentButton } from "@/components/vindi-refund-payment-button";
+import { VindiSubscriptionCancelButton } from "@/components/vindi-subscription-cancel-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -18,24 +31,28 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { UserSubscriptionDetails } from "@/lib/db/admin-queries";
-import type {
-  Payment,
-  PendingPlanChange,
-  PlanType,
-  Subscription,
-  SubscriptionEvent,
-  User,
-} from "@/lib/db/schema";
+import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
+import { getSubscribeLinkDisabledReason } from "@/lib/backoffice/subscribe-link-policy";
 import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
+import {
+  decideVindiPaidOutOfBand,
+  pickFailedVindiBillId,
+  presentBackofficeVindiPixLink,
+} from "@/lib/vindi/backoffice-pix";
+import { decideVindiPaymentRefund } from "@/lib/vindi/refund";
+import {
+  billingProviderLabel,
+  presentBackofficeVindiSubscription,
+  providerExternalId,
+  vindiCancelInWindowNotice,
+} from "@/lib/vindi/subscription-panel";
 import {
   describeUpcomingChange,
   formatPlanLabel,
   getStatusBadgeProps,
-  type StatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 import {
   formatDateInSaoPaulo,
@@ -66,12 +83,6 @@ const CHANGE_TYPE_LABELS: Record<string, string> = {
   upgrade: "Upgrade",
   downgrade: "Downgrade",
   plan_change: "Mudança de plano",
-};
-
-const PROVIDER_LABELS: Record<string, string> = {
-  stripe: "Stripe/cartão",
-  mercadopago: "Mercado Pago Pix",
-  manual: "Manual",
 };
 
 function formatDate(value: Date | string | null | undefined): string {
@@ -119,10 +130,10 @@ function computeRecoverableInvoice(
     return null;
   }
   const candidate = payments.find(
-    (payment): payment is Payment & { stripeInvoiceId: string } =>
-      payment.status === "failed" &&
-      payment.stripeInvoiceId !== null &&
-      payment.subscriptionId === activeSubscription.id,
+    (p): p is Payment & { stripeInvoiceId: string } =>
+      p.status === "failed" &&
+      p.stripeInvoiceId !== null &&
+      p.subscriptionId === activeSubscription.id,
   );
   return candidate ?? null;
 }
@@ -130,9 +141,11 @@ function computeRecoverableInvoice(
 export function UserSubscriptionPanel({
   data,
   showProfileCard = true,
+  vindiSubscriptionsEnabled = false,
 }: {
   data: UserSubscriptionDetails;
   showProfileCard?: boolean;
+  vindiSubscriptionsEnabled?: boolean;
 }) {
   const {
     user,
@@ -141,6 +154,7 @@ export function UserSubscriptionPanel({
     subscriptionHistory,
     payments,
     mercadopagoPaymentLinks,
+    vindiPaymentLinks,
     events,
     accountHistory,
   } = data;
@@ -168,316 +182,356 @@ export function UserSubscriptionPanel({
     payments,
   );
   const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
-  const pixLinks: PixLinkView[] = mercadopagoPaymentLinks.map((link) => ({
-    id: link.id,
-    planType: link.planType,
-    amount: link.amount,
-    currency: link.currency,
-    preferenceId: link.preferenceId,
-    ...normalizePixInitPoint(link.initPoint),
-    mercadopagoPaymentId: link.mercadopagoPaymentId,
-    status: link.status,
-    source: link.source,
-    adminEmail: link.adminEmail,
-    expiresAt: link.expiresAt.toISOString(),
-    createdAt: link.createdAt.toISOString(),
-  }));
-  const hasStripe =
-    Boolean(user.stripeCustomerId) ||
-    subscriptionHistory.some(
-      (subscription) => subscription.provider === "stripe",
-    ) ||
-    payments.some((payment) => payment.provider === "stripe");
+  const pixLinks: PixLinkView[] = vindiSubscriptionsEnabled
+    ? vindiPaymentLinks.flatMap((link) => {
+        try {
+          return [presentBackofficeVindiPixLink(link)];
+        } catch {
+          return [];
+        }
+      })
+    : mercadopagoPaymentLinks.map((link) => ({
+        id: link.id,
+        planType: link.planType,
+        amount: link.amount,
+        currency: link.currency,
+        preferenceId: link.preferenceId,
+        ...normalizePixInitPoint(link.initPoint),
+        mercadopagoPaymentId: link.mercadopagoPaymentId,
+        status: link.status,
+        source: link.source,
+        adminEmail: link.adminEmail,
+        expiresAt: link.expiresAt.toISOString(),
+        createdAt: link.createdAt.toISOString(),
+      }));
+  const failedVindiPayment =
+    payments.find(
+      (row) =>
+        row.provider === "vindi" &&
+        row.status === "failed" &&
+        row.vindiChargeId &&
+        (!activeSubscription || row.subscriptionId === activeSubscription.id),
+    ) ?? null;
+  const failedVindiBillId = pickFailedVindiBillId(
+    payments,
+    activeSubscription?.id ?? null,
+  );
+  const vindiView = presentBackofficeVindiSubscription({
+    subscription: activeSubscription,
+    expirationDate: user.expirationDate,
+    failedPayment: failedVindiPayment
+      ? {
+          vindiChargeId: failedVindiPayment.vindiChargeId,
+          vindiBillId: failedVindiPayment.vindiBillId,
+          amount: failedVindiPayment.amount,
+          currency: failedVindiPayment.currency,
+          failureReason: failedVindiPayment.failureReason,
+          createdAt: failedVindiPayment.createdAt,
+        }
+      : null,
+  });
+  const vindiPaidOutOfBand = vindiSubscriptionsEnabled
+    ? decideVindiPaidOutOfBand({
+        planType: activeSubscription?.planType ?? null,
+        currentExpiration: user.expirationDate,
+        openLinks: vindiPaymentLinks.map((link) => ({
+          id: link.id,
+          vindiBillId: link.vindiBillId,
+          planType: link.planType,
+          status: link.status,
+        })),
+        failedPaymentBillId: failedVindiBillId,
+        now: new Date(),
+      })
+    : { ok: false as const, reason: "no_open_bill" as const };
+  const cancelInWindowNotice = vindiCancelInWindowNotice(vindiView);
 
   return (
     <div className="space-y-6">
-      {showProfileCard ? (
-        <div>
-          <p className="text-lg font-semibold">{user.email}</p>
-          {user.name ? (
-            <p className="text-sm text-muted-foreground">{user.name}</p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <Tabs defaultValue="access" className="gap-0">
-        <TabsList
-          variant="line"
-          className="h-auto w-full justify-start rounded-none border-b bg-transparent p-0"
-        >
-          <TabsTrigger
-            className="h-auto rounded-none px-4 py-2.5 text-sm after:bottom-0 data-[state=active]:bg-transparent dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-transparent"
-            value="access"
-          >
-            <Receipt className="size-4" />
-            Acesso e pagamentos
-          </TabsTrigger>
-          <TabsTrigger
-            className="h-auto rounded-none px-4 py-2.5 text-sm after:bottom-0 data-[state=active]:bg-transparent dark:data-[state=active]:border-transparent dark:data-[state=active]:bg-transparent"
-            value="stripe"
-          >
-            <CreditCard className="size-4" />
-            Stripe
-            {hasStripe ? null : (
-              <span className="font-normal text-muted-foreground">
-                · sem dados
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="access" className="mt-6 space-y-6 text-sm">
-          <PaymentsCard payments={payments} />
-
-          <ExpirationDateControl
-            userId={user.id}
-            expirationDate={user.expirationDate}
-          />
-
-          <div className="space-y-3">
-            <h3 className="text-sm font-medium">Histórico da conta</h3>
-            <AccountHistoryTimeline items={accountHistory} />
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="h-5 w-5" />
-                Plano atual
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <ManualPaymentDialog
-                userId={user.id}
-                currentPlanType={activeSubscription?.planType ?? null}
-                currentExpiration={user.expirationDate}
-                disabledReason={
-                  pixDisabledReason
-                    ? "Este usuário possui assinatura Stripe ativa."
-                    : null
-                }
+      {showProfileCard && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="h-5 w-5" />
+              {vindiView?.profileTitle ?? "Usuário & Cliente Stripe"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+              <Row label="Email" value={user.email} mono={false} />
+              <Row label="Nome" value={user.name ?? "—"} mono={false} />
+              <Row label="Telefone" value={user.phone ?? "—"} />
+              <Row label="Idioma" value={user.locale ?? "—"} />
+              <Row label="Provedor de auth" value={user.authProvider} />
+              <Row
+                label="Créditos"
+                value={new Intl.NumberFormat("pt-BR").format(user.credits)}
               />
-              {!activeSubscription ? (
-                <p className="text-sm text-muted-foreground">
-                  Nenhuma assinatura ativa. O acesso vale pela data de
-                  expiração acima.
-                </p>
-              ) : (
-                <CurrentPlanSnapshot
-                  subscription={activeSubscription}
-                  badge={badge}
-                  isTrialing={isTrialing}
-                  upcoming={upcoming}
+              <Row label="ID interno" value={user.id} mono />
+              {vindiView?.showStripeIds === false ? null : (
+                <Row
+                  label="Stripe Customer ID"
+                  value={user.stripeCustomerId ?? "—"}
+                  mono
                 />
               )}
-            </CardContent>
-          </Card>
+            </dl>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Receipt className="h-5 w-5" />
-                Mercado Pago Pix
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MercadoPagoPixActions
+            <div className="mt-6">
+              <ExpirationDateControl
                 userId={user.id}
-                currentPlanType={activeSubscription?.planType ?? null}
-                initialLinks={pixLinks}
-                disabledReason={pixDisabledReason}
+                expirationDate={user.expirationDate}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-        <TabsContent value="stripe" className="mt-6 space-y-6 text-sm">
-          {!hasStripe ? (
-            <p className="text-sm text-muted-foreground">
-              Este usuário não tem customer, assinatura nem pagamento Stripe.
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Assinatura e cobrança
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!activeSubscription ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              Nenhuma assinatura ativa registrada para este usuário.
             </p>
           ) : (
-            <StripeBillingDetails
-              user={user}
-              activeSubscription={activeSubscription}
-              pendingPlanChange={pendingPlanChange}
-              subscriptionHistory={subscriptionHistory}
-              events={events}
-              recoverableInvoice={recoverableInvoice}
-            />
-          )}
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
+            <div className="space-y-5">
+              <SubscriptionAccessSyncAlert
+                status={activeSubscription.status}
+                expirationDate={user.expirationDate}
+                providerLabel={billingProviderLabel(activeSubscription.provider)}
+              />
 
-function CurrentPlanSnapshot({
-  subscription,
-  badge,
-  isTrialing,
-  upcoming,
-}: {
-  subscription: Subscription;
-  badge: StatusBadgeProps;
-  isTrialing: boolean;
-  upcoming: { label: string; detail: string } | null;
-}) {
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start gap-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Plano
-          </p>
-          <p className="text-base font-semibold">
-            {formatPlanLabel(subscription.planType)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Provedor
-          </p>
-          <p className="text-sm font-medium">
-            {PROVIDER_LABELS[subscription.provider] ?? subscription.provider}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-            Status no provedor
-          </p>
-          <div className="mt-0.5 flex flex-col gap-1">
-            <Badge variant={badge.variant} className="w-fit">
-              {badge.label}
-            </Badge>
-            {badge.hint ? (
-              <span className="text-[11px] text-muted-foreground">
-                {badge.hint}
-              </span>
-            ) : null}
-          </div>
-        </div>
-        {subscription.cancelAtPeriodEnd ? (
-          <Badge variant="secondary" className="self-center">
-            Cancelamento agendado
-          </Badge>
-        ) : null}
-      </div>
+              <div className="flex flex-wrap items-start gap-6">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Plano
+                  </p>
+                  <p className="text-base font-semibold">
+                    {formatPlanLabel(activeSubscription.planType)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Status no provedor
+                  </p>
+                  <div className="mt-0.5 flex flex-col gap-1">
+                    <Badge variant={badge.variant} className="w-fit">
+                      {badge.label}
+                    </Badge>
+                    {badge.hint && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {badge.hint}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {activeSubscription.cancelAtPeriodEnd && (
+                  <Badge variant="secondary" className="self-center">
+                    Cancelamento agendado
+                  </Badge>
+                )}
+              </div>
 
-      {isTrialing ? (
-        <p className="text-sm text-muted-foreground">
-          Em trial até {formatDate(subscription.currentPeriodEnd)}. Depois segue
-          no plano {formatPlanLabel(subscription.planType)}.
-        </p>
-      ) : null}
+              {isTrialing && (
+                <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-4">
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="mt-0.5 size-4 text-primary" />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        Em período de teste até{" "}
+                        {formatDate(activeSubscription.currentPeriodEnd)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Plano agendado para após o trial:{" "}
+                        <span className="font-semibold text-foreground">
+                          {formatPlanLabel(activeSubscription.planType)}
+                        </span>
+                      </p>
+                      {pendingPlanChange && (
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          (substituído por{" "}
+                          <span className="font-semibold text-foreground">
+                            {formatPlanLabel(pendingPlanChange.newPlanType)}
+                          </span>{" "}
+                          em {formatDate(pendingPlanChange.effectiveDate)})
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
 
-      {!isTrialing && upcoming ? (
-        <div className="rounded-md border border-border bg-muted/40 p-3">
-          <div className="flex items-start gap-2">
-            <CalendarClock className="mt-0.5 size-4 text-primary" />
-            <div>
-              <p className="text-sm font-medium">{upcoming.label}</p>
-              <p className="text-xs text-muted-foreground">{upcoming.detail}</p>
+              {!isTrialing && upcoming && (
+                <div className="rounded-md border border-border bg-muted/40 p-4">
+                  <div className="flex items-start gap-2">
+                    <CalendarClock className="mt-0.5 size-4 text-primary" />
+                    <div>
+                      <p className="font-medium">{upcoming.label}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {upcoming.detail}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                <Row
+                  label="Provedor"
+                  value={billingProviderLabel(activeSubscription.provider)}
+                />
+                {vindiView?.paymentMethodLabel ? (
+                  <Row label="Método" value={vindiView.paymentMethodLabel} />
+                ) : null}
+                {vindiView?.consentLabel ? (
+                  <Row
+                    label="Consentimento Pix Automático"
+                    value={vindiView.consentLabel}
+                  />
+                ) : null}
+                {vindiView?.installmentsLabel ? (
+                  <Row label="Parcelas" value={vindiView.installmentsLabel} />
+                ) : null}
+                {vindiView ? (
+                  <Row
+                    label="Próxima cobrança"
+                    value={formatDateTime(vindiView.nextChargeAt)}
+                  />
+                ) : null}
+                <Row
+                  label="Ciclo de cobrança (início)"
+                  value={formatDateTime(activeSubscription.currentPeriodStart)}
+                />
+                <Row
+                  label="Ciclo de cobrança (fim)"
+                  value={formatDateTime(activeSubscription.currentPeriodEnd)}
+                />
+                {activeSubscription.commitmentMonths > 1 && (
+                  <>
+                    <Row
+                      label="Compromisso"
+                      value={`${activeSubscription.commitmentMonths} meses`}
+                    />
+                    <Row
+                      label="Compromisso até"
+                      value={formatDate(activeSubscription.commitmentEndDate)}
+                    />
+                  </>
+                )}
+                <Row
+                  label="Cancelada em"
+                  value={formatDateTime(activeSubscription.canceledAt)}
+                />
+                <Row
+                  label="Encerrada em"
+                  value={formatDateTime(activeSubscription.endedAt)}
+                />
+                <Row
+                  label="Atualizada em"
+                  value={formatDateTime(activeSubscription.updatedAt)}
+                />
+                <Row
+                  label="Criada em"
+                  value={formatDateTime(activeSubscription.createdAt)}
+                />
+                {vindiView?.showStripeIds === false ? (
+                  <Row
+                    label="Vindi Subscription ID"
+                    value={vindiView.vindiSubscriptionId}
+                    mono
+                  />
+                ) : (
+                  <>
+                    <Row
+                      label="Stripe Subscription ID"
+                      value={activeSubscription.stripeSubscriptionId}
+                      mono
+                    />
+                    <Row
+                      label="Stripe Price ID"
+                      value={activeSubscription.stripePriceId}
+                      mono
+                    />
+                  </>
+                )}
+              </dl>
+              {vindiView?.cancel?.canCancel ? (
+                <VindiSubscriptionCancelButton
+                  userId={user.id}
+                  cancel={vindiView.cancel}
+                />
+              ) : cancelInWindowNotice ? (
+                <p className="text-sm text-muted-foreground">
+                  {cancelInWindowNotice}
+                </p>
+              ) : null}
             </div>
-          </div>
-        </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5" />
+            {vindiSubscriptionsEnabled ? "Pix de renovação" : "Mercado Pago Pix"}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MercadoPagoPixActions
+            userId={user.id}
+            currentPlanType={activeSubscription?.planType ?? null}
+            initialLinks={pixLinks}
+            disabledReason={pixDisabledReason}
+          />
+        </CardContent>
+      </Card>
+
+      {vindiSubscriptionsEnabled ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Link de assinatura
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SubscribeLinkActions
+              userId={user.id}
+              userEmail={user.email}
+              userPhone={user.phone}
+              disabledReason={getSubscribeLinkDisabledReason({
+                expirationDate: user.expirationDate,
+                subscriptions: activeSubscription ? [activeSubscription] : [],
+              })}
+            />
+          </CardContent>
+        </Card>
       ) : null}
-    </div>
-  );
-}
 
-function PaymentsCard({ payments }: { payments: Payment[] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Receipt className="h-5 w-5" />
-          Pagamentos
-          <span className="font-normal text-muted-foreground">
-            · {payments.length}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {payments.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            Nenhum pagamento registrado
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pago em</TableHead>
-                  <TableHead>Plano</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Provedor</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell className="whitespace-nowrap text-sm">
-                      {formatDateTime(payment.paidAt ?? payment.createdAt)}
-                    </TableCell>
-                    <TableCell>{planNameOrDash(payment.planType)}</TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {formatMoney(payment.amount, payment.currency)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <Badge
-                          variant={paymentStatusVariant(payment.status)}
-                          className="w-fit"
-                        >
-                          {PAYMENT_STATUS_LABELS[payment.status] ??
-                            payment.status}
-                        </Badge>
-                        {payment.failureReason ? (
-                          <span className="text-[11px] text-destructive">
-                            {payment.failureReason}
-                          </span>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-xs">
-                      {PROVIDER_LABELS[payment.provider] ?? payment.provider}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+      {vindiPaidOutOfBand.ok ? (
+        <VindiPaidOutOfBandCard
+          userId={user.id}
+          planType={vindiPaidOutOfBand.planType}
+          newExpiration={vindiPaidOutOfBand.newExpiration}
+        />
+      ) : null}
 
-function StripeBillingDetails({
-  user,
-  activeSubscription,
-  pendingPlanChange,
-  subscriptionHistory,
-  events,
-  recoverableInvoice,
-}: {
-  user: User;
-  activeSubscription: Subscription | null;
-  pendingPlanChange: PendingPlanChange | null;
-  subscriptionHistory: Subscription[];
-  events: SubscriptionEvent[];
-  recoverableInvoice: (Payment & { stripeInvoiceId: string }) | null;
-}) {
-  const stripeSubscription =
-    activeSubscription?.provider === "stripe" ? activeSubscription : null;
-
-  return (
-    <>
-      {recoverableInvoice &&
-      (activeSubscription?.status === "past_due" ||
-        activeSubscription?.status === "unpaid") ? (
+      {vindiView?.recovery ? (
+        <VindiPaymentRecoveryCard
+          userId={user.id}
+          recovery={vindiView.recovery}
+        />
+      ) : !vindiView &&
+        recoverableInvoice &&
+        (activeSubscription?.status === "past_due" ||
+          activeSubscription?.status === "unpaid") ? (
         <PaymentRecoveryCard
           userId={user.id}
           invoiceId={recoverableInvoice.stripeInvoiceId}
@@ -489,66 +543,7 @@ function StripeBillingDetails({
         />
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Dados Stripe
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {stripeSubscription ? (
-            <SubscriptionAccessSyncAlert
-              provider={stripeSubscription.provider}
-              status={stripeSubscription.status}
-              expirationDate={user.expirationDate}
-            />
-          ) : null}
-          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
-            <Row label="Customer ID" value={user.stripeCustomerId} mono />
-            <Row
-              label="Subscription ID"
-              value={stripeSubscription?.stripeSubscriptionId}
-              mono
-            />
-            <Row
-              label="Price ID"
-              value={stripeSubscription?.stripePriceId}
-              mono
-            />
-            <Row
-              label="Ciclo (início)"
-              value={formatDateTime(stripeSubscription?.currentPeriodStart)}
-            />
-            <Row
-              label="Ciclo (fim)"
-              value={formatDateTime(stripeSubscription?.currentPeriodEnd)}
-            />
-            <Row
-              label="Cancelada em"
-              value={formatDateTime(stripeSubscription?.canceledAt)}
-            />
-            <Row
-              label="Encerrada em"
-              value={formatDateTime(stripeSubscription?.endedAt)}
-            />
-            {stripeSubscription && stripeSubscription.commitmentMonths > 1 ? (
-              <>
-                <Row
-                  label="Compromisso"
-                  value={`${stripeSubscription.commitmentMonths} meses`}
-                />
-                <Row
-                  label="Compromisso até"
-                  value={formatDate(stripeSubscription.commitmentEndDate)}
-                />
-              </>
-            ) : null}
-          </dl>
-        </CardContent>
-      </Card>
-
-      {pendingPlanChange ? (
+      {pendingPlanChange && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -578,16 +573,36 @@ function StripeBillingDetails({
                   }
                 />
                 <Row label="Status" value={pendingPlanChange.status} />
+                {vindiView ? null : (
+                  <Row
+                    label="Novo Stripe Price ID"
+                    value={pendingPlanChange.newStripePriceId}
+                    mono
+                  />
+                )}
                 <Row
-                  label="Novo Stripe Price ID"
-                  value={pendingPlanChange.newStripePriceId}
+                  label="Subscription ID (interno)"
+                  value={pendingPlanChange.subscriptionId}
                   mono
+                />
+                <Row
+                  label="Criada em"
+                  value={formatDateTime(pendingPlanChange.createdAt)}
+                />
+                <Row
+                  label="Atualizada em"
+                  value={formatDateTime(pendingPlanChange.updatedAt)}
                 />
               </dl>
             </div>
           </CardContent>
         </Card>
-      ) : null}
+      )}
+
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">Histórico da conta</h3>
+        <AccountHistoryTimeline items={accountHistory} />
+      </div>
 
       <Card>
         <CardHeader>
@@ -610,20 +625,20 @@ function StripeBillingDetails({
                       <p className="text-sm font-medium">
                         {EVENT_TYPE_LABELS[event.eventType] ?? event.eventType}
                       </p>
-                      {event.fromPlan || event.toPlan ? (
+                      {(event.fromPlan || event.toPlan) && (
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {event.fromPlan
                             ? planNameOrDash(event.fromPlan)
                             : "—"}{" "}
                           → {event.toPlan ? planNameOrDash(event.toPlan) : "—"}
                         </p>
-                      ) : null}
+                      )}
                     </div>
                     <span className="whitespace-nowrap text-xs text-muted-foreground">
                       {formatDateTime(event.createdAt)}
                     </span>
                   </div>
-                  {event.metadata && Object.keys(event.metadata).length > 0 ? (
+                  {event.metadata && Object.keys(event.metadata).length > 0 && (
                     <details className="text-xs">
                       <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                         Metadata
@@ -632,9 +647,100 @@ function StripeBillingDetails({
                         {JSON.stringify(event.metadata, null, 2)}
                       </pre>
                     </details>
-                  ) : null}
+                  )}
                 </div>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5" />
+            Histórico de pagamentos
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {payments.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              Nenhum pagamento registrado
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Pago em</TableHead>
+                    <TableHead>Criado em</TableHead>
+                    <TableHead>Plano</TableHead>
+                    <TableHead>Valor</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Provedor</TableHead>
+                    <TableHead>Descrição</TableHead>
+                    <TableHead>ID no provedor</TableHead>
+                    <TableHead>Ações</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payments.map((p) => (
+                    <TableRow key={p.id}>
+                      <TableCell className="whitespace-nowrap text-sm">
+                        {formatDate(p.paidAt)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                        {formatDate(p.createdAt)}
+                      </TableCell>
+                      <TableCell>{planNameOrDash(p.planType)}</TableCell>
+                      <TableCell className="whitespace-nowrap">
+                        {formatMoney(p.amount, p.currency)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <Badge
+                            variant={paymentStatusVariant(p.status)}
+                            className="w-fit"
+                          >
+                            {PAYMENT_STATUS_LABELS[p.status] ?? p.status}
+                          </Badge>
+                          {p.failureReason && (
+                            <span className="text-[11px] text-destructive">
+                              {p.failureReason}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {billingProviderLabel(p.provider)}
+                      </TableCell>
+                      <TableCell className="max-w-[260px] text-xs text-muted-foreground">
+                        {p.description ?? "—"}
+                      </TableCell>
+                      <TableCell className="max-w-[180px] truncate font-mono text-[11px] text-muted-foreground">
+                        {providerExternalId({
+                          provider: p.provider,
+                          stripeId: p.stripeInvoiceId,
+                          vindiId: p.vindiChargeId ?? p.vindiBillId,
+                          mercadopagoId: p.mercadopagoPaymentId,
+                        }) ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        {decideVindiPaymentRefund(p).ok ? (
+                          <VindiRefundPaymentButton
+                            userId={user.id}
+                            paymentId={p.id}
+                            amountLabel={formatMoney(p.amount, p.currency)}
+                            description={
+                              p.description ?? planNameOrDash(p.planType)
+                            }
+                          />
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>
@@ -663,43 +769,44 @@ function StripeBillingDetails({
                     <TableHead>Provedor</TableHead>
                     <TableHead>Período</TableHead>
                     <TableHead>Encerrada</TableHead>
-                    <TableHead>Stripe Subscription</TableHead>
+                    <TableHead>ID no provedor</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {subscriptionHistory.map((subscription) => (
+                  {subscriptionHistory.map((s) => (
                     <TableRow
-                      key={subscription.id}
+                      key={s.id}
                       className={
-                        activeSubscription?.id === subscription.id
-                          ? "bg-muted/40"
-                          : ""
+                        activeSubscription?.id === s.id ? "bg-muted/40" : ""
                       }
                     >
                       <TableCell className="whitespace-nowrap text-sm">
-                        {formatDate(subscription.createdAt)}
+                        {formatDate(s.createdAt)}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {planNameOrDash(subscription.planType)}
+                        {planNameOrDash(s.planType)}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs">
-                          {subscription.status}
+                          {s.status}
                         </Badge>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs">
-                        {PROVIDER_LABELS[subscription.provider] ??
-                          subscription.provider}
+                        {billingProviderLabel(s.provider)}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                        {formatDate(subscription.currentPeriodStart)} —{" "}
-                        {formatDate(subscription.currentPeriodEnd)}
+                        {formatDate(s.currentPeriodStart)} —{" "}
+                        {formatDate(s.currentPeriodEnd)}
                       </TableCell>
                       <TableCell className="text-sm">
-                        {formatDate(subscription.endedAt)}
+                        {formatDate(s.endedAt)}
                       </TableCell>
                       <TableCell className="max-w-[180px] truncate font-mono text-[11px] text-muted-foreground">
-                        {subscription.stripeSubscriptionId ?? "—"}
+                        {providerExternalId({
+                          provider: s.provider,
+                          stripeId: s.stripeSubscriptionId,
+                          vindiId: s.vindiSubscriptionId,
+                        }) ?? "—"}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -709,7 +816,7 @@ function StripeBillingDetails({
           )}
         </CardContent>
       </Card>
-    </>
+    </div>
   );
 }
 

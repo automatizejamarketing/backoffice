@@ -1,4 +1,5 @@
 import type { UserWithUsage } from "@/lib/db/admin-queries";
+import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { formatBrazilianPhone } from "@/lib/phone";
 import {
@@ -6,10 +7,11 @@ import {
   getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 
-const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 const CSV_COLUMNS = [

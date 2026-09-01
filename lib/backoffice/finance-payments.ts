@@ -1,9 +1,17 @@
-import type { BillingProvider, PlanType, ProductOwnerType } from "@/lib/db/schema";
+import type {
+  BillingProvider,
+  PaymentPurpose,
+  PaymentSettlementMethod,
+  PlanType,
+  ProductFinancialModel,
+  ProductOwnerType,
+} from "@/lib/db/schema";
 import {
   calculateAutomatizeNetRevenueCentavos,
   calculateExpertShare,
 } from "@/lib/products/finance";
 import type { StripeSettlement } from "./finance-dashboard";
+import { isBillingPaymentPurpose } from "./finance-purpose";
 
 export type FinanceAutomatizePaymentRow = {
   id: string;
@@ -20,6 +28,9 @@ export type FinanceAutomatizePaymentRow = {
   currency: string;
   stripeInvoiceId: string | null;
   mercadopagoPaymentId: string | null;
+  vindiChargeId?: string | null;
+  paymentMethod?: PaymentSettlementMethod | null;
+  purpose?: PaymentPurpose | null;
   description: string | null;
   paymentNumber: number;
 };
@@ -46,11 +57,7 @@ export function describeAutomatizePaymentSequence(paymentNumber: number): {
   };
 }
 
-export type ProductFinancialModel =
-  | "legacy_net_split"
-  | "platform_fee_coproduction"
-  | "platform_fee_coproduction_v2"
-  | "platform_fee_coproduction_v3";
+export type { ProductFinancialModel };
 
 export type FinanceProductPaymentRow = {
   id: string;
@@ -78,6 +85,9 @@ export type FinanceProductPaymentRow = {
   automatizeTotalNetRevenueCentavos: number | null;
   expertShareBasisPoints: number;
   expertRevenueCentavos: number | null;
+  /** Split Vindi (`vindi_split_v1`), congelado na venda. */
+  expertAmountCentavos: number | null;
+  platformTheoreticalAmountCentavos: number | null;
 };
 
 export type FinanceProductPaymentAmounts = {
@@ -106,6 +116,8 @@ export type FinanceProductPaymentAmountRow = Pick<
   | "automatizeTotalNetRevenueCentavos"
   | "expertShareBasisPoints"
   | "expertRevenueCentavos"
+  | "expertAmountCentavos"
+  | "platformTheoreticalAmountCentavos"
 >;
 
 export type FinancePaymentsNetBreakdown = {
@@ -127,13 +139,15 @@ export type FinancePaymentsSummary = {
 export type FinancePaymentNetGapReason =
   | "stripe_settlement_unavailable"
   | "mercadopago_fees_pending"
-  | "mercadopago_payment_not_found";
+  | "mercadopago_payment_not_found"
+  | "vindi_settlement_unavailable";
 
 export type FinancePaymentNetGap = {
   paymentId: string;
   userEmail: string;
   paidAt: Date | null;
   provider: FinanceAutomatizePaymentRow["provider"];
+  paymentMethod?: PaymentSettlementMethod | null;
   grossCentavos: number;
   reason: FinancePaymentNetGapReason;
   reference: string | null;
@@ -148,6 +162,8 @@ export function listAutomatizePaymentNetGaps(
   );
 
   return rows.flatMap((row) => {
+    if (!isBillingPaymentPurpose(row.purpose)) return [];
+
     const stripeSettlement = row.stripeInvoiceId
       ? settlementsByInvoice.get(row.stripeInvoiceId)
       : undefined;
@@ -162,9 +178,11 @@ export function listAutomatizePaymentNetGaps(
         userEmail: row.userEmail,
         paidAt: row.paidAt,
         provider: row.provider,
+        paymentMethod: row.paymentMethod ?? null,
         grossCentavos: amounts.gross,
         reason: amounts.missingNetReason,
         reference:
+          row.vindiChargeId ??
           row.mercadopagoPaymentId ??
           row.stripeInvoiceId ??
           row.description ??
@@ -203,6 +221,8 @@ export function resolveAutomatizePaymentAmounts(
       missingNetReason = "stripe_settlement_unavailable";
     } else if (payment.provider === "mercadopago") {
       missingNetReason = "mercadopago_fees_pending";
+    } else if (payment.provider === "vindi") {
+      missingNetReason = "vindi_settlement_unavailable";
     }
   }
 
@@ -232,6 +252,8 @@ export function summarizeAutomatizePayments(
   };
 
   for (const payment of payments) {
+    if (!isBillingPaymentPurpose(payment.purpose)) continue;
+
     const stripeSettlement = payment.stripeInvoiceId
       ? settlementsByInvoice.get(payment.stripeInvoiceId)
       : undefined;
@@ -328,6 +350,21 @@ export function describeProductPaymentProvider(
     };
   }
 
+  if (payment.provider === "vindi") {
+    const methodLabel =
+      isPix || payment.paymentMethodId === "pix"
+        ? "PIX"
+        : payment.paymentMethodId === "credit_card"
+          ? "Cartão"
+          : "Vindi";
+    return {
+      methodLabel,
+      referenceLabel: payment.providerPaymentId
+        ? `Vindi ${payment.providerPaymentId}`
+        : null,
+    };
+  }
+
   if (payment.provider === "mercadopago" || isPix) {
     return {
       methodLabel: "PIX",
@@ -367,6 +404,8 @@ export function resolveAutomatizeProductNetCentavos(
     | "expertShareBasisPoints"
     | "expertRevenueCentavos"
     | "netAmountCentavos"
+    | "expertAmountCentavos"
+    | "platformTheoreticalAmountCentavos"
   >,
   gatewayNet: number,
 ): number {
@@ -376,6 +415,29 @@ export function resolveAutomatizeProductNetCentavos(
 
   if (payment.ownerType === "automatize") {
     return gatewayNet;
+  }
+
+  // `vindi_split_v1` não entra em nenhum dos ramos abaixo: o modelo zera
+  // `expert_share_basis_points` (a participação real mora em
+  // `expert_participation_bps`) e não preenche as colunas do v3. Sem este
+  // desvio, a conta caía no ramo legado, derivava participação zero e
+  // atribuía a venda INTEIRA à Automatize — a parte do expert virava receita
+  // nossa em todo relatório. Os dois valores já vêm congelados da venda.
+  if (payment.financialModel === "vindi_split_v1") {
+    if (payment.platformTheoreticalAmountCentavos !== null) {
+      return payment.platformTheoreticalAmountCentavos;
+    }
+    if (payment.expertAmountCentavos !== null) {
+      return calculateAutomatizeNetRevenueCentavos(
+        gatewayNet,
+        Math.min(payment.expertAmountCentavos, gatewayNet),
+      );
+    }
+    // Vendas a partir de 22/08/2026: o split é a regra configurada no painel
+    // da Vindi e os dois valores ficam NULL — a nossa parte é DESCONHECIDA
+    // até o settlement reportar. Zero (pendente) em vez de deixar cair no
+    // ramo legado, que atribuiria a venda INTEIRA à Automatize.
+    return 0;
   }
 
   if (usesPlatformFeeFinancialModel(payment.financialModel)) {
@@ -427,9 +489,12 @@ export function resolveProductPaymentAmounts<
     payment.netAmountCentavos ?? (fee !== null ? gross - fee : gross);
   const revenueKind = payment.ownerType === "automatize" ? "coproducao" : "taxa";
   const derivedExpertRevenue =
-    payment.expertShareBasisPoints > 0
-      ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
-      : 0;
+    payment.financialModel === "vindi_split_v1" &&
+    payment.expertAmountCentavos !== null
+      ? payment.expertAmountCentavos
+      : payment.expertShareBasisPoints > 0
+        ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
+        : 0;
   const ledgerExpertRevenue = payment.expertRevenueCentavos;
   const expertRevenue =
     ledgerExpertRevenue !== null &&

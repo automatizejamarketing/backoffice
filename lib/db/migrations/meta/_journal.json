@@ -330,6 +330,27 @@
       "when": 1794500000000,
       "tag": "0061_creative_diagnoses",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794530000000,
+      "tag": "0048_vindi_expand",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794590000000,
+      "tag": "0049_vindi_dunning",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794710000000,
+      "tag": "0062_comment_automation_opt_in",
+      "breakpoints": true
     }
   ]
 }

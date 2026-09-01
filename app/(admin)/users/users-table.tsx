@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { UserWithUsage } from "@/lib/db/admin-queries";
 import type { ContactStatusFilter } from "@/lib/backoffice/users-filters";
+import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -59,10 +60,11 @@ const COLUMN_HEADER_CLASS: Record<UsersTableColumnId, string> = {
   cost: "px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground",
 };
 
-const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
   manual: "Manual",
+  vindi: "Vindi",
 };
 
 function formatCurrency(value: number) {

@@ -4,6 +4,8 @@ import {
   countsAsScheduledCancel,
   type CustomerBaseRow,
 } from "@/lib/backoffice/customer-base-status";
+import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
+
 
 export const ACCOUNT_STATUS_FILTER_VALUES = [
   "all",
@@ -44,7 +46,7 @@ export const ACCOUNT_STATUS_FILTER_DESCRIPTIONS: Record<
   active_plan_canceled:
     "Pagamento aprovado, acesso ainda vigente, mas pediu cancelamento no Stripe até o fim do período. Não inclui quem pagou por último via Pix.",
   active_plan_pix:
-    "Pagamento aprovado, acesso vigente e o último pagamento aprovado foi via Pix (Mercado Pago).",
+    "Pagamento aprovado, acesso vigente e o último pagamento aprovado foi via Pix (Mercado Pago ou Vindi).",
 };
 
 export type AccountStatusCustomer = CustomerBaseRow & {
@@ -98,7 +100,9 @@ export function matchesAccountStatusFilter(
       return (
         customer.hasApprovedPayment &&
         hasActiveAccess &&
-        customer.lastPaymentProvider === "mercadopago"
+        (customer.lastPaymentProvider === "mercadopago" ||
+          (customer.lastPaymentProvider === "vindi" &&
+            customer.lastPaymentMethod === "pix"))
       );
     default: {
       const exhaustiveCheck: never = filter;
@@ -107,11 +111,14 @@ export function matchesAccountStatusFilter(
   }
 }
 
+const billingPurposeSql = billingPaymentPurposeSql();
+
 const hasApprovedPaymentSql = sql`EXISTS (
   SELECT 1
   FROM payments p
   WHERE p.user_id = ${user.id}
     AND p.status = 'succeeded'
+    AND ${billingPurposeSql}
 )`;
 
 const hasSubscriptionSql = sql`EXISTS (
@@ -138,14 +145,17 @@ const scheduledCancelSql = sql`COALESCE((
   LIMIT 1
 ), false)`;
 
-const lastPaymentProviderIsPixSql = sql`(
-  SELECT p.provider
+const lastPaymentProviderIsPixSql = sql`COALESCE((
+  SELECT
+    p.provider = 'mercadopago'
+    OR (p.provider = 'vindi' AND p.payment_method = 'pix')
   FROM payments p
   WHERE p.user_id = ${user.id}
     AND p.status = 'succeeded'
+    AND ${billingPurposeSql}
   ORDER BY p.paid_at DESC NULLS LAST, p.created_at DESC
   LIMIT 1
-) = 'mercadopago'`;
+), false)`;
 
 const scheduledCancelCountsSql = sql`(
   ${scheduledCancelSql} AND NOT ${lastPaymentProviderIsPixSql}

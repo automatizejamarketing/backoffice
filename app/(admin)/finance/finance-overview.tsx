@@ -94,14 +94,14 @@ export function FinanceOverview({
     {
       ...summary.receipts.providers.card,
       label: "Cartão",
-      description: "Stripe",
+      description: "Stripe e Vindi",
       icon: CreditCard,
       tone: "card" as const,
     },
     {
       ...summary.receipts.providers.pix,
       label: "PIX",
-      description: "Mercado Pago",
+      description: "Mercado Pago e Vindi",
       icon: Landmark,
       tone: "pix" as const,
     },

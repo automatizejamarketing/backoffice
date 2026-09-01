@@ -102,6 +102,7 @@ export function AppSidebar({
   const isTeamSection = pathname?.startsWith("/team");
   const isBusinessRulesSection = pathname?.startsWith("/business-rules");
   const isMetaTrackingSection = pathname?.startsWith("/marketing/tracking");
+  const isCriativosValidadosSection = pathname?.startsWith("/criativos-validados");
   const isCreativeAnalysisSection = pathname?.startsWith("/creative-analysis");
 
   const allNavItems: NavItem[] = [
@@ -211,6 +212,28 @@ export function AppSidebar({
       permission: "posts:manage",
     },
     {
+      href: "/masterclass",
+      label: "Masterclass & Tutoriais",
+      icon: GraduationCap,
+      isActive: pathname.startsWith("/masterclass"),
+      permission: "posts:manage",
+    },
+    {
+      href: "/radar",
+      label: "Conteúdos em Alta",
+      icon: Radar,
+      isActive: pathname.startsWith("/radar"),
+      permission: "posts:manage",
+    },
+    {
+      href: "/criativos-validados",
+      label: "Criativos Validados",
+      icon: Image,
+      isActive: isCriativosValidadosSection,
+      permission: "posts:manage",
+    },
+    
+    {
       href: "/team",
       label: "Equipe",
       icon: Shield,
@@ -227,6 +250,9 @@ export function AppSidebar({
       return false;
     }
     if (item.href === "/video-templates") {
+      return actor.role !== "finance_viewer";
+    }
+    if (item.href === "/criativos-validados") {
       return actor.role !== "finance_viewer";
     }
     return item.permission

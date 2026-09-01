@@ -31,35 +31,45 @@ import {
 } from "@/lib/company-access/catalog";
 
 
-export const user = pgTable("users", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  email: varchar("email", { length: 64 }).notNull().unique(),
-  name: varchar("name", { length: 100 }),
-  password: text("password"),
-  authProvider: varchar("auth_provider", { length: 20 })
-    .notNull()
-    .default("google"),
-  emailVerified: timestamp("email_verified"),
-  image_url: text("image_url"),
-  locale: varchar("locale", { length: 10 }),
-  // Brazilian phone in digits-only canonical form (10 or 11 chars, no country
-  // code prefix — all users are BR). Optional. Collected on credentials sign-up.
-  phone: varchar("phone", { length: 16 }),
-  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-  expirationDate: timestamp("expiration_date"),
-  credits: integer("credits").notNull().default(0),
-  referredByAffiliateId: uuid("referred_by_affiliate_id"),
-  referredByTrackableLinkId: uuid("referred_by_trackable_link_id"),
-  onboardingCardDismissedAt: timestamp("onboarding_card_dismissed_at"),
-  onboardingWelcomeSeenAt: timestamp("onboarding_welcome_seen_at"),
-  onboardingProfileBannerDismissedAt: timestamp(
-    "onboarding_profile_banner_dismissed_at",
-  ),
-  // Signup timestamp. Nullable: rows created before this column existed stay
-  // NULL (their real signup date is unknown); new signups get now() via the DB
-  // default. Added for the trackable-link "users per link" view.
-  createdAt: timestamp("created_at").defaultNow(),
-});
+export const user = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    email: varchar("email", { length: 64 }).notNull().unique(),
+    name: varchar("name", { length: 100 }),
+    password: text("password"),
+    authProvider: varchar("auth_provider", { length: 20 })
+      .notNull()
+      .default("google"),
+    emailVerified: timestamp("email_verified"),
+    image_url: text("image_url"),
+    locale: varchar("locale", { length: 10 }),
+    // Brazilian phone in digits-only canonical form (10 or 11 chars, no country
+    // code prefix — all users are BR). Optional. Collected on credentials sign-up.
+    phone: varchar("phone", { length: 16 }),
+    stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
+    registryCode: varchar("registry_code", { length: 20 }),
+    expirationDate: timestamp("expiration_date"),
+    credits: integer("credits").notNull().default(0),
+    referredByAffiliateId: uuid("referred_by_affiliate_id"),
+    referredByTrackableLinkId: uuid("referred_by_trackable_link_id"),
+    onboardingCardDismissedAt: timestamp("onboarding_card_dismissed_at"),
+    onboardingWelcomeSeenAt: timestamp("onboarding_welcome_seen_at"),
+    onboardingProfileBannerDismissedAt: timestamp(
+      "onboarding_profile_banner_dismissed_at",
+    ),
+    // Signup timestamp. Nullable: rows created before this column existed stay
+    // NULL (their real signup date is unknown); new signups get now() via the DB
+    // default. Added for the trackable-link "users per link" view.
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    uniqueVindiCustomerId: uniqueIndex("users_vindi_customer_id_unique")
+      .on(table.vindiCustomerId)
+      .where(sql`${table.vindiCustomerId} IS NOT NULL`),
+  }),
+);
 
 export type User = InferSelectModel<typeof user>;
 
@@ -335,9 +345,7 @@ export const masterclassLesson = pgTable(
 
 export type MasterclassLesson = InferSelectModel<typeof masterclassLesson>;
 
-// =============================================
 // Digital Products
-// =============================================
 
 export const PRODUCT_OWNER_VALUES = ["automatize", "expert"] as const;
 export type ProductOwnerType = (typeof PRODUCT_OWNER_VALUES)[number];
@@ -358,6 +366,25 @@ export const PRODUCT_CONTENT_TYPE_VALUES = [
   "external_link",
 ] as const;
 export type ProductContentType = (typeof PRODUCT_CONTENT_TYPE_VALUES)[number];
+
+export const PRODUCT_FINANCIAL_MODEL_VALUES = [
+  "legacy_net_split",
+  "platform_fee_coproduction",
+  "platform_fee_coproduction_v2",
+  "platform_fee_coproduction_v3",
+  "vindi_split_v1",
+] as const;
+export type ProductFinancialModel =
+  (typeof PRODUCT_FINANCIAL_MODEL_VALUES)[number];
+
+export const VINDI_AFFILIATE_STATUS_VALUES = [
+  "unverified",
+  "pending",
+  "verified",
+  "rejected",
+] as const;
+export type VindiAffiliateStatus =
+  (typeof VINDI_AFFILIATE_STATUS_VALUES)[number];
 
 export const expertProfile = pgTable(
   "expert_profiles",
@@ -382,6 +409,13 @@ export const expertProfile = pgTable(
     marketplaceFeeBasisPoints: integer("marketplace_fee_basis_points")
       .notNull()
       .default(300),
+    vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
+    vindiAffiliateStatus: varchar("vindi_affiliate_status", {
+      enum: [...VINDI_AFFILIATE_STATUS_VALUES],
+    })
+      .$type<VindiAffiliateStatus>()
+      .notNull()
+      .default("unverified"),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -391,6 +425,11 @@ export const expertProfile = pgTable(
   },
   (table) => ({
     userUnique: unique("expert_profiles_user_id_unique").on(table.userId),
+    uniqueVindiAffiliateId: uniqueIndex(
+      "expert_profiles_vindi_affiliate_id_unique",
+    )
+      .on(table.vindiAffiliateId)
+      .where(sql`${table.vindiAffiliateId} IS NOT NULL`),
     statusIdx: index("expert_profiles_status_idx").on(table.status),
     platformFeeCheck: check(
       "expert_profiles_platform_fee_range",
@@ -447,6 +486,9 @@ export const product = pgTable(
     ownerExpertShareBasisPoints: integer("expert_share_basis_points")
       .notNull()
       .default(0),
+    /** Frozen per-product expert share for Vindi split (D4). Independent of
+     * the v3 `expert_share_basis_points` / coproduction CHECK. */
+    expertParticipationBps: integer("expert_participation_bps"),
     coproducerType: varchar("coproducer_type", {
       enum: [...PRODUCT_OWNER_VALUES],
     }).$type<ProductOwnerType>(),
@@ -499,6 +541,10 @@ export const product = pgTable(
     shareCheck: check(
       "products_expert_share_range",
       sql`${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000`,
+    ),
+    participationCheck: check(
+      "products_expert_participation_range",
+      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000)`,
     ),
     ownerCheck: check(
       "products_owner_consistency",
@@ -600,9 +646,9 @@ export const productOrder = pgTable(
     priceCentavos: integer("price_centavos").notNull(),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     financialModel: varchar("financial_model", {
-      enum: ["legacy_net_split", "platform_fee_coproduction", "platform_fee_coproduction_v2", "platform_fee_coproduction_v3"],
+      enum: [...PRODUCT_FINANCIAL_MODEL_VALUES],
     })
-      .$type<"legacy_net_split" | "platform_fee_coproduction" | "platform_fee_coproduction_v2" | "platform_fee_coproduction_v3">()
+      .$type<ProductFinancialModel>()
       .notNull()
       .default("legacy_net_split"),
     platformFeeBasisPoints: integer("platform_fee_basis_points"),
@@ -626,6 +672,15 @@ export const productOrder = pgTable(
     coproducerShareBasisPoints: integer("coproducer_share_basis_points")
       .notNull()
       .default(0),
+    expertParticipationBps: integer("expert_participation_bps"),
+    processingFeeBasisPoints: integer("processing_fee_basis_points"),
+    expertAmountCentavos: integer("expert_amount_centavos"),
+    platformTheoreticalAmountCentavos: integer(
+      "platform_theoretical_amount_centavos",
+    ),
+    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
+    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
     termsVersion: varchar("terms_version", { length: 40 }).notNull(),
     termsAcceptedAt: timestamp("terms_accepted_at").notNull(),
     marketingOptIn: boolean("marketing_opt_in").notNull().default(false),
@@ -659,7 +714,7 @@ export const productOrder = pgTable(
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
-      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))))`,
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'vindi_split_v1' AND ${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000 AND ${table.processingFeeBasisPoints} >= 0 AND ${table.processingFeeBasisPoints} <= 10000 AND (${table.expertAmountCentavos} IS NULL OR ${table.expertAmountCentavos} >= 0) AND (${table.platformTheoreticalAmountCentavos} IS NULL OR ${table.platformTheoreticalAmountCentavos} >= 0) AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertParticipationBps} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)))`,
     ),
   }),
 );
@@ -708,6 +763,18 @@ export const productPayment = pgTable(
     automatizeTotalNetRevenueCentavos: integer(
       "automatize_total_net_revenue_centavos",
     ),
+    financialModel: varchar("financial_model", {
+      enum: [...PRODUCT_FINANCIAL_MODEL_VALUES],
+    }).$type<ProductFinancialModel>(),
+    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
+    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
+    expertParticipationBps: integer("expert_participation_bps"),
+    processingFeeBasisPoints: integer("processing_fee_basis_points"),
+    expertAmountCentavos: integer("expert_amount_centavos"),
+    platformTheoreticalAmountCentavos: integer(
+      "platform_theoretical_amount_centavos",
+    ),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     rawStatus: varchar("raw_status", { length: 80 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -721,6 +788,9 @@ export const productPayment = pgTable(
       .where(sql`${table.providerPaymentId} IS NOT NULL`),
     orderUnique: unique("product_payments_order_id_unique").on(table.orderId),
     orderIdx: index("product_payments_order_id_idx").on(table.orderId),
+    uniqueVindiChargeId: uniqueIndex("product_payments_vindi_charge_id_unique")
+      .on(table.vindiChargeId)
+      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 
@@ -1163,6 +1233,7 @@ export const instagramAccount = pgTable(
     mediaCount: integer("media_count"),
     accessToken: text("access_token").notNull(),
     tokenExpiresAt: timestamp("token_expires_at"),
+    needsReconnectAt: timestamp("needs_reconnect_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
     deletedAt: timestamp("deleted_at"),
@@ -1175,6 +1246,175 @@ export const instagramAccount = pgTable(
 );
 
 export type InstagramAccount = InferSelectModel<typeof instagramAccount>;
+
+/**
+ * Evento de Webhook do Instagram — notificação assinada persistida com chave
+ * de dedupe por evento. A Meta reenvia por até 36h e agrupa até 1000 entries
+ * por POST; o índice único de `dedupe_key` impede segunda linha.
+ */
+export const instagramWebhookEvent = pgTable(
+  "instagram_webhook_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    field: varchar("field", { length: 64 }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    dedupeKey: varchar("dedupe_key", { length: 255 }).notNull(),
+    receivedAt: timestamp("received_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    dedupeKeyUnique: unique("instagram_webhook_events_dedupe_key_unique").on(
+      table.dedupeKey,
+    ),
+    receivedAtIdx: index("instagram_webhook_events_received_at_idx").on(
+      table.receivedAt,
+    ),
+  }),
+);
+
+export type InstagramWebhookEvent = InferSelectModel<
+  typeof instagramWebhookEvent
+>;
+
+/**
+ * Automação de Comentário→DM. Status and postSelector are strings
+ * (no Postgres enum). At most one active row per Post Alvo.
+ */
+export const instagramCommentAutomation = pgTable(
+  "instagram_comment_automations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    instagramAccountId: text("instagram_account_id")
+      .notNull()
+      .references(() => instagramAccount.id),
+    postSelector: varchar("post_selector", { length: 32 })
+      .notNull()
+      .default("specific"),
+    targetMediaId: text("target_media_id").notNull(),
+    targetPermalink: text("target_permalink"),
+    targetCaption: text("target_caption"),
+    targetThumbnailUrl: text("target_thumbnail_url"),
+    commentMatch: jsonb("comment_match")
+      .$type<{ mode: "any" | "contains_any"; keywords: string[] }>()
+      .notNull(),
+    publicReplies: jsonb("public_replies").$type<string[]>().notNull(),
+    openingDm: jsonb("opening_dm")
+      .$type<{ enabled: boolean; text: string; buttonLabel: string }>()
+      .notNull(),
+    deliveryDm: jsonb("delivery_dm")
+      .$type<{
+        text: string;
+        links: Array<{ label: string; url: string }>;
+      }>()
+      .notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("draft"),
+    suspensionReason: text("suspension_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("instagram_comment_automations_user_id_idx").on(table.userId),
+    accountStatusIdx: index(
+      "instagram_comment_automations_account_status_idx",
+    ).on(table.instagramAccountId, table.status),
+    oneActivePerMedia: uniqueIndex(
+      "instagram_comment_automations_one_active_media",
+    )
+      .on(table.instagramAccountId, table.targetMediaId)
+      .where(sql`${table.status} = 'active'`),
+  }),
+);
+
+export type InstagramCommentAutomation = InferSelectModel<
+  typeof instagramCommentAutomation
+>;
+
+/** Once-per-user-per-post claim. Survives pause and edit of the automation. */
+export const instagramCommentAutomationClaim = pgTable(
+  "instagram_comment_automation_claims",
+  {
+    mediaId: text("media_id").notNull(),
+    commenterIgsid: text("commenter_igsid").notNull(),
+    claimedAt: timestamp("claimed_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.mediaId, table.commenterIgsid] }),
+  }),
+);
+
+export type InstagramCommentAutomationClaim = InferSelectModel<
+  typeof instagramCommentAutomationClaim
+>;
+
+/** Execução — one row per Comentário Elegível that fired. */
+export const instagramCommentAutomationExecution = pgTable(
+  "instagram_comment_automation_executions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => instagramCommentAutomation.id),
+    commentId: text("comment_id").notNull(),
+    commenterIgsid: text("commenter_igsid").notNull(),
+    commenterUsername: text("commenter_username"),
+    mediaId: text("media_id").notNull(),
+    matchedAt: timestamp("matched_at"),
+    publicReplySentAt: timestamp("public_reply_sent_at"),
+    publicReplyText: text("public_reply_text"),
+    privateReplySentAt: timestamp("private_reply_sent_at"),
+    optedInAt: timestamp("opted_in_at"),
+    deliverySentAt: timestamp("delivery_sent_at"),
+    failedAt: timestamp("failed_at"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    commentIdUnique: unique(
+      "instagram_comment_automation_executions_comment_id_unique",
+    ).on(table.commentId),
+    automationIdx: index(
+      "instagram_comment_automation_executions_automation_idx",
+    ).on(table.automationId),
+    commenterIdx: index(
+      "instagram_comment_automation_executions_commenter_idx",
+    ).on(table.commenterIgsid),
+  }),
+);
+
+export type InstagramCommentAutomationExecution = InferSelectModel<
+  typeof instagramCommentAutomationExecution
+>;
+
+/** Outbox job created on webhook ingest (pipeline B2). */
+export const instagramCommentAutomationJob = pgTable(
+  "instagram_comment_automation_jobs",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    commentId: text("comment_id").notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+    lastError: text("last_error"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    commentIdUnique: unique(
+      "instagram_comment_automation_jobs_comment_id_unique",
+    ).on(table.commentId),
+    dueIdx: index("instagram_comment_automation_jobs_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+  }),
+);
+
+export type InstagramCommentAutomationJob = InferSelectModel<
+  typeof instagramCommentAutomationJob
+>;
 
 // Meta Business Account table for storing Facebook/BISU connections (Marketing API)
 export const metaBusinessAccount = pgTable(
@@ -1583,6 +1823,93 @@ export const aiUsageLog = pgTable("ai_usage_logs", {
 
 export type AiUsageLog = InferSelectModel<typeof aiUsageLog>;
 
+export const advertiser = pgTable(
+  "advertisers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    externalAdvertiserId: varchar("external_advertiser_id", { length: 255 })
+      .notNull()
+      .unique(),
+    name: varchar("name", { length: 255 }).notNull(),
+    instagramHandle: varchar("instagram_handle", { length: 255 }),
+    facebookPageId: varchar("facebook_page_id", { length: 255 }),
+    investmentIntensityScore: integer("investment_intensity_score").default(0),
+    state: varchar("state", { length: 50 }),
+    city: varchar("city", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    instagramHandleIdx: index("advertisers_instagram_handle_idx").on(
+      table.instagramHandle,
+    ),
+    scoreIdx: index("advertisers_investment_intensity_score_idx").on(
+      table.investmentIntensityScore,
+    ),
+  }),
+);
+
+export type Advertiser = InferSelectModel<typeof advertiser>;
+
+export const adCreative = pgTable(
+  "ad_creatives",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    advertiserId: uuid("advertiser_id")
+      .notNull()
+      .references(() => advertiser.id),
+    externalAdId: varchar("external_ad_id", { length: 255 }).notNull().unique(),
+    body: text("body"),
+    headline: text("headline"),
+    description: text("description"),
+    callToAction: varchar("call_to_action", { length: 100 }),
+    videoUrl: text("video_url"),
+    thumbnailUrl: text("thumbnail_url"),
+    category: varchar("category", { length: 100 }).notNull(),
+    subcategory: varchar("subcategory", { length: 100 }).notNull(),
+    categoryConfidence: numeric("category_confidence", { precision: 3, scale: 2 }),
+    productRelevanceScore: integer("product_relevance_score"),
+    creativeStrengthScore: integer("creative_strength_score"),
+    advertiserContinuityScore: integer("advertiser_continuity_score"),
+    creativeType: varchar("creative_type", { length: 50 }),
+    isActive: boolean("is_active").notNull().default(true),
+    isPublished: boolean("is_published").notNull().default(false),
+    platforms: jsonb("platforms"),
+    startDate: timestamp("start_date"),
+    firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    advertiserIdx: index("ad_creatives_advertiser_id_idx").on(table.advertiserId),
+    categoryIdx: index("ad_creatives_category_idx").on(table.category),
+    subcategoryIdx: index("ad_creatives_subcategory_idx").on(table.subcategory),
+    isActiveIdx: index("ad_creatives_is_active_idx").on(table.isActive),
+    isPublishedIdx: index("ad_creatives_is_published_idx").on(table.isPublished),
+  }),
+);
+
+export type AdCreative = InferSelectModel<typeof adCreative>;
+
+export const adSnapshot = pgTable(
+  "ad_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    adCreativeId: uuid("ad_creative_id")
+      .notNull()
+      .references(() => adCreative.id),
+    isActive: boolean("is_active").notNull(),
+    checkedAt: timestamp("checked_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    adCreativeIdx: index("ad_snapshots_ad_creative_id_idx").on(table.adCreativeId),
+    checkedAtIdx: index("ad_snapshots_checked_at_idx").on(table.checkedAt),
+  }),
+);
+
+export type AdSnapshot = InferSelectModel<typeof adSnapshot>;
+
 // Narrative types for JSONB columns
 export type NarrativeOption = {
   title: string;
@@ -1636,9 +1963,7 @@ export const narrativeSession = pgTable("narrative_sessions", {
 
 export type NarrativeSession = InferSelectModel<typeof narrativeSession>;
 
-// =============================================
 // AI Generated Images (Gerar Imagem feature)
-// =============================================
 
 // Aspect ratio type for generated images
 export type AspectRatio = "1:1" | "16:9" | "9:16" | "4:3" | "3:4" | "21:9";
@@ -1762,9 +2087,7 @@ export const referenceImage = pgTable("reference_images", {
 
 export type ReferenceImage = InferSelectModel<typeof referenceImage>;
 
-// =============================================
 // AI Text Generation
-// =============================================
 export type AiGeneratedTextStatus = string;
 
 export const aiGeneratedText = pgTable("ai_generated_text", {
@@ -1787,9 +2110,7 @@ export const aiGeneratedText = pgTable("ai_generated_text", {
 
 export type AiGeneratedText = InferSelectModel<typeof aiGeneratedText>;
 
-// =============================================
 // Generic Generate Post (Gerar Imagem feature)
-// =============================================
 
 export const genericGeneratePost = pgTable("generic_generate_post", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -1814,9 +2135,7 @@ export const genericGeneratePost = pgTable("generic_generate_post", {
 
 export type GenericGeneratePost = InferSelectModel<typeof genericGeneratePost>;
 
-// =============================================
 // Food Service Posts
-// =============================================
 export type CaptionObjective = string;
 export type CaptionLength = string;
 
@@ -1916,9 +2235,7 @@ export const foodServiceFlyer = pgTable("food_service_flyer", {
 
 export type FoodServiceFlyer = InferSelectModel<typeof foodServiceFlyer>;
 
-// =============================================
 // Backoffice Generated Posts
-// =============================================
 
 export const backofficeGeneratedPost = pgTable("backoffice_generated_posts", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -1952,9 +2269,7 @@ export type BackofficeGeneratedPost = InferSelectModel<
   typeof backofficeGeneratedPost
 >;
 
-// =============================================
 // Video Templates (Creatomate)
-// =============================================
 
 export type VideoTemplateStatus = "active" | "inactive";
 
@@ -1980,9 +2295,7 @@ export const videoTemplate = pgTable("video_templates", {
 
 export type VideoTemplate = InferSelectModel<typeof videoTemplate>;
 
-// =============================================
 // Stripe Subscription Management
-// =============================================
 
 // Plan type enum - compound: {period}_{tier}
 export const PLAN_TYPE_VALUES = [
@@ -2006,9 +2319,60 @@ export const BILLING_PROVIDER_VALUES = [
   "stripe",
   "mercadopago",
   "manual",
+  "vindi",
 ] as const;
 
 export type BillingProvider = (typeof BILLING_PROVIDER_VALUES)[number];
+
+export const VINDI_SUBSCRIPTION_PAYMENT_METHOD_VALUES = [
+  "credit_card",
+  "pix_automatic",
+  "pix_qr",
+] as const;
+export type VindiSubscriptionPaymentMethod =
+  (typeof VINDI_SUBSCRIPTION_PAYMENT_METHOD_VALUES)[number];
+
+export const VINDI_CONSENT_STATUS_VALUES = [
+  "pending",
+  "awaiting",
+  "authorized",
+  "rejected",
+  "expired",
+  "canceled",
+] as const;
+export type VindiConsentStatus = (typeof VINDI_CONSENT_STATUS_VALUES)[number];
+
+export const PAYMENT_PURPOSE_VALUES = [
+  "subscription",
+  "product",
+  "credit_pack",
+  "legacy_renewal",
+] as const;
+export type PaymentPurpose = (typeof PAYMENT_PURPOSE_VALUES)[number];
+
+export const PAYMENT_SETTLEMENT_METHOD_VALUES = ["credit_card", "pix"] as const;
+export type PaymentSettlementMethod =
+  (typeof PAYMENT_SETTLEMENT_METHOD_VALUES)[number];
+
+export const VINDI_PAYMENT_LINK_SOURCE_VALUES = [
+  "self_service",
+  "backoffice",
+  "renewal_email",
+  "subscription_recovery",
+  "checkout",
+] as const;
+export type VindiPaymentLinkSource =
+  (typeof VINDI_PAYMENT_LINK_SOURCE_VALUES)[number];
+
+export const VINDI_PAYMENT_LINK_STATUS_VALUES = [
+  "pending",
+  "approved",
+  "expired",
+  "canceled",
+  "superseded",
+] as const;
+export type VindiPaymentLinkStatus =
+  (typeof VINDI_PAYMENT_LINK_STATUS_VALUES)[number];
 
 // Subscription status enum (mirrors Stripe)
 export type SubscriptionStatus =
@@ -2038,6 +2402,16 @@ export const subscription = pgTable(
     stripeSubscriptionId: varchar("stripe_subscription_id", {
       length: 255,
     }),
+    vindiSubscriptionId: varchar("vindi_subscription_id", { length: 255 }),
+    vindiPaymentMethod: varchar("vindi_payment_method", {
+      enum: [...VINDI_SUBSCRIPTION_PAYMENT_METHOD_VALUES],
+    }).$type<VindiSubscriptionPaymentMethod>(),
+    vindiConsentStatus: varchar("vindi_consent_status", {
+      enum: [...VINDI_CONSENT_STATUS_VALUES],
+    }).$type<VindiConsentStatus>(),
+    vindiConsentUpdatedAt: timestamp("vindi_consent_updated_at"),
+    vindiConsentAuthorizedAt: timestamp("vindi_consent_authorized_at"),
+    vindiConsentExpiresAt: timestamp("vindi_consent_expires_at"),
     stripePriceId: varchar("stripe_price_id", { length: 255 }),
     planType: varchar("plan_type", {
       enum: [...PLAN_TYPE_VALUES],
@@ -2078,6 +2452,11 @@ export const subscription = pgTable(
     )
       .on(table.stripeSubscriptionId)
       .where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
+    uniqueVindiSubscriptionId: uniqueIndex(
+      "subscriptions_vindi_subscription_id_unique",
+    )
+      .on(table.vindiSubscriptionId)
+      .where(sql`${table.vindiSubscriptionId} IS NOT NULL`),
   }),
 );
 
@@ -2154,6 +2533,14 @@ export const payment = pgTable(
     mercadopagoPreferenceId: varchar("mercadopago_preference_id", {
       length: 255,
     }),
+    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
+    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    purpose: varchar("purpose", {
+      enum: [...PAYMENT_PURPOSE_VALUES],
+    }).$type<PaymentPurpose>(),
+    paymentMethod: varchar("payment_method", {
+      enum: [...PAYMENT_SETTLEMENT_METHOD_VALUES],
+    }).$type<PaymentSettlementMethod>(),
     // The payment's identity AT THE PROVIDER, in a column no provider owns.
     //
     // The per-gateway id columns above stay — plenty of code matches on them,
@@ -2203,6 +2590,9 @@ export const payment = pgTable(
     uniqueMercadopagoPaymentId: unique(
       "payments_mercadopago_payment_id_unique",
     ).on(table.mercadopagoPaymentId),
+    uniqueVindiChargeId: uniqueIndex("payments_vindi_charge_id_unique")
+      .on(table.vindiChargeId)
+      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 
@@ -2285,7 +2675,8 @@ export type MercadoPagoPaymentLinkStatus =
 export type MercadoPagoPaymentLinkSource =
   | "self_service"
   | "backoffice"
-  | "renewal_email";
+  | "renewal_email"
+  | "subscription_recovery";
 
 export const mercadopagoPaymentLink = pgTable(
   "mercadopago_payment_links",
@@ -2310,7 +2701,12 @@ export const mercadopagoPaymentLink = pgTable(
       .notNull()
       .default("pending"),
     source: varchar("source", {
-      enum: ["self_service", "backoffice", "renewal_email"],
+      enum: [
+        "self_service",
+        "backoffice",
+        "renewal_email",
+        "subscription_recovery",
+      ],
     })
       .$type<MercadoPagoPaymentLinkSource>()
       .notNull(),
@@ -2332,7 +2728,82 @@ export type MercadoPagoPaymentLink = InferSelectModel<
   typeof mercadopagoPaymentLink
 >;
 
-export type BillingNotificationType = "expiration_3d" | "expiration_1d";
+export const vindiPaymentLink = pgTable(
+  "vindi_payment_links",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    planType: varchar("plan_type", {
+      enum: [...PLAN_TYPE_VALUES],
+    }).$type<PlanType>(),
+    purpose: varchar("purpose", {
+      enum: [...PAYMENT_PURPOSE_VALUES],
+    })
+      .$type<PaymentPurpose>()
+      .notNull(),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 10 }).notNull().default("brl"),
+    emvPayload: text("emv_payload"),
+    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
+    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    status: varchar("status", {
+      enum: [...VINDI_PAYMENT_LINK_STATUS_VALUES],
+    })
+      .$type<VindiPaymentLinkStatus>()
+      .notNull()
+      .default("pending"),
+    source: varchar("source", {
+      enum: [...VINDI_PAYMENT_LINK_SOURCE_VALUES],
+    })
+      .$type<VindiPaymentLinkSource>()
+      .notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    paidAt: timestamp("paid_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueVindiBillId: uniqueIndex("vindi_payment_links_vindi_bill_id_unique")
+      .on(table.vindiBillId)
+      .where(sql`${table.vindiBillId} IS NOT NULL`),
+    userIdx: index("vindi_payment_links_user_id_idx").on(table.userId),
+  }),
+);
+
+export type VindiPaymentLink = InferSelectModel<typeof vindiPaymentLink>;
+
+export const vindiWebhookEvent = pgTable(
+  "vindi_webhook_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    eventType: varchar("event_type", { length: 128 }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }),
+    receivedAt: timestamp("received_at").notNull().defaultNow(),
+    processedAt: timestamp("processed_at"),
+  },
+  (table) => ({
+    uniqueIdempotencyKey: uniqueIndex(
+      "vindi_webhook_events_idempotency_key_unique",
+    )
+      .on(table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
+    receivedAtIdx: index("vindi_webhook_events_received_at_idx").on(
+      table.receivedAt,
+    ),
+  }),
+);
+
+export type VindiWebhookEvent = InferSelectModel<typeof vindiWebhookEvent>;
+
+export type BillingNotificationType =
+  | "expiration_3d"
+  | "expiration_1d"
+  | "payment_confirmed"
+  | "dunning"
+  | "dunning_reminder";
 
 export const billingNotificationDelivery = pgTable(
   "billing_notification_deliveries",
@@ -2343,7 +2814,13 @@ export const billingNotificationDelivery = pgTable(
       .references(() => user.id),
     subscriptionId: uuid("subscription_id").references(() => subscription.id),
     notificationType: varchar("notification_type", {
-      enum: ["expiration_3d", "expiration_1d"],
+      enum: [
+        "expiration_3d",
+        "expiration_1d",
+        "payment_confirmed",
+        "dunning",
+        "dunning_reminder",
+      ],
     })
       .$type<BillingNotificationType>()
       .notNull(),
@@ -2351,13 +2828,40 @@ export const billingNotificationDelivery = pgTable(
     mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id").references(
       () => mercadopagoPaymentLink.id,
     ),
-    sentAt: timestamp("sent_at").notNull().defaultNow(),
+    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    channel: varchar("channel", { length: 20 })
+      .$type<"email" | "whatsapp">()
+      .notNull()
+      .default("email"),
+    deliveryStatus: varchar("delivery_status", { length: 20 })
+      .$type<"scheduled" | "sent" | "failed">()
+      .notNull()
+      .default("scheduled"),
+    providerMessageId: text("provider_message_id"),
+    errorMessage: text("error_message"),
+    sentAt: timestamp("sent_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    uniqueDelivery: unique(
+    uniqueDelivery: uniqueIndex(
       "billing_notification_deliveries_user_type_expiration_unique",
-    ).on(table.userId, table.notificationType, table.expirationDate),
+    )
+      .on(
+        table.userId,
+        table.notificationType,
+        table.expirationDate,
+        table.channel,
+      )
+      .where(sql`${table.vindiChargeId} IS NULL`),
+    uniqueLinkDelivery: unique(
+      "billing_notification_deliveries_link_type_channel_unique",
+    ).on(table.mercadopagoPaymentLinkId, table.notificationType, table.channel),
+    uniqueVindiChargeDelivery: uniqueIndex(
+      "billing_notification_deliveries_vindi_charge_type_channel_unique",
+    )
+      .on(table.vindiChargeId, table.notificationType, table.channel)
+      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 
@@ -2382,9 +2886,7 @@ export const planPriceConfig = pgTable("plan_price_configs", {
 
 export type PlanPriceConfig = InferSelectModel<typeof planPriceConfig>;
 
-// =============================================
 // Affiliate System
-// =============================================
 
 export type AffiliateStatus = "pending" | "approved" | "rejected" | "blocked";
 
@@ -2487,7 +2989,6 @@ export const affiliateConversion = pgTable("affiliate_conversions", {
 
 export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
 
-// =============================================
 // Programa de afiliados v2 — namespace `referral_*`
 //
 // Deliberadamente separado das tabelas do v1 acima (`affiliates`,
@@ -2498,7 +2999,6 @@ export type AffiliateConversion = InferSelectModel<typeof affiliateConversion>;
 //
 // Dinheiro é sempre centavos em `integer`. Manter byte-equivalente com o
 // `lib/db/schema.ts` do projeto irmão — os dois descrevem o mesmo Postgres.
-// =============================================
 
 export const REFERRAL_ATTRIBUTION_MODEL_VALUES = ["last_click"] as const;
 export type ReferralAttributionModel =
@@ -3163,9 +3663,7 @@ export const referralAdminAction = pgTable(
 
 export type ReferralAdminAction = InferSelectModel<typeof referralAdminAction>;
 
-// =============================================
 // Trackable Links (Links Rastreáveis)
-// =============================================
 
 export const trackableLink = pgTable("trackable_links", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -3224,14 +3722,12 @@ export type CustomerBaseDailySnapshot = InferSelectModel<
   typeof customerBaseDailySnapshot
 >;
 
-// =============================================
 // Performance Insights + Masterclass extras
 // These tables were created out-of-band in PRODUCTION (the feature code was
 // never committed to this repo). Mirrored here 2026-06-09 from the live prod
 // DDL so schema.ts describes the real database. Keep byte-equal with
 // automatize-frontend/lib/db/schema.ts. When the original feature code is
 // recovered, reconcile it with these definitions.
-// =============================================
 
 export const performanceSnapshotRun = pgTable(
   "performance_snapshot_runs",
@@ -7219,6 +7715,87 @@ export const winningCreative = pgTable(
 export type WinningCreative = InferSelectModel<typeof winningCreative>;
 
 // ===== END winning_creatives_* =====
+export const radarSearchConfigurations = pgTable("radar_search_configurations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  niche: text("niche"),
+  subNiche: text("sub_niche"),
+  keywords: jsonb("keywords").$type<string[]>(),
+  hashtags: jsonb("hashtags").$type<string[]>(),
+  profiles: jsonb("profiles").$type<string[]>(),
+  platforms: jsonb("platforms").$type<string[]>(),
+  formats: jsonb("formats").$type<string[]>(),
+  country: text("country"),
+  state: text("state"),
+  city: text("city"),
+  frequency: text("frequency"),
+  maxResults: integer("max_results"),
+  minScore: integer("min_score"),
+  requiresApproval: boolean("requires_approval").default(true).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastRunAt: timestamp("last_run_at"),
+  nextRunAt: timestamp("next_run_at"),
+  createdBy: uuid("created_by").references(() => user.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const radarCollectionRuns = pgTable("radar_collection_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  configurationId: uuid("configuration_id").references(() => radarSearchConfigurations.id, { onDelete: "cascade" }),
+  origin: text("origin").notNull(),
+  status: text("status").notNull(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  itemsFound: integer("items_found").default(0).notNull(),
+  itemsNew: integer("items_new").default(0).notNull(),
+  itemsUpdated: integer("items_updated").default(0).notNull(),
+  itemsDuplicated: integer("items_duplicated").default(0).notNull(),
+  errorsCount: integer("errors_count").default(0).notNull(),
+  creditsConsumed: integer("credits_consumed").default(0).notNull(),
+  errorMessage: text("error_message"),
+  executedBy: uuid("executed_by").references(() => user.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const radarContents = pgTable("radar_contents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  externalId: text("external_id").notNull(),
+  platform: text("platform").notNull(),
+  format: text("format"),
+  profileHandle: text("profile_handle"),
+  caption: text("caption"),
+  thumbnailUrl: text("thumbnail_url"),
+  previewUrl: text("preview_url"),
+  originalUrl: text("original_url"),
+  currentMetrics: jsonb("current_metrics"),
+  trendScore: numeric("trend_score"),
+  classification: text("classification"),
+  trendStatus: text("trend_status"),
+  niche: text("niche"),
+  subNiche: text("sub_niche"),
+  location: text("location"),
+  publishedAt: timestamp("published_at"),
+  firstDetectedAt: timestamp("first_detected_at").defaultNow().notNull(),
+  lastUpdatedAt: timestamp("last_updated_at").defaultNow().notNull(),
+  publicationStatus: text("publication_status").default('pending').notNull(),
+  isPinned: boolean("is_pinned").default(false).notNull(),
+  adminNotes: text("admin_notes"),
+}, (table) => ({
+  unqPlatformExternalId: uniqueIndex("radar_content_platform_external_id_idx").on(table.platform, table.externalId),
+}));
+
+export const radarContentSnapshots = pgTable("radar_content_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contentId: uuid("content_id").references(() => radarContents.id, { onDelete: "cascade" }).notNull(),
+  collectedAt: timestamp("collected_at").defaultNow().notNull(),
+  views: integer("views"),
+  likes: integer("likes"),
+  comments: integer("comments"),
+  shares: integer("shares"),
+  saves: integer("saves"),
+  profileFollowers: integer("profile_followers"),
+});
 
 // ===== BEGIN creative_diagnoses_* — bloco espelhado byte a byte no projeto irmão =====
 //

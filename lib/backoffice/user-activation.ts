@@ -18,7 +18,7 @@ const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 type ActivationError = "user_not_found" | "activation_not_available";
 
-function getFrontendOrigin(): string {
+export function getFrontendOrigin(): string {
   const configured = process.env.FRONTEND_APP_URL?.trim();
   if (configured) return configured;
 
