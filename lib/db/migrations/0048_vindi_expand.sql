@@ -1,5 +1,5 @@
 -- Expand aditivo do modelo Vindi (ticket 03). Espelhado byte-a-byte no
--- backoffice como 0048_vindi_expand, com o MESMO `when` (1793900000000):
+-- backoffice como 0048_vindi_expand, com o MESMO `when` (1794530000000):
 -- quem migrar primeiro aplica; o outro pula. Flags OFF — nenhuma linha
 -- nova é escrita por este arquivo; só estrutura.
 --

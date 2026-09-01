@@ -1,7 +1,7 @@
 -- Dunning Vindi (ticket 16): tipos novos + dedup por charge.
 --
--- Gêmea de `backoffice/0049_vindi_dunning` e `frontend/0061_vindi_dunning`, com
--- o MESMO `when` (1794100000000). A marca d'água de `drizzle.__drizzle_migrations`
+-- Gêmea de `backoffice/0049_vindi_dunning` e `frontend/0064_vindi_dunning`, com
+-- o MESMO `when` (1794590000000). A marca d'água de `drizzle.__drizzle_migrations`
 -- é compartilhada pelos dois repositórios: quem migrar primeiro aplica e o outro
 -- pula, o que só é seguro porque o DDL é o mesmo.
 --
@@ -10,7 +10,7 @@
 -- quando os hashes batem. Se divergirem, o teste acusa — e, na vida real, um dos
 -- dois DDLs jamais roda. Editou um, edite o outro com o mesmo texto.
 --
--- Aditivo, e acima da marca de 0048_vindi_expand / 0060_vindi_registry_code.
+-- Aditivo, e acima da marca de 0048_vindi_expand / 0063_vindi_registry_code.
 
 ALTER TABLE "billing_notification_deliveries"
   ADD COLUMN IF NOT EXISTS "vindi_charge_id" varchar(255);--> statement-breakpoint

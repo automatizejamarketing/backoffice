@@ -297,27 +297,6 @@
       "breakpoints": true
     },
     {
-      "idx": 42,
-      "version": "7",
-      "when": 1793900000000,
-      "tag": "0048_vindi_expand",
-      "breakpoints": true
-    },
-    {
-      "idx": 43,
-      "version": "7",
-      "when": 1794100000000,
-      "tag": "0049_vindi_dunning",
-      "breakpoints": true
-    },
-    {
-      "idx": 44,
-      "version": "7",
-      "when": 1794200000000,
-      "tag": "0057_food_service",
-      "breakpoints": true
-    },
-    {
       "idx": 45,
       "version": "7",
       "when": 1794500000000,
@@ -325,9 +304,30 @@
       "breakpoints": true
     },
     {
+      "idx": 44,
+      "version": "7",
+      "when": 1794510000000,
+      "tag": "0057_food_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794530000000,
+      "tag": "0048_vindi_expand",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794590000000,
+      "tag": "0049_vindi_dunning",
+      "breakpoints": true
+    },
+    {
       "idx": 47,
       "version": "7",
-      "when": 1794600000000,
+      "when": 1794710000000,
       "tag": "0062_comment_automation_opt_in",
       "breakpoints": true
     }

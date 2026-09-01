@@ -1,15 +1,15 @@
 -- Automação de Comentário→DM (ticket 06, dois saltos / Opt-in).
 --
 -- Gêmea de `backoffice/0062_comment_automation_opt_in` e
--- `frontend/0065_comment_automation_opt_in`, com o MESMO `when` (1794600000000).
+-- `frontend/0068_comment_automation_opt_in`, com o MESMO `when` (1794710000000).
 -- A marca d'água de `drizzle.__drizzle_migrations` é compartilhada: quem
 -- migrar primeiro aplica e o outro pula, o que só é seguro porque o DDL é
 -- o mesmo. Os dois arquivos precisam ser IDÊNTICOS, comentários inclusive.
 --
 -- Aditivo e idempotente. Recria o DDL dos tickets 03/04 com IF NOT EXISTS
--- (o backoffice em main ainda não tinha essas tabelas; os `when` 1794400000000
--- e 1794500000000 já estavam ocupados lá) e acrescenta Opt-in / Entrega.
--- Acima da marca de frontend/0064 (1794500000000) e backoffice/0061.
+-- (o backoffice em main ainda não tinha essas tabelas) e acrescenta
+-- Opt-in / Entrega.
+-- Acima da marca de frontend/0067 (1794680000000) e backoffice/0061.
 
 ALTER TABLE "instagram_accounts"
   ADD COLUMN IF NOT EXISTS "needs_reconnect_at" timestamp;--> statement-breakpoint
