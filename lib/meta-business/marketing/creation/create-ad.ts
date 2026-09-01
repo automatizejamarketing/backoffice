@@ -14,6 +14,7 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
 import { uploadAdVideoFromUrl, waitForVideoReady } from "../upload-ad-video";
+import { registrableDomain } from "../ai-creation/build-tree";
 import {
   type CreateIssue,
   type CreateResult,
@@ -247,6 +248,37 @@ export function buildAdCreativeFields(
 
 const CONVERSION_GOALS = new Set(["OFFSITE_CONVERSIONS", "VALUE"]);
 
+export function destinationLinkFromCreative(
+  creative: AdCreativeInput,
+): string | undefined {
+  switch (creative.format) {
+    case "image":
+      return creative.link || creative.cta?.link;
+    case "video":
+      return creative.cta?.link;
+    case "carousel":
+      return (
+        creative.link ||
+        creative.cta?.link ||
+        creative.cards.find((card) => card.link)?.link
+      );
+    case "instagram_post":
+    case "existing_post":
+      return creative.cta?.link;
+    default:
+      return undefined;
+  }
+}
+
+/** Explicit conversionDomain, or the eTLD+1 of the ad's destination URL. */
+export function resolvedConversionDomain(
+  input: Pick<CreateAdInput, "conversionDomain" | "creative">,
+): string | undefined {
+  const explicit = input.conversionDomain?.trim();
+  if (explicit) return explicit;
+  return registrableDomain(destinationLinkFromCreative(input.creative));
+}
+
 /** Pure local validation (collect-all). No Meta calls. */
 export function validateAdInput(input: CreateAdInput): CreateIssue[] {
   const c = input.creative;
@@ -263,7 +295,7 @@ export function validateAdInput(input: CreateAdInput): CreateIssue[] {
   if (
     input.optimizationGoal &&
     CONVERSION_GOALS.has(input.optimizationGoal) &&
-    !input.conversionDomain
+    !resolvedConversionDomain(input)
   ) {
     issues.push(
       localIssue(
@@ -439,7 +471,8 @@ function buildAdPayload(input: CreateAdInput, creativeId: string): URLSearchPara
   p.set("adset_id", input.adSetId);
   p.set("creative", JSON.stringify({ creative_id: creativeId }));
   p.set("status", input.status ?? "PAUSED");
-  if (input.conversionDomain) p.set("conversion_domain", input.conversionDomain);
+  const conversionDomain = resolvedConversionDomain(input);
+  if (conversionDomain) p.set("conversion_domain", conversionDomain);
   mergeExtraFields(p, input.extraFields);
   return p;
 }
