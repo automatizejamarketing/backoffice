@@ -1191,7 +1191,6 @@ export async function getUserSubscriptionDetails(
     payments,
     events,
     pendingChanges,
-    mercadopagoPaymentLinks,
     vindiPaymentLinks,
   ] = await Promise.all([
     db
@@ -1222,12 +1221,6 @@ export async function getUserSubscriptionDetails(
       )
       .orderBy(desc(pendingPlanChange.createdAt))
       .limit(1),
-    db
-      .select()
-      .from(mercadopagoPaymentLink)
-      .where(eq(mercadopagoPaymentLink.userId, userId))
-      .orderBy(desc(mercadopagoPaymentLink.createdAt))
-      .limit(20),
     db
       .select()
       .from(vindiPaymentLink)
