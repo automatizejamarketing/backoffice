@@ -49,6 +49,15 @@ import {
   type PlanTexts,
 } from "./build-tree";
 import type { PublishResult } from "./publish-campaign";
+import {
+  buildPageWelcomeMessage,
+  whatsappCallToAction,
+  whatsappPromotedObject,
+  WHATSAPP_AD_LINK,
+  WHATSAPP_DESTINATION_TYPE,
+  WHATSAPP_OPTIMIZATION_GOAL,
+  type WhatsappWelcomeMessage,
+} from "../creation/whatsapp-destination";
 
 export type FallbackNiche =
   | "food_service"
@@ -58,7 +67,13 @@ export type FallbackNiche =
   | "insurance_broker"
   | "outros";
 
-export type FallbackObjective = "sales" | "followers" | "leads";
+/**
+ * `whatsapp` is a SALES campaign whose conversion happens in a WhatsApp conversation
+ * (click-to-WhatsApp): same OUTCOME_SALES objective as `sales`, but the ad set carries
+ * `destination_type: WHATSAPP` + `optimization_goal: CONVERSATIONS` and promotes the Page, and
+ * the creative's link and CTA are fixed by Meta. No pixel, no promotion URL.
+ */
+export type FallbackObjective = "sales" | "followers" | "leads" | "whatsapp";
 
 export type FallbackPeriod = {
   startTime: string;
@@ -85,6 +100,8 @@ export type FallbackPublishInput = {
    */
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  /** Click-to-WhatsApp greeting. Ignored by every other objective. */
+  whatsappWelcome?: WhatsappWelcomeMessage;
 };
 
 export type FallbackConfig = {
@@ -94,6 +111,8 @@ export type FallbackConfig = {
   requiresInstagram: boolean;
   acceptsDeliverySchedule: boolean;
   usesInclusiveMinusOneDefault: boolean;
+  /** Click-to-WhatsApp: same objective as sales, different ad set and creative. */
+  isWhatsapp?: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -123,6 +142,25 @@ export function resolveFallbackConfig(
       requiresInstagram: false,
       acceptsDeliverySchedule: periodAndDelivery,
       usesInclusiveMinusOneDefault: periodAndDelivery,
+    };
+  }
+
+  if (objective === "whatsapp") {
+    if (normalizedNiche !== "food_service") {
+      return {
+        error: `Campanhas de WhatsApp não estão disponíveis para o nicho ${niche}.`,
+      };
+    }
+    return {
+      metaObjective: "OUTCOME_SALES",
+      requiresPixel: false,
+      requiresPromotionUrl: false,
+      requiresInstagram: false,
+      // Inherited from food-service sales on purpose: an ad that says "chama no zap" outside
+      // opening hours buys conversations nobody is there to answer.
+      acceptsDeliverySchedule: true,
+      usesInclusiveMinusOneDefault: true,
+      isWhatsapp: true,
     };
   }
 
@@ -403,15 +441,17 @@ function creativeForFallback(args: {
   const { media, input, config, instagramProfileUrl, leadFormId } = args;
   const pageId = input.pageId;
   const instagramUserId = input.instagramUserId ?? "";
-  const link =
-    config.metaObjective === "OUTCOME_TRAFFIC"
+  const link = config.isWhatsapp
+    ? WHATSAPP_AD_LINK
+    : config.metaObjective === "OUTCOME_TRAFFIC"
       ? (instagramProfileUrl ?? "https://www.instagram.com")
       : config.metaObjective === "OUTCOME_LEADS"
         ? privacyPolicyUrl().replace("/lgpd", "")
         : (input.texts?.link?.trim() || input.promotionUrl?.trim() || "");
 
-  const ctaType =
-    config.metaObjective === "OUTCOME_LEADS"
+  const ctaType = config.isWhatsapp
+    ? whatsappCallToAction().type
+    : config.metaObjective === "OUTCOME_LEADS"
       ? "SIGN_UP"
       : (input.texts?.ctaType ?? "LEARN_MORE");
 
@@ -419,7 +459,20 @@ function creativeForFallback(args: {
     type: ctaType,
     ...(link ? { link } : {}),
     ...(leadFormId ? { leadGenFormId: leadFormId } : {}),
+    ...(config.isWhatsapp
+      ? { appDestination: WHATSAPP_DESTINATION_TYPE }
+      : {}),
   };
+
+  // Absent when the user wrote no greeting — Meta then sends its own English default rather
+  // than an empty one.
+  const pageWelcomeMessage = config.isWhatsapp
+    ? buildPageWelcomeMessage(input.whatsappWelcome)
+    : undefined;
+
+  const welcome = pageWelcomeMessage
+    ? { pageWelcomeMessage }
+    : {};
 
   if (media.kind === "instagram_post") {
     return {
@@ -428,6 +481,7 @@ function creativeForFallback(args: {
       pageId,
       instagramUserId,
       cta,
+      ...welcome,
     };
   }
 
@@ -441,6 +495,7 @@ function creativeForFallback(args: {
       ...(input.texts?.message ? { message: input.texts.message } : {}),
       ...(input.texts?.headline ? { headline: input.texts.headline } : {}),
       cta,
+      ...welcome,
     };
   }
 
@@ -453,6 +508,7 @@ function creativeForFallback(args: {
     ...(input.texts?.message ? { message: input.texts.message } : {}),
     ...(input.texts?.headline ? { headline: input.texts.headline } : {}),
     cta,
+    ...welcome,
   };
 }
 
@@ -537,6 +593,7 @@ export async function publishFallbackCampaign(args: {
   const campaignName = buildConventionalCampaignName(
     resolved.metaObjective,
     input.niche,
+    resolved.isWhatsapp ? "whatsapp" : null,
   );
   const flight = resolveFlight(input, resolved, new Date());
   const geoLocations =
@@ -560,8 +617,11 @@ export async function publishFallbackCampaign(args: {
 
   const promotionUrl =
     input.texts?.link?.trim() || input.promotionUrl?.trim() || "";
+  // Only an offsite-conversion ad needs a verified domain. A click-to-WhatsApp ad converts in
+  // the conversation, and its creative link is api.whatsapp.com — sending that as the
+  // conversion domain would be both wrong and unverifiable.
   const conversionDomain =
-    resolved.metaObjective === "OUTCOME_SALES"
+    resolved.metaObjective === "OUTCOME_SALES" && !resolved.isWhatsapp
       ? registrableDomain(promotionUrl)
       : undefined;
 
@@ -576,31 +636,29 @@ export async function publishFallbackCampaign(args: {
       lifetimeBudgetCents: flight.lifetimeCents,
       startTime: flight.startTime,
       stopTime: flight.endTime,
-      // CBO + dayparting without an explicit campaign bid_strategy makes Meta
-      // infer TARGET_COST / LOWEST_COST_WITH_BID_CAP and reject the ad set
-      // with 100/1815857 (bid_amount required). The wizard always pairs
-      // Advantage campaign budget with LOWEST_COST_WITHOUT_CAP; the ad set
-      // then carries no bid (parentUsesCampaignBudget).
-      bidStrategy: "LOWEST_COST_WITHOUT_CAP",
     },
     adSets: [
       {
         adSet: {
           name: buildConventionalAdSetName(campaignName),
-          optimizationGoal:
-            resolved.metaObjective === "OUTCOME_SALES"
+          optimizationGoal: resolved.isWhatsapp
+            ? WHATSAPP_OPTIMIZATION_GOAL
+            : resolved.metaObjective === "OUTCOME_SALES"
               ? "OFFSITE_CONVERSIONS"
               : resolved.metaObjective === "OUTCOME_TRAFFIC"
                 ? "VISIT_INSTAGRAM_PROFILE"
                 : "LEAD_GENERATION",
           billingEvent: "IMPRESSIONS",
-          ...(resolved.metaObjective === "OUTCOME_TRAFFIC"
-            ? { destinationType: "INSTAGRAM_PROFILE" }
-            : resolved.metaObjective === "OUTCOME_LEADS"
-              ? { destinationType: "ON_AD" }
-              : {}),
-          promotedObject:
-            resolved.metaObjective === "OUTCOME_SALES"
+          ...(resolved.isWhatsapp
+            ? { destinationType: WHATSAPP_DESTINATION_TYPE }
+            : resolved.metaObjective === "OUTCOME_TRAFFIC"
+              ? { destinationType: "INSTAGRAM_PROFILE" }
+              : resolved.metaObjective === "OUTCOME_LEADS"
+                ? { destinationType: "ON_AD" }
+                : {}),
+          promotedObject: resolved.isWhatsapp
+            ? whatsappPromotedObject(input.pageId)
+            : resolved.metaObjective === "OUTCOME_SALES"
               ? { pixel_id: input.pixelId, custom_event_type: "PURCHASE" }
               : resolved.metaObjective === "OUTCOME_TRAFFIC"
                 ? {

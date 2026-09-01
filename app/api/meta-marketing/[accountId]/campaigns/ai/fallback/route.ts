@@ -60,7 +60,12 @@ const NICHES = new Set<FallbackNiche>([
   "outros",
 ]);
 
-const OBJECTIVES = new Set<FallbackObjective>(["sales", "followers", "leads"]);
+const OBJECTIVES = new Set<FallbackObjective>([
+  "sales",
+  "whatsapp",
+  "followers",
+  "leads",
+]);
 
 /**
  * POST /api/meta-marketing/[accountId]/campaigns/ai/fallback?userId=

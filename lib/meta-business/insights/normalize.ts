@@ -11,7 +11,7 @@
  * divided by 100 here.
  */
 import type { GraphApiInsights } from "@/lib/meta-business/types";
-import { resolveObjectiveResult } from "./catalogs/objectives";
+import { labelForActionType, resolveObjectiveResult } from "./catalogs/objectives";
 import { getMetricSpec, type MetricSpec } from "./catalogs/metrics";
 import { round2, toNumber } from "./currency";
 
@@ -98,6 +98,41 @@ function sumActionArray(arr: ActionArray): number | null {
   return any ? round2(sum) : null;
 }
 
+/**
+ * One entry of Meta's `cost_per_result`: which action type IS the result for this row, and
+ * what it cost. Note the shape — `values[]`, not the `{ action_type, value }` of an action
+ * array — which is why a generic action-array reader finds nothing in it.
+ */
+type CostPerResultEntry = {
+  indicator?: string;
+  values?: Array<{ value?: string }>;
+};
+
+/**
+ * Meta's own verdict on what this row's result is, read off `cost_per_result`.
+ *
+ * The `indicator` names the action type ("actions:onsite_conversion.messaging_conversation_started_7d"),
+ * and it is present even when the campaign has produced zero results — so it identifies the
+ * result of an ad set whose objective→action map matches nothing. That is exactly the
+ * click-to-WhatsApp case: the campaign is OUTCOME_SALES, but no purchase action ever appears,
+ * so without this the product reports 0 results on a campaign with real conversations.
+ */
+function resultFromCostPerResult(
+  raw: RawInsight,
+): { actionType: string; costPerResult: number | null } | null {
+  const entries = raw.cost_per_result as CostPerResultEntry[] | undefined;
+  const first = entries?.[0];
+  const indicator = first?.indicator;
+  if (typeof indicator !== "string") return null;
+
+  const actionType = indicator.startsWith("actions:")
+    ? indicator.slice("actions:".length)
+    : indicator;
+  if (!actionType) return null;
+
+  return { actionType, costPerResult: toNumber(first?.values?.[0]?.value) };
+}
+
 function extractResult(raw: RawInsight, objective?: string | null): NormalizedResult {
   const def = resolveObjectiveResult(objective);
 
@@ -112,23 +147,39 @@ function extractResult(raw: RawInsight, objective?: string | null): NormalizedRe
     };
   }
 
-  const { actionType, value: count } = firstActionValue(raw.actions, def.actionTypes);
+  const matched = firstActionValue(raw.actions, def.actionTypes);
+
+  // Nothing the objective knows about was measured — ask Meta what the result of THIS row is.
+  // Narrow on purpose: when the objective map does match, its answer stands, so no figure that
+  // is correct today moves.
+  const fallback = matched.actionType === null ? resultFromCostPerResult(raw) : null;
+
+  const actionType = matched.actionType ?? fallback?.actionType ?? null;
+  const count =
+    matched.actionType !== null
+      ? matched.value
+      : valueForActionType(raw.actions, actionType);
 
   const costPerResult =
     valueForActionType(raw.cost_per_action_type, actionType) ??
-    firstAnyValue(raw.cost_per_result) ??
+    fallback?.costPerResult ??
     firstAnyValue(raw.cost_per_objective_result);
 
-  const value = def.hasValue
+  // A fallback result is, by construction, NOT one of the objective's own action types — so
+  // the objective's money semantics do not apply to it. Reporting `purchase_roas` next to a
+  // count of conversations would attribute a website ROAS to a WhatsApp result.
+  const monetary = def.hasValue && fallback === null;
+
+  const value = monetary
     ? valueForActionType(raw.action_values, actionType)
     : null;
 
-  const roas = def.hasValue
+  const roas = monetary
     ? (firstAnyValue(raw.purchase_roas) ?? firstAnyValue(raw.website_purchase_roas))
     : null;
 
   return {
-    label: def.labelPt,
+    label: labelForActionType(actionType, def.labelPt),
     actionType,
     count,
     costPerResult: round2(costPerResult),

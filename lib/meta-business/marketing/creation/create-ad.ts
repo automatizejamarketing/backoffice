@@ -62,6 +62,7 @@ export type AdCreativeInput =
       pageId: string;
       instagramUserId: string;
       cta?: AdCta;
+      pageWelcomeMessage?: string;
     }
   | {
       format: "image";
@@ -74,6 +75,7 @@ export type AdCreativeInput =
       headline?: string;
       description?: string;
       cta: AdCta;
+      pageWelcomeMessage?: string;
     }
   | {
       format: "video";
@@ -87,6 +89,7 @@ export type AdCreativeInput =
       headline?: string;
       /** Destination link lives in cta.link (video_data has no top-level link). */
       cta: AdCta;
+      pageWelcomeMessage?: string;
     }
   | {
       format: "carousel";
@@ -155,6 +158,9 @@ export function buildObjectStorySpec(
     if (c.message) linkData.message = c.message;
     if (c.headline) linkData.name = c.headline;
     if (c.description) linkData.description = c.description;
+    // Click-to-WhatsApp only: the greeting the customer sees, already JSON-encoded by
+    // `buildPageWelcomeMessage`. Absent for every other destination.
+    if (c.pageWelcomeMessage) linkData.page_welcome_message = c.pageWelcomeMessage;
     const cta = buildCtaObject(c.cta);
     if (cta) linkData.call_to_action = cta;
     return identity(c.pageId, c.instagramUserId, { link_data: linkData });
@@ -165,6 +171,7 @@ export function buildObjectStorySpec(
     else if (c.thumbnailUrl) videoData.image_url = c.thumbnailUrl;
     if (c.message) videoData.message = c.message;
     if (c.headline) videoData.title = c.headline;
+    if (c.pageWelcomeMessage) videoData.page_welcome_message = c.pageWelcomeMessage;
     const cta = buildCtaObject(c.cta);
     if (cta) videoData.call_to_action = cta;
     return identity(c.pageId, c.instagramUserId, { video_data: videoData });
@@ -225,6 +232,9 @@ export function buildAdCreativeFields(
     p.set("instagram_user_id", c.instagramUserId);
     const cta = buildCtaObject(c.cta);
     if (cta) p.set("call_to_action", JSON.stringify(cta));
+    // An Instagram boost posts its fields flat, not inside object_story_spec, so the
+    // click-to-WhatsApp greeting goes on the creative itself.
+    if (c.pageWelcomeMessage) p.set("page_welcome_message", c.pageWelcomeMessage);
     p.set("contextual_multi_ads", OPT_OUT_MULTI_ADS);
   } else {
     p.set("object_story_spec", JSON.stringify(buildObjectStorySpec(c)));

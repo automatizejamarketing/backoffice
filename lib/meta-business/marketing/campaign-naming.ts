@@ -41,12 +41,21 @@ function conventionalTimestamp(): string {
   return new Date().toISOString().replace("T", "-").replace(/:/g, "-").slice(0, 19);
 }
 
-/** `[AM][OBJETIVO][NICHE][timestamp]` — the default campaign name. */
+/**
+ * `[AM][OBJETIVO][NICHE][timestamp]` — the default campaign name.
+ *
+ * `destination` exists because the ODAX objective is not enough to name the campaign once the
+ * DESTINATION varies: a click-to-WhatsApp campaign and a website one are both OUTCOME_SALES,
+ * and the name is the only thing that tells them apart in Ads Manager, in the reports and in
+ * the playbook. Absent (or `"website"`) keeps the historical name byte-for-byte.
+ */
 export function buildConventionalCampaignName(
   objective: string,
   niche?: string | null,
+  destination?: "website" | "whatsapp" | null,
 ): string {
-  const obj = OBJECTIVE_CODE[objective] ?? "CAMPANHA";
+  const obj =
+    destination === "whatsapp" ? "WHATSAPP" : (OBJECTIVE_CODE[objective] ?? "CAMPANHA");
   const nic = NICHE_CODE[(niche ?? "").trim()] ?? "OUT";
   return `[AM][${obj}][${nic}][${conventionalTimestamp()}]`;
 }
