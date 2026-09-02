@@ -681,6 +681,10 @@ export const productOrder = pgTable(
     vindiBillId: varchar("vindi_bill_id", { length: 255 }),
     vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
     vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
+    /** Quem pagou esta venda: Cliente Vindi e documento, congelados no ato
+     * (ADR 0029). Leitura de relatório não precisa chamar a Vindi. */
+    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
+    payerRegistryCode: varchar("payer_registry_code", { length: 20 }),
     termsVersion: varchar("terms_version", { length: 40 }).notNull(),
     termsAcceptedAt: timestamp("terms_accepted_at").notNull(),
     marketingOptIn: boolean("marketing_opt_in").notNull().default(false),
@@ -2535,6 +2539,10 @@ export const payment = pgTable(
     }),
     vindiBillId: varchar("vindi_bill_id", { length: 255 }),
     vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
+    /** Quem pagou esta venda: Cliente Vindi e documento, congelados no ato
+     * (ADR 0029). Leitura de relatório não precisa chamar a Vindi. */
+    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
+    payerRegistryCode: varchar("payer_registry_code", { length: 20 }),
     purpose: varchar("purpose", {
       enum: [...PAYMENT_PURPOSE_VALUES],
     }).$type<PaymentPurpose>(),
@@ -2727,6 +2735,46 @@ export const mercadopagoPaymentLink = pgTable(
 export type MercadoPagoPaymentLink = InferSelectModel<
   typeof mercadopagoPaymentLink
 >;
+
+/**
+ * Um Cliente Vindi por par (Conta, CPF) — ADR 0029. Uma Conta pode faturar com
+ * mais de um CPF/CNPJ, e a Vindi só trata `code` como único (e-mail e
+ * `registry_code` NÃO são), então o Cliente é resolvido por `code` derivado:
+ * `userId` para o Primário e `userId:cpf` para os demais. Os três índices
+ * únicos são os invariantes do ADR: um Cliente pertence a uma Conta só, um CPF
+ * por Conta aponta para um Cliente só, uma Conta tem um Primário só.
+ */
+export const vindiCustomerLink = pgTable(
+  "vindi_customers",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }).notNull(),
+    /** CPF/CNPJ deste Cliente, só dígitos. NULL enquanto o Primário não viu um. */
+    registryCode: varchar("registry_code", { length: 20 }),
+    /** O `code` mandado à Vindi — chave determinística que reencontra o Cliente. */
+    vindiCode: varchar("vindi_code", { length: 255 }).notNull(),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqueCustomer: uniqueIndex("vindi_customers_customer_unique").on(
+      table.vindiCustomerId,
+    ),
+    uniqueUserRegistry: uniqueIndex("vindi_customers_user_registry_unique")
+      .on(table.userId, table.registryCode)
+      .where(sql`${table.registryCode} IS NOT NULL`),
+    uniquePrimary: uniqueIndex("vindi_customers_primary_unique")
+      .on(table.userId)
+      .where(sql`${table.isPrimary}`),
+    userIdx: index("vindi_customers_user_id_idx").on(table.userId),
+  }),
+);
+
+export type VindiCustomerLink = InferSelectModel<typeof vindiCustomerLink>;
 
 export const vindiPaymentLink = pgTable(
   "vindi_payment_links",
