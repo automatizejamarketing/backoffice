@@ -684,7 +684,6 @@ export function ProductsAdminWorkspace({
   const [enablingSalesProductId, setEnablingSalesProductId] = useState<
     string | null
   >(null);
-  const [vindiProductsEnabled, setVindiProductsEnabled] = useState(false);
   const [ensuringAffiliateExpertId, setEnsuringAffiliateExpertId] = useState<
     string | null
   >(null);
@@ -737,7 +736,6 @@ export function ProductsAdminWorkspace({
             ? expertsById.get(productForm.expertId)?.vindiAffiliateStatus
             : null,
         }),
-        vindiProductsEnabled,
         offeringForSale:
           productForm.status === "published" && productForm.salesEnabled,
       }),
@@ -747,7 +745,6 @@ export function ProductsAdminWorkspace({
       productForm.ownerType,
       productForm.salesEnabled,
       productForm.status,
-      vindiProductsEnabled,
     ],
   );
   const productFormAffiliateReadiness =
@@ -792,30 +789,27 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, settingsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
-          fetch("/api/products/admin/settings", { cache: "no-store" }),
         ]);
       if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextSettings] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
-          settingsResponse.ok ? settingsResponse.json() : Promise.resolve(null),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
-      setVindiProductsEnabled(nextSettings?.vindiProductsEnabled === true);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -1063,7 +1057,6 @@ export function ProductsAdminWorkspace({
           ? expertsById.get(row.expertId)?.vindiAffiliateStatus
           : null,
       }),
-      vindiProductsEnabled,
       offeringForSale: true,
     });
     if (!gate.allowed) {
@@ -1096,7 +1089,6 @@ export function ProductsAdminWorkspace({
           ? expertsById.get(row.expertId)?.vindiAffiliateStatus
           : null,
       }),
-      vindiProductsEnabled,
       offeringForSale: row.status === "published",
     });
     if (!gate.allowed) {
@@ -1577,7 +1569,6 @@ export function ProductsAdminWorkspace({
                           ownerType: row.ownerType,
                           affiliateStatus: ownerExpert?.vindiAffiliateStatus,
                         }),
-                        vindiProductsEnabled,
                         offeringForSale: true,
                       });
                       const saleGateTitle = saleGate.allowed
@@ -2321,7 +2312,7 @@ export function ProductsAdminWorkspace({
             </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
-            {vindiProductsEnabled && !productFormAffiliateReadiness.ready ? (
+            {!productFormAffiliateReadiness.ready ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 md:col-span-2 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100">
                 <p className="font-medium">{productFormAffiliateReadiness.message}</p>
                 <p className="mt-1 text-amber-900/80 dark:text-amber-100/80">

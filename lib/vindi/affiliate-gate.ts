@@ -26,7 +26,6 @@ export type ExpertProductSaleGate =
 export type ExpertProductSaleGateInput = {
   ownerType: "automatize" | "expert";
   affiliateStatus: VindiAffiliateStatus | null;
-  vindiProductsEnabled: boolean;
   offeringForSale: boolean;
 };
 
@@ -127,11 +126,7 @@ export function describeExpertAffiliateReadiness(
 export function evaluateExpertProductSaleGate(
   input: ExpertProductSaleGateInput,
 ): ExpertProductSaleGate {
-  if (
-    !input.vindiProductsEnabled ||
-    !input.offeringForSale ||
-    input.ownerType === "automatize"
-  ) {
+  if (!input.offeringForSale || input.ownerType === "automatize") {
     return { allowed: true };
   }
 
@@ -163,21 +158,18 @@ export function isProductOfferedForSale(input: {
   return input.status === "published" && input.salesEnabled;
 }
 
-/** Catalog/API view of `salesEnabled` after the affiliate gate. Flag OFF
- * leaves the stored flag alone (aceite 1). Flag ON hides expert products
- * that cannot sell yet (aceite 2). */
+/** Catalog/API view of `salesEnabled` after the affiliate gate. Hides
+ * expert products that cannot sell yet. */
 export function catalogSalesEnabled(input: {
   salesEnabled: boolean;
   status: "draft" | "published" | "archived";
   ownerType: "automatize" | "expert";
   affiliateStatus: VindiAffiliateStatus | null;
-  vindiProductsEnabled: boolean;
 }): boolean {
   if (!input.salesEnabled) return false;
   return evaluateExpertProductSaleGate({
     ownerType: input.ownerType,
     affiliateStatus: input.affiliateStatus,
-    vindiProductsEnabled: input.vindiProductsEnabled,
     offeringForSale: isProductOfferedForSale({
       status: input.status,
       salesEnabled: input.salesEnabled,
