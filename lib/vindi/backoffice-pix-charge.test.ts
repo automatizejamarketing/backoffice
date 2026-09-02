@@ -20,16 +20,47 @@ const EMV =
     .qrcode_original_path;
 const now = new Date("2026-08-17T15:00:00.000Z");
 
+/** Um Cliente Vindi por par (Conta, CPF) — ADR 0029 no frontend. */
 function memoryCustomers(
   seed: Record<string, string> = {},
 ): VindiCustomerDirectory {
-  const ids = new Map(Object.entries(seed));
+  const links = Object.entries(seed).map(([userId, vindiCustomerId]) => ({
+    userId,
+    vindiCustomerId,
+    vindiCode: userId,
+    registryCode: null as string | null,
+    isPrimary: true,
+  }));
   return {
-    async getCustomerId(userId) {
-      return ids.get(userId) ?? null;
+    async getPrimary(userId) {
+      const found = links.find((row) => row.userId === userId && row.isPrimary);
+      return found
+        ? {
+            vindiCustomerId: found.vindiCustomerId,
+            registryCode: found.registryCode,
+          }
+        : null;
     },
-    async saveCustomerId(userId, vindiCustomerId) {
-      ids.set(userId, vindiCustomerId);
+    async findByRegistryCode(userId, registryCode) {
+      const found = links.find(
+        (row) => row.userId === userId && row.registryCode === registryCode,
+      );
+      return found
+        ? {
+            vindiCustomerId: found.vindiCustomerId,
+            registryCode: found.registryCode,
+          }
+        : null;
+    },
+    async saveCustomer(input) {
+      const existing = links.find(
+        (row) => row.vindiCustomerId === input.vindiCustomerId,
+      );
+      if (existing) {
+        Object.assign(existing, input);
+        return;
+      }
+      links.push({ ...input });
     },
   };
 }

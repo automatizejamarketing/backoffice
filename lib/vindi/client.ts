@@ -23,6 +23,21 @@ export class VindiApiError extends Error {
   }
 }
 
+/**
+ * Vindi 422 "já está em uso". O ÚNICO campo único por empresa é `code` —
+ * medido contra a API de produção em 2026-09-01: `email` e `registry_code`
+ * aceitam duplicata tanto no POST quanto no PUT (ADR 0029 no frontend).
+ */
+export function isVindiAlreadyInUseError(error: unknown): boolean {
+  if (!(error instanceof VindiApiError) || error.status !== 422) {
+    return false;
+  }
+  return error.errors.some(
+    (item) =>
+      item.id === "invalid_parameter" && /já está em uso/i.test(item.message),
+  );
+}
+
 export type VindiRequest = {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
