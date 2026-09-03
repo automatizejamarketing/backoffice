@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { PRODUCT_CONTENT_TYPE_VALUES } from "@/lib/db/schema";
 
 const contentSchema = z.object({
   productId: z.string().uuid(),
-  type: z.enum(["video", "pdf", "file", "external_link"]),
+  type: z.enum(PRODUCT_CONTENT_TYPE_VALUES),
   title: z.string().trim().min(2).max(180),
   description: z.string().trim().max(5_000).optional().nullable(),
   sourceUrl: z.string().trim().max(2_000).optional().nullable(),
@@ -34,10 +35,14 @@ export function parseProductContentInput(input: unknown) {
     throw new Error("Informe uma URL ou arquivo");
   }
   if (
-    parsed.type === "external_link" &&
+    (parsed.type === "external_link" || parsed.type === "scheduling") &&
     !sourceUrl?.startsWith("https://")
   ) {
-    throw new Error("Links externos devem usar HTTPS");
+    throw new Error(
+      parsed.type === "scheduling"
+        ? "Links de agendamento devem usar HTTPS"
+        : "Links externos devem usar HTTPS",
+    );
   }
   if (
     ["pdf", "file"].includes(parsed.type) &&

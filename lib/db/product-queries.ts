@@ -14,6 +14,7 @@ import {
   productOrder,
   productPayment,
   user,
+  type ProductContentType,
   type VindiAffiliateStatus,
 } from "./schema";
 import { parseProductAdminInput } from "@/lib/products/admin-input";
@@ -375,7 +376,7 @@ export async function listProductContent(productId: string) {
 
 export async function createProductContent(input: {
   productId: string;
-  type: "video" | "pdf" | "file" | "external_link";
+  type: ProductContentType;
   title: string;
   description?: string | null;
   sourceUrl?: string | null;

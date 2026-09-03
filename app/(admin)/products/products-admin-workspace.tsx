@@ -105,6 +105,7 @@ import {
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
 import { locksExpertParticipationToZero } from "@/lib/products/admin-input";
+import type { ProductContentType } from "@/lib/db/schema";
 import { calculateVindiSplit } from "@/lib/vindi/split";
 import {
   affiliateStatusForSaleGate,
@@ -158,7 +159,7 @@ type Product = {
 type Content = {
   id: string;
   productId: string;
-  type: "video" | "pdf" | "file" | "external_link";
+  type: ProductContentType;
   title: string;
   description: string | null;
   sourceUrl: string | null;
@@ -288,6 +289,21 @@ function parseExpertParticipationBps(
 function formatExpertParticipationPercent(bps: number | null): string {
   if (bps == null) return "";
   return formatPercentageInput(String(bps / 100).replace(".", ","));
+}
+
+function contentSourceLabel(type: Content["type"]) {
+  if (type === "video") return "URL / ID do vídeo";
+  if (type === "pdf") return "Link do Google Drive";
+  if (type === "scheduling") return "Link para agendamento";
+  return "URL externa";
+}
+
+function contentSourcePlaceholder(type: Content["type"]) {
+  if (type === "pdf") return "https://drive.google.com/file/d/.../view";
+  if (type === "scheduling") {
+    return "https://calendly.com/seu-usuario/consulta";
+  }
+  return undefined;
 }
 
 const emptyContent = {
@@ -2530,21 +2546,28 @@ export function ProductsAdminWorkspace({
                         <SelectItem value="pdf">PDF</SelectItem>
                         <SelectItem value="file">Arquivo</SelectItem>
                         <SelectItem value="external_link">Link externo</SelectItem>
+                        <SelectItem value="scheduling">Agendamento</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
                 </Field>
                 <Field label="Título"><Input value={contentForm.title} onChange={(e) => setContentForm({ ...contentForm, title: e.target.value })} required /></Field>
-                <Field label={contentForm.type === "video" ? "URL / ID do vídeo" : contentForm.type === "pdf" ? "Link do Google Drive" : "URL externa"}>
+                <Field label={contentSourceLabel(contentForm.type)}>
                   <Input
                     type={contentForm.type === "video" ? "text" : "url"}
                     value={contentForm.sourceUrl}
                     onChange={(e) => changeContentSourceUrl(e.target.value)}
-                    placeholder={contentForm.type === "pdf" ? "https://drive.google.com/file/d/.../view" : undefined}
+                    placeholder={contentSourcePlaceholder(contentForm.type)}
                   />
                   {contentForm.type === "pdf" ? (
                     <p className="text-xs leading-5 text-muted-foreground">
                       Use um link com acesso “Qualquer pessoa com o link” ou envie o PDF abaixo.
+                    </p>
+                  ) : null}
+                  {contentForm.type === "scheduling" ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Se o link for do Calendly, o calendário aparece na página do
+                      produto. Outros links abrem em uma nova aba.
                     </p>
                   ) : null}
                 </Field>

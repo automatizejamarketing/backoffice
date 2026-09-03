@@ -364,6 +364,7 @@ export const PRODUCT_CONTENT_TYPE_VALUES = [
   "pdf",
   "file",
   "external_link",
+  "scheduling",
 ] as const;
 export type ProductContentType = (typeof PRODUCT_CONTENT_TYPE_VALUES)[number];
 

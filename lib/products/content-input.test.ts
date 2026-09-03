@@ -58,4 +58,51 @@ describe("product content input", () => {
       /HTTPS/,
     );
   });
+
+  it("accepts HTTPS scheduling links and rejects unsafe sources", () => {
+    const parsed = parseProductContentInput({
+      productId: "00000000-0000-4000-8000-000000000001",
+      type: "scheduling",
+      title: "Consulta",
+      sourceUrl: "https://calendly.com/expert/consulta",
+      position: 1,
+    });
+    assert.equal(parsed.type, "scheduling");
+    assert.equal(parsed.sourceUrl, "https://calendly.com/expert/consulta");
+
+    const otherScheduler = parseProductContentInput({
+      productId: "00000000-0000-4000-8000-000000000001",
+      type: "scheduling",
+      title: "Consulta",
+      sourceUrl: "https://calendar.google.com/appointments/schedules/abc",
+      position: 2,
+    });
+    assert.equal(
+      otherScheduler.sourceUrl,
+      "https://calendar.google.com/appointments/schedules/abc",
+    );
+
+    assert.throws(
+      () =>
+        parseProductContentInput({
+          productId: "00000000-0000-4000-8000-000000000001",
+          type: "scheduling",
+          title: "Consulta",
+          sourceUrl: "javascript:alert(1)",
+          position: 1,
+        }),
+      /HTTPS/,
+    );
+    assert.throws(
+      () =>
+        parseProductContentInput({
+          productId: "00000000-0000-4000-8000-000000000001",
+          type: "scheduling",
+          title: "Consulta",
+          sourceUrl: "http://calendly.com/expert/consulta",
+          position: 1,
+        }),
+      /HTTPS/,
+    );
+  });
 });
