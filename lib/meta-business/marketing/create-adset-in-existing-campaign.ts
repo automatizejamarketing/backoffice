@@ -22,6 +22,11 @@ import {
   type PlacementKey,
 } from "@/lib/meta-business/placements";
 import {
+  WHATSAPP_BILLING_EVENT,
+  WHATSAPP_DESTINATION_TYPE,
+  WHATSAPP_OPTIMIZATION_GOAL,
+} from "./creation/whatsapp-destination";
+import {
   AdSetStatus,
   CampaignObjective,
   type GraphApiAdSet,
@@ -129,6 +134,7 @@ export type CreateAdSetInCampaignError = {
 
 type GraphApiCampaign = {
   id: string;
+  name?: string;
   objective?: string;
   daily_budget?: string;
   lifetime_budget?: string;
@@ -140,7 +146,11 @@ type GraphApiPixel = { id: string; name?: string };
 type GraphApiPixelsResponse = { data: GraphApiPixel[] };
 
 type GraphApiAdSetsListResponse = {
-  data: Array<{ promoted_object?: { pixel_id?: string } }>;
+  data: Array<{
+    destination_type?: string;
+    name?: string;
+    promoted_object?: { pixel_id?: string; page_id?: string };
+  }>;
 };
 
 type CreateAdSetApiResponse = { id: string };
@@ -169,7 +179,18 @@ export function hasPositiveMinorUnits(
 
 export function getAdSetOptimizationConfig(
   objective?: string,
+  destinationType?: string,
 ): OptimizationConfig {
+  if (destinationType === WHATSAPP_DESTINATION_TYPE) {
+    return {
+      optimizationGoal: WHATSAPP_OPTIMIZATION_GOAL,
+      billingEvent: WHATSAPP_BILLING_EVENT,
+      destinationType: WHATSAPP_DESTINATION_TYPE,
+      promotedObjectType: "page",
+      campaignType: "sales",
+    };
+  }
+
   switch (objective) {
     case CampaignObjective.OUTCOME_LEADS:
     case CampaignObjective.LEAD_GENERATION:
@@ -237,6 +258,38 @@ function isSalesObjective(objective?: string): boolean {
     objective === CampaignObjective.OUTCOME_SALES ||
     objective === CampaignObjective.CONVERSIONS
   );
+}
+
+async function resolveSiblingDestinationType(params: {
+  accessToken: string;
+  formattedAccountId: string;
+  campaignId: string;
+}): Promise<string | undefined> {
+  try {
+    const siblings = await metaApiCall<GraphApiAdSetsListResponse>({
+      domain: "FACEBOOK",
+      method: "GET",
+      path: `${params.formattedAccountId}/adsets`,
+      params: `fields=destination_type,promoted_object&limit=50&filtering=${encodeURIComponent(
+        JSON.stringify([
+          {
+            field: "campaign.id",
+            operator: "EQUAL",
+            value: params.campaignId,
+          },
+        ]),
+      )}`,
+      accessToken: params.accessToken,
+    });
+
+    for (const sibling of siblings.data) {
+      const destination = sibling.destination_type?.trim();
+      if (destination) return destination;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 async function resolvePixelId(params: {
@@ -361,7 +414,7 @@ export async function createAdSetInExistingCampaign(
       domain: "FACEBOOK",
       method: "GET",
       path: campaignId,
-      params: "fields=objective,daily_budget,lifetime_budget,start_time,stop_time",
+      params: "fields=name,objective,daily_budget,lifetime_budget,start_time,stop_time",
       accessToken,
     });
   } catch (error) {
@@ -441,6 +494,12 @@ export async function createAdSetInExistingCampaign(
     }
   }
 
+  const siblingDestinationType = await resolveSiblingDestinationType({
+    accessToken,
+    formattedAccountId,
+    campaignId,
+  });
+  const namedWhatsapp = campaign.name?.includes("[WHATSAPP]") === true;
   const {
     optimizationGoal,
     billingEvent,
@@ -448,7 +507,12 @@ export async function createAdSetInExistingCampaign(
     promotedObjectType,
     instagramOnlyPlacements,
     campaignType,
-  } = getAdSetOptimizationConfig(campaignObjective);
+  } = getAdSetOptimizationConfig(
+    campaignObjective,
+    siblingDestinationType === WHATSAPP_DESTINATION_TYPE || namedWhatsapp
+      ? WHATSAPP_DESTINATION_TYPE
+      : siblingDestinationType,
+  );
 
   let pagesResponse: FacebookPagesWithInstagramResponse;
   try {

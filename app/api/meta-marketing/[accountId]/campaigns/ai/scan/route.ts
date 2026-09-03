@@ -20,7 +20,7 @@ export const maxDuration = 60;
 const SCAN_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export type ScanForMoldRequest = {
-  objective?: "sales" | "followers" | "leads";
+  objective?: "sales" | "whatsapp" | "followers" | "leads";
 };
 
 export type ScanForMoldResponse = {

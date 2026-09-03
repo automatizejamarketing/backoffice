@@ -7,7 +7,7 @@ import { trackAiUsage } from "@/lib/ai/usage-tracker";
 import { getPrimaryCompanyForUser } from "@/lib/db/admin-queries";
 import {
   buildCopyPrompt,
-  generatedCopySchema,
+  copySchemaFor,
   sanitizeOffer,
   type GeneratedCopy,
 } from "@/lib/meta-business/marketing/ai-creation/generate-copy";
@@ -15,7 +15,7 @@ import { authorizeAiCampaignWrite } from "@/lib/meta-business/ai-campaign-auth";
 
 export type GenerateCopyRequest = {
   offer: string;
-  objective: "sales" | "leads";
+  objective: "sales" | "leads" | "whatsapp";
 };
 
 export type GenerateCopyResponse = { success: true } & GeneratedCopy;
@@ -58,7 +58,10 @@ export async function POST(
 
     const body = (await request.json()) as Partial<GenerateCopyRequest>;
     const offer = sanitizeOffer(body.offer ?? "");
-    const objective = body.objective === "leads" ? "leads" : "sales";
+    const objective =
+      body.objective === "leads" || body.objective === "whatsapp"
+        ? body.objective
+        : "sales";
 
     if (!offer) {
       return NextResponse.json(
@@ -86,7 +89,7 @@ export async function POST(
 
     const result = await generateObject({
       model: gateway.languageModel(AI_MODELS.TEXT_GENERATION),
-      schema: generatedCopySchema,
+      schema: copySchemaFor(objective),
       prompt,
       providerOptions: gatewayProviderOptions("campanha"),
     });
@@ -98,10 +101,16 @@ export async function POST(
       providerMetadata: result.providerMetadata,
     });
 
+    const autofill = (result.object as { whatsappAutofillMessage?: string })
+      .whatsappAutofillMessage;
+
     return NextResponse.json({
       success: true,
       headline: result.object.headline.trim(),
       message: result.object.message.trim(),
+      ...(autofill?.trim()
+        ? { whatsappAutofillMessage: autofill.trim() }
+        : {}),
     });
   } catch (error) {
     console.error("[ai/copy] failed:", error);

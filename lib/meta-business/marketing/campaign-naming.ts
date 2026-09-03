@@ -45,9 +45,10 @@ function conventionalTimestamp(): string {
  * `[AM][OBJETIVO][NICHE][timestamp]` — the default campaign name.
  *
  * `destination` exists because the ODAX objective is not enough to name the campaign once the
- * DESTINATION varies: a click-to-WhatsApp campaign and a website one are both OUTCOME_SALES,
- * and the name is the only thing that tells them apart in Ads Manager, in the reports and in
- * the playbook. Absent (or `"website"`) keeps the historical name byte-for-byte.
+ * DESTINATION varies. New CTWA campaigns are OUTCOME_ENGAGEMENT; legacy ones stay
+ * OUTCOME_SALES. The name is `[WHATSAPP]` either way so Ads Manager, reports and the
+ * playbook can tell them from website sales. Absent (or `"website"`) keeps the historical
+ * name byte-for-byte.
  */
 export function buildConventionalCampaignName(
   objective: string,

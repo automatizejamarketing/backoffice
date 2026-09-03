@@ -22,7 +22,7 @@ const PLACEMENT_LABEL_PT: Record<PlacementKey, string> = {
 };
 
 type AiPlacementsEditorProps = {
-  objective: "sales" | "followers" | "leads";
+  objective: "sales" | "whatsapp" | "followers" | "leads";
   mode: PlacementsMode;
   onModeChange: (mode: PlacementsMode) => void;
   selectedPlacements: readonly PlacementKey[];
@@ -187,7 +187,7 @@ export function AiPlacementsEditor({
 export function placementsSummary(
   mode: PlacementsMode,
   selected: readonly PlacementKey[],
-  objective: "sales" | "followers" | "leads",
+  objective: "sales" | "whatsapp" | "followers" | "leads",
 ): string {
   if (objective !== "followers" && mode === "automatic") {
     return "Advantage+ (a Meta escolhe)";

@@ -1,10 +1,15 @@
 /**
  * Click-to-WhatsApp (CTWA): the exact fields Meta wants, in one place.
  *
- * Verified live against a real production campaign (conta `act_832403461244988`,
- * campanha `[VENDAS][YOKA CLUB RETIRO SEGUNDA EDICAO]`) rather than from the docs alone:
+ * Campaign objective is `OUTCOME_ENGAGEMENT` — Meta's own v25.0 example in
+ * https://developers.facebook.com/docs/marketing-api/ad-creative/messaging-ads/click-to-whatsapp/
+ * and the destination-type matrix in
+ * https://developers.facebook.com/docs/marketing-api/adset/destination_type/
+ * (WHATSAPP is listed under ENGAGEMENT / TRAFFIC / AWARENESS; SALES lists only
+ * WEBSITE, MESSENGER, PHONE_CALL). The previous OUTCOME_SALES shape was verified
+ * live against a production campaign but rides an undocumented combination.
  *
- *   campanha  objective:         OUTCOME_SALES
+ *   campanha  objective:         OUTCOME_ENGAGEMENT
  *   ad set    destination_type:  WHATSAPP
  *             optimization_goal: CONVERSATIONS
  *             promoted_object:   { page_id }        ← sem whatsapp_phone_number
@@ -12,15 +17,21 @@
  *             call_to_action:    WHATSAPP_MESSAGE + value.app_destination = WHATSAPP
  *
  * `whatsapp_phone_number` is OPTIONAL and is deliberately not sent: Meta resolves the
- * number from the Page, and a number that does not belong to that Page's WABA is rejected
- * anyway. Sending one would move the failure past the user's "Aprovar" without preventing it.
+ * number from the Page, and writing one is a known-broken path (subcodes 1487246 /
+ * 2446886) even when Ads Manager accepts the identical payload.
  */
+
+/** ODAX objective for a new CTWA campaign. */
+export const WHATSAPP_CAMPAIGN_OBJECTIVE = "OUTCOME_ENGAGEMENT";
 
 /** `destination_type` on the ad set. */
 export const WHATSAPP_DESTINATION_TYPE = "WHATSAPP";
 
 /** `optimization_goal` — bid for conversations started, which is what the result counts. */
 export const WHATSAPP_OPTIMIZATION_GOAL = "CONVERSATIONS";
+
+/** How Meta bills a CTWA ad set. */
+export const WHATSAPP_BILLING_EVENT = "IMPRESSIONS";
 
 /** The creative's `link`. Meta requires this exact endpoint for a CTWA ad. */
 export const WHATSAPP_AD_LINK = "https://api.whatsapp.com/send";
@@ -65,6 +76,22 @@ export function whatsappCallToAction(): {
     type: WHATSAPP_CTA_TYPE,
     value: { app_destination: WHATSAPP_DESTINATION_TYPE },
   };
+}
+
+/**
+ * The documented CTWA contract, in one object, so tests can pin every field
+ * without reconstructing it from scattered call sites.
+ */
+export function whatsappMetaContract() {
+  return {
+    campaignObjective: WHATSAPP_CAMPAIGN_OBJECTIVE,
+    destinationType: WHATSAPP_DESTINATION_TYPE,
+    optimizationGoal: WHATSAPP_OPTIMIZATION_GOAL,
+    billingEvent: WHATSAPP_BILLING_EVENT,
+    adLink: WHATSAPP_AD_LINK,
+    ctaType: WHATSAPP_CTA_TYPE,
+    resultActionType: WHATSAPP_RESULT_ACTION_TYPE,
+  } as const;
 }
 
 /**

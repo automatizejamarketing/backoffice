@@ -13,6 +13,7 @@ import {
   type FallbackObjective,
   type FallbackPeriod,
 } from "@/lib/meta-business/marketing/ai-creation/fallback-publish";
+import type { WhatsappWelcomeMessage } from "@/lib/meta-business/marketing/creation/whatsapp-destination";
 import {
   authorizeAiCampaignWrite,
   isTokenInvalidError,
@@ -39,6 +40,7 @@ export type FallbackAiCampaignRequest = {
   period?: FallbackPeriod;
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  whatsappWelcome?: WhatsappWelcomeMessage;
 };
 
 export type FallbackAiCampaignResponse = { success: true } & PublishResult;
@@ -103,7 +105,7 @@ export async function POST(
           success: false as const,
           error: "Invalid request",
           message:
-            "Informe um nicho (food_service, retail, real_estate_broker, service, outros) e um objetivo (sales, followers, leads).",
+            "Informe um nicho (food_service, retail, real_estate_broker, service, outros) e um objetivo (sales, whatsapp, followers, leads).",
         },
         { status: 400 },
       );
@@ -140,6 +142,7 @@ export async function POST(
         period: body.period,
         placementsMode: body.placementsMode,
         selectedPlacements: body.selectedPlacements,
+        whatsappWelcome: body.whatsappWelcome,
       },
     });
 

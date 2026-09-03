@@ -1,11 +1,12 @@
 /**
  * The result of a click-to-WhatsApp ad set, and the bug it exposed.
  *
- * A CTWA campaign is `OUTCOME_SALES`, so `resolveObjectiveResult` looks for purchase action
- * types — which a conversation never produces. Every such campaign therefore reported ZERO
- * results, on real spend. The rows below are the actual Graph response for ad set
- * `120246606793290541` (R$ 302,82 spent, 24 conversations at R$ 12,62), trimmed to the fields
- * that matter.
+ * A legacy CTWA campaign is `OUTCOME_SALES` (objective is immutable on Meta), so
+ * `resolveObjectiveResult` looks for purchase action types — which a conversation never
+ * produces. Every such campaign therefore reported ZERO results, on real spend. New
+ * campaigns are `OUTCOME_ENGAGEMENT` and hit the primary conversation map. The rows
+ * below are the actual Graph response for ad set `120246606793290541` (R$ 302,82 spent,
+ * 24 conversations at R$ 12,62), trimmed to the fields that matter.
  *
  * The fix reads Meta's own `cost_per_result.indicator`, which names the action type that IS the
  * result for that row — but ONLY when the objective map matched nothing, so no figure that is
@@ -126,6 +127,21 @@ test("a website sales row is untouched by the fallback", () => {
   assert.equal(row.result.costPerResult, 41.67);
   assert.equal(row.result.value, 4150);
   assert.equal(row.result.roas, 8.3);
+});
+
+test("a new CTWA campaign on OUTCOME_ENGAGEMENT hits the primary conversation map", () => {
+  const row = normalizeInsightRow(ctwaRow, {
+    objective: "OUTCOME_ENGAGEMENT",
+    currency,
+  });
+
+  assert.equal(row.result.count, 24);
+  assert.equal(row.result.costPerResult, 12.62);
+  assert.equal(
+    row.result.actionType,
+    "onsite_conversion.messaging_conversation_started_7d",
+  );
+  assert.equal(row.result.label, "Conversas iniciadas");
 });
 
 test("an engagement row is named after what was actually measured", () => {

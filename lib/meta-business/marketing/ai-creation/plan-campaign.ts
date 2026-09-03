@@ -134,8 +134,9 @@ export type ReviewSummary = {
   pixelId?: string;
   /**
    * Present ONLY on a click-to-WhatsApp campaign — its presence is what tells the review screen
-   * this ad leads to a conversation instead of a site. The objective alone cannot say so: a CTWA
-   * campaign and a website one are both `OUTCOME_SALES`.
+   * this ad leads to a conversation instead of a site. New CTWA campaigns are
+   * OUTCOME_ENGAGEMENT; legacy ones stay OUTCOME_SALES. The field, not the objective, is
+   * what the review keys off.
    *
    * No phone number here on purpose. The ad set promotes the Page and Meta resolves the number
    * from it, so the number is not part of the plan — the screen reads it separately, and is

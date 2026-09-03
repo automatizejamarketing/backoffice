@@ -54,6 +54,7 @@ import {
   whatsappCallToAction,
   whatsappPromotedObject,
   WHATSAPP_AD_LINK,
+  WHATSAPP_CAMPAIGN_OBJECTIVE,
   WHATSAPP_DESTINATION_TYPE,
   WHATSAPP_OPTIMIZATION_GOAL,
   type WhatsappWelcomeMessage,
@@ -68,10 +69,9 @@ export type FallbackNiche =
   | "outros";
 
 /**
- * `whatsapp` is a SALES campaign whose conversion happens in a WhatsApp conversation
- * (click-to-WhatsApp): same OUTCOME_SALES objective as `sales`, but the ad set carries
- * `destination_type: WHATSAPP` + `optimization_goal: CONVERSATIONS` and promotes the Page, and
- * the creative's link and CTA are fixed by Meta. No pixel, no promotion URL.
+ * `whatsapp` is a click-to-WhatsApp campaign: OUTCOME_ENGAGEMENT + CONVERSATIONS,
+ * `destination_type: WHATSAPP`, promoting the Page. The creative's link and CTA
+ * are fixed by Meta. No pixel, no promotion URL.
  */
 export type FallbackObjective = "sales" | "followers" | "leads" | "whatsapp";
 
@@ -105,13 +105,17 @@ export type FallbackPublishInput = {
 };
 
 export type FallbackConfig = {
-  metaObjective: "OUTCOME_SALES" | "OUTCOME_TRAFFIC" | "OUTCOME_LEADS";
+  metaObjective:
+    | "OUTCOME_SALES"
+    | "OUTCOME_TRAFFIC"
+    | "OUTCOME_LEADS"
+    | typeof WHATSAPP_CAMPAIGN_OBJECTIVE;
   requiresPixel: boolean;
   requiresPromotionUrl: boolean;
   requiresInstagram: boolean;
   acceptsDeliverySchedule: boolean;
   usesInclusiveMinusOneDefault: boolean;
-  /** Click-to-WhatsApp: same objective as sales, different ad set and creative. */
+  /** Click-to-WhatsApp: OUTCOME_ENGAGEMENT + WHATSAPP destination. */
   isWhatsapp?: boolean;
 };
 
@@ -152,7 +156,7 @@ export function resolveFallbackConfig(
       };
     }
     return {
-      metaObjective: "OUTCOME_SALES",
+      metaObjective: WHATSAPP_CAMPAIGN_OBJECTIVE,
       requiresPixel: false,
       requiresPromotionUrl: false,
       requiresInstagram: false,
