@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ExternalLink, MessageCircle, RotateCw } from "lucide-react";
-import { pageWhatsappSettingsUrl } from "@/lib/meta-business/marketing/page-whatsapp-number";
+import { pageWhatsappSettingsUrl } from "@/lib/meta-business/marketing/page-whatsapp-links";
 import { cn } from "@/lib/utils";
 import { usePageWhatsappNumber } from "../hooks/use-page-whatsapp-number";
 

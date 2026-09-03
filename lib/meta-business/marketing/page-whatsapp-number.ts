@@ -3,28 +3,35 @@
  *
  * A CTWA ad set promotes the PAGE (`promoted_object: { page_id }`) and Meta resolves the number
  * from it — nothing in the campaign payload names a phone number. So the only way to tell the
- * user where their ad leads is to read it off the Page, an existing ad set, or a WABA.
+ * user where their ad leads is to read it off the Page or off a WABA.
  *
  * Resolution order (first hit wins):
- *   1. An existing CTWA ad set on this Page (`promoted_object.whatsapp_phone_number`)
- *      — needs only `ads_read`.
- *   2. `/{business_id}/owned_whatsapp_business_accounts{phone_numbers}` — needs
+ *   1. `/{business_id}/owned_whatsapp_business_accounts{phone_numbers}` — needs
  *      `whatsapp_business_management` Advanced access for WABAs this app does not own.
  *      Standard access returns Graph #200; that is treated as "could not look".
- *   3. Page fields `whatsapp_number` / `has_whatsapp_number` — listed under PPCA/PPMA
+ *   2. Page fields `whatsapp_number` / `has_whatsapp_number` — listed under PPCA/PPMA
  *      and typically stripped on the new Page experience.
+ *
+ * Reading the number back off an existing CTWA ad set looks like a third source, and the
+ * AdPromotedObject reference lists `whatsapp_phone_number` as a default field. It is not one:
+ * probed against six live CTWA ad sets, `promoted_object` came back as
+ * `{ page_id, smart_pse_enabled }` every time, and filtering the ad-set list by
+ * `destination_type` is refused outright (Graph #100). It was removed rather than fixed —
+ * an unfiltered list of every ad set in the account, on every lookup, to find a field Meta
+ * does not populate. See ADR 0027.
  *
  * `unknown` MUST NOT be presented as "this Page has no WhatsApp number" nor block
  * publishing: it means we are not allowed to look. Only an explicit
- * `has_whatsapp_number === false` is evidence of absence.
+ * `has_whatsapp_number === false` is evidence of absence. Under the app's current access
+ * every lookup ends in `unknown`, so the UI names the Page instead of a number.
+ *
+ * The links that send the user to Meta live in `page-whatsapp-links.ts`, which the client
+ * bundle can import without dragging this module's Graph client along.
  */
 import { metaApiCall } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
 
-export type PageWhatsappNumberSource =
-  | "adset_promoted_object"
-  | "owned_waba"
-  | "page_fields";
+export type PageWhatsappNumberSource = "owned_waba" | "page_fields";
 
 export type PageWhatsappNumber =
   /** The Page has a number AND we could read it. */
@@ -40,7 +47,6 @@ export type PageWhatsappNumber =
   | { status: "unknown"; reason: "no_permission" | "request_failed" };
 
 export type GetPageWhatsappNumberOptions = {
-  adAccountId?: string | null;
   businessId?: string | null;
 };
 
@@ -55,16 +61,6 @@ type PageWhatsappFields = {
   has_whatsapp_business_number?: boolean;
   business?: { id?: string };
 };
-
-type PromotedObjectFields = {
-  page_id?: string;
-  whatsapp_phone_number?: string;
-  whats_app_business_phone_number_id?: string;
-};
-
-function formatAccountId(id: string): string {
-  return id.startsWith("act_") ? id : `act_${id}`;
-}
 
 function graphCode(error: unknown): number | undefined {
   return error instanceof GraphApiError
@@ -90,52 +86,6 @@ export function interpretPageWhatsappFields(
   page: PageWhatsappFields,
 ): PageWhatsappNumber {
   return interpretPageFields(page);
-}
-
-function phoneFromPromotedObject(
-  promoted: PromotedObjectFields | undefined,
-  pageId: string,
-): string | null {
-  if (!promoted) return null;
-  if (promoted.page_id && promoted.page_id !== pageId) return null;
-  const number = promoted.whatsapp_phone_number?.trim();
-  return number || null;
-}
-
-async function fromExistingAdSet(
-  accessToken: string,
-  adAccountId: string,
-  pageId: string,
-): Promise<PageWhatsappNumber | null> {
-  const response = await metaApiCall<{
-    data?: Array<{ promoted_object?: PromotedObjectFields }>;
-  }>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: `${formatAccountId(adAccountId)}/adsets`,
-    params: `fields=promoted_object,destination_type&limit=50&filtering=${encodeURIComponent(
-      JSON.stringify([
-        {
-          field: "destination_type",
-          operator: "EQUAL",
-          value: "WHATSAPP",
-        },
-      ]),
-    )}`,
-    accessToken,
-  });
-
-  for (const adSet of response.data ?? []) {
-    const number = phoneFromPromotedObject(adSet.promoted_object, pageId);
-    if (number) {
-      return {
-        status: "linked",
-        number,
-        source: "adset_promoted_object",
-      };
-    }
-  }
-  return null;
 }
 
 type WabaPhone = {
@@ -189,22 +139,6 @@ export async function getPageWhatsappNumber(
   pageId: string,
   options: GetPageWhatsappNumberOptions = {},
 ): Promise<PageWhatsappNumber> {
-  if (options.adAccountId) {
-    try {
-      const fromAdSet = await fromExistingAdSet(
-        accessToken,
-        options.adAccountId,
-        pageId,
-      );
-      if (fromAdSet) return fromAdSet;
-    } catch (error) {
-      const code = graphCode(error);
-      if (code !== 10 && code !== 200) {
-        // Keep going — a failed ad-set list is not evidence about the Page.
-      }
-    }
-  }
-
   let page: PageWhatsappFields;
   try {
     page = await metaApiCall<PageWhatsappFields>({
@@ -227,39 +161,10 @@ export async function getPageWhatsappNumber(
     try {
       const fromWaba = await fromOwnedWabas(accessToken, businessId);
       if (fromWaba) return fromWaba;
-    } catch (error) {
-      const code = graphCode(error);
-      if (code !== 200 && code !== 10) {
-        // Fall through to Page fields.
-      }
+    } catch {
+      // Fall through to Page fields.
     }
   }
 
   return interpretPageFields(page);
-}
-
-/**
- * Where the user goes to link or change the number on the Page itself.
- *
- * The Page settings WhatsApp tab is the surface that owns the Page↔number link.
- * The previous Business Suite URL (`settings/whatsapp_account?asset_id=`) expects
- * a WABA asset id, not a Page id, and is kept as {@link pageWhatsappBusinessSuiteUrl}.
- */
-export function pageWhatsappSettingsUrl(pageId: string): string {
-  return `https://www.facebook.com/${encodeURIComponent(pageId)}/settings/?tab=whatsapp`;
-}
-
-/** Same destination as settings — adding and editing happen on that tab. */
-export function pageWhatsappAddUrl(pageId: string): string {
-  return pageWhatsappSettingsUrl(pageId);
-}
-
-/** Same destination as settings — adding and editing happen on that tab. */
-export function pageWhatsappEditUrl(pageId: string): string {
-  return pageWhatsappSettingsUrl(pageId);
-}
-
-/** Documented fallback: Business Suite WhatsApp accounts (expects a WABA asset id). */
-export function pageWhatsappBusinessSuiteUrl(pageId: string): string {
-  return `https://business.facebook.com/latest/settings/whatsapp_account?asset_id=${encodeURIComponent(pageId)}`;
 }

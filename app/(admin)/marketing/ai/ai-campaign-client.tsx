@@ -711,26 +711,26 @@ export function AiCampaignClient() {
             <CardTitle>O que esta campanha deve gerar?</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               {(Object.keys(OBJECTIVE_LABEL) as Objective[])
                 .filter(
                   (value) =>
                     value !== "whatsapp" || companyNiche === "food_service",
                 )
                 .map((value) => (
-                <button
-                  key={value}
-                  className={`rounded-xl border p-4 text-left ${
-                    objective === value
-                      ? "border-primary bg-primary/10"
-                      : "border-border hover:bg-muted/40"
-                  }`}
-                  onClick={() => setObjective(value)}
-                  type="button"
-                >
-                  <div className="font-semibold">{OBJECTIVE_LABEL[value]}</div>
-                </button>
-              ))}
+                  <button
+                    key={value}
+                    className={`rounded-xl border p-4 text-left ${
+                      objective === value
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:bg-muted/40"
+                    }`}
+                    onClick={() => setObjective(value)}
+                    type="button"
+                  >
+                    <div className="font-semibold">{OBJECTIVE_LABEL[value]}</div>
+                  </button>
+                ))}
             </div>
             <Button disabled={isBusy} onClick={() => void scanAccount()}>
               Continuar

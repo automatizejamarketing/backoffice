@@ -3,10 +3,12 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
-  getPageWhatsappNumber,
   pageWhatsappAddUrl,
   pageWhatsappEditUrl,
   pageWhatsappSettingsUrl,
+} from "@/lib/meta-business/marketing/page-whatsapp-links";
+import {
+  getPageWhatsappNumber,
   type PageWhatsappNumber,
 } from "@/lib/meta-business/marketing/page-whatsapp-number";
 
@@ -30,6 +32,9 @@ export type PageWhatsappNumberErrorResponse = {
  *
  * Which WhatsApp number a click-to-WhatsApp campaign on this Page would send
  * people to. `unknown` means we could not look — it must not block publish.
+ *
+ * The number is resolved from the Page and the business portfolio, never from the
+ * ad account, so `accountId` is only part of the route shape here.
  */
 export async function GET(
   request: NextRequest,
@@ -38,7 +43,7 @@ export async function GET(
   NextResponse<PageWhatsappNumberResponse | PageWhatsappNumberErrorResponse>
 > {
   try {
-    const { accountId, pageId } = await params;
+    const { pageId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
 
     if (!userId) {
@@ -79,14 +84,9 @@ export async function GET(
       );
     }
 
-    const result = await getPageWhatsappNumber(
-      tokenResult.accessToken,
-      pageId,
-      {
-        adAccountId: accountId,
-        businessId: tokenResult.connection.clientBusinessId,
-      },
-    );
+    const result = await getPageWhatsappNumber(tokenResult.accessToken, pageId, {
+      businessId: tokenResult.connection.clientBusinessId,
+    });
 
     return NextResponse.json({
       success: true,
