@@ -32,7 +32,6 @@ import {
   formatExpertSaleGateError,
   isProductOfferedForSale,
 } from "@/lib/vindi/affiliate-gate";
-import { isVindiProductsEnabled } from "@/lib/vindi/config";
 
 export async function getProductFinancialSettings() {
   const [settings] = await db
@@ -224,7 +223,7 @@ async function assertExpertProductSaleAllowed(
     salesEnabled: boolean;
   },
 ) {
-  if (!isVindiProductsEnabled() || !isProductOfferedForSale(values)) {
+  if (!isProductOfferedForSale(values)) {
     return;
   }
 
@@ -246,7 +245,6 @@ async function assertExpertProductSaleAllowed(
   const gate = evaluateExpertProductSaleGate({
     ownerType: values.ownerType,
     affiliateStatus,
-    vindiProductsEnabled: true,
     offeringForSale: true,
   });
   if (!gate.allowed) {

@@ -4,15 +4,11 @@ import {
   getProductFinancialSettings,
   updateProductFinancialSettings,
 } from "@/lib/db/product-queries";
-import { isVindiProductsEnabled } from "@/lib/vindi/config";
 
 export async function GET() {
   const authz = await requireBackofficePermissionResponse("products:manage");
   if (!authz.ok) return authz.response;
-  return NextResponse.json({
-    ...(await getProductFinancialSettings()),
-    vindiProductsEnabled: isVindiProductsEnabled(),
-  });
+  return NextResponse.json(await getProductFinancialSettings());
 }
 
 export async function PATCH(request: Request) {

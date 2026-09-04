@@ -114,7 +114,6 @@ describe("evaluateExpertProductSaleGate", () => {
   const blockedExpert = {
     ownerType: "expert" as const,
     affiliateStatus: "unverified" as const,
-    vindiProductsEnabled: true,
     offeringForSale: true,
   };
 
@@ -124,16 +123,6 @@ describe("evaluateExpertProductSaleGate", () => {
         ...blockedExpert,
         ownerType: "automatize",
         affiliateStatus: null,
-      }),
-      { allowed: true },
-    );
-  });
-
-  it("leaves the current sale path intact while the products flag is off", () => {
-    assert.deepEqual(
-      evaluateExpertProductSaleGate({
-        ...blockedExpert,
-        vindiProductsEnabled: false,
       }),
       { allowed: true },
     );
@@ -175,18 +164,7 @@ describe("catalogSalesEnabled", () => {
     status: "published" as const,
     ownerType: "expert" as const,
     affiliateStatus: "unverified" as const,
-    vindiProductsEnabled: true,
   };
-
-  it("keeps the stored flag while the products flag is off", () => {
-    assert.equal(
-      catalogSalesEnabled({
-        ...publishedExpert,
-        vindiProductsEnabled: false,
-      }),
-      true,
-    );
-  });
 
   it("hides an expert product that cannot sell yet", () => {
     assert.equal(catalogSalesEnabled(publishedExpert), false);

@@ -8,10 +8,6 @@ function requireEnv(name: string): string {
   return value;
 }
 
-export function isVindiProductsEnabled(): boolean {
-  return process.env.VINDI_PRODUCTS_ENABLED === "true";
-}
-
 export function isVindiSubscriptionsEnabled(): boolean {
   return process.env.VINDI_SUBSCRIPTIONS_ENABLED === "true";
 }
