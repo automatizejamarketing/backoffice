@@ -64,6 +64,11 @@ export async function listExperts() {
       platformFeeFixedCentavos: expertProfile.platformFeeFixedCentavos,
       marketplaceFeeBasisPoints: expertProfile.marketplaceFeeBasisPoints,
       status: expertProfile.status,
+      stripeAccountId: expertProfile.stripeAccountId,
+      stripeChargesEnabled: expertProfile.stripeChargesEnabled,
+      stripePayoutsEnabled: expertProfile.stripePayoutsEnabled,
+      stripeDetailsSubmitted: expertProfile.stripeDetailsSubmitted,
+      stripeAccountUpdatedAt: expertProfile.stripeAccountUpdatedAt,
     })
     .from(expertProfile)
     .innerJoin(user, eq(expertProfile.userId, user.id))
