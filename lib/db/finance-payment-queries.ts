@@ -130,6 +130,14 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       automatizeTotalNetRevenueCentavos:
         productPayment.automatizeTotalNetRevenueCentavos,
       expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+      coproducerShareBasisPoints: productOrder.coproducerShareBasisPoints,
+      coproducerTypeSnapshot: productOrder.coproducerTypeSnapshot,
+      expertSettlement: productPayment.expertSettlement,
+      ownerExpertReceivableCentavos:
+        productPayment.ownerExpertReceivableCentavos,
+      gatewayFeeEstimateBps: productOrder.gatewayFeeEstimateBps,
+      gatewayFeeEstimateFixedCentavos:
+        productOrder.gatewayFeeEstimateFixedCentavos,
       // Modelo `vindi_split_v1`: participação do expert e sobra da plataforma
       // congeladas por venda (ver `resolveAutomatizeProductNetCentavos`).
       expertAmountCentavos: productPayment.expertAmountCentavos,

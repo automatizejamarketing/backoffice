@@ -130,6 +130,7 @@ export async function listProductsAdmin() {
         netAmountCentavos: productPayment.netAmountCentavos,
         feeAmountCentavos: productPayment.feeAmountCentavos,
         priceCentavos: productOrder.priceCentavos,
+        provider: productPayment.provider,
         ownerType: product.ownerType,
         financialModel: productOrder.financialModel,
         platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
@@ -142,6 +143,14 @@ export async function listProductsAdmin() {
         automatizeTotalNetRevenueCentavos:
           productPayment.automatizeTotalNetRevenueCentavos,
         expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+        coproducerShareBasisPoints: productOrder.coproducerShareBasisPoints,
+        coproducerTypeSnapshot: productOrder.coproducerTypeSnapshot,
+        expertSettlement: productPayment.expertSettlement,
+        ownerExpertReceivableCentavos:
+          productPayment.ownerExpertReceivableCentavos,
+        gatewayFeeEstimateBps: productOrder.gatewayFeeEstimateBps,
+        gatewayFeeEstimateFixedCentavos:
+          productOrder.gatewayFeeEstimateFixedCentavos,
         // Split congelado no pagamento: sem estes dois a parte do Expert
         // é contada como nossa.
         expertAmountCentavos: productPayment.expertAmountCentavos,
@@ -288,6 +297,15 @@ export async function listProductOrders() {
       stripeAccountId: productPayment.stripeAccountId,
       expertSettlement: productPayment.expertSettlement,
       financialModel: productOrder.financialModel,
+      coproducerShareBasisPoints: productOrder.coproducerShareBasisPoints,
+      coproducerTypeSnapshot: productOrder.coproducerTypeSnapshot,
+      gatewayFeeEstimateBps: productOrder.gatewayFeeEstimateBps,
+      gatewayFeeEstimateFixedCentavos:
+        productOrder.gatewayFeeEstimateFixedCentavos,
+      ownerType: product.ownerType,
+      ownerExpertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
+      platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
+      platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
       expertAmountCentavos: productPayment.expertAmountCentavos,
       platformTheoreticalAmountCentavos:
         productPayment.platformTheoreticalAmountCentavos,
@@ -325,6 +343,7 @@ export async function listProductOrders() {
       )`,
     })
     .from(productOrder)
+    .innerJoin(product, eq(productOrder.productId, product.id))
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
     .orderBy(desc(productOrder.createdAt));
 }

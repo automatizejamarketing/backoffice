@@ -105,6 +105,12 @@ import {
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
 import { isProductOfferedForSale } from "@/lib/products/sale-gate";
+import {
+  formatGatewayFeeEstimateLabel,
+  resolveProductOrderNetAmounts,
+  type FinanceProductPaymentAmountRow,
+} from "@/lib/backoffice/finance-payments";
+import type { ProductFinancialModel, ProductOwnerType } from "@/lib/db/schema";
 import { deriveExpertStripeAccountState } from "@/lib/stripe/connect/state";
 import {
   expertCardUnavailableMessage,
@@ -180,8 +186,10 @@ type Order = {
   priceCentavos: number;
   status: string;
   createdAt: string;
+  approvedAt: string | null;
   provider: string | null;
   providerPaymentId: string | null;
+  stripeAccountId: string | null;
   paymentStatus: string | null;
   paymentMethodId: string | null;
   paymentTypeId: string | null;
@@ -191,6 +199,8 @@ type Order = {
   checkoutChannel: "direct" | "marketplace";
   marketplaceFeeBasisPoints: number;
   platformFeeGrossCentavos: number | null;
+  platformFeeBasisPoints: number | null;
+  platformFeeFixedCentavos: number | null;
   platformGatewayNetRevenueCentavos: number | null;
   ownerExpertReceivableCentavos: number | null;
   coproducerExpertReceivableCentavos: number | null;
@@ -199,7 +209,14 @@ type Order = {
   automatizeTotalNetRevenueCentavos: number | null;
   expertAvailableAt: string | null;
   expertLedgerAmountCentavos: number | null;
-  financialModel: string | null;
+  financialModel: ProductFinancialModel | null;
+  ownerType: ProductOwnerType;
+  ownerExpertShareBasisPoints: number;
+  coproducerShareBasisPoints: number;
+  coproducerTypeSnapshot: ProductOwnerType | null;
+  expertSettlement: "gateway" | "ledger" | null;
+  gatewayFeeEstimateBps: number;
+  gatewayFeeEstimateFixedCentavos: number;
   expertAmountCentavos: number | null;
   platformTheoreticalAmountCentavos: number | null;
 };
@@ -274,10 +291,46 @@ const emptyProduct: ProductFormState = {
   termsVersion: "v1",
 };
 
-/** Pedidos antigos com split congelado no pagamento. O relatório líquido
- * (ticket 18) substitui esta ramificação. */
-function usesFrozenSplitAmounts(financialModel: string | null) {
+/** Pedidos antigos com split congelado no pagamento. */
+function usesFrozenSplitAmounts(financialModel: ProductFinancialModel | null) {
   return financialModel === "vindi_split_v1";
+}
+
+function orderFinanceRow(order: Order): FinanceProductPaymentAmountRow {
+  return {
+    grossAmountCentavos: order.grossAmountCentavos,
+    netAmountCentavos: order.netAmountCentavos,
+    feeAmountCentavos: order.feeAmountCentavos,
+    priceCentavos: order.priceCentavos,
+    ownerType: order.ownerType,
+    financialModel: order.financialModel ?? "legacy_net_split",
+    platformFeeBasisPoints: order.platformFeeBasisPoints,
+    platformFeeFixedCentavos: order.platformFeeFixedCentavos,
+    platformFeeGrossCentavos: order.platformFeeGrossCentavos,
+    automatizeCoproductionRevenueCentavos:
+      order.automatizeCoproductionRevenueCentavos,
+    automatizeProductRevenueCentavos: order.automatizeProductRevenueCentavos,
+    automatizeTotalNetRevenueCentavos: order.automatizeTotalNetRevenueCentavos,
+    expertShareBasisPoints: order.ownerExpertShareBasisPoints,
+    coproducerShareBasisPoints: order.coproducerShareBasisPoints,
+    coproducerTypeSnapshot: order.coproducerTypeSnapshot,
+    expertSettlement: order.expertSettlement,
+    ownerExpertReceivableCentavos: order.ownerExpertReceivableCentavos,
+    gatewayFeeEstimateBps: order.gatewayFeeEstimateBps,
+    gatewayFeeEstimateFixedCentavos: order.gatewayFeeEstimateFixedCentavos,
+    provider: order.provider ?? "mercadopago",
+    expertRevenueCentavos:
+      order.expertLedgerAmountCentavos !== null &&
+      order.expertLedgerAmountCentavos > 0
+        ? order.expertLedgerAmountCentavos
+        : null,
+    expertAmountCentavos: order.expertAmountCentavos,
+    platformTheoreticalAmountCentavos: order.platformTheoreticalAmountCentavos,
+  };
+}
+
+function financialModelLabel(financialModel: ProductFinancialModel | null) {
+  return financialModel ?? "legacy_net_split";
 }
 
 function paymentReference(order: Order) {
@@ -714,6 +767,7 @@ export function ProductsAdminWorkspace({
   const [editingExpertId, setEditingExpertId] = useState<string | null>(null);
   const [expertDialogOpen, setExpertDialogOpen] = useState(false);
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
+  const [orderDetailTarget, setOrderDetailTarget] = useState<Order | null>(null);
   const [refunding, setRefunding] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
@@ -1922,7 +1976,7 @@ export function ProductsAdminWorkspace({
               <CardTitle>Vendas</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1640px]">
+              <Table className="min-w-[1760px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Produto</TableHead>
@@ -1930,12 +1984,11 @@ export function ProductsAdminWorkspace({
                     <TableHead>Data</TableHead>
                     <TableHead>Pagamento</TableHead>
                     <TableHead className="text-right">Bruto</TableHead>
-                    <TableHead className="text-right">Custo MP</TableHead>
-                    <TableHead className="text-right">Taxa plataforma</TableHead>
-                    <TableHead className="text-right">Expert</TableHead>
-                    <TableHead className="text-right">Coprodução Automatize</TableHead>
-                    <TableHead className="text-right">Líquido Automatize</TableHead>
-                    <TableHead>Liberação do expert</TableHead>
+                    <TableHead className="text-right">Tarifa real</TableHead>
+                    <TableHead className="text-right">Líquido</TableHead>
+                    <TableHead className="text-right">Parte do Expert</TableHead>
+                    <TableHead className="text-right">Coprodução do Automatize</TableHead>
+                    <TableHead>Trilho de repasse</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -1943,21 +1996,26 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="h-28 text-center">
+                      <TableCell colSpan={12} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                       </TableCell>
                     </TableRow>
                   ) : orders.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={13}
+                        colSpan={12}
                         className="h-28 text-center text-muted-foreground"
                       >
                         Nenhuma venda registrada.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    orders.map((order) => (
+                    orders.map((order) => {
+                      const amounts = resolveProductOrderNetAmounts(
+                        orderFinanceRow(order),
+                      );
+
+                      return (
                       <TableRow key={order.id}>
                         <TableCell className="font-medium">
                           {order.productTitle}
@@ -1976,60 +2034,44 @@ export function ProductsAdminWorkspace({
                           <p>{paymentReference(order)}</p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {money(order.priceCentavos)}
+                          {money(amounts.grossCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.feeAmountCentavos !== null
-                            ? money(order.feeAmountCentavos)
+                          {amounts.feeCentavos !== null
+                            ? money(amounts.feeCentavos)
                             : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          <p>{order.platformFeeGrossCentavos !== null ? money(order.platformFeeGrossCentavos) : "—"}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {order.checkoutChannel === "marketplace"
-                              ? `marketplace (+${(order.marketplaceFeeBasisPoints / 100).toLocaleString("pt-BR")}%)`
-                              : "link direto"}
-                          </p>
+                          {money(amounts.netCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {usesFrozenSplitAmounts(order.financialModel)
                             ? order.expertAmountCentavos !== null
                               ? money(order.expertAmountCentavos)
-                              : "—"
-                            : order.ownerExpertReceivableCentavos !== null ||
-                                order.coproducerExpertReceivableCentavos !== null
-                              ? money(
-                                  (order.ownerExpertReceivableCentavos ?? 0) +
-                                    (order.coproducerExpertReceivableCentavos ?? 0),
-                                )
-                              : order.expertLedgerAmountCentavos !== null
-                                ? money(order.expertLedgerAmountCentavos)
-                                : "—"}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.automatizeCoproductionRevenueCentavos !== null
-                            ? money(order.automatizeCoproductionRevenueCentavos)
-                            : order.automatizeProductRevenueCentavos !== null
-                              ? money(order.automatizeProductRevenueCentavos)
-                              : "—"}
+                              : money(amounts.expertRevenueCentavos)
+                            : money(amounts.expertRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {usesFrozenSplitAmounts(order.financialModel)
                             ? order.platformTheoreticalAmountCentavos !== null
                               ? money(order.platformTheoreticalAmountCentavos)
                               : "—"
-                            : order.automatizeTotalNetRevenueCentavos !== null
-                              ? money(order.automatizeTotalNetRevenueCentavos)
-                              : order.netAmountCentavos !== null
-                                ? money(order.netAmountCentavos - (order.expertLedgerAmountCentavos ?? 0))
-                                : "—"}
+                            : money(amounts.automatizeRevenueCentavos)}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap text-muted-foreground">
-                          {order.expertAvailableAt
-                            ? paymentMethod(order) === "Pix"
-                              ? "Na aprovação"
-                              : dateTime(order.expertAvailableAt)
-                            : "—"}
+                        <TableCell className="whitespace-nowrap">
+                          {amounts.expertSettlementLabel ? (
+                            <Badge variant="outline">
+                              {amounts.expertSettlementLabel}
+                            </Badge>
+                          ) : order.expertAvailableAt ? (
+                            <span className="text-xs text-muted-foreground">
+                              {paymentMethod(order) === "Pix"
+                                ? "Repasse Manual"
+                                : dateTime(order.expertAvailableAt)}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">
@@ -2037,35 +2079,39 @@ export function ProductsAdminWorkspace({
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          {order.status === "approved" ? (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  type="button"
-                                  size="icon"
-                                  variant="outline"
-                                  className="ml-auto"
-                                  aria-label={`Ações da venda de ${order.productTitle}`}
-                                  title="Ações"
-                                >
-                                  <MoreHorizontal className="size-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="ml-auto"
+                                aria-label={`Ações da venda de ${order.productTitle}`}
+                                title="Ações"
+                              >
+                                <MoreHorizontal className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                onSelect={() => setOrderDetailTarget(order)}
+                              >
+                                Ver detalhes
+                              </DropdownMenuItem>
+                              {order.status === "approved" ? (
                                 <DropdownMenuItem
                                   className="text-destructive focus:text-destructive"
                                   onSelect={() => setRefundTarget(order)}
                                 >
                                   Reembolsar
                                 </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
-                    ))
+                    );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -2757,6 +2803,111 @@ export function ProductsAdminWorkspace({
               type="button"
               variant="outline"
               onClick={() => setPaymentsDialogProduct(null)}
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={orderDetailTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setOrderDetailTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalhe do pedido</DialogTitle>
+            <DialogDescription>
+              {orderDetailTarget
+                ? `${orderDetailTarget.productTitle} · ${orderDetailTarget.buyerName}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {orderDetailTarget ? (
+            <dl className="space-y-3 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Modelo financeiro</dt>
+                <dd className="font-mono text-xs">
+                  {financialModelLabel(orderDetailTarget.financialModel)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">Tarifa Estimada do Gateway</dt>
+                <dd>
+                  {formatGatewayFeeEstimateLabel({
+                    financialModel:
+                      orderDetailTarget.financialModel ?? "legacy_net_split",
+                    provider: orderDetailTarget.provider ?? "mercadopago",
+                    gatewayFeeEstimateBps: orderDetailTarget.gatewayFeeEstimateBps,
+                    gatewayFeeEstimateFixedCentavos:
+                      orderDetailTarget.gatewayFeeEstimateFixedCentavos,
+                  }) ?? "Não se aplica"}
+                </dd>
+              </div>
+              {(() => {
+                const amounts = resolveProductOrderNetAmounts(
+                  orderFinanceRow(orderDetailTarget),
+                );
+                return (
+                  <>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Trilho de repasse</dt>
+                      <dd>{amounts.expertSettlementLabel ?? "—"}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Bruto</dt>
+                      <dd className="font-mono tabular-nums">
+                        {money(amounts.grossCentavos)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Tarifa real</dt>
+                      <dd className="font-mono tabular-nums">
+                        {amounts.feeCentavos !== null
+                          ? money(amounts.feeCentavos)
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Líquido</dt>
+                      <dd className="font-mono tabular-nums">
+                        {money(amounts.netCentavos)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Parte do Expert</dt>
+                      <dd className="font-mono tabular-nums">
+                        {money(amounts.expertRevenueCentavos)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">
+                        Coprodução do Automatize
+                      </dt>
+                      <dd className="font-mono tabular-nums">
+                        {money(amounts.automatizeRevenueCentavos)}
+                      </dd>
+                    </div>
+                    {orderDetailTarget.stripeAccountId ? (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Conta Stripe</dt>
+                        <dd className="max-w-[220px] truncate font-mono text-xs">
+                          {orderDetailTarget.stripeAccountId}
+                        </dd>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+            </dl>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOrderDetailTarget(null)}
             >
               Fechar
             </Button>

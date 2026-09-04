@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/table";
 import {
   resolveAutomatizePaymentAmounts,
-  resolveProductPaymentAmounts,
+  resolveProductPaymentNetAmounts,
   describeAutomatizePaymentSequence,
   describeProductPaymentProvider,
   type FinanceAutomatizePaymentRow,
@@ -18,6 +18,7 @@ import {
   type FinancePaymentsSummary,
   type FinanceProductPaymentRow,
   type FinancePaymentNetGap,
+  type FinanceProductSettlementSummary,
 } from "@/lib/backoffice/finance-payments";
 import type { StripeSettlement } from "@/lib/backoffice/finance-dashboard";
 import {
@@ -40,9 +41,77 @@ type FinancePaymentsPanelProps = {
   backfillQuery?: string;
 };
 
-const PRODUCT_NET_LABEL = "Líquido Automatize";
+const PRODUCT_NET_LABEL = "Coprodução do Automatize";
 const PRODUCT_NET_HELP =
-  "Coprodução quando o produto é nosso; taxa da plataforma quando o produto é de expert.";
+  "Soma da Coprodução do Automatize e receita de produtos próprios no período.";
+
+function ProductSettlementBreakdown({
+  settlement,
+}: {
+  settlement: FinanceProductSettlementSummary;
+}) {
+  const rails = [
+    {
+      key: "gateway" as const,
+      label: "Repasse pelo Gateway",
+      description: "Cartão Stripe — já liquidado na Conta Stripe do Expert",
+      totals: settlement.gateway,
+    },
+    {
+      key: "ledger" as const,
+      label: "Repasse Manual",
+      description: "Pix — saldo a pagar no ledger",
+      totals: settlement.ledger,
+    },
+  ].filter((rail) => rail.totals.count > 0);
+
+  if (rails.length === 0) return null;
+
+  return (
+    <div className="border-t px-5 py-4">
+      <p className="text-xs font-medium text-muted-foreground">
+        Trilhos de repasse do Expert
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {rails.map((rail) => (
+          <div
+            key={rail.key}
+            className="rounded-lg border bg-muted/20 px-4 py-3 text-sm"
+          >
+            <p className="font-medium">{rail.label}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {rail.description}
+            </p>
+            <dl className="mt-3 space-y-1 text-[11px] tabular-nums">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Vendas</dt>
+                <dd>{formatFinanceNumber(rail.totals.count)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Parte do Expert</dt>
+                <dd>{formatBRLFromCentavos(rail.totals.expertRevenueCentavos)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Coprodução do Automatize</dt>
+                <dd>
+                  {formatBRLFromCentavos(rail.totals.automatizeRevenueCentavos)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ))}
+      </div>
+      {settlement.expertPayableCentavos > 0 ? (
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Saldo a pagar do Expert no período (só Repasse Manual):{" "}
+          <span className="font-medium text-foreground">
+            {formatBRLFromCentavos(settlement.expertPayableCentavos)}
+          </span>
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 function NetSubscriptionBreakdown({
   newSubscriptionNetCentavos,
@@ -150,6 +219,9 @@ export function FinancePaymentsPanel({
             ) : null}
           </div>
         </div>
+        {source === "produtos" && summary.productSettlement ? (
+          <ProductSettlementBreakdown settlement={summary.productSettlement} />
+        ) : null}
         {!netIsComplete ? (
           <p className="border-t px-5 py-3 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
             O total líquido está parcial porque o gateway ainda não informou as
@@ -291,20 +363,21 @@ function ProductPaymentsTable({
           <TableHead>Data</TableHead>
           <TableHead>Produto</TableHead>
           <TableHead>Comprador</TableHead>
-          <TableHead>Receita</TableHead>
           <TableHead>Meio</TableHead>
           <TableHead>Referência</TableHead>
           <TableHead className="text-right">Bruto</TableHead>
-          <TableHead className="text-right">Taxa gateway</TableHead>
-          <TableHead className="text-right">Taxa Automatize</TableHead>
-          <TableHead className="text-right">{PRODUCT_NET_LABEL}</TableHead>
+          <TableHead className="text-right">Tarifa real</TableHead>
+          <TableHead className="text-right">Líquido</TableHead>
+          <TableHead className="text-right">Parte do Expert</TableHead>
+          <TableHead className="text-right">Coprodução do Automatize</TableHead>
+          <TableHead>Trilho de repasse</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {payments.length === 0 ? (
           <TableRow>
             <TableCell
-              colSpan={10}
+              colSpan={11}
               className="h-28 text-center text-muted-foreground"
             >
               Nenhuma venda aprovada neste período.
@@ -312,7 +385,7 @@ function ProductPaymentsTable({
           </TableRow>
         ) : (
           payments.map((payment) => {
-            const amounts = resolveProductPaymentAmounts(payment);
+            const amounts = resolveProductPaymentNetAmounts(payment);
             const provider = describeProductPaymentProvider(payment);
 
             return (
@@ -326,13 +399,6 @@ function ProductPaymentsTable({
                   <p className="text-xs text-muted-foreground">
                     {payment.buyerEmail}
                   </p>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {amounts.revenueKind === "coproducao"
-                      ? "Coprodução"
-                      : "Taxa plataforma"}
-                  </Badge>
                 </TableCell>
                 <TableCell>
                   <Badge variant="outline">{provider.methodLabel}</Badge>
@@ -349,12 +415,20 @@ function ProductPaymentsTable({
                     : "—"}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                  {amounts.platformFeeGrossCentavos !== null
-                    ? formatBRLFromCentavos(amounts.platformFeeGrossCentavos)
-                    : "—"}
+                  {formatBRLFromCentavos(amounts.netCentavos)}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                  {formatBRLFromCentavos(amounts.automatizeNetCentavos)}
+                  {formatBRLFromCentavos(amounts.expertRevenueCentavos)}
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                  {formatBRLFromCentavos(amounts.automatizeRevenueCentavos)}
+                </TableCell>
+                <TableCell>
+                  {amounts.expertSettlementLabel ? (
+                    <Badge variant="outline">{amounts.expertSettlementLabel}</Badge>
+                  ) : (
+                    "—"
+                  )}
                 </TableCell>
               </TableRow>
             );
