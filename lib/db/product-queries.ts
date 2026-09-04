@@ -280,6 +280,8 @@ export async function listProductOrders() {
       buyerUserId: productOrder.userId,
       provider: productPayment.provider,
       providerPaymentId: productPayment.providerPaymentId,
+      stripeAccountId: productPayment.stripeAccountId,
+      expertSettlement: productPayment.expertSettlement,
       financialModel: productOrder.financialModel,
       expertAmountCentavos: productPayment.expertAmountCentavos,
       platformTheoreticalAmountCentavos:

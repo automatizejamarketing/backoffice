@@ -7,6 +7,7 @@ import {
 import { db } from "@/lib/db";
 import { backofficeAuditLog } from "@/lib/db/schema";
 import { refundMercadoPagoProductPayment } from "@/lib/mercadopago/product-refunds";
+import { createStripeConnectRefundClient } from "@/lib/stripe/connect/client";
 import { refundProductOrder } from "@/lib/products/refund-product-order";
 
 const REFUND_REASON_COPY = {
@@ -14,6 +15,8 @@ const REFUND_REASON_COPY = {
   already_refunded: null,
   mercadopago_payment_missing:
     "Pagamento Mercado Pago sem identificador — não é possível estornar no gateway.",
+  stripe_payment_missing:
+    "Pagamento Stripe sem identificador — não é possível reembolsar na conta conectada.",
 } as const;
 
 export async function POST(
@@ -34,12 +37,18 @@ export async function POST(
       status: order.status,
       provider: order.provider,
       providerPaymentId: order.providerPaymentId,
+      stripeAccountId: order.stripeAccountId,
+      grossAmountCentavos: order.grossAmountCentavos,
+      priceCentavos: order.priceCentavos,
+      automatizeCoproductionRevenueCentavos:
+        order.automatizeCoproductionRevenueCentavos,
     },
     mercadoPago: {
       refundPayment: async (paymentId, idempotencyKey) => {
         await refundMercadoPagoProductPayment(paymentId, idempotencyKey);
       },
     },
+    stripeConnect: createStripeConnectRefundClient(),
     store: {
       recordRefund: (orderId, eventSuffix) =>
         applyFullProductRefund(orderId, eventSuffix),

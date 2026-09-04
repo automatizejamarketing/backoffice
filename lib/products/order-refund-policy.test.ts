@@ -17,7 +17,24 @@ describe("decideProductOrderRefund", () => {
     });
   });
 
-  it("records a manual refund for Stripe until the connected-account path exists", () => {
+  it("reembolsa Stripe com Conta Stripe do Expert na conta conectada", () => {
+    assert.deepEqual(
+      decideProductOrderRefund({
+        status: "approved",
+        provider: "stripe",
+        providerPaymentId: "pi_123",
+        stripeAccountId: "acct_expert_123",
+      }),
+      {
+        ok: true,
+        path: "connected_account",
+        stripeAccountId: "acct_expert_123",
+        paymentIntentId: "pi_123",
+      },
+    );
+  });
+
+  it("records a manual refund for Stripe on the platform account", () => {
     assert.deepEqual(
       decideProductOrderRefund({
         status: "approved",
@@ -67,6 +84,18 @@ describe("decideProductOrderRefund", () => {
         providerPaymentId: null,
       }),
       { ok: false, reason: "mercadopago_payment_missing" },
+    );
+  });
+
+  it("refuses a Cobrança Direta refund when the payment intent is missing", () => {
+    assert.deepEqual(
+      decideProductOrderRefund({
+        status: "approved",
+        provider: "stripe",
+        providerPaymentId: null,
+        stripeAccountId: "acct_expert_123",
+      }),
+      { ok: false, reason: "stripe_payment_missing" },
     );
   });
 });
