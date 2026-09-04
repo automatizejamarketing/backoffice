@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   describeAutomatizePaymentSequence,
   describeProductPaymentProvider,
+  formatGatewayFeeEstimateLabel,
   resolveAutomatizePaymentAmounts,
   resolveProductPaymentAmounts,
+  resolveProductPaymentNetAmounts,
   summarizeAutomatizePayments,
   summarizeProductPayments,
   summarizeProductPaymentsByProduct,
+  summarizeProductPaymentsBySettlementRail,
   listAutomatizePaymentNetGaps,
 } from "./finance-payments";
 
@@ -54,6 +57,12 @@ const productPaymentFixture = {
   automatizeProductRevenueCentavos: null,
   automatizeTotalNetRevenueCentavos: null,
   expertShareBasisPoints: 9000,
+  coproducerShareBasisPoints: 0,
+  coproducerTypeSnapshot: null,
+  expertSettlement: null,
+  ownerExpertReceivableCentavos: null,
+  gatewayFeeEstimateBps: 0,
+  gatewayFeeEstimateFixedCentavos: 0,
   expertRevenueCentavos: 17100,
   expertAmountCentavos: null,
   platformTheoreticalAmountCentavos: null,
@@ -596,5 +605,109 @@ describe("receita de produto no modelo vindi_split_v1", () => {
     // atribuiria os R$100,00 inteiros à Automatize.
     expect(amounts.automatizeNetCentavos).toBe(0);
     expect(amounts.grossCentavos).toBe(10000);
+  });
+});
+
+describe("relatório líquido gateway_net_v1", () => {
+  test("Pix MP reparte o líquido real entre Expert e Coprodução do Automatize com Repasse Manual", () => {
+    const amounts = resolveProductPaymentNetAmounts({
+      ...productPaymentFixture,
+      financialModel: "gateway_net_v1",
+      provider: "mercadopago",
+      grossAmountCentavos: 4_700,
+      netAmountCentavos: 4_601,
+      feeAmountCentavos: 99,
+      priceCentavos: 4_700,
+      expertShareBasisPoints: 10_000,
+      coproducerShareBasisPoints: 0,
+      coproducerTypeSnapshot: null,
+      expertSettlement: "ledger",
+      ownerExpertReceivableCentavos: 4_601,
+      automatizeCoproductionRevenueCentavos: 0,
+      automatizeTotalNetRevenueCentavos: 0,
+      expertRevenueCentavos: 4_601,
+    });
+
+    expect(amounts.netCentavos).toBe(4_601);
+    expect(amounts.expertRevenueCentavos).toBe(4_601);
+    expect(amounts.automatizeRevenueCentavos).toBe(0);
+    expect(amounts.expertSettlementLabel).toBe("Repasse Manual");
+    expect(amounts.countsTowardExpertPayableBalance).toBe(true);
+  });
+
+  test("cartão Stripe Cobrança Direta fica com Repasse pelo Gateway e sem saldo a pagar", () => {
+    const amounts = resolveProductPaymentNetAmounts({
+      ...productPaymentFixture,
+      financialModel: "gateway_net_v1",
+      provider: "stripe",
+      grossAmountCentavos: 10_000,
+      netAmountCentavos: 7_649,
+      feeAmountCentavos: 439,
+      priceCentavos: 10_000,
+      expertShareBasisPoints: 8_000,
+      coproducerShareBasisPoints: 2_000,
+      coproducerTypeSnapshot: "automatize",
+      expertSettlement: "gateway",
+      ownerExpertReceivableCentavos: 7_649,
+      automatizeCoproductionRevenueCentavos: 1_912,
+      automatizeTotalNetRevenueCentavos: 1_912,
+      gatewayFeeEstimateBps: 399,
+      gatewayFeeEstimateFixedCentavos: 40,
+      expertRevenueCentavos: null,
+    });
+
+    expect(amounts.netCentavos).toBe(9_561);
+    expect(amounts.expertRevenueCentavos).toBe(7_649);
+    expect(amounts.automatizeRevenueCentavos).toBe(1_912);
+    expect(amounts.expertSettlementLabel).toBe("Repasse pelo Gateway");
+    expect(amounts.countsTowardExpertPayableBalance).toBe(false);
+    expect(amounts.gatewayFeeEstimateLabel).toBe("3,99% + R$ 0,40");
+  });
+
+  test("totais do período separam trilhos de repasse e somam saldo a pagar só do ledger", () => {
+    const settlement = summarizeProductPaymentsBySettlementRail([
+      {
+        ...productPaymentFixture,
+        financialModel: "gateway_net_v1",
+        provider: "stripe",
+        grossAmountCentavos: 10_000,
+        netAmountCentavos: 9_000,
+        feeAmountCentavos: 1_000,
+        expertSettlement: "gateway",
+        ownerExpertReceivableCentavos: 9_000,
+        automatizeTotalNetRevenueCentavos: 0,
+      },
+      {
+        ...productPaymentFixture,
+        id: "pp-ledger",
+        orderId: "o-ledger",
+        financialModel: "gateway_net_v1",
+        provider: "mercadopago",
+        grossAmountCentavos: 4_700,
+        netAmountCentavos: 4_601,
+        feeAmountCentavos: 99,
+        expertSettlement: "ledger",
+        ownerExpertReceivableCentavos: 4_601,
+        automatizeTotalNetRevenueCentavos: 0,
+        expertRevenueCentavos: 4_601,
+      },
+    ]);
+
+    expect(settlement.gateway.count).toBe(1);
+    expect(settlement.gateway.expertRevenueCentavos).toBe(9_000);
+    expect(settlement.ledger.count).toBe(1);
+    expect(settlement.ledger.expertRevenueCentavos).toBe(4_601);
+    expect(settlement.expertPayableCentavos).toBe(4_601);
+  });
+
+  test("Tarifa Estimada do Gateway não aparece em pedidos antigos com estimativa zerada", () => {
+    expect(
+      formatGatewayFeeEstimateLabel({
+        financialModel: "legacy_net_split",
+        provider: "stripe",
+        gatewayFeeEstimateBps: 0,
+        gatewayFeeEstimateFixedCentavos: 0,
+      }),
+    ).toBeNull();
   });
 });

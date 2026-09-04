@@ -1,5 +1,6 @@
 import type {
   BillingProvider,
+  ExpertSettlement,
   PaymentPurpose,
   PaymentSettlementMethod,
   PlanType,
@@ -10,9 +11,18 @@ import {
   calculateAutomatizeNetRevenueCentavos,
   calculateExpertShare,
 } from "@/lib/products/finance";
+import {
+  calculateGatewayNetV1PixSettlement,
+  isGatewayNetV1Model,
+} from "@/lib/products/gateway-net-v1";
 import type { StripeSettlement } from "./finance-dashboard";
 import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "./finance-provider";
 import { isBillingPaymentPurpose } from "./finance-purpose";
+
+export type ExpertSettlementRail = ExpertSettlement;
+
+const REPASSE_PELO_GATEWAY_LABEL = "Repasse pelo Gateway";
+const REPASSE_MANUAL_LABEL = "Repasse Manual";
 
 export type FinanceAutomatizePaymentRow = {
   id: string;
@@ -85,6 +95,12 @@ export type FinanceProductPaymentRow = {
   automatizeProductRevenueCentavos: number | null;
   automatizeTotalNetRevenueCentavos: number | null;
   expertShareBasisPoints: number;
+  coproducerShareBasisPoints: number;
+  coproducerTypeSnapshot: ProductOwnerType | null;
+  expertSettlement: ExpertSettlement | null;
+  ownerExpertReceivableCentavos: number | null;
+  gatewayFeeEstimateBps: number;
+  gatewayFeeEstimateFixedCentavos: number;
   expertRevenueCentavos: number | null;
   /** Participação congelada no modelo `vindi_split_v1`. */
   expertAmountCentavos: number | null;
@@ -116,10 +132,41 @@ export type FinanceProductPaymentAmountRow = Pick<
   | "automatizeProductRevenueCentavos"
   | "automatizeTotalNetRevenueCentavos"
   | "expertShareBasisPoints"
+  | "coproducerShareBasisPoints"
+  | "coproducerTypeSnapshot"
+  | "expertSettlement"
+  | "ownerExpertReceivableCentavos"
+  | "gatewayFeeEstimateBps"
+  | "gatewayFeeEstimateFixedCentavos"
+  | "provider"
   | "expertRevenueCentavos"
   | "expertAmountCentavos"
   | "platformTheoreticalAmountCentavos"
 >;
+
+export type FinanceProductPaymentNetAmounts = FinanceProductPaymentAmounts & {
+  netCentavos: number;
+  automatizeRevenueCentavos: number;
+  expertSettlementRail: ExpertSettlementRail | null;
+  expertSettlementLabel: string | null;
+  gatewayFeeEstimateLabel: string | null;
+  countsTowardExpertPayableBalance: boolean;
+};
+
+export type FinanceProductSettlementRailTotals = {
+  count: number;
+  grossCentavos: number;
+  feeCentavos: number;
+  netCentavos: number;
+  expertRevenueCentavos: number;
+  automatizeRevenueCentavos: number;
+};
+
+export type FinanceProductSettlementSummary = {
+  gateway: FinanceProductSettlementRailTotals;
+  ledger: FinanceProductSettlementRailTotals;
+  expertPayableCentavos: number;
+};
 
 export type FinancePaymentsNetBreakdown = {
   newSubscriptionNetCentavos: number;
@@ -135,6 +182,7 @@ export type FinancePaymentsSummary = {
   feeCentavos: number;
   netCoveragePayments: number;
   netBreakdown?: FinancePaymentsNetBreakdown;
+  productSettlement?: FinanceProductSettlementSummary;
 };
 
 export type FinancePaymentNetGapReason =
@@ -377,6 +425,202 @@ export function describeProductPaymentProvider(
   };
 }
 
+function emptySettlementRailTotals(): FinanceProductSettlementRailTotals {
+  return {
+    count: 0,
+    grossCentavos: 0,
+    feeCentavos: 0,
+    netCentavos: 0,
+    expertRevenueCentavos: 0,
+    automatizeRevenueCentavos: 0,
+  };
+}
+
+export function describeExpertSettlementRail(
+  rail: ExpertSettlementRail | null,
+): string | null {
+  if (rail === "gateway") return REPASSE_PELO_GATEWAY_LABEL;
+  if (rail === "ledger") return REPASSE_MANUAL_LABEL;
+  return null;
+}
+
+export function formatGatewayFeeEstimateLabel(input: {
+  financialModel: ProductFinancialModel;
+  provider: string;
+  gatewayFeeEstimateBps: number;
+  gatewayFeeEstimateFixedCentavos: number;
+}): string | null {
+  if (!isGatewayNetV1Model(input.financialModel)) {
+    return null;
+  }
+  if (input.provider !== "stripe") {
+    return null;
+  }
+  if (
+    input.gatewayFeeEstimateBps === 0 &&
+    input.gatewayFeeEstimateFixedCentavos === 0
+  ) {
+    return null;
+  }
+  const percent = (input.gatewayFeeEstimateBps / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const fixed = (input.gatewayFeeEstimateFixedCentavos / 100).toLocaleString(
+    "pt-BR",
+    { style: "currency", currency: "BRL" },
+  );
+  return `${percent}% + ${fixed}`;
+}
+
+export function resolveExpertSettlementRail(
+  payment: Pick<
+    FinanceProductPaymentAmountRow,
+    | "expertSettlement"
+    | "expertRevenueCentavos"
+    | "financialModel"
+    | "ownerType"
+  >,
+): ExpertSettlementRail | null {
+  if (payment.expertSettlement === "gateway") return "gateway";
+  if (payment.expertSettlement === "ledger") return "ledger";
+  if (payment.ownerType === "automatize") return null;
+  if (payment.financialModel === "vindi_split_v1") return "gateway";
+  if (
+    payment.expertRevenueCentavos !== null &&
+    payment.expertRevenueCentavos > 0
+  ) {
+    return "ledger";
+  }
+  return null;
+}
+
+function resolveGatewayNetV1ExpertRevenueCentavos(
+  payment: FinanceProductPaymentAmountRow,
+): number {
+  if (payment.ownerExpertReceivableCentavos !== null) {
+    return payment.ownerExpertReceivableCentavos;
+  }
+  if (payment.expertRevenueCentavos !== null) {
+    return payment.expertRevenueCentavos;
+  }
+  if (
+    payment.expertSettlement === "gateway" ||
+    payment.provider === "stripe"
+  ) {
+    const gross = payment.grossAmountCentavos ?? payment.priceCentavos;
+    const fee = payment.feeAmountCentavos ?? 0;
+    const netCentavos = payment.netAmountCentavos ?? gross - fee;
+    const automatizeRevenue =
+      resolveGatewayNetV1AutomatizeRevenueCentavos(payment);
+    return Math.max(0, netCentavos - automatizeRevenue);
+  }
+  const coproducerType =
+    payment.coproducerTypeSnapshot === "automatize" ? "automatize" : null;
+  return calculateGatewayNetV1PixSettlement({
+    grossAmountCentavos: payment.grossAmountCentavos ?? payment.priceCentavos,
+    providerFeeAmountCentavos: payment.feeAmountCentavos ?? 0,
+    ownerExpertShareBasisPoints: payment.expertShareBasisPoints,
+    coproducerShareBasisPoints: payment.coproducerShareBasisPoints,
+    coproducerType,
+  }).ownerExpertReceivableCentavos;
+}
+
+function resolveGatewayNetV1AutomatizeRevenueCentavos(
+  payment: FinanceProductPaymentAmountRow,
+): number {
+  if (payment.automatizeTotalNetRevenueCentavos !== null) {
+    return payment.automatizeTotalNetRevenueCentavos;
+  }
+  return (
+    (payment.automatizeCoproductionRevenueCentavos ?? 0) +
+    (payment.automatizeProductRevenueCentavos ?? 0)
+  );
+}
+
+export function resolveProductPaymentNetAmounts<
+  T extends FinanceProductPaymentAmountRow,
+>(payment: T): FinanceProductPaymentNetAmounts {
+  const base = resolveProductPaymentAmounts(payment);
+  const gross =
+    payment.grossAmountCentavos ?? payment.priceCentavos ?? 0;
+  const fee = payment.feeAmountCentavos;
+  const netCentavos =
+    fee !== null ? gross - fee : (payment.netAmountCentavos ?? gross);
+
+  let expertRevenueCentavos = base.expertRevenueCentavos;
+  let automatizeRevenueCentavos = base.automatizeNetCentavos;
+
+  if (isGatewayNetV1Model(payment.financialModel)) {
+    expertRevenueCentavos = resolveGatewayNetV1ExpertRevenueCentavos(payment);
+    automatizeRevenueCentavos =
+      resolveGatewayNetV1AutomatizeRevenueCentavos(payment);
+  } else if (payment.ownerType === "automatize") {
+    expertRevenueCentavos = 0;
+    automatizeRevenueCentavos = netCentavos;
+  } else {
+    automatizeRevenueCentavos = base.automatizeNetCentavos;
+  }
+
+  const expertSettlementRail = resolveExpertSettlementRail(payment);
+  const expertSettlementLabel =
+    describeExpertSettlementRail(expertSettlementRail);
+  const gatewayFeeEstimateLabel = formatGatewayFeeEstimateLabel({
+    financialModel: payment.financialModel,
+    provider: payment.provider,
+    gatewayFeeEstimateBps: payment.gatewayFeeEstimateBps,
+    gatewayFeeEstimateFixedCentavos: payment.gatewayFeeEstimateFixedCentavos,
+  });
+
+  return {
+    ...base,
+    expertRevenueCentavos,
+    automatizeNetCentavos: automatizeRevenueCentavos,
+    automatizeRevenueCentavos,
+    netCentavos,
+    expertSettlementRail,
+    expertSettlementLabel,
+    gatewayFeeEstimateLabel,
+    countsTowardExpertPayableBalance: expertSettlementRail === "ledger",
+  };
+}
+
+export function summarizeProductPaymentsBySettlementRail<
+  T extends FinanceProductPaymentAmountRow,
+>(payments: T[]): FinanceProductSettlementSummary {
+  const summary: FinanceProductSettlementSummary = {
+    gateway: emptySettlementRailTotals(),
+    ledger: emptySettlementRailTotals(),
+    expertPayableCentavos: 0,
+  };
+
+  for (const payment of payments) {
+    const amounts = resolveProductPaymentNetAmounts(payment);
+    const rail = amounts.expertSettlementRail;
+    if (!rail) continue;
+
+    const bucket = summary[rail];
+    bucket.count += 1;
+    bucket.grossCentavos += amounts.grossCentavos;
+    if (amounts.feeCentavos !== null) bucket.feeCentavos += amounts.feeCentavos;
+    bucket.netCentavos += amounts.netCentavos;
+    bucket.expertRevenueCentavos += amounts.expertRevenueCentavos;
+    bucket.automatizeRevenueCentavos += amounts.automatizeRevenueCentavos;
+
+    if (amounts.countsTowardExpertPayableBalance) {
+      summary.expertPayableCentavos += amounts.expertRevenueCentavos;
+    }
+  }
+
+  return summary;
+}
+
+export function resolveProductOrderNetAmounts(
+  order: FinanceProductPaymentAmountRow,
+): FinanceProductPaymentNetAmounts {
+  return resolveProductPaymentNetAmounts(order);
+}
+
 export function resolveAutomatizeProductNetCentavos(
   payment: Pick<
     FinanceProductPaymentRow,
@@ -518,15 +762,16 @@ export function summarizeProductPayments<
     netCentavos: 0,
     feeCentavos: 0,
     netCoveragePayments: 0,
+    productSettlement: summarizeProductPaymentsBySettlementRail(payments),
   };
 
   for (const payment of payments) {
-    const amounts = resolveProductPaymentAmounts(payment);
+    const amounts = resolveProductPaymentNetAmounts(payment);
 
     summary.count += 1;
     summary.grossCentavos += amounts.grossCentavos;
     if (amounts.feeCentavos !== null) summary.feeCentavos += amounts.feeCentavos;
-    summary.netCentavos += amounts.automatizeNetCentavos;
+    summary.netCentavos += amounts.automatizeRevenueCentavos;
     summary.netCoveragePayments += 1;
   }
 
