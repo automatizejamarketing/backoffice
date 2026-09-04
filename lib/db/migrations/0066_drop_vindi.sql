@@ -50,7 +50,15 @@ BEGIN
         ('subscriptions', 'vindi_consent_updated_at'),
         ('subscriptions', 'vindi_consent_authorized_at'),
         ('subscriptions', 'vindi_consent_expires_at'),
-        ('users', 'vindi_customer_id')
+        ('users', 'vindi_customer_id'),
+        ('product_orders', 'expert_participation_bps'),
+        ('product_orders', 'processing_fee_basis_points'),
+        ('product_orders', 'expert_amount_centavos'),
+        ('product_orders', 'platform_theoretical_amount_centavos'),
+        ('product_payments', 'expert_participation_bps'),
+        ('product_payments', 'processing_fee_basis_points'),
+        ('product_payments', 'expert_amount_centavos'),
+        ('product_payments', 'platform_theoretical_amount_centavos')
     ) AS t(tabela, coluna)
   LOOP
     IF EXISTS (
