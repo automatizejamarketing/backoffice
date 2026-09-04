@@ -151,11 +151,6 @@ export async function listProductsAdmin() {
         gatewayFeeEstimateBps: productOrder.gatewayFeeEstimateBps,
         gatewayFeeEstimateFixedCentavos:
           productOrder.gatewayFeeEstimateFixedCentavos,
-        // Split congelado no pagamento: sem estes dois a parte do Expert
-        // é contada como nossa.
-        expertAmountCentavos: productPayment.expertAmountCentavos,
-        platformTheoreticalAmountCentavos:
-          productPayment.platformTheoreticalAmountCentavos,
         expertRevenueCentavos: sql<number>`(
           select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
           from ${expertLedgerEntry}
@@ -306,9 +301,6 @@ export async function listProductOrders() {
       ownerExpertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
       platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
       platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
-      expertAmountCentavos: productPayment.expertAmountCentavos,
-      platformTheoreticalAmountCentavos:
-        productPayment.platformTheoreticalAmountCentavos,
       paymentStatus: productPayment.status,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,

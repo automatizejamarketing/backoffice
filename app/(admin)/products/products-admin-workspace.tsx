@@ -217,8 +217,6 @@ type Order = {
   expertSettlement: "gateway" | "ledger" | null;
   gatewayFeeEstimateBps: number;
   gatewayFeeEstimateFixedCentavos: number;
-  expertAmountCentavos: number | null;
-  platformTheoreticalAmountCentavos: number | null;
 };
 
 type Payout = {
@@ -291,11 +289,6 @@ const emptyProduct: ProductFormState = {
   termsVersion: "v1",
 };
 
-/** Pedidos antigos com split congelado no pagamento. */
-function usesFrozenSplitAmounts(financialModel: ProductFinancialModel | null) {
-  return financialModel === "vindi_split_v1";
-}
-
 function orderFinanceRow(order: Order): FinanceProductPaymentAmountRow {
   return {
     grossAmountCentavos: order.grossAmountCentavos,
@@ -324,8 +317,6 @@ function orderFinanceRow(order: Order): FinanceProductPaymentAmountRow {
       order.expertLedgerAmountCentavos > 0
         ? order.expertLedgerAmountCentavos
         : null,
-    expertAmountCentavos: order.expertAmountCentavos,
-    platformTheoreticalAmountCentavos: order.platformTheoreticalAmountCentavos,
   };
 }
 
@@ -2045,18 +2036,10 @@ export function ProductsAdminWorkspace({
                           {money(amounts.netCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {usesFrozenSplitAmounts(order.financialModel)
-                            ? order.expertAmountCentavos !== null
-                              ? money(order.expertAmountCentavos)
-                              : money(amounts.expertRevenueCentavos)
-                            : money(amounts.expertRevenueCentavos)}
+                          {money(amounts.expertRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {usesFrozenSplitAmounts(order.financialModel)
-                            ? order.platformTheoreticalAmountCentavos !== null
-                              ? money(order.platformTheoreticalAmountCentavos)
-                              : "—"
-                            : money(amounts.automatizeRevenueCentavos)}
+                          {money(amounts.automatizeRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {amounts.expertSettlementLabel ? (

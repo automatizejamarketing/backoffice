@@ -38,7 +38,6 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
       currency: payment.currency,
       stripeInvoiceId: payment.stripeInvoiceId,
       mercadopagoPaymentId: payment.mercadopagoPaymentId,
-      vindiChargeId: payment.vindiChargeId,
       paymentMethod: payment.paymentMethod,
       purpose: payment.purpose,
       description: payment.description,
@@ -138,11 +137,6 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       gatewayFeeEstimateBps: productOrder.gatewayFeeEstimateBps,
       gatewayFeeEstimateFixedCentavos:
         productOrder.gatewayFeeEstimateFixedCentavos,
-      // Modelo `vindi_split_v1`: participação do expert e sobra da plataforma
-      // congeladas por venda (ver `resolveAutomatizeProductNetCentavos`).
-      expertAmountCentavos: productPayment.expertAmountCentavos,
-      platformTheoreticalAmountCentavos:
-        productPayment.platformTheoreticalAmountCentavos,
       expertRevenueCentavos: sql<number>`(
           select coalesce(sum(${expertLedgerEntry.amountCentavos}), 0)::integer
           from ${expertLedgerEntry}

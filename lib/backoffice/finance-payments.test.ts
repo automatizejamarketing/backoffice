@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ProductFinancialModel } from "@/lib/db/schema";
 import {
   describeAutomatizePaymentSequence,
   describeProductPaymentProvider,
@@ -64,8 +65,6 @@ const productPaymentFixture = {
   gatewayFeeEstimateBps: 0,
   gatewayFeeEstimateFixedCentavos: 0,
   expertRevenueCentavos: 17100,
-  expertAmountCentavos: null,
-  platformTheoreticalAmountCentavos: null,
 };
 
 describe("finance payments summaries", () => {
@@ -170,8 +169,6 @@ describe("finance payments summaries", () => {
       ownerType: "automatize",
       expertShareBasisPoints: 0,
       expertRevenueCentavos: null,
-      expertAmountCentavos: null,
-      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.revenueKind).toBe("coproducao");
@@ -194,8 +191,6 @@ describe("finance payments summaries", () => {
       ownerType: "automatize",
       expertShareBasisPoints: 6000,
       expertRevenueCentavos: 5700,
-      expertAmountCentavos: null,
-      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.revenueKind).toBe("coproducao");
@@ -238,8 +233,6 @@ describe("finance payments summaries", () => {
       priceCentavos: 8799,
       expertShareBasisPoints: 9500,
       expertRevenueCentavos: null,
-      expertAmountCentavos: null,
-      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.revenueKind).toBe("taxa");
@@ -305,8 +298,6 @@ describe("finance payments summaries", () => {
       platformFeeGrossCentavos: null,
       expertShareBasisPoints: 0,
       expertRevenueCentavos: null,
-      expertAmountCentavos: null,
-      platformTheoreticalAmountCentavos: null,
     });
 
     expect(amounts.platformFeeGrossCentavos).toBe(0);
@@ -542,46 +533,31 @@ describe("finance payments summaries", () => {
   });
 });
 
-describe("receita de produto no modelo vindi_split_v1", () => {
-  const vindiSplitFixture = {
+describe("pedidos históricos vindi_split_v1", () => {
+  const legacyVindiSplitFixture = {
     ...productPaymentFixture,
-    financialModel: "vindi_split_v1" as const,
-    // O modelo zera o campo legado; a participação real fica congelada nas
-    // colunas do split.
+    financialModel: "vindi_split_v1" as ProductFinancialModel,
     expertShareBasisPoints: 0,
     expertRevenueCentavos: null,
     grossAmountCentavos: 10000,
     netAmountCentavos: 10000,
     feeAmountCentavos: null,
     priceCentavos: 10000,
-    expertAmountCentavos: 7561,
-    platformTheoreticalAmountCentavos: 1890,
   };
 
-  test("a parte do expert não vira receita da Automatize", () => {
-    const amounts = resolveProductPaymentAmounts(vindiSplitFixture);
+  test("trata repasse como gateway e não atribui receita da Automatize", () => {
+    const amounts = resolveProductPaymentAmounts(legacyVindiSplitFixture);
+    const netAmounts = resolveProductPaymentNetAmounts(legacyVindiSplitFixture);
 
-    expect(amounts.expertRevenueCentavos).toBe(7561);
-    expect(amounts.automatizeNetCentavos).toBe(1890);
-    expect(amounts.grossCentavos).toBe(10000);
-  });
-
-  test("sem a sobra congelada, deriva do valor do expert", () => {
-    const amounts = resolveProductPaymentAmounts({
-      ...vindiSplitFixture,
-      platformTheoreticalAmountCentavos: null,
-    });
-
-    expect(amounts.expertRevenueCentavos).toBe(7561);
-    expect(amounts.automatizeNetCentavos).toBe(10000 - 7561);
+    expect(amounts.expertRevenueCentavos).toBe(0);
+    expect(amounts.automatizeNetCentavos).toBe(0);
+    expect(netAmounts.expertSettlementRail).toBe("gateway");
   });
 
   test("produto do Automatize continua ficando com o líquido inteiro", () => {
     const amounts = resolveProductPaymentAmounts({
-      ...vindiSplitFixture,
+      ...legacyVindiSplitFixture,
       ownerType: "automatize" as const,
-      expertAmountCentavos: 0,
-      platformTheoreticalAmountCentavos: 10000,
     });
 
     expect(amounts.automatizeNetCentavos).toBe(10000);
@@ -592,19 +568,6 @@ describe("receita de produto no modelo vindi_split_v1", () => {
 
     expect(amounts.expertRevenueCentavos).toBe(17100);
     expect(amounts.automatizeNetCentavos).toBe(1900);
-  });
-
-  test("split gerido no painel (valores NULL, 22/08/2026): nada vira receita da Automatize até o settlement", () => {
-    const amounts = resolveProductPaymentAmounts({
-      ...vindiSplitFixture,
-      expertAmountCentavos: null,
-      platformTheoreticalAmountCentavos: null,
-    });
-
-    // A venda de expert sem valores congelados fica PENDENTE — o ramo legado
-    // atribuiria os R$100,00 inteiros à Automatize.
-    expect(amounts.automatizeNetCentavos).toBe(0);
-    expect(amounts.grossCentavos).toBe(10000);
   });
 });
 

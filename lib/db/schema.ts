@@ -48,7 +48,6 @@ export const user = pgTable(
     // code prefix — all users are BR). Optional. Collected on credentials sign-up.
     phone: varchar("phone", { length: 16 }),
     stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
-    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
     registryCode: varchar("registry_code", { length: 20 }),
     expirationDate: timestamp("expiration_date"),
     credits: integer("credits").notNull().default(0),
@@ -64,11 +63,7 @@ export const user = pgTable(
     // default. Added for the trackable-link "users per link" view.
     createdAt: timestamp("created_at").defaultNow(),
   },
-  (table) => ({
-    uniqueVindiCustomerId: uniqueIndex("users_vindi_customer_id_unique")
-      .on(table.vindiCustomerId)
-      .where(sql`${table.vindiCustomerId} IS NOT NULL`),
-  }),
+  () => ({}),
 );
 
 export type User = InferSelectModel<typeof user>;
@@ -374,22 +369,12 @@ export const PRODUCT_FINANCIAL_MODEL_VALUES = [
   "platform_fee_coproduction_v2",
   "platform_fee_coproduction_v3",
   "gateway_net_v1",
-  "vindi_split_v1",
 ] as const;
 export type ProductFinancialModel =
   (typeof PRODUCT_FINANCIAL_MODEL_VALUES)[number];
 
 export const EXPERT_SETTLEMENT_VALUES = ["gateway", "ledger"] as const;
 export type ExpertSettlement = (typeof EXPERT_SETTLEMENT_VALUES)[number];
-
-export const VINDI_AFFILIATE_STATUS_VALUES = [
-  "unverified",
-  "pending",
-  "verified",
-  "rejected",
-] as const;
-export type VindiAffiliateStatus =
-  (typeof VINDI_AFFILIATE_STATUS_VALUES)[number];
 
 export const expertProfile = pgTable(
   "expert_profiles",
@@ -414,13 +399,6 @@ export const expertProfile = pgTable(
     marketplaceFeeBasisPoints: integer("marketplace_fee_basis_points")
       .notNull()
       .default(300),
-    vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
-    vindiAffiliateStatus: varchar("vindi_affiliate_status", {
-      enum: [...VINDI_AFFILIATE_STATUS_VALUES],
-    })
-      .$type<VindiAffiliateStatus>()
-      .notNull()
-      .default("unverified"),
     stripeAccountId: varchar("stripe_account_id", { length: 255 }),
     stripeChargesEnabled: boolean("stripe_charges_enabled")
       .notNull()
@@ -441,11 +419,6 @@ export const expertProfile = pgTable(
   },
   (table) => ({
     userUnique: unique("expert_profiles_user_id_unique").on(table.userId),
-    uniqueVindiAffiliateId: uniqueIndex(
-      "expert_profiles_vindi_affiliate_id_unique",
-    )
-      .on(table.vindiAffiliateId)
-      .where(sql`${table.vindiAffiliateId} IS NOT NULL`),
     uniqueStripeAccountId: uniqueIndex(
       "expert_profiles_stripe_account_id_unique",
     )
@@ -693,18 +666,6 @@ export const productOrder = pgTable(
     coproducerShareBasisPoints: integer("coproducer_share_basis_points")
       .notNull()
       .default(0),
-    expertParticipationBps: integer("expert_participation_bps"),
-    processingFeeBasisPoints: integer("processing_fee_basis_points"),
-    expertAmountCentavos: integer("expert_amount_centavos"),
-    platformTheoreticalAmountCentavos: integer(
-      "platform_theoretical_amount_centavos",
-    ),
-    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
-    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
-    vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
-    /** Quem pagou esta venda: Cliente Vindi e documento, congelados no ato
-     * (ADR 0029). Leitura de relatório não precisa chamar a Vindi. */
-    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
     payerRegistryCode: varchar("payer_registry_code", { length: 20 }),
     gatewayFeeEstimateBps: integer("gateway_fee_estimate_bps")
       .notNull()
@@ -747,7 +708,7 @@ export const productOrder = pgTable(
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
-      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'gateway_net_v1' AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.marketplaceFeeBasisPoints} = 0 AND ${table.gatewayFeeEstimateBps} >= 0 AND ${table.gatewayFeeEstimateFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0))))) OR (${table.financialModel} = 'vindi_split_v1' AND ${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000 AND ${table.processingFeeBasisPoints} >= 0 AND ${table.processingFeeBasisPoints} <= 10000 AND (${table.expertAmountCentavos} IS NULL OR ${table.expertAmountCentavos} >= 0) AND (${table.platformTheoreticalAmountCentavos} IS NULL OR ${table.platformTheoreticalAmountCentavos} >= 0) AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertParticipationBps} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)))`,
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'gateway_net_v1' AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.marketplaceFeeBasisPoints} = 0 AND ${table.gatewayFeeEstimateBps} >= 0 AND ${table.gatewayFeeEstimateFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0)))))`,
     ),
   }),
 );
@@ -803,15 +764,6 @@ export const productPayment = pgTable(
     financialModel: varchar("financial_model", {
       enum: [...PRODUCT_FINANCIAL_MODEL_VALUES],
     }).$type<ProductFinancialModel>(),
-    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
-    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
-    vindiAffiliateId: varchar("vindi_affiliate_id", { length: 255 }),
-    expertParticipationBps: integer("expert_participation_bps"),
-    processingFeeBasisPoints: integer("processing_fee_basis_points"),
-    expertAmountCentavos: integer("expert_amount_centavos"),
-    platformTheoreticalAmountCentavos: integer(
-      "platform_theoretical_amount_centavos",
-    ),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     rawStatus: varchar("raw_status", { length: 80 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -825,9 +777,6 @@ export const productPayment = pgTable(
       .where(sql`${table.providerPaymentId} IS NOT NULL`),
     orderUnique: unique("product_payments_order_id_unique").on(table.orderId),
     orderIdx: index("product_payments_order_id_idx").on(table.orderId),
-    uniqueVindiChargeId: uniqueIndex("product_payments_vindi_charge_id_unique")
-      .on(table.vindiChargeId)
-      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 
@@ -2361,24 +2310,6 @@ export const BILLING_PROVIDER_VALUES = [
 
 export type BillingProvider = (typeof BILLING_PROVIDER_VALUES)[number];
 
-export const VINDI_SUBSCRIPTION_PAYMENT_METHOD_VALUES = [
-  "credit_card",
-  "pix_automatic",
-  "pix_qr",
-] as const;
-export type VindiSubscriptionPaymentMethod =
-  (typeof VINDI_SUBSCRIPTION_PAYMENT_METHOD_VALUES)[number];
-
-export const VINDI_CONSENT_STATUS_VALUES = [
-  "pending",
-  "awaiting",
-  "authorized",
-  "rejected",
-  "expired",
-  "canceled",
-] as const;
-export type VindiConsentStatus = (typeof VINDI_CONSENT_STATUS_VALUES)[number];
-
 export const PAYMENT_PURPOSE_VALUES = [
   "subscription",
   "product",
@@ -2390,26 +2321,6 @@ export type PaymentPurpose = (typeof PAYMENT_PURPOSE_VALUES)[number];
 export const PAYMENT_SETTLEMENT_METHOD_VALUES = ["credit_card", "pix"] as const;
 export type PaymentSettlementMethod =
   (typeof PAYMENT_SETTLEMENT_METHOD_VALUES)[number];
-
-export const VINDI_PAYMENT_LINK_SOURCE_VALUES = [
-  "self_service",
-  "backoffice",
-  "renewal_email",
-  "subscription_recovery",
-  "checkout",
-] as const;
-export type VindiPaymentLinkSource =
-  (typeof VINDI_PAYMENT_LINK_SOURCE_VALUES)[number];
-
-export const VINDI_PAYMENT_LINK_STATUS_VALUES = [
-  "pending",
-  "approved",
-  "expired",
-  "canceled",
-  "superseded",
-] as const;
-export type VindiPaymentLinkStatus =
-  (typeof VINDI_PAYMENT_LINK_STATUS_VALUES)[number];
 
 // Subscription status enum (mirrors Stripe)
 export type SubscriptionStatus =
@@ -2439,16 +2350,6 @@ export const subscription = pgTable(
     stripeSubscriptionId: varchar("stripe_subscription_id", {
       length: 255,
     }),
-    vindiSubscriptionId: varchar("vindi_subscription_id", { length: 255 }),
-    vindiPaymentMethod: varchar("vindi_payment_method", {
-      enum: [...VINDI_SUBSCRIPTION_PAYMENT_METHOD_VALUES],
-    }).$type<VindiSubscriptionPaymentMethod>(),
-    vindiConsentStatus: varchar("vindi_consent_status", {
-      enum: [...VINDI_CONSENT_STATUS_VALUES],
-    }).$type<VindiConsentStatus>(),
-    vindiConsentUpdatedAt: timestamp("vindi_consent_updated_at"),
-    vindiConsentAuthorizedAt: timestamp("vindi_consent_authorized_at"),
-    vindiConsentExpiresAt: timestamp("vindi_consent_expires_at"),
     stripePriceId: varchar("stripe_price_id", { length: 255 }),
     planType: varchar("plan_type", {
       enum: [...PLAN_TYPE_VALUES],
@@ -2489,11 +2390,6 @@ export const subscription = pgTable(
     )
       .on(table.stripeSubscriptionId)
       .where(sql`${table.stripeSubscriptionId} IS NOT NULL`),
-    uniqueVindiSubscriptionId: uniqueIndex(
-      "subscriptions_vindi_subscription_id_unique",
-    )
-      .on(table.vindiSubscriptionId)
-      .where(sql`${table.vindiSubscriptionId} IS NOT NULL`),
   }),
 );
 
@@ -2570,11 +2466,6 @@ export const payment = pgTable(
     mercadopagoPreferenceId: varchar("mercadopago_preference_id", {
       length: 255,
     }),
-    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
-    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
-    /** Quem pagou esta venda: Cliente Vindi e documento, congelados no ato
-     * (ADR 0029). Leitura de relatório não precisa chamar a Vindi. */
-    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
     payerRegistryCode: varchar("payer_registry_code", { length: 20 }),
     purpose: varchar("purpose", {
       enum: [...PAYMENT_PURPOSE_VALUES],
@@ -2631,9 +2522,6 @@ export const payment = pgTable(
     uniqueMercadopagoPaymentId: unique(
       "payments_mercadopago_payment_id_unique",
     ).on(table.mercadopagoPaymentId),
-    uniqueVindiChargeId: uniqueIndex("payments_vindi_charge_id_unique")
-      .on(table.vindiChargeId)
-      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 
@@ -2769,116 +2657,6 @@ export type MercadoPagoPaymentLink = InferSelectModel<
   typeof mercadopagoPaymentLink
 >;
 
-/**
- * Um Cliente Vindi por par (Conta, CPF) — ADR 0029. Uma Conta pode faturar com
- * mais de um CPF/CNPJ, e a Vindi só trata `code` como único (e-mail e
- * `registry_code` NÃO são), então o Cliente é resolvido por `code` derivado:
- * `userId` para o Primário e `userId:cpf` para os demais. Os três índices
- * únicos são os invariantes do ADR: um Cliente pertence a uma Conta só, um CPF
- * por Conta aponta para um Cliente só, uma Conta tem um Primário só.
- */
-export const vindiCustomerLink = pgTable(
-  "vindi_customers",
-  {
-    id: uuid("id").primaryKey().notNull().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => user.id),
-    vindiCustomerId: varchar("vindi_customer_id", { length: 255 }).notNull(),
-    /** CPF/CNPJ deste Cliente, só dígitos. NULL enquanto o Primário não viu um. */
-    registryCode: varchar("registry_code", { length: 20 }),
-    /** O `code` mandado à Vindi — chave determinística que reencontra o Cliente. */
-    vindiCode: varchar("vindi_code", { length: 255 }).notNull(),
-    isPrimary: boolean("is_primary").notNull().default(false),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    lastUsedAt: timestamp("last_used_at").notNull().defaultNow(),
-  },
-  (table) => ({
-    uniqueCustomer: uniqueIndex("vindi_customers_customer_unique").on(
-      table.vindiCustomerId,
-    ),
-    uniqueUserRegistry: uniqueIndex("vindi_customers_user_registry_unique")
-      .on(table.userId, table.registryCode)
-      .where(sql`${table.registryCode} IS NOT NULL`),
-    uniquePrimary: uniqueIndex("vindi_customers_primary_unique")
-      .on(table.userId)
-      .where(sql`${table.isPrimary}`),
-    userIdx: index("vindi_customers_user_id_idx").on(table.userId),
-  }),
-);
-
-export type VindiCustomerLink = InferSelectModel<typeof vindiCustomerLink>;
-
-export const vindiPaymentLink = pgTable(
-  "vindi_payment_links",
-  {
-    id: uuid("id").primaryKey().notNull().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => user.id),
-    planType: varchar("plan_type", {
-      enum: [...PLAN_TYPE_VALUES],
-    }).$type<PlanType>(),
-    purpose: varchar("purpose", {
-      enum: [...PAYMENT_PURPOSE_VALUES],
-    })
-      .$type<PaymentPurpose>()
-      .notNull(),
-    amount: integer("amount").notNull(),
-    currency: varchar("currency", { length: 10 }).notNull().default("brl"),
-    emvPayload: text("emv_payload"),
-    vindiBillId: varchar("vindi_bill_id", { length: 255 }),
-    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
-    status: varchar("status", {
-      enum: [...VINDI_PAYMENT_LINK_STATUS_VALUES],
-    })
-      .$type<VindiPaymentLinkStatus>()
-      .notNull()
-      .default("pending"),
-    source: varchar("source", {
-      enum: [...VINDI_PAYMENT_LINK_SOURCE_VALUES],
-    })
-      .$type<VindiPaymentLinkSource>()
-      .notNull(),
-    expiresAt: timestamp("expires_at").notNull(),
-    paidAt: timestamp("paid_at"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  },
-  (table) => ({
-    uniqueVindiBillId: uniqueIndex("vindi_payment_links_vindi_bill_id_unique")
-      .on(table.vindiBillId)
-      .where(sql`${table.vindiBillId} IS NOT NULL`),
-    userIdx: index("vindi_payment_links_user_id_idx").on(table.userId),
-  }),
-);
-
-export type VindiPaymentLink = InferSelectModel<typeof vindiPaymentLink>;
-
-export const vindiWebhookEvent = pgTable(
-  "vindi_webhook_events",
-  {
-    id: uuid("id").primaryKey().notNull().defaultRandom(),
-    eventType: varchar("event_type", { length: 128 }).notNull(),
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
-    idempotencyKey: varchar("idempotency_key", { length: 255 }),
-    receivedAt: timestamp("received_at").notNull().defaultNow(),
-    processedAt: timestamp("processed_at"),
-  },
-  (table) => ({
-    uniqueIdempotencyKey: uniqueIndex(
-      "vindi_webhook_events_idempotency_key_unique",
-    )
-      .on(table.idempotencyKey)
-      .where(sql`${table.idempotencyKey} IS NOT NULL`),
-    receivedAtIdx: index("vindi_webhook_events_received_at_idx").on(
-      table.receivedAt,
-    ),
-  }),
-);
-
-export type VindiWebhookEvent = InferSelectModel<typeof vindiWebhookEvent>;
-
 export type BillingNotificationType =
   | "expiration_3d"
   | "expiration_1d"
@@ -2909,7 +2687,6 @@ export const billingNotificationDelivery = pgTable(
     mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id").references(
       () => mercadopagoPaymentLink.id,
     ),
-    vindiChargeId: varchar("vindi_charge_id", { length: 255 }),
     channel: varchar("channel", { length: 20 })
       .$type<"email" | "whatsapp">()
       .notNull()
@@ -2927,22 +2704,15 @@ export const billingNotificationDelivery = pgTable(
   (table) => ({
     uniqueDelivery: uniqueIndex(
       "billing_notification_deliveries_user_type_expiration_unique",
-    )
-      .on(
-        table.userId,
-        table.notificationType,
-        table.expirationDate,
-        table.channel,
-      )
-      .where(sql`${table.vindiChargeId} IS NULL`),
+    ).on(
+      table.userId,
+      table.notificationType,
+      table.expirationDate,
+      table.channel,
+    ),
     uniqueLinkDelivery: unique(
       "billing_notification_deliveries_link_type_channel_unique",
     ).on(table.mercadopagoPaymentLinkId, table.notificationType, table.channel),
-    uniqueVindiChargeDelivery: uniqueIndex(
-      "billing_notification_deliveries_vindi_charge_type_channel_unique",
-    )
-      .on(table.vindiChargeId, table.notificationType, table.channel)
-      .where(sql`${table.vindiChargeId} IS NOT NULL`),
   }),
 );
 

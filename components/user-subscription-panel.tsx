@@ -557,7 +557,6 @@ export function UserSubscriptionPanel({
                           provider: p.provider,
                           stripeId: p.stripeInvoiceId,
                           mercadopagoId: p.mercadopagoPaymentId,
-                          historicalProviderId: p.vindiChargeId ?? p.vindiBillId,
                         }) ?? "—"}
                       </TableCell>
                     </TableRow>
@@ -628,7 +627,6 @@ export function UserSubscriptionPanel({
                         {providerExternalId({
                           provider: s.provider,
                           stripeId: s.stripeSubscriptionId,
-                          historicalProviderId: s.vindiSubscriptionId,
                         }) ?? "—"}
                       </TableCell>
                     </TableRow>

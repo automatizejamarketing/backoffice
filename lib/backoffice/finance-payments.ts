@@ -39,7 +39,6 @@ export type FinanceAutomatizePaymentRow = {
   currency: string;
   stripeInvoiceId: string | null;
   mercadopagoPaymentId: string | null;
-  vindiChargeId?: string | null;
   paymentMethod?: PaymentSettlementMethod | null;
   purpose?: PaymentPurpose | null;
   description: string | null;
@@ -102,9 +101,6 @@ export type FinanceProductPaymentRow = {
   gatewayFeeEstimateBps: number;
   gatewayFeeEstimateFixedCentavos: number;
   expertRevenueCentavos: number | null;
-  /** Participação congelada no modelo `vindi_split_v1`. */
-  expertAmountCentavos: number | null;
-  platformTheoreticalAmountCentavos: number | null;
 };
 
 export type FinanceProductPaymentAmounts = {
@@ -140,8 +136,6 @@ export type FinanceProductPaymentAmountRow = Pick<
   | "gatewayFeeEstimateFixedCentavos"
   | "provider"
   | "expertRevenueCentavos"
-  | "expertAmountCentavos"
-  | "platformTheoreticalAmountCentavos"
 >;
 
 export type FinanceProductPaymentNetAmounts = FinanceProductPaymentAmounts & {
@@ -232,7 +226,6 @@ export function listAutomatizePaymentNetGaps(
         reference:
           row.mercadopagoPaymentId ??
           row.stripeInvoiceId ??
-          row.vindiChargeId ??
           row.description ??
           null,
       },
@@ -473,6 +466,14 @@ export function formatGatewayFeeEstimateLabel(input: {
   return `${percent}% + ${fixed}`;
 }
 
+const LEGACY_VINDI_SPLIT_MODEL = "vindi_split_v1" as const;
+
+function isLegacyVindiSplitModel(
+  financialModel: ProductFinancialModel | null | undefined,
+): boolean {
+  return (financialModel as string | null | undefined) === LEGACY_VINDI_SPLIT_MODEL;
+}
+
 export function resolveExpertSettlementRail(
   payment: Pick<
     FinanceProductPaymentAmountRow,
@@ -485,7 +486,7 @@ export function resolveExpertSettlementRail(
   if (payment.expertSettlement === "gateway") return "gateway";
   if (payment.expertSettlement === "ledger") return "ledger";
   if (payment.ownerType === "automatize") return null;
-  if (payment.financialModel === "vindi_split_v1") return "gateway";
+  if (isLegacyVindiSplitModel(payment.financialModel)) return "gateway";
   if (
     payment.expertRevenueCentavos !== null &&
     payment.expertRevenueCentavos > 0
@@ -638,8 +639,6 @@ export function resolveAutomatizeProductNetCentavos(
     | "expertShareBasisPoints"
     | "expertRevenueCentavos"
     | "netAmountCentavos"
-    | "expertAmountCentavos"
-    | "platformTheoreticalAmountCentavos"
   >,
   gatewayNet: number,
 ): number {
@@ -651,24 +650,9 @@ export function resolveAutomatizeProductNetCentavos(
     return gatewayNet;
   }
 
-  // `vindi_split_v1` não entra em nenhum dos ramos abaixo: o modelo zera
-  // `expert_share_basis_points` (a participação real mora em
-  // `expert_participation_bps`) e não preenche as colunas do v3. Sem este
-  // desvio, a conta caía no ramo legado, derivava participação zero e
-  // atribuía a venda INTEIRA à Automatize. Os dois valores já vêm congelados
-  // da venda.
-  if (payment.financialModel === "vindi_split_v1") {
-    if (payment.platformTheoreticalAmountCentavos !== null) {
-      return payment.platformTheoreticalAmountCentavos;
-    }
-    if (payment.expertAmountCentavos !== null) {
-      return calculateAutomatizeNetRevenueCentavos(
-        gatewayNet,
-        Math.min(payment.expertAmountCentavos, gatewayNet),
-      );
-    }
-    // Pedidos antigos sem valores congelados: a parte da Automatize é
-    // desconhecida. Zero (pendente) em vez de atribuir a venda inteira.
+  // Pedidos históricos `vindi_split_v1` já liquidaram no gateway; sem as colunas
+  // congeladas no schema, a receita da Automatize fica indeterminada até M2.
+  if (isLegacyVindiSplitModel(payment.financialModel)) {
     return 0;
   }
 
@@ -721,12 +705,9 @@ export function resolveProductPaymentAmounts<
     payment.netAmountCentavos ?? (fee !== null ? gross - fee : gross);
   const revenueKind = payment.ownerType === "automatize" ? "coproducao" : "taxa";
   const derivedExpertRevenue =
-    payment.financialModel === "vindi_split_v1" &&
-    payment.expertAmountCentavos !== null
-      ? payment.expertAmountCentavos
-      : payment.expertShareBasisPoints > 0
-        ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
-        : 0;
+    payment.expertShareBasisPoints > 0
+      ? calculateExpertShare(gatewayNet, payment.expertShareBasisPoints)
+      : 0;
   const ledgerExpertRevenue = payment.expertRevenueCentavos;
   const expertRevenue =
     ledgerExpertRevenue !== null &&
