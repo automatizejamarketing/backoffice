@@ -104,16 +104,8 @@ import {
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
-import { locksExpertParticipationToZero } from "@/lib/products/admin-input";
+import { isProductOfferedForSale } from "@/lib/products/sale-gate";
 import type { ProductContentType } from "@/lib/db/schema";
-import { calculateVindiSplit } from "@/lib/vindi/split";
-import {
-  affiliateStatusForSaleGate,
-  describeExpertAffiliateReadiness,
-  evaluateExpertProductSaleGate,
-  formatExpertSaleGateError,
-  VINDI_AFFILIATE_STATUS_LABELS,
-} from "@/lib/vindi/affiliate-gate";
 import { cn } from "@/lib/utils";
 import {
   PRODUCT_COVER_OUTPUT_HEIGHT,
@@ -131,8 +123,6 @@ type Expert = {
   platformFeeBasisPoints: number;
   platformFeeFixedCentavos: number;
   marketplaceFeeBasisPoints: number;
-  vindiAffiliateId: string | null;
-  vindiAffiliateStatus: "unverified" | "pending" | "verified" | "rejected";
 };
 
 type Product = {
@@ -153,7 +143,6 @@ type Product = {
   status: "draft" | "published" | "archived";
   salesEnabled: boolean;
   termsVersion: string;
-  expertParticipationBps: number | null;
 };
 
 type Content = {
@@ -181,7 +170,6 @@ type Order = {
   status: string;
   createdAt: string;
   provider: string | null;
-  vindiChargeId: string | null;
   providerPaymentId: string | null;
   paymentStatus: string | null;
   paymentMethodId: string | null;
@@ -232,7 +220,6 @@ type ProductFormState = {
   status: Product["status"];
   salesEnabled: boolean;
   termsVersion: string;
-  expertParticipationPercent: string;
 };
 
 type ExpertFormState = {
@@ -274,21 +261,22 @@ const emptyProduct: ProductFormState = {
   status: "draft" as const,
   salesEnabled: true,
   termsVersion: "v1",
-  expertParticipationPercent: "0%",
 };
 
-function parseExpertParticipationBps(
-  ownerType: Product["ownerType"],
-  percent: string,
-): number | null {
-  if (locksExpertParticipationToZero(ownerType)) return 0;
-  if (percent.trim() === "") return null;
-  return Math.round(parsePercentageInput(percent) * 100);
+/** Pedidos antigos com split congelado no pagamento. O relatório líquido
+ * (ticket 18) substitui esta ramificação. */
+function usesFrozenSplitAmounts(financialModel: string | null) {
+  return financialModel === "vindi_split_v1";
 }
 
-function formatExpertParticipationPercent(bps: number | null): string {
-  if (bps == null) return "";
-  return formatPercentageInput(String(bps / 100).replace(".", ","));
+function paymentReference(order: Order) {
+  if (order.provider === "stripe" && order.providerPaymentId) {
+    return `Stripe ${order.providerPaymentId}`;
+  }
+  if (order.provider === "mercadopago" && order.providerPaymentId) {
+    return `MP ${order.providerPaymentId}`;
+  }
+  return order.providerPaymentId ?? "—";
 }
 
 function contentSourceLabel(type: Content["type"]) {
@@ -700,9 +688,6 @@ export function ProductsAdminWorkspace({
   const [enablingSalesProductId, setEnablingSalesProductId] = useState<
     string | null
   >(null);
-  const [ensuringAffiliateExpertId, setEnsuringAffiliateExpertId] = useState<
-    string | null
-  >(null);
   const [paymentsDialogProduct, setPaymentsDialogProduct] = useState<Product | null>(
     null,
   );
@@ -719,64 +704,6 @@ export function ProductsAdminWorkspace({
     if (!paymentsDialogProduct) return [];
     return orders.filter((order) => order.productId === paymentsDialogProduct.id);
   }, [orders, paymentsDialogProduct]);
-  const vindiSplitPreview = useMemo(() => {
-    let priceCentavos: number;
-    try {
-      priceCentavos = parseBrlCurrencyToCentavos(productForm.priceReais);
-    } catch {
-      return null;
-    }
-    const expertParticipationBps = parseExpertParticipationBps(
-      productForm.ownerType,
-      productForm.expertParticipationPercent,
-    );
-    if (expertParticipationBps == null) return null;
-    try {
-      return calculateVindiSplit({ priceCentavos, expertParticipationBps });
-    } catch {
-      return null;
-    }
-  }, [
-    productForm.expertParticipationPercent,
-    productForm.ownerType,
-    productForm.priceReais,
-  ]);
-
-  const productFormSaleGate = useMemo(
-    () =>
-      evaluateExpertProductSaleGate({
-        ownerType: productForm.ownerType,
-        affiliateStatus: affiliateStatusForSaleGate({
-          ownerType: productForm.ownerType,
-          affiliateStatus: productForm.expertId
-            ? expertsById.get(productForm.expertId)?.vindiAffiliateStatus
-            : null,
-        }),
-        offeringForSale:
-          productForm.status === "published" && productForm.salesEnabled,
-      }),
-    [
-      expertsById,
-      productForm.expertId,
-      productForm.ownerType,
-      productForm.salesEnabled,
-      productForm.status,
-    ],
-  );
-  const productFormAffiliateReadiness =
-    productForm.ownerType === "expert"
-      ? describeExpertAffiliateReadiness(
-          affiliateStatusForSaleGate({
-            ownerType: "expert",
-            affiliateStatus: expertsById.get(productForm.expertId)
-              ?.vindiAffiliateStatus,
-          }),
-        )
-      : { ready: true as const };
-  const expertParticipationLocked = locksExpertParticipationToZero(
-    productForm.ownerType,
-  );
-
   function changeProductOwner(value: string) {
     const owner = parseProductOwnerSelection(value);
     setProductForm((current) => ({
@@ -793,11 +720,6 @@ export function ProductsAdminWorkspace({
           : "",
       coproducerSharePercent:
         owner.ownerType === "expert" ? current.coproducerSharePercent : "",
-      expertParticipationPercent: locksExpertParticipationToZero(owner.ownerType)
-        ? "0%"
-        : locksExpertParticipationToZero(current.ownerType)
-          ? ""
-          : current.expertParticipationPercent,
     }));
   }
 
@@ -882,10 +804,6 @@ export function ProductsAdminWorkspace({
           productForm.coproducerSharePercent,
         ),
         minimumPlanTier: productForm.minimumPlanTier || null,
-        expertParticipationBps: parseExpertParticipationBps(
-          productForm.ownerType,
-          productForm.expertParticipationPercent,
-        ),
       };
       const response = await fetch(
         editingProductId
@@ -966,9 +884,6 @@ export function ProductsAdminWorkspace({
       status: row.status,
       salesEnabled: row.salesEnabled,
       termsVersion: row.termsVersion,
-      expertParticipationPercent: locksExpertParticipationToZero(row.ownerType)
-        ? "0%"
-        : formatExpertParticipationPercent(row.expertParticipationBps),
     });
     setProductDialogOpen(true);
   }
@@ -1041,44 +956,7 @@ export function ProductsAdminWorkspace({
     }
   }
 
-  async function ensureExpertAffiliate(expert: Expert) {
-    setEnsuringAffiliateExpertId(expert.id);
-    try {
-      const response = await fetch(
-        `/api/products/admin/experts/${expert.id}/vindi-affiliate`,
-        { method: "POST" },
-      );
-      if (!response.ok) return toast.error(await readError(response));
-      const updated = (await response.json()) as Pick<
-        Expert,
-        "vindiAffiliateId" | "vindiAffiliateStatus"
-      >;
-      toast.success(
-        updated.vindiAffiliateStatus === "verified"
-          ? "Afiliado Vindi verificado."
-          : "Afiliado Vindi atualizado. A verificação chega por e-mail da Vindi em cerca de 5 minutos.",
-      );
-      await loadAll();
-    } finally {
-      setEnsuringAffiliateExpertId(null);
-    }
-  }
-
   async function publishProduct(row: Product) {
-    const gate = evaluateExpertProductSaleGate({
-      ownerType: row.ownerType,
-      affiliateStatus: affiliateStatusForSaleGate({
-        ownerType: row.ownerType,
-        affiliateStatus: row.expertId
-          ? expertsById.get(row.expertId)?.vindiAffiliateStatus
-          : null,
-      }),
-      offeringForSale: true,
-    });
-    if (!gate.allowed) {
-      toast.error(formatExpertSaleGateError(gate));
-      return;
-    }
     setPublishingProductId(row.id);
     try {
       const response = await fetch(`/api/products/admin/${row.id}`, {
@@ -1097,20 +975,6 @@ export function ProductsAdminWorkspace({
   }
 
   async function enableProductSales(row: Product) {
-    const gate = evaluateExpertProductSaleGate({
-      ownerType: row.ownerType,
-      affiliateStatus: affiliateStatusForSaleGate({
-        ownerType: row.ownerType,
-        affiliateStatus: row.expertId
-          ? expertsById.get(row.expertId)?.vindiAffiliateStatus
-          : null,
-      }),
-      offeringForSale: row.status === "published",
-    });
-    if (!gate.allowed) {
-      toast.error(formatExpertSaleGateError(gate));
-      return;
-    }
     setEnablingSalesProductId(row.id);
     try {
       const response = await fetch(`/api/products/admin/${row.id}`, {
@@ -1471,12 +1335,11 @@ export function ProductsAdminWorkspace({
     }
   }
 
-  const isVindiRefund =
-    refundTarget?.provider === "vindi" && refundTarget.vindiChargeId !== null;
+  const isMercadoPagoRefund = refundTarget?.provider === "mercadopago";
 
   async function confirmRefund() {
     if (!refundTarget) return;
-    const viaVindi = isVindiRefund;
+    const viaMercadoPago = isMercadoPagoRefund;
     setRefunding(true);
     try {
       const response = await fetch(
@@ -1485,8 +1348,8 @@ export function ProductsAdminWorkspace({
       );
       if (!response.ok) return toast.error(await readError(response));
       toast.success(
-        viaVindi
-          ? "Estorno solicitado na Vindi — o valor volta ao comprador pelo mesmo método."
+        viaMercadoPago
+          ? "Estorno solicitado no Mercado Pago — o valor volta ao comprador pelo Pix."
           : "Reembolso registrado.",
       );
       setRefundTarget(null);
@@ -1552,7 +1415,6 @@ export function ProductsAdminWorkspace({
                     <TableHead>Produto</TableHead>
                     <TableHead>Proprietário</TableHead>
                     <TableHead className="text-right">Preço</TableHead>
-                    <TableHead className="text-right">Participação</TableHead>
                     <TableHead className="text-right">Faturamento bruto</TableHead>
                     <TableHead className="text-right">Líquido Automatize</TableHead>
                     <TableHead>Status</TableHead>
@@ -1562,13 +1424,13 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-28 text-center">
+                      <TableCell colSpan={7} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                       </TableCell>
                     </TableRow>
                   ) : products.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-28 text-center text-muted-foreground">
+                      <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
                         Nenhum produto cadastrado.
                       </TableCell>
                     </TableRow>
@@ -1579,17 +1441,7 @@ export function ProductsAdminWorkspace({
                         : null;
                       const ownerName = ownerExpert?.displayName ?? expertName ?? "Automatize";
                       const statusBadge = getProductStatusBadgeProps(row.status);
-                      const saleGate = evaluateExpertProductSaleGate({
-                        ownerType: row.ownerType,
-                        affiliateStatus: affiliateStatusForSaleGate({
-                          ownerType: row.ownerType,
-                          affiliateStatus: ownerExpert?.vindiAffiliateStatus,
-                        }),
-                        offeringForSale: true,
-                      });
-                      const saleGateTitle = saleGate.allowed
-                        ? undefined
-                        : formatExpertSaleGateError(saleGate);
+                      const offeredForSale = isProductOfferedForSale(row);
 
                       return (
                         <TableRow key={row.id}>
@@ -1619,13 +1471,6 @@ export function ProductsAdminWorkspace({
                             </div>
                           </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
-                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {row.expertParticipationBps == null
-                            ? "—"
-                            : formatExpertParticipationPercent(
-                                row.expertParticipationBps,
-                              )}
-                        </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(grossRevenueCentavos)}</TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(automatizeNetRevenueCentavos)}</TableCell>
                         <TableCell>
@@ -1633,21 +1478,19 @@ export function ProductsAdminWorkspace({
                             <Badge variant={statusBadge.variant} className={statusBadge.className}>
                               {productStatusLabel[row.status]}
                             </Badge>
-                            {!row.salesEnabled ? (
+                            {offeredForSale ? (
+                              <Badge
+                                variant="outline"
+                                className="border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300"
+                              >
+                                À venda
+                              </Badge>
+                            ) : !row.salesEnabled ? (
                               <Badge
                                 variant="outline"
                                 className="border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
                               >
                                 Aquisição desabilitada
-                              </Badge>
-                            ) : null}
-                            {!saleGate.allowed ? (
-                              <Badge
-                                variant="outline"
-                                title={saleGateTitle}
-                                className="border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
-                              >
-                                Venda Vindi bloqueada
                               </Badge>
                             ) : null}
                           </div>
@@ -1670,8 +1513,7 @@ export function ProductsAdminWorkspace({
                               {row.status === "draft" ? (
                                 <DropdownMenuItem
                                   onSelect={() => void publishProduct(row)}
-                                  disabled={publishingProductId === row.id || !saleGate.allowed}
-                                  title={saleGateTitle}
+                                  disabled={publishingProductId === row.id}
                                 >
                                   {publishingProductId === row.id ? <Loader2 className="animate-spin" /> : <CircleCheck />}
                                   {publishingProductId === row.id ? "Publicando..." : "Publicar"}
@@ -1680,13 +1522,7 @@ export function ProductsAdminWorkspace({
                               {!row.salesEnabled ? (
                                 <DropdownMenuItem
                                   onSelect={() => void enableProductSales(row)}
-                                  disabled={
-                                    enablingSalesProductId === row.id ||
-                                    (row.status === "published" && !saleGate.allowed)
-                                  }
-                                  title={
-                                    row.status === "published" ? saleGateTitle : undefined
-                                  }
+                                  disabled={enablingSalesProductId === row.id}
                                 >
                                   {enablingSalesProductId === row.id ? (
                                     <Loader2 className="animate-spin" />
@@ -1815,7 +1651,6 @@ export function ProductsAdminWorkspace({
                     <TableHead className="w-[170px]">WhatsApp</TableHead>
                     <TableHead className="w-[280px]">Chave Pix</TableHead>
                     <TableHead className="w-[190px]">Taxa da plataforma</TableHead>
-                    <TableHead className="w-[190px]">Afiliado Vindi</TableHead>
                     <TableHead className="w-[100px]">Status</TableHead>
                     <TableHead className="w-[110px] text-right">Ações</TableHead>
                   </TableRow>
@@ -1857,18 +1692,6 @@ export function ProductsAdminWorkspace({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="space-y-1">
-                          <Badge variant="outline">
-                            {VINDI_AFFILIATE_STATUS_LABELS[expert.vindiAffiliateStatus]}
-                          </Badge>
-                          {expert.vindiAffiliateId ? (
-                            <p className="font-mono text-xs text-muted-foreground">
-                              #{expert.vindiAffiliateId}
-                            </p>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell>
                         <Badge variant="outline">{expert.status === "active" ? "Ativo" : "Inativo"}</Badge>
                       </TableCell>
                       <TableCell className="text-right">
@@ -1885,22 +1708,9 @@ export function ProductsAdminWorkspace({
                               <MoreHorizontal className="size-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuContent align="end" className="w-44">
                             <DropdownMenuItem onSelect={() => editExpert(expert)}>
                               <Pencil /> Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => void ensureExpertAffiliate(expert)}
-                              disabled={ensuringAffiliateExpertId === expert.id}
-                            >
-                              {ensuringAffiliateExpertId === expert.id ? (
-                                <Loader2 className="animate-spin" />
-                              ) : (
-                                <RefreshCcw />
-                              )}
-                              {expert.vindiAffiliateId
-                                ? "Atualizar status Vindi"
-                                : "Criar afiliado Vindi"}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -1970,13 +1780,7 @@ export function ProductsAdminWorkspace({
                         </TableCell>
                         <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                           <p>{paymentMethod(order)}</p>
-                          <p>
-                            {order.provider === "vindi"
-                              ? `Vindi ${order.vindiChargeId ?? order.providerPaymentId ?? "—"}`
-                              : order.providerPaymentId
-                                ? `MP ${order.providerPaymentId}`
-                                : "—"}
-                          </p>
+                          <p>{paymentReference(order)}</p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {money(order.priceCentavos)}
@@ -1995,7 +1799,7 @@ export function ProductsAdminWorkspace({
                           </p>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.financialModel === "vindi_split_v1"
+                          {usesFrozenSplitAmounts(order.financialModel)
                             ? order.expertAmountCentavos !== null
                               ? money(order.expertAmountCentavos)
                               : "—"
@@ -2017,7 +1821,7 @@ export function ProductsAdminWorkspace({
                               : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {order.financialModel === "vindi_split_v1"
+                          {usesFrozenSplitAmounts(order.financialModel)
                             ? order.platformTheoreticalAmountCentavos !== null
                               ? money(order.platformTheoreticalAmountCentavos)
                               : "—"
@@ -2171,55 +1975,6 @@ export function ProductsAdminWorkspace({
                 onSelect={changeProductOwner}
               />
             </Field>
-            <div className="space-y-3 rounded-lg border bg-muted/20 p-3 md:col-span-2">
-              <p className="text-sm font-medium">Participação do Expert (Vindi)</p>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Fração do líquido de distribuição — preço menos 5,49% — devida ao
-                expert. O valor em centavos é congelado na venda e enviado à Vindi
-                como split fixo.
-              </p>
-              <Field label="Participação">
-                <Input
-                  inputMode="decimal"
-                  placeholder="Ex.: 80%"
-                  value={productForm.expertParticipationPercent}
-                  disabled={expertParticipationLocked}
-                  readOnly={expertParticipationLocked}
-                  aria-readonly={expertParticipationLocked}
-                  className={
-                    expertParticipationLocked ? "bg-muted/40" : undefined
-                  }
-                  onChange={(event) =>
-                    setProductForm((current) => ({
-                      ...current,
-                      expertParticipationPercent: formatPercentageInput(
-                        event.target.value,
-                      ),
-                    }))
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  {expertParticipationLocked
-                    ? "Produto do Automatize: a participação do expert é zero."
-                    : "Informe 0% a 100%. A sobra de arredondamento fica com a plataforma."}
-                </p>
-              </Field>
-              {vindiSplitPreview ? (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Neste preço o expert recebe{" "}
-                  {formatBrlCurrencyFromCentavos(vindiSplitPreview.expertAmountCentavos)}{" "}
-                  (fixo). A plataforma fica com{" "}
-                  {formatBrlCurrencyFromCentavos(
-                    vindiSplitPreview.platformTheoreticalAmountCentavos,
-                  )}{" "}
-                  do líquido de{" "}
-                  {formatBrlCurrencyFromCentavos(
-                    vindiSplitPreview.distributionNetCentavos,
-                  )}
-                  .
-                </p>
-              ) : null}
-            </div>
             <Field label="Incluído a partir do plano">
               <Select
                 value={productForm.minimumPlanTier || "none"}
@@ -2328,19 +2083,6 @@ export function ProductsAdminWorkspace({
             </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
-            {!productFormAffiliateReadiness.ready ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 md:col-span-2 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100">
-                <p className="font-medium">{productFormAffiliateReadiness.message}</p>
-                <p className="mt-1 text-amber-900/80 dark:text-amber-100/80">
-                  {productFormAffiliateReadiness.missing}
-                </p>
-                {!productFormSaleGate.allowed ? (
-                  <p className="mt-1 font-medium">
-                    Publique ou habilite a venda só depois da verificação.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
             <DialogFooter className="md:col-span-2">
               <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
               <Button type="submit" disabled={loading}>
@@ -2717,7 +2459,9 @@ export function ProductsAdminWorkspace({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isVindiRefund ? "Estornar pagamento na Vindi" : "Registrar reembolso"}
+              {isMercadoPagoRefund
+                ? "Estornar pagamento no Mercado Pago"
+                : "Registrar reembolso"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {refundTarget
@@ -2727,8 +2471,8 @@ export function ProductsAdminWorkspace({
           </AlertDialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">
-              {isVindiRefund
-                ? "O estorno é total e feito pela API da Vindi — o valor volta ao comprador pelo mesmo método do pagamento (requer saldo na conta Vindi)."
+              {isMercadoPagoRefund
+                ? "O estorno é total e feito pela API do Mercado Pago — o valor volta ao comprador pelo Pix."
                 : "Isso não devolve o dinheiro — o Pix ao cliente é feito manualmente, fora do sistema."}
             </p>
             <ul className="list-disc space-y-1 pl-5">
@@ -2747,11 +2491,11 @@ export function ProductsAdminWorkspace({
               }}
             >
               {refunding
-                ? isVindiRefund
+                ? isMercadoPagoRefund
                   ? "Estornando…"
                   : "Registrando…"
-                : isVindiRefund
-                  ? "Estornar na Vindi"
+                : isMercadoPagoRefund
+                  ? "Estornar no Mercado Pago"
                   : "Registrar reembolso"}
             </AlertDialogAction>
           </AlertDialogFooter>
