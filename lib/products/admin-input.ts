@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { validateCoproducerSelection } from "./coproducer-policy";
 
 const internalCoverUrl = z.string().refine((value) => {
   if (!value.startsWith("/api/products/assets?")) return false;
@@ -53,25 +54,18 @@ export function parseProductAdminInput(input: unknown) {
   }
   const hasCoproduction =
     parsed.ownerType === "expert" && parsed.hasCoproduction;
+  const coproducerValidation = validateCoproducerSelection({
+    hasCoproduction,
+    coproducerType: parsed.coproducerType,
+  });
+  if (!coproducerValidation.ok) {
+    throw new Error(coproducerValidation.message);
+  }
   if (hasCoproduction && !parsed.coproducerType) {
     throw new Error("coprodutor é obrigatório");
   }
   if (hasCoproduction && parsed.coproducerSharePercent <= 0) {
     throw new Error("participação do coprodutor deve ser maior que zero");
-  }
-  if (
-    hasCoproduction &&
-    parsed.coproducerType === "expert" &&
-    !parsed.coproducerExpertId
-  ) {
-    throw new Error("expert coprodutor é obrigatório");
-  }
-  if (
-    hasCoproduction &&
-    parsed.coproducerType === "expert" &&
-    parsed.coproducerExpertId === parsed.expertId
-  ) {
-    throw new Error("o coprodutor deve ser diferente do proprietário");
   }
   const coproducerShareBasisPoints = hasCoproduction
     ? Math.round(parsed.coproducerSharePercent * 100)
@@ -88,10 +82,7 @@ export function parseProductAdminInput(input: unknown) {
     ownerExpertShareBasisPoints:
       parsed.ownerType === "expert" ? 10_000 - coproducerShareBasisPoints : 0,
     coproducerType: hasCoproduction ? parsed.coproducerType! : null,
-    coproducerExpertId:
-      hasCoproduction && parsed.coproducerType === "expert"
-        ? parsed.coproducerExpertId!
-        : null,
+    coproducerExpertId: null,
     coproducerShareBasisPoints,
     minimumPlanTier: parsed.minimumPlanTier ?? null,
     visibility: parsed.visibility,

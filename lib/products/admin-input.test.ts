@@ -110,26 +110,20 @@ describe("product admin input", () => {
     assert.equal(parsed.coproducerShareBasisPoints, 4_000);
   });
 
-  it("supports another expert as coproducer and rejects the owner", () => {
-    const input = {
-      ownerType: "expert" as const,
-      expertId: "11111111-1111-4111-8111-111111111111",
-      title: "Produto",
-      priceCentavos: 1000,
-      hasCoproduction: true,
-      coproducerType: "expert" as const,
-      coproducerExpertId: "22222222-2222-4222-8222-222222222222",
-      coproducerSharePercent: 40,
-    };
-
-    const parsed = parseProductAdminInput(input);
-    assert.equal(parsed.ownerExpertShareBasisPoints, 6_000);
-    assert.equal(parsed.coproducerType, "expert");
-    assert.equal(parsed.coproducerExpertId, input.coproducerExpertId);
-
+  it("bloqueia coprodutor Expert com mensagem clara", () => {
     assert.throws(
-      () => parseProductAdminInput({ ...input, coproducerExpertId: input.expertId }),
-      /diferente do proprietário/,
+      () =>
+        parseProductAdminInput({
+          ownerType: "expert",
+          expertId: "11111111-1111-4111-8111-111111111111",
+          title: "Produto",
+          priceCentavos: 1000,
+          hasCoproduction: true,
+          coproducerType: "expert",
+          coproducerExpertId: "22222222-2222-4222-8222-222222222222",
+          coproducerSharePercent: 40,
+        }),
+      /Coprodutor Expert não é permitido/,
     );
   });
 
