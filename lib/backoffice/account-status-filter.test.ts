@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { BillingProvider } from "@/lib/db/schema";
 import { matchesAccountStatusFilter } from "@/lib/backoffice/account-status-filter";
 import type { AccountStatusCustomer } from "@/lib/backoffice/account-status-filter";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 const now = new Date("2026-08-05T12:00:00.000Z");
 
@@ -180,7 +185,7 @@ describe("matchesAccountStatusFilter", () => {
       matchesAccountStatusFilter(
         customer({
           hasApprovedPayment: true,
-          lastPaymentProvider: "vindi",
+          lastPaymentProvider: HISTORICAL_PROVIDER,
           lastPaymentMethod: "pix",
         }),
         "active_plan_pix",

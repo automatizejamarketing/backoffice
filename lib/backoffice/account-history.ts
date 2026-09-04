@@ -5,6 +5,7 @@ import type {
   SubscriptionEventType,
   SubscriptionStatus,
 } from "@/lib/db/schema";
+import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "@/lib/backoffice/finance-provider";
 import { formatNumericDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { formatPlanLabel } from "@/lib/subscriptions/derive";
 
@@ -28,7 +29,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
-  vindi: "sem classificação",
 };
 
 export type AccountHistoryKind =
@@ -273,7 +273,8 @@ export function describeAccountHistoryItem(item: AccountHistoryItem): {
     case "payment": {
       const plan = formatPlanLabel(item.planType);
       const money = formatMoney(item.amount, item.currency);
-      const provider = PROVIDER_LABELS[item.provider] ?? item.provider;
+      const provider =
+        PROVIDER_LABELS[item.provider] ?? UNCLASSIFIED_FINANCE_PROVIDER_LABEL;
       if (item.status === "succeeded") {
         return {
           title: "Pagamento realizado — aumento da data de expiração",

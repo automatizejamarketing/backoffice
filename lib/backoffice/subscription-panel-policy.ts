@@ -1,5 +1,8 @@
 import type { BillingProvider } from "@/lib/db/schema";
-import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "./finance-provider";
+import {
+  UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
+  isKnownBillingProvider,
+} from "./finance-provider";
 import { getPixRenewalDisabledReason } from "./pix-renewal-policy";
 import { canCancelStripeSubscriptionAtPeriodEnd } from "./stripe-subscription-cancel-policy";
 import type { ActiveSubscriptionSummary } from "@/lib/db/admin-queries";
@@ -8,14 +11,16 @@ export const BILLING_PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
-  vindi: UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
 };
 
 export function billingProviderLabel(
   provider: BillingProvider | string | null | undefined,
 ): string {
   if (!provider) return "—";
-  return BILLING_PROVIDER_LABELS[provider as BillingProvider] ?? provider;
+  if (!isKnownBillingProvider(provider)) {
+    return UNCLASSIFIED_FINANCE_PROVIDER_LABEL;
+  }
+  return BILLING_PROVIDER_LABELS[provider];
 }
 
 export function providerExternalId(input: {

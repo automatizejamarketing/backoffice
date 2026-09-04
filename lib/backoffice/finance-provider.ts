@@ -1,8 +1,23 @@
-import type { BillingProvider, PaymentSettlementMethod } from "@/lib/db/schema";
+import {
+  BILLING_PROVIDER_VALUES,
+  type BillingProvider,
+  type PaymentSettlementMethod,
+} from "@/lib/db/schema";
 
 export type FinanceProvider = "card" | "pix" | "manual";
 
 export const UNCLASSIFIED_FINANCE_PROVIDER_LABEL = "sem classificação";
+
+/**
+ * `payments.provider` é varchar, não enum do banco: uma linha antiga pode trazer
+ * qualquer string. Antes da M2 isso era o `vindi` explícito em cada mapa de
+ * rótulo; agora é uma regra só — provedor fora do domínio não é classificado.
+ */
+export function isKnownBillingProvider(
+  provider: string | null | undefined,
+): provider is BillingProvider {
+  return (BILLING_PROVIDER_VALUES as readonly string[]).includes(provider ?? "");
+}
 
 export function financeProvider(input: {
   provider: BillingProvider;

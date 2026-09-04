@@ -27,7 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 interface SubscriptionData {
   id: string;
   userId: string;
-  provider: "stripe" | "mercadopago" | "manual" | "vindi";
+  provider: "stripe" | "mercadopago" | "manual";
   stripeSubscriptionId: string | null;
   planType: string;
   planName: string;
@@ -68,7 +68,6 @@ const PROVIDER_LABELS: Record<
   stripe: "Stripe",
   mercadopago: "Pix",
   manual: "Manual",
-  vindi: "sem classificação",
 };
 
 export default function SubscriptionsPage() {

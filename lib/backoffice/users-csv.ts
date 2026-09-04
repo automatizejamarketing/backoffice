@@ -1,7 +1,10 @@
 import type { UserWithUsage } from "@/lib/db/admin-queries";
+import {
+  UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
+  isKnownBillingProvider,
+} from "@/lib/backoffice/finance-provider";
 import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "@/lib/backoffice/finance-provider";
 import { formatBrazilianPhone } from "@/lib/phone";
 import {
   formatPlanLabel,
@@ -12,7 +15,6 @@ const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
   manual: "Manual",
-  vindi: UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
 };
 
 const CSV_COLUMNS = [
@@ -89,7 +91,9 @@ export function buildUsersCsv(users: UserWithUsage[]): string {
       sub?.currentPeriodEnd ?? null,
     );
     const providerLabel = sub?.provider
-      ? (PROVIDER_LABELS[sub.provider] ?? sub.provider)
+      ? (isKnownBillingProvider(sub.provider)
+          ? PROVIDER_LABELS[sub.provider]
+          : UNCLASSIFIED_FINANCE_PROVIDER_LABEL)
       : "";
 
     return [

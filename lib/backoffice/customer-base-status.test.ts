@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type { BillingProvider } from "@/lib/db/schema";
 import {
   listCustomerBaseStatusUsers,
   matchesCustomerBaseCategory,
   summarizeCustomerBaseStatus,
 } from "./customer-base-status";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 describe("summarizeCustomerBaseStatus", () => {
   test("classifies paying, trial, churn and scheduled cancel customers", () => {
@@ -207,7 +212,7 @@ describe("summarizeCustomerBaseStatus", () => {
     ).toBe(false);
   });
 
-  test("keeps historical Vindi churn in the total without classifying card or pix", () => {
+  test("keeps churn of an unknown provider in the total without classifying card or pix", () => {
     const now = new Date("2026-08-05T12:00:00.000Z");
 
     expect(
@@ -217,14 +222,14 @@ describe("summarizeCustomerBaseStatus", () => {
             expirationDate: new Date("2026-08-04T12:00:00.000Z"),
             hasApprovedPayment: true,
             scheduledCancel: false,
-            lastPaymentProvider: "vindi",
+            lastPaymentProvider: HISTORICAL_PROVIDER,
             lastPaymentMethod: "credit_card",
           },
           {
             expirationDate: new Date("2026-08-04T12:00:00.000Z"),
             hasApprovedPayment: true,
             scheduledCancel: false,
-            lastPaymentProvider: "vindi",
+            lastPaymentProvider: HISTORICAL_PROVIDER,
             lastPaymentMethod: "pix",
           },
         ],

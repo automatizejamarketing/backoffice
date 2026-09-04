@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ProductFinancialModel } from "@/lib/db/schema";
+import type { BillingProvider } from "@/lib/db/schema";
 import {
   describeAutomatizePaymentSequence,
   describeProductPaymentProvider,
@@ -14,6 +14,10 @@ import {
   listAutomatizePaymentNetGaps,
   resolveExpertSettlementRail,
 } from "./finance-payments";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 const automatizePaymentFixture = {
   id: "p1",
@@ -413,7 +417,7 @@ describe("finance payments summaries", () => {
       grossAmount: 29_700,
       netAmount: null,
       feeAmount: null,
-      provider: "vindi",
+      provider: HISTORICAL_PROVIDER,
       stripeInvoiceId: null,
     });
 
@@ -428,7 +432,7 @@ describe("finance payments summaries", () => {
         {
           ...automatizePaymentFixture,
           id: "historical-gap",
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           amount: 29_700,
           grossAmount: 29_700,
           stripeInvoiceId: null,
@@ -439,7 +443,7 @@ describe("finance payments summaries", () => {
         {
           ...automatizePaymentFixture,
           id: "product-row",
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           amount: 10_000,
           stripeInvoiceId: null,
           purpose: "product",
@@ -456,7 +460,7 @@ describe("finance payments summaries", () => {
       [
         {
           ...automatizePaymentFixture,
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           amount: 29_700,
           grossAmount: 29_700,
           netAmount: 28_353,
@@ -467,7 +471,7 @@ describe("finance payments summaries", () => {
         {
           ...automatizePaymentFixture,
           id: "product-row",
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           amount: 10_000,
           grossAmount: 10_000,
           netAmount: 9_451,
@@ -484,10 +488,10 @@ describe("finance payments summaries", () => {
     expect(summary.netCentavos).toBe(28_353);
   });
 
-  test("labels historical unclassified product payments without naming Vindi", () => {
+  test("labels product payments of an unknown provider without naming the raw value", () => {
     expect(
       describeProductPaymentProvider({
-        provider: "vindi",
+        provider: HISTORICAL_PROVIDER,
         paymentMethodId: "credit_card",
         paymentTypeId: null,
         providerPaymentId: "88002",
@@ -498,7 +502,7 @@ describe("finance payments summaries", () => {
     });
     expect(
       describeProductPaymentProvider({
-        provider: "vindi",
+        provider: HISTORICAL_PROVIDER,
         paymentMethodId: "pix",
         paymentTypeId: null,
         providerPaymentId: "88003",
@@ -509,7 +513,7 @@ describe("finance payments summaries", () => {
     });
     expect(
       describeProductPaymentProvider({
-        provider: "vindi",
+        provider: HISTORICAL_PROVIDER,
         paymentMethodId: null,
         paymentTypeId: null,
         providerPaymentId: null,
@@ -531,78 +535,6 @@ describe("finance payments summaries", () => {
       kind: "renewal",
       badgeLabel: "Renovação",
     });
-  });
-});
-
-describe("pedidos históricos vindi_split_v1", () => {
-  const legacyVindiSplitFixture = {
-    ...productPaymentFixture,
-    financialModel: "vindi_split_v1" as ProductFinancialModel,
-    expertShareBasisPoints: 0,
-    expertRevenueCentavos: null,
-    automatizeCoproductionRevenueCentavos: null,
-    automatizeProductRevenueCentavos: null,
-    automatizeTotalNetRevenueCentavos: null,
-    grossAmountCentavos: 10000,
-    netAmountCentavos: 10000,
-    feeAmountCentavos: null,
-    priceCentavos: 10000,
-  };
-
-  const vindiSplitWithSnapshots = {
-    ...legacyVindiSplitFixture,
-    expertRevenueCentavos: 7561,
-    automatizeTotalNetRevenueCentavos: 1890,
-  };
-
-  test("usa snapshots congelados para receita expert e Automatize", () => {
-    const amounts = resolveProductPaymentAmounts(vindiSplitWithSnapshots);
-
-    expect(amounts.expertRevenueCentavos).toBe(7561);
-    expect(amounts.automatizeNetCentavos).toBe(1890);
-  });
-
-  test("sem automatizeTotalNetRevenueCentavos, deriva do expertRevenueCentavos", () => {
-    const amounts = resolveProductPaymentAmounts({
-      ...vindiSplitWithSnapshots,
-      automatizeTotalNetRevenueCentavos: null,
-    });
-
-    expect(amounts.expertRevenueCentavos).toBe(7561);
-    expect(amounts.automatizeNetCentavos).toBe(2439);
-  });
-
-  test("sem snapshot suficiente, repasse e receita ficam sem classificação", () => {
-    const amounts = resolveProductPaymentAmounts(legacyVindiSplitFixture);
-    const netAmounts = resolveProductPaymentNetAmounts(legacyVindiSplitFixture);
-
-    expect(amounts.expertRevenueCentavos).toBe(0);
-    expect(amounts.automatizeNetCentavos).toBeNull();
-    expect(netAmounts.expertSettlementRail).toBeNull();
-    expect(netAmounts.expertSettlementLabel).toBeNull();
-  });
-
-  test("com snapshot expert, trilho de repasse é Repasse Manual", () => {
-    const netAmounts = resolveProductPaymentNetAmounts(vindiSplitWithSnapshots);
-
-    expect(netAmounts.expertSettlementRail).toBe("ledger");
-    expect(netAmounts.expertSettlementLabel).toBe("Repasse Manual");
-  });
-
-  test("produto do Automatize continua ficando com o líquido inteiro", () => {
-    const amounts = resolveProductPaymentAmounts({
-      ...legacyVindiSplitFixture,
-      ownerType: "automatize" as const,
-    });
-
-    expect(amounts.automatizeNetCentavos).toBe(10000);
-  });
-
-  test("os modelos antigos não mudam de comportamento", () => {
-    const amounts = resolveProductPaymentAmounts(productPaymentFixture);
-
-    expect(amounts.expertRevenueCentavos).toBe(17100);
-    expect(amounts.automatizeNetCentavos).toBe(1900);
   });
 });
 

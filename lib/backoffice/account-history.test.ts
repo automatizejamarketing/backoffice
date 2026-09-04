@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import type { BillingProvider } from "@/lib/db/schema";
 import { describe, test } from "node:test";
 import {
   buildAccountHistory,
   describeAccountHistoryItem,
 } from "./account-history";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 describe("buildAccountHistory", () => {
   test("orders newest first and maps signup, trial, payment, cancel, and admin change", () => {
@@ -165,7 +170,7 @@ describe("describeAccountHistoryItem", () => {
     assert.match(copy.detail ?? "", /Mercado Pago Pix/);
   });
 
-  test("labels a historical unclassified payment without naming Vindi", () => {
+  test("labels a payment of an unknown provider without naming the raw value", () => {
     const copy = describeAccountHistoryItem({
       id: "payment:2",
       kind: "payment",
@@ -173,11 +178,11 @@ describe("describeAccountHistoryItem", () => {
       planType: "monthly_starter",
       amount: 29700,
       currency: "brl",
-      provider: "vindi",
+      provider: HISTORICAL_PROVIDER,
       status: "succeeded",
     });
 
     assert.match(copy.detail ?? "", /sem classificação/);
-    assert.doesNotMatch(copy.detail ?? "", /vindi/i);
+    assert.doesNotMatch(copy.detail ?? "", /legacy_gateway/i);
   });
 });

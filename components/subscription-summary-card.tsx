@@ -26,7 +26,6 @@ const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
-  vindi: "sem classificação",
 };
 
 function formatDate(value: Date | string | null | undefined): string {

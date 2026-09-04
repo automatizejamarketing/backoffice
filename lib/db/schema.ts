@@ -480,7 +480,7 @@ export const product = pgTable(
     ownerExpertShareBasisPoints: integer("expert_share_basis_points")
       .notNull()
       .default(0),
-    /** Frozen per-product expert share for Vindi split (D4). Independent of
+    /** Frozen per-product expert share at checkout. Independent of
      * the v3 `expert_share_basis_points` / coproduction CHECK. */
     expertParticipationBps: integer("expert_participation_bps"),
     coproducerType: varchar("coproducer_type", {
@@ -2301,7 +2301,6 @@ export const BILLING_PROVIDER_VALUES = [
   "stripe",
   "mercadopago",
   "manual",
-  "vindi",
 ] as const;
 
 export type BillingProvider = (typeof BILLING_PROVIDER_VALUES)[number];

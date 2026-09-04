@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { BillingProvider } from "@/lib/db/schema";
 import { summarizeFinanceDashboard } from "./finance-dashboard";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 describe("finance dashboard", () => {
   test("normalizes active plans into MRR and reconciles payment net amounts", () => {
@@ -112,22 +117,22 @@ describe("finance dashboard", () => {
     expect(result.realizedLtvCentavos).toBe(0);
   });
 
-  test("keeps historical Vindi receipts in totals and out of classified providers", () => {
+  test("keeps receipts of an unknown provider in totals and out of classified providers", () => {
     const result = summarizeFinanceDashboard(
       [
         {
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           planType: "monthly_starter",
         },
         {
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           planType: "monthly_pro",
         },
       ],
       [
         {
           id: "historical-card",
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           amount: 29_700,
           grossAmount: 29_700,
           netAmount: 28_353,
@@ -138,7 +143,7 @@ describe("finance dashboard", () => {
         },
         {
           id: "historical-pix",
-          provider: "vindi",
+          provider: HISTORICAL_PROVIDER,
           amount: 49_700,
           grossAmount: 49_700,
           netAmount: 49_406,

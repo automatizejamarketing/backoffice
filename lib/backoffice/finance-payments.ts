@@ -16,7 +16,10 @@ import {
   isGatewayNetV1Model,
 } from "@/lib/products/gateway-net-v1";
 import type { StripeSettlement } from "./finance-dashboard";
-import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "./finance-provider";
+import {
+  UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
+  isKnownBillingProvider,
+} from "./finance-provider";
 import { isBillingPaymentPurpose } from "./finance-purpose";
 
 export type ExpertSettlementRail = ExpertSettlement;
@@ -380,19 +383,19 @@ export function describeProductPaymentProvider(
     payment.paymentMethodId?.toLowerCase() === "pix" ||
     payment.paymentTypeId?.toLowerCase() === "bank_transfer";
 
+  if (!isKnownBillingProvider(payment.provider)) {
+    return {
+      methodLabel: UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
+      referenceLabel: payment.providerPaymentId,
+    };
+  }
+
   if (payment.provider === "stripe") {
     return {
       methodLabel: "Cartão",
       referenceLabel: payment.providerPaymentId
         ? `Stripe ${payment.providerPaymentId}`
         : null,
-    };
-  }
-
-  if (payment.provider === "vindi") {
-    return {
-      methodLabel: UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
-      referenceLabel: payment.providerPaymentId,
     };
   }
 
@@ -464,16 +467,6 @@ export function formatGatewayFeeEstimateLabel(input: {
     { style: "currency", currency: "BRL" },
   );
   return `${percent}% + ${fixed}`;
-}
-
-// `vindi_split_v1` saiu de PRODUCT_FINANCIAL_MODEL_VALUES (ticket 21) mas linhas
-// históricas no Postgres mantêm esse valor até M2 — o cast evita "limpar" a comparação.
-const LEGACY_VINDI_SPLIT_MODEL = "vindi_split_v1" as const;
-
-function isLegacyVindiSplitModel(
-  financialModel: ProductFinancialModel | null | undefined,
-): boolean {
-  return (financialModel as string | null | undefined) === LEGACY_VINDI_SPLIT_MODEL;
 }
 
 export function resolveExpertSettlementRail(
@@ -646,37 +639,6 @@ export function resolveProductOrderNetAmounts(
   return resolveProductPaymentNetAmounts(order);
 }
 
-function resolveLegacyVindiSplitAutomatizeNetCentavos(
-  payment: Pick<
-    FinanceProductPaymentRow,
-    | "automatizeCoproductionRevenueCentavos"
-    | "automatizeProductRevenueCentavos"
-    | "expertShareBasisPoints"
-    | "expertRevenueCentavos"
-  >,
-  gatewayNet: number,
-): number | null {
-  const coproduction = payment.automatizeCoproductionRevenueCentavos;
-  const product = payment.automatizeProductRevenueCentavos;
-  if (coproduction !== null || product !== null) {
-    return (coproduction ?? 0) + (product ?? 0);
-  }
-  if (payment.expertRevenueCentavos !== null) {
-    return calculateAutomatizeNetRevenueCentavos(
-      gatewayNet,
-      Math.min(payment.expertRevenueCentavos, gatewayNet),
-    );
-  }
-  if (payment.expertShareBasisPoints > 0) {
-    const expertRevenue = calculateExpertShare(
-      gatewayNet,
-      payment.expertShareBasisPoints,
-    );
-    return calculateAutomatizeNetRevenueCentavos(gatewayNet, expertRevenue);
-  }
-  return null;
-}
-
 export function resolveAutomatizeProductNetCentavos(
   payment: Pick<
     FinanceProductPaymentRow,
@@ -703,10 +665,6 @@ export function resolveAutomatizeProductNetCentavos(
 
   if (payment.ownerType === "automatize") {
     return gatewayNet;
-  }
-
-  if (isLegacyVindiSplitModel(payment.financialModel)) {
-    return resolveLegacyVindiSplitAutomatizeNetCentavos(payment, gatewayNet);
   }
 
   if (usesPlatformFeeFinancialModel(payment.financialModel)) {

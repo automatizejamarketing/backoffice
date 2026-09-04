@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { BillingProvider } from "@/lib/db/schema";
 import test from "node:test";
 import {
   billingProviderLabel,
@@ -6,6 +7,10 @@ import {
   decideSubscriptionPanelActions,
   providerExternalId,
 } from "./subscription-panel-policy";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 const stripeActive = {
   id: "sub-db",
@@ -27,18 +32,18 @@ const failedStripePayment = {
   createdAt: new Date("2026-08-01T12:00:00.000Z"),
 };
 
-test("billingProviderLabel names Stripe, Mercado Pago and manual without Vindi", () => {
+test("billingProviderLabel names Stripe, Mercado Pago and manual, and degrades the rest", () => {
   assert.equal(billingProviderLabel("stripe"), "Stripe/cartão");
   assert.equal(billingProviderLabel("mercadopago"), "Mercado Pago Pix");
   assert.equal(billingProviderLabel("manual"), "Manual");
-  assert.equal(billingProviderLabel("vindi"), "sem classificação");
-  assert.doesNotMatch(billingProviderLabel("vindi"), /vindi/i);
+  assert.equal(billingProviderLabel(HISTORICAL_PROVIDER), "sem classificação");
+  assert.doesNotMatch(billingProviderLabel(HISTORICAL_PROVIDER), /legacy_gateway/i);
 });
 
 test("providerExternalId keeps a historical provider id so listings still resolve", () => {
   assert.equal(
     providerExternalId({
-      provider: "vindi",
+      provider: HISTORICAL_PROVIDER,
       historicalProviderId: "88002",
     }),
     "88002",
@@ -74,7 +79,7 @@ test("decideStripePaymentRecovery hides recovery when the Assinatura Viva is not
     decideStripePaymentRecovery({
       subscription: {
         ...stripeActive,
-        provider: "vindi",
+        provider: HISTORICAL_PROVIDER,
         status: "past_due",
       },
       payments: [failedStripePayment],
@@ -93,7 +98,7 @@ test("decideStripePaymentRecovery hides recovery for an active Assinante Stripe"
   );
 });
 
-test("decideSubscriptionPanelActions keeps Stripe and Mercado Pago actions and never enables Vindi ones", () => {
+test("decideSubscriptionPanelActions keeps Stripe and Mercado Pago actions and enables none for an unknown provider", () => {
   const stripePastDue = decideSubscriptionPanelActions({
     subscription: { ...stripeActive, status: "past_due" },
     payments: [failedStripePayment],
@@ -117,7 +122,7 @@ test("decideSubscriptionPanelActions keeps Stripe and Mercado Pago actions and n
   const historical = decideSubscriptionPanelActions({
     subscription: {
       ...stripeActive,
-      provider: "vindi",
+      provider: HISTORICAL_PROVIDER,
       stripeSubscriptionId: null,
       status: "past_due",
     },

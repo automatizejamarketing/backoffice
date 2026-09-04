@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import type { BillingProvider } from "@/lib/db/schema";
 import { buildUsersCsv } from "./users-csv";
 import type { UserWithUsage } from "@/lib/db/admin-queries";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 function userWithProvider(
   provider: NonNullable<UserWithUsage["activeSubscription"]>["provider"],
@@ -47,11 +52,11 @@ function userWithProvider(
 }
 
 describe("buildUsersCsv provider labels", () => {
-  test("labels Stripe as Cartão, Mercado Pago as Pix, and historical Vindi as sem classificação", () => {
+  test("labels Stripe as Cartão, Mercado Pago as Pix, and an unknown provider as sem classificação", () => {
     expect(buildUsersCsv([userWithProvider("stripe")])).toContain("Cartão");
     expect(buildUsersCsv([userWithProvider("mercadopago")])).toContain("Pix");
-    const historical = buildUsersCsv([userWithProvider("vindi")]);
+    const historical = buildUsersCsv([userWithProvider(HISTORICAL_PROVIDER)]);
     expect(historical).toContain("sem classificação");
-    expect(historical).not.toMatch(/vindi/i);
+    expect(historical).not.toMatch(/legacy_gateway/i);
   });
 });

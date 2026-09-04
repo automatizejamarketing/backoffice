@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import type { BillingProvider } from "@/lib/db/schema";
 import { describe, it } from "node:test";
 import { decideProductOrderRefund } from "./order-refund-policy";
+
+/** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
+ *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
+const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
 const approvedMercadoPago = {
   status: "approved" as const,
@@ -49,7 +54,7 @@ describe("decideProductOrderRefund", () => {
     assert.deepEqual(
       decideProductOrderRefund({
         status: "approved",
-        provider: "vindi",
+        provider: HISTORICAL_PROVIDER,
         providerPaymentId: "chg-9",
       }),
       { ok: true, path: "manual" },
