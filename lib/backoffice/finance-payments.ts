@@ -109,7 +109,7 @@ export type FinanceProductPaymentAmounts = {
   gatewayNetCentavos: number;
   expertRevenueCentavos: number;
   platformFeeGrossCentavos: number | null;
-  automatizeNetCentavos: number;
+  automatizeNetCentavos: number | null;
   revenueKind: "coproducao" | "taxa";
 };
 
@@ -140,7 +140,7 @@ export type FinanceProductPaymentAmountRow = Pick<
 
 export type FinanceProductPaymentNetAmounts = FinanceProductPaymentAmounts & {
   netCentavos: number;
-  automatizeRevenueCentavos: number;
+  automatizeRevenueCentavos: number | null;
   expertSettlementRail: ExpertSettlementRail | null;
   expertSettlementLabel: string | null;
   gatewayFeeEstimateLabel: string | null;
@@ -486,7 +486,6 @@ export function resolveExpertSettlementRail(
   if (payment.expertSettlement === "gateway") return "gateway";
   if (payment.expertSettlement === "ledger") return "ledger";
   if (payment.ownerType === "automatize") return null;
-  if (isLegacyVindiSplitModel(payment.financialModel)) return "gateway";
   if (
     payment.expertRevenueCentavos !== null &&
     payment.expertRevenueCentavos > 0
@@ -606,7 +605,9 @@ export function summarizeProductPaymentsBySettlementRail<
     if (amounts.feeCentavos !== null) bucket.feeCentavos += amounts.feeCentavos;
     bucket.netCentavos += amounts.netCentavos;
     bucket.expertRevenueCentavos += amounts.expertRevenueCentavos;
-    bucket.automatizeRevenueCentavos += amounts.automatizeRevenueCentavos;
+    if (amounts.automatizeRevenueCentavos !== null) {
+      bucket.automatizeRevenueCentavos += amounts.automatizeRevenueCentavos;
+    }
 
     if (amounts.countsTowardExpertPayableBalance) {
       summary.expertPayableCentavos += amounts.expertRevenueCentavos;
@@ -620,6 +621,37 @@ export function resolveProductOrderNetAmounts(
   order: FinanceProductPaymentAmountRow,
 ): FinanceProductPaymentNetAmounts {
   return resolveProductPaymentNetAmounts(order);
+}
+
+function resolveLegacyVindiSplitAutomatizeNetCentavos(
+  payment: Pick<
+    FinanceProductPaymentRow,
+    | "automatizeCoproductionRevenueCentavos"
+    | "automatizeProductRevenueCentavos"
+    | "expertShareBasisPoints"
+    | "expertRevenueCentavos"
+  >,
+  gatewayNet: number,
+): number | null {
+  const coproduction = payment.automatizeCoproductionRevenueCentavos;
+  const product = payment.automatizeProductRevenueCentavos;
+  if (coproduction !== null || product !== null) {
+    return (coproduction ?? 0) + (product ?? 0);
+  }
+  if (payment.expertRevenueCentavos !== null) {
+    return calculateAutomatizeNetRevenueCentavos(
+      gatewayNet,
+      Math.min(payment.expertRevenueCentavos, gatewayNet),
+    );
+  }
+  if (payment.expertShareBasisPoints > 0) {
+    const expertRevenue = calculateExpertShare(
+      gatewayNet,
+      payment.expertShareBasisPoints,
+    );
+    return calculateAutomatizeNetRevenueCentavos(gatewayNet, expertRevenue);
+  }
+  return null;
 }
 
 export function resolveAutomatizeProductNetCentavos(
@@ -641,7 +673,7 @@ export function resolveAutomatizeProductNetCentavos(
     | "netAmountCentavos"
   >,
   gatewayNet: number,
-): number {
+): number | null {
   if (payment.automatizeTotalNetRevenueCentavos !== null) {
     return payment.automatizeTotalNetRevenueCentavos;
   }
@@ -650,10 +682,8 @@ export function resolveAutomatizeProductNetCentavos(
     return gatewayNet;
   }
 
-  // Pedidos históricos `vindi_split_v1` já liquidaram no gateway; sem as colunas
-  // congeladas no schema, a receita da Automatize fica indeterminada até M2.
   if (isLegacyVindiSplitModel(payment.financialModel)) {
-    return 0;
+    return resolveLegacyVindiSplitAutomatizeNetCentavos(payment, gatewayNet);
   }
 
   if (usesPlatformFeeFinancialModel(payment.financialModel)) {
@@ -752,7 +782,9 @@ export function summarizeProductPayments<
     summary.count += 1;
     summary.grossCentavos += amounts.grossCentavos;
     if (amounts.feeCentavos !== null) summary.feeCentavos += amounts.feeCentavos;
-    summary.netCentavos += amounts.automatizeRevenueCentavos;
+    if (amounts.automatizeRevenueCentavos !== null) {
+      summary.netCentavos += amounts.automatizeRevenueCentavos;
+    }
     summary.netCoveragePayments += 1;
   }
 
@@ -786,7 +818,9 @@ export function summarizeProductPaymentsByProduct<
     };
 
     summary.grossRevenueCentavos += amounts.grossCentavos;
-    summary.automatizeNetRevenueCentavos += amounts.automatizeNetCentavos;
+    if (amounts.automatizeNetCentavos !== null) {
+      summary.automatizeNetRevenueCentavos += amounts.automatizeNetCentavos;
+    }
     summaries.set(payment.productId, summary);
   }
 

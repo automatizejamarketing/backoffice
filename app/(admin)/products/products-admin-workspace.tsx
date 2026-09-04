@@ -2039,7 +2039,9 @@ export function ProductsAdminWorkspace({
                           {money(amounts.expertRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {money(amounts.automatizeRevenueCentavos)}
+                          {amounts.automatizeRevenueCentavos !== null
+                            ? money(amounts.automatizeRevenueCentavos)
+                            : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {amounts.expertSettlementLabel ? (
@@ -2870,7 +2872,9 @@ export function ProductsAdminWorkspace({
                         Coprodução do Automatize
                       </dt>
                       <dd className="font-mono tabular-nums">
-                        {money(amounts.automatizeRevenueCentavos)}
+                        {amounts.automatizeRevenueCentavos !== null
+                          ? money(amounts.automatizeRevenueCentavos)
+                          : "—"}
                       </dd>
                     </div>
                     {orderDetailTarget.stripeAccountId ? (

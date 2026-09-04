@@ -539,19 +539,53 @@ describe("pedidos históricos vindi_split_v1", () => {
     financialModel: "vindi_split_v1" as ProductFinancialModel,
     expertShareBasisPoints: 0,
     expertRevenueCentavos: null,
+    automatizeCoproductionRevenueCentavos: null,
+    automatizeProductRevenueCentavos: null,
+    automatizeTotalNetRevenueCentavos: null,
     grossAmountCentavos: 10000,
     netAmountCentavos: 10000,
     feeAmountCentavos: null,
     priceCentavos: 10000,
   };
 
-  test("trata repasse como gateway e não atribui receita da Automatize", () => {
+  const vindiSplitWithSnapshots = {
+    ...legacyVindiSplitFixture,
+    expertRevenueCentavos: 7561,
+    automatizeTotalNetRevenueCentavos: 1890,
+  };
+
+  test("usa snapshots congelados para receita expert e Automatize", () => {
+    const amounts = resolveProductPaymentAmounts(vindiSplitWithSnapshots);
+
+    expect(amounts.expertRevenueCentavos).toBe(7561);
+    expect(amounts.automatizeNetCentavos).toBe(1890);
+  });
+
+  test("sem automatizeTotalNetRevenueCentavos, deriva do expertRevenueCentavos", () => {
+    const amounts = resolveProductPaymentAmounts({
+      ...vindiSplitWithSnapshots,
+      automatizeTotalNetRevenueCentavos: null,
+    });
+
+    expect(amounts.expertRevenueCentavos).toBe(7561);
+    expect(amounts.automatizeNetCentavos).toBe(2439);
+  });
+
+  test("sem snapshot suficiente, repasse e receita ficam sem classificação", () => {
     const amounts = resolveProductPaymentAmounts(legacyVindiSplitFixture);
     const netAmounts = resolveProductPaymentNetAmounts(legacyVindiSplitFixture);
 
     expect(amounts.expertRevenueCentavos).toBe(0);
-    expect(amounts.automatizeNetCentavos).toBe(0);
-    expect(netAmounts.expertSettlementRail).toBe("gateway");
+    expect(amounts.automatizeNetCentavos).toBeNull();
+    expect(netAmounts.expertSettlementRail).toBeNull();
+    expect(netAmounts.expertSettlementLabel).toBeNull();
+  });
+
+  test("com snapshot expert, trilho de repasse é Repasse Manual", () => {
+    const netAmounts = resolveProductPaymentNetAmounts(vindiSplitWithSnapshots);
+
+    expect(netAmounts.expertSettlementRail).toBe("ledger");
+    expect(netAmounts.expertSettlementLabel).toBe("Repasse Manual");
   });
 
   test("produto do Automatize continua ficando com o líquido inteiro", () => {

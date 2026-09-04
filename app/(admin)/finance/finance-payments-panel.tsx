@@ -420,7 +420,9 @@ function ProductPaymentsTable({
                   {formatBRLFromCentavos(amounts.expertRevenueCentavos)}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                  {formatBRLFromCentavos(amounts.automatizeRevenueCentavos)}
+                  {amounts.automatizeRevenueCentavos !== null
+                    ? formatBRLFromCentavos(amounts.automatizeRevenueCentavos)
+                    : "—"}
                 </TableCell>
                 <TableCell>
                   {amounts.expertSettlementLabel ? (
