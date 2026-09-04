@@ -62,8 +62,8 @@ const productPaymentFixture = {
   coproducerTypeSnapshot: null,
   expertSettlement: null,
   ownerExpertReceivableCentavos: null,
-  gatewayFeeEstimateBps: 0,
-  gatewayFeeEstimateFixedCentavos: 0,
+  gatewayFeeEstimateBps: null,
+  gatewayFeeEstimateFixedCentavos: null,
   expertRevenueCentavos: 17100,
 };
 
@@ -697,13 +697,24 @@ describe("relatório líquido gateway_net_v1", () => {
     expect(settlement.expertPayableCentavos).toBe(4_601);
   });
 
-  test("Tarifa Estimada do Gateway não aparece em pedidos antigos com estimativa zerada", () => {
+  test("Tarifa Estimada do Gateway não aparece quando estimativa é nula", () => {
+    expect(
+      formatGatewayFeeEstimateLabel({
+        financialModel: "gateway_net_v1",
+        provider: "stripe",
+        gatewayFeeEstimateBps: null,
+        gatewayFeeEstimateFixedCentavos: null,
+      }),
+    ).toBeNull();
+  });
+
+  test("Tarifa Estimada do Gateway não aparece em modelos legados", () => {
     expect(
       formatGatewayFeeEstimateLabel({
         financialModel: "legacy_net_split",
         provider: "stripe",
-        gatewayFeeEstimateBps: 0,
-        gatewayFeeEstimateFixedCentavos: 0,
+        gatewayFeeEstimateBps: null,
+        gatewayFeeEstimateFixedCentavos: null,
       }),
     ).toBeNull();
   });

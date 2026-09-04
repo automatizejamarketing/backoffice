@@ -215,8 +215,8 @@ type Order = {
   coproducerShareBasisPoints: number;
   coproducerTypeSnapshot: ProductOwnerType | null;
   expertSettlement: "gateway" | "ledger" | null;
-  gatewayFeeEstimateBps: number;
-  gatewayFeeEstimateFixedCentavos: number;
+  gatewayFeeEstimateBps: number | null;
+  gatewayFeeEstimateFixedCentavos: number | null;
 };
 
 type Payout = {
@@ -2828,7 +2828,12 @@ export function ProductsAdminWorkspace({
                     gatewayFeeEstimateBps: orderDetailTarget.gatewayFeeEstimateBps,
                     gatewayFeeEstimateFixedCentavos:
                       orderDetailTarget.gatewayFeeEstimateFixedCentavos,
-                  }) ?? "Não se aplica"}
+                  }) ??
+                    (orderDetailTarget.financialModel === "gateway_net_v1" &&
+                    orderDetailTarget.gatewayFeeEstimateBps === null &&
+                    orderDetailTarget.gatewayFeeEstimateFixedCentavos === null
+                      ? "—"
+                      : "Não se aplica")}
                 </dd>
               </div>
               {(() => {

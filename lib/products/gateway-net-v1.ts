@@ -22,8 +22,8 @@ export type GatewayNetV1OrderSnapshot = {
   ownerExpertShareBasisPoints: number;
   coproducerType: "automatize" | null;
   coproducerShareBasisPoints: number;
-  gatewayFeeEstimateBps: number;
-  gatewayFeeEstimateFixedCentavos: number;
+  gatewayFeeEstimateBps: number | null;
+  gatewayFeeEstimateFixedCentavos: number | null;
 };
 
 function assertCentavos(value: number, name: string) {
@@ -91,6 +91,7 @@ export function buildGatewayNetV1OrderSnapshot(input: {
   ownerExpertShareBasisPoints: number;
   coproducerType: ProductOwnerType | null;
   coproducerShareBasisPoints: number;
+  paymentMethod?: "card" | "pix" | "free";
   gatewayFeeEstimateBps?: number;
   gatewayFeeEstimateFixedCentavos?: number;
 }): GatewayNetV1OrderSnapshot {
@@ -122,6 +123,25 @@ export function buildGatewayNetV1OrderSnapshot(input: {
     throw new Error("Owner and coproducer shares must sum to 100%");
   }
 
+  const snapshotBase = {
+    financialModel: "gateway_net_v1" as const,
+    platformFeeBasisPoints: 0 as const,
+    platformFeeFixedCentavos: 0 as const,
+    marketplaceFeeBasisPoints: 0 as const,
+    ownerExpertShareBasisPoints: input.ownerExpertShareBasisPoints,
+    coproducerType:
+      input.coproducerType === "automatize" ? ("automatize" as const) : null,
+    coproducerShareBasisPoints: input.coproducerShareBasisPoints,
+  };
+
+  if (input.paymentMethod !== "card") {
+    return {
+      ...snapshotBase,
+      gatewayFeeEstimateBps: null,
+      gatewayFeeEstimateFixedCentavos: null,
+    };
+  }
+
   const estimate =
     input.gatewayFeeEstimateBps === undefined &&
     input.gatewayFeeEstimateFixedCentavos === undefined
@@ -134,14 +154,7 @@ export function buildGatewayNetV1OrderSnapshot(input: {
   assertCentavos(estimate.fixedCentavos, "Gateway fee estimate fixed");
 
   return {
-    financialModel: "gateway_net_v1",
-    platformFeeBasisPoints: 0,
-    platformFeeFixedCentavos: 0,
-    marketplaceFeeBasisPoints: 0,
-    ownerExpertShareBasisPoints: input.ownerExpertShareBasisPoints,
-    coproducerType:
-      input.coproducerType === "automatize" ? "automatize" : null,
-    coproducerShareBasisPoints: input.coproducerShareBasisPoints,
+    ...snapshotBase,
     gatewayFeeEstimateBps: estimate.bps,
     gatewayFeeEstimateFixedCentavos: estimate.fixedCentavos,
   };

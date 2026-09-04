@@ -18,9 +18,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "expert_profiles_stripe_account_id_unique"
   WHERE "stripe_account_id" IS NOT NULL;--> statement-breakpoint
 
 ALTER TABLE "product_orders"
-  ADD COLUMN IF NOT EXISTS "gateway_fee_estimate_bps" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+  ADD COLUMN IF NOT EXISTS "gateway_fee_estimate_bps" integer;--> statement-breakpoint
 ALTER TABLE "product_orders"
-  ADD COLUMN IF NOT EXISTS "gateway_fee_estimate_fixed_centavos" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+  ADD COLUMN IF NOT EXISTS "gateway_fee_estimate_fixed_centavos" integer;--> statement-breakpoint
 
 ALTER TABLE "product_payments"
   ADD COLUMN IF NOT EXISTS "stripe_account_id" varchar(255);--> statement-breakpoint
@@ -139,8 +139,8 @@ ALTER TABLE "product_orders"
         AND "platform_fee_basis_points" = 0
         AND "platform_fee_fixed_centavos" = 0
         AND "marketplace_fee_basis_points" = 0
-        AND "gateway_fee_estimate_bps" >= 0
-        AND "gateway_fee_estimate_fixed_centavos" >= 0
+        AND ("gateway_fee_estimate_bps" IS NULL OR "gateway_fee_estimate_bps" >= 0)
+        AND ("gateway_fee_estimate_fixed_centavos" IS NULL OR "gateway_fee_estimate_fixed_centavos" >= 0)
         AND (
           (
             "expert_id_snapshot" IS NULL

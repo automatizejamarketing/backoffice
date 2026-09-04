@@ -98,8 +98,8 @@ export type FinanceProductPaymentRow = {
   coproducerTypeSnapshot: ProductOwnerType | null;
   expertSettlement: ExpertSettlement | null;
   ownerExpertReceivableCentavos: number | null;
-  gatewayFeeEstimateBps: number;
-  gatewayFeeEstimateFixedCentavos: number;
+  gatewayFeeEstimateBps: number | null;
+  gatewayFeeEstimateFixedCentavos: number | null;
   expertRevenueCentavos: number | null;
 };
 
@@ -440,8 +440,8 @@ export function describeExpertSettlementRail(
 export function formatGatewayFeeEstimateLabel(input: {
   financialModel: ProductFinancialModel;
   provider: string;
-  gatewayFeeEstimateBps: number;
-  gatewayFeeEstimateFixedCentavos: number;
+  gatewayFeeEstimateBps: number | null;
+  gatewayFeeEstimateFixedCentavos: number | null;
 }): string | null {
   if (!isGatewayNetV1Model(input.financialModel)) {
     return null;
@@ -450,8 +450,8 @@ export function formatGatewayFeeEstimateLabel(input: {
     return null;
   }
   if (
-    input.gatewayFeeEstimateBps === 0 &&
-    input.gatewayFeeEstimateFixedCentavos === 0
+    input.gatewayFeeEstimateBps === null ||
+    input.gatewayFeeEstimateFixedCentavos === null
   ) {
     return null;
   }
