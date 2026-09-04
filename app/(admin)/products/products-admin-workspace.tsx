@@ -105,6 +105,12 @@ import {
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
 import { isProductOfferedForSale } from "@/lib/products/sale-gate";
+import { deriveExpertStripeAccountState } from "@/lib/stripe/connect/state";
+import {
+  expertCardUnavailableMessage,
+  expertStripeAccountStateLabel,
+} from "@/lib/stripe/connect/labels";
+import type { ExpertStripeAccountState } from "@/lib/stripe/connect/state";
 import type { ProductContentType } from "@/lib/db/schema";
 import { cn } from "@/lib/utils";
 import {
@@ -123,6 +129,11 @@ type Expert = {
   platformFeeBasisPoints: number;
   platformFeeFixedCentavos: number;
   marketplaceFeeBasisPoints: number;
+  stripeAccountId: string | null;
+  stripeChargesEnabled: boolean;
+  stripePayoutsEnabled: boolean;
+  stripeDetailsSubmitted: boolean;
+  stripeAccountUpdatedAt: string | null;
 };
 
 type Product = {
@@ -212,7 +223,7 @@ type ProductFormState = {
   coverUrl: string;
   priceReais: string;
   hasCoproduction: boolean;
-  coproducerType: "automatize" | "expert";
+  coproducerType: "automatize";
   coproducerExpertId: string;
   coproducerSharePercent: string;
   minimumPlanTier: string;
@@ -361,6 +372,46 @@ function money(value: number) {
 
 function dateTime(value: string) {
   return formatShortDateTimeInSaoPaulo(value);
+}
+
+function getExpertStripeAccountDisplay(
+  expert: Pick<
+    Expert,
+    "stripeAccountId" | "stripeChargesEnabled" | "stripeAccountUpdatedAt"
+  >,
+) {
+  const state = deriveExpertStripeAccountState({
+    stripeAccountId: expert.stripeAccountId,
+    stripeChargesEnabled: expert.stripeChargesEnabled,
+  });
+  return {
+    state,
+    label: expertStripeAccountStateLabel[state.status],
+    updatedAt: expert.stripeAccountUpdatedAt,
+  };
+}
+
+function getExpertStripeBadgeProps(state: ExpertStripeAccountState["status"]) {
+  switch (state) {
+    case "enabled":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300",
+      };
+    case "connected_without_charges":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300",
+      };
+    case "not_connected":
+      return {
+        variant: "outline" as const,
+        className:
+          "border-border bg-muted/50 text-muted-foreground dark:bg-muted/30",
+      };
+  }
 }
 
 function paymentMethod(order: Order) {
@@ -691,6 +742,11 @@ export function ProductsAdminWorkspace({
   const [paymentsDialogProduct, setPaymentsDialogProduct] = useState<Product | null>(
     null,
   );
+  const [stripeActionExpertId, setStripeActionExpertId] = useState<string | null>(
+    null,
+  );
+  const [onboardingLinkUrl, setOnboardingLinkUrl] = useState<string | null>(null);
+  const [onboardingLinkDialogOpen, setOnboardingLinkDialogOpen] = useState(false);
 
   const selectedProduct = useMemo(
     () => products.find((row) => row.product.id === selectedProductId)?.product,
@@ -870,9 +926,9 @@ export function ProductsAdminWorkspace({
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
-      hasCoproduction: row.coproducerType !== null,
-      coproducerType: row.coproducerType ?? "automatize",
-      coproducerExpertId: row.coproducerExpertId ?? "",
+      hasCoproduction: row.coproducerType === "automatize",
+      coproducerType: "automatize",
+      coproducerExpertId: "",
       coproducerSharePercent:
         row.coproducerType === null
           ? ""
@@ -1335,6 +1391,72 @@ export function ProductsAdminWorkspace({
     }
   }
 
+  async function refreshExpertStripeAccount(expertId: string) {
+    setStripeActionExpertId(expertId);
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/stripe-account/refresh`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      toast.success("Estado da Conta Stripe do Expert atualizado.");
+      await loadAll();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível atualizar a Conta Stripe do Expert.",
+      );
+    } finally {
+      setStripeActionExpertId(null);
+    }
+  }
+
+  async function resendExpertStripeOnboarding(expertId: string) {
+    setStripeActionExpertId(expertId);
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/stripe-account/onboarding-link`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      const payload = (await response.json()) as { onboardingUrl: string };
+      setOnboardingLinkUrl(payload.onboardingUrl);
+      setOnboardingLinkDialogOpen(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível gerar o link de onboarding.",
+      );
+    } finally {
+      setStripeActionExpertId(null);
+    }
+  }
+
+  async function copyOnboardingLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link de onboarding copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o link.");
+    }
+  }
+
+  const editingExpertStripe = editingExpertId
+    ? experts.find((expert) => expert.id === editingExpertId) ?? null
+    : null;
+  const editingExpertStripeDisplay = editingExpertStripe
+    ? getExpertStripeAccountDisplay(editingExpertStripe)
+    : null;
+  const selectedOwnerExpert =
+    productForm.ownerType === "expert" && productForm.expertId
+      ? expertsById.get(productForm.expertId) ?? null
+      : null;
+  const selectedOwnerStripeDisplay = selectedOwnerExpert
+    ? getExpertStripeAccountDisplay(selectedOwnerExpert)
+    : null;
+
   const isMercadoPagoRefund = refundTarget?.provider === "mercadopago";
 
   async function confirmRefund() {
@@ -1467,7 +1589,36 @@ export function ProductsAdminWorkspace({
                               ) : (
                                 <AutomatizeAvatar />
                               )}
-                              <span>{ownerName}</span>
+                              <div className="min-w-0">
+                                <span>{ownerName}</span>
+                                {ownerExpert ? (
+                                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                                    {(() => {
+                                      const stripeDisplay =
+                                        getExpertStripeAccountDisplay(ownerExpert);
+                                      const stripeBadge = getExpertStripeBadgeProps(
+                                        stripeDisplay.state.status,
+                                      );
+                                      return (
+                                        <>
+                                          <Badge
+                                            variant={stripeBadge.variant}
+                                            className={`${stripeBadge.className} text-[10px]`}
+                                          >
+                                            {stripeDisplay.label}
+                                          </Badge>
+                                          {offeredForSale &&
+                                          stripeDisplay.state.status !== "enabled" ? (
+                                            <span className="text-[10px] text-muted-foreground">
+                                              {expertCardUnavailableMessage}
+                                            </span>
+                                          ) : null}
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">{money(row.priceCentavos)}</TableCell>
@@ -1648,6 +1799,7 @@ export function ProductsAdminWorkspace({
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Expert</TableHead>
+                    <TableHead className="w-[220px]">Conta Stripe do Expert</TableHead>
                     <TableHead className="w-[170px]">WhatsApp</TableHead>
                     <TableHead className="w-[280px]">Chave Pix</TableHead>
                     <TableHead className="w-[190px]">Taxa da plataforma</TableHead>
@@ -1656,7 +1808,13 @@ export function ProductsAdminWorkspace({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {experts.map((expert) => (
+                  {experts.map((expert) => {
+                    const stripeDisplay = getExpertStripeAccountDisplay(expert);
+                    const stripeBadge = getExpertStripeBadgeProps(
+                      stripeDisplay.state.status,
+                    );
+
+                    return (
                     <TableRow key={expert.id}>
                       <TableCell>
                         <div className="flex items-center gap-3">
@@ -1665,6 +1823,18 @@ export function ProductsAdminWorkspace({
                             <p className="truncate font-medium">{expert.displayName}</p>
                             <p className="truncate text-sm text-muted-foreground">{expert.email}</p>
                           </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <Badge variant={stripeBadge.variant} className={stripeBadge.className}>
+                            {stripeDisplay.label}
+                          </Badge>
+                          <p className="text-xs text-muted-foreground">
+                            {stripeDisplay.updatedAt
+                              ? `Atualizado ${dateTime(stripeDisplay.updatedAt)}`
+                              : "Sem sincronização"}
+                          </p>
                         </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
@@ -1708,15 +1878,38 @@ export function ProductsAdminWorkspace({
                               <MoreHorizontal className="size-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuContent align="end" className="w-56">
                             <DropdownMenuItem onSelect={() => editExpert(expert)}>
                               <Pencil /> Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void refreshExpertStripeAccount(expert.id)}
+                              disabled={stripeActionExpertId === expert.id}
+                            >
+                              {stripeActionExpertId === expert.id ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                <RefreshCcw />
+                              )}
+                              Atualizar estado
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => void resendExpertStripeOnboarding(expert.id)}
+                              disabled={stripeActionExpertId === expert.id}
+                            >
+                              {stripeActionExpertId === expert.id ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                <Copy />
+                              )}
+                              Reenviar onboarding
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
@@ -2082,6 +2275,60 @@ export function ProductsAdminWorkspace({
               )}
             </Field>
             <Field label="Descrição" className="md:col-span-2"><Input value={productForm.description} onChange={(e) => setProductForm({ ...productForm, description: e.target.value })} /></Field>
+            {productForm.ownerType === "expert" ? (
+              <>
+                <div className="space-y-3 rounded-lg border bg-muted/20 p-4 md:col-span-2">
+                  <label className="flex items-center gap-3 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={productForm.hasCoproduction}
+                      onChange={(event) =>
+                        setProductForm({
+                          ...productForm,
+                          hasCoproduction: event.target.checked,
+                          coproducerType: "automatize",
+                          coproducerExpertId: "",
+                          coproducerSharePercent: event.target.checked
+                            ? productForm.coproducerSharePercent
+                            : "",
+                        })
+                      }
+                    />
+                    Coprodução do Automatize
+                  </label>
+                  {productForm.hasCoproduction ? (
+                    <Field label="Participação do Automatize (%)">
+                      <Input
+                        inputMode="decimal"
+                        value={productForm.coproducerSharePercent}
+                        onChange={(event) =>
+                          setProductForm({
+                            ...productForm,
+                            coproducerType: "automatize",
+                            coproducerSharePercent: formatPercentageInput(
+                              event.target.value,
+                            ),
+                          })
+                        }
+                        required={productForm.hasCoproduction}
+                      />
+                    </Field>
+                  ) : null}
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Coprodutor Expert não é permitido — somente Coprodução do Automatize ou nenhum coprodutor.
+                  </p>
+                </div>
+                {selectedOwnerStripeDisplay &&
+                selectedOwnerStripeDisplay.state.status !== "enabled" ? (
+                  <p className="text-xs text-muted-foreground md:col-span-2">
+                    {expertCardUnavailableMessage}
+                    {selectedOwnerStripeDisplay.updatedAt
+                      ? ` Última sincronização: ${dateTime(selectedOwnerStripeDisplay.updatedAt)}.`
+                      : ""}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
             <DialogFooter className="md:col-span-2">
               <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
@@ -2158,6 +2405,73 @@ export function ProductsAdminWorkspace({
             <Field label="Chave Pix">
               <Input value={expertForm.pixKey} onChange={(event) => setExpertForm({ ...expertForm, pixKey: event.target.value })} required />
             </Field>
+            {editingExpertStripeDisplay ? (
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Conta Stripe do Expert</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Estado espelhado da Stripe. Cartão no checkout exige conta habilitada.
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      getExpertStripeBadgeProps(editingExpertStripeDisplay.state.status)
+                        .variant
+                    }
+                    className={
+                      getExpertStripeBadgeProps(editingExpertStripeDisplay.state.status)
+                        .className
+                    }
+                  >
+                    {editingExpertStripeDisplay.label}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {editingExpertStripeDisplay.updatedAt
+                    ? `Última sincronização: ${dateTime(editingExpertStripeDisplay.updatedAt)}`
+                    : "Sem sincronização registrada"}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!editingExpertId || stripeActionExpertId === editingExpertId}
+                    onClick={() =>
+                      editingExpertId
+                        ? void refreshExpertStripeAccount(editingExpertId)
+                        : undefined
+                    }
+                  >
+                    {stripeActionExpertId === editingExpertId ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <RefreshCcw className="size-4" />
+                    )}
+                    Atualizar estado
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!editingExpertId || stripeActionExpertId === editingExpertId}
+                    onClick={() =>
+                      editingExpertId
+                        ? void resendExpertStripeOnboarding(editingExpertId)
+                        : undefined
+                    }
+                  >
+                    {stripeActionExpertId === editingExpertId ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Copy className="size-4" />
+                    )}
+                    Reenviar onboarding
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
               <div>
                 <p className="text-sm font-medium">Taxa da plataforma</p>
@@ -2501,6 +2815,50 @@ export function ProductsAdminWorkspace({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={onboardingLinkDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setOnboardingLinkDialogOpen(false);
+            setOnboardingLinkUrl(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Link de onboarding da Conta Stripe do Expert</DialogTitle>
+            <DialogDescription>
+              Link de uso único. Copie e envie ao Expert — a URL não fica registrada em log.
+            </DialogDescription>
+          </DialogHeader>
+          {onboardingLinkUrl ? (
+            <div className="space-y-3">
+              <Input readOnly value={onboardingLinkUrl} />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void copyOnboardingLink(onboardingLinkUrl)}
+              >
+                <Copy className="size-4" />
+                Copiar link
+              </Button>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setOnboardingLinkDialogOpen(false);
+                setOnboardingLinkUrl(null);
+              }}
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
