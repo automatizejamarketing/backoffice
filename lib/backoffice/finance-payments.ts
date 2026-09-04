@@ -497,6 +497,25 @@ export function resolveExpertSettlementRail(
   return null;
 }
 
+function isGatewayNetV1UnclassifiedCardPayment(
+  payment: Pick<
+    FinanceProductPaymentAmountRow,
+    | "financialModel"
+    | "provider"
+    | "expertSettlement"
+    | "ownerExpertReceivableCentavos"
+    | "expertRevenueCentavos"
+  >,
+): boolean {
+  return (
+    isGatewayNetV1Model(payment.financialModel) &&
+    payment.provider === "stripe" &&
+    payment.expertSettlement !== "gateway" &&
+    payment.ownerExpertReceivableCentavos === null &&
+    payment.expertRevenueCentavos === null
+  );
+}
+
 function resolveGatewayNetV1ExpertRevenueCentavos(
   payment: FinanceProductPaymentAmountRow,
 ): number {
@@ -506,10 +525,7 @@ function resolveGatewayNetV1ExpertRevenueCentavos(
   if (payment.expertRevenueCentavos !== null) {
     return payment.expertRevenueCentavos;
   }
-  if (
-    payment.expertSettlement === "gateway" ||
-    payment.provider === "stripe"
-  ) {
+  if (payment.expertSettlement === "gateway") {
     const gross = payment.grossAmountCentavos ?? payment.priceCentavos;
     const fee = payment.feeAmountCentavos ?? 0;
     const netCentavos = payment.netAmountCentavos ?? gross - fee;
@@ -554,9 +570,14 @@ export function resolveProductPaymentNetAmounts<
   let automatizeRevenueCentavos = base.automatizeNetCentavos;
 
   if (isGatewayNetV1Model(payment.financialModel)) {
-    expertRevenueCentavos = resolveGatewayNetV1ExpertRevenueCentavos(payment);
-    automatizeRevenueCentavos =
-      resolveGatewayNetV1AutomatizeRevenueCentavos(payment);
+    if (isGatewayNetV1UnclassifiedCardPayment(payment)) {
+      expertRevenueCentavos = 0;
+      automatizeRevenueCentavos = null;
+    } else {
+      expertRevenueCentavos = resolveGatewayNetV1ExpertRevenueCentavos(payment);
+      automatizeRevenueCentavos =
+        resolveGatewayNetV1AutomatizeRevenueCentavos(payment);
+    }
   } else if (payment.ownerType === "automatize") {
     expertRevenueCentavos = 0;
     automatizeRevenueCentavos = netCentavos;

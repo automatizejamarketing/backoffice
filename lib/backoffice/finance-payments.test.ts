@@ -12,6 +12,7 @@ import {
   summarizeProductPaymentsByProduct,
   summarizeProductPaymentsBySettlementRail,
   listAutomatizePaymentNetGaps,
+  resolveExpertSettlementRail,
 } from "./finance-payments";
 
 const automatizePaymentFixture = {
@@ -717,5 +718,86 @@ describe("relatório líquido gateway_net_v1", () => {
         gatewayFeeEstimateFixedCentavos: null,
       }),
     ).toBeNull();
+  });
+});
+
+describe("gateway_net_v1 trilho de repasse na leitura", () => {
+  const gatewayNetV1CardFixture = {
+    ...productPaymentFixture,
+    financialModel: "gateway_net_v1" as const,
+    provider: "stripe" as const,
+    grossAmountCentavos: 10_000,
+    netAmountCentavos: 9_561,
+    feeAmountCentavos: 439,
+    priceCentavos: 10_000,
+    expertShareBasisPoints: 8_000,
+    coproducerShareBasisPoints: 2_000,
+    coproducerTypeSnapshot: "automatize" as const,
+    ownerExpertReceivableCentavos: null,
+    automatizeCoproductionRevenueCentavos: null,
+    automatizeTotalNetRevenueCentavos: null,
+    expertRevenueCentavos: null,
+    gatewayFeeEstimateBps: 399,
+    gatewayFeeEstimateFixedCentavos: 40,
+  };
+
+  test("expert_settlement gateway → Repasse pelo Gateway", () => {
+    const payment = {
+      ...gatewayNetV1CardFixture,
+      expertSettlement: "gateway" as const,
+      ownerExpertReceivableCentavos: 7_649,
+      automatizeCoproductionRevenueCentavos: 1_912,
+      automatizeTotalNetRevenueCentavos: 1_912,
+    };
+
+    expect(resolveExpertSettlementRail(payment)).toBe("gateway");
+
+    const amounts = resolveProductPaymentNetAmounts(payment);
+    expect(amounts.expertRevenueCentavos).toBe(7_649);
+    expect(amounts.automatizeRevenueCentavos).toBe(1_912);
+    expect(amounts.expertSettlementRail).toBe("gateway");
+    expect(amounts.expertSettlementLabel).toBe("Repasse pelo Gateway");
+    expect(amounts.countsTowardExpertPayableBalance).toBe(false);
+  });
+
+  test("expert_settlement ledger → Repasse Manual", () => {
+    const payment = {
+      ...gatewayNetV1CardFixture,
+      provider: "mercadopago" as const,
+      expertSettlement: "ledger" as const,
+      ownerExpertReceivableCentavos: 4_601,
+      expertRevenueCentavos: 4_601,
+      grossAmountCentavos: 4_700,
+      netAmountCentavos: 4_601,
+      feeAmountCentavos: 99,
+      priceCentavos: 4_700,
+      expertShareBasisPoints: 10_000,
+      coproducerShareBasisPoints: 0,
+      coproducerTypeSnapshot: null,
+    };
+
+    expect(resolveExpertSettlementRail(payment)).toBe("ledger");
+
+    const amounts = resolveProductPaymentNetAmounts(payment);
+    expect(amounts.expertRevenueCentavos).toBe(4_601);
+    expect(amounts.expertSettlementRail).toBe("ledger");
+    expect(amounts.expertSettlementLabel).toBe("Repasse Manual");
+    expect(amounts.countsTowardExpertPayableBalance).toBe(true);
+  });
+
+  test("cartão Stripe sem expert_settlement → sem classificação, nunca gateway", () => {
+    const payment = {
+      ...gatewayNetV1CardFixture,
+      expertSettlement: null,
+    };
+
+    expect(resolveExpertSettlementRail(payment)).toBeNull();
+
+    const amounts = resolveProductPaymentNetAmounts(payment);
+    expect(amounts.expertRevenueCentavos).toBe(0);
+    expect(amounts.automatizeRevenueCentavos).toBeNull();
+    expect(amounts.expertSettlementRail).toBeNull();
+    expect(amounts.expertSettlementLabel).toBeNull();
+    expect(amounts.countsTowardExpertPayableBalance).toBe(false);
   });
 });
