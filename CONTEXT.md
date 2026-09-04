@@ -33,12 +33,18 @@ O backoffice é responsável por:
   gateway foi pago e não retorna;
 - revisar e registrar Saques manuais.
 
+Assinaturas e cobrança: vocabulário canônico em `automatize-frontend/CONTEXT.md`,
+seção "Assinaturas e cobrança". Decisão de gateway: ADR 0031 no frontend
+(`docs/adr/0031-stripe-cobranca-direta-mercadopago-pix.md`).
+
 Ele não inicia assinatura, não calcula acesso por plano e não executa Split
 Payments.
 
-O saldo do Expert é liberado na aprovação para Pix e na data de liberação do
-Mercado Pago para cartão, com fallback de 30 dias. O custo do provedor é
-absorvido pelo Automatize e não reduz o recebível do Expert.
+Pix de produto de Expert: saldo liberado na aprovação (**Repasse Manual**, ADR
+004). Cartão de produto de Expert com **Conta Stripe do Expert** habilitada:
+**Repasse pelo Gateway** — o líquido entra na Stripe do Expert, sem saldo a
+pagar no ledger. O **Custo do Provedor** é a tarifa efetiva do gateway (Stripe
+ou Mercado Pago) e não reduz o recebível do Expert no modelo `gateway_net_v1`.
 
 ## Armazenamento de arquivos
 
