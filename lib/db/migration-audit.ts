@@ -179,6 +179,34 @@ export function extractDdlTargets(sql: string): DdlTargets {
   return { tables: [...new Set(tables)], columns };
 }
 
+/**
+ * O contrário de `extractDdlTargets`: o que a migration REMOVE.
+ *
+ * Serve para separar as duas causas de "o objeto não está no banco". Ausência
+ * por migration pulada é defeito; ausência porque uma migration posterior
+ * dropou de propósito é o resultado esperado — e sem essa distinção todo drop
+ * deliberado deixa a auditoria vermelha para sempre, o que derruba o build.
+ */
+export function extractDroppedDdlTargets(sql: string): DdlTargets {
+  const clean = stripSqlComments(sql);
+
+  const tables = [
+    ...clean.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([^;]+)/gi),
+  ].flatMap((match) =>
+    [...match[1].matchAll(/"?([a-z0-9_]+)"?/gi)]
+      .map((name) => name[1])
+      .filter((name) => !/^(cascade|restrict|if|exists)$/i.test(name)),
+  );
+
+  const columns = [
+    ...clean.matchAll(
+      /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?"?([a-z0-9_]+)"?\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z0-9_]+)"?/gi,
+    ),
+  ].map((match) => ({ table: match[1], column: match[2] }));
+
+  return { tables: [...new Set(tables)], columns };
+}
+
 export type AuditInput = {
   files: MigrationFile[];
   /** Hashes presentes em `drizzle.__drizzle_migrations`. */
@@ -220,11 +248,26 @@ export function auditMigrations(input: AuditInput): AuditRow[] {
 
     const targets = extractDdlTargets(file.sql);
 
+    // O que migrations POSTERIORES dropam de propósito não conta como faltando.
+    // Só as posteriores: recriar um objeto depois de dropá-lo é legítimo, e aí
+    // a ausência volta a ser defeito.
+    const droppedLater = files
+      .filter((other) => other.when > file.when)
+      .map((other) => extractDroppedDdlTargets(other.sql));
+    const droppedTables = new Set(droppedLater.flatMap((t) => t.tables));
+    const droppedColumns = new Set(
+      droppedLater.flatMap((t) =>
+        t.columns.map(({ table, column }) => `${table}.${column}`),
+      ),
+    );
+
     const missingTables = targets.tables.filter(
-      (table) => !existingTables.has(table),
+      (table) => !existingTables.has(table) && !droppedTables.has(table),
     );
 
     const missingColumns = targets.columns.filter(({ table, column }) => {
+      if (droppedColumns.has(`${table}.${column}`)) return false;
+      if (droppedTables.has(table)) return false;
       if (existingTables.has(table)) {
         return !existingColumns.has(`${table}.${column}`);
       }

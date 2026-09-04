@@ -33,7 +33,6 @@ BEGIN
     SELECT * FROM (VALUES
         ('billing_notification_deliveries', 'vindi_charge_id'),
         ('expert_profiles', 'vindi_affiliate_id'),
-        ('expert_profiles', 'vindi_affiliate_status'),
         ('payments', 'vindi_bill_id'),
         ('payments', 'vindi_charge_id'),
         ('payments', 'vindi_customer_id'),
@@ -72,6 +71,21 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
+
+  -- `expert_profiles.vindi_affiliate_status` e NOT NULL DEFAULT 'unverified': exigir IS NULL
+  -- nela seria uma pre-condicao impossivel de satisfazer. O equivalente honesto e' exigir que
+  -- nenhum Expert carregue status diferente do padrao, ou seja, nenhum vinculo Vindi vivo.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'expert_profiles'
+       AND column_name = 'vindi_affiliate_status'
+  ) THEN
+    EXECUTE 'SELECT count(*) FROM public.expert_profiles'
+            || ' WHERE vindi_affiliate_status IS DISTINCT FROM ''unverified''' INTO total;
+    IF total > 0 THEN
+      restos := restos || format('expert_profiles.vindi_affiliate_status <> unverified: %s linha(s)', total);
+    END IF;
+  END IF;
 
   FOR alvo IN
     SELECT * FROM (VALUES
