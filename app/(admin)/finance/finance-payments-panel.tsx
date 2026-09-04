@@ -222,9 +222,9 @@ function AutomatizePaymentsTable({
               stripeSettlement,
             );
             const reference =
-              payment.vindiChargeId ??
               payment.mercadopagoPaymentId ??
               payment.stripeInvoiceId ??
+              payment.vindiChargeId ??
               payment.description;
             const sequence = describeAutomatizePaymentSequence(
               payment.paymentNumber,

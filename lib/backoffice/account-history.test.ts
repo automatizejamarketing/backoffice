@@ -164,4 +164,20 @@ describe("describeAccountHistoryItem", () => {
     );
     assert.match(copy.detail ?? "", /Mercado Pago Pix/);
   });
+
+  test("labels a historical unclassified payment without naming Vindi", () => {
+    const copy = describeAccountHistoryItem({
+      id: "payment:2",
+      kind: "payment",
+      at: new Date("2026-07-25T22:37:00.000Z"),
+      planType: "monthly_starter",
+      amount: 29700,
+      currency: "brl",
+      provider: "vindi",
+      status: "succeeded",
+    });
+
+    assert.match(copy.detail ?? "", /sem classificação/);
+    assert.doesNotMatch(copy.detail ?? "", /vindi/i);
+  });
 });

@@ -112,23 +112,21 @@ describe("finance dashboard", () => {
     expect(result.realizedLtvCentavos).toBe(0);
   });
 
-  test("buckets Vindi receipts by payment method and keeps them out of Manual", () => {
+  test("keeps historical Vindi receipts in totals and out of classified providers", () => {
     const result = summarizeFinanceDashboard(
       [
         {
           provider: "vindi",
           planType: "monthly_starter",
-          vindiPaymentMethod: "credit_card",
         },
         {
           provider: "vindi",
           planType: "monthly_pro",
-          vindiPaymentMethod: "pix_automatic",
         },
       ],
       [
         {
-          id: "vindi-card",
+          id: "historical-card",
           provider: "vindi",
           amount: 29_700,
           grossAmount: 29_700,
@@ -139,7 +137,7 @@ describe("finance dashboard", () => {
           purpose: "subscription",
         },
         {
-          id: "vindi-pix",
+          id: "historical-pix",
           provider: "vindi",
           amount: 49_700,
           grossAmount: 49_700,
@@ -154,15 +152,18 @@ describe("finance dashboard", () => {
       { grossCentavos: 79_400, payingCustomers: 2 },
     );
 
+    expect(result.activeSubscriptions).toBe(2);
+    expect(result.mrrCentavos).toBe(79_400);
     expect(result.mrrByProvider).toEqual({
-      card: 29_700,
-      pix: 49_700,
+      card: 0,
+      pix: 0,
       manual: 0,
     });
-    expect(result.receipts.providers.card.payments).toBe(1);
-    expect(result.receipts.providers.pix.payments).toBe(1);
+    expect(result.receipts.providers.card.payments).toBe(0);
+    expect(result.receipts.providers.pix.payments).toBe(0);
     expect(result.receipts.providers.manual.payments).toBe(0);
     expect(result.receipts.payments).toBe(2);
+    expect(result.receipts.grossCentavos).toBe(79_400);
     expect(result.receipts.netCentavos).toBe(77_759);
   });
 
@@ -172,7 +173,7 @@ describe("finance dashboard", () => {
       [
         {
           id: "subscription",
-          provider: "vindi",
+          provider: "stripe",
           amount: 29_700,
           grossAmount: 29_700,
           netAmount: 28_353,
@@ -183,24 +184,24 @@ describe("finance dashboard", () => {
         },
         {
           id: "product",
-          provider: "vindi",
+          provider: "stripe",
           amount: 10_000,
           grossAmount: 10_000,
           netAmount: 9_451,
           feeAmount: 549,
           stripeInvoiceId: null,
-          paymentMethod: "pix",
+          paymentMethod: "credit_card",
           purpose: "product",
         },
         {
           id: "pack",
-          provider: "vindi",
+          provider: "mercadopago",
           amount: 4_700,
           grossAmount: 4_700,
           netAmount: 4_700,
           feeAmount: 0,
           stripeInvoiceId: null,
-          paymentMethod: "credit_card",
+          paymentMethod: "pix",
           purpose: "credit_pack",
         },
       ],

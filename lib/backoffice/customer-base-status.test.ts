@@ -207,7 +207,7 @@ describe("summarizeCustomerBaseStatus", () => {
     ).toBe(false);
   });
 
-  test("buckets Vindi churn by settlement method instead of dropping it", () => {
+  test("keeps historical Vindi churn in the total without classifying card or pix", () => {
     const now = new Date("2026-08-05T12:00:00.000Z");
 
     expect(
@@ -230,6 +230,6 @@ describe("summarizeCustomerBaseStatus", () => {
         ],
         now,
       ).churn,
-    ).toEqual({ total: 2, card: 1, pix: 1 });
+    ).toEqual({ total: 2, card: 0, pix: 0 });
   });
 });

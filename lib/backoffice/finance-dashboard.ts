@@ -3,7 +3,6 @@ import type {
   PaymentPurpose,
   PaymentSettlementMethod,
   PlanType,
-  VindiSubscriptionPaymentMethod,
 } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import {
@@ -15,7 +14,6 @@ import { isBillingPaymentPurpose } from "./finance-purpose";
 export type ActivePlanForMrr = {
   provider: BillingProvider;
   planType: PlanType;
-  vindiPaymentMethod?: VindiSubscriptionPaymentMethod | null;
 };
 
 export type PaymentForFinance = {

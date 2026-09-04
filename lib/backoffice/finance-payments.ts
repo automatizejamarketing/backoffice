@@ -11,6 +11,7 @@ import {
   calculateExpertShare,
 } from "@/lib/products/finance";
 import type { StripeSettlement } from "./finance-dashboard";
+import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "./finance-provider";
 import { isBillingPaymentPurpose } from "./finance-purpose";
 
 export type FinanceAutomatizePaymentRow = {
@@ -85,7 +86,7 @@ export type FinanceProductPaymentRow = {
   automatizeTotalNetRevenueCentavos: number | null;
   expertShareBasisPoints: number;
   expertRevenueCentavos: number | null;
-  /** Split Vindi (`vindi_split_v1`), congelado na venda. */
+  /** Participação congelada no modelo `vindi_split_v1`. */
   expertAmountCentavos: number | null;
   platformTheoreticalAmountCentavos: number | null;
 };
@@ -139,8 +140,7 @@ export type FinancePaymentsSummary = {
 export type FinancePaymentNetGapReason =
   | "stripe_settlement_unavailable"
   | "mercadopago_fees_pending"
-  | "mercadopago_payment_not_found"
-  | "vindi_settlement_unavailable";
+  | "mercadopago_payment_not_found";
 
 export type FinancePaymentNetGap = {
   paymentId: string;
@@ -182,9 +182,9 @@ export function listAutomatizePaymentNetGaps(
         grossCentavos: amounts.gross,
         reason: amounts.missingNetReason,
         reference:
-          row.vindiChargeId ??
           row.mercadopagoPaymentId ??
           row.stripeInvoiceId ??
+          row.vindiChargeId ??
           row.description ??
           null,
       },
@@ -221,8 +221,6 @@ export function resolveAutomatizePaymentAmounts(
       missingNetReason = "stripe_settlement_unavailable";
     } else if (payment.provider === "mercadopago") {
       missingNetReason = "mercadopago_fees_pending";
-    } else if (payment.provider === "vindi") {
-      missingNetReason = "vindi_settlement_unavailable";
     }
   }
 
@@ -351,17 +349,9 @@ export function describeProductPaymentProvider(
   }
 
   if (payment.provider === "vindi") {
-    const methodLabel =
-      isPix || payment.paymentMethodId === "pix"
-        ? "PIX"
-        : payment.paymentMethodId === "credit_card"
-          ? "Cartão"
-          : "Vindi";
     return {
-      methodLabel,
-      referenceLabel: payment.providerPaymentId
-        ? `Vindi ${payment.providerPaymentId}`
-        : null,
+      methodLabel: UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
+      referenceLabel: payment.providerPaymentId,
     };
   }
 
@@ -421,8 +411,8 @@ export function resolveAutomatizeProductNetCentavos(
   // `expert_share_basis_points` (a participação real mora em
   // `expert_participation_bps`) e não preenche as colunas do v3. Sem este
   // desvio, a conta caía no ramo legado, derivava participação zero e
-  // atribuía a venda INTEIRA à Automatize — a parte do expert virava receita
-  // nossa em todo relatório. Os dois valores já vêm congelados da venda.
+  // atribuía a venda INTEIRA à Automatize. Os dois valores já vêm congelados
+  // da venda.
   if (payment.financialModel === "vindi_split_v1") {
     if (payment.platformTheoreticalAmountCentavos !== null) {
       return payment.platformTheoreticalAmountCentavos;
@@ -433,10 +423,8 @@ export function resolveAutomatizeProductNetCentavos(
         Math.min(payment.expertAmountCentavos, gatewayNet),
       );
     }
-    // Vendas a partir de 22/08/2026: o split é a regra configurada no painel
-    // da Vindi e os dois valores ficam NULL — a nossa parte é DESCONHECIDA
-    // até o settlement reportar. Zero (pendente) em vez de deixar cair no
-    // ramo legado, que atribuiria a venda INTEIRA à Automatize.
+    // Pedidos antigos sem valores congelados: a parte da Automatize é
+    // desconhecida. Zero (pendente) em vez de atribuir a venda inteira.
     return 0;
   }
 

@@ -28,8 +28,6 @@ const REASON_LABELS: Record<FinancePaymentNetGap["reason"], string> = {
     "Mercado Pago ainda não informou taxas para este PIX",
   mercadopago_payment_not_found:
     "Pagamento PIX não encontrado na conta Mercado Pago configurada",
-  vindi_settlement_unavailable:
-    "Vindi ainda não informou taxa/líquido para esta cobrança",
 };
 
 type FinancePaymentNetGapsProps = {

@@ -46,7 +46,7 @@ export const ACCOUNT_STATUS_FILTER_DESCRIPTIONS: Record<
   active_plan_canceled:
     "Pagamento aprovado, acesso ainda vigente, mas pediu cancelamento no Stripe até o fim do período. Não inclui quem pagou por último via Pix.",
   active_plan_pix:
-    "Pagamento aprovado, acesso vigente e o último pagamento aprovado foi via Pix (Mercado Pago ou Vindi).",
+    "Pagamento aprovado, acesso vigente e o último pagamento aprovado foi via Pix (Mercado Pago).",
 };
 
 export type AccountStatusCustomer = CustomerBaseRow & {
@@ -100,9 +100,7 @@ export function matchesAccountStatusFilter(
       return (
         customer.hasApprovedPayment &&
         hasActiveAccess &&
-        (customer.lastPaymentProvider === "mercadopago" ||
-          (customer.lastPaymentProvider === "vindi" &&
-            customer.lastPaymentMethod === "pix"))
+        customer.lastPaymentProvider === "mercadopago"
       );
     default: {
       const exhaustiveCheck: never = filter;
@@ -148,7 +146,6 @@ const scheduledCancelSql = sql`COALESCE((
 const lastPaymentProviderIsPixSql = sql`COALESCE((
   SELECT
     p.provider = 'mercadopago'
-    OR (p.provider = 'vindi' AND p.payment_method = 'pix')
   FROM payments p
   WHERE p.user_id = ${user.id}
     AND p.status = 'succeeded'

@@ -130,9 +130,8 @@ export async function listFinanceProductPayments(window: DashboardDateWindow) {
       automatizeTotalNetRevenueCentavos:
         productPayment.automatizeTotalNetRevenueCentavos,
       expertShareBasisPoints: productOrder.ownerExpertShareBasisPoints,
-      // Split Vindi: a participação do expert e a sobra da plataforma são
-      // congeladas por venda, e é delas que sai a receita real (ver
-      // `resolveAutomatizeProductNetCentavos`).
+      // Modelo `vindi_split_v1`: participação do expert e sobra da plataforma
+      // congeladas por venda (ver `resolveAutomatizeProductNetCentavos`).
       expertAmountCentavos: productPayment.expertAmountCentavos,
       platformTheoreticalAmountCentavos:
         productPayment.platformTheoreticalAmountCentavos,

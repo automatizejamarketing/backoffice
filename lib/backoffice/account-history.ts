@@ -28,6 +28,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
   manual: "Manual",
+  vindi: "sem classificação",
 };
 
 export type AccountHistoryKind =

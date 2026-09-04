@@ -406,7 +406,7 @@ describe("finance payments summaries", () => {
     expect(gaps[1]?.reason).toBe("stripe_settlement_unavailable");
   });
 
-  test("flags vindi payments without settlement data", () => {
+  test("leaves historical unclassified payments without a settlement gap reason", () => {
     const amounts = resolveAutomatizePaymentAmounts({
       amount: 29_700,
       grossAmount: 29_700,
@@ -418,21 +418,20 @@ describe("finance payments summaries", () => {
 
     expect(amounts.net).toBeNull();
     expect(amounts.hasNetCoverage).toBe(false);
-    expect(amounts.missingNetReason).toBe("vindi_settlement_unavailable");
+    expect(amounts.missingNetReason).toBeNull();
   });
 
-  test("lists a classified vindi net gap with the charge id as reference", () => {
+  test("keeps historical unclassified billing rows out of settlement gaps", () => {
     const gaps = listAutomatizePaymentNetGaps(
       [
         {
           ...automatizePaymentFixture,
-          id: "vindi-gap",
+          id: "historical-gap",
           provider: "vindi",
           amount: 29_700,
           grossAmount: 29_700,
           stripeInvoiceId: null,
           mercadopagoPaymentId: null,
-          vindiChargeId: "88002",
           paymentMethod: "credit_card",
           purpose: "subscription",
         },
@@ -442,20 +441,13 @@ describe("finance payments summaries", () => {
           provider: "vindi",
           amount: 10_000,
           stripeInvoiceId: null,
-          vindiChargeId: "99",
           purpose: "product",
         },
       ],
       [],
     );
 
-    expect(gaps).toHaveLength(1);
-    expect(gaps[0]).toMatchObject({
-      paymentId: "vindi-gap",
-      reason: "vindi_settlement_unavailable",
-      reference: "88002",
-      paymentMethod: "credit_card",
-    });
+    expect(gaps).toHaveLength(0);
   });
 
   test("keeps product and pack rows out of the automatize billing summary", () => {
@@ -491,7 +483,7 @@ describe("finance payments summaries", () => {
     expect(summary.netCentavos).toBe(28_353);
   });
 
-  test("labels vindi product payments by method", () => {
+  test("labels historical unclassified product payments without naming Vindi", () => {
     expect(
       describeProductPaymentProvider({
         provider: "vindi",
@@ -500,8 +492,8 @@ describe("finance payments summaries", () => {
         providerPaymentId: "88002",
       }),
     ).toEqual({
-      methodLabel: "Cartão",
-      referenceLabel: "Vindi 88002",
+      methodLabel: "sem classificação",
+      referenceLabel: "88002",
     });
     expect(
       describeProductPaymentProvider({
@@ -511,19 +503,19 @@ describe("finance payments summaries", () => {
         providerPaymentId: "88003",
       }),
     ).toEqual({
-      methodLabel: "PIX",
-      referenceLabel: "Vindi 88003",
+      methodLabel: "sem classificação",
+      referenceLabel: "88003",
     });
     expect(
       describeProductPaymentProvider({
         provider: "vindi",
         paymentMethodId: null,
         paymentTypeId: null,
-        providerPaymentId: "88004",
+        providerPaymentId: null,
       }),
     ).toEqual({
-      methodLabel: "Vindi",
-      referenceLabel: "Vindi 88004",
+      methodLabel: "sem classificação",
+      referenceLabel: null,
     });
   });
 
@@ -541,7 +533,7 @@ describe("finance payments summaries", () => {
   });
 });
 
-describe("receita de produto no split Vindi", () => {
+describe("receita de produto no modelo vindi_split_v1", () => {
   const vindiSplitFixture = {
     ...productPaymentFixture,
     financialModel: "vindi_split_v1" as const,

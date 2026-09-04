@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import {
   listAutomatizePaymentNetGaps,
@@ -15,8 +15,6 @@ import {
   getMercadoPagoSettlementAmounts,
   hasMercadoPagoSettlementCoverage,
 } from "@/lib/mercadopago/settlement";
-import { createPrivateVindiClient } from "@/lib/vindi/private";
-import { getVindiSettlementByChargeId } from "@/lib/vindi/settlement-lookup";
 
 export type BackfillPaymentSettlementsResult = {
   attempted: number;
@@ -102,33 +100,6 @@ export async function backfillAutomatizePaymentSettlements(
           })
           .where(eq(payment.id, row.id));
         result.updated += 1;
-        continue;
-      }
-
-      if (row.provider === "vindi" && row.vindiChargeId) {
-        const settlement = await getVindiSettlementByChargeId(
-          row.vindiChargeId,
-          createPrivateVindiClient(),
-        );
-        if (!settlement) {
-          result.stillPending += 1;
-          continue;
-        }
-
-        const updated = await db
-          .update(payment)
-          .set({
-            grossAmount: sql`coalesce(${payment.grossAmount}, ${settlement.grossAmount}::integer)`,
-            netAmount: sql`coalesce(${payment.netAmount}, ${settlement.netAmount}::integer)`,
-            feeAmount: sql`coalesce(${payment.feeAmount}, ${settlement.feeAmount}::integer)`,
-          })
-          .where(and(eq(payment.id, row.id), isNull(payment.netAmount)))
-          .returning({ id: payment.id });
-        if (updated.length > 0) {
-          result.updated += 1;
-        } else {
-          result.stillPending += 1;
-        }
         continue;
       }
 

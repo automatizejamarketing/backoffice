@@ -1,6 +1,7 @@
 import type { UserWithUsage } from "@/lib/db/admin-queries";
 import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
+import { UNCLASSIFIED_FINANCE_PROVIDER_LABEL } from "@/lib/backoffice/finance-provider";
 import { formatBrazilianPhone } from "@/lib/phone";
 import {
   formatPlanLabel,
@@ -11,7 +12,7 @@ const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
   manual: "Manual",
-  vindi: "Vindi",
+  vindi: UNCLASSIFIED_FINANCE_PROVIDER_LABEL,
 };
 
 const CSV_COLUMNS = [
