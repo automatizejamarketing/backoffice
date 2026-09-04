@@ -373,10 +373,14 @@ export const PRODUCT_FINANCIAL_MODEL_VALUES = [
   "platform_fee_coproduction",
   "platform_fee_coproduction_v2",
   "platform_fee_coproduction_v3",
+  "gateway_net_v1",
   "vindi_split_v1",
 ] as const;
 export type ProductFinancialModel =
   (typeof PRODUCT_FINANCIAL_MODEL_VALUES)[number];
+
+export const EXPERT_SETTLEMENT_VALUES = ["gateway", "ledger"] as const;
+export type ExpertSettlement = (typeof EXPERT_SETTLEMENT_VALUES)[number];
 
 export const VINDI_AFFILIATE_STATUS_VALUES = [
   "unverified",
@@ -417,6 +421,17 @@ export const expertProfile = pgTable(
       .$type<VindiAffiliateStatus>()
       .notNull()
       .default("unverified"),
+    stripeAccountId: varchar("stripe_account_id", { length: 255 }),
+    stripeChargesEnabled: boolean("stripe_charges_enabled")
+      .notNull()
+      .default(false),
+    stripePayoutsEnabled: boolean("stripe_payouts_enabled")
+      .notNull()
+      .default(false),
+    stripeDetailsSubmitted: boolean("stripe_details_submitted")
+      .notNull()
+      .default(false),
+    stripeAccountUpdatedAt: timestamp("stripe_account_updated_at"),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -431,6 +446,11 @@ export const expertProfile = pgTable(
     )
       .on(table.vindiAffiliateId)
       .where(sql`${table.vindiAffiliateId} IS NOT NULL`),
+    uniqueStripeAccountId: uniqueIndex(
+      "expert_profiles_stripe_account_id_unique",
+    )
+      .on(table.stripeAccountId)
+      .where(sql`${table.stripeAccountId} IS NOT NULL`),
     statusIdx: index("expert_profiles_status_idx").on(table.status),
     platformFeeCheck: check(
       "expert_profiles_platform_fee_range",
@@ -686,6 +706,14 @@ export const productOrder = pgTable(
      * (ADR 0029). Leitura de relatório não precisa chamar a Vindi. */
     vindiCustomerId: varchar("vindi_customer_id", { length: 255 }),
     payerRegistryCode: varchar("payer_registry_code", { length: 20 }),
+    gatewayFeeEstimateBps: integer("gateway_fee_estimate_bps")
+      .notNull()
+      .default(0),
+    gatewayFeeEstimateFixedCentavos: integer(
+      "gateway_fee_estimate_fixed_centavos",
+    )
+      .notNull()
+      .default(0),
     termsVersion: varchar("terms_version", { length: 40 }).notNull(),
     termsAcceptedAt: timestamp("terms_accepted_at").notNull(),
     marketingOptIn: boolean("marketing_opt_in").notNull().default(false),
@@ -719,7 +747,7 @@ export const productOrder = pgTable(
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
-      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'vindi_split_v1' AND ${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000 AND ${table.processingFeeBasisPoints} >= 0 AND ${table.processingFeeBasisPoints} <= 10000 AND (${table.expertAmountCentavos} IS NULL OR ${table.expertAmountCentavos} >= 0) AND (${table.platformTheoreticalAmountCentavos} IS NULL OR ${table.platformTheoreticalAmountCentavos} >= 0) AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertParticipationBps} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)))`,
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'gateway_net_v1' AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.marketplaceFeeBasisPoints} = 0 AND ${table.gatewayFeeEstimateBps} >= 0 AND ${table.gatewayFeeEstimateFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0))))) OR (${table.financialModel} = 'vindi_split_v1' AND ${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000 AND ${table.processingFeeBasisPoints} >= 0 AND ${table.processingFeeBasisPoints} <= 10000 AND (${table.expertAmountCentavos} IS NULL OR ${table.expertAmountCentavos} >= 0) AND (${table.platformTheoreticalAmountCentavos} IS NULL OR ${table.platformTheoreticalAmountCentavos} >= 0) AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.expertParticipationBps} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)))`,
     ),
   }),
 );
@@ -768,6 +796,10 @@ export const productPayment = pgTable(
     automatizeTotalNetRevenueCentavos: integer(
       "automatize_total_net_revenue_centavos",
     ),
+    stripeAccountId: varchar("stripe_account_id", { length: 255 }),
+    expertSettlement: varchar("expert_settlement", {
+      enum: [...EXPERT_SETTLEMENT_VALUES],
+    }).$type<ExpertSettlement>(),
     financialModel: varchar("financial_model", {
       enum: [...PRODUCT_FINANCIAL_MODEL_VALUES],
     }).$type<ProductFinancialModel>(),

@@ -365,6 +365,13 @@
       "when": 1794900000000,
       "tag": "0064_vindi_customer_links",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1795000000000,
+      "tag": "0065_stripe_connect_gateway_net",
+      "breakpoints": true
     }
   ]
 }
