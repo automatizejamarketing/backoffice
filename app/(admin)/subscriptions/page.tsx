@@ -68,7 +68,7 @@ const PROVIDER_LABELS: Record<
   stripe: "Stripe",
   mercadopago: "Pix",
   manual: "Manual",
-  vindi: "Vindi",
+  vindi: "sem classificação",
 };
 
 export default function SubscriptionsPage() {

@@ -44,7 +44,6 @@ import {
   subscription,
   subscriptionEvent,
   mercadopagoPaymentLink,
-  vindiPaymentLink,
   user,
   userCompany,
   userMarketingConsultant,
@@ -59,7 +58,6 @@ import {
   type CompanyLocation,
   type Payment,
   type MercadoPagoPaymentLink,
-  type VindiPaymentLink,
   type PendingPlanChange,
   type Subscription,
   type SubscriptionEvent,
@@ -1165,7 +1163,6 @@ export interface UserSubscriptionDetails {
   subscriptionHistory: Subscription[];
   payments: Payment[];
   mercadopagoPaymentLinks: MercadoPagoPaymentLink[];
-  vindiPaymentLinks: VindiPaymentLink[];
   events: SubscriptionEvent[];
   accountHistory: SerializedAccountHistoryItem[];
 }
@@ -1191,7 +1188,6 @@ export async function getUserSubscriptionDetails(
     payments,
     events,
     pendingChanges,
-    vindiPaymentLinks,
   ] = await Promise.all([
     db
       .select()
@@ -1218,15 +1214,9 @@ export async function getUserSubscriptionDetails(
           eq(pendingPlanChange.userId, userId),
           eq(pendingPlanChange.status, "pending"),
         ),
-      )
+        )
       .orderBy(desc(pendingPlanChange.createdAt))
       .limit(1),
-    db
-      .select()
-      .from(vindiPaymentLink)
-      .where(eq(vindiPaymentLink.userId, userId))
-      .orderBy(desc(vindiPaymentLink.createdAt))
-      .limit(20),
   ]);
 
   const [mercadopagoPaymentLinks, trialGrants, expirationAudits] =
@@ -1265,7 +1255,6 @@ export async function getUserSubscriptionDetails(
     subscriptionHistory: subscriptions,
     payments,
     mercadopagoPaymentLinks,
-    vindiPaymentLinks,
     events,
     accountHistory: serializeAccountHistory(
       buildAccountHistory({
@@ -2142,7 +2131,6 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
         .select({
           provider: subscription.provider,
           planType: subscription.planType,
-          vindiPaymentMethod: subscription.vindiPaymentMethod,
         })
         .from(subscription)
         .where(eq(subscription.status, "active")),

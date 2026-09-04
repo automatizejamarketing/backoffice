@@ -27,13 +27,6 @@ import {
   recordManualPaymentForUser,
   type RecordManualPaymentError,
 } from "@/lib/backoffice/manual-payment-store";
-import { VindiApiError } from "@/lib/vindi/client";
-import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
-import { markVindiPaidOutOfBandForUser } from "@/lib/vindi/paid-out-of-band-server";
-import { refundVindiPaymentForUser } from "@/lib/vindi/refund-server";
-import { recoverVindiPaymentForUser } from "@/lib/vindi/recovery-charge-server";
-import { cancelVindiSubscriptionForUser } from "@/lib/vindi/subscription-cancel-server";
-import type { VindiBackofficeRecoveryMode } from "@/lib/vindi/recovery-charge";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   subscribed: "Assinatura iniciada",
@@ -138,9 +131,6 @@ export async function GET(
             cancelAtPeriodEnd: activeSubscription.cancelAtPeriodEnd,
             canceledAt: activeSubscription.canceledAt?.toISOString(),
             endedAt: activeSubscription.endedAt?.toISOString(),
-            vindiSubscriptionId: activeSubscription.vindiSubscriptionId,
-            vindiPaymentMethod: activeSubscription.vindiPaymentMethod,
-            vindiConsentStatus: activeSubscription.vindiConsentStatus,
             commitmentEndDate:
               activeSubscription.commitmentEndDate?.toISOString(),
             commitmentMonths: activeSubscription.commitmentMonths,
@@ -171,7 +161,6 @@ export async function GET(
         provider: s.provider,
         stripeSubscriptionId: s.stripeSubscriptionId,
         stripePriceId: s.stripePriceId,
-        vindiSubscriptionId: s.vindiSubscriptionId,
         planType: s.planType,
         planName: PLAN_DEFINITIONS[s.planType].name,
         status: s.status,
@@ -199,8 +188,6 @@ export async function GET(
         stripePaymentIntentId: p.stripePaymentIntentId,
         stripeChargeId: p.stripeChargeId,
         mercadopagoPaymentId: p.mercadopagoPaymentId,
-        vindiBillId: p.vindiBillId,
-        vindiChargeId: p.vindiChargeId,
         mercadopagoPreferenceId: p.mercadopagoPreferenceId,
         paidAt: p.paidAt?.toISOString(),
         createdAt: p.createdAt.toISOString(),
@@ -364,211 +351,7 @@ export async function POST(
       planType?: unknown;
       paidOn?: unknown;
       transactionId?: unknown;
-      paymentId?: string;
     };
-
-    if (body.action === "refund_vindi_charge") {
-      if (typeof body.paymentId !== "string" || !body.paymentId) {
-        return NextResponse.json(
-          { error: "paymentId is required" },
-          { status: 400 },
-        );
-      }
-
-      let result;
-      try {
-        result = await refundVindiPaymentForUser({
-          userId,
-          paymentId: body.paymentId,
-          adminEmail: authz.actor.email,
-        });
-      } catch (error) {
-        // 422 típico: conta Vindi sem saldo disponível no intermediador.
-        if (error instanceof VindiApiError) {
-          return NextResponse.json(
-            { error: "vindi_error", message: error.message },
-            { status: 422 },
-          );
-        }
-        throw error;
-      }
-
-      if (!result.ok) {
-        const messages = {
-          payment_not_found: "Pagamento não encontrado para este usuário.",
-          not_vindi: "Este pagamento não foi feito pela Vindi.",
-          product_payment:
-            "Pagamento de produto: estorne pela aba Produtos, que também reverte o pedido.",
-          already_refunded: "Este pagamento já está reembolsado.",
-          not_paid: "Só é possível estornar pagamento com status Pago.",
-          no_charge_id:
-            "Este pagamento não tem cobrança Vindi associada para estornar.",
-        } as const;
-        const status = result.error === "payment_not_found" ? 404 : 409;
-        return NextResponse.json(
-          { error: result.error, message: messages[result.error] },
-          { status },
-        );
-      }
-
-      revalidatePath("/users");
-      revalidatePath(`/users/${userId}`);
-      revalidatePath(`/subscriptions/${userId}`);
-
-      return NextResponse.json({
-        success: true,
-        chargeId: result.chargeId,
-        chargeStatus: result.chargeStatus,
-      });
-    }
-
-    if (body.action === "mark_vindi_paid_out_of_band") {
-      if (!isVindiSubscriptionsEnabled()) {
-        return NextResponse.json(
-          {
-            error: "vindi_disabled",
-            message: "As assinaturas Vindi estão desligadas.",
-          },
-          { status: 409 },
-        );
-      }
-
-      const result = await markVindiPaidOutOfBandForUser({
-        userId,
-        adminEmail: authz.actor.email,
-      });
-
-      if (!result.ok) {
-        const messages = {
-          user_not_found: "Usuário não encontrado.",
-          no_open_bill: "Não há fatura Vindi aberta para cancelar.",
-          no_plan: "Não foi possível determinar o plano para estender o acesso.",
-        } as const;
-        const status =
-          result.error === "user_not_found"
-            ? 404
-            : result.error === "no_open_bill"
-              ? 409
-              : 400;
-        return NextResponse.json(
-          { error: result.error, message: messages[result.error] },
-          { status },
-        );
-      }
-
-      revalidatePath("/users");
-      revalidatePath(`/users/${userId}`);
-      revalidatePath(`/subscriptions/${userId}`);
-
-      return NextResponse.json({
-        success: true,
-        billIds: result.billIds,
-        newExpiration: result.newExpiration.toISOString(),
-        auditAction: result.auditAction,
-      });
-    }
-
-    if (body.action === "cancel_vindi_subscription") {
-      const result = await cancelVindiSubscriptionForUser({
-        userId,
-        adminEmail: authz.actor.email,
-      });
-
-      if (!result.ok) {
-        const messages = {
-          user_not_found: "Usuário não encontrado.",
-          no_vindi_subscription:
-            "Este usuário não possui assinatura Vindi ativa para cancelar.",
-          already_scheduled:
-            "Esta assinatura já está marcada para cancelar após o vencimento.",
-        } as const;
-        const status =
-          result.error === "user_not_found"
-            ? 404
-            : result.error === "already_scheduled"
-              ? 409
-              : 400;
-        return NextResponse.json(
-          { error: result.error, message: messages[result.error] },
-          { status },
-        );
-      }
-
-      revalidatePath("/users");
-      revalidatePath(`/users/${userId}`);
-      revalidatePath(`/subscriptions/${userId}`);
-
-      return NextResponse.json({
-        success: true,
-        mode: result.mode,
-        inSchedulingWindow: result.inSchedulingWindow,
-        accessUntil: result.accessUntil.toISOString(),
-      });
-    }
-
-    if (body.action === "recover_vindi_payment") {
-      if (body.mode !== "retry" && body.mode !== "reissue") {
-        return NextResponse.json(
-          { error: "Invalid mode. Expected 'retry' or 'reissue'." },
-          { status: 400 },
-        );
-      }
-
-      const result = await recoverVindiPaymentForUser({
-        userId,
-        adminEmail: authz.actor.email,
-        mode: body.mode as VindiBackofficeRecoveryMode,
-      });
-
-      if (!result.ok) {
-        const messages = {
-          user_not_found: "Usuário não encontrado.",
-          no_vindi_subscription: "Assinatura Vindi em atraso não encontrada.",
-          subscription_not_recoverable:
-            "A assinatura não está em atraso para recuperação.",
-          no_failed_charge: "Nenhuma cobrança Vindi falha encontrada.",
-          retry_not_allowed:
-            "Retentar no cartão só está disponível para cobrança de cartão.",
-          pix_pending:
-            "Esta fatura já tem um Pix gerado. O cliente paga pelo QR, ou aguarde o código expirar para retentar no cartão.",
-        } as const;
-        const status =
-          result.error === "user_not_found"
-            ? 404
-            : result.error === "retry_not_allowed" ||
-                result.error === "pix_pending"
-              ? 409
-              : 400;
-        return NextResponse.json(
-          { error: result.error, message: messages[result.error] },
-          { status },
-        );
-      }
-
-      revalidatePath("/users");
-      revalidatePath(`/users/${userId}`);
-      revalidatePath(`/subscriptions/${userId}`);
-
-      if (result.mode === "retry") {
-        return NextResponse.json({
-          success: true,
-          mode: result.mode,
-          chargeId: result.chargeId,
-          chargeStatus: result.chargeStatus,
-        });
-      }
-
-      return NextResponse.json({
-        success: true,
-        mode: result.mode,
-        reused: result.reused,
-        chargeId: result.chargeId,
-        billId: result.billId,
-        emvPayload: result.emvPayload,
-        amountCentavos: result.amountCentavos,
-        expiresAt: result.expiresAt.toISOString(),
-      });
-    }
 
     if (body.action === "cancel_stripe_subscription") {
       const result = await cancelStripeSubscriptionAtPeriodEndWithAudit({

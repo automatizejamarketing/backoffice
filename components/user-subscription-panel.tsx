@@ -1,7 +1,6 @@
 import {
   CalendarClock,
   History,
-  Link2,
   Receipt,
   RotateCw,
   Shield,
@@ -9,7 +8,6 @@ import {
   User,
 } from "lucide-react";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
-import { SubscribeLinkActions } from "@/components/subscribe-link-actions";
 import { AccountHistoryTimeline } from "@/components/account-history-timeline";
 import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
 import {
@@ -17,10 +15,6 @@ import {
   type PixLinkView,
 } from "@/components/mercadopago-pix-actions";
 import { PaymentRecoveryCard } from "@/components/payment-recovery-card";
-import { VindiPaidOutOfBandCard } from "@/components/vindi-paid-out-of-band-card";
-import { VindiPaymentRecoveryCard } from "@/components/vindi-payment-recovery-card";
-import { VindiRefundPaymentButton } from "@/components/vindi-refund-payment-button";
-import { VindiSubscriptionCancelButton } from "@/components/vindi-subscription-cancel-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -32,23 +26,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { UserSubscriptionDetails } from "@/lib/db/admin-queries";
-import type { Payment, PlanType, Subscription } from "@/lib/db/schema";
+import type { PlanType } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
-import { getSubscribeLinkDisabledReason } from "@/lib/backoffice/subscribe-link-policy";
 import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
 import {
-  decideVindiPaidOutOfBand,
-  pickFailedVindiBillId,
-  presentBackofficeVindiPixLink,
-} from "@/lib/vindi/backoffice-pix";
-import { decideVindiPaymentRefund } from "@/lib/vindi/refund";
-import {
   billingProviderLabel,
-  presentBackofficeVindiSubscription,
+  decideStripePaymentRecovery,
   providerExternalId,
-  vindiCancelInWindowNotice,
-} from "@/lib/vindi/subscription-panel";
+} from "@/lib/backoffice/subscription-panel-policy";
 import {
   describeUpcomingChange,
   formatPlanLabel,
@@ -118,34 +104,12 @@ function paymentStatusVariant(
   return "secondary";
 }
 
-function computeRecoverableInvoice(
-  activeSubscription: Subscription | null,
-  payments: Payment[],
-): (Payment & { stripeInvoiceId: string }) | null {
-  if (!activeSubscription) return null;
-  if (
-    activeSubscription.status !== "past_due" &&
-    activeSubscription.status !== "unpaid"
-  ) {
-    return null;
-  }
-  const candidate = payments.find(
-    (p): p is Payment & { stripeInvoiceId: string } =>
-      p.status === "failed" &&
-      p.stripeInvoiceId !== null &&
-      p.subscriptionId === activeSubscription.id,
-  );
-  return candidate ?? null;
-}
-
 export function UserSubscriptionPanel({
   data,
   showProfileCard = true,
-  vindiSubscriptionsEnabled = false,
 }: {
   data: UserSubscriptionDetails;
   showProfileCard?: boolean;
-  vindiSubscriptionsEnabled?: boolean;
 }) {
   const {
     user,
@@ -154,7 +118,6 @@ export function UserSubscriptionPanel({
     subscriptionHistory,
     payments,
     mercadopagoPaymentLinks,
-    vindiPaymentLinks,
     events,
     accountHistory,
   } = data;
@@ -177,74 +140,25 @@ export function UserSubscriptionPanel({
     pendingPlanChange,
   );
   const isTrialing = activeSubscription?.status === "trialing";
-  const recoverableInvoice = computeRecoverableInvoice(
-    activeSubscription,
-    payments,
-  );
-  const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
-  const pixLinks: PixLinkView[] = vindiSubscriptionsEnabled
-    ? vindiPaymentLinks.flatMap((link) => {
-        try {
-          return [presentBackofficeVindiPixLink(link)];
-        } catch {
-          return [];
-        }
-      })
-    : mercadopagoPaymentLinks.map((link) => ({
-        id: link.id,
-        planType: link.planType,
-        amount: link.amount,
-        currency: link.currency,
-        preferenceId: link.preferenceId,
-        ...normalizePixInitPoint(link.initPoint),
-        mercadopagoPaymentId: link.mercadopagoPaymentId,
-        status: link.status,
-        source: link.source,
-        adminEmail: link.adminEmail,
-        expiresAt: link.expiresAt.toISOString(),
-        createdAt: link.createdAt.toISOString(),
-      }));
-  const failedVindiPayment =
-    payments.find(
-      (row) =>
-        row.provider === "vindi" &&
-        row.status === "failed" &&
-        row.vindiChargeId &&
-        (!activeSubscription || row.subscriptionId === activeSubscription.id),
-    ) ?? null;
-  const failedVindiBillId = pickFailedVindiBillId(
-    payments,
-    activeSubscription?.id ?? null,
-  );
-  const vindiView = presentBackofficeVindiSubscription({
+  const recoverableInvoice = decideStripePaymentRecovery({
     subscription: activeSubscription,
-    expirationDate: user.expirationDate,
-    failedPayment: failedVindiPayment
-      ? {
-          vindiChargeId: failedVindiPayment.vindiChargeId,
-          vindiBillId: failedVindiPayment.vindiBillId,
-          amount: failedVindiPayment.amount,
-          currency: failedVindiPayment.currency,
-          failureReason: failedVindiPayment.failureReason,
-          createdAt: failedVindiPayment.createdAt,
-        }
-      : null,
+    payments,
   });
-  const vindiPaidOutOfBand = vindiSubscriptionsEnabled
-    ? decideVindiPaidOutOfBand({
-        planType: activeSubscription?.planType ?? null,
-        currentExpiration: user.expirationDate,
-        openLinks: vindiPaymentLinks.map((link) => ({
-          id: link.id,
-          vindiBillId: link.vindiBillId,
-          planType: link.planType,
-          status: link.status,
-        })),
-        failedPaymentBillId: failedVindiBillId,
-        now: new Date(),
-      })
-    : { ok: false as const, reason: "no_open_bill" as const };
-  const cancelInWindowNotice = vindiCancelInWindowNotice(vindiView);
+  const pixDisabledReason = getPixRenewalDisabledReason(activeSubscription);
+  const pixLinks: PixLinkView[] = mercadopagoPaymentLinks.map((link) => ({
+    id: link.id,
+    planType: link.planType,
+    amount: link.amount,
+    currency: link.currency,
+    preferenceId: link.preferenceId,
+    ...normalizePixInitPoint(link.initPoint),
+    mercadopagoPaymentId: link.mercadopagoPaymentId,
+    status: link.status,
+    source: link.source,
+    adminEmail: link.adminEmail,
+    expiresAt: link.expiresAt.toISOString(),
+    createdAt: link.createdAt.toISOString(),
+  }));
 
   return (
     <div className="space-y-6">
@@ -253,7 +167,7 @@ export function UserSubscriptionPanel({
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
-              {vindiView?.profileTitle ?? "Usuário & Cliente Stripe"}
+              Usuário & Cliente Stripe
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -268,13 +182,11 @@ export function UserSubscriptionPanel({
                 value={new Intl.NumberFormat("pt-BR").format(user.credits)}
               />
               <Row label="ID interno" value={user.id} mono />
-              {vindiView?.showStripeIds === false ? null : (
-                <Row
-                  label="Stripe Customer ID"
-                  value={user.stripeCustomerId ?? "—"}
-                  mono
-                />
-              )}
+              <Row
+                label="Stripe Customer ID"
+                value={user.stripeCustomerId ?? "—"}
+                mono
+              />
             </dl>
 
             <div className="mt-6">
@@ -386,24 +298,6 @@ export function UserSubscriptionPanel({
                   label="Provedor"
                   value={billingProviderLabel(activeSubscription.provider)}
                 />
-                {vindiView?.paymentMethodLabel ? (
-                  <Row label="Método" value={vindiView.paymentMethodLabel} />
-                ) : null}
-                {vindiView?.consentLabel ? (
-                  <Row
-                    label="Consentimento Pix Automático"
-                    value={vindiView.consentLabel}
-                  />
-                ) : null}
-                {vindiView?.installmentsLabel ? (
-                  <Row label="Parcelas" value={vindiView.installmentsLabel} />
-                ) : null}
-                {vindiView ? (
-                  <Row
-                    label="Próxima cobrança"
-                    value={formatDateTime(vindiView.nextChargeAt)}
-                  />
-                ) : null}
                 <Row
                   label="Ciclo de cobrança (início)"
                   value={formatDateTime(activeSubscription.currentPeriodStart)}
@@ -440,37 +334,17 @@ export function UserSubscriptionPanel({
                   label="Criada em"
                   value={formatDateTime(activeSubscription.createdAt)}
                 />
-                {vindiView?.showStripeIds === false ? (
-                  <Row
-                    label="Vindi Subscription ID"
-                    value={vindiView.vindiSubscriptionId}
-                    mono
-                  />
-                ) : (
-                  <>
-                    <Row
-                      label="Stripe Subscription ID"
-                      value={activeSubscription.stripeSubscriptionId}
-                      mono
-                    />
-                    <Row
-                      label="Stripe Price ID"
-                      value={activeSubscription.stripePriceId}
-                      mono
-                    />
-                  </>
-                )}
-              </dl>
-              {vindiView?.cancel?.canCancel ? (
-                <VindiSubscriptionCancelButton
-                  userId={user.id}
-                  cancel={vindiView.cancel}
+                <Row
+                  label="Stripe Subscription ID"
+                  value={activeSubscription.stripeSubscriptionId}
+                  mono
                 />
-              ) : cancelInWindowNotice ? (
-                <p className="text-sm text-muted-foreground">
-                  {cancelInWindowNotice}
-                </p>
-              ) : null}
+                <Row
+                  label="Stripe Price ID"
+                  value={activeSubscription.stripePriceId}
+                  mono
+                />
+              </dl>
             </div>
           )}
         </CardContent>
@@ -480,7 +354,7 @@ export function UserSubscriptionPanel({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
-            {vindiSubscriptionsEnabled ? "Pix de renovação" : "Mercado Pago Pix"}
+            Mercado Pago Pix
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -493,52 +367,16 @@ export function UserSubscriptionPanel({
         </CardContent>
       </Card>
 
-      {vindiSubscriptionsEnabled ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Link2 className="h-5 w-5" />
-              Link de assinatura
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SubscribeLinkActions
-              userId={user.id}
-              userEmail={user.email}
-              userPhone={user.phone}
-              disabledReason={getSubscribeLinkDisabledReason({
-                expirationDate: user.expirationDate,
-                subscriptions: activeSubscription ? [activeSubscription] : [],
-              })}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {vindiPaidOutOfBand.ok ? (
-        <VindiPaidOutOfBandCard
-          userId={user.id}
-          planType={vindiPaidOutOfBand.planType}
-          newExpiration={vindiPaidOutOfBand.newExpiration}
-        />
-      ) : null}
-
-      {vindiView?.recovery ? (
-        <VindiPaymentRecoveryCard
-          userId={user.id}
-          recovery={vindiView.recovery}
-        />
-      ) : !vindiView &&
-        recoverableInvoice &&
-        (activeSubscription?.status === "past_due" ||
-          activeSubscription?.status === "unpaid") ? (
+      {recoverableInvoice &&
+      (activeSubscription?.status === "past_due" ||
+        activeSubscription?.status === "unpaid") ? (
         <PaymentRecoveryCard
           userId={user.id}
-          invoiceId={recoverableInvoice.stripeInvoiceId}
-          amountCents={recoverableInvoice.amount}
+          invoiceId={recoverableInvoice.invoiceId}
+          amountCents={recoverableInvoice.amountCents}
           currency={recoverableInvoice.currency}
           failureReason={recoverableInvoice.failureReason}
-          failedAt={recoverableInvoice.createdAt}
+          failedAt={recoverableInvoice.failedAt}
           subscriptionStatus={activeSubscription.status}
         />
       ) : null}
@@ -573,13 +411,11 @@ export function UserSubscriptionPanel({
                   }
                 />
                 <Row label="Status" value={pendingPlanChange.status} />
-                {vindiView ? null : (
-                  <Row
-                    label="Novo Stripe Price ID"
-                    value={pendingPlanChange.newStripePriceId}
-                    mono
-                  />
-                )}
+                <Row
+                  label="Novo Stripe Price ID"
+                  value={pendingPlanChange.newStripePriceId}
+                  mono
+                />
                 <Row
                   label="Subscription ID (interno)"
                   value={pendingPlanChange.subscriptionId}
@@ -680,7 +516,6 @@ export function UserSubscriptionPanel({
                     <TableHead>Provedor</TableHead>
                     <TableHead>Descrição</TableHead>
                     <TableHead>ID no provedor</TableHead>
-                    <TableHead>Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -721,21 +556,9 @@ export function UserSubscriptionPanel({
                         {providerExternalId({
                           provider: p.provider,
                           stripeId: p.stripeInvoiceId,
-                          vindiId: p.vindiChargeId ?? p.vindiBillId,
                           mercadopagoId: p.mercadopagoPaymentId,
+                          historicalProviderId: p.vindiChargeId ?? p.vindiBillId,
                         }) ?? "—"}
-                      </TableCell>
-                      <TableCell>
-                        {decideVindiPaymentRefund(p).ok ? (
-                          <VindiRefundPaymentButton
-                            userId={user.id}
-                            paymentId={p.id}
-                            amountLabel={formatMoney(p.amount, p.currency)}
-                            description={
-                              p.description ?? planNameOrDash(p.planType)
-                            }
-                          />
-                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -805,7 +628,7 @@ export function UserSubscriptionPanel({
                         {providerExternalId({
                           provider: s.provider,
                           stripeId: s.stripeSubscriptionId,
-                          vindiId: s.vindiSubscriptionId,
+                          historicalProviderId: s.vindiSubscriptionId,
                         }) ?? "—"}
                       </TableCell>
                     </TableRow>

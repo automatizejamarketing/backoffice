@@ -77,7 +77,6 @@ import {
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
 import { cn } from "@/lib/utils";
-import { isVindiSubscriptionsEnabled } from "@/lib/vindi/config";
 
 const TAB_CONFIG: Array<{
   value: UserHubTab;
@@ -212,8 +211,6 @@ export async function UserHubPage({
 
   const phoneFormatted = formatBrazilianPhone(profile.phone);
   const whatsappUrl = getWhatsAppUrl(profile.phone);
-  const vindiSubscriptionsEnabled = isVindiSubscriptionsEnabled();
-
   const [
     detailedUser,
     subscriptionData,
@@ -408,7 +405,6 @@ export async function UserHubPage({
         <UserSubscriptionPanel
           data={subscriptionData}
           showProfileCard={false}
-          vindiSubscriptionsEnabled={vindiSubscriptionsEnabled}
         />
       )}
 
