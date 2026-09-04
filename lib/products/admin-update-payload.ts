@@ -14,7 +14,6 @@ export type ProductAdminUpdateSource = {
   status: "draft" | "published" | "archived";
   salesEnabled: boolean;
   termsVersion: string;
-  expertParticipationBps: number | null;
 };
 
 type ProductAdminUpdateOverrides = Partial<
@@ -42,7 +41,6 @@ export function buildProductAdminUpdatePayload(
     status: product.status,
     salesEnabled: product.salesEnabled,
     termsVersion: product.termsVersion,
-    expertParticipationBps: product.expertParticipationBps,
     ...overrides,
   };
 }

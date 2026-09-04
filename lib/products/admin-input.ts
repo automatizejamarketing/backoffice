@@ -1,8 +1,4 @@
 import { z } from "zod";
-import {
-  EXPERT_PARTICIPATION_BPS_MAX,
-  EXPERT_PARTICIPATION_BPS_MIN,
-} from "@/lib/vindi/split";
 
 const internalCoverUrl = z.string().refine((value) => {
   if (!value.startsWith("/api/products/assets?")) return false;
@@ -36,21 +32,7 @@ const schema = z.object({
   status: z.enum(["draft", "published", "archived"]).default("draft"),
   salesEnabled: z.boolean().default(true),
   termsVersion: z.string().trim().min(1).max(40).default("v1"),
-  expertParticipationBps: z
-    .number()
-    .int()
-    .min(EXPERT_PARTICIPATION_BPS_MIN)
-    .max(EXPERT_PARTICIPATION_BPS_MAX)
-    .optional()
-    .nullable(),
 });
-
-/** Automatize-owned products lock expert participation at 0 (glossary invariant). */
-export function locksExpertParticipationToZero(
-  ownerType: "automatize" | "expert",
-): boolean {
-  return ownerType === "automatize";
-}
 
 function slugify(value: string): string {
   return value
@@ -116,8 +98,5 @@ export function parseProductAdminInput(input: unknown) {
     status: parsed.status,
     salesEnabled: parsed.salesEnabled,
     termsVersion: parsed.termsVersion,
-    expertParticipationBps: locksExpertParticipationToZero(parsed.ownerType)
-      ? 0
-      : (parsed.expertParticipationBps ?? null),
   };
 }
