@@ -466,6 +466,8 @@ export function formatGatewayFeeEstimateLabel(input: {
   return `${percent}% + ${fixed}`;
 }
 
+// `vindi_split_v1` saiu de PRODUCT_FINANCIAL_MODEL_VALUES (ticket 21) mas linhas
+// históricas no Postgres mantêm esse valor até M2 — o cast evita "limpar" a comparação.
 const LEGACY_VINDI_SPLIT_MODEL = "vindi_split_v1" as const;
 
 function isLegacyVindiSplitModel(
