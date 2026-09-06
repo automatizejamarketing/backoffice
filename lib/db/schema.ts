@@ -49,7 +49,7 @@ export const user = pgTable(
     phone: varchar("phone", { length: 16 }),
     stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
     registryCode: varchar("registry_code", { length: 20 }),
-    expirationDate: timestamp("expiration_date"),
+    expirationDate: timestamp("expiration_date", { withTimezone: true }),
     credits: integer("credits").notNull().default(0),
     referredByAffiliateId: uuid("referred_by_affiliate_id"),
     referredByTrackableLinkId: uuid("referred_by_trackable_link_id"),
@@ -2678,7 +2678,9 @@ export const billingNotificationDelivery = pgTable(
     })
       .$type<BillingNotificationType>()
       .notNull(),
-    expirationDate: timestamp("expiration_date").notNull(),
+    expirationDate: timestamp("expiration_date", {
+      withTimezone: true,
+    }).notNull(),
     mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id").references(
       () => mercadopagoPaymentLink.id,
     ),

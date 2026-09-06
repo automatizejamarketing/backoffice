@@ -379,6 +379,13 @@
       "when": 1795100000000,
       "tag": "0066_drop_vindi",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1795200000000,
+      "tag": "0067_expiration_date_timestamptz",
+      "breakpoints": true
     }
   ]
 }
