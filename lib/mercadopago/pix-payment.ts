@@ -79,7 +79,7 @@ async function fetchMercadoPagoPixPayment(
   return null;
 }
 
-async function createMercadoPagoPixPayment({
+export async function createMercadoPagoPixPayment({
   linkId,
   userId,
   email,
@@ -113,7 +113,10 @@ async function createMercadoPagoPixPayment({
       payment_method_id: "pix",
       payer: { email },
       external_reference: linkId,
-      notification_url: notificationUrl,
+      // Vazia = não alcançável pela MP (localhost, http). Mandar assim faz a MP
+      // recusar a cobrança inteira; omitir só custa o webhook, e o polling e o
+      // cron continuam fechando o pagamento.
+      ...(notificationUrl ? { notification_url: notificationUrl } : {}),
       date_of_expiration: expiresAt.toISOString(),
       metadata: {
         payment_link_id: linkId,
@@ -126,7 +129,13 @@ async function createMercadoPagoPixPayment({
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    // A MP às vezes recusa com corpo vazio, e aí `new Error("")` chegava ao
+    // formatador como mensagem em branco — que devolvia "Não foi possível gerar
+    // o link Pix." e apagava a única pista de por quê. O status sempre existe.
+    const body = (await response.text()).trim();
+    throw new Error(
+      body || `Mercado Pago recusou a cobrança (HTTP ${response.status}).`,
+    );
   }
 
   const payment = (await response.json()) as MercadoPagoPixPaymentResponse;

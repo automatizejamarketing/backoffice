@@ -196,6 +196,12 @@ export async function recordManualPaymentForUser({
         userId,
         subscriptionId: dbSubscription.id,
         provider: "manual",
+        // `purpose` é conhecido e faltava (defeito M01): um pagamento manual
+        // estende a assinatura, e sem isto a linha sumia de qualquer consulta
+        // por `purpose = 'subscription'`. `payment_method` continua nulo de
+        // propósito — o enum da coluna é `credit_card | pix`, e um acesso
+        // concedido pela equipe não passou por gateway nenhum.
+        purpose: "subscription",
         externalId,
         amount: quote.amountCentavos,
         grossAmount: quote.amountCentavos,

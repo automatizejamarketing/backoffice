@@ -151,7 +151,7 @@ export function UserSubscriptionPanel({
     amount: link.amount,
     currency: link.currency,
     preferenceId: link.preferenceId,
-    ...normalizePixInitPoint(link.initPoint),
+    ...normalizePixInitPoint(link.initPoint, link.pixCopyPaste),
     mercadopagoPaymentId: link.mercadopagoPaymentId,
     status: link.status,
     source: link.source,

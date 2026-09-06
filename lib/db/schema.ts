@@ -2616,8 +2616,16 @@ export const mercadopagoPaymentLink = pgTable(
       .notNull(),
     amount: integer("amount").notNull(),
     currency: varchar("currency", { length: 10 }).notNull().default("brl"),
-    preferenceId: varchar("preference_id", { length: 255 }).notNull(),
-    initPoint: text("init_point").notNull(),
+    // Espelho de `automatize-frontend/lib/db/schema.ts`: a tabela é a MESMA, e
+    // o frontend grava `null` nas duas ao criar link por Pix direto (o QR mora
+    // em `pix_copy_paste`). Declarar `.notNull()` aqui só fazia o TypeScript
+    // mentir — `initPoint.startsWith(...)` compilava e estourava em runtime
+    // com "Cannot read properties of null" em todo link vindo do app.
+    preferenceId: varchar("preference_id", { length: 255 }),
+    initPoint: text("init_point"),
+    pixCopyPaste: text("pix_copy_paste"),
+    qrCodeBase64: text("qr_code_base64"),
+    ticketUrl: text("ticket_url"),
     status: varchar("status", {
       enum: ["pending", "approved", "expired", "canceled"],
     })

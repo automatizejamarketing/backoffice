@@ -22,7 +22,9 @@ export type PixLinkView = {
   planType: PlanType;
   amount: number;
   currency: string;
-  preferenceId: string;
+  // Nulos em todo link criado pelo app: lá o EMV mora em `pix_copy_paste` e
+  // `preference_id` nunca foi usado.
+  preferenceId: string | null;
   initPoint: string;
   pixCopyPasteCode?: string;
   mercadopagoPaymentId?: string | null;

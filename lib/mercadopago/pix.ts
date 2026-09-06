@@ -12,7 +12,10 @@ import {
   type MercadoPagoPaymentLink,
   type PlanType,
 } from "@/lib/db/schema";
-import { ensurePixCopyPasteCode } from "@/lib/mercadopago/pix-payment";
+import {
+  createMercadoPagoPixPayment,
+  ensurePixCopyPasteCode,
+} from "@/lib/mercadopago/pix-payment";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { formatInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { assertPixRenewalAllowed } from "@/lib/backoffice/pix-renewal-policy";
@@ -29,6 +32,24 @@ function getFrontendAppUrl(): string {
   ).replace(/\/$/, "");
 }
 
+/**
+ * O Mercado Pago recusa `notification_url` que não seja https público — e um
+ * link criado com uma URL que ele aceitou mas não alcança nunca recebe webhook.
+ * Espelha `getPublicNotificationUrlField` do frontend: na dúvida, manda sem.
+ */
+function isPublicWebhookUrl(candidate: string): boolean {
+  try {
+    const url = new URL(candidate);
+    return (
+      url.protocol === "https:" &&
+      url.hostname !== "localhost" &&
+      !url.hostname.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getMercadoPagoWebhookUrl(): string {
   const explicitWebhookUrl = process.env.MERCADOPAGO_WEBHOOK_URL;
   if (explicitWebhookUrl) return explicitWebhookUrl.replace(/\/$/, "");
@@ -39,6 +60,12 @@ function getMercadoPagoWebhookUrl(): string {
   }
 
   return `${getFrontendAppUrl()}/api/mercadopago/webhook`;
+}
+
+/** A URL de webhook, ou string vazia quando ela não é alcançável pela MP. */
+function getPublicMercadoPagoWebhookUrl(): string {
+  const candidate = getMercadoPagoWebhookUrl();
+  return isPublicWebhookUrl(candidate) ? candidate : "";
 }
 
 function getFromAddress(): string {
@@ -77,7 +104,7 @@ async function resolvePixCopyPasteCode(
   const pixDetails = await ensurePixCopyPasteCode({
     link,
     email,
-    notificationUrl: getMercadoPagoWebhookUrl(),
+    notificationUrl: getPublicMercadoPagoWebhookUrl(),
   });
 
   if (pixDetails.paymentId !== link.mercadopagoPaymentId) {
@@ -150,11 +177,16 @@ export async function createOrReuseBackofficePixLink({
     .limit(1);
 
   if (existing) {
-    const linkForPix =
-      existing.initPoint.startsWith("http://") ||
-      existing.initPoint.startsWith("https://")
-        ? { ...existing, mercadopagoPaymentId: null }
-        : existing;
+    // `init_point` guarda o copia-e-cola nos links criados aqui, mas guardou uma
+    // URL de preferência no formato antigo — e vem `null` em tudo que o app
+    // criou, porque lá o EMV mora em `pix_copy_paste`. Só a URL antiga obriga a
+    // refazer a cobrança; `null` e vazio seguem pelo caminho normal.
+    const legacyPreferenceUrl =
+      existing.initPoint?.startsWith("http://") ||
+      existing.initPoint?.startsWith("https://");
+    const linkForPix = legacyPreferenceUrl
+      ? { ...existing, mercadopagoPaymentId: null }
+      : existing;
 
     if (linkForPix.adminEmail !== adminEmail) {
       const [updated] = await db
@@ -185,6 +217,20 @@ export async function createOrReuseBackofficePixLink({
   const id = randomUUID();
   const expiresAt = addDays(now, PIX_LINK_VALIDITY_DAYS);
 
+  // A cobrança na MP vem ANTES do insert, como no frontend. Inserir primeiro
+  // deixava um link `pending` sem `mercadopago_payment_id` toda vez que a MP
+  // recusava — lixo que ainda por cima casa com o filtro de reuso da próxima
+  // tentativa e a envia para o mesmo caminho que acabou de falhar.
+  const pixDetails = await createMercadoPagoPixPayment({
+    linkId: id,
+    userId,
+    email: targetUser.email,
+    planType,
+    amountCentavos: amount,
+    expiresAt,
+    notificationUrl: getPublicMercadoPagoWebhookUrl(),
+  });
+
   const [created] = await db
     .insert(mercadopagoPaymentLink)
     .values({
@@ -194,7 +240,12 @@ export async function createOrReuseBackofficePixLink({
       amount,
       currency: "brl",
       preferenceId: id,
-      initPoint: "",
+      initPoint: pixDetails.pixCopyPasteCode,
+      // Mesma coluna que o app lê para montar o QR e que a página pública
+      // `/pix/<id>` exibe. Sem isto o link gerado aqui abria vazio para o
+      // cliente.
+      pixCopyPaste: pixDetails.pixCopyPasteCode,
+      mercadopagoPaymentId: pixDetails.paymentId,
       status: "pending",
       source: "backoffice",
       adminEmail,
@@ -204,11 +255,10 @@ export async function createOrReuseBackofficePixLink({
 
   if (!created) throw new Error("Falha ao salvar Pix.");
 
-  const resolved = await resolvePixCopyPasteCode(created, targetUser.email);
   return {
-    ...resolved.link,
+    ...created,
     reused: false,
-    pixCopyPasteCode: resolved.pixCopyPasteCode,
+    pixCopyPasteCode: pixDetails.pixCopyPasteCode,
   };
 }
 
