@@ -76,6 +76,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RecoveryPixPanel } from "./recovery-pix-panel";
 import {
   formatBrazilianPhone,
   formatBrazilianPhoneInput,
@@ -1559,10 +1560,11 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-4 lg:w-fit">
+        <TabsList className="grid w-full grid-cols-5 lg:w-fit">
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="experts">Experts</TabsTrigger>
           <TabsTrigger value="orders">Vendas</TabsTrigger>
+          <TabsTrigger value="recovery">Pix vencido</TabsTrigger>
           <TabsTrigger value="payouts">Repasses</TabsTrigger>
         </TabsList>
 
@@ -2169,6 +2171,12 @@ export function ProductsAdminWorkspace({
               ))}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Painel próprio: ele busca a própria fila e se recarrega depois de cada
+            geração, então não entra no `Promise.all` de carga deste workspace. */}
+        <TabsContent value="recovery" className="pt-4">
+          <RecoveryPixPanel />
         </TabsContent>
       </Tabs>
 

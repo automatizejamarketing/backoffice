@@ -63,7 +63,7 @@ function getMercadoPagoWebhookUrl(): string {
 }
 
 /** A URL de webhook, ou string vazia quando ela não é alcançável pela MP. */
-function getPublicMercadoPagoWebhookUrl(): string {
+export function getPublicMercadoPagoWebhookUrl(): string {
   const candidate = getMercadoPagoWebhookUrl();
   return isPublicWebhookUrl(candidate) ? candidate : "";
 }

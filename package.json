@@ -21,6 +21,7 @@
     "db:migrate:repair": "bun scripts/migration-audit.ts --repair",
     "db:pull": "drizzle-kit introspect",
     "referral:verify-staging": "APP_ENV=staging bun scripts/verify-referral-approval-staging.ts",
+    "products:verify-recovery-pix-staging": "APP_ENV=staging bun --conditions=react-server scripts/with-env.ts bun --conditions=react-server scripts/verify-recovery-pix-staging.ts",
     "campaigns:refresh": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts",
     "campaigns:refresh:stale": "APP_ENV=prod bun scripts/with-env.ts bun scripts/refresh-managed-campaigns.ts --stale",
     "performance:drop:backfill": "APP_ENV=prod bun scripts/with-env.ts bun scripts/backfill-performance-drop.ts",
@@ -92,6 +93,7 @@
     "drizzle-kit": "^0.30.4",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
+    "server-only": "0.0.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

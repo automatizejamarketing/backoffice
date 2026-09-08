@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   expertLedgerEntry,
@@ -501,4 +501,96 @@ export async function applyFullProductRefund(
     }
     return updated;
   });
+}
+
+/**
+ * Fila de recuperação de venda: quem gerou Pix de infoproduto e deixou vencer.
+ *
+ * Dois grupos entram, e é de propósito (ver `resolveRecoveryPixState`):
+ * o Pix vencido, que é o trabalho a fazer, e o pedido que voltou para `pending`
+ * porque um admin já gerou o código de recuperação — esse continua na lista,
+ * marcado, para o vendedor não abordar a mesma pessoa duas vezes.
+ *
+ * Order bump é linha própria em `product_orders` e não pode aparecer aqui: a
+ * venda é uma só, e quem carrega o grupo é o pedido primário. Na prática o bump
+ * nem tem linha em `product_payments` enquanto não aprova — o filtro de
+ * atribuição é cinto e suspensório.
+ */
+export async function listRecoveryPixOrders() {
+  return db
+    .select({
+      id: productOrder.id,
+      productId: productOrder.productId,
+      productTitle: productOrder.productTitleSnapshot,
+      buyerName: productOrder.buyerName,
+      buyerEmail: productOrder.buyerEmail,
+      buyerPhone: productOrder.buyerPhone,
+      buyerUserId: productOrder.userId,
+      priceCentavos: productOrder.priceCentavos,
+      currency: productOrder.currency,
+      status: productOrder.status,
+      createdAt: productOrder.createdAt,
+      updatedAt: productOrder.updatedAt,
+      attribution: productOrder.attribution,
+      paymentStatus: productPayment.status,
+      paymentRawStatus: productPayment.rawStatus,
+      paymentMethodId: productPayment.paymentMethodId,
+      providerPaymentId: productPayment.providerPaymentId,
+    })
+    .from(productOrder)
+    .innerJoin(product, eq(productOrder.productId, product.id))
+    .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+    .where(
+      and(
+        sql`coalesce(${productOrder.attribution} ->> 'order_bump', '') <> 'true'`,
+        or(
+          and(
+            eq(productOrder.status, "failed"),
+            eq(productPayment.status, "failed"),
+            eq(productPayment.rawStatus, "cancelled"),
+            eq(productPayment.paymentMethodId, "pix"),
+          ),
+          and(
+            eq(productOrder.status, "pending"),
+            // `->> IS NOT NULL` e não o operador `?` do jsonb: `?` é ambíguo com
+            // placeholder de driver e o carimbo é sempre string, nunca json null.
+            sql`${productOrder.attribution} ->> 'recovery_pix_expires_at' IS NOT NULL`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(productOrder.createdAt));
+}
+
+/**
+ * Existe OUTRA compra aberta ou paga deste produto para este e-mail?
+ *
+ * Guarda do índice único parcial `product_orders_one_open_purchase`: reabrir um
+ * pedido vencido para `pending` reengata o índice, e se o cliente voltou ao site
+ * e comprou de novo no meio-tempo, o UPDATE estouraria. Melhor recusar antes,
+ * com motivo legível.
+ */
+export async function buyerHasOtherOpenProductOrder({
+  orderId,
+  productId,
+  buyerEmail,
+}: {
+  orderId: string;
+  productId: string;
+  buyerEmail: string;
+}): Promise<boolean> {
+  const [row] = await db
+    .select({ id: productOrder.id })
+    .from(productOrder)
+    .where(
+      and(
+        eq(productOrder.productId, productId),
+        eq(productOrder.buyerEmail, buyerEmail),
+        ne(productOrder.id, orderId),
+        inArray(productOrder.status, ["pending", "approved"]),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(row);
 }
