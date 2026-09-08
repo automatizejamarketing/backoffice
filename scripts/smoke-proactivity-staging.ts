@@ -15,11 +15,13 @@ import {
 import {
   PLAYBOOK_RULE_CPA_ALERT,
   PLAYBOOK_RULE_NO_DELIVERY,
+  PLAYBOOK_RULE_ROAS_DECLINE,
   PLAYBOOK_RULE_ROAS_SCALE,
   PLAYBOOK_RULE_ROAS_TRIGGER,
   PLAYBOOK_RULE_STALLED,
 } from "@/lib/playbook-insights/constants";
 import { evaluatePlaybookInsights } from "@/lib/playbook-insights/evaluate";
+import { EMPTY_ROAS_LOOKBACK } from "@/lib/playbook-insights/types";
 import { REMARKETING_WHATSAPP_NUDGES } from "@/lib/proactivity/remarketing-nudge-catalog";
 
 function toIso(value: Date | string): string {
@@ -70,6 +72,7 @@ const evaluation = evaluatePlaybookInsights({
       purchaseValue: 200,
       impressions: 1000,
       cpa: 20,
+      ...EMPTY_ROAS_LOOKBACK,
     },
   ],
   config: {
@@ -130,6 +133,7 @@ const fullDemo = evaluatePlaybookInsights({
 const expectedConsultantRules = [
   PLAYBOOK_RULE_ROAS_TRIGGER,
   PLAYBOOK_RULE_ROAS_SCALE,
+  PLAYBOOK_RULE_ROAS_DECLINE,
   PLAYBOOK_RULE_CPA_ALERT,
   PLAYBOOK_RULE_STALLED,
   PLAYBOOK_RULE_NO_DELIVERY,

@@ -34,7 +34,9 @@ import {
 } from "./filters";
 import { loadClientInsightsBundle, type CampaignInsightRow } from "./insights";
 import { buildAccountLabels } from "./labels";
+import { listOpenPlaybookInsightsForUser } from "@/lib/db/playbook-insights-queries";
 import {
+  attachRoasDeclineFacts,
   buildCampaignDiagnosticFacts,
   buildCampaignTable,
   campaignFact,
@@ -293,9 +295,14 @@ export async function buildClientPerformanceReport(
       accountName: account.name,
     })),
   );
-  const diagnosticFacts = buildCampaignDiagnosticFacts(
+  const openPlaybookInsights = await listOpenPlaybookInsightsForUser(
+    client.userId,
+    40,
+  );
+  const diagnosticFacts = attachRoasDeclineFacts(
+    buildCampaignDiagnosticFacts(campaigns, accountLabelById, workspace),
+    openPlaybookInsights,
     campaigns,
-    accountLabelById,
     workspace,
   );
 

@@ -79,12 +79,26 @@ export type AccountTotals = {
   metricOrder: string[];
 };
 
+export type RoasDeclineFact = {
+  id: string;
+  name: string;
+  accountId: string;
+  dropPercent: number | null;
+  severity: "warning" | "critical";
+  previousRoas: number | null;
+  currentRoas: number | null;
+  lookbackDays: number;
+  evidence: string;
+  workspaceUrl?: string;
+};
+
 export type DiagnosticFacts = {
   evidenceRule: string;
   citableCampaignIds: string[];
   bestByRoas: CampaignReportFact[];
   needsAttention: CampaignReportFact[];
   activeWithoutPurchases: CampaignReportFact[];
+  roasInDecline: RoasDeclineFact[];
   concentration: {
     scope: string;
     leadingCampaign: CampaignReportFact | null;

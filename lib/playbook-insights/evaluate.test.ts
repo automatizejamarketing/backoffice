@@ -3,12 +3,13 @@ import {
   PLAYBOOK_RULE_CPA_ALERT,
   PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
   PLAYBOOK_RULE_NO_DELIVERY,
+  PLAYBOOK_RULE_ROAS_DECLINE,
   PLAYBOOK_RULE_ROAS_SCALE,
   PLAYBOOK_RULE_ROAS_TRIGGER,
   PLAYBOOK_RULE_STALLED,
 } from "./constants";
 import { evaluatePlaybookInsights } from "./evaluate";
-import type { CampaignMetricsRow } from "./types";
+import { EMPTY_ROAS_LOOKBACK, type CampaignMetricsRow } from "./types";
 
 const CONNECTION_CREATED_AT = new Date("2026-06-01T00:00:00.000Z");
 
@@ -27,6 +28,7 @@ function campaign(
     purchaseValue: 400,
     impressions: 1000,
     cpa: 10,
+    ...EMPTY_ROAS_LOOKBACK,
     ...overrides,
   };
 }
@@ -62,6 +64,109 @@ describe("evaluatePlaybookInsights", () => {
       ],
     });
     expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_SCALE)).toBe(
+      true,
+    );
+  });
+
+  test("flags ROAS decline even when last_30d ROAS is still validated", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c-decline",
+          name: "Still looks good",
+          purchaseRoas: 6.4,
+          spend: 200,
+          lookbackDays: 7,
+          spendLookback: 80,
+          purchaseRoasLookback: 4.2,
+          purchasesLookback: 8,
+          spendPrevious: 100,
+          purchaseRoasPrevious: 8.4,
+          purchasesPrevious: 16,
+        }),
+      ],
+    });
+    const decline = result.candidates.find(
+      (c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE,
+    );
+    expect(decline).toBeDefined();
+    expect(decline?.severity).toBe("critical");
+    expect(decline?.title).toContain("crítica");
+    expect(decline?.evidence).toContain("8.40 → 4.20");
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_SCALE)).toBe(
+      true,
+    );
+  });
+
+  test("uses warning severity for a 30% ROAS drop", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c-warn",
+          name: "Soft drop",
+          purchaseRoas: 5.5,
+          lookbackDays: 7,
+          spendLookback: 70,
+          purchaseRoasLookback: 3.5,
+          spendPrevious: 80,
+          purchaseRoasPrevious: 5,
+        }),
+      ],
+    });
+    const decline = result.candidates.find(
+      (c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE,
+    );
+    expect(decline?.severity).toBe("warning");
+    expect(decline?.title).toBe("ROAS em queda (−30%)");
+  });
+
+  test("skips ROAS decline when previous spend is below the floor", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c-tiny",
+          name: "Tiny previous",
+          lookbackDays: 7,
+          spendLookback: 10,
+          purchaseRoasLookback: 1,
+          spendPrevious: 20,
+          purchaseRoasPrevious: 5,
+        }),
+      ],
+    });
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE)).toBe(
+      false,
+    );
+  });
+
+  test("honors a tighter decline percent from config", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c-tight",
+          name: "Small drop",
+          lookbackDays: 7,
+          spendLookback: 80,
+          purchaseRoasLookback: 4.6,
+          spendPrevious: 80,
+          purchaseRoasPrevious: 5,
+        }),
+      ],
+      config: {
+        enabledRuleIds: new Set([PLAYBOOK_RULE_ROAS_DECLINE]),
+        thresholdsByRuleId: new Map([
+          [
+            PLAYBOOK_RULE_ROAS_DECLINE,
+            { dropWarningPercent: 8, dropCriticalPercent: 20, minPreviousSpend: 50 },
+          ],
+        ]),
+      },
+    });
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE)).toBe(
       true,
     );
   });
