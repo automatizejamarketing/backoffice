@@ -1,6 +1,7 @@
 import "server-only";
 
 import { extractPixCopyPasteCode } from "@/lib/mercadopago/pix-payment-utils";
+import { resolveProductPixAccessToken } from "@/lib/mercadopago/product-account";
 
 type MercadoPagoPixPaymentResponse = {
   id?: number | string;
@@ -14,27 +15,6 @@ export type ProductPixCharge = {
   paymentId: string;
   pixCopyPasteCode: string;
 };
-
-/**
- * Token da MESMA conta que o app usa para infoproduto.
- *
- * Não use `getPixPaymentAccessToken` de `pix-payment.ts` aqui: aquela função
- * tenta `MERCADOPAGO_SUBSCRIPTION_ACCESS_TOKEN` primeiro, e em produção o
- * backoffice tem essa variável com um valor DIFERENTE do
- * `MERCADOPAGO_ACCESS_TOKEN`. Uma cobrança de produto criada na conta de
- * assinatura ficaria invisível para o webhook do app — o cliente pagaria e o
- * produto nunca liberaria, que é justamente o buraco que esta feature existe
- * para tapar. A ordem abaixo é cópia literal de `mercadoPagoFetch` no app
- * (lib/mercadopago/client.ts).
- */
-function getProductPixAccessToken(): string {
-  const token =
-    process.env.MERCADOPAGO_ACCESS_TOKEN ?? process.env.MERCADO_PAGO_ACCESS_TOKEN;
-  if (!token?.trim()) {
-    throw new Error("MERCADOPAGO_ACCESS_TOKEN is not configured");
-  }
-  return token;
-}
 
 function toBRLUnitAmount(amountCentavos: number): number {
   return Number((amountCentavos / 100).toFixed(2));
@@ -76,7 +56,7 @@ export async function createProductRecoveryPixCharge({
   const response = await fetch("https://api.mercadopago.com/v1/payments", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${getProductPixAccessToken()}`,
+      Authorization: `Bearer ${await resolveProductPixAccessToken()}`,
       "Content-Type": "application/json",
       "X-Idempotency-Key": `product-pix-recovery:${orderId}:${attempt}`,
     },
@@ -127,7 +107,7 @@ export async function createProductRecoveryPixCharge({
  *
  * Necessário porque `product_payments` guarda o id do pagamento, não o código
  * EMV: quando o admin reabre o diálogo de um Pix que ele mesmo gerou há pouco,
- * o código tem que vir da MP. Mesmo token da criação, pelo mesmo motivo.
+ * o código tem que vir da MP. Mesma conta da criação, resolvida do mesmo jeito.
  */
 export async function fetchProductPixCharge(
   paymentId: string,
@@ -135,7 +115,7 @@ export async function fetchProductPixCharge(
   const response = await fetch(
     `https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`,
     {
-      headers: { Authorization: `Bearer ${getProductPixAccessToken()}` },
+      headers: { Authorization: `Bearer ${await resolveProductPixAccessToken()}` },
       cache: "no-store",
     },
   );

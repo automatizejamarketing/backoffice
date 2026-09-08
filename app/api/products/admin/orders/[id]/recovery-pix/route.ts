@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { backofficeAuditLog, productOrder } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { formatMercadoPagoPixError } from "@/lib/mercadopago/pix-errors";
+import { ProductPixAccountError } from "@/lib/mercadopago/product-account";
 import { RECOVERY_PIX_REFUSAL_COPY } from "@/lib/products/recovery-pix-policy";
 import { generateRecoveryPix } from "@/lib/products/recovery-pix-service";
 
@@ -26,6 +27,12 @@ export async function POST(
   try {
     result = await generateRecoveryPix({ orderId: id, adminEmail: authz.actor.email });
   } catch (error) {
+    // Conta errada não é erro da MP, é configuração — e a mensagem já diz o que
+    // fazer. Passar pelo formatador de erro do Pix apagaria essa instrução.
+    if (error instanceof ProductPixAccountError) {
+      console.error("Product recovery Pix account mismatch:", error);
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
     const message =
       error instanceof Error ? error.message : "Não foi possível gerar o Pix";
     console.error("Error creating product recovery Pix:", error);

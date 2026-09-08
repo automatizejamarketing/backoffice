@@ -17,6 +17,7 @@ import { listRecoveryPixOrders } from "@/lib/db/product-queries";
 import { fetchProductPixCharge } from "@/lib/mercadopago/product-pix";
 import { generateRecoveryPix } from "@/lib/products/recovery-pix-service";
 import { readRecoveryPixStamp } from "@/lib/products/recovery-pix-policy";
+import { resolveProductPixAccessToken } from "@/lib/mercadopago/product-account";
 
 const ADMIN = "verificacao@automatize.local";
 let failures = 0;
@@ -113,6 +114,10 @@ async function main() {
 
   console.log("\n--- contrato que o webhook do app valida ---");
   const raw = await fetchRawPayment(paymentAfter!.providerPaymentId!);
+  // A asserção que faltava: a cobrança nova tem que estar na MESMA conta das
+  // cobranças que o app já confirmou. Se não estiver, o webhook do app dá 404
+  // nela e o cliente paga sem receber o produto.
+  check("cobrança nasceu na conta que o app enxerga", raw !== null);
   const metadata = (raw?.metadata ?? {}) as Record<string, unknown>;
   check('payment_context = "digital_product"', metadata.payment_context === "digital_product", metadata.payment_context);
   check("product_order_id = o pedido", metadata.product_order_id === target.id, metadata.product_order_id);
@@ -170,7 +175,7 @@ async function main() {
 async function fetchRawPayment(paymentId: string) {
   const response = await fetch(
     `https://api.mercadopago.com/v1/payments/${paymentId}`,
-    { headers: { Authorization: `Bearer ${process.env.MERCADOPAGO_ACCESS_TOKEN}` } },
+    { headers: { Authorization: `Bearer ${await resolveProductPixAccessToken()}` } },
   );
   if (!response.ok) return null;
   return (await response.json()) as {
