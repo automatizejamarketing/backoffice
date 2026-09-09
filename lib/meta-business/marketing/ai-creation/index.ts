@@ -43,3 +43,10 @@ export {
 export { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 export type { MoldRef } from "./pick-mold";
 export type { MoldKind } from "./validation-rules";
+export {
+  applyDemographicLimits,
+  type DemographicAge,
+  type DemographicDerivation,
+  type DemographicIssue,
+  type DemographicLimits,
+} from "./demographic-limits";

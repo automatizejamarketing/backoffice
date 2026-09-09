@@ -6,6 +6,7 @@ import type {
 } from "@/lib/meta-business/campaign-schedule";
 import type { PlanMedia, PlanTexts } from "@/lib/meta-business/marketing/ai-creation";
 import type { PlacementKey } from "@/lib/meta-business/placements";
+import type { DemographicLimits } from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
 import type { PublishResult } from "@/lib/meta-business/marketing/ai-creation";
 import {
   publishFallbackCampaign,
@@ -39,6 +40,7 @@ export type FallbackAiCampaignRequest = {
   period?: FallbackPeriod;
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  demographics?: DemographicLimits;
 };
 
 export type FallbackAiCampaignResponse = { success: true } & PublishResult;
@@ -135,6 +137,7 @@ export async function POST(
         period: body.period,
         placementsMode: body.placementsMode,
         selectedPlacements: body.selectedPlacements,
+        demographics: body.demographics,
       },
     });
 

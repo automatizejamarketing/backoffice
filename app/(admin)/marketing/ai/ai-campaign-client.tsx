@@ -49,6 +49,7 @@ import {
   type PlanMedia,
 } from "@/lib/meta-business/marketing/ai-creation/build-tree";
 import type { MoldRef, ProvenAdRef } from "@/lib/meta-business/marketing/ai-creation";
+import type { DemographicLimits } from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
 import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-types";
 import {
   ALL_PLACEMENTS,
@@ -61,6 +62,7 @@ import {
   placementsSummary,
   type PlacementsMode,
 } from "./ai-placements-editor";
+import { AiDemographicLimitsEditor } from "./ai-demographic-limits-editor";
 
 type Phase =
   | "objective"
@@ -209,6 +211,7 @@ export function AiCampaignClient() {
   });
   const [placementsMode, setPlacementsMode] = useState<PlacementsMode>("automatic");
   const [selectedPlacements, setSelectedPlacements] = useState<PlacementKey[]>([]);
+  const [demographics, setDemographics] = useState<DemographicLimits | undefined>(undefined);
   const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
   const [periodEnd, setPeriodEnd] = useState(() =>
     addDays(startOfDay(new Date()), DEFAULT_FLIGHT_DAYS - 1),
@@ -415,6 +418,7 @@ export function AiCampaignClient() {
         : {}),
       placementsMode,
       ...(placementsMode === "manual" ? { selectedPlacements } : {}),
+      ...(demographics ? { demographics } : {}),
     };
   }
 
@@ -559,6 +563,7 @@ export function AiCampaignClient() {
             placementsMode,
             selectedPlacements:
               placementsMode === "manual" ? selectedPlacements : undefined,
+            demographics,
             period: {
               startTime: combineDateTime(periodStart, periodStartTime),
               endTime: combineDateTime(periodEnd, periodEndTime),
@@ -1107,6 +1112,12 @@ export function AiCampaignClient() {
             <p className="text-xs text-muted-foreground">
               {placementsSummary(placementsMode, selectedPlacements, objective)}
             </p>
+
+            <AiDemographicLimitsEditor
+              value={demographics}
+              onChange={setDemographics}
+              disabled={isBusy}
+            />
 
             {showDeliverySchedule ? (
               <AdSetDeliveryScheduleEditor

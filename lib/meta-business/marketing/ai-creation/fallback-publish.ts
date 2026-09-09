@@ -49,6 +49,7 @@ import {
   type PlanTexts,
 } from "./build-tree";
 import type { PublishResult } from "./publish-campaign";
+import { applyDemographicLimits, type DemographicLimits } from "./demographic-limits";
 
 export type FallbackNiche =
   | "food_service"
@@ -85,6 +86,7 @@ export type FallbackPublishInput = {
    */
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  demographics?: DemographicLimits;
 };
 
 export type FallbackConfig = {
@@ -162,6 +164,7 @@ export function fallbackIssues(
   config: FallbackConfig,
 ): CreateIssue[] {
   const issues: CreateIssue[] = [];
+  issues.push(...applyDemographicLimits({}, input.demographics).issues);
 
   if (!input.dailyBudget || input.dailyBudget <= 0) {
     issues.push(
@@ -548,6 +551,21 @@ export async function publishFallbackCampaign(args: {
     (input.scheduleBlocks?.length ?? 0) > 0;
 
   const placementFields = resolvePlacementFields(input, resolved);
+  const demographicTargeting = applyDemographicLimits(
+    {
+      geo_locations: geoLocations,
+      targeting_automation: { advantage_audience: 1 },
+      ...placementFields,
+    },
+    input.demographics,
+  );
+  if (demographicTargeting.issues.length || !demographicTargeting.targeting) {
+    return {
+      ok: false,
+      issues: demographicTargeting.issues,
+      rolledBack: false,
+    };
+  }
 
   let leadFormId: string | undefined;
   if (resolved.metaObjective === "OUTCOME_LEADS") {
@@ -621,11 +639,7 @@ export async function publishFallbackCampaign(args: {
               }
             : {}),
           extraFields: {
-            targeting: {
-              geo_locations: geoLocations,
-              targeting_automation: { advantage_audience: 1 },
-              ...placementFields,
-            },
+            targeting: demographicTargeting.targeting,
           },
         },
         ads: input.media.map((media, index) => ({

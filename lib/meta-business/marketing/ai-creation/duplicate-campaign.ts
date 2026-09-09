@@ -36,6 +36,7 @@ import {
   registrableDomain,
 } from "./build-tree";
 import { readMold, type CampaignMold } from "./read-mold";
+import { applyDemographicLimits } from "./demographic-limits";
 import { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 import type { MoldRef } from "./pick-mold";
 import {
@@ -256,6 +257,7 @@ async function prepareDuplication(
   }
 
   issues.push(...newMediaIssues(answers, mold));
+  issues.push(...applyDemographicLimits({}, answers.demographics).issues);
 
   const adSetCount =
     hasKeptAds && selectedProvenAds.length > 0
@@ -358,8 +360,12 @@ function namedGeoLocations(
  * This is the ONE describeAudience — it was duplicated near-verbatim in plan-campaign.ts, whose copy
  * was dead once planCampaign became a thin delegator (ADR 0023 ticket 06).
  */
-function describeAudience(mold: CampaignMold): ReviewSummary["audience"] {
-  const t = mold.adSet.targeting;
+function describeAudience(
+  mold: CampaignMold,
+  answers: PlanAnswers,
+): ReviewSummary["audience"] {
+  const derived = applyDemographicLimits(mold.adSet.targeting, answers.demographics);
+  const t = derived.targeting ?? mold.adSet.targeting;
   const geo = (t.geo_locations ?? {}) as Record<string, unknown>;
   const automation = (t.targeting_automation ?? {}) as { advantage_audience?: number };
   const genders = (t.genders ?? []) as number[];
@@ -541,6 +547,37 @@ async function applyPlacementsOverride(args: {
   }
 }
 
+/** Apply the reviewed hard demographic intent to every copied ad set before activation. */
+async function applyDemographicOverride(args: {
+  accessToken: string;
+  adSetIds: string[];
+  answers: PlanAnswers;
+}): Promise<void> {
+  if (args.answers.demographics?.age == null && args.answers.demographics?.genders == null) {
+    return;
+  }
+
+  for (const adSetId of args.adSetIds) {
+    const snapshot = await readAdSet(adSetId, args.accessToken);
+    const derived = applyDemographicLimits(
+      (snapshot.targeting ?? {}) as Record<string, unknown>,
+      args.answers.demographics,
+    );
+    if (derived.issues.length || !derived.targeting) {
+      throw new Error(derived.issues[0]?.reason ?? "demographic override failed");
+    }
+    const result = await updateAdSet({
+      adSetId,
+      accessToken: args.accessToken,
+      snapshot,
+      targetingRaw: derived.targeting,
+    });
+    if (!result.ok) {
+      throw new Error(result.issues[0]?.reason ?? "demographic override failed");
+    }
+  }
+}
+
 function buildDuplicationReview(
   ctx: MetaCtx,
   prepared: DuplicationPrepared,
@@ -625,7 +662,7 @@ function buildDuplicationReview(
       resultLabel: ad.resultLabel,
     })),
     audience: {
-      ...describeAudience(mold),
+      ...describeAudience(mold, answers),
       ...(answers.placementsMode
         ? {
             placements: reviewPlacementsFromMode(
@@ -842,6 +879,11 @@ export async function createDuplicatedCampaign(
         answers,
       });
       await applyPlacementsOverride({
+        accessToken: ctx.accessToken,
+        adSetIds: result.adSetIds,
+        answers,
+      });
+      await applyDemographicOverride({
         accessToken: ctx.accessToken,
         adSetIds: result.adSetIds,
         answers,

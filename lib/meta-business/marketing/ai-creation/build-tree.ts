@@ -12,6 +12,7 @@ import type { AdCreativeInput } from "../creation/create-ad";
 import type { PlacementAdaptation } from "@/lib/meta-business/creative-features";
 import type { PlacementKey } from "@/lib/meta-business/placements";
 import type { CampaignMold } from "./read-mold";
+import type { DemographicLimits } from "./demographic-limits";
 
 /** What the flow suggests, and the floor it advises (ADR 0022, decision 7). */
 export const DEFAULT_DAILY_BUDGET = 30;
@@ -78,6 +79,8 @@ export type PlanAnswers = {
    */
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  /** Session-only advanced demographic intent. Absent preserves each ad set's base. */
+  demographics?: DemographicLimits;
   /**
    * Como o Meta pode reenquadrar a mídia nos posicionamentos onde ela não cabe
    * (o quadrado servido em Stories/Reels, o vertical servido no Feed).
