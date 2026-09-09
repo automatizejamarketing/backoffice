@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
-import { listCustomAudiences } from "@/lib/meta-business/marketing/audiences";
+import {
+  AccountNotAccessibleError,
+  assertCustomAudienceAccountAccess,
+  listCustomAudiences,
+} from "@/lib/meta-business/marketing/audiences";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 
 type GetAudiencesResponse = {
   audiences: Awaited<ReturnType<typeof listCustomAudiences>>["items"];
@@ -56,6 +61,17 @@ export async function GET(
       );
     }
 
+    const connection = await getUserWithAdAccounts(tokenResult.accessToken, {
+      tokenKind: tokenResult.connection.tokenKind,
+      bisuAppScopedId: tokenResult.connection.bisuAppScopedId,
+      clientBusinessId: tokenResult.connection.clientBusinessId,
+      connectionName: tokenResult.connection.name,
+    });
+    assertCustomAudienceAccountAccess(
+      accountId,
+      connection.adaccounts?.data ?? [],
+    );
+
     const page = await listCustomAudiences({
       adAccountId: accountId,
       accessToken: tokenResult.accessToken,
@@ -74,6 +90,12 @@ export async function GET(
       ],
     });
   } catch (error) {
+    if (error instanceof AccountNotAccessibleError) {
+      return NextResponse.json(
+        { error: "Account not accessible", message: error.message },
+        { status: 403 },
+      );
+    }
     const errorReturn = errorToGraphErrorReturn(error);
 
     return NextResponse.json(

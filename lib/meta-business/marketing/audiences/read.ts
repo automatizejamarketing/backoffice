@@ -1,6 +1,25 @@
 import { callMeta } from "@/lib/meta-business/insights/client";
+import { isSameAccount } from "@/lib/meta-business/account-match";
 
 export type AudienceStatus = { code?: number; description?: string };
+export class AccountNotAccessibleError extends Error {
+  readonly adAccountId: string;
+
+  constructor(adAccountId: string) {
+    super("A conta de an\u00fancios selecionada n\u00e3o est\u00e1 acess\u00edvel nesta conex\u00e3o.");
+    this.name = "AccountNotAccessibleError";
+    this.adAccountId = adAccountId;
+  }
+}
+
+export function assertCustomAudienceAccountAccess(
+  adAccountId: string,
+  accessibleAccounts: ReadonlyArray<{ id: string; account_id: string }>,
+): void {
+  if (!accessibleAccounts.some((account) => isSameAccount(account.id, adAccountId) || isSameAccount(account.account_id, adAccountId))) {
+    throw new AccountNotAccessibleError(adAccountId);
+  }
+}
 export type AudienceCapability = "available" | "unknown";
 export type AudienceCapabilities = {
   read: AudienceCapability;
