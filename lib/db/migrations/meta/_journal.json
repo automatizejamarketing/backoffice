@@ -400,6 +400,13 @@
       "when": 1795400000000,
       "tag": "0069_mercadopago_expert_connections",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795500000000,
+      "tag": "0070_product_card_disputes",
+      "breakpoints": true
     }
   ]
 }

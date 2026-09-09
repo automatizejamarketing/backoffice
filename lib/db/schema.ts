@@ -835,6 +835,8 @@ export const productEntitlement = pgTable(
       .$type<"purchase" | "free">()
       .notNull(),
     grantedAt: timestamp("granted_at").notNull().defaultNow(),
+    suspendedAt: timestamp("suspended_at"),
+    suspendedByCardDisputeId: uuid("suspended_by_card_dispute_id"),
     revokedAt: timestamp("revoked_at"),
   },
   (table) => ({
@@ -847,6 +849,48 @@ export const productEntitlement = pgTable(
 );
 
 export type ProductEntitlement = InferSelectModel<typeof productEntitlement>;
+
+export const PRODUCT_CARD_DISPUTE_STATUS_VALUES = [
+  "open_full",
+  "open_partial",
+  "closed_valid",
+  "closed_revoked",
+  "closed_partial",
+] as const;
+export type ProductCardDisputeStatus =
+  (typeof PRODUCT_CARD_DISPUTE_STATUS_VALUES)[number];
+
+export const productCardDispute = pgTable(
+  "product_card_disputes",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productOrder.id),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    providerDisputeId: varchar("provider_dispute_id", { length: 255 }).notNull(),
+    providerAccountId: varchar("provider_account_id", { length: 255 }),
+    status: varchar("status", { enum: PRODUCT_CARD_DISPUTE_STATUS_VALUES })
+      .$type<ProductCardDisputeStatus>()
+      .notNull(),
+    cause: varchar("cause", { length: 120 }),
+    disputedAmountCentavos: integer("disputed_amount_centavos").notNull(),
+    chargeAmountCentavos: integer("charge_amount_centavos").notNull(),
+    openedAt: timestamp("opened_at").notNull(),
+    closedAt: timestamp("closed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    providerDisputeUnique: unique("product_card_disputes_provider_dispute_unique").on(
+      table.provider,
+      table.providerDisputeId,
+    ),
+    orderIdx: index("product_card_disputes_order_id_idx").on(table.orderId),
+  }),
+);
+
+export type ProductCardDispute = InferSelectModel<typeof productCardDispute>;
 
 export const expertLedgerEntry = pgTable(
   "expert_ledger_entries",
