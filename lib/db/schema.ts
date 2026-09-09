@@ -614,7 +614,7 @@ export const product = pgTable(
     ),
     participationCheck: check(
       "products_expert_participation_range",
-      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000)`,
+      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 9999)`,
     ),
     ownerCheck: check(
       "products_owner_consistency",
@@ -699,6 +699,14 @@ export const productOrder = pgTable(
     expertIdSnapshot: uuid("expert_id_snapshot").references(
       () => expertProfile.id,
     ),
+    /** Frozen platform participation for this item. Null is retained only for
+     * historical orders created before the explicit agreement existed. */
+    platformParticipationBps: integer("platform_participation_bps"),
+    participationRuleVersion: varchar("participation_rule_version", {
+      length: 40,
+    })
+      .notNull()
+      .default("legacy"),
     coproducerTypeSnapshot: varchar("coproducer_type_snapshot", {
       enum: [...PRODUCT_OWNER_VALUES],
     }).$type<ProductOwnerType>(),
@@ -777,6 +785,10 @@ export const productOrder = pgTable(
     checkoutChannelCheck: check(
       "product_orders_checkout_channel_consistency",
       sql`${table.checkoutChannel} IN ('direct', 'marketplace') AND ${table.marketplaceFeeBasisPoints} >= 0 AND ${table.marketplaceFeeBasisPoints} <= 10000 AND (${table.checkoutChannel} = 'marketplace' OR ${table.marketplaceFeeBasisPoints} = 0)`,
+    ),
+    participationSnapshotCheck: check(
+      "product_orders_participation_snapshot_range",
+      sql`${table.platformParticipationBps} IS NULL OR (${table.platformParticipationBps} >= 0 AND ${table.platformParticipationBps} <= 9999)`,
     ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",

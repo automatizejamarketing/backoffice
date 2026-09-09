@@ -470,6 +470,13 @@
       "when": 1796600000000,
       "tag": "0079_product_schema_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1796700000000,
+      "tag": "0080_product_participation_eligibility",
+      "breakpoints": true
     }
   ]
 }

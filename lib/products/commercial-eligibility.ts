@@ -3,6 +3,7 @@ import type { ProductOwnerType, ProductStatus } from "@/lib/db/schema";
 
 /** The platform participation is a percentage, stored as basis points. */
 export const MAX_PLATFORM_PARTICIPATION_BPS = 9_999;
+export const PRODUCT_PARTICIPATION_RULE_VERSION = "product_participation_v1" as const;
 
 const participationPercentSchema = z
   .number({ invalid_type_error: "Informe a participação do Automatize." })
@@ -50,10 +51,60 @@ export type ProductCommercialEligibility = {
   expertParticipationBps: number | null;
 };
 
+export type ProductParticipationSnapshot = {
+  platformParticipationBps: number;
+  ownerExpertShareBasisPoints: number;
+  coproducerType: "automatize" | null;
+  coproducerShareBasisPoints: number;
+  participationRuleVersion: typeof PRODUCT_PARTICIPATION_RULE_VERSION;
+};
+
+/**
+ * Converts the explicit Product agreement into the fields consumed by the
+ * existing gateway settlement model. The old coproduction fields are inputs
+ * only for backwards-compatible parsing; they never win over the new
+ * per-Product agreement for a newly issued order.
+ */
+export function resolveProductParticipationSnapshot(input: {
+  ownerType: ProductOwnerType;
+  expertParticipationBps: number | null;
+  coproducerType?: ProductOwnerType | null;
+  coproducerShareBasisPoints?: number;
+}): ProductParticipationSnapshot {
+  if (input.ownerType === "automatize") {
+    return {
+      platformParticipationBps: 0,
+      ownerExpertShareBasisPoints: 0,
+      coproducerType: null,
+      coproducerShareBasisPoints: 0,
+      participationRuleVersion: PRODUCT_PARTICIPATION_RULE_VERSION,
+    };
+  }
+
+  if (
+    input.expertParticipationBps === null ||
+    !Number.isInteger(input.expertParticipationBps) ||
+    input.expertParticipationBps < 0 ||
+    input.expertParticipationBps > MAX_PLATFORM_PARTICIPATION_BPS
+  ) {
+    throw new Error(
+      "Defina explicitamente a participação do Automatize entre 0% e 99,99% antes de vender.",
+    );
+  }
+
+  return {
+    platformParticipationBps: input.expertParticipationBps,
+    ownerExpertShareBasisPoints: 10_000 - input.expertParticipationBps,
+    coproducerType: input.expertParticipationBps > 0 ? "automatize" : null,
+    coproducerShareBasisPoints: input.expertParticipationBps,
+    participationRuleVersion: PRODUCT_PARTICIPATION_RULE_VERSION,
+  };
+}
+
 /**
  * Shared read-side contract for checkout and catalog surfaces. Connection
- * aptitude is deliberately a later input (ticket 03); this function only
- * evaluates the Product agreement and offer state.
+ * aptitude is an explicit input so callers cannot accidentally treat a
+ * connected-but-unknown account as eligible.
  */
 export function getProductCommercialEligibility(input: {
   ownerType: ProductOwnerType;
@@ -106,10 +157,7 @@ export function getProductCommercialEligibility(input: {
     };
   }
   if (
-    input.expertParticipationBps === null ||
-    !Number.isInteger(input.expertParticipationBps) ||
-    input.expertParticipationBps < 0 ||
-    input.expertParticipationBps > MAX_PLATFORM_PARTICIPATION_BPS
+    input.expertParticipationBps === null
   ) {
     return {
       ...calculatedShares,
@@ -117,6 +165,20 @@ export function getProductCommercialEligibility(input: {
       reason: "participation_missing",
       message:
         "Defina explicitamente a participação do Automatize entre 0% e 99,99% antes de vender.",
+    };
+  }
+
+  if (
+    !Number.isInteger(input.expertParticipationBps) ||
+    input.expertParticipationBps < 0 ||
+    input.expertParticipationBps > MAX_PLATFORM_PARTICIPATION_BPS
+  ) {
+    return {
+      ...calculatedShares,
+      eligible: false,
+      reason: "participation_invalid",
+      message:
+        "A participação do Automatize deve estar entre 0% e 99,99%, com no máximo duas casas decimais.",
     };
   }
 

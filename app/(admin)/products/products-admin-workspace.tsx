@@ -91,6 +91,8 @@ import {
 } from "@/lib/products/currency-input";
 import {
   formatPercentageInput,
+  formatProductParticipationInput,
+  parseOptionalPercentageInput,
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
 import {
@@ -151,6 +153,7 @@ type Product = {
   description: string | null;
   coverUrl: string | null;
   priceCentavos: number;
+  expertParticipationBps: number | null;
   ownerExpertShareBasisPoints: number;
   coproducerType: "automatize" | "expert" | null;
   coproducerExpertId: string | null;
@@ -237,6 +240,7 @@ type ProductFormState = {
   description: string;
   coverUrl: string;
   priceReais: string;
+  expertParticipationPercent: string;
   hasCoproduction: boolean;
   coproducerType: "automatize";
   coproducerExpertId: string;
@@ -278,6 +282,7 @@ const emptyProduct: ProductFormState = {
   description: "",
   coverUrl: "",
   priceReais: "",
+  expertParticipationPercent: "",
   hasCoproduction: false,
   coproducerType: "automatize",
   coproducerExpertId: "",
@@ -904,6 +909,9 @@ export function ProductsAdminWorkspace({
         coproducerSharePercent: parsePercentageInput(
           productForm.coproducerSharePercent,
         ),
+        expertParticipationPercent: parseOptionalPercentageInput(
+          productForm.expertParticipationPercent,
+        ),
         minimumPlanTier: productForm.minimumPlanTier || null,
       };
       const response = await fetch(
@@ -971,6 +979,12 @@ export function ProductsAdminWorkspace({
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
+      expertParticipationPercent:
+        row.expertParticipationBps === null
+          ? ""
+          : formatProductParticipationInput(
+              String(row.expertParticipationBps / 100).replace(".", ","),
+            ),
       hasCoproduction: row.coproducerType === "automatize",
       coproducerType: "automatize",
       coproducerExpertId: "",
@@ -2309,44 +2323,32 @@ export function ProductsAdminWorkspace({
             {productForm.ownerType === "expert" ? (
               <>
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-4 md:col-span-2">
-                  <label className="flex items-center gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={productForm.hasCoproduction}
+                  <Field label="Participação do Automatize (%)">
+                    <Input
+                      inputMode="decimal"
+                      value={productForm.expertParticipationPercent}
                       onChange={(event) =>
                         setProductForm({
                           ...productForm,
-                          hasCoproduction: event.target.checked,
-                          coproducerType: "automatize",
-                          coproducerExpertId: "",
-                          coproducerSharePercent: event.target.checked
-                            ? productForm.coproducerSharePercent
-                            : "",
+                          expertParticipationPercent:
+                            formatProductParticipationInput(event.target.value),
                         })
                       }
+                      placeholder="0% a 99,99%"
+                      aria-describedby="expert-participation-help"
                     />
-                    Coprodução do Automatize
-                  </label>
-                  {productForm.hasCoproduction ? (
-                    <Field label="Participação do Automatize (%)">
-                      <Input
-                        inputMode="decimal"
-                        value={productForm.coproducerSharePercent}
-                        onChange={(event) =>
-                          setProductForm({
-                            ...productForm,
-                            coproducerType: "automatize",
-                            coproducerSharePercent: formatPercentageInput(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        required={productForm.hasCoproduction}
-                      />
-                    </Field>
-                  ) : null}
+                  </Field>
+                  <p
+                    id="expert-participation-help"
+                    className="text-xs leading-5 text-muted-foreground"
+                  >
+                    Acordo explícito por produto. Rascunhos podem ficar sem valor;
+                    publicar e habilitar vendas exige de 0% a 99,99%. O Expert
+                    recebe o percentual complementar.
+                  </p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Coprodutor Expert não é permitido — somente Coprodução do Automatize ou nenhum coprodutor.
+                    A conta Mercado Pago elegível continua obrigatória, inclusive
+                    quando a participação do Automatize é 0%.
                   </p>
                 </div>
                 {selectedOwnerStripeDisplay &&
