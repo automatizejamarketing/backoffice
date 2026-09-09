@@ -5,7 +5,9 @@ import {
   assertCustomAudienceAccountAccess,
   listCustomAudiences,
   deleteCustomAudience,
+  buildWebsiteAudienceRule,
 } from "@/lib/meta-business/marketing/audiences";
+import { getAdAccountPixels } from "@/lib/meta-business/get-ad-account-pixels";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
@@ -74,6 +76,12 @@ export async function GET(
       connection.adaccounts?.data ?? [],
     );
 
+    if (request.nextUrl.searchParams.get("sources") === "website") {
+      const pixels = await getAdAccountPixels(accountId.startsWith("act_") ? accountId : `act_${accountId}`, tokenResult.accessToken);
+      const sources = pixels.data.filter((pixel) => pixel.is_unavailable !== true && Boolean(pixel.last_fired_time)).map((pixel) => ({ id: pixel.id, name: pixel.name, lastFiredTime: pixel.last_fired_time }));
+      return NextResponse.json({ sources, events: [], guidance: sources.length ? "A fonte tem atividade observada. Eventos específicos não são oferecidos sem uma observação autenticada da fonte; a tela não usa catálogo genérico." : "Nenhum Pixel com atividade recebida e acessível foi encontrado. Configure ou reautorize o rastreamento existente; esta tela não instala Pixel nem CAPI." });
+    }
+
     const page = await listCustomAudiences({
       adAccountId: accountId,
       accessToken: tokenResult.accessToken,
@@ -118,14 +126,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
-    const body = await request.json() as { action?: "review" | "confirm" | "delete-review" | "delete-confirm"; audienceId?: string; name?: string; description?: string; confirmationToken?: string };
-    if (!userId || !body.audienceId || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
+    const body = await request.json() as { action?: "review" | "confirm" | "delete-review" | "delete-confirm" | "website-create" | "website-update"; audienceId?: string; name?: string; description?: string; confirmationToken?: string; pixelId?: string; criterion?: "visitors" | "url" | "event"; retentionDays?: unknown; url?: string; event?: string };
+    if (!userId || (!body.audienceId && body.action !== "website-create") || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "website-create" && body.action !== "website-update" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const authz = await requireMarketingUserAccessResponse(userId, "marketing:write");
     if (!authz.ok) return authz.response;
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) return NextResponse.json(tokenResult.error, { status: tokenResult.error.statusCode });
     const connection = await getUserWithAdAccounts(tokenResult.accessToken, { tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId, clientBusinessId: tokenResult.connection.clientBusinessId, connectionName: tokenResult.connection.name });
     assertCustomAudienceAccountAccess(accountId, connection.adaccounts?.data ?? []);
+    if (body.action === "website-create" || body.action === "website-update") {
+      if (!body.name?.trim() || !body.pixelId || !body.criterion || !Number.isInteger(body.retentionDays)) return NextResponse.json({ error: "Invalid website audience" }, { status: 400 });
+      const pixels = await getAdAccountPixels(accountId.startsWith("act_") ? accountId : `act_${accountId}`, tokenResult.accessToken);
+      if (!pixels.data.some((pixel) => pixel.id === body.pixelId && pixel.is_unavailable !== true && pixel.last_fired_time)) return NextResponse.json({ error: "Website source unavailable", message: "O Pixel escolhido não tem atividade recebida acessível nesta conta." }, { status: 409 });
+      try {
+        const payload = new URLSearchParams({ name: body.name.trim(), rule: JSON.stringify(buildWebsiteAudienceRule({ pixelId: body.pixelId, criterion: body.criterion, retentionDays: body.retentionDays as number, url: body.url, event: body.event })) });
+        if (body.action === "website-create") payload.set("prefill", "true");
+        if (body.description) payload.set("description", body.description);
+        const path = body.action === "website-create" ? `act_${accountId.replace(/^act_/, "")}/customaudiences` : body.audienceId!;
+        const result = await metaApiCall<{ id?: string; success?: boolean }>({ method: "POST", path, params: "", body: payload, accessToken: tokenResult.accessToken });
+        return NextResponse.json({ ok: true, id: result.id ?? body.audienceId });
+      } catch (error) { return NextResponse.json({ error: "Invalid website rule", message: error instanceof Error ? error.message : "Não foi possível salvar a regra do site." }, { status: 409 }); }
+    }
     if (body.action === "delete-review" || body.action === "delete-confirm") {
       if (body.action === "delete-confirm" && !body.confirmationToken) return NextResponse.json({ error: "Confirmation required" }, { status: 400 });
       const result = await deleteCustomAudience({ audienceId: body.audienceId, adAccountId: accountId, accessToken: tokenResult.accessToken, confirm: body.action === "delete-confirm", confirmationToken: body.confirmationToken });
