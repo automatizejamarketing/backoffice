@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/read";
+import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/types";
 
 type Review = { ok: true; message: string; preflight: { name?: string; retentionDays?: number; knownUses: unknown[]; lookalikeAudienceIds: string[]; coverage: string; limitations: string[]; confirmationToken: string } };
 export function AudienceDeletionControl({ audience, accountId, userId, onDeleted }: { audience: CustomAudienceView; accountId: string; userId: string; onDeleted: () => void }) {

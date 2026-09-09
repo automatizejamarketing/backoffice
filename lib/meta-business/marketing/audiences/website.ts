@@ -12,8 +12,8 @@ export function parseWebsiteAudienceRule(rule: unknown): WebsiteAudienceSelectio
   const inclusions = (rule as { inclusions?: { operator?: unknown; rules?: unknown[] } }).inclusions;
   const item = inclusions?.operator === "or" && inclusions.rules?.length === 1 ? inclusions.rules[0] as { event_sources?: Array<{ id?: unknown; type?: unknown }>; retention_seconds?: unknown; filter?: { operator?: unknown; filters?: Array<{ field?: unknown; operator?: unknown; value?: unknown }> } } : null;
   const source = item?.event_sources?.length === 1 ? item.event_sources[0] : null; const filter = item?.filter?.operator === "and" && item.filter.filters?.length === 1 ? item.filter.filters[0] : null; const seconds = item?.retention_seconds;
-  if (source?.type !== "pixel" || typeof source.id !== "string" || !Number.isInteger(seconds) || seconds! < DAY || seconds! > 180 * DAY || seconds! % DAY !== 0 || !filter || typeof filter.value !== "string") return null;
-  const retentionDays = seconds! / DAY;
+  if (source?.type !== "pixel" || typeof source.id !== "string" || typeof seconds !== "number" || !Number.isInteger(seconds) || seconds / DAY < 1 || seconds / DAY > 180 || seconds % DAY !== 0 || !filter || typeof filter.value !== "string") return null;
+  const retentionDays = seconds / DAY;
   if (filter.field === "event" && filter.operator === "eq") return { pixelId: source.id, criterion: filter.value === "PageView" ? "visitors" : "event", ...(filter.value === "PageView" ? {} : { event: filter.value }), retentionDays };
   return filter.field === "url" && filter.operator === "i_contains" ? { pixelId: source.id, criterion: "url", url: filter.value, retentionDays } : null;
 }

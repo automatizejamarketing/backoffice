@@ -1,7 +1,13 @@
 import { callMeta } from "@/lib/meta-business/insights/client";
 import { isSameAccount } from "@/lib/meta-business/account-match";
+import type { AudienceStatus, CustomAudienceView } from "./types";
 
-export type AudienceStatus = { code?: number; description?: string };
+export type {
+  AudienceCapabilities,
+  AudienceCapability,
+  AudienceStatus,
+  CustomAudienceView,
+} from "./types";
 export class AccountNotAccessibleError extends Error {
   readonly adAccountId: string;
 
@@ -20,40 +26,6 @@ export function assertCustomAudienceAccountAccess(
     throw new AccountNotAccessibleError(adAccountId);
   }
 }
-export type AudienceCapability = "available" | "unknown";
-export type AudienceCapabilities = {
-  read: AudienceCapability;
-  include: AudienceCapability;
-  exclude: AudienceCapability;
-  editMetadata: AudienceCapability;
-  editRule: AudienceCapability;
-  manageMembers: AudienceCapability;
-  delete: AudienceCapability;
-  lookalikeSource: AudienceCapability;
-};
-
-export type CustomAudienceView = {
-  id: string;
-  name?: string;
-  description?: string;
-  subtype?: string;
-  approximateCountLowerBound?: number;
-  approximateCountUpperBound?: number;
-  operationStatus?: AudienceStatus;
-  deliveryStatus?: AudienceStatus;
-  retentionDays?: number;
-  customerFileSource?: string;
-  isValueBased?: boolean;
-  timeCreated?: number;
-  timeUpdated?: number;
-  rule?: unknown;
-  lookalikeSpec?: unknown;
-  lookalikeAudienceIds?: string[];
-  originAudienceId?: string;
-  ruleSummary: "external" | "not_applicable" | "not_loaded";
-  capabilities: AudienceCapabilities;
-};
-
 const LIST_FIELDS = ["id", "name", "subtype", "approximate_count_lower_bound", "approximate_count_upper_bound", "operation_status", "delivery_status", "retention_days", "customer_file_source", "is_value_based", "time_created", "time_updated"] as const;
 const DETAIL_FIELDS = [...LIST_FIELDS, "description", "rule", "lookalike_spec", "lookalike_audience_ids", "origin_audience_id"] as const;
 type RawAudience = Record<string, unknown>;
@@ -82,4 +54,20 @@ export async function listCustomAudiences(args: { adAccountId: string; accessTok
   const response = await callMeta<{ data?: RawAudience[]; paging?: { next?: string; cursors?: { after?: string } } }>({ method: "GET", path: `${accountId}/customaudiences`, params: parameters.join("&"), accessToken: args.accessToken }, { retryOnRateLimit: true });
   const nextCursor = response.paging?.cursors?.after;
   return { items: (response.data ?? []).map((audience) => mapAudience(audience, Boolean(args.detailed))), truncated: Boolean(response.paging?.next), ...(nextCursor ? { nextCursor } : {}) };
+}
+
+export async function getCustomAudienceDetail(args: {
+  audienceId: string;
+  accessToken: string;
+}): Promise<CustomAudienceView> {
+  const response = await callMeta<RawAudience>(
+    {
+      method: "GET",
+      path: args.audienceId,
+      params: `fields=${DETAIL_FIELDS.join(",")}`,
+      accessToken: args.accessToken,
+    },
+    { retryOnRateLimit: true },
+  );
+  return mapAudience(response, true);
 }

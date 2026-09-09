@@ -31,10 +31,18 @@ type GetAudiencesErrorResponse = {
   solution?: string;
 };
 
+type GetWebsiteSourcesResponse = {
+  sources: Array<{ id: string; name?: string; lastFiredTime?: string }>;
+  events: unknown[];
+  guidance?: string;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
-): Promise<NextResponse<GetAudiencesResponse | GetAudiencesErrorResponse>> {
+): Promise<
+  NextResponse<GetAudiencesResponse | GetAudiencesErrorResponse | GetWebsiteSourcesResponse>
+> {
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
@@ -165,10 +173,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       } catch (error) { return NextResponse.json({ error: "Invalid website rule", message: error instanceof Error ? error.message : "Não foi possível salvar a regra do site." }, { status: 409 }); }
     }
     if (body.action === "delete-review" || body.action === "delete-confirm") {
+      if (!body.audienceId) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
       if (body.action === "delete-confirm" && !body.confirmationToken) return NextResponse.json({ error: "Confirmation required" }, { status: 400 });
       const result = await deleteCustomAudience({ audienceId: body.audienceId, adAccountId: accountId, accessToken: tokenResult.accessToken, confirm: body.action === "delete-confirm", confirmationToken: body.confirmationToken });
       return NextResponse.json(result, { status: result.ok ? 200 : 409 });
     }
+    if (!body.audienceId) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const snapshot = await metaApiCall<{ account_id?: string; name?: string; description?: string; lookalike_audience_ids?: string[] }>({ method: "GET", path: body.audienceId, params: "fields=account_id,name,description,rule,lookalike_audience_ids", accessToken: tokenResult.accessToken });
     if (snapshot.account_id?.replace(/^act_/, "") !== accountId.replace(/^act_/, "")) return NextResponse.json({ error: "Audience not in account" }, { status: 403 });
     const before = { name: snapshot.name, description: snapshot.description }; const after = { name: body.name ?? snapshot.name, description: body.description ?? snapshot.description };

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { assessLookalikeSource } from "@/lib/meta-business/marketing/audiences/lookalike";
-import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/read";
+import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/types";
 
 type Review = { confirmationToken: string; source: { id: string; name?: string }; formation: { country: string; percentage: number }; notice: string };
 

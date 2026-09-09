@@ -1,4 +1,4 @@
-import type { CustomAudienceView } from "./read";
+import type { CustomAudienceView } from "./types";
 
 export const LOOKALIKE_DEFAULT_COUNTRY = "BR";
 export const LOOKALIKE_DEFAULT_PERCENTAGE = 1;
