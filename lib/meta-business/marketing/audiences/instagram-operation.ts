@@ -21,6 +21,8 @@ export type InstagramAudienceReview = {
   audienceId?: string;
   adAccountId: string;
   audienceName?: string;
+  audienceDescription?: string;
+  beforeRule?: unknown;
   before: InstagramAudienceSelection | null;
   after: InstagramAudienceSelection;
   source: InstagramSourceEvidence;
@@ -45,7 +47,10 @@ const inFlightCommands = new Map<string, Promise<InstagramAudienceMutationResult
 function issue(code: string, reason: string, suggestion: string): CreateIssue { return localIssue("audience", code, reason, suggestion); }
 export function instagramSourceEvidence(profiles: InstagramSourceProfile[], profileId: string): InstagramSourceEvidence { return resolveInstagramSourceEvidence(profiles, profileId); }
 function sameSelection(left: InstagramAudienceSelection | null | undefined, right: InstagramAudienceSelection) { return Boolean(left && left.profileId === right.profileId && left.criterion === right.criterion && left.retentionDays === right.retentionDays); }
+function descriptionMatches(input: ConfirmInput, current: { description?: string }, operation: "create" | "update", beforeDescription?: string) { return operation === "create" ? (current.description ?? undefined) === input.description : (current.description ?? undefined) === (input.description ?? beforeDescription); }
+function beforeDescriptionFromCommand(commandId: string): { ok: true; value?: string } | { ok: false } { try { const parsed = JSON.parse(commandId) as { beforeDescription?: unknown }; if (parsed.beforeDescription !== null && parsed.beforeDescription !== undefined && typeof parsed.beforeDescription !== "string") return { ok: false }; return { ok: true, value: parsed.beforeDescription ?? undefined }; } catch { return { ok: false }; } }
 function uncertainIssue(): CreateIssue { return { stage: "update", level: "audience", code: "META_MUTATION_UNCERTAIN", reason: "A resposta da Meta não confirmou se o público foi criado ou atualizado.", suggestion: "Não repita a confirmação. Consulte a biblioteca e reconcilie o comando antes de tentar outra ação.", transient: true }; }
+function expiredIssue(): CreateIssue { return localIssue("audience", "COMMAND_EXPIRED", "A revisão do público expirou e não pode mais autorizar uma mutação.", "Revise o público novamente antes de confirmar ou reconciliar."); }
 function isUncertain(result: CreateResult) { return !result.ok && result.issues.some((candidate) => candidate.transient || candidate.code === "META_MUTATION_UNCERTAIN"); }
 function existingAudienceIdsFromCommand(commandId: string): Set<string> | null {
   try {
@@ -75,6 +80,8 @@ export async function reviewInstagramAudience(input: CommonInput): Promise<Insta
     if (source.access !== "available") return { ok: false, issues: [issue("INSTAGRAM_SOURCE_UNAVAILABLE", source.guidance, "Escolha um perfil profissional retornado pela descoberta desta conta.")] };
     let before: InstagramAudienceSelection | null = null;
     let audienceName: string | undefined;
+    let audienceDescription: string | undefined;
+    let beforeRule: unknown;
     let impact: InstagramAudienceImpact = { knownUses: [], dependentAudienceIds: [], coverage: "complete", limitations: ["A criação ainda não tem usos ou dependências porque a identidade só será atribuída pela Meta após o POST."] };
     let existingAudienceIds: string[] | undefined;
     if (input.audienceId) {
@@ -83,6 +90,8 @@ export async function reviewInstagramAudience(input: CommonInput): Promise<Insta
       before = parseInstagramAudienceRule(audience.rule);
       if (!before) return { ok: false, issues: [issue("INSTAGRAM_RULE_NOT_REPRESENTABLE", "A regra atual contém condições externas ou não pode ser representada sem perda.", "Mantenha a regra externa intacta e edite-a no Gerenciador da Meta.")] };
       audienceName = audience.name;
+      audienceDescription = audience.description;
+      beforeRule = audience.rule;
       const metadata = await previewAudienceMetadataUpdate({ audienceId: input.audienceId, adAccountId: input.adAccountId, accessToken: input.accessToken, allowNoChange: true });
       if (!metadata.ok) return metadata;
       impact = metadata.impact;
@@ -91,9 +100,9 @@ export async function reviewInstagramAudience(input: CommonInput): Promise<Insta
       if (listed.truncated) return { ok: false, issues: [issue("INSTAGRAM_CREATE_BASELINE_INCOMPLETE", "Não foi possível obter a lista completa antes da criação para garantir a reconciliação do comando.", "Reduza temporariamente a biblioteca ou conclua a criação no Gerenciador da Meta.")] };
       existingAudienceIds = listed.items.map((audience) => audience.id);
     }
-    const tokenInput = { operation: input.audienceId ? "update" as const : "create" as const, ...(input.audienceId ? { audienceId: input.audienceId } : { existingAudienceIds }), adAccountId: input.adAccountId, name: input.name.trim(), ...(input.description !== undefined ? { description: input.description } : {}), before, after: input.selection, source, impact };
+    const tokenInput = { operation: input.audienceId ? "update" as const : "create" as const, ...(input.audienceId ? { audienceId: input.audienceId, beforeDescription: audienceDescription ?? null, beforeRule } : { existingAudienceIds }), adAccountId: input.adAccountId, name: input.name.trim(), ...(input.description !== undefined ? { description: input.description } : {}), before, after: input.selection, source, impact };
     const confirmationToken = JSON.stringify(tokenInput);
-    return { ok: true, operation: tokenInput.operation, ...(input.audienceId ? { audienceId: input.audienceId } : {}), adAccountId: input.adAccountId, audienceName, before, after: input.selection, source, periodEvidence: INSTAGRAM_PERIOD_EVIDENCE[input.selection.criterion], impact, confirmationToken, commandId: confirmationToken, state: "ready_to_submit", notice: "A confirmação cria ou atualiza somente o público na biblioteca. A identidade e o processamento são retornados pela Meta; nenhum público é aplicado a campanhas." };
+    return { ok: true, operation: tokenInput.operation, ...(input.audienceId ? { audienceId: input.audienceId } : {}), adAccountId: input.adAccountId, audienceName, audienceDescription, beforeRule, before, after: input.selection, source, periodEvidence: INSTAGRAM_PERIOD_EVIDENCE[input.selection.criterion], impact, confirmationToken, commandId: confirmationToken, state: "ready_to_submit", notice: "A confirmação cria ou atualiza somente o público na biblioteca. A identidade e o processamento são retornados pela Meta; nenhum público é aplicado a campanhas." };
   } catch (error) {
     return { ok: false, issues: [issue("INSTAGRAM_REVIEW_FAILED", error instanceof Error ? error.message : "Não foi possível revisar o público do Instagram.", "Corrija os dados e revise novamente.")] };
   }
@@ -102,6 +111,10 @@ export async function reviewInstagramAudience(input: CommonInput): Promise<Insta
 export async function confirmInstagramAudience(input: ConfirmInput): Promise<InstagramAudienceMutationResult> {
   if (input.commandId && input.commandId !== input.confirmationToken) return fail([issue("COMMAND_ID_MISMATCH", "A identidade do comando não corresponde à revisão confirmada.", "Use a identidade retornada pela revisão atual.")]);
   const commandId = input.confirmationToken;
+  const stored = input.commandStore ? await input.commandStore.get(commandId) : undefined;
+  if (stored?.expired) return fail([expiredIssue()]);
+  if (stored?.status === "completed" && stored.result) return stored.result as InstagramAudienceMutationResult;
+  if (stored?.status === "uncertain") return fail([uncertainIssue()]);
   const cached = completedCommands.get(commandId);
   if (cached) return cached;
   if (unresolvedCommands.has(commandId)) return fail([uncertainIssue()]);
@@ -110,8 +123,8 @@ export async function confirmInstagramAudience(input: ConfirmInput): Promise<Ins
   const execution = (async (): Promise<InstagramAudienceMutationResult> => {
     const reviewed = await reviewInstagramAudience(input);
     if (!reviewed.ok) return fail(reviewed.issues);
-    const alreadyApplied = Boolean(input.audienceId && sameSelection(reviewed.before, input.selection));
-    if (reviewed.confirmationToken !== input.confirmationToken && !alreadyApplied) return fail([issue("STALE_REVIEW", "A revisão não corresponde mais à regra atual do público.", "Revise novamente antes de confirmar.")]);
+    const alreadyApplied = Boolean(input.audienceId && sameSelection(reviewed.before, input.selection) && input.name.trim() === (reviewed.audienceName ?? "") && input.description === undefined && reviewed.audienceDescription === undefined);
+    if (reviewed.confirmationToken !== input.confirmationToken) return fail([issue("STALE_REVIEW", "A revisão não corresponde mais à regra atual do público.", "Revise novamente antes de confirmar.")]);
     if (input.commandStore && input.actorUserId) {
       const claimed = await input.commandStore.claim({ commandId, actorUserId: input.actorUserId, accountId: input.adAccountId, audienceId: input.audienceId ?? "pending", request: { operation: reviewed.operation, audienceId: input.audienceId, name: input.name, description: input.description, selection: input.selection } });
       if (claimed.status === "completed" && claimed.result) return claimed.result as InstagramAudienceMutationResult;
@@ -125,7 +138,7 @@ export async function confirmInstagramAudience(input: ConfirmInput): Promise<Ins
     }
     const rule = instagramAudienceRuleInput(input.selection);
     const result = input.audienceId
-      ? await updateCustomAudience({ audienceId: input.audienceId, adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name.trim(), description: input.description, expectedBefore: { name: reviewed.audienceName }, expectedRule: reviewed.before ? buildInstagramAudienceRule(reviewed.before) : undefined, rule })
+      ? await updateCustomAudience({ audienceId: input.audienceId, adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name.trim(), description: input.description, expectedBefore: { name: reviewed.audienceName, description: reviewed.audienceDescription }, expectedRule: reviewed.beforeRule, rule })
       : await createInstagramAudience({ adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name, description: input.description, selection: input.selection });
     if (isUncertain(result)) {
       unresolvedCommands.add(commandId);
@@ -149,14 +162,24 @@ export async function confirmInstagramAudience(input: ConfirmInput): Promise<Ins
 export async function reconcileInstagramAudience(input: ConfirmInput): Promise<InstagramAudienceMutationResult> {
   if (input.commandId && input.commandId !== input.confirmationToken) return fail([issue("COMMAND_ID_MISMATCH", "A identidade do comando não corresponde à revisão confirmada.", "Use a identidade retornada pela revisão atual.")]);
   const commandId = input.confirmationToken;
+  const stored = input.commandStore ? await input.commandStore.get(commandId) : undefined;
+  if (stored?.expired) return fail([expiredIssue()]);
+  if (stored?.status === "completed" && stored.result) return stored.result as InstagramAudienceMutationResult;
   const cached = completedCommands.get(commandId);
   if (cached) return cached;
-  const stored = input.commandStore ? await input.commandStore.get(commandId) : undefined;
-  if (stored?.status === "completed" && stored.result) return stored.result as InstagramAudienceMutationResult;
   try {
     if (input.audienceId) {
+      const beforeDescription = beforeDescriptionFromCommand(commandId);
+      if (!beforeDescription.ok) return fail([uncertainIssue()]);
+      const authorization = await previewAudienceMetadataUpdate({ audienceId: input.audienceId, adAccountId: input.adAccountId, accessToken: input.accessToken, allowNoChange: true });
+      if (!authorization.ok) return fail(authorization.issues);
       const audience = await getCustomAudienceDetail({ audienceId: input.audienceId, accessToken: input.accessToken });
-      if (sameSelection(parseInstagramAudienceRule(audience.rule), input.selection) && input.name.trim() === (audience.name ?? "")) {
+      if (sameSelection(parseInstagramAudienceRule(audience.rule), input.selection) && input.name.trim() === (audience.name ?? "") && descriptionMatches(input, audience, "update", beforeDescription.value)) {
+        const listed = await listCustomAudiences({ adAccountId: input.adAccountId, accessToken: input.accessToken, detailed: true });
+        if (listed.truncated) return fail([uncertainIssue()]);
+        const desiredDescription = input.description ?? beforeDescription.value;
+        const collision = listed.items.some((candidate) => candidate.id !== input.audienceId && candidate.name === input.name.trim() && (candidate.description ?? undefined) === desiredDescription && sameSelection(parseInstagramAudienceRule(candidate.rule), input.selection));
+        if (collision) return fail([uncertainIssue()]);
         const result = ok(input.audienceId, { id: input.audienceId, state: "submitted" as const, alreadyApplied: true });
         completedCommands.set(commandId, result);
         if (input.commandStore && input.actorUserId) await input.commandStore.complete(commandId, result);
@@ -168,7 +191,7 @@ export async function reconcileInstagramAudience(input: ConfirmInput): Promise<I
       if (!existingAudienceIds) return fail([uncertainIssue()]);
       const listed = await listCustomAudiences({ adAccountId: input.adAccountId, accessToken: input.accessToken, detailed: true });
       if (listed.truncated) return fail([uncertainIssue()]);
-      const matches = listed.items.filter((audience) => !existingAudienceIds.has(audience.id) && audience.name === input.name.trim() && sameSelection(parseInstagramAudienceRule(audience.rule), input.selection));
+      const matches = listed.items.filter((audience) => !existingAudienceIds.has(audience.id) && audience.name === input.name.trim() && descriptionMatches(input, audience, "create") && sameSelection(parseInstagramAudienceRule(audience.rule), input.selection));
       if (matches.length === 1) {
         const result = ok(matches[0].id, { id: matches[0].id, state: "submitted" as const, alreadyApplied: true });
         completedCommands.set(commandId, result);

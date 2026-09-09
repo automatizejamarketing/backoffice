@@ -127,6 +127,7 @@ function uncertainMutationIssue(): CreateIssue {
     transient: true,
   };
 }
+function expiredMutationIssue(): CreateIssue { return localIssue("audience", "COMMAND_EXPIRED", "A revisão do público expirou e não pode mais autorizar uma mutação.", "Revise o público novamente antes de confirmar ou reconciliar."); }
 
 async function readAudience(
   audienceId: string,
@@ -261,8 +262,9 @@ export async function updateCustomAudience(input: {
   expectedBefore?: { name?: string; description?: string };
   expectedRule?: unknown;
   rule?: AudienceRuleInput;
+  rawRule?: unknown;
 }): Promise<CreateResult> {
-  if (input.name == null && input.description == null && input.rule == null) {
+  if (input.name == null && input.description == null && input.rule == null && input.rawRule === undefined) {
     return {
       ok: false,
       issues: [
@@ -297,7 +299,9 @@ export async function updateCustomAudience(input: {
     const body = new URLSearchParams();
     if (input.name != null) body.set("name", input.name);
     if (input.description != null) body.set("description", input.description);
-    if (input.rule) {
+    if (input.rawRule !== undefined) {
+      body.set("rule", JSON.stringify(input.rawRule));
+    } else if (input.rule) {
       const compiled = compileAudienceRule(input.rule);
       if (!compiled.ok) return fail(compiled.issues);
       body.set("rule", JSON.stringify(compiled.rule));
@@ -331,6 +335,9 @@ export async function confirmAudienceMetadataUpdate(input: {
     return fail([localIssue("audience", "COMMAND_ID_MISMATCH", "A identidade do comando não corresponde à revisão confirmada.", "Use a identidade retornada pela revisão atual.")]);
   }
   const commandId = input.confirmationToken;
+  const stored = input.commandStore ? await input.commandStore.get(commandId) : undefined;
+  if (stored?.expired) return fail([expiredMutationIssue()]);
+  if (stored?.status === "completed" && stored.result) return stored.result as CreateResult<{ id: string; alreadyApplied?: boolean; state?: "reconciliation_required" }>;
   const cached = completedCommands.get(commandId);
   if (cached) return cached;
   if (unresolvedCommands.has(commandId)) return fail([uncertainMutationIssue()]);
@@ -400,10 +407,11 @@ export async function reconcileAudienceMetadataUpdate(input: {
     return fail([localIssue("audience", "COMMAND_ID_MISMATCH", "A identidade do comando não corresponde à revisão confirmada.", "Use a identidade retornada pela revisão atual.")]);
   }
   const commandId = input.confirmationToken;
+  const stored = input.commandStore ? await input.commandStore.get(commandId) : undefined;
+  if (stored?.expired) return fail([expiredMutationIssue()]);
+  if (stored?.status === "completed" && stored.result) return stored.result as CreateResult<{ id: string; alreadyApplied?: boolean; state?: "reconciliation_required" }>;
   const cached = completedCommands.get(commandId);
   if (cached) return cached;
-  const stored = input.commandStore ? await input.commandStore.get(commandId) : undefined;
-  if (stored?.status === "completed" && stored.result) return stored.result as CreateResult<{ id: string; alreadyApplied?: boolean; state?: "reconciliation_required" }>;
   try {
     const snapshot = await readAudience(input.audienceId, input.accessToken);
     const ownership = await ensureObjectInAccount({

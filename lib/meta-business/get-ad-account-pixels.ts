@@ -1,4 +1,4 @@
-import { graphFacebookBaseUrl, graphApiVersion } from "./constant";
+import { metaApiCall } from "./api";
 
 /**
  * AdsPixel from Facebook Graph API
@@ -108,23 +108,12 @@ export async function getAdAccountPixels(
   const requestedFields = fields ?? PIXEL_FIELDS;
   const fieldsParam = requestedFields.join(",");
 
-  const params = new URLSearchParams({
-    fields: fieldsParam,
-    access_token: accessToken,
+  return metaApiCall<FacebookAdsPixelsResponse>({
+    method: "GET",
+    path: `${adAccountId}/adspixels`,
+    params: `fields=${fieldsParam}`,
+    accessToken,
   });
-
-  const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${adAccountId}/adspixels?${params.toString()}`;
-
-  const response = await fetch(url);
-  const data = await response.json();
-
-  if (!response.ok || data.error) {
-    const errorData = data as FacebookGraphApiError;
-    console.error("Error fetching ads pixels:", errorData);
-    throw new Error(errorData.error?.message ?? "Failed to get ads pixels");
-  }
-
-  return data as FacebookAdsPixelsResponse;
 }
 
 /**

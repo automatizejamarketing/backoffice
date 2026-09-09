@@ -71,13 +71,31 @@ export function buildInstagramAudienceRule(selection: InstagramAudienceSelection
 
 export function parseInstagramAudienceRule(raw: unknown): InstagramAudienceSelection | null {
   if (!raw || typeof raw !== "object") return null;
-  const rule = raw as { inclusions?: { operator?: unknown; rules?: unknown[] }; exclusions?: unknown };
-  const item = rule.inclusions?.operator === "or" && rule.inclusions.rules?.length === 1 ? rule.inclusions.rules[0] as { event_sources?: Array<{ id?: unknown; type?: unknown }>; retention_seconds?: unknown; filter?: { operator?: unknown; filters?: Array<{ field?: unknown; operator?: unknown; value?: unknown }> } } : null;
-  const source = item?.event_sources?.length === 1 ? item.event_sources[0] : null;
-  const filter = item?.filter?.operator === "and" && item.filter.filters?.length === 1 ? item.filter.filters[0] : null;
-  const criterion = filter?.field === "event" && filter.operator === "eq" && typeof filter.value === "string" ? (Object.entries(INSTAGRAM_AUDIENCE_CRITERIA) as Array<[InstagramAudienceCriterion, string]>).find(([, value]) => value === filter.value)?.[0] : undefined;
-  const seconds = item?.retention_seconds;
-  if (rule.exclusions !== undefined || (item && Object.keys(item).some((key) => !["event_sources", "retention_seconds", "filter"].includes(key))) || (item?.filter && Object.keys(item.filter).some((key) => !["operator", "filters"].includes(key))) || (filter && Object.keys(filter).some((key) => !["field", "operator", "value"].includes(key))) || source?.type !== "ig_business" || typeof source.id !== "string" || typeof seconds !== "number" || !Number.isInteger(seconds) || seconds % DAY !== 0 || !criterion) return null;
+  const rule = raw as { inclusions?: unknown; exclusions?: unknown };
+  if (Object.keys(rule).some((key) => key !== "inclusions") || rule.exclusions !== undefined) return null;
+  const inclusions = rule.inclusions;
+  if (!inclusions || typeof inclusions !== "object") return null;
+  const inclusionObject = inclusions as { operator?: unknown; rules?: unknown };
+  if (Object.keys(inclusionObject).some((key) => !["operator", "rules"].includes(key)) || inclusionObject.operator !== "or" || !Array.isArray(inclusionObject.rules) || inclusionObject.rules.length !== 1) return null;
+  const item = inclusionObject.rules[0];
+  if (!item || typeof item !== "object") return null;
+  const itemObject = item as { event_sources?: unknown; retention_seconds?: unknown; filter?: unknown };
+  if (Object.keys(itemObject).some((key) => !["event_sources", "retention_seconds", "filter"].includes(key)) || !Array.isArray(itemObject.event_sources) || itemObject.event_sources.length !== 1) return null;
+  const source = itemObject.event_sources[0];
+  if (!source || typeof source !== "object") return null;
+  const sourceObject = source as { id?: unknown; type?: unknown };
+  if (Object.keys(sourceObject).some((key) => !["id", "type"].includes(key)) || sourceObject.type !== "ig_business" || typeof sourceObject.id !== "string") return null;
+  const filterGroup = itemObject.filter;
+  if (!filterGroup || typeof filterGroup !== "object") return null;
+  const filterObject = filterGroup as { operator?: unknown; filters?: unknown };
+  if (Object.keys(filterObject).some((key) => !["operator", "filters"].includes(key)) || filterObject.operator !== "and" || !Array.isArray(filterObject.filters) || filterObject.filters.length !== 1) return null;
+  const filter = filterObject.filters[0];
+  if (!filter || typeof filter !== "object") return null;
+  const filterValue = filter as { field?: unknown; operator?: unknown; value?: unknown };
+  if (Object.keys(filterValue).some((key) => !["field", "operator", "value"].includes(key)) || filterValue.field !== "event" || filterValue.operator !== "eq" || typeof filterValue.value !== "string") return null;
+  const criterion = (Object.entries(INSTAGRAM_AUDIENCE_CRITERIA) as Array<[InstagramAudienceCriterion, string]>).find(([, value]) => value === filterValue.value)?.[0];
+  const seconds = itemObject.retention_seconds;
+  if (typeof seconds !== "number" || !Number.isInteger(seconds) || seconds % DAY !== 0 || !criterion) return null;
   const retentionDays = seconds / DAY;
   return retentionDays >= 1 && retentionDays <= 730 ? { profileId: source.id, criterion, retentionDays } : null;
 }

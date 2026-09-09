@@ -35,5 +35,6 @@ test("round-trips the real retention for a simple editable rule", () => {
   assert.deepEqual(parseInstagramAudienceRule(buildInstagramAudienceRule(selection)), selection);
   assert.equal(instagramAudienceRuleInput(selection).inclusions[0].eventSources[0].type, "ig_business");
   assert.equal(parseInstagramAudienceRule({ ...buildInstagramAudienceRule(selection), exclusions: { operator: "or", rules: [] } }), null);
+  assert.equal(parseInstagramAudienceRule({ ...buildInstagramAudienceRule(selection), inclusions: { ...buildInstagramAudienceRule(selection).inclusions, unexpected: true } }), null);
   assert.equal(parseInstagramAudienceRule({ ...buildInstagramAudienceRule(selection), inclusions: { ...buildInstagramAudienceRule(selection).inclusions, rules: [{ ...buildInstagramAudienceRule(selection).inclusions.rules[0], aggregation: { event: "count" } }] } }), null);
 });
