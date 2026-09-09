@@ -1,11 +1,13 @@
 import "server-only";
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, asc, eq, gt, inArray, isNull, lte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   productCardDispute,
   productDisputeDefence,
   productDisputeDefenceFile,
+  productDisputeDefenceUploadGrant,
   productOrder,
   type ProductCardDisputeStatus,
 } from "@/lib/db/schema";
@@ -13,22 +15,29 @@ import {
   decideDisputeDefenceSubmission,
   MAX_DEFENCE_FILE_BYTES,
   MAX_DEFENCE_FILES,
+  detectDefenceContentType,
   submitDisputeDefence,
   type DisputeDefenceCase,
   type DisputeDefenceFile,
 } from "@/lib/products/dispute-defense";
 import { getExpertMercadoPagoHistoricalAccount } from "@/lib/mercadopago/historical-account";
 import { createMercadoPagoChargebackDefenceProvider } from "@/lib/mercadopago/chargeback-defense";
+import {
+  deleteProductAsset,
+  headProductAsset,
+  readProductAssetBytes,
+} from "@/lib/storage/product-assets-r2";
 
 const ACCEPTED_CONTENT_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const SUBMISSION_LOCK_MS = 2 * 60 * 1000;
+const UPLOAD_GRANT_TTL_MS = 5 * 60 * 1000;
 
 export type DefenceFileSource = "proposed" | "expert" | "operator";
 
 export class ProductDisputeDefenceError extends Error {
-  status: 400 | 404 | 409;
+  status: 400 | 404 | 409 | 503;
 
-  constructor(message: string, status: 400 | 404 | 409 = 400) {
+  constructor(message: string, status: 400 | 404 | 409 | 503 = 400) {
     super(message);
     this.name = "ProductDisputeDefenceError";
     this.status = status;
@@ -48,13 +57,68 @@ function validateFile(input: {
 }) {
   const fileName = input.fileName.trim().slice(0, 255);
   const contentType = input.contentType.trim().toLowerCase();
-  if (!fileName || !input.sizeBytes || input.sizeBytes < 1 || input.sizeBytes > MAX_DEFENCE_FILE_BYTES) {
+  if (
+    !fileName ||
+    !Number.isSafeInteger(input.sizeBytes) ||
+    input.sizeBytes < 1 ||
+    input.sizeBytes > MAX_DEFENCE_FILE_BYTES
+  ) {
     throw new ProductDisputeDefenceError("invalid_defence_file_size");
   }
   if (!ACCEPTED_CONTENT_TYPES.has(contentType)) {
     throw new ProductDisputeDefenceError("invalid_defence_file_type");
   }
   return { fileName, contentType, sizeBytes: input.sizeBytes };
+}
+
+function storageValidationError(error: unknown): ProductDisputeDefenceError {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("não está configurado")) {
+    return new ProductDisputeDefenceError(message, 503);
+  }
+  return new ProductDisputeDefenceError("defence_file_not_found", 400);
+}
+
+async function verifyStoredDefenceFile(input: {
+  storageKey: string;
+  contentType: string;
+  sizeBytes: number;
+}) {
+  let head: Awaited<ReturnType<typeof headProductAsset>>;
+  try {
+    head = await headProductAsset(input.storageKey);
+  } catch (error) {
+    throw storageValidationError(error);
+  }
+  if (head.ContentLength !== input.sizeBytes) {
+    throw new ProductDisputeDefenceError("defence_file_size_mismatch");
+  }
+  const actualMetadataType = head.ContentType?.trim().toLowerCase();
+  if (actualMetadataType !== input.contentType) {
+    throw new ProductDisputeDefenceError("defence_file_type_mismatch");
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = await readProductAssetBytes(input.storageKey, MAX_DEFENCE_FILE_BYTES);
+  } catch (error) {
+    if (error instanceof ProductDisputeDefenceError) throw error;
+    if (error instanceof Error && error.message === "product_asset_size_limit_exceeded") {
+      throw new ProductDisputeDefenceError("defence_file_size_mismatch");
+    }
+    throw storageValidationError(error);
+  }
+  if (bytes.byteLength !== input.sizeBytes) {
+    throw new ProductDisputeDefenceError("defence_file_size_mismatch");
+  }
+  if (detectDefenceContentType(bytes) !== input.contentType) {
+    throw new ProductDisputeDefenceError("defence_file_content_type_mismatch");
+  }
+}
+
+async function verifyStoredDefenceFiles(
+  files: Array<{ storageKey: string; contentType: string; sizeBytes: number }>,
+) {
+  for (const file of files) await verifyStoredDefenceFile(file);
 }
 
 export async function getProductDisputeDefence(disputeId: string) {
@@ -78,6 +142,79 @@ export async function getProductDisputeDefence(disputeId: string) {
         .orderBy(asc(productDisputeDefenceFile.createdAt))
     : [];
   return { ...row, files };
+}
+
+/** Creates a short-lived, single-use grant bound to one dispute and object key. */
+export async function createProductDisputeDefenceUploadGrant(input: {
+  disputeId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}) {
+  const file = validateFile(input);
+  const now = new Date();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({
+        defence: productDisputeDefence,
+        status: productCardDispute.status,
+        productId: productOrder.productId,
+      })
+      .from(productDisputeDefence)
+      .innerJoin(productCardDispute, eq(productCardDispute.id, productDisputeDefence.disputeId))
+      .innerJoin(productOrder, eq(productOrder.id, productCardDispute.orderId))
+      .where(eq(productDisputeDefence.disputeId, input.disputeId))
+      .for("update");
+    if (!row) throw new ProductDisputeDefenceError("defence_case_not_found", 404);
+    ensureOpen(row.status);
+    if (row.defence.status === "submitted") {
+      throw new ProductDisputeDefenceError("defence_already_submitted", 409);
+    }
+
+    const activeGrants = await tx
+      .select({ id: productDisputeDefenceUploadGrant.id })
+      .from(productDisputeDefenceUploadGrant)
+      .where(
+        and(
+          eq(productDisputeDefenceUploadGrant.defenceId, row.defence.id),
+          isNull(productDisputeDefenceUploadGrant.consumedAt),
+          isNull(productDisputeDefenceUploadGrant.cleanedAt),
+          gt(productDisputeDefenceUploadGrant.expiresAt, now),
+        ),
+      );
+    const existingFiles = await tx
+      .select({ id: productDisputeDefenceFile.id })
+      .from(productDisputeDefenceFile)
+      .where(eq(productDisputeDefenceFile.defenceId, row.defence.id));
+    if (existingFiles.length + activeGrants.length >= MAX_DEFENCE_FILES) {
+      throw new ProductDisputeDefenceError("too_many_defence_files", 409);
+    }
+
+    const nonce = randomUUID();
+    const objectKey = `r2/products/${row.productId}/defence/${input.disputeId}/${nonce}-${file.fileName}`;
+    const expiresAt = new Date(now.getTime() + UPLOAD_GRANT_TTL_MS);
+    const [grant] = await tx
+      .insert(productDisputeDefenceUploadGrant)
+      .values({
+        defenceId: row.defence.id,
+        disputeId: input.disputeId,
+        nonce,
+        objectKey,
+        fileName: file.fileName,
+        contentType: file.contentType,
+        sizeBytes: file.sizeBytes,
+        expiresAt,
+      })
+      .returning();
+    if (!grant) throw new Error("defence_upload_grant_not_persisted");
+    return {
+      grantId: grant.id,
+      objectKey: grant.objectKey,
+      contentType: grant.contentType,
+      sizeBytes: grant.sizeBytes,
+      expiresAt: grant.expiresAt,
+    };
+  });
 }
 
 export async function updateProductDisputeDefenceDraft(input: {
@@ -112,28 +249,37 @@ export async function updateProductDisputeDefenceDraft(input: {
 
 export async function addProductDisputeDefenceFile(input: {
   disputeId: string;
+  grantId: string;
   source: DefenceFileSource;
-  fileName: string;
-  contentType: string;
-  sizeBytes: number;
-  storageKey: string;
   uploadedByUserId?: string | null;
 }) {
-  const file = validateFile(input);
-  if (!input.storageKey || input.storageKey.includes("..")) {
-    throw new ProductDisputeDefenceError("invalid_defence_file_storage_key");
-  }
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .select({ defence: productDisputeDefence, status: productCardDispute.status })
-      .from(productDisputeDefence)
-      .innerJoin(productCardDispute, eq(productCardDispute.id, productDisputeDefence.disputeId))
-      .where(eq(productDisputeDefence.disputeId, input.disputeId))
+      .select({
+        grant: productDisputeDefenceUploadGrant,
+        defence: productDisputeDefence,
+        status: productCardDispute.status,
+      })
+      .from(productDisputeDefenceUploadGrant)
+      .innerJoin(productDisputeDefence, eq(productDisputeDefence.id, productDisputeDefenceUploadGrant.defenceId))
+      .innerJoin(productCardDispute, eq(productCardDispute.id, productDisputeDefenceUploadGrant.disputeId))
+      .where(
+        and(
+          eq(productDisputeDefenceUploadGrant.id, input.grantId),
+          eq(productDisputeDefenceUploadGrant.disputeId, input.disputeId),
+        ),
+      )
       .for("update");
     if (!row) throw new ProductDisputeDefenceError("defence_case_not_found", 404);
     ensureOpen(row.status);
     if (row.defence.status === "submitted") {
       throw new ProductDisputeDefenceError("defence_already_submitted", 409);
+    }
+    if (row.grant.consumedAt || row.grant.cleanedAt) {
+      throw new ProductDisputeDefenceError("defence_upload_grant_replayed", 409);
+    }
+    if (row.grant.expiresAt <= new Date()) {
+      throw new ProductDisputeDefenceError("defence_upload_grant_expired", 409);
     }
     const existing = await tx
       .select({ id: productDisputeDefenceFile.id })
@@ -142,20 +288,81 @@ export async function addProductDisputeDefenceFile(input: {
     if (existing.length >= MAX_DEFENCE_FILES) {
       throw new ProductDisputeDefenceError("too_many_defence_files", 409);
     }
+    await verifyStoredDefenceFile({
+      storageKey: row.grant.objectKey,
+      contentType: row.grant.contentType,
+      sizeBytes: row.grant.sizeBytes,
+    });
     const [created] = await tx
       .insert(productDisputeDefenceFile)
       .values({
         defenceId: row.defence.id,
+        uploadGrantId: row.grant.id,
         source: input.source,
-        fileName: file.fileName,
-        contentType: file.contentType,
-        sizeBytes: file.sizeBytes,
-        storageKey: input.storageKey,
+        fileName: row.grant.fileName,
+        contentType: row.grant.contentType,
+        sizeBytes: row.grant.sizeBytes,
+        storageKey: row.grant.objectKey,
         uploadedByUserId: input.uploadedByUserId ?? null,
       })
       .returning();
+    await tx
+      .update(productDisputeDefenceUploadGrant)
+      .set({ consumedAt: new Date() })
+      .where(eq(productDisputeDefenceUploadGrant.id, row.grant.id));
     return created;
   });
+}
+
+/** Removes expired unconsumed objects while retaining their grant row as an
+ * audit record. A consumed grant is never eligible for this cleanup. */
+export async function cleanupExpiredProductDisputeDefenceUploads(
+  now = new Date(),
+  limit = 500,
+) {
+  const grants = await db
+    .select()
+    .from(productDisputeDefenceUploadGrant)
+    .where(
+      and(
+        isNull(productDisputeDefenceUploadGrant.consumedAt),
+        isNull(productDisputeDefenceUploadGrant.cleanedAt),
+        lte(productDisputeDefenceUploadGrant.expiresAt, now),
+      ),
+    )
+    .orderBy(asc(productDisputeDefenceUploadGrant.expiresAt))
+    .limit(limit);
+
+  let cleaned = 0;
+  let missing = 0;
+  let failed = 0;
+  for (const grant of grants) {
+    let reason = "expired_deleted";
+    try {
+      await deleteProductAsset(grant.objectKey);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message.includes("not_found")) {
+        reason = "expired_missing";
+        missing += 1;
+      } else {
+        failed += 1;
+        continue;
+      }
+    }
+    await db
+      .update(productDisputeDefenceUploadGrant)
+      .set({ cleanedAt: now, cleanupReason: reason })
+      .where(
+        and(
+          eq(productDisputeDefenceUploadGrant.id, grant.id),
+          isNull(productDisputeDefenceUploadGrant.consumedAt),
+          isNull(productDisputeDefenceUploadGrant.cleanedAt),
+        ),
+      );
+    cleaned += 1;
+  }
+  return { scanned: grants.length, cleaned, missing, failed };
 }
 
 export async function reviewProductDisputeDefence(input: {
@@ -249,6 +456,24 @@ export async function submitProductDisputeDefence(input: {
   if (!locked.locked) {
     await db.update(productDisputeDefence).set({ lastProviderError: locked.decision.reason, updatedAt: now }).where(eq(productDisputeDefence.id, locked.row.defence.id));
     return { state: "draft" as const, reason: locked.decision.reason };
+  }
+
+  try {
+    await verifyStoredDefenceFiles(locked.files);
+  } catch (error) {
+    const failure =
+      error instanceof ProductDisputeDefenceError
+        ? error
+        : new ProductDisputeDefenceError("defence_file_not_found");
+    await db
+      .update(productDisputeDefence)
+      .set({
+        submissionLockUntil: null,
+        lastProviderError: failure.message,
+        updatedAt: now,
+      })
+      .where(eq(productDisputeDefence.id, locked.row.defence.id));
+    throw failure;
   }
 
   let providerResult:

@@ -2,9 +2,7 @@ import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   addProductDisputeDefenceFile,
-  getProductDisputeDefence,
   ProductDisputeDefenceError,
-  isAllowedDefenceFileType,
 } from "@/lib/products/dispute-defense-service";
 
 function errorResponse(error: unknown) {
@@ -22,28 +20,19 @@ export async function POST(
   if (!authz.ok) return authz.response;
   try {
     const { disputeId } = await context.params;
-    const row = await getProductDisputeDefence(disputeId);
     const body = (await request.json()) as {
       source?: "proposed" | "operator";
-      fileName?: string;
-      contentType?: string;
-      sizeBytes?: number;
-      storageKey?: string;
+      grantId?: string;
     };
     const source = body.source === "proposed" ? "proposed" : "operator";
-    const contentType = String(body.contentType ?? "").trim().toLowerCase();
-    const sizeBytes = Number(body.sizeBytes);
-    const storageKey = String(body.storageKey ?? "").trim();
-    if (!isAllowedDefenceFileType(contentType) || !Number.isInteger(sizeBytes) || !storageKey.startsWith(`r2/products/${row.order.productId}/defence/`)) {
+    const grantId = String(body.grantId ?? "").trim();
+    if (!grantId) {
       return NextResponse.json({ error: "Arquivo inválido." }, { status: 400 });
     }
     const file = await addProductDisputeDefenceFile({
       disputeId,
+      grantId,
       source,
-      fileName: String(body.fileName ?? "evidencia"),
-      contentType,
-      sizeBytes,
-      storageKey,
     });
     return NextResponse.json({ file }, { status: 201 });
   } catch (error) {

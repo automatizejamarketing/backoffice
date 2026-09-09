@@ -1,7 +1,11 @@
 import "server-only";
 
-import { getProductAsset } from "@/lib/storage/product-assets-r2";
-import type { DisputeDefenceFile, DisputeDefenceProvider } from "@/lib/products/dispute-defense";
+import { readProductAssetBytes } from "@/lib/storage/product-assets-r2";
+import {
+  MAX_DEFENCE_FILE_BYTES,
+  type DisputeDefenceFile,
+  type DisputeDefenceProvider,
+} from "@/lib/products/dispute-defense";
 
 const API_BASE = "https://api.mercadopago.com";
 
@@ -45,18 +49,10 @@ async function getChargeback(input: {
 
 async function toBlob(file: DisputeDefenceFile): Promise<Blob> {
   if (!file.storageKey) throw new Error("defence_file_storage_key_missing");
-  const asset = await getProductAsset(file.storageKey);
-  if (!asset.Body) throw new Error("defence_file_not_found");
-  const body = asset.Body as unknown as {
-    transformToByteArray?: () => Promise<Uint8Array>;
-    transformToWebStream?: () => ReadableStream<Uint8Array>;
-  };
-  const bytes = body.transformToByteArray
-    ? await body.transformToByteArray()
-    : body.transformToWebStream
-      ? new Uint8Array(await new Response(body.transformToWebStream()).arrayBuffer())
-      : null;
-  if (!bytes || bytes.byteLength === 0) throw new Error("defence_file_empty");
+  const bytes = await readProductAssetBytes(file.storageKey, MAX_DEFENCE_FILE_BYTES);
+  if (bytes.byteLength !== file.size || bytes.byteLength === 0) {
+    throw new Error("defence_file_size_mismatch");
+  }
   return new Blob([Buffer.from(bytes)], { type: file.contentType });
 }
 

@@ -1065,7 +1065,12 @@ export function ProductsAdminWorkspace({
           body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
         });
         if (!prepare.ok) throw new Error(await readError(prepare));
-        const prepared = (await prepare.json()) as { uploadUrl: string; objectKey: string; headers: Record<string, string> };
+        const prepared = (await prepare.json()) as {
+          uploadUrl: string;
+          grantId: string;
+          objectKey: string;
+          headers: Record<string, string>;
+        };
         const localUpload = prepared.uploadUrl === "/api/products/admin/uploads/complete";
         const upload = await fetch(prepared.uploadUrl, {
           method: localUpload ? "POST" : "PUT",
@@ -1078,7 +1083,7 @@ export function ProductsAdminWorkspace({
         const metadata = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source: "operator", fileName: file.name, contentType: file.type, sizeBytes: file.size, storageKey: prepared.objectKey }),
+          body: JSON.stringify({ source: "operator", grantId: prepared.grantId }),
         });
         if (!metadata.ok) throw new Error(await readError(metadata));
       }

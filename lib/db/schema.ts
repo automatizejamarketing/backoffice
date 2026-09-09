@@ -1414,11 +1414,43 @@ export const productDisputeDefence = pgTable(
   (table) => ({ disputeUnique: unique("product_dispute_defences_dispute_unique").on(table.disputeId) }),
 );
 
+/** One-use grant issued before a defence object is uploaded. The grant binds
+ * the object identity to the dispute and retains cleanup history for objects
+ * that never became evidence. */
+export const productDisputeDefenceUploadGrant = pgTable(
+  "product_dispute_defence_upload_grants",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    defenceId: uuid("defence_id").notNull().references(() => productDisputeDefence.id),
+    disputeId: uuid("dispute_id").notNull().references(() => productCardDispute.id),
+    nonce: varchar("nonce", { length: 80 }).notNull(),
+    objectKey: varchar("object_key", { length: 500 }).notNull(),
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    contentType: varchar("content_type", { length: 120 }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    cleanedAt: timestamp("cleaned_at"),
+    cleanupReason: varchar("cleanup_reason", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    nonceUnique: unique("product_dispute_defence_upload_grants_nonce_unique").on(table.nonce),
+    objectKeyUnique: unique("product_dispute_defence_upload_grants_object_key_unique").on(table.objectKey),
+    defenceExpiryIdx: index("product_dispute_defence_upload_grants_defence_expiry_idx").on(table.defenceId, table.expiresAt),
+    cleanupIdx: index("product_dispute_defence_upload_grants_cleanup_idx").on(table.cleanedAt, table.expiresAt),
+    sizeCheck: check("product_dispute_defence_upload_grants_size_check", sql`${table.sizeBytes} > 0 AND ${table.sizeBytes} <= 10485760`),
+  }),
+);
+
+export type ProductDisputeDefenceUploadGrant = InferSelectModel<typeof productDisputeDefenceUploadGrant>;
+
 export const productDisputeDefenceFile = pgTable(
   "product_dispute_defence_files",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     defenceId: uuid("defence_id").notNull().references(() => productDisputeDefence.id),
+    uploadGrantId: uuid("upload_grant_id").references(() => productDisputeDefenceUploadGrant.id),
     source: varchar("source", { enum: ["proposed", "expert", "operator"] }).$type<"proposed" | "expert" | "operator">().notNull(),
     fileName: varchar("file_name", { length: 255 }).notNull(),
     contentType: varchar("content_type", { length: 120 }).notNull(),

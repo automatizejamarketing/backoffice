@@ -21,7 +21,47 @@ export type DisputeDefenceDecision =
   | { allowed: true; action: "submit" | "recover"; providerAccountId: string | null }
   | { allowed: false; reason: "case_closed" | "deadline_expired" | "not_reviewed" | "too_many_files" | "invalid_file" | "already_submitted" };
 
-const ACCEPTED_CONTENT_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
+export const ACCEPTED_DEFENCE_CONTENT_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+] as const;
+const ACCEPTED_CONTENT_TYPES = new Set<string>(ACCEPTED_DEFENCE_CONTENT_TYPES);
+
+export function detectDefenceContentType(bytes: Uint8Array): string | null {
+  if (
+    bytes.length >= 5 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46 &&
+    bytes[4] === 0x2d
+  ) {
+    return "application/pdf";
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+  return null;
+}
 
 export function decideDisputeDefenceSubmission(input: {
   case: DisputeDefenceCase;
