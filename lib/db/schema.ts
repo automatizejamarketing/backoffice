@@ -29,6 +29,80 @@ import {
   type CompanyOfferCode,
   type CompanyProductCode,
 } from "@/lib/company-access/catalog";
+import {
+  PRODUCT_CARD_DISPUTE_STATUS_VALUES,
+  PRODUCT_EXPERT_LEDGER_ENTRY_TYPE_VALUES,
+  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
+  PRODUCT_FINANCIAL_RESPONSIBLE_VALUES,
+  PRODUCT_ORDER_STATUS_VALUES,
+  PRODUCT_PAYMENT_STATUS_VALUES,
+  PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
+  PRODUCT_POST_SALE_COST_STATUS_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_KIND_VALUES,
+  PRODUCT_POST_SALE_REVERSAL_VALUES,
+  PRODUCT_RECONCILIATION_CASE_KIND_VALUES,
+  PRODUCT_RECONCILIATION_CASE_STATUS_VALUES,
+  PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES,
+  PRODUCT_REFUND_BALANCE_CASE_STATUS_VALUES,
+  PRODUCT_REFUND_OPERATION_STATUS_VALUES,
+  PRODUCT_REFUND_REQUEST_STATUS_VALUES,
+  type ProductCardDisputeStatus,
+  type ProductExpertLedgerEntryType,
+  type ProductExpertPayoutStatus,
+  type ProductFinancialResponsible,
+  type ProductOrderStatus,
+  type ProductPaymentStatus,
+  type ProductPixFraudCaseStatus,
+  type ProductPostSaleCostStatus,
+  type ProductPostSaleMovementAttribution,
+  type ProductPostSaleMovementKind,
+  type ProductPostSaleReversal,
+  type ProductReconciliationCaseKind,
+  type ProductReconciliationCaseStatus,
+  type ProductReconciliationResponsible,
+  type ProductRefundBalanceCaseStatus,
+  type ProductRefundOperationStatus,
+  type ProductRefundRequestStatus,
+} from "@/lib/products/financial-states";
+export {
+  PRODUCT_CARD_DISPUTE_STATUS_VALUES,
+  PRODUCT_EXPERT_LEDGER_ENTRY_TYPE_VALUES,
+  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
+  PRODUCT_FINANCIAL_RESPONSIBLE_VALUES,
+  PRODUCT_ORDER_STATUS_VALUES,
+  PRODUCT_PAYMENT_STATUS_VALUES,
+  PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
+  PRODUCT_POST_SALE_COST_STATUS_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_KIND_VALUES,
+  PRODUCT_POST_SALE_REVERSAL_VALUES,
+  PRODUCT_RECONCILIATION_CASE_KIND_VALUES,
+  PRODUCT_RECONCILIATION_CASE_STATUS_VALUES,
+  PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES,
+  PRODUCT_REFUND_BALANCE_CASE_STATUS_VALUES,
+  PRODUCT_REFUND_OPERATION_STATUS_VALUES,
+  PRODUCT_REFUND_REQUEST_STATUS_VALUES,
+} from "@/lib/products/financial-states";
+export type {
+  ProductCardDisputeStatus,
+  ProductExpertLedgerEntryType,
+  ProductExpertPayoutStatus,
+  ProductFinancialResponsible,
+  ProductOrderStatus,
+  ProductPaymentStatus,
+  ProductPixFraudCaseStatus,
+  ProductPostSaleCostStatus,
+  ProductPostSaleMovementAttribution,
+  ProductPostSaleMovementKind,
+  ProductPostSaleReversal,
+  ProductReconciliationCaseKind,
+  ProductReconciliationCaseStatus,
+  ProductReconciliationResponsible,
+  ProductRefundBalanceCaseStatus,
+  ProductRefundOperationStatus,
+  ProductRefundRequestStatus,
+} from "@/lib/products/financial-states";
 
 
 export const user = pgTable(
@@ -680,15 +754,6 @@ export const productContentItem = pgTable(
 
 export type ProductContentItem = InferSelectModel<typeof productContentItem>;
 
-export const PRODUCT_ORDER_STATUS_VALUES = [
-  "pending",
-  "approved",
-  "failed",
-  "canceled",
-  "refunded",
-] as const;
-export type ProductOrderStatus = (typeof PRODUCT_ORDER_STATUS_VALUES)[number];
-
 /** Where the buyer discovered the product. `direct` = public product URL
  * (the expert's own traffic, tracked via the `product_direct` cookie);
  * `marketplace` = browsing inside the app. Marketplace purchases pay the
@@ -844,10 +909,8 @@ export const productPayment = pgTable(
     mercadoPagoBuyerInterestCentavos: integer(
       "mercadopago_buyer_interest_centavos",
     ),
-    status: varchar("status", {
-      enum: ["pending", "approved", "failed", "refunded", "charged_back"],
-    })
-      .$type<"pending" | "approved" | "failed" | "refunded" | "charged_back">()
+    status: varchar("status", { enum: [...PRODUCT_PAYMENT_STATUS_VALUES] })
+      .$type<ProductPaymentStatus>()
       .notNull()
       .default("pending"),
     grossAmountCentavos: integer("gross_amount_centavos"),
@@ -1010,14 +1073,6 @@ export const productEvidenceConsultation = pgTable(
 
 export type ProductEvidenceConsultation = InferSelectModel<typeof productEvidenceConsultation>;
 
-export const PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES = [
-  "under_review",
-  "closed_valid",
-  "payment_invalidated_by_fraud",
-] as const;
-export type ProductPixFraudCaseStatus =
-  (typeof PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES)[number];
-
 /** Provider-confirmed Pix fraud facts remain scoped to their own payment and
  * never infer an alleged fraud author. */
 export const productPixFraudCase = pgTable(
@@ -1029,8 +1084,8 @@ export const productPixFraudCase = pgTable(
     providerCaseId: varchar("provider_case_id", { length: 255 }).notNull(),
     providerPaymentId: varchar("provider_payment_id", { length: 255 }).notNull(),
     providerAccountId: varchar("provider_account_id", { length: 255 }),
-    responsible: varchar("responsible", { enum: ["expert", "automatize"] })
-      .$type<"expert" | "automatize">()
+    responsible: varchar("responsible", { enum: [...PRODUCT_FINANCIAL_RESPONSIBLE_VALUES] })
+      .$type<ProductFinancialResponsible>()
       .notNull()
       .default("automatize"),
     status: varchar("status", { enum: PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES })
@@ -1079,15 +1134,6 @@ export const productPixFraudEvent = pgTable(
 
 export type ProductPixFraudEvent = InferSelectModel<typeof productPixFraudEvent>;
 
-export const PRODUCT_REFUND_REQUEST_STATUS_VALUES = [
-  "requested",
-  "in_review",
-  "completed",
-  "declined",
-] as const;
-export type ProductRefundRequestStatus =
-  (typeof PRODUCT_REFUND_REQUEST_STATUS_VALUES)[number];
-
 export const productRefundRequest = pgTable(
   "product_refund_requests",
   {
@@ -1129,8 +1175,8 @@ export const productRefundOperation = pgTable(
     reason: text("reason"),
     idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
     providerRefundId: varchar("provider_refund_id", { length: 255 }),
-    status: varchar("status", { enum: ["issuing", "confirmed", "failed", "external_partial"] })
-      .$type<"issuing" | "confirmed" | "failed" | "external_partial">()
+    status: varchar("status", { enum: [...PRODUCT_REFUND_OPERATION_STATUS_VALUES] })
+      .$type<ProductRefundOperationStatus>()
       .notNull()
       .default("issuing"),
     refundedAmountCentavos: integer("refunded_amount_centavos").notNull().default(0),
@@ -1154,8 +1200,8 @@ export const productRefundBalanceCase = pgTable(
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
     expertId: uuid("expert_id").references(() => expertProfile.id),
-    responsible: varchar("responsible", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(),
-    status: varchar("status", { enum: ["pending", "resolved"] }).$type<"pending" | "resolved">().notNull().default("pending"),
+    responsible: varchar("responsible", { enum: [...PRODUCT_FINANCIAL_RESPONSIBLE_VALUES] }).$type<ProductFinancialResponsible>().notNull(),
+    status: varchar("status", { enum: [...PRODUCT_REFUND_BALANCE_CASE_STATUS_VALUES] }).$type<ProductRefundBalanceCaseStatus>().notNull().default("pending"),
     firstFailedAt: timestamp("first_failed_at").notNull(),
     lastFailedAt: timestamp("last_failed_at").notNull(),
     regularizationDueAt: timestamp("regularization_due_at").notNull(),
@@ -1180,16 +1226,6 @@ export const productRefundBalanceCase = pgTable(
 
 export type ProductRefundBalanceCase = InferSelectModel<typeof productRefundBalanceCase>;
 
-export const PRODUCT_CARD_DISPUTE_STATUS_VALUES = [
-  "open_full",
-  "open_partial",
-  "closed_valid",
-  "closed_revoked",
-  "closed_partial",
-] as const;
-export type ProductCardDisputeStatus =
-  (typeof PRODUCT_CARD_DISPUTE_STATUS_VALUES)[number];
-
 export const productCardDispute = pgTable(
   "product_card_disputes",
   {
@@ -1200,8 +1236,8 @@ export const productCardDispute = pgTable(
     provider: varchar("provider", { length: 30 }).notNull(),
     providerDisputeId: varchar("provider_dispute_id", { length: 255 }).notNull(),
     providerAccountId: varchar("provider_account_id", { length: 255 }),
-    responsible: varchar("responsible", { enum: ["expert", "automatize"] })
-      .$type<"expert" | "automatize">()
+    responsible: varchar("responsible", { enum: [...PRODUCT_FINANCIAL_RESPONSIBLE_VALUES] })
+      .$type<ProductFinancialResponsible>()
       .notNull()
       .default("automatize"),
     status: varchar("status", { enum: PRODUCT_CARD_DISPUTE_STATUS_VALUES })
@@ -1266,53 +1302,30 @@ export const productPostSaleCostCase = pgTable("product_post_sale_cost_cases", {
   paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
   provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"),
   providerAccountId: varchar("provider_account_id", { length: 255 }),
-  reversal: varchar("reversal", { enum: ["integral_refund", "lost_full_chargeback", "external_partial", "pix_med"] }).$type<"integral_refund" | "lost_full_chargeback" | "external_partial" | "pix_med">().notNull(),
+  reversal: varchar("reversal", { enum: [...PRODUCT_POST_SALE_REVERSAL_VALUES] }).$type<ProductPostSaleReversal>().notNull(),
   providerCaseId: varchar("provider_case_id", { length: 255 }),
-  responsible: varchar("responsible", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull().default("automatize"),
+  responsible: varchar("responsible", { enum: [...PRODUCT_FINANCIAL_RESPONSIBLE_VALUES] }).$type<ProductFinancialResponsible>().notNull().default("automatize"),
   evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
-  status: varchar("status", { enum: ["open", "exception", "settled"] }).$type<"open" | "exception" | "settled">().notNull().default("open"),
+  status: varchar("status", { enum: [...PRODUCT_POST_SALE_COST_STATUS_VALUES] }).$type<ProductPostSaleCostStatus>().notNull().default("open"),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({ paymentReversalUnique: unique("product_post_sale_cost_cases_payment_reversal_unique").on(table.paymentId, table.reversal) }));
 
 export const productPostSaleCostMovement = pgTable("product_post_sale_cost_movements", {
   id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), providerMovementId: varchar("provider_movement_id", { length: 255 }).notNull(),
-  kind: varchar("kind", { enum: ["cost", "credit"] }).$type<"cost" | "credit">().notNull(), attribution: varchar("attribution", { enum: ["common", "specific"] }).$type<"common" | "specific">().notNull(), orderId: uuid("order_id").references(() => productOrder.id), amountCentavos: integer("amount_centavos").notNull(), supportedBy: varchar("supported_by", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), observedAt: timestamp("observed_at").notNull(), createdAt: timestamp("created_at").notNull().defaultNow(),
+  kind: varchar("kind", { enum: [...PRODUCT_POST_SALE_MOVEMENT_KIND_VALUES] }).$type<ProductPostSaleMovementKind>().notNull(), attribution: varchar("attribution", { enum: [...PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES] }).$type<ProductPostSaleMovementAttribution>().notNull(), orderId: uuid("order_id").references(() => productOrder.id), amountCentavos: integer("amount_centavos").notNull(), supportedBy: varchar("supported_by", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), observedAt: timestamp("observed_at").notNull(), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({ providerMovementUnique: unique("product_post_sale_cost_movements_provider_unique").on(table.caseId, table.providerMovementId), caseIdx: index("product_post_sale_cost_movements_case_idx").on(table.caseId) }));
 
 export const productPostSaleCostSettlement = pgTable("product_post_sale_cost_settlements", {
   id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), debtor: varchar("debtor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), creditor: varchar("creditor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), amountCentavos: integer("amount_centavos").notNull(), operatorUserId: uuid("operator_user_id").references(() => user.id), operatorEmail: varchar("operator_email", { length: 255 }), proofUrl: text("proof_url").notNull(), proofKey: varchar("proof_key", { length: 255 }).notNull(), confirmedAt: timestamp("confirmed_at"), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({ caseUnique: unique("product_post_sale_cost_settlements_case_unique").on(table.caseId), proofUnique: unique("product_post_sale_cost_settlements_proof_unique").on(table.proofKey), partiesAndAmount: check("product_post_sale_cost_settlements_valid", sql`${table.debtor} <> ${table.creditor} AND ${table.amountCentavos} > 0`) }));
 
-export const PRODUCT_RECONCILIATION_CASE_KIND_VALUES = [
-  "lost_event",
-  "account_divergence",
-  "amount_divergence",
-  "currency_divergence",
-  "conflicting_data",
-  "split_divergence",
-  "external_partial_refund",
-] as const;
-export type ProductReconciliationCaseKind =
-  (typeof PRODUCT_RECONCILIATION_CASE_KIND_VALUES)[number];
-
-export const PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES = [
-  "operations",
-  "automatize_finance",
-  "expert",
-] as const;
-export const PRODUCT_RECONCILIATION_CASE_STATUS_VALUES = [
-  "open",
-  "monitoring",
-  "resolved",
-] as const;
-
 /** Espelho de automatize-frontend: divergencia vira caso acompanhado, nunca uma
  * correcao automatica do Split Inicial ou complemento de reembolso parcial. */
 export const productReconciliationCase = pgTable("product_reconciliation_cases", {
   id: uuid("id").primaryKey().notNull().defaultRandom(), orderId: uuid("order_id").notNull().references(() => productOrder.id), paymentId: uuid("payment_id").references(() => productPayment.id),
   provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"), providerAccountId: varchar("provider_account_id", { length: 255 }),
-  kind: varchar("kind", { enum: PRODUCT_RECONCILIATION_CASE_KIND_VALUES }).$type<ProductReconciliationCaseKind>().notNull(), responsible: varchar("responsible", { enum: PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES }).$type<"operations" | "automatize_finance" | "expert">().notNull(),
-  status: varchar("status", { enum: PRODUCT_RECONCILIATION_CASE_STATUS_VALUES }).$type<"open" | "monitoring" | "resolved">().notNull().default("open"), attributionProven: boolean("attribution_proven").notNull().default(false), effectiveAmountCentavos: integer("effective_amount_centavos"),
+  kind: varchar("kind", { enum: PRODUCT_RECONCILIATION_CASE_KIND_VALUES }).$type<ProductReconciliationCaseKind>().notNull(), responsible: varchar("responsible", { enum: PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES }).$type<ProductReconciliationResponsible>().notNull(),
+  status: varchar("status", { enum: PRODUCT_RECONCILIATION_CASE_STATUS_VALUES }).$type<ProductReconciliationCaseStatus>().notNull().default("open"), attributionProven: boolean("attribution_proven").notNull().default(false), effectiveAmountCentavos: integer("effective_amount_centavos"),
   evidence: jsonb("evidence").$type<Record<string, string | number | null>>().notNull().default({}), nextReviewAt: timestamp("next_review_at").notNull(), resolvedByUserId: uuid("resolved_by_user_id").references(() => user.id), resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({ orderKindUnique: unique("product_reconciliation_cases_order_kind_unique").on(table.orderId, table.kind), reviewIdx: index("product_reconciliation_cases_status_review_idx").on(table.status, table.nextReviewAt) }));
@@ -1369,10 +1382,8 @@ export const expertLedgerEntry = pgTable(
       .references(() => expertProfile.id),
     orderId: uuid("order_id").references(() => productOrder.id),
     eventKey: varchar("event_key", { length: 255 }).notNull(),
-    type: varchar("type", {
-      enum: ["sale", "refund", "chargeback", "payout"],
-    })
-      .$type<"sale" | "refund" | "chargeback" | "payout">()
+    type: varchar("type", { enum: [...PRODUCT_EXPERT_LEDGER_ENTRY_TYPE_VALUES] })
+      .$type<ProductExpertLedgerEntryType>()
       .notNull(),
     amountCentavos: integer("amount_centavos").notNull(),
     availableAt: timestamp("available_at"),
@@ -1402,10 +1413,8 @@ export const expertPayoutRequest = pgTable(
       .references(() => expertProfile.id),
     amountCentavos: integer("amount_centavos").notNull(),
     pixKeySnapshot: varchar("pix_key_snapshot", { length: 255 }).notNull(),
-    status: varchar("status", {
-      enum: ["requested", "approved", "paid", "rejected", "canceled"],
-    })
-      .$type<"requested" | "approved" | "paid" | "rejected" | "canceled">()
+    status: varchar("status", { enum: [...PRODUCT_EXPERT_PAYOUT_STATUS_VALUES] })
+      .$type<ProductExpertPayoutStatus>()
       .notNull()
       .default("requested"),
     dueAt: timestamp("due_at").notNull(),
