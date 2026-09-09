@@ -538,7 +538,7 @@ export const product = pgTable(
     ),
     participationCheck: check(
       "products_expert_participation_range",
-      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000)`,
+      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 9999)`,
     ),
     ownerCheck: check(
       "products_owner_consistency",

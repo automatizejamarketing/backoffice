@@ -386,6 +386,13 @@
       "when": 1795200000000,
       "tag": "0067_expiration_date_timestamptz",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795300000000,
+      "tag": "0068_product_participation_bounds",
+      "breakpoints": true
     }
   ]
 }
