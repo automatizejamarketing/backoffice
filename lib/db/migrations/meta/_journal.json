@@ -435,6 +435,13 @@
       "when": 1795900000001,
       "tag": "0074_product_refund_balance_cases",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1796100000001,
+      "tag": "0075_product_dispute_defences",
+      "breakpoints": true
     }
   ]
 }

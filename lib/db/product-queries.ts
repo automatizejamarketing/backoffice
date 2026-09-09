@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   expertLedgerEntry,
@@ -12,10 +12,44 @@ import {
   productFinancialSetting,
   productOrder,
   productPayment,
+  productCardDispute,
+  productDisputeDefence,
+  productDisputeDefenceFile,
   productRefundRequest,
   user,
   type ProductContentType,
 } from "./schema";
+
+/** A read-only operational queue. Submission is intentionally a separate,
+ * explicit command so opening this screen can never contact Mercado Pago. */
+export async function listProductDisputeDefences() {
+  const rows = await db
+    .select({
+      disputeId: productCardDispute.id,
+      provider: productCardDispute.provider,
+      providerDisputeId: productCardDispute.providerDisputeId,
+      caseStatus: productCardDispute.status,
+      openedAt: productCardDispute.openedAt,
+      defenceId: productDisputeDefence.id,
+      deadlineAt: productDisputeDefence.deadlineAt,
+      originalProviderAccountId: productDisputeDefence.originalProviderAccountId,
+      submissionState: productDisputeDefence.status,
+      reviewedAt: productDisputeDefence.reviewedAt,
+      submittedAt: productDisputeDefence.submittedAt,
+      providerResult: productDisputeDefence.providerResult,
+      productTitle: productOrder.productTitleSnapshot,
+    })
+    .from(productCardDispute)
+    .innerJoin(productOrder, eq(productOrder.id, productCardDispute.orderId))
+    .leftJoin(productDisputeDefence, eq(productDisputeDefence.disputeId, productCardDispute.id))
+    .orderBy(desc(productCardDispute.openedAt));
+  const defenceIds = rows.flatMap((row) => row.defenceId ? [row.defenceId] : []);
+  const files = defenceIds.length === 0 ? [] : await db
+    .select({ defenceId: productDisputeDefenceFile.defenceId, source: productDisputeDefenceFile.source, fileName: productDisputeDefenceFile.fileName, contentType: productDisputeDefenceFile.contentType, sizeBytes: productDisputeDefenceFile.sizeBytes })
+    .from(productDisputeDefenceFile)
+    .where(inArray(productDisputeDefenceFile.defenceId, defenceIds));
+  return rows.map((row) => ({ ...row, files: files.filter((file) => file.defenceId === row.defenceId) }));
+}
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
 import { parseExpertAdminInput } from "@/lib/products/expert-input";

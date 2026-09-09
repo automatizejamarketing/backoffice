@@ -1020,6 +1020,41 @@ export const productCardDispute = pgTable(
 
 export type ProductCardDispute = InferSelectModel<typeof productCardDispute>;
 
+export const productDisputeDefence = pgTable(
+  "product_dispute_defences",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    disputeId: uuid("dispute_id").notNull().references(() => productCardDispute.id),
+    deadlineAt: timestamp("deadline_at"),
+    originalProviderAccountId: varchar("original_provider_account_id", { length: 255 }),
+    status: varchar("status", { enum: ["draft", "unknown", "submitted"] }).$type<"draft" | "unknown" | "submitted">().notNull().default("draft"),
+    reviewedAt: timestamp("reviewed_at"),
+    operatorUserId: uuid("operator_user_id").references(() => user.id),
+    providerSubmissionId: varchar("provider_submission_id", { length: 255 }),
+    providerResult: varchar("provider_result", { length: 120 }),
+    submittedAt: timestamp("submitted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({ disputeUnique: unique("product_dispute_defences_dispute_unique").on(table.disputeId) }),
+);
+
+export const productDisputeDefenceFile = pgTable(
+  "product_dispute_defence_files",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    defenceId: uuid("defence_id").notNull().references(() => productDisputeDefence.id),
+    source: varchar("source", { enum: ["proposed", "expert", "operator"] }).$type<"proposed" | "expert" | "operator">().notNull(),
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    contentType: varchar("content_type", { length: 120 }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: varchar("storage_key", { length: 500 }).notNull(),
+    uploadedByUserId: uuid("uploaded_by_user_id").references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({ defenceIdx: index("product_dispute_defence_files_defence_idx").on(table.defenceId) }),
+);
+
 export const expertLedgerEntry = pgTable(
   "expert_ledger_entries",
   {
