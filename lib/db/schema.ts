@@ -453,6 +453,8 @@ export const mercadoPagoExpertConnection = pgTable(
     pixStatus: varchar("pix_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">().notNull().default("unknown"),
     cardStatus: varchar("card_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">().notNull().default("unknown"),
     revokedAt: timestamp("revoked_at"),
+    lastValidatedAt: timestamp("last_validated_at"),
+    lastValidationError: varchar("last_validation_error", { length: 80 }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

@@ -477,6 +477,13 @@
       "when": 1796700000000,
       "tag": "0080_product_participation_eligibility",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1796800000000,
+      "tag": "0081_expert_mercadopago_validation",
+      "breakpoints": true
     }
   ]
 }

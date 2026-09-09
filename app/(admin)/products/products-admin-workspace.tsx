@@ -144,6 +144,16 @@ type Expert = {
   stripeAccountUpdatedAt: string | null;
 };
 
+type MercadoPagoExpertPanel = {
+  connected: boolean;
+  environment: "sandbox" | "production";
+  accountId?: string;
+  pix: "available" | "unavailable" | "unknown";
+  card: "available" | "unavailable" | "unknown";
+  lastValidatedAt: string | null;
+  validationError: string | null;
+};
+
 type Product = {
   id: string;
   ownerType: "automatize" | "expert";
@@ -795,6 +805,10 @@ export function ProductsAdminWorkspace({
   const [stripeActionExpertId, setStripeActionExpertId] = useState<string | null>(
     null,
   );
+  const [mercadoPagoExpertPanel, setMercadoPagoExpertPanel] =
+    useState<MercadoPagoExpertPanel | null>(null);
+  const [mercadoPagoActionExpertId, setMercadoPagoActionExpertId] =
+    useState<string | null>(null);
   const [onboardingLinkUrl, setOnboardingLinkUrl] = useState<string | null>(null);
   const [onboardingLinkDialogOpen, setOnboardingLinkDialogOpen] = useState(false);
 
@@ -1275,6 +1289,8 @@ export function ProductsAdminWorkspace({
       ),
       status: expert.status,
     });
+    setMercadoPagoExpertPanel(null);
+    void loadMercadoPagoExpertPanel(expert.id);
     setExpertDialogOpen(true);
   }
 
@@ -1468,6 +1484,46 @@ export function ProductsAdminWorkspace({
       );
     } finally {
       setStripeActionExpertId(null);
+    }
+  }
+
+  async function loadMercadoPagoExpertPanel(expertId: string) {
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/mercadopago`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      setMercadoPagoExpertPanel(
+        (await response.json()) as MercadoPagoExpertPanel,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível consultar a Conta Mercado Pago do Expert.",
+      );
+    }
+  }
+
+  async function authorizeMercadoPagoReceiverSwitch(expertId: string) {
+    setMercadoPagoActionExpertId(expertId);
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/mercadopago`,
+        { method: "POST" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      toast.success("Troca de conta autorizada. O Expert precisa concluir o OAuth.");
+      await loadMercadoPagoExpertPanel(expertId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível autorizar a troca da conta.",
+      );
+    } finally {
+      setMercadoPagoActionExpertId(null);
     }
   }
 
@@ -2503,6 +2559,72 @@ export function ProductsAdminWorkspace({
                     Reenviar onboarding
                   </Button>
                 </div>
+              </div>
+            ) : null}
+            {editingExpertId ? (
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Conta Mercado Pago do Expert</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Consulta sanitizada por ambiente. A equipe autoriza a troca;
+                      somente o Expert conclui o OAuth.
+                    </p>
+                  </div>
+                  {mercadoPagoExpertPanel ? (
+                    <Badge variant={mercadoPagoExpertPanel.connected ? "default" : "secondary"}>
+                      {mercadoPagoExpertPanel.connected ? "Conectada" : "Reconexão necessária"}
+                    </Badge>
+                  ) : null}
+                </div>
+                {mercadoPagoExpertPanel ? (
+                  <>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="outline">Ambiente: {mercadoPagoExpertPanel.environment}</Badge>
+                      <Badge variant={mercadoPagoExpertPanel.pix === "available" ? "default" : "secondary"}>
+                        Pix: {mercadoPagoExpertPanel.pix}
+                      </Badge>
+                      <Badge variant={mercadoPagoExpertPanel.card === "available" ? "default" : "secondary"}>
+                        Cartão: {mercadoPagoExpertPanel.card}
+                      </Badge>
+                      {mercadoPagoExpertPanel.accountId ? (
+                        <Badge variant="outline">Conta: {mercadoPagoExpertPanel.accountId}</Badge>
+                      ) : null}
+                    </div>
+                    {mercadoPagoExpertPanel.validationError ? (
+                      <p className="text-xs text-destructive">
+                        Validação: {mercadoPagoExpertPanel.validationError}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={mercadoPagoActionExpertId === editingExpertId}
+                        onClick={() => void loadMercadoPagoExpertPanel(editingExpertId)}
+                      >
+                        <RefreshCcw className="size-4" /> Atualizar estado
+                      </Button>
+                      {mercadoPagoExpertPanel.connected ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={mercadoPagoActionExpertId === editingExpertId}
+                          onClick={() => void authorizeMercadoPagoReceiverSwitch(editingExpertId)}
+                        >
+                          {mercadoPagoActionExpertId === editingExpertId ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : null}
+                          Autorizar troca de conta
+                        </Button>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Consultando o estado…</p>
+                )}
               </div>
             ) : null}
             <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
