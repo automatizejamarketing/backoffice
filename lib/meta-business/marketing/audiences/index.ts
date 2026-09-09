@@ -13,3 +13,4 @@ export * from "./customer-file";
 export * from "./customer-file-operation";
 export * from "./customer-list-creation";
 export * from "./customer-list-removal";
+export * from "./customer-list-replacement";
