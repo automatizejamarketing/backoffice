@@ -13,6 +13,8 @@ import {
   productOrder,
   productPayment,
   productCardDispute,
+  productPixFraudCase,
+  productPixFraudEvent,
   productEvidenceConsultation,
   productDisputeDefence,
   productDisputeDefenceFile,
@@ -105,6 +107,50 @@ export async function listProductDisputeDefences() {
     .from(productDisputeDefenceFile)
     .where(inArray(productDisputeDefenceFile.defenceId, defenceIds));
   return rows.map((row) => ({ ...row, files: files.filter((file) => file.defenceId === row.defenceId) }));
+}
+
+/** Read-only queue for provider-confirmed Pix fraud/MED facts. The queue does
+ * not infer fraud from payment status and has no refund or payment action. */
+export async function listProductPixFraudCases() {
+  const rows = await db
+    .select({
+      id: productPixFraudCase.id,
+      orderId: productPixFraudCase.orderId,
+      productTitle: productOrder.productTitleSnapshot,
+      buyerEmail: productOrder.buyerEmail,
+      provider: productPixFraudCase.provider,
+      providerCaseId: productPixFraudCase.providerCaseId,
+      providerPaymentId: productPixFraudCase.providerPaymentId,
+      providerAccountId: productPixFraudCase.providerAccountId,
+      status: productPixFraudCase.status,
+      cause: productPixFraudCase.cause,
+      responsible: productPixFraudCase.responsible,
+      recoveredAmountCentavos: productPixFraudCase.recoveredAmountCentavos,
+      financialPending: productPixFraudCase.financialPending,
+      observedAt: productPixFraudCase.observedAt,
+      resolvedAt: productPixFraudCase.resolvedAt,
+      responseDueAt: productPixFraudCase.responseDueAt,
+    })
+    .from(productPixFraudCase)
+    .innerJoin(productOrder, eq(productOrder.id, productPixFraudCase.orderId))
+    .orderBy(desc(productPixFraudCase.observedAt));
+  const caseIds = rows.map((row) => row.id);
+  const events = caseIds.length
+    ? await db
+        .select({
+          caseId: productPixFraudEvent.caseId,
+          providerEventId: productPixFraudEvent.providerEventId,
+          eventType: productPixFraudEvent.eventType,
+          occurredAt: productPixFraudEvent.occurredAt,
+        })
+        .from(productPixFraudEvent)
+        .where(inArray(productPixFraudEvent.caseId, caseIds))
+        .orderBy(desc(productPixFraudEvent.occurredAt))
+    : [];
+  return rows.map((row) => ({
+    ...row,
+    events: events.filter((event) => event.caseId === row.id),
+  }));
 }
 
 /** Explicitly authorized evidence read for operations/defence work. The

@@ -299,6 +299,30 @@ type Defence = {
   }>;
 };
 
+type PixFraudCase = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  buyerEmail: string;
+  provider: string;
+  providerCaseId: string;
+  providerPaymentId: string;
+  providerAccountId: string | null;
+  status: "under_review" | "closed_valid" | "payment_invalidated_by_fraud";
+  cause: string | null;
+  responsible: "expert" | "automatize";
+  recoveredAmountCentavos: number | null;
+  financialPending: boolean;
+  observedAt: string;
+  resolvedAt: string | null;
+  responseDueAt: string | null;
+  events: Array<{
+    providerEventId: string;
+    eventType: string;
+    occurredAt: string;
+  }>;
+};
+
 type ProductFormState = {
   ownerType: "automatize" | "expert";
   expertId: string;
@@ -819,6 +843,7 @@ export function ProductsAdminWorkspace({
   const [orders, setOrders] = useState<Order[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [defences, setDefences] = useState<Defence[]>([]);
+  const [pixFraudCases, setPixFraudCases] = useState<PixFraudCase[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
@@ -907,30 +932,33 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
           fetch("/api/products/admin/dispute-defences", { cache: "no-store" }),
+          fetch("/api/products/admin/pix-fraud", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
           defencesResponse.json(),
+          pixFraudResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
       setDefences(nextDefences.defences ?? []);
+      setPixFraudCases(nextPixFraud.cases ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -1800,12 +1828,13 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-      <TabsList className="grid w-full grid-cols-5 lg:w-fit">
+      <TabsList className="grid w-full grid-cols-6 lg:w-fit">
         <TabsTrigger value="products">Produtos</TabsTrigger>
         <TabsTrigger value="experts">Experts</TabsTrigger>
         <TabsTrigger value="orders">Vendas</TabsTrigger>
         <TabsTrigger value="payouts">Repasses</TabsTrigger>
         <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
+        <TabsTrigger value="pix-fraud">Fraude Pix ({pixFraudCases.filter((item) => item.status === "under_review").length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="products" className="space-y-6 pt-4">
@@ -2410,6 +2439,66 @@ export function ProductsAdminWorkspace({
                           </>
                         ) : <span className="text-xs text-muted-foreground">Caso antigo sem rascunho</span>}
                       </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="pix-fraud" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Fraude Pix / MED</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Fatos confirmados pelo Mercado Pago. Esta fila acompanha acesso, prazo e recuperação efetiva; não transforma o caso em refund nem atribui autoria por inferência.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1220px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / comprador</TableHead>
+                  <TableHead>Caso / pagamento</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Prazo</TableHead>
+                  <TableHead>Responsável</TableHead>
+                  <TableHead className="text-right">Recuperado</TableHead>
+                  <TableHead>Fatos</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pixFraudCases.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhuma ocorrência de fraude Pix registrada.</TableCell></TableRow>
+                ) : pixFraudCases.map((fraudCase) => (
+                  <TableRow key={fraudCase.id}>
+                    <TableCell>
+                      <p className="font-medium">{fraudCase.productTitle}</p>
+                      <p className="text-xs text-muted-foreground">{fraudCase.buyerEmail}</p>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      <p>{fraudCase.providerCaseId}</p>
+                      <p>{fraudCase.providerPaymentId}</p>
+                      <p>{fraudCase.providerAccountId ? `conta ${fraudCase.providerAccountId}` : "conta não informada"}</p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={fraudCase.status === "payment_invalidated_by_fraud" ? "destructive" : fraudCase.status === "closed_valid" ? "secondary" : "outline"}>
+                        {fraudCase.status === "under_review" ? "Em análise · acesso suspenso" : fraudCase.status === "closed_valid" ? "Encerrada · compra válida" : "Pagamento invalidado por fraude"}
+                      </Badge>
+                      <p className="mt-1 text-xs text-muted-foreground">{fraudCase.cause ?? "Causa não informada"}{fraudCase.financialPending ? " · pendência financeira" : ""}</p>
+                    </TableCell>
+                    <TableCell className={fraudCase.responseDueAt && new Date(fraudCase.responseDueAt) <= new Date() ? "text-destructive" : ""}>
+                      {fraudCase.responseDueAt ? dateTime(fraudCase.responseDueAt) : "Sem prazo"}
+                    </TableCell>
+                    <TableCell>{fraudCase.responsible === "expert" ? "Expert" : "Equipe Automatize"}</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">
+                      {fraudCase.recoveredAmountCentavos === null ? "Não informado" : money(fraudCase.recoveredAmountCentavos)}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      <p>{fraudCase.events.length} evento(s)</p>
+                      {fraudCase.events[0] ? <p>{fraudCase.events[0].eventType} · {dateTime(fraudCase.events[0].occurredAt)}</p> : null}
                     </TableCell>
                   </TableRow>
                 ))}

@@ -918,6 +918,7 @@ export const productEntitlement = pgTable(
     grantedAt: timestamp("granted_at").notNull().defaultNow(),
     suspendedAt: timestamp("suspended_at"),
     suspendedByCardDisputeId: uuid("suspended_by_card_dispute_id"),
+    suspendedByPixFraudCaseId: uuid("suspended_by_pix_fraud_case_id"),
     revokedAt: timestamp("revoked_at"),
   },
   (table) => ({
@@ -1027,6 +1028,11 @@ export const productPixFraudCase = pgTable(
     provider: varchar("provider", { length: 30 }).notNull(),
     providerCaseId: varchar("provider_case_id", { length: 255 }).notNull(),
     providerPaymentId: varchar("provider_payment_id", { length: 255 }).notNull(),
+    providerAccountId: varchar("provider_account_id", { length: 255 }),
+    responsible: varchar("responsible", { enum: ["expert", "automatize"] })
+      .$type<"expert" | "automatize">()
+      .notNull()
+      .default("automatize"),
     status: varchar("status", { enum: PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES })
       .$type<ProductPixFraudCaseStatus>()
       .notNull(),
@@ -1034,6 +1040,8 @@ export const productPixFraudCase = pgTable(
     recoveredAmountCentavos: integer("recovered_amount_centavos"),
     financialPending: boolean("financial_pending").notNull().default(false),
     observedAt: timestamp("observed_at").notNull(),
+    responseDueAt: timestamp("response_due_at"),
+    noticeSentAt: timestamp("notice_sent_at"),
     resolvedAt: timestamp("resolved_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1050,6 +1058,26 @@ export const productPixFraudCase = pgTable(
 );
 
 export type ProductPixFraudCase = InferSelectModel<typeof productPixFraudCase>;
+
+export const productPixFraudEvent = pgTable(
+  "product_pix_fraud_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    caseId: uuid("case_id").notNull().references(() => productPixFraudCase.id),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    providerEventId: varchar("provider_event_id", { length: 255 }).notNull(),
+    eventType: varchar("event_type", { length: 120 }).notNull(),
+    rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>().notNull(),
+    occurredAt: timestamp("occurred_at").notNull(),
+    observedAt: timestamp("observed_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    providerEventUnique: unique("product_pix_fraud_events_provider_event_unique").on(table.provider, table.providerEventId),
+    caseIdx: index("product_pix_fraud_events_case_id_idx").on(table.caseId),
+  }),
+);
+
+export type ProductPixFraudEvent = InferSelectModel<typeof productPixFraudEvent>;
 
 export const PRODUCT_REFUND_REQUEST_STATUS_VALUES = [
   "requested",
