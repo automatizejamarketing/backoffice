@@ -50,7 +50,7 @@ export type CustomAudienceView = {
   lookalikeSpec?: unknown;
   lookalikeAudienceIds?: string[];
   originAudienceId?: string;
-  ruleSummary: "external" | "not_applicable";
+  ruleSummary: "external" | "not_applicable" | "not_loaded";
   capabilities: AudienceCapabilities;
 };
 
@@ -60,7 +60,7 @@ type RawAudience = Record<string, unknown>;
 const num = (value: unknown) => typeof value === "number" ? value : undefined;
 const str = (value: unknown) => typeof value === "string" ? value : undefined;
 
-function mapAudience(audience: RawAudience): CustomAudienceView {
+function mapAudience(audience: RawAudience, ruleWasRequested: boolean): CustomAudienceView {
   return {
     id: String(audience.id), name: str(audience.name), description: str(audience.description), subtype: str(audience.subtype),
     approximateCountLowerBound: num(audience.approximate_count_lower_bound), approximateCountUpperBound: num(audience.approximate_count_upper_bound),
@@ -69,7 +69,7 @@ function mapAudience(audience: RawAudience): CustomAudienceView {
     isValueBased: typeof audience.is_value_based === "boolean" ? audience.is_value_based : undefined,
     timeCreated: num(audience.time_created), timeUpdated: num(audience.time_updated), rule: audience.rule, lookalikeSpec: audience.lookalike_spec,
     lookalikeAudienceIds: Array.isArray(audience.lookalike_audience_ids) ? audience.lookalike_audience_ids as string[] : undefined,
-    originAudienceId: str(audience.origin_audience_id), ruleSummary: audience.rule == null ? "not_applicable" : "external",
+    originAudienceId: str(audience.origin_audience_id), ruleSummary: !ruleWasRequested ? "not_loaded" : audience.rule == null ? "not_applicable" : "external",
     capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: "unknown", editRule: "unknown", manageMembers: "unknown", delete: "unknown", lookalikeSource: "unknown" },
   };
 }
@@ -81,5 +81,5 @@ export async function listCustomAudiences(args: { adAccountId: string; accessTok
   if (args.after) parameters.push(`after=${args.after}`);
   const response = await callMeta<{ data?: RawAudience[]; paging?: { next?: string; cursors?: { after?: string } } }>({ method: "GET", path: `${accountId}/customaudiences`, params: parameters.join("&"), accessToken: args.accessToken }, { retryOnRateLimit: true });
   const nextCursor = response.paging?.cursors?.after;
-  return { items: (response.data ?? []).map(mapAudience), truncated: Boolean(response.paging?.next), ...(nextCursor ? { nextCursor } : {}) };
+  return { items: (response.data ?? []).map((audience) => mapAudience(audience, Boolean(args.detailed))), truncated: Boolean(response.paging?.next), ...(nextCursor ? { nextCursor } : {}) };
 }
