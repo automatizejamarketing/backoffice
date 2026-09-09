@@ -12,6 +12,7 @@ import {
   productFinancialSetting,
   productOrder,
   productPayment,
+  productRefundRequest,
   user,
   type ProductContentType,
 } from "./schema";
@@ -35,6 +36,26 @@ export async function getProductFinancialSettings() {
   return {
     platformFeeBasisPoints: settings?.platformFeeBasisPoints ?? 500,
   };
+}
+
+/** Operational queue only. Executing a refund remains an explicit, audited action. */
+export async function listProductRefundRequests() {
+  return db
+    .select({
+      id: productRefundRequest.id,
+      protocol: productRefundRequest.protocol,
+      status: productRefundRequest.status,
+      requestedAt: productRefundRequest.requestedAt,
+      orderId: productOrder.id,
+      buyerUserId: productRefundRequest.buyerUserId,
+      buyerEmail: productOrder.buyerEmail,
+      buyerName: productOrder.buyerName,
+      productTitle: productOrder.productTitleSnapshot,
+      amountCentavos: productOrder.priceCentavos,
+    })
+    .from(productRefundRequest)
+    .innerJoin(productOrder, eq(productOrder.id, productRefundRequest.orderId))
+    .orderBy(desc(productRefundRequest.requestedAt));
 }
 
 export async function updateProductFinancialSettings(input: unknown) {
