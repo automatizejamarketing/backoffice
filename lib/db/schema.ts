@@ -951,6 +951,7 @@ export const productPurchaseEvidence = pgTable(
         "access_granted",
         "authenticated_area_opened",
         "material_access_requested",
+        "material_download_started",
       ],
     })
       .$type<
@@ -959,9 +960,13 @@ export const productPurchaseEvidence = pgTable(
         | "access_granted"
         | "authenticated_area_opened"
         | "material_access_requested"
+        | "material_download_started"
       >()
       .notNull(),
     accessSource: varchar("access_source", { length: 30 }),
+    context: jsonb("context").$type<Record<string, string | null>>(),
+    retentionReviewAt: timestamp("retention_review_at"),
+    retentionReason: text("retention_reason"),
     occurredAt: timestamp("occurred_at").notNull().defaultNow(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -979,6 +984,30 @@ export const productPurchaseEvidence = pgTable(
 export type ProductPurchaseEvidence = InferSelectModel<
   typeof productPurchaseEvidence
 >;
+
+/** Audit trail for authorized evidence consultations. */
+export const productEvidenceConsultation = pgTable(
+  "product_evidence_consultations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id").notNull().references(() => productOrder.id),
+    viewerKind: varchar("viewer_kind", { enum: ["buyer", "expert", "operator"] })
+      .$type<"buyer" | "expert" | "operator">()
+      .notNull(),
+    viewerUserId: uuid("viewer_user_id").references(() => user.id),
+    viewerEmail: varchar("viewer_email", { length: 255 }),
+    purpose: varchar("purpose", { length: 120 }).notNull(),
+    consultedAt: timestamp("consulted_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderConsultedIdx: index("product_evidence_consultations_order_idx").on(
+      table.orderId,
+      table.consultedAt,
+    ),
+  }),
+);
+
+export type ProductEvidenceConsultation = InferSelectModel<typeof productEvidenceConsultation>;
 
 export const PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES = [
   "under_review",

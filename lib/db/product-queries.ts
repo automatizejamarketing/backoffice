@@ -13,12 +13,14 @@ import {
   productOrder,
   productPayment,
   productCardDispute,
+  productEvidenceConsultation,
   productDisputeDefence,
   productDisputeDefenceFile,
   productReconciliationCase,
   productRefundBalanceCase,
   productRefundOperation,
   productRefundRequest,
+  productPurchaseEvidence,
   user,
   type ProductContentType,
 } from "./schema";
@@ -83,6 +85,39 @@ export async function listProductDisputeDefences() {
     .from(productDisputeDefenceFile)
     .where(inArray(productDisputeDefenceFile.defenceId, defenceIds));
   return rows.map((row) => ({ ...row, files: files.filter((file) => file.defenceId === row.defenceId) }));
+}
+
+/** Explicitly authorized evidence read for operations/defence work. The
+ * consultation itself is recorded in the shared audit table. */
+export async function listProductPurchaseEvidenceForOperator(input: {
+  orderId: string;
+  operatorEmail: string;
+}) {
+  const [order] = await db
+    .select({ id: productOrder.id })
+    .from(productOrder)
+    .where(eq(productOrder.id, input.orderId))
+    .limit(1);
+  if (!order) return [];
+  await db.insert(productEvidenceConsultation).values({
+    orderId: input.orderId,
+    viewerKind: "operator",
+    viewerEmail: input.operatorEmail,
+    purpose: "backoffice_dispute_defence",
+  });
+  return db
+    .select({
+      orderId: productPurchaseEvidence.orderId,
+      productId: productPurchaseEvidence.productId,
+      contentItemId: productPurchaseEvidence.contentItemId,
+      eventType: productPurchaseEvidence.eventType,
+      accessSource: productPurchaseEvidence.accessSource,
+      context: productPurchaseEvidence.context,
+      occurredAt: productPurchaseEvidence.occurredAt,
+    })
+    .from(productPurchaseEvidence)
+    .where(eq(productPurchaseEvidence.orderId, input.orderId))
+    .orderBy(asc(productPurchaseEvidence.occurredAt));
 }
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";

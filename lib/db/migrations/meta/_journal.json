@@ -526,6 +526,13 @@
       "when": 1797400000000,
       "tag": "0087_product_card_dispute_events",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1797500000000,
+      "tag": "0088_product_evidence_retention_audit",
+      "breakpoints": true
     }
   ]
 }
