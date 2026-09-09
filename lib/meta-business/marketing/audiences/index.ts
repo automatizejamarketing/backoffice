@@ -9,3 +9,4 @@ export * from "./website-sources";
 export * from "./instagram";
 export * from "./instagram-operation";
 export * from "./lookalike";
+export * from "./customer-file";
