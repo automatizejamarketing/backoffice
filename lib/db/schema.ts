@@ -438,6 +438,48 @@ export const expertProfile = pgTable(
 
 export type ExpertProfile = InferSelectModel<typeof expertProfile>;
 
+/** OAuth credentials stay separate from profile/admin reads. */
+export const mercadoPagoExpertConnection = pgTable(
+  "mercado_pago_expert_connections",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    mpUserId: varchar("mp_user_id", { length: 64 }).notNull(),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    accessTokenEncrypted: text("access_token_encrypted").notNull(),
+    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at").notNull(),
+    scopes: text("scopes"),
+    pixStatus: varchar("pix_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">().notNull().default("unknown"),
+    cardStatus: varchar("card_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">().notNull().default("unknown"),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    expertEnvironmentUnique: unique("mercado_pago_expert_connections_expert_environment_unique").on(table.expertId, table.environment),
+    mpUserEnvironmentUnique: unique("mercado_pago_expert_connections_user_environment_unique").on(table.mpUserId, table.environment),
+  }),
+);
+
+export const mercadoPagoOauthAttempt = pgTable(
+  "mercado_pago_oauth_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    stateHash: varchar("state_hash", { length: 64 }).notNull(),
+    codeVerifierEncrypted: text("code_verifier_encrypted").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    stateUnique: unique("mercado_pago_oauth_attempts_state_hash_unique").on(table.stateHash),
+    activeExpertIdx: index("mercado_pago_oauth_attempts_expert_idx").on(table.expertId, table.expiresAt),
+  }),
+);
+
 export const productFinancialSetting = pgTable(
   "product_financial_settings",
   {
