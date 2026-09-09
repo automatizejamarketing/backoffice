@@ -449,6 +449,13 @@
       "when": 1796300000000,
       "tag": "0076_product_post_sale_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1796400000000,
+      "tag": "0077_product_reconciliation_cases",
+      "breakpoints": true
     }
   ]
 }

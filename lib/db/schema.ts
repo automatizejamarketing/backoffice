@@ -1040,6 +1040,42 @@ export const productPostSaleCostSettlement = pgTable("product_post_sale_cost_set
   id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), debtor: varchar("debtor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), creditor: varchar("creditor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), amountCentavos: integer("amount_centavos").notNull(), operatorUserId: uuid("operator_user_id").notNull().references(() => user.id), proofUrl: text("proof_url").notNull(), proofKey: varchar("proof_key", { length: 255 }).notNull(), confirmedAt: timestamp("confirmed_at"), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({ caseUnique: unique("product_post_sale_cost_settlements_case_unique").on(table.caseId), proofUnique: unique("product_post_sale_cost_settlements_proof_unique").on(table.proofKey), partiesAndAmount: check("product_post_sale_cost_settlements_valid", sql`${table.debtor} <> ${table.creditor} AND ${table.amountCentavos} > 0`) }));
 
+export const PRODUCT_RECONCILIATION_CASE_KIND_VALUES = [
+  "lost_event",
+  "account_divergence",
+  "amount_divergence",
+  "currency_divergence",
+  "conflicting_data",
+  "split_divergence",
+  "external_partial_refund",
+] as const;
+export type ProductReconciliationCaseKind =
+  (typeof PRODUCT_RECONCILIATION_CASE_KIND_VALUES)[number];
+
+export const PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES = [
+  "operations",
+  "automatize_finance",
+  "expert",
+] as const;
+export const PRODUCT_RECONCILIATION_CASE_STATUS_VALUES = [
+  "open",
+  "monitoring",
+  "resolved",
+] as const;
+
+/** Espelho de automatize-frontend: divergencia vira caso acompanhado, nunca uma
+ * correcao automatica do Split Inicial ou complemento de reembolso parcial. */
+export const productReconciliationCase = pgTable("product_reconciliation_cases", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(), orderId: uuid("order_id").notNull().references(() => productOrder.id), paymentId: uuid("payment_id").references(() => productPayment.id),
+  provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"), providerAccountId: varchar("provider_account_id", { length: 255 }),
+  kind: varchar("kind", { enum: PRODUCT_RECONCILIATION_CASE_KIND_VALUES }).$type<ProductReconciliationCaseKind>().notNull(), responsible: varchar("responsible", { enum: PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES }).$type<"operations" | "automatize_finance" | "expert">().notNull(),
+  status: varchar("status", { enum: PRODUCT_RECONCILIATION_CASE_STATUS_VALUES }).$type<"open" | "monitoring" | "resolved">().notNull().default("open"), attributionProven: boolean("attribution_proven").notNull().default(false), effectiveAmountCentavos: integer("effective_amount_centavos"),
+  evidence: jsonb("evidence").$type<Record<string, string | number | null>>().notNull().default({}), nextReviewAt: timestamp("next_review_at").notNull(), resolvedByUserId: uuid("resolved_by_user_id").references(() => user.id), resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({ orderKindUnique: unique("product_reconciliation_cases_order_kind_unique").on(table.orderId, table.kind), reviewIdx: index("product_reconciliation_cases_status_review_idx").on(table.status, table.nextReviewAt) }));
+
+export type ProductReconciliationCase = InferSelectModel<typeof productReconciliationCase>;
+
 export const productDisputeDefence = pgTable(
   "product_dispute_defences",
   {

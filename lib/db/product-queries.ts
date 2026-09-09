@@ -15,10 +15,37 @@ import {
   productCardDispute,
   productDisputeDefence,
   productDisputeDefenceFile,
+  productReconciliationCase,
   productRefundRequest,
   user,
   type ProductContentType,
 } from "./schema";
+
+/** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
+ * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
+ * transferência que conserte o Split Inicial ou complete um parcial. */
+export async function listProductReconciliationCases() {
+  return db
+    .select({
+      id: productReconciliationCase.id,
+      orderId: productReconciliationCase.orderId,
+      productTitle: productOrder.productTitleSnapshot,
+      provider: productReconciliationCase.provider,
+      providerAccountId: productReconciliationCase.providerAccountId,
+      kind: productReconciliationCase.kind,
+      responsible: productReconciliationCase.responsible,
+      status: productReconciliationCase.status,
+      attributionProven: productReconciliationCase.attributionProven,
+      effectiveAmountCentavos: productReconciliationCase.effectiveAmountCentavos,
+      evidence: productReconciliationCase.evidence,
+      nextReviewAt: productReconciliationCase.nextReviewAt,
+      createdAt: productReconciliationCase.createdAt,
+    })
+    .from(productReconciliationCase)
+    .innerJoin(productOrder, eq(productOrder.id, productReconciliationCase.orderId))
+    .where(inArray(productReconciliationCase.status, ["open", "monitoring"]))
+    .orderBy(asc(productReconciliationCase.nextReviewAt));
+}
 
 /** A read-only operational queue. Submission is intentionally a separate,
  * explicit command so opening this screen can never contact Mercado Pago. */
