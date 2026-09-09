@@ -59,6 +59,21 @@ export async function listProductReconciliationCases() {
 /** A read-only operational queue. Submission is intentionally a separate,
  * explicit command so opening this screen can never contact Mercado Pago. */
 export async function listProductDisputeDefences() {
+  const missingCases = await db
+    .select({
+      disputeId: productCardDispute.id,
+      deadlineAt: productCardDispute.responseDueAt,
+      originalProviderAccountId: productCardDispute.providerAccountId,
+    })
+    .from(productCardDispute)
+    .leftJoin(productDisputeDefence, eq(productDisputeDefence.disputeId, productCardDispute.id))
+    .where(isNull(productDisputeDefence.id));
+  if (missingCases.length > 0) {
+    await db
+      .insert(productDisputeDefence)
+      .values(missingCases)
+      .onConflictDoNothing({ target: productDisputeDefence.disputeId });
+  }
   const rows = await db
     .select({
       disputeId: productCardDispute.id,
@@ -71,8 +86,13 @@ export async function listProductDisputeDefences() {
       originalProviderAccountId: productDisputeDefence.originalProviderAccountId,
       submissionState: productDisputeDefence.status,
       reviewedAt: productDisputeDefence.reviewedAt,
+      reviewedByEmail: productDisputeDefence.reviewedByEmail,
       submittedAt: productDisputeDefence.submittedAt,
       providerResult: productDisputeDefence.providerResult,
+      expertNote: productDisputeDefence.expertNote,
+      operatorNote: productDisputeDefence.operatorNote,
+      lastProviderCheckedAt: productDisputeDefence.lastProviderCheckedAt,
+      lastProviderError: productDisputeDefence.lastProviderError,
       productTitle: productOrder.productTitleSnapshot,
     })
     .from(productCardDispute)

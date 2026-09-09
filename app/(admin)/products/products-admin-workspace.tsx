@@ -272,6 +272,33 @@ type Payout = {
   proofUrl: string | null;
 };
 
+type Defence = {
+  disputeId: string;
+  provider: string;
+  providerDisputeId: string;
+  caseStatus: string;
+  openedAt: string;
+  defenceId: string | null;
+  deadlineAt: string | null;
+  originalProviderAccountId: string | null;
+  submissionState: "draft" | "unknown" | "submitted" | null;
+  reviewedAt: string | null;
+  reviewedByEmail: string | null;
+  submittedAt: string | null;
+  providerResult: string | null;
+  expertNote: string | null;
+  operatorNote: string | null;
+  lastProviderCheckedAt: string | null;
+  lastProviderError: string | null;
+  productTitle: string;
+  files: Array<{
+    source: "proposed" | "expert" | "operator";
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  }>;
+};
+
 type ProductFormState = {
   ownerType: "automatize" | "expert";
   expertId: string;
@@ -791,6 +818,7 @@ export function ProductsAdminWorkspace({
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [defences, setDefences] = useState<Defence[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
@@ -879,27 +907,30 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
+          fetch("/api/products/admin/dispute-defences", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
+          defencesResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
+      setDefences(nextDefences.defences ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -910,6 +941,59 @@ export function ProductsAdminWorkspace({
       setIsLoadingList(false);
     }
   }, []);
+
+  async function refreshDefences() {
+    const response = await fetch("/api/products/admin/dispute-defences", { cache: "no-store" });
+    if (!response.ok) throw new Error(await readError(response));
+    const body = (await response.json()) as { defences?: Defence[] };
+    setDefences(body.defences ?? []);
+  }
+
+  async function defenceAction(disputeId: string, action: "review" | "submit") {
+    const response = await fetch(`/api/products/admin/dispute-defences/${disputeId}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    const result = (await response.json()) as { state?: string; reason?: string };
+    toast.success(action === "review" ? "Defesa revisada." : result.state === "unknown" ? "Envio inconclusivo; o caso exige recuperação." : "Defesa enviada.");
+    await refreshDefences();
+  }
+
+  async function uploadDefenceFiles(disputeId: string, selectedFiles: FileList | null) {
+    if (!selectedFiles?.length) return;
+    try {
+      for (const file of Array.from(selectedFiles)) {
+        const prepare = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files/upload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
+        });
+        if (!prepare.ok) throw new Error(await readError(prepare));
+        const prepared = (await prepare.json()) as { uploadUrl: string; objectKey: string; headers: Record<string, string> };
+        const localUpload = prepared.uploadUrl === "/api/products/admin/uploads/complete";
+        const upload = await fetch(prepared.uploadUrl, {
+          method: localUpload ? "POST" : "PUT",
+          headers: localUpload
+            ? { "Content-Type": file.type, "X-Object-Key": prepared.objectKey, "X-Cache-Control": "private, no-store" }
+            : prepared.headers,
+          body: file,
+        });
+        if (!upload.ok) throw new Error(await readError(upload));
+        const metadata = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "operator", fileName: file.name, contentType: file.type, sizeBytes: file.size, storageKey: prepared.objectKey }),
+        });
+        if (!metadata.ok) throw new Error(await readError(metadata));
+      }
+      toast.success("Evidência anexada.");
+      await refreshDefences();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível anexar a evidência.");
+    }
+  }
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -1716,11 +1800,12 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-4 lg:w-fit">
-          <TabsTrigger value="products">Produtos</TabsTrigger>
-          <TabsTrigger value="experts">Experts</TabsTrigger>
-          <TabsTrigger value="orders">Vendas</TabsTrigger>
-          <TabsTrigger value="payouts">Repasses</TabsTrigger>
+      <TabsList className="grid w-full grid-cols-5 lg:w-fit">
+        <TabsTrigger value="products">Produtos</TabsTrigger>
+        <TabsTrigger value="experts">Experts</TabsTrigger>
+        <TabsTrigger value="orders">Vendas</TabsTrigger>
+        <TabsTrigger value="payouts">Repasses</TabsTrigger>
+        <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="products" className="space-y-6 pt-4">
@@ -2118,7 +2203,7 @@ export function ProductsAdminWorkspace({
           </Card>
         </TabsContent>
 
-        <TabsContent value="orders" className="pt-4">
+      <TabsContent value="orders" className="pt-4">
           <Card>
             <CardHeader>
               <CardTitle>Vendas</CardTitle>
@@ -2259,9 +2344,82 @@ export function ProductsAdminWorkspace({
               </Table>
             </CardContent>
           </Card>
-        </TabsContent>
+      </TabsContent>
 
-        <TabsContent value="payouts" className="pt-4">
+      <TabsContent value="defences" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Defesas de contestação</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Preparação e envio são ações explícitas. Um timeout fica como inconclusivo até a recuperação consultar o Mercado Pago.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1180px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / caso</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Prazo</TableHead>
+                  <TableHead>Arquivos</TableHead>
+                  <TableHead>Auditoria</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {defences.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Nenhuma contestação registrada.</TableCell></TableRow>
+                ) : defences.map((defence) => (
+                  <TableRow key={defence.disputeId}>
+                    <TableCell>
+                      <p className="font-medium">{defence.productTitle}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{defence.provider} · {defence.providerDisputeId}</p>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline">caso: {defence.caseStatus}</Badge>
+                        <Badge variant={defence.submissionState === "submitted" ? "default" : "secondary"}>
+                          defesa: {defence.submissionState ?? "sem caso"}
+                        </Badge>
+                      </div>
+                      {defence.providerResult ? <p className="mt-1 text-xs text-muted-foreground">{defence.providerResult}</p> : null}
+                    </TableCell>
+                    <TableCell className={defence.deadlineAt && new Date(defence.deadlineAt) <= new Date() ? "text-destructive" : ""}>
+                      {defence.deadlineAt ? dateTime(defence.deadlineAt) : "Sem prazo"}
+                    </TableCell>
+                    <TableCell>
+                      <p>{defence.files.length}/10</p>
+                      <p className="max-w-[220px] truncate text-xs text-muted-foreground">{defence.files.map((file) => file.fileName).join(", ") || "Nenhum arquivo"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      <p>{defence.reviewedAt ? `Revisada ${dateTime(defence.reviewedAt)}` : "Aguardando revisão"}</p>
+                      {defence.reviewedByEmail ? <p>por {defence.reviewedByEmail}</p> : null}
+                      {defence.submittedAt ? <p>Enviada {dateTime(defence.submittedAt)}</p> : null}
+                      {defence.lastProviderError ? <p className="text-destructive">{defence.lastProviderError}</p> : null}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {defence.defenceId ? (
+                          <>
+                            <label className="inline-flex cursor-pointer items-center rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted">
+                              <Upload className="mr-1 size-3" /> Anexar
+                              <input type="file" accept="application/pdf,image/jpeg,image/png" multiple className="sr-only" onChange={(event) => { void uploadDefenceFiles(defence.disputeId, event.currentTarget.files); event.currentTarget.value = ""; }} />
+                            </label>
+                            <Button size="sm" variant="outline" disabled={defence.submissionState === "submitted"} onClick={() => { void defenceAction(defence.disputeId, "review").catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível revisar.")); }}>Revisar</Button>
+                            <Button size="sm" disabled={defence.submissionState === "submitted"} onClick={() => { void defenceAction(defence.disputeId, "submit").catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível enviar.")); }}>Enviar</Button>
+                          </>
+                        ) : <span className="text-xs text-muted-foreground">Caso antigo sem rascunho</span>}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="payouts" className="pt-4">
           <Card>
             <CardHeader>
               <CardTitle>Repasses</CardTitle>

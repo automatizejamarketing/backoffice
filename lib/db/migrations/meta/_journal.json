@@ -533,6 +533,13 @@
       "when": 1797500000000,
       "tag": "0088_product_evidence_retention_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1797600000000,
+      "tag": "0089_product_dispute_defence_flow",
+      "breakpoints": true
     }
   ]
 }
