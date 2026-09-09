@@ -614,7 +614,7 @@ export const product = pgTable(
     ),
     participationCheck: check(
       "products_expert_participation_range",
-      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 9999)`,
+      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000)`,
     ),
     ownerCheck: check(
       "products_owner_consistency",
@@ -886,6 +886,97 @@ export const productEntitlement = pgTable(
 );
 
 export type ProductEntitlement = InferSelectModel<typeof productEntitlement>;
+
+/** Observed purchase and access facts used in a dispute defence. Opening a
+ * page or requesting a file is recorded as an observed action, never as proof
+ * that a video was watched or a download completed. */
+export const productPurchaseEvidence = pgTable(
+  "product_purchase_evidence",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id").references(() => productOrder.id),
+    productId: uuid("product_id").notNull().references(() => product.id),
+    contentItemId: uuid("content_item_id").references(
+      () => productContentItem.id,
+    ),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    eventType: varchar("event_type", {
+      enum: [
+        "purchase_recorded",
+        "payment_confirmed",
+        "access_granted",
+        "authenticated_area_opened",
+        "material_access_requested",
+      ],
+    })
+      .$type<
+        | "purchase_recorded"
+        | "payment_confirmed"
+        | "access_granted"
+        | "authenticated_area_opened"
+        | "material_access_requested"
+      >()
+      .notNull(),
+    accessSource: varchar("access_source", { length: 30 }),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderOccurredIdx: index("product_purchase_evidence_order_occurred_idx").on(
+      table.orderId,
+      table.occurredAt,
+    ),
+    productUserOccurredIdx: index(
+      "product_purchase_evidence_product_user_occurred_idx",
+    ).on(table.productId, table.userId, table.occurredAt),
+  }),
+);
+
+export type ProductPurchaseEvidence = InferSelectModel<
+  typeof productPurchaseEvidence
+>;
+
+export const PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES = [
+  "under_review",
+  "closed_valid",
+  "payment_invalidated_by_fraud",
+] as const;
+export type ProductPixFraudCaseStatus =
+  (typeof PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES)[number];
+
+/** Provider-confirmed Pix fraud facts remain scoped to their own payment and
+ * never infer an alleged fraud author. */
+export const productPixFraudCase = pgTable(
+  "product_pix_fraud_cases",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id").notNull().references(() => productOrder.id),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    providerCaseId: varchar("provider_case_id", { length: 255 }).notNull(),
+    providerPaymentId: varchar("provider_payment_id", { length: 255 }).notNull(),
+    status: varchar("status", { enum: PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES })
+      .$type<ProductPixFraudCaseStatus>()
+      .notNull(),
+    cause: varchar("cause", { length: 120 }),
+    recoveredAmountCentavos: integer("recovered_amount_centavos"),
+    financialPending: boolean("financial_pending").notNull().default(false),
+    observedAt: timestamp("observed_at").notNull(),
+    resolvedAt: timestamp("resolved_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    providerCaseOrderUnique: unique(
+      "product_pix_fraud_cases_provider_case_order_unique",
+    ).on(table.provider, table.providerCaseId, table.orderId),
+    orderStatusIdx: index("product_pix_fraud_cases_order_status_idx").on(
+      table.orderId,
+      table.status,
+    ),
+  }),
+);
+
+export type ProductPixFraudCase = InferSelectModel<typeof productPixFraudCase>;
 
 export const PRODUCT_REFUND_REQUEST_STATUS_VALUES = [
   "requested",

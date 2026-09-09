@@ -463,6 +463,13 @@
       "when": 1796500000000,
       "tag": "0078_expert_payout_no_minimum",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1796600000000,
+      "tag": "0079_product_schema_parity",
+      "breakpoints": true
     }
   ]
 }
