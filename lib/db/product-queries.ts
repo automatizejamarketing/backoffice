@@ -16,10 +16,16 @@ import {
   productDisputeDefence,
   productDisputeDefenceFile,
   productReconciliationCase,
+  productRefundOperation,
   productRefundRequest,
   user,
   type ProductContentType,
 } from "./schema";
+import {
+  buildProductRefundCheckoutSummary,
+  getProductRefundBumpOrderIds,
+  getProductRefundRootOrderId,
+} from "@/lib/products/refund-scope";
 
 /** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
  * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
@@ -101,7 +107,7 @@ export async function getProductFinancialSettings() {
 
 /** Operational queue only. Executing a refund remains an explicit, audited action. */
 export async function listProductRefundRequests() {
-  return db
+  const requests = await db
     .select({
       id: productRefundRequest.id,
       protocol: productRefundRequest.protocol,
@@ -113,10 +119,50 @@ export async function listProductRefundRequests() {
       buyerName: productOrder.buyerName,
       productTitle: productOrder.productTitleSnapshot,
       amountCentavos: productOrder.priceCentavos,
+      attribution: productOrder.attribution,
     })
     .from(productRefundRequest)
     .innerJoin(productOrder, eq(productOrder.id, productRefundRequest.orderId))
     .orderBy(desc(productRefundRequest.requestedAt));
+
+  const orderIds = requests.flatMap((request) => [
+    request.orderId,
+    ...getProductRefundBumpOrderIds(request.attribution),
+  ]);
+  const orders = orderIds.length
+    ? await db
+        .select({
+          id: productOrder.id,
+          productTitle: productOrder.productTitleSnapshot,
+          priceCentavos: productOrder.priceCentavos,
+        })
+        .from(productOrder)
+        .where(inArray(productOrder.id, [...new Set(orderIds)]))
+    : [];
+  const ordersById = new Map(orders.map((order) => [order.id, order]));
+  return requests.map((request) => {
+    const ids = [
+      request.orderId,
+      ...getProductRefundBumpOrderIds(request.attribution),
+    ];
+    const checkoutOrders = ids
+      .map((id) => ordersById.get(id))
+      .filter((order): order is (typeof orders)[number] => Boolean(order));
+    const totalCentavos = checkoutOrders.reduce(
+      (total, order) => total + order.priceCentavos,
+      0,
+    );
+    return {
+      ...request,
+      amountCentavos: totalCentavos || request.amountCentavos,
+      totalCentavos: totalCentavos || request.amountCentavos,
+      items: checkoutOrders.map((order) => ({
+        orderId: order.id,
+        title: order.productTitle,
+        amountCentavos: order.priceCentavos,
+      })),
+    };
+  });
 }
 
 export async function updateProductFinancialSettings(input: unknown) {
@@ -355,7 +401,7 @@ export async function deleteProductContent(id: string) {
 }
 
 export async function listProductOrders() {
-  return db
+  const rows = await db
     .select({
       id: productOrder.id,
       productId: productOrder.productId,
@@ -363,6 +409,7 @@ export async function listProductOrders() {
       buyerName: productOrder.buyerName,
       buyerEmail: productOrder.buyerEmail,
       priceCentavos: productOrder.priceCentavos,
+      attribution: productOrder.attribution,
       status: productOrder.status,
       approvedAt: productOrder.approvedAt,
       createdAt: productOrder.createdAt,
@@ -384,6 +431,12 @@ export async function listProductOrders() {
       platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
       platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
       paymentStatus: productPayment.status,
+      refundOperationId: productRefundOperation.id,
+      refundOperationStatus: productRefundOperation.status,
+      refundOperationAmountCentavos: productRefundOperation.refundedAmountCentavos,
+      refundOperationReason: productRefundOperation.reason,
+      refundOperationOperatorEmail: productRefundOperation.operatorEmail,
+      refundOperationUpdatedAt: productRefundOperation.updatedAt,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,
@@ -419,7 +472,29 @@ export async function listProductOrders() {
     .from(productOrder)
     .innerJoin(product, eq(productOrder.productId, product.id))
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+    .leftJoin(productRefundOperation, eq(productRefundOperation.paymentId, productPayment.id))
     .orderBy(desc(productOrder.createdAt));
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  return rows.map((row) => {
+    const rootOrderId = getProductRefundRootOrderId(row);
+    const root = rowsById.get(rootOrderId) ?? row;
+    const bumpRows = getProductRefundBumpOrderIds(root.attribution)
+      .map((id) => rowsById.get(id))
+      .filter((item): item is (typeof row) => Boolean(item));
+    const summary = buildProductRefundCheckoutSummary(
+      { id: root.id, productTitle: root.productTitle, priceCentavos: root.priceCentavos },
+      bumpRows.map((item) => ({ id: item.id, productTitle: item.productTitle, priceCentavos: item.priceCentavos })),
+    );
+    return {
+      ...row,
+      checkoutRootOrderId: root.id,
+      checkoutOrderIds: summary.orderIds,
+      checkoutItems: summary.items,
+      checkoutTotalCentavos: summary.totalCentavos,
+      checkoutProvider: root.provider,
+    };
+  });
 }
 
 export async function listPayoutRequests() {
@@ -509,6 +584,133 @@ export async function updatePayoutRequest({
         .onConflictDoNothing({ target: expertLedgerEntry.eventKey });
     }
     return updated;
+  });
+}
+
+/**
+ * Commits the local consequences of an already provider-confirmed integral
+ * refund.  Orders, entitlements, ledger reversals, payment state, operation,
+ * and buyer request are one transaction so a bump can never be left active
+ * while the principal order is marked refunded.
+ */
+export async function applyFullProductCheckoutRefund(input: {
+  orderIds: string[];
+  rootOrderId: string;
+  paymentId: string;
+  refundedAmountCentavos: number;
+  operationId?: string;
+  eventSuffix: string;
+}) {
+  const orderIds = [...new Set(input.orderIds)];
+  if (!orderIds.length || !orderIds.includes(input.rootOrderId)) {
+    throw new Error("invalid_product_checkout_group");
+  }
+  return db.transaction(async (tx) => {
+    const orders = await tx
+      .select()
+      .from(productOrder)
+      .where(inArray(productOrder.id, orderIds))
+      .for("update");
+    if (orders.length !== orderIds.length) {
+      throw new Error("invalid_product_checkout_group");
+    }
+    if (orders.some((order) => !["approved", "refunded"].includes(order.status))) {
+      throw new Error("checkout_not_approved");
+    }
+
+    const now = new Date();
+    await tx
+      .update(productEntitlement)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          inArray(productEntitlement.orderId, orderIds),
+          isNull(productEntitlement.revokedAt),
+        ),
+      );
+    const approvedOrderIds = orders
+      .filter((order) => order.status === "approved")
+      .map((order) => order.id);
+    if (approvedOrderIds.length) {
+      await tx
+        .update(productOrder)
+        .set({ status: "refunded", refundedAt: now, updatedAt: now })
+        .where(inArray(productOrder.id, approvedOrderIds));
+    }
+
+    const [payment] = await tx
+      .select()
+      .from(productPayment)
+      .where(
+        and(
+          eq(productPayment.id, input.paymentId),
+          eq(productPayment.orderId, input.rootOrderId),
+        ),
+      )
+      .limit(1);
+    if (!payment) throw new Error("refund_payment_not_found");
+    await tx
+      .update(productPayment)
+      .set({
+        status: "refunded",
+        refundedAmountCentavos: input.refundedAmountCentavos,
+        platformGatewayNetRevenueCentavos: 0,
+        ownerExpertReceivableCentavos: 0,
+        coproducerExpertReceivableCentavos: 0,
+        automatizeCoproductionRevenueCentavos: 0,
+        automatizeProductRevenueCentavos: 0,
+        automatizeTotalNetRevenueCentavos: 0,
+        updatedAt: now,
+      })
+      .where(eq(productPayment.id, input.paymentId));
+
+    for (const orderId of approvedOrderIds) {
+      const sales = await tx
+        .select()
+        .from(expertLedgerEntry)
+        .where(
+          and(
+            eq(expertLedgerEntry.orderId, orderId),
+            eq(expertLedgerEntry.type, "sale"),
+          ),
+        );
+      for (const sale of sales) {
+        await tx
+          .insert(expertLedgerEntry)
+          .values({
+            expertId: sale.expertId,
+            orderId,
+            eventKey: `product-refund:${orderId}:${sale.id}:${input.eventSuffix}`,
+            type: "refund",
+            amountCentavos: -sale.amountCentavos,
+            availableAt: now,
+            description: `Estorno de ${orders.find((order) => order.id === orderId)?.productTitleSnapshot ?? "produto"}`,
+          })
+          .onConflictDoNothing({ target: expertLedgerEntry.eventKey });
+      }
+    }
+
+    if (input.operationId) {
+      await tx
+        .update(productRefundOperation)
+        .set({
+          status: "confirmed",
+          refundedAmountCentavos: input.refundedAmountCentavos,
+          confirmedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(productRefundOperation.id, input.operationId));
+    }
+    await tx
+      .update(productRefundRequest)
+      .set({ status: "completed", updatedAt: now })
+      .where(
+        and(
+          eq(productRefundRequest.orderId, input.rootOrderId),
+          inArray(productRefundRequest.status, ["requested", "in_review"]),
+        ),
+      );
+    return { orders, payment, refundedAmountCentavos: input.refundedAmountCentavos };
   });
 }
 

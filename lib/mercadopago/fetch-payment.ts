@@ -2,7 +2,11 @@ import "server-only";
 
 export type MercadoPagoPayment = {
   id: number | string;
+  status?: string;
+  status_detail?: string;
   transaction_amount?: number;
+  transaction_amount_refunded?: number;
+  refunds?: Array<{ amount?: number; date_created?: string; status?: string }>;
   transaction_details?: {
     net_received_amount?: number;
   };
@@ -61,7 +65,13 @@ async function fetchMercadoPagoPaymentWithToken(
 
 export async function getMercadoPagoPayment(
   paymentId: string,
+  accessToken?: string,
 ): Promise<MercadoPagoPayment> {
+  if (accessToken?.trim()) {
+    const payment = await fetchMercadoPagoPaymentWithToken(paymentId, accessToken);
+    if (!payment) throw new MercadoPagoPaymentNotFoundError(paymentId);
+    return payment;
+  }
   const tokens = collectMercadoPagoAccessTokens();
   if (tokens.length === 0) {
     throw new Error("MERCADOPAGO_ACCESS_TOKEN is not configured");

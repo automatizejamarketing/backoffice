@@ -236,6 +236,19 @@ type Order = {
   expertSettlement: "gateway" | "ledger" | null;
   gatewayFeeEstimateBps: number | null;
   gatewayFeeEstimateFixedCentavos: number | null;
+  checkoutRootOrderId: string;
+  checkoutOrderIds: string[];
+  checkoutItems: Array<{
+    orderId: string;
+    title: string;
+    amountCentavos: number;
+  }>;
+  checkoutTotalCentavos: number;
+  checkoutProvider: string | null;
+  refundOperationStatus: "issuing" | "confirmed" | "failed" | "external_partial" | null;
+  refundOperationAmountCentavos: number | null;
+  refundOperationReason: string | null;
+  refundOperationOperatorEmail: string | null;
 };
 
 type Payout = {
@@ -1589,23 +1602,39 @@ export function ProductsAdminWorkspace({
     ? getExpertStripeAccountDisplay(selectedOwnerExpert)
     : null;
 
-  const isMercadoPagoRefund = refundTarget?.provider === "mercadopago";
+  const isMercadoPagoRefund =
+    (refundTarget?.checkoutProvider ?? refundTarget?.provider) === "mercadopago";
 
   async function confirmRefund() {
     if (!refundTarget) return;
+    const reason = window.prompt(
+      "Informe o motivo do reembolso integral (obrigatório):",
+    );
+    if (!reason?.trim()) return;
     const viaMercadoPago = isMercadoPagoRefund;
     setRefunding(true);
     try {
       const response = await fetch(
         `/api/products/admin/orders/${refundTarget.id}/refund`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
       );
       if (!response.ok) return toast.error(await readError(response));
-      toast.success(
-        viaMercadoPago
-          ? "Estorno solicitado no Mercado Pago — o valor volta ao comprador pelo Pix."
-          : "Reembolso registrado.",
-      );
+      const body = await response.json().catch(() => null);
+      if (body?.status === "processing") {
+        toast.info(
+          "Reembolso enviado e ainda em confirmação no Mercado Pago. O acesso permanece ativo.",
+        );
+      } else {
+        toast.success(
+          viaMercadoPago
+            ? "Reembolso integral confirmado no Mercado Pago. Os acessos da cobrança foram revogados."
+            : "Reembolso registrado.",
+        );
+      }
       setRefundTarget(null);
       await loadAll();
     } finally {
@@ -3053,6 +3082,19 @@ export function ProductsAdminWorkspace({
                         </dd>
                       </div>
                     ) : null}
+                    {orderDetailTarget.refundOperationStatus ? (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Operação de reembolso</dt>
+                        <dd className="max-w-[260px] text-right text-xs">
+                          {orderDetailTarget.refundOperationStatus === "external_partial"
+                            ? `Exceção parcial · ${money(orderDetailTarget.refundOperationAmountCentavos ?? 0)}`
+                            : orderDetailTarget.refundOperationStatus}
+                          {orderDetailTarget.refundOperationOperatorEmail
+                            ? ` · ${orderDetailTarget.refundOperationOperatorEmail}`
+                            : ""}
+                        </dd>
+                      </div>
+                    ) : null}
                   </>
                 );
               })()}
@@ -3085,18 +3127,33 @@ export function ProductsAdminWorkspace({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {refundTarget
-                ? `${refundTarget.productTitle} · ${refundTarget.buyerName} · ${money(refundTarget.priceCentavos)}`
+                ? `${refundTarget.buyerName} · total da cobrança: ${money(refundTarget.checkoutTotalCentavos)}`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
+            {refundTarget ? (
+              <div className="rounded-md border bg-muted/30 p-3 text-foreground">
+                <p className="mb-2 font-medium">Itens abrangidos</p>
+                <ul className="space-y-1">
+                  {refundTarget.checkoutItems.map((item) => (
+                    <li key={item.orderId} className="flex justify-between gap-3">
+                      <span>{item.title}</span>
+                      <span className="font-mono tabular-nums">
+                        {money(item.amountCentavos)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <p className="font-medium text-foreground">
               {isMercadoPagoRefund
-                ? "O estorno é total e feito pela API do Mercado Pago — o valor volta ao comprador pelo Pix."
+                ? "A devolução é integral pela cobrança original. O sistema só conclui depois da confirmação do Mercado Pago."
                 : "Isso não devolve o dinheiro — o Pix ao cliente é feito manualmente, fora do sistema."}
             </p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>Revoga o acesso do comprador ao produto.</li>
+              <li>Revoga os acessos somente após a confirmação integral.</li>
               <li>Estorna o repasse do expert no ledger.</li>
               <li>Zera a receita líquida da Automatize neste pagamento.</li>
             </ul>

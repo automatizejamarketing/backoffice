@@ -505,6 +505,13 @@
       "when": 1797100000000,
       "tag": "0084_product_card_mercadopago",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1797200000000,
+      "tag": "0085_product_refund_operation_audit",
+      "breakpoints": true
     }
   ]
 }

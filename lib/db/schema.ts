@@ -1066,7 +1066,10 @@ export const productRefundOperation = pgTable(
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
-    operatorUserId: uuid("operator_user_id").notNull().references(() => user.id),
+    /** Fallback backoffice actors are identified by email, not product user FK. */
+    operatorUserId: uuid("operator_user_id").references(() => user.id),
+    operatorEmail: varchar("operator_email", { length: 255 }),
+    reason: text("reason"),
     idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
     providerRefundId: varchar("provider_refund_id", { length: 255 }),
     status: varchar("status", { enum: ["issuing", "confirmed", "failed", "external_partial"] })
