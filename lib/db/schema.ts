@@ -885,6 +885,45 @@ export const productEntitlement = pgTable(
 
 export type ProductEntitlement = InferSelectModel<typeof productEntitlement>;
 
+export const PRODUCT_REFUND_REQUEST_STATUS_VALUES = [
+  "requested",
+  "in_review",
+  "completed",
+  "declined",
+] as const;
+export type ProductRefundRequestStatus =
+  (typeof PRODUCT_REFUND_REQUEST_STATUS_VALUES)[number];
+
+export const productRefundRequest = pgTable(
+  "product_refund_requests",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productOrder.id),
+    buyerUserId: uuid("buyer_user_id")
+      .notNull()
+      .references(() => user.id),
+    protocol: varchar("protocol", { length: 32 }).notNull(),
+    status: varchar("status", { enum: [...PRODUCT_REFUND_REQUEST_STATUS_VALUES] })
+      .$type<ProductRefundRequestStatus>()
+      .notNull()
+      .default("requested"),
+    requestedAt: timestamp("requested_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    orderUnique: unique("product_refund_requests_order_unique").on(table.orderId),
+    protocolUnique: unique("product_refund_requests_protocol_unique").on(table.protocol),
+    buyerRequestedIdx: index("product_refund_requests_buyer_requested_idx").on(
+      table.buyerUserId,
+      table.requestedAt,
+    ),
+  }),
+);
+
+export type ProductRefundRequest = InferSelectModel<typeof productRefundRequest>;
+
 export const PRODUCT_CARD_DISPUTE_STATUS_VALUES = [
   "open_full",
   "open_partial",
