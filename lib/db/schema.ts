@@ -480,6 +480,40 @@ export const mercadoPagoOauthAttempt = pgTable(
   }),
 );
 
+export const mercadoPagoExpertAccount = pgTable(
+  "mercado_pago_expert_accounts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    mpUserId: varchar("mp_user_id", { length: 64 }).notNull(),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    accessTokenEncrypted: text("access_token_encrypted").notNull(),
+    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({ expertAccountUnique: unique("mercado_pago_expert_accounts_expert_user_environment_unique").on(table.expertId, table.mpUserId, table.environment) }),
+);
+
+export const mercadoPagoReceiverSwitch = pgTable(
+  "mercado_pago_receiver_switches",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    previousMpUserId: varchar("previous_mp_user_id", { length: 64 }).notNull(),
+    nextMpUserId: varchar("next_mp_user_id", { length: 64 }),
+    state: varchar("state", { enum: ["authorized", "resolving", "activated", "denied"] }).$type<"authorized" | "resolving" | "activated" | "denied">().notNull().default("authorized"),
+    authorizedBy: varchar("authorized_by", { length: 255 }).notNull(),
+    authorizedAt: timestamp("authorized_at").notNull().defaultNow(),
+    activatedAt: timestamp("activated_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({ activeExpertEnvironmentUnique: unique("mercado_pago_receiver_switches_expert_environment_unique").on(table.expertId, table.environment) }),
+);
+
 export const productFinancialSetting = pgTable(
   "product_financial_settings",
   {
@@ -765,6 +799,7 @@ export const productPayment = pgTable(
       .default("mercadopago"),
     providerPreferenceId: varchar("provider_preference_id", { length: 255 }),
     providerPaymentId: varchar("provider_payment_id", { length: 255 }),
+    mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
     status: varchar("status", {
       enum: ["pending", "approved", "failed", "refunded", "charged_back"],
     })
