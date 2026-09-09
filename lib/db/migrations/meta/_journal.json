@@ -456,6 +456,13 @@
       "when": 1796400000000,
       "tag": "0077_product_reconciliation_cases",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1796500000000,
+      "tag": "0078_expert_payout_no_minimum",
+      "breakpoints": true
     }
   ]
 }

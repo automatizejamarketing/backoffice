@@ -1175,9 +1175,12 @@ export const expertPayoutRequest = pgTable(
     oneOpenRequest: uniqueIndex("expert_payout_requests_one_open")
       .on(table.expertId)
       .where(sql`${table.status} IN ('requested', 'approved')`),
-    minimumCheck: check(
-      "expert_payout_requests_minimum_amount",
-      sql`${table.amountCentavos} >= 10000`,
+    // Na transição do Repasse Legado o mínimo é a moeda, não R$100 (R20): um
+    // Saque vale por qualquer saldo disponível e positivo. Zero e negativo
+    // continuam impedidos — não geram pagamento.
+    positiveAmountCheck: check(
+      "expert_payout_requests_positive_amount",
+      sql`${table.amountCentavos} > 0`,
     ),
   }),
 );
