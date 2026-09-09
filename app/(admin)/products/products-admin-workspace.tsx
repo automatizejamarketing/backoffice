@@ -152,6 +152,12 @@ type MercadoPagoExpertPanel = {
   card: "available" | "unavailable" | "unknown";
   lastValidatedAt: string | null;
   validationError: string | null;
+  switch: {
+    state: "pending_authorization" | "authorized" | "resolving" | "activated" | "denied";
+    nextMpUserId: string | null;
+    authorizationReason: string | null;
+    authorizedBy: string | null;
+  } | null;
 };
 
 type Product = {
@@ -809,6 +815,7 @@ export function ProductsAdminWorkspace({
     useState<MercadoPagoExpertPanel | null>(null);
   const [mercadoPagoActionExpertId, setMercadoPagoActionExpertId] =
     useState<string | null>(null);
+  const [mercadoPagoSwitchReason, setMercadoPagoSwitchReason] = useState("");
   const [onboardingLinkUrl, setOnboardingLinkUrl] = useState<string | null>(null);
   const [onboardingLinkDialogOpen, setOnboardingLinkDialogOpen] = useState(false);
 
@@ -1290,6 +1297,7 @@ export function ProductsAdminWorkspace({
       status: expert.status,
     });
     setMercadoPagoExpertPanel(null);
+    setMercadoPagoSwitchReason("");
     void loadMercadoPagoExpertPanel(expert.id);
     setExpertDialogOpen(true);
   }
@@ -1298,6 +1306,8 @@ export function ProductsAdminWorkspace({
     setExpertDialogOpen(false);
     setEditingExpertId(null);
     setExpertForm(emptyExpert);
+    setMercadoPagoExpertPanel(null);
+    setMercadoPagoSwitchReason("");
     setExpertImageFile(null);
     if (expertImagePreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(expertImagePreviewUrl);
@@ -1511,7 +1521,14 @@ export function ProductsAdminWorkspace({
     try {
       const response = await fetch(
         `/api/products/admin/experts/${expertId}/mercadopago`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: mercadoPagoSwitchReason,
+            environment: mercadoPagoExpertPanel?.environment,
+          }),
+        },
       );
       if (!response.ok) throw new Error(await readError(response));
       toast.success("Troca de conta autorizada. O Expert precisa concluir o OAuth.");
@@ -2596,6 +2613,18 @@ export function ProductsAdminWorkspace({
                         Validação: {mercadoPagoExpertPanel.validationError}
                       </p>
                     ) : null}
+                    {mercadoPagoExpertPanel.switch &&
+                    mercadoPagoExpertPanel.switch.state !== "activated" ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Troca: {mercadoPagoExpertPanel.switch.state}
+                        {mercadoPagoExpertPanel.switch.nextMpUserId
+                          ? ` · candidata ${mercadoPagoExpertPanel.switch.nextMpUserId}`
+                          : ""}
+                        {mercadoPagoExpertPanel.switch.authorizationReason
+                          ? ` · motivo: ${mercadoPagoExpertPanel.switch.authorizationReason}`
+                          : ""}
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
@@ -2611,7 +2640,7 @@ export function ProductsAdminWorkspace({
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={mercadoPagoActionExpertId === editingExpertId}
+                          disabled={mercadoPagoActionExpertId === editingExpertId || !mercadoPagoSwitchReason.trim()}
                           onClick={() => void authorizeMercadoPagoReceiverSwitch(editingExpertId)}
                         >
                           {mercadoPagoActionExpertId === editingExpertId ? (
@@ -2620,6 +2649,16 @@ export function ProductsAdminWorkspace({
                           Autorizar troca de conta
                         </Button>
                       ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="mercadopago-switch-reason">Motivo da autorização</Label>
+                      <Input
+                        id="mercadopago-switch-reason"
+                        value={mercadoPagoSwitchReason}
+                        maxLength={500}
+                        placeholder="Ex.: conta anterior revogada pelo Expert"
+                        onChange={(event) => setMercadoPagoSwitchReason(event.target.value)}
+                      />
                     </div>
                   </>
                 ) : (

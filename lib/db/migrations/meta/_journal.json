@@ -484,6 +484,13 @@
       "when": 1796800000000,
       "tag": "0081_expert_mercadopago_validation",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1796900000000,
+      "tag": "0082_expert_receiver_switch_candidate",
+      "breakpoints": true
     }
   ]
 }
