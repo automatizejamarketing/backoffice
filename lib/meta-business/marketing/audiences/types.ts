@@ -10,7 +10,7 @@
 
 export type AudienceStatus = { code?: number; description?: string };
 
-export type AudienceCapability = "available" | "unknown";
+export type AudienceCapability = "available" | "unavailable" | "unknown";
 
 export type AudienceAvailability = "available" | "blocked" | "unknown";
 
@@ -43,6 +43,7 @@ export type AudienceCapabilities = {
   include: AudienceCapability;
   exclude: AudienceCapability;
   editMetadata: AudienceCapability;
+  share: AudienceCapability;
   editRule: AudienceCapability;
   manageMembers: AudienceCapability;
   delete: AudienceCapability;

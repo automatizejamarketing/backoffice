@@ -925,6 +925,22 @@ export const backofficeAuditLog = pgTable("backoffice_audit_logs", {
 
 export type BackofficeAuditLog = InferSelectModel<typeof backofficeAuditLog>;
 
+/** Durable command ledger for Meta audience mutations and uncertain outcomes. */
+export const metaAudienceCommand = pgTable("meta_audience_commands", {
+  commandId: text("command_id").primaryKey(),
+  actorUserId: uuid("actor_user_id").notNull().references(() => user.id),
+  accountId: text("account_id").notNull(),
+  audienceId: text("audience_id").notNull(),
+  request: jsonb("request").notNull(),
+  status: varchar("status", { length: 24 }).notNull().default("pending"),
+  result: jsonb("result"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type MetaAudienceCommand = InferSelectModel<typeof metaAudienceCommand>;
+
 export const businessOperatingRules = pgTable("business_operating_rules", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   name: varchar("name", { length: 64 }).notNull().default("default"),

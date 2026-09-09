@@ -10,6 +10,9 @@ import {
   buildLookalikeFormation,
   createCustomAudience,
   getCustomAudienceDetail,
+  previewAudienceMetadataUpdate,
+  confirmAudienceMetadataUpdate,
+  reconcileAudienceMetadataUpdate,
 } from "@/lib/meta-business/marketing/audiences";
 import { getAdAccountPixels } from "@/lib/meta-business/get-ad-account-pixels";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
@@ -17,6 +20,11 @@ import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { customerFileDurableStore } from "@/lib/customer-file/postgres";
+import { createPostgresAudienceCommandStore } from "@/lib/meta-business/marketing/audiences/command-store";
+import {
+  enterMetaMutationLog,
+  updateMetaMutationContext,
+} from "@/lib/observability/meta-log-context";
 
 type GetAudiencesResponse = {
   audiences: Awaited<ReturnType<typeof listCustomAudiences>>["items"];
@@ -141,15 +149,34 @@ export async function GET(
  * check and account lookup on confirmation.  The browser review is never an
  * authorization grant. */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ accountId: string }> }) {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "POST /api/meta-marketing/{accountId}/audiences",
+    operationHint: "update",
+    entityHint: "audience",
+  });
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
-    const body = await request.json() as { action?: "review" | "confirm" | "delete-review" | "delete-confirm" | "website-create" | "website-update" | "lookalike-review" | "lookalike-confirm"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; pixelId?: string; criterion?: "visitors" | "url" | "event"; retentionDays?: unknown; url?: string; event?: string };
+    const body = await request.json() as { action?: "review" | "confirm" | "reconcile" | "delete-review" | "delete-confirm" | "website-create" | "website-update" | "lookalike-review" | "lookalike-confirm"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; commandId?: string; pixelId?: string; criterion?: "visitors" | "url" | "event"; retentionDays?: unknown; url?: string; event?: string };
     if (!userId || (!body.audienceId && body.action !== "website-create" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm") || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "website-create" && body.action !== "website-update" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const authz = await requireMarketingUserAccessResponse(userId, "marketing:write");
     if (!authz.ok) return authz.response;
+    updateMetaMutationContext({
+      actor: {
+        kind: "backoffice",
+        id: authz.actor.id,
+        email: authz.actor.email,
+        role: authz.actor.role,
+        targetUserId: userId,
+      },
+      parentIds: { adAccountId: accountId },
+      operationHint: body.action === "confirm" ? "confirm" : body.action ?? "review",
+      entityHint: body.audienceId ? `audience:${body.audienceId}` : "audience",
+    });
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) return NextResponse.json(tokenResult.error, { status: tokenResult.error.statusCode });
+    const commandStore = createPostgresAudienceCommandStore();
     const connection = await getUserWithAdAccounts(tokenResult.accessToken, { tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId, clientBusinessId: tokenResult.connection.clientBusinessId, connectionName: tokenResult.connection.name });
     assertCustomAudienceAccountAccess(accountId, connection.adaccounts?.data ?? []);
     if (body.action === "lookalike-review" || body.action === "lookalike-confirm") {
@@ -190,18 +217,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json(result, { status: result.ok ? 200 : 409 });
     }
     if (!body.audienceId) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
-    const snapshot = await metaApiCall<{ account_id?: string; name?: string; description?: string; lookalike_audience_ids?: string[] }>({ method: "GET", path: body.audienceId, params: "fields=account_id,name,description,rule,lookalike_audience_ids", accessToken: tokenResult.accessToken });
-    if (snapshot.account_id?.replace(/^act_/, "") !== accountId.replace(/^act_/, "")) return NextResponse.json({ error: "Audience not in account" }, { status: 403 });
-    const before = { name: snapshot.name, description: snapshot.description }; const after = { name: body.name ?? snapshot.name, description: body.description ?? snapshot.description };
-    const confirmationToken = JSON.stringify({ audienceId: body.audienceId, accountId, before, after });
-    if (body.action === "confirm") {
-      if (body.confirmationToken !== confirmationToken) return NextResponse.json({ error: "Stale review; review again before confirming" }, { status: 409 });
-      const payload = new URLSearchParams(); if (body.name != null) payload.set("name", body.name); if (body.description != null) payload.set("description", body.description);
-      await metaApiCall({ method: "POST", path: body.audienceId, params: "", body: payload, accessToken: tokenResult.accessToken });
-      return NextResponse.json({ ok: true, id: body.audienceId });
+    if (body.action === "reconcile") {
+      if (!body.confirmationToken) return NextResponse.json({ error: "Confirmation required" }, { status: 400 });
+      const result = await reconcileAudienceMetadataUpdate({ audienceId: body.audienceId, adAccountId: accountId, accessToken: tokenResult.accessToken, name: body.name, description: body.description, confirmationToken: body.confirmationToken, commandId: body.commandId, actorUserId: userId, commandStore });
+      const responseBody = !result.ok && result.issues.some((issue) => issue.code === "META_MUTATION_UNCERTAIN") ? { ...result, state: "reconciliation_required" as const } : result;
+      return NextResponse.json(responseBody, { status: result.ok ? 200 : 409 });
     }
-    const adsets = await metaApiCall<{ data?: Array<{ id?: string; name?: string; campaign?: { id?: string; name?: string }; targeting?: { custom_audiences?: Array<{ id?: string }>; excluded_custom_audiences?: Array<{ id?: string }> } }>; paging?: { next?: string } }>({ method: "GET", path: `act_${accountId.replace(/^act_/, "")}/adsets`, params: "fields=id,name,campaign{id,name},targeting{custom_audiences,excluded_custom_audiences}&limit=200", accessToken: tokenResult.accessToken });
-    const knownUses = (adsets.data ?? []).flatMap((adset) => ["include", "exclude"].flatMap((placement) => (placement === "include" ? adset.targeting?.custom_audiences : adset.targeting?.excluded_custom_audiences)?.some((ref) => ref.id === body.audienceId) && adset.id ? [{ adSetId: adset.id, adSetName: adset.name, campaignId: adset.campaign?.id, campaignName: adset.campaign?.name, placement }] : []));
-    return NextResponse.json({ ok: true, before, after, confirmationToken, impact: { knownUses, dependentAudienceIds: snapshot.lookalike_audience_ids ?? [], coverage: adsets.paging?.next ? "incomplete" : "complete", limitations: adsets.paging?.next ? ["A consulta possui mais páginas; podem existir usos não exibidos."] : ["A Meta não garante a ausência global de anúncios afetados."] } });
+    if (body.action === "confirm") {
+      if (!body.confirmationToken) return NextResponse.json({ error: "Confirmation required" }, { status: 400 });
+      const result = await confirmAudienceMetadataUpdate({ audienceId: body.audienceId, adAccountId: accountId, accessToken: tokenResult.accessToken, name: body.name, description: body.description, confirmationToken: body.confirmationToken, commandId: body.commandId, actorUserId: userId, commandStore });
+      const responseBody = !result.ok && result.issues.some((issue) => issue.code === "META_MUTATION_UNCERTAIN") ? { ...result, state: "reconciliation_required" as const } : result;
+      return NextResponse.json(responseBody, { status: result.ok ? 200 : 409 });
+    }
+    const result = await previewAudienceMetadataUpdate({ audienceId: body.audienceId, adAccountId: accountId, accessToken: tokenResult.accessToken, name: body.name, description: body.description });
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   } catch (error) { const errorReturn = errorToGraphErrorReturn(error); return NextResponse.json({ error: errorReturn.reason.title, message: errorReturn.reason.message, solution: errorReturn.reason.solution }, { status: errorReturn.statusCode }); }
 }

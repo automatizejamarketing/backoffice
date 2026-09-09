@@ -37,17 +37,21 @@ export function assertCustomAudienceAccountAccess(
     throw new AccountNotAccessibleError(adAccountId);
   }
 }
-const LIST_FIELDS = ["id", "name", "subtype", "approximate_count_lower_bound", "approximate_count_upper_bound", "operation_status", "delivery_status", "retention_days", "customer_file_source", "is_value_based", "time_created", "time_updated"] as const;
+const LIST_FIELDS = ["id", "name", "subtype", "approximate_count_lower_bound", "approximate_count_upper_bound", "operation_status", "delivery_status", "retention_days", "customer_file_source", "permission_for_actions", "is_value_based", "time_created", "time_updated"] as const;
 const DETAIL_FIELDS = [...LIST_FIELDS, "description", "rule", "lookalike_spec", "lookalike_audience_ids", "origin_audience_id"] as const;
 type RawAudience = Record<string, unknown>;
 const num = (value: unknown) => typeof value === "number" ? value : undefined;
 const str = (value: unknown) => typeof value === "string" ? value : undefined;
+const capability = (value: unknown): "available" | "unavailable" | "unknown" => value === true ? "available" : value === false ? "unavailable" : "unknown";
 
 function mapAudience(
   audience: RawAudience,
   ruleWasRequested: boolean,
   importHistory?: ReadonlyMap<string, SanitizedCustomerFileHistory>,
 ): CustomAudienceView {
+  const permissions = typeof audience.permission_for_actions === "object" && audience.permission_for_actions !== null
+    ? audience.permission_for_actions as Record<string, unknown>
+    : undefined;
   const mapped: CustomAudienceView = {
     id: String(audience.id), name: str(audience.name), description: str(audience.description), subtype: str(audience.subtype),
     approximateCountLowerBound: num(audience.approximate_count_lower_bound), approximateCountUpperBound: num(audience.approximate_count_upper_bound),
@@ -57,7 +61,7 @@ function mapAudience(
     timeCreated: num(audience.time_created), timeUpdated: num(audience.time_updated), rule: audience.rule, lookalikeSpec: audience.lookalike_spec,
     lookalikeAudienceIds: Array.isArray(audience.lookalike_audience_ids) ? audience.lookalike_audience_ids as string[] : undefined,
     originAudienceId: str(audience.origin_audience_id), ruleSummary: !ruleWasRequested ? "not_loaded" : audience.rule == null ? "not_applicable" : "external",
-    capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: "unknown", editRule: "unknown", manageMembers: "unknown", delete: "unknown", lookalikeSource: "unknown" },
+    capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: capability(permissions?.can_edit), share: capability(permissions?.can_share), editRule: "unknown", manageMembers: "unknown", delete: "unknown", lookalikeSource: capability(permissions?.supports_recipient_lookalike ?? permissions?.subtype_supports_lookalike) },
   };
 
   if (importHistory !== undefined) {
