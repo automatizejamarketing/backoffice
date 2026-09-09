@@ -498,6 +498,13 @@
       "when": 1797000000000,
       "tag": "0083_product_pix_split_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1797100000000,
+      "tag": "0084_product_card_mercadopago",
+      "breakpoints": true
     }
   ]
 }

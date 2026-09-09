@@ -838,6 +838,12 @@ export const productPayment = pgTable(
     mercadoPagoApplicationFeeCentavos: integer(
       "mercadopago_application_fee_centavos",
     ),
+    /** Number of credit-card installments selected in the MP Brick. */
+    mercadoPagoInstallments: integer("mercadopago_installments"),
+    /** Interest observed in the provider's paid total, never guessed. */
+    mercadoPagoBuyerInterestCentavos: integer(
+      "mercadopago_buyer_interest_centavos",
+    ),
     status: varchar("status", {
       enum: ["pending", "approved", "failed", "refunded", "charged_back"],
     })
