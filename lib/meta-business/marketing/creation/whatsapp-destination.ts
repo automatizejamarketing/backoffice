@@ -1,13 +1,16 @@
 /**
  * Click-to-WhatsApp (CTWA): the exact fields Meta wants, in one place.
  *
- * Campaign objective is `OUTCOME_ENGAGEMENT` — Meta's own v25.0 example in
- * https://developers.facebook.com/docs/marketing-api/ad-creative/messaging-ads/click-to-whatsapp/
- * and the destination-type matrix in
- * https://developers.facebook.com/docs/marketing-api/adset/destination_type/
- * (WHATSAPP is listed under ENGAGEMENT / TRAFFIC / AWARENESS; SALES lists only
- * WEBSITE, MESSENGER, PHONE_CALL). The previous OUTCOME_SALES shape was verified
- * live against a production campaign but rides an undocumented combination.
+ * Campaign objective is `OUTCOME_ENGAGEMENT`. Two Meta references disagree about which
+ * objectives accept a WhatsApp destination, and Engagement is the one they BOTH accept:
+ *
+ * - https://developers.facebook.com/docs/marketing-api/ad-creative/messaging-ads/click-to-whatsapp/
+ *   lists OUTCOME_ENGAGEMENT, OUTCOME_LEADS, OUTCOME_SALES and OUTCOME_TRAFFIC, and uses
+ *   OUTCOME_ENGAGEMENT in its own example.
+ * - https://developers.facebook.com/docs/marketing-api/adset/destination_type/ lists WHATSAPP
+ *   under ENGAGEMENT / TRAFFIC / AWARENESS. For OUTCOME_SALES it lists only WEBSITE,
+ *   MESSENGER and PHONE_CALL — so the earlier OUTCOME_SALES shape, though it ran live,
+ *   contradicts that table. See ADR 0029.
  *
  *   campanha  objective:         OUTCOME_ENGAGEMENT
  *   ad set    destination_type:  WHATSAPP
@@ -67,14 +70,27 @@ export function whatsappPromotedObject(pageId: string): { page_id: string } {
   return { page_id: pageId };
 }
 
-/** `call_to_action` for a CTWA creative, in the shape Meta's reference spells out. */
-export function whatsappCallToAction(): {
+/**
+ * `call_to_action` for a CTWA creative.
+ *
+ * `link` is what carries the destination for every format that has nowhere else to put it.
+ * `link_data` has its own top-level `link`, so Meta's link_data example leaves the CTA value
+ * with `app_destination` alone; `video_data` and an Instagram-post boost have no such field,
+ * and Meta's own Instagram-content example writes
+ * `value: { link: "https://api.whatsapp.com/send", app_destination: "WHATSAPP" }`.
+ * Passing the link is therefore always correct and, for those two formats, the only way the
+ * creative names a destination at all.
+ */
+export function whatsappCallToAction(link?: string): {
   type: string;
-  value: { app_destination: string };
+  value: { app_destination: string; link?: string };
 } {
   return {
     type: WHATSAPP_CTA_TYPE,
-    value: { app_destination: WHATSAPP_DESTINATION_TYPE },
+    value: {
+      ...(link ? { link } : {}),
+      app_destination: WHATSAPP_DESTINATION_TYPE,
+    },
   };
 }
 
@@ -98,8 +114,15 @@ export function whatsappMetaContract() {
  * `page_welcome_message` for `link_data` / `video_data`, as a JSON STRING.
  *
  * Meta's reference documents the object but its own example passes the field as a quoted
- * string; the Graph API accepts the encoded form on both `link_data` and `video_data`, so we
- * encode once here instead of leaving each creative builder to guess.
+ * string (`"page_welcome_message": "<PAGE_WELCOME_MESSAGE>"`), so we encode once here instead
+ * of leaving each creative builder to guess.
+ *
+ * CAVEAT, unverified against a live publish: Meta documents this field ONLY inside
+ * `object_story_spec.link_data`. A video ad has no `link_data`, and an Instagram-post boost
+ * posts its fields flat, so both carry the greeting somewhere the reference does not describe
+ * (`video_data.page_welcome_message` and a top-level creative field). If Meta ignores it there,
+ * the customer sees Meta's own default — the same outcome as not sending it — so it is sent on
+ * a best-effort basis rather than withheld.
  *
  * Returns `undefined` for an empty message so the caller can spread it away and let Meta fall
  * back to its default rather than posting an empty greeting.

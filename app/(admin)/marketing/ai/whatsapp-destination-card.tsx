@@ -4,14 +4,19 @@ import type { ReactNode } from "react";
 import { ExternalLink, MessageCircle, RotateCw } from "lucide-react";
 import { pageWhatsappSettingsUrl } from "@/lib/meta-business/marketing/page-whatsapp-links";
 import { cn } from "@/lib/utils";
-import { usePageWhatsappNumber } from "../hooks/use-page-whatsapp-number";
+import type { UsePageWhatsappNumberReturn } from "../hooks/use-page-whatsapp-number";
 
 type WhatsappDestinationCardProps = {
   pageId: string | null;
   pageName?: string | null;
-  accountId?: string | null;
-  userId?: string | null;
-  enabled: boolean;
+  /**
+   * The resolver's state, owned by the CALLER.
+   *
+   * Lifted out of this component because the answer decides more than what the card renders:
+   * an explicit `not_linked` also has to stop the publish (ADR 0029), and the publish button
+   * cannot read state that lives inside the card.
+   */
+  whatsappNumber: UsePageWhatsappNumberReturn;
   title?: string;
   className?: string;
   children?: ReactNode;
@@ -24,19 +29,11 @@ type WhatsappDestinationCardProps = {
 export function WhatsappDestinationCard({
   pageId,
   pageName,
-  accountId,
-  userId,
-  enabled,
+  whatsappNumber,
   title,
   className,
   children,
 }: WhatsappDestinationCardProps) {
-  const whatsappNumber = usePageWhatsappNumber(
-    pageId,
-    enabled,
-    accountId,
-    userId,
-  );
   const resolved =
     whatsappNumber.state.phase === "resolved"
       ? whatsappNumber.state.data

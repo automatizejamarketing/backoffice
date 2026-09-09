@@ -260,25 +260,26 @@ function isSalesObjective(objective?: string): boolean {
   );
 }
 
+/**
+ * The `destination_type` a sibling ad set already carries, so a new set joins the campaign
+ * with the same destination its siblings have.
+ *
+ * Reads the campaign's OWN `/adsets` edge rather than the account's list narrowed by a
+ * `filtering` clause: the edge cannot be refused for an unsupported filtering field (Meta
+ * already refuses `destination_type` that way with #100), and it never walks ad sets that
+ * belong to another campaign. A campaign with no ad sets yet answers empty, and the caller
+ * falls back to the `[WHATSAPP]` name.
+ */
 async function resolveSiblingDestinationType(params: {
   accessToken: string;
-  formattedAccountId: string;
   campaignId: string;
 }): Promise<string | undefined> {
   try {
     const siblings = await metaApiCall<GraphApiAdSetsListResponse>({
       domain: "FACEBOOK",
       method: "GET",
-      path: `${params.formattedAccountId}/adsets`,
-      params: `fields=destination_type,promoted_object&limit=50&filtering=${encodeURIComponent(
-        JSON.stringify([
-          {
-            field: "campaign.id",
-            operator: "EQUAL",
-            value: params.campaignId,
-          },
-        ]),
-      )}`,
+      path: `${params.campaignId}/adsets`,
+      params: "fields=destination_type,promoted_object&limit=50",
       accessToken: params.accessToken,
     });
 
@@ -496,7 +497,6 @@ export async function createAdSetInExistingCampaign(
 
   const siblingDestinationType = await resolveSiblingDestinationType({
     accessToken,
-    formattedAccountId,
     campaignId,
   });
   const namedWhatsapp = campaign.name?.includes("[WHATSAPP]") === true;

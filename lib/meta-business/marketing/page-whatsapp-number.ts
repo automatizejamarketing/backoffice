@@ -18,12 +18,15 @@
  * `{ page_id, smart_pse_enabled }` every time, and filtering the ad-set list by
  * `destination_type` is refused outright (Graph #100). It was removed rather than fixed —
  * an unfiltered list of every ad set in the account, on every lookup, to find a field Meta
- * does not populate. See ADR 0027.
+ * does not populate. See ADR 0029.
  *
  * `unknown` MUST NOT be presented as "this Page has no WhatsApp number" nor block
  * publishing: it means we are not allowed to look. Only an explicit
- * `has_whatsapp_number === false` is evidence of absence. Under the app's current access
- * every lookup ends in `unknown`, so the UI names the Page instead of a number.
+ * `has_whatsapp_number === false` is evidence of absence, and it is the ONE answer that
+ * blocks — enforced in `create-sales-campaign.ts` and `ai-creation/fallback-publish.ts`, so
+ * every path that can create a CTWA campaign refuses a Page with no number. Under the app's
+ * current access every lookup ends in `unknown`, so the UI names the Page instead of a number
+ * and nothing is blocked today.
  *
  * The links that send the user to Meta live in `page-whatsapp-links.ts`, which the client
  * bundle can import without dragging this module's Graph client along.

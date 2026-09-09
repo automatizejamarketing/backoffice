@@ -62,6 +62,7 @@ import {
   type PlacementsMode,
 } from "./ai-placements-editor";
 import { WhatsappDestinationCard } from "./whatsapp-destination-card";
+import { usePageWhatsappNumber } from "../hooks/use-page-whatsapp-number";
 
 type Phase =
   | "objective"
@@ -298,6 +299,21 @@ export function AiCampaignClient() {
       setCtaType("WHATSAPP_MESSAGE");
     }
   }, [objective]);
+
+  /**
+   * Where the WhatsApp campaign actually lands. Owned here, not inside the destination card,
+   * because the publish gate reads it too: an explicit `not_linked` blocks (ADR 0029), while
+   * "we are not allowed to look" — every answer today — does not.
+   */
+  const whatsappNumber = usePageWhatsappNumber(
+    selectedPage?.pageId ?? pageId,
+    objective === "whatsapp",
+    accountId,
+    userId,
+  );
+  const whatsappPageNotLinked =
+    whatsappNumber.state.phase === "resolved" &&
+    whatsappNumber.state.data.status === "not_linked";
 
   useEffect(() => {
     if (objective === "followers") {
@@ -538,6 +554,12 @@ export function AiCampaignClient() {
     }
     if (objective === "whatsapp" && !whatsappAutofillMessage.trim()) {
       toast.error("Escreva a primeira mensagem que o cliente já vai ver digitada no WhatsApp.");
+      return;
+    }
+    if (objective === "whatsapp" && whatsappPageNotLinked) {
+      toast.error(
+        "Esta Página não tem número de WhatsApp vinculado. Adicione um na Meta antes de publicar.",
+      );
       return;
     }
     if (!hasMold && effectiveLocations.length === 0) {
@@ -1023,9 +1045,7 @@ export function AiCampaignClient() {
               <WhatsappDestinationCard
                 pageId={selectedPage?.pageId ?? pageId}
                 pageName={selectedPage?.pageName}
-                accountId={accountId}
-                userId={userId}
-                enabled
+                whatsappNumber={whatsappNumber}
                 title="WhatsApp da campanha"
               >
                 <div className="mt-4 space-y-3">
@@ -1205,7 +1225,8 @@ export function AiCampaignClient() {
                 pendingVideos ||
                 planMedias.length === 0 ||
                 (!hasMold && effectiveLocations.length === 0) ||
-                (objective === "whatsapp" && !whatsappAutofillMessage.trim())
+                (objective === "whatsapp" && !whatsappAutofillMessage.trim()) ||
+                (objective === "whatsapp" && whatsappPageNotLinked)
               }
               onClick={() => void publish()}
             >

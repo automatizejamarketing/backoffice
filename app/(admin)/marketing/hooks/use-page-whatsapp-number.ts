@@ -12,12 +12,18 @@ export type PageWhatsappNumberState =
   | { phase: "resolved"; data: PageWhatsappNumberResponse }
   | { phase: "failed" };
 
+export type UsePageWhatsappNumberReturn = {
+  state: PageWhatsappNumberState;
+  /** Manual retry. Only meaningful while `phase === "failed"`. */
+  reload: () => void;
+};
+
 export function usePageWhatsappNumber(
   pageId: string | null | undefined,
   enabled: boolean,
   accountId?: string | null,
   userId?: string | null,
-) {
+): UsePageWhatsappNumberReturn {
   const [state, setState] = useState<PageWhatsappNumberState>({ phase: "idle" });
   const [attemptToken, setAttemptToken] = useState(0);
   const requestId = useRef(0);

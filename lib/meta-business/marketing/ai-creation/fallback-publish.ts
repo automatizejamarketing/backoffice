@@ -49,6 +49,10 @@ import {
   type PlanTexts,
 } from "./build-tree";
 import type { PublishResult } from "./publish-campaign";
+// Relative on purpose: the backoffice mirror keeps this file at the same
+// `lib/meta-business/marketing/` path, which the flattened `@/lib/meta-business/…` alias
+// would not resolve.
+import { getPageWhatsappNumber } from "../page-whatsapp-number";
 import {
   buildPageWelcomeMessage,
   whatsappCallToAction,
@@ -302,6 +306,22 @@ export function fallbackIssues(
         "O anúncio precisa de um link de destino.",
         "Informe para onde o anúncio deve levar (site, cardápio, WhatsApp).",
         ["promotionUrl"],
+      ),
+    );
+  }
+
+  // Without this text Meta autofills the customer's chat with its own English default
+  // ("Hello! Can I get more info on this?"), which says nothing about the ad the person came
+  // from. Required on every surface that can create a CTWA campaign, so no path can publish
+  // one silently in English.
+  if (config.isWhatsapp && !input.whatsappWelcome?.autofillMessage?.trim()) {
+    issues.push(
+      localIssue(
+        "ad",
+        "FALLBACK_WHATSAPP_MESSAGE_REQUIRED",
+        "A campanha de WhatsApp precisa da primeira mensagem do cliente.",
+        "Escreva a mensagem que já vai chegar digitada no WhatsApp do cliente.",
+        ["whatsappWelcome"],
       ),
     );
   }
@@ -592,6 +612,29 @@ export async function publishFallbackCampaign(args: {
   const issues = fallbackIssues(resolvedInput, resolved);
   if (issues.length) {
     return { ok: false, issues, rolledBack: false };
+  }
+
+  // A CTWA ad set promotes the Page and Meta reads the number off it, so a Page with no number
+  // linked buys a campaign that leads nowhere. Only an EXPLICIT `not_linked` stops the publish:
+  // every other answer — including "we are not allowed to look" — goes through, because the
+  // resolver cannot tell absence from a missing permission. See ADR 0029.
+  if (resolved.isWhatsapp && input.pageId) {
+    const linked = await getPageWhatsappNumber(accessToken, input.pageId);
+    if (linked.status === "not_linked") {
+      return {
+        ok: false,
+        issues: [
+          localIssue(
+            "adset",
+            "FALLBACK_WHATSAPP_PAGE_NOT_LINKED",
+            "Esta Página não tem nenhum número de WhatsApp vinculado.",
+            "Adicione o WhatsApp nas configurações da Página na Meta e tente de novo.",
+            ["pageId"],
+          ),
+        ],
+        rolledBack: false,
+      };
+    }
   }
 
   const campaignName = buildConventionalCampaignName(
