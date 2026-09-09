@@ -41,6 +41,7 @@ export type FallbackAiCampaignRequest = {
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
   demographics?: DemographicLimits;
+  excludedCustomAudienceIds?: string[];
 };
 
 export type FallbackAiCampaignResponse = { success: true } & PublishResult;
@@ -121,6 +122,7 @@ export async function POST(
       adAccountId: auth.accountId,
       accessToken: auth.accessToken,
       input: {
+        customerId: auth.userId,
         niche,
         objective,
         dailyBudget: body.dailyBudget,
@@ -138,6 +140,7 @@ export async function POST(
         placementsMode: body.placementsMode,
         selectedPlacements: body.selectedPlacements,
         demographics: body.demographics,
+        excludedCustomAudienceIds: body.excludedCustomAudienceIds,
       },
     });
 

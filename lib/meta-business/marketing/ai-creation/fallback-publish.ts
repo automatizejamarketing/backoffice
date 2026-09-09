@@ -50,6 +50,8 @@ import {
 } from "./build-tree";
 import type { PublishResult } from "./publish-campaign";
 import { applyDemographicLimits, type DemographicLimits } from "./demographic-limits";
+import { applyAudienceExclusions } from "./audience-exclusions";
+import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
 
 export type FallbackNiche =
   | "food_service"
@@ -67,6 +69,7 @@ export type FallbackPeriod = {
 };
 
 export type FallbackPublishInput = {
+  customerId?: string;
   niche: FallbackNiche;
   objective: FallbackObjective;
   dailyBudget: number;
@@ -87,6 +90,8 @@ export type FallbackPublishInput = {
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
   demographics?: DemographicLimits;
+  /** Absent = no mold exclusions; [] explicitly clears the list. */
+  excludedCustomAudienceIds?: string[];
 };
 
 export type FallbackConfig = {
@@ -165,6 +170,7 @@ export function fallbackIssues(
 ): CreateIssue[] {
   const issues: CreateIssue[] = [];
   issues.push(...applyDemographicLimits({}, input.demographics).issues);
+  issues.push(...applyAudienceExclusions({}, input.excludedCustomAudienceIds).issues);
 
   if (!input.dailyBudget || input.dailyBudget <= 0) {
     issues.push(
@@ -537,6 +543,16 @@ export async function publishFallbackCampaign(args: {
     return { ok: false, issues, rolledBack: false };
   }
 
+  const exclusionIssues = await validateAudienceExclusionSelection({
+    adAccountId,
+    accessToken,
+    customerId: input.customerId,
+    ids: input.excludedCustomAudienceIds,
+  });
+  if (exclusionIssues.length) {
+    return { ok: false, issues: exclusionIssues, rolledBack: false };
+  }
+
   const campaignName = buildConventionalCampaignName(
     resolved.metaObjective,
     input.niche,
@@ -563,6 +579,17 @@ export async function publishFallbackCampaign(args: {
     return {
       ok: false,
       issues: demographicTargeting.issues,
+      rolledBack: false,
+    };
+  }
+  const audienceTargeting = applyAudienceExclusions(
+    demographicTargeting.targeting,
+    input.excludedCustomAudienceIds,
+  );
+  if (audienceTargeting.issues.length || !audienceTargeting.targeting) {
+    return {
+      ok: false,
+      issues: audienceTargeting.issues,
       rolledBack: false,
     };
   }
@@ -639,7 +666,7 @@ export async function publishFallbackCampaign(args: {
               }
             : {}),
           extraFields: {
-            targeting: demographicTargeting.targeting,
+            targeting: audienceTargeting.targeting,
           },
         },
         ads: input.media.map((media, index) => ({
@@ -668,6 +695,22 @@ export async function publishFallbackCampaign(args: {
   }
 
   try {
+    const latestExclusionIssues = await validateAudienceExclusionSelection({
+      adAccountId,
+      accessToken,
+      customerId: input.customerId,
+      ids: input.excludedCustomAudienceIds,
+    });
+    if (latestExclusionIssues.length) {
+      const deleted = await deleteMetaObject(published.campaignId, accessToken);
+      if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
+      return {
+        ok: false,
+        issues: latestExclusionIssues,
+        rolledBack: deleted,
+        ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
+      };
+    }
     await activateTree({
       accessToken,
       campaignId: published.campaignId,

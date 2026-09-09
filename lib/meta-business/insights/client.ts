@@ -24,6 +24,8 @@ export type MetaCtx = {
   currency: string;
   /** Account timezone (e.g. "America/Sao_Paulo") — date presets resolve here. */
   timezoneName: string;
+  /** Customer/user scope for revalidating session-only audience selections. */
+  customerId?: string;
 };
 
 /**

@@ -52,6 +52,7 @@ function mapAudience(
   const permissions = typeof audience.permission_for_actions === "object" && audience.permission_for_actions !== null
     ? audience.permission_for_actions as Record<string, unknown>
     : undefined;
+  const targetCapability = capability(permissions?.can_use);
   const mapped: CustomAudienceView = {
     id: String(audience.id), name: str(audience.name), description: str(audience.description), subtype: str(audience.subtype),
     approximateCountLowerBound: num(audience.approximate_count_lower_bound), approximateCountUpperBound: num(audience.approximate_count_upper_bound),
@@ -62,7 +63,7 @@ function mapAudience(
     lookalikeAudienceIds: Array.isArray(audience.lookalike_audience_ids) ? audience.lookalike_audience_ids as string[] : undefined,
     originAudienceId: str(audience.origin_audience_id), ruleSummary: !ruleWasRequested ? "not_loaded" : audience.rule == null ? "not_applicable" : "external",
     // Meta exposes one `can_edit` permission for the audience object; it authorizes both sparse metadata edits and replacing the complete rule.
-    capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: capability(permissions?.can_edit), share: capability(permissions?.can_share), editRule: capability(permissions?.can_edit), manageMembers: "unknown", delete: "unknown", lookalikeSource: capability(permissions?.supports_recipient_lookalike ?? permissions?.subtype_supports_lookalike) },
+    capabilities: { read: "available", include: targetCapability, exclude: targetCapability, editMetadata: capability(permissions?.can_edit), share: capability(permissions?.can_share), editRule: capability(permissions?.can_edit), manageMembers: "unknown", delete: "unknown", lookalikeSource: capability(permissions?.supports_recipient_lookalike ?? permissions?.subtype_supports_lookalike) },
   };
 
   if (importHistory !== undefined) {

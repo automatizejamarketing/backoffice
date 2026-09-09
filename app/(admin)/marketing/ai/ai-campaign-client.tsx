@@ -50,6 +50,7 @@ import {
 } from "@/lib/meta-business/marketing/ai-creation/build-tree";
 import type { MoldRef, ProvenAdRef } from "@/lib/meta-business/marketing/ai-creation";
 import type { DemographicLimits } from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
+import type { AudienceExclusionIds } from "@/lib/meta-business/marketing/ai-creation/audience-exclusions";
 import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-types";
 import {
   ALL_PLACEMENTS,
@@ -64,6 +65,7 @@ import {
 } from "./ai-placements-editor";
 import { AiDemographicLimitsEditor } from "./ai-demographic-limits-editor";
 import { AiAudienceLibraryDialog } from "./ai-audience-library-dialog";
+import { AiAudienceExclusionsEditor } from "./ai-audience-exclusions-editor";
 
 type Phase =
   | "objective"
@@ -213,6 +215,7 @@ export function AiCampaignClient() {
   const [placementsMode, setPlacementsMode] = useState<PlacementsMode>("automatic");
   const [selectedPlacements, setSelectedPlacements] = useState<PlacementKey[]>([]);
   const [demographics, setDemographics] = useState<DemographicLimits | undefined>(undefined);
+  const [excludedCustomAudienceIds, setExcludedCustomAudienceIds] = useState<AudienceExclusionIds | undefined>(undefined);
   const [audienceLibraryOpen, setAudienceLibraryOpen] = useState(false);
   const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
   const [periodEnd, setPeriodEnd] = useState(() =>
@@ -221,6 +224,7 @@ export function AiCampaignClient() {
   const [periodStartTime, setPeriodStartTime] = useState("00:00");
   const [periodEndTime, setPeriodEndTime] = useState("23:59");
   const [planIssues, setPlanIssues] = useState<PlanIssue[]>([]);
+  const [plannedExcludedAudienceCount, setPlannedExcludedAudienceCount] = useState<number | undefined>();
   const [daypartingAllowed, setDaypartingAllowed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -395,7 +399,14 @@ export function AiCampaignClient() {
     );
   }
 
-  function buildAnswers() {
+  function buildAnswers(overrides: { excludedCustomAudienceIds?: AudienceExclusionIds } = {}) {
+    const hasExcludedAudienceOverride = Object.prototype.hasOwnProperty.call(
+      overrides,
+      "excludedCustomAudienceIds",
+    );
+    const effectiveExcludedCustomAudienceIds = hasExcludedAudienceOverride
+      ? overrides.excludedCustomAudienceIds
+      : excludedCustomAudienceIds;
     return {
       dailyBudget: Number(dailyBudget) || DEFAULT_DAILY_BUDGET,
       medias: planMedias,
@@ -421,20 +432,30 @@ export function AiCampaignClient() {
       placementsMode,
       ...(placementsMode === "manual" ? { selectedPlacements } : {}),
       ...(demographics ? { demographics } : {}),
+      ...(effectiveExcludedCustomAudienceIds !== undefined
+        ? { excludedCustomAudienceIds: effectiveExcludedCustomAudienceIds }
+        : {}),
     };
   }
 
-  async function refreshPlan() {
+  async function refreshPlan(
+    overrides: { excludedCustomAudienceIds?: AudienceExclusionIds } = {},
+  ) {
     if (!mold) return;
     try {
       const res = await fetch(apiPath(accountId, userId, "plan"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mold, answers: buildAnswers() }),
+        body: JSON.stringify({ mold, answers: buildAnswers(overrides) }),
       });
       const data = await res.json();
       setPlanIssues(Array.isArray(data.issues) ? data.issues : []);
       setDaypartingAllowed(data.review?.budget?.daypartingAllowed !== false);
+      setPlannedExcludedAudienceCount(
+        typeof data.review?.audience?.excludedCustomAudiences === "number"
+          ? data.review.audience.excludedCustomAudiences
+          : undefined,
+      );
     } catch {
       setPlanIssues([]);
     }
@@ -566,6 +587,7 @@ export function AiCampaignClient() {
             selectedPlacements:
               placementsMode === "manual" ? selectedPlacements : undefined,
             demographics,
+            excludedCustomAudienceIds,
             period: {
               startTime: combineDateTime(periodStart, periodStartTime),
               endTime: combineDateTime(periodEnd, periodEndTime),
@@ -1120,6 +1142,22 @@ export function AiCampaignClient() {
               onChange={setDemographics}
               disabled={isBusy}
             />
+            <AiAudienceExclusionsEditor
+              accountId={accountId}
+              userId={userId}
+              value={excludedCustomAudienceIds}
+              onChange={(next) => {
+                setExcludedCustomAudienceIds(next);
+                if (mold) void refreshPlan({ excludedCustomAudienceIds: next });
+              }}
+              disabled={isBusy}
+            />
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              Configuração efetiva em todos os novos conjuntos: {mold
+                ? plannedExcludedAudienceCount ?? excludedCustomAudienceIds?.length ?? 0
+                : excludedCustomAudienceIds?.length ?? 0} exclusão(ões) de públicos.
+              O Advantage+ permanece no estado herdado.
+            </p>
 
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
               <div>

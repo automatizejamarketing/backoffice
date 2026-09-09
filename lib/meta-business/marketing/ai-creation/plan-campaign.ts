@@ -103,6 +103,7 @@ export type ReviewSummary = {
     advantagePlus: boolean;
     interestGroups: number;
     customAudiences: number;
+    excludedCustomAudiences: number;
     placements: {
       automatic: boolean;
       /**

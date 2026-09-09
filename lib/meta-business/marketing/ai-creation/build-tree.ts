@@ -81,6 +81,8 @@ export type PlanAnswers = {
   selectedPlacements?: PlacementKey[];
   /** Session-only advanced demographic intent. Absent preserves each ad set's base. */
   demographics?: DemographicLimits;
+  /** Session-only exclusions. Absent preserves a mold's exclusions; [] clears them. */
+  excludedCustomAudienceIds?: string[];
   /**
    * Como o Meta pode reenquadrar a mídia nos posicionamentos onde ela não cabe
    * (o quadrado servido em Stories/Reels, o vertical servido no Feed).

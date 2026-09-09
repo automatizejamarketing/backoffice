@@ -73,6 +73,7 @@ export async function POST(
         accessToken: auth.accessToken,
         currency: account.currency,
         timezoneName: account.timezoneName,
+        customerId: auth.userId,
       },
       body.mold,
       { ...body.answers, niche: company?.niche ?? null },
