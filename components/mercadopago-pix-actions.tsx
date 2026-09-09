@@ -3,6 +3,12 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Loader2, Mail, QrCode } from "lucide-react";
+import { StatusBadge } from "@/components/status-badge";
+import {
+  PIX_LINK_STATE_LABELS,
+  PIX_LINK_STATE_TONES,
+  getPixLinkState,
+} from "@/lib/backoffice/pix-link-view";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { PlanType } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS, PLAN_TYPES } from "@/lib/stripe/plans";
@@ -46,6 +51,14 @@ function formatDateTime(value: string): string {
   return formatShortDateTimeInSaoPaulo(value);
 }
 
+function pixStateBadge(link: Pick<PixLinkView, "status" | "expiresAt">) {
+  const state = getPixLinkState(link);
+  return {
+    tone: PIX_LINK_STATE_TONES[state],
+    label: PIX_LINK_STATE_LABELS[state],
+  };
+}
+
 export function MercadoPagoPixActions({
   userId,
   currentPlanType,
@@ -64,8 +77,11 @@ export function MercadoPagoPixActions({
   const [links, setLinks] = useState<PixLinkView[]>(initialLinks);
   const [loadingMode, setLoadingMode] = useState<"copy" | "email" | null>(null);
 
+  // Só um Pix ainda pagável merece destaque: `pending` com validade vencida
+  // já morreu sem pagamento e aparece assim na lista abaixo.
   const latestPending = useMemo(
-    () => links.find((link) => link.status === "pending") ?? null,
+    () =>
+      links.find((link) => getPixLinkState(link) === "awaiting") ?? null,
     [links],
   );
 
@@ -170,7 +186,7 @@ export function MercadoPagoPixActions({
             <span className="font-medium">
               {PLAN_DEFINITIONS[latestPending.planType].name}
             </span>
-            <Badge variant="secondary">{latestPending.status}</Badge>
+            <StatusBadge badge={pixStateBadge(latestPending)} />
             <span className="text-muted-foreground">
               {formatMoney(latestPending.amount, latestPending.currency)}
             </span>
@@ -208,11 +224,7 @@ export function MercadoPagoPixActions({
                   {link.preferenceId}
                 </p>
               </div>
-              <Badge
-                variant={link.status === "pending" ? "default" : "outline"}
-              >
-                {link.status}
-              </Badge>
+              <StatusBadge badge={pixStateBadge(link)} />
             </div>
           ))}
         </div>

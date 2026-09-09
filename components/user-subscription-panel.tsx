@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { AccountHistoryTimeline } from "@/components/account-history-timeline";
-import { SubscriptionAccessSyncAlert } from "@/components/subscription-access-sync-alert";
+import { AccountBillingStatus } from "@/components/account-billing-status";
 import {
   MercadoPagoPixActions,
   type PixLinkView,
@@ -29,7 +29,10 @@ import type { UserSubscriptionDetails } from "@/lib/db/admin-queries";
 import type { PlanType } from "@/lib/db/schema";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { getPixRenewalDisabledReason } from "@/lib/backoffice/pix-renewal-policy";
-import { normalizePixInitPoint } from "@/lib/backoffice/pix-link-view";
+import {
+  normalizePixInitPoint,
+  pickLatestPixCharge,
+} from "@/lib/backoffice/pix-link-view";
 import {
   billingProviderLabel,
   decideStripePaymentRecovery,
@@ -38,7 +41,6 @@ import {
 import {
   describeUpcomingChange,
   formatPlanLabel,
-  getStatusBadgeProps,
 } from "@/lib/subscriptions/derive";
 import {
   formatDateInSaoPaulo,
@@ -122,12 +124,8 @@ export function UserSubscriptionPanel({
     accountHistory,
   } = data;
 
-  const badge = getStatusBadgeProps(
-    activeSubscription?.status ?? null,
-    user.expirationDate,
-    activeSubscription?.cancelAtPeriodEnd ?? false,
-    activeSubscription?.currentPeriodEnd ?? null,
-  );
+  const latestPixCharge = pickLatestPixCharge(mercadopagoPaymentLinks);
+  const isStripe = activeSubscription?.provider === "stripe";
   const upcoming = describeUpcomingChange(
     activeSubscription
       ? {
@@ -203,53 +201,18 @@ export function UserSubscriptionPanel({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield className="h-5 w-5" />
-            Assinatura e cobrança
+            Acesso e cobrança
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          {!activeSubscription ? (
-            <p className="py-4 text-sm text-muted-foreground">
-              Nenhuma assinatura ativa registrada para este usuário.
-            </p>
-          ) : (
-            <div className="space-y-5">
-              <SubscriptionAccessSyncAlert
-                status={activeSubscription.status}
-                expirationDate={user.expirationDate}
-                providerLabel={billingProviderLabel(activeSubscription.provider)}
-              />
+        <CardContent className="space-y-5">
+          <AccountBillingStatus
+            expirationDate={user.expirationDate}
+            subscription={activeSubscription}
+            latestPixCharge={latestPixCharge}
+          />
 
-              <div className="flex flex-wrap items-start gap-6">
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Plano
-                  </p>
-                  <p className="text-base font-semibold">
-                    {formatPlanLabel(activeSubscription.planType)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Status no provedor
-                  </p>
-                  <div className="mt-0.5 flex flex-col gap-1">
-                    <Badge variant={badge.variant} className="w-fit">
-                      {badge.label}
-                    </Badge>
-                    {badge.hint && (
-                      <span className="text-[11px] text-muted-foreground">
-                        {badge.hint}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {activeSubscription.cancelAtPeriodEnd && (
-                  <Badge variant="secondary" className="self-center">
-                    Cancelamento agendado
-                  </Badge>
-                )}
-              </div>
-
+          {activeSubscription && (
+            <>
               {isTrialing && (
                 <div className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-4">
                   <div className="flex items-start gap-2">
@@ -295,17 +258,36 @@ export function UserSubscriptionPanel({
 
               <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
                 <Row
+                  label="Plano"
+                  value={formatPlanLabel(activeSubscription.planType)}
+                />
+                <Row
                   label="Provedor"
                   value={billingProviderLabel(activeSubscription.provider)}
                 />
-                <Row
-                  label="Ciclo de cobrança (início)"
-                  value={formatDateTime(activeSubscription.currentPeriodStart)}
-                />
-                <Row
-                  label="Ciclo de cobrança (fim)"
-                  value={formatDateTime(activeSubscription.currentPeriodEnd)}
-                />
+                {isStripe ? (
+                  <>
+                    <Row
+                      label="Ciclo de cobrança (início)"
+                      value={formatDateTime(activeSubscription.currentPeriodStart)}
+                    />
+                    <Row
+                      label="Ciclo de cobrança (fim)"
+                      value={formatDateTime(activeSubscription.currentPeriodEnd)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Row
+                      label="Último pagamento em"
+                      value={formatDateTime(activeSubscription.currentPeriodStart)}
+                    />
+                    <Row
+                      label="Cobriu acesso até"
+                      value={formatDateTime(activeSubscription.currentPeriodEnd)}
+                    />
+                  </>
+                )}
                 {activeSubscription.commitmentMonths > 1 && (
                   <>
                     <Row
@@ -318,14 +300,18 @@ export function UserSubscriptionPanel({
                     />
                   </>
                 )}
-                <Row
-                  label="Cancelada em"
-                  value={formatDateTime(activeSubscription.canceledAt)}
-                />
-                <Row
-                  label="Encerrada em"
-                  value={formatDateTime(activeSubscription.endedAt)}
-                />
+                {isStripe && (
+                  <>
+                    <Row
+                      label="Cancelada em"
+                      value={formatDateTime(activeSubscription.canceledAt)}
+                    />
+                    <Row
+                      label="Encerrada em"
+                      value={formatDateTime(activeSubscription.endedAt)}
+                    />
+                  </>
+                )}
                 <Row
                   label="Atualizada em"
                   value={formatDateTime(activeSubscription.updatedAt)}
@@ -334,18 +320,22 @@ export function UserSubscriptionPanel({
                   label="Criada em"
                   value={formatDateTime(activeSubscription.createdAt)}
                 />
-                <Row
-                  label="Stripe Subscription ID"
-                  value={activeSubscription.stripeSubscriptionId}
-                  mono
-                />
-                <Row
-                  label="Stripe Price ID"
-                  value={activeSubscription.stripePriceId}
-                  mono
-                />
+                {isStripe && (
+                  <>
+                    <Row
+                      label="Stripe Subscription ID"
+                      value={activeSubscription.stripeSubscriptionId}
+                      mono
+                    />
+                    <Row
+                      label="Stripe Price ID"
+                      value={activeSubscription.stripePriceId}
+                      mono
+                    />
+                  </>
+                )}
               </dl>
-            </div>
+            </>
           )}
         </CardContent>
       </Card>

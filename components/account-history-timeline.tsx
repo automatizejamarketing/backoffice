@@ -62,7 +62,7 @@ export function AccountHistoryTimeline({
                 "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground",
                 item.kind === "admin_expiration" &&
                   "border-primary/30 text-primary",
-                item.kind === "payment" && "border-emerald-500/30 text-emerald-600",
+                item.kind === "payment" && "border-success/30 text-success",
               )}
             >
               <HistoryIcon kind={item.kind} />

@@ -6,9 +6,10 @@ import type { ContactStatusFilter } from "@/lib/backoffice/users-filters";
 import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadgeWithHint } from "@/components/status-badge";
 import {
   formatPlanLabel,
-  getStatusBadgeProps,
+  getAccountStatusBadge,
 } from "@/lib/subscriptions/derive";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 import { WhatsAppIcon } from "@/components/whatsapp-icon";
@@ -190,12 +191,7 @@ export function UsersTable({
             ) : (
               rows.map((user) => {
                 const sub = user.activeSubscription;
-                const badge = getStatusBadgeProps(
-                  sub?.status ?? null,
-                  user.expirationDate,
-                  sub?.cancelAtPeriodEnd ?? false,
-                  sub?.currentPeriodEnd ?? null,
-                );
+                const badge = getAccountStatusBadge(user.expirationDate, sub);
                 const phoneFormatted = formatBrazilianPhone(user.phone);
                 const whatsappUrl = getWhatsAppUrl(user.phone);
                 const expirationHint = formatExpirationHint(
@@ -290,7 +286,7 @@ function OptionalColumnCell({
   columnId: UsersTableColumnId;
   user: UserWithUsage;
   contacted: boolean;
-  badge: ReturnType<typeof getStatusBadgeProps>;
+  badge: ReturnType<typeof getAccountStatusBadge>;
   phoneFormatted: string | null;
   whatsappUrl: string | null;
   expirationHint: string | null;
@@ -306,7 +302,7 @@ function OptionalColumnCell({
   const sub = user.activeSubscription;
   let content: ReactNode = null;
   let className = "px-4 py-3";
-  let ignoreRowClick = columnId === "phone" || columnId === "actions";
+  const ignoreRowClick = columnId === "phone" || columnId === "actions";
 
   switch (columnId) {
     case "user":
@@ -433,18 +429,7 @@ function OptionalColumnCell({
       );
       break;
     case "status":
-      content = (
-        <div className="flex flex-col gap-0.5">
-          <Badge variant={badge.variant} className="w-fit text-xs">
-            {badge.label}
-          </Badge>
-          {badge.hint ? (
-            <span className="text-[11px] text-muted-foreground">
-              {badge.hint}
-            </span>
-          ) : null}
-        </div>
-      );
+      content = <StatusBadgeWithHint badge={badge} />;
       break;
     case "expiration":
       content = user.expirationDate ? (
@@ -458,8 +443,8 @@ function OptionalColumnCell({
                 variant="outline"
                 className={
                   user.renewalAlert.severity === "critical"
-                    ? "w-fit border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
-                    : "w-fit border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
+                    ? "w-fit text-xs text-destructive"
+                    : "w-fit text-xs text-warning"
                 }
               >
                 {user.renewalAlert.label}
