@@ -343,6 +343,23 @@ export function createCustomerFileDurableStore(
       return { operationId: row.operationId, state: row.state ?? "running", audienceIdentity };
     },
 
+    async getLatestImportForAudience(customerId, audienceId, adAccountId) {
+      const histories = await store.getLatestImportsForAudiences(
+        customerId,
+        [audienceId],
+        adAccountId,
+      );
+      return histories.get(audienceId) ?? null;
+    },
+
+    async getLatestImportsForAudiences(customerId, audienceIds, adAccountId) {
+      return getLatestImportsForAudiences(sql, customerId, audienceIds, adAccountId);
+    },
+
+    async getLatestImportsForAccount(customerId, adAccountId) {
+      return getLatestImportsForAccount(sql, customerId, adAccountId);
+    },
+
     async releaseAfterReconciliation(audienceIdentity, operationId) {
       await sql.query(
         `DELETE FROM customer_file_coordination
@@ -414,6 +431,75 @@ export function createCustomerFileDurableStore(
   };
 
   return store;
+}
+
+const OPERATION_HISTORY_SELECT = `
+  SELECT id, actor_kind, actor_id, customer_id, ad_account_id, audience_identity, audience_id,
+         audience_name, operation_type, state, received_at, updated_at, preview_confirmed,
+         declarations_confirmed, counts, receipts, confirmed_batches, session_id, pending_unresolved
+  FROM customer_file_operations`;
+
+async function getLatestImportsForAudiences(
+  sql: CustomerFileSqlClient,
+  customerId: string,
+  audienceIds: ReadonlyArray<string>,
+  adAccountId: string,
+): Promise<ReadonlyMap<string, SanitizedCustomerFileHistory>> {
+  const requested = [...new Set(audienceIds.filter(Boolean))];
+  if (requested.length === 0) return new Map();
+
+  const values: unknown[] = [customerId, ...requested];
+  const placeholders = requested.map((_, index) => `$${index + 2}`).join(", ");
+  const accounts = accountIdVariants(adAccountId);
+  const accountPlaceholders = accounts.map((_, index) => `$${values.length + index + 1}`).join(", ");
+  values.push(...accounts);
+  const accountClause = ` AND ad_account_id IN (${accountPlaceholders})`;
+
+  const rows = await sql.query<OperationRow>(
+    `${OPERATION_HISTORY_SELECT}
+     WHERE customer_id = $1
+       AND (audience_id IN (${placeholders}) OR audience_identity IN (${placeholders}))${accountClause}
+     ORDER BY received_at DESC, updated_at DESC`,
+    values,
+  );
+  const result = new Map<string, SanitizedCustomerFileHistory>();
+  const requestedSet = new Set(requested);
+  for (const row of rows) {
+    const audienceId = [row.audience_id, row.audience_identity].find(
+      (candidate): candidate is string => Boolean(candidate && requestedSet.has(candidate)),
+    );
+    if (!audienceId || result.has(audienceId)) continue;
+    result.set(audienceId, historyFromRow(row));
+  }
+  return result;
+}
+
+async function getLatestImportsForAccount(
+  sql: CustomerFileSqlClient,
+  customerId: string,
+  adAccountId: string,
+): Promise<ReadonlyMap<string, SanitizedCustomerFileHistory>> {
+  const accounts = accountIdVariants(adAccountId);
+  const values: unknown[] = [customerId, ...accounts];
+  const placeholders = accounts.map((_, index) => `$${index + 2}`).join(", ");
+  const rows = await sql.query<OperationRow>(
+    `${OPERATION_HISTORY_SELECT}
+     WHERE customer_id = $1 AND ad_account_id IN (${placeholders})
+     ORDER BY received_at DESC, updated_at DESC`,
+    values,
+  );
+  const result = new Map<string, SanitizedCustomerFileHistory>();
+  for (const row of rows) {
+    const audienceId = row.audience_id ?? row.audience_identity;
+    if (!audienceId || result.has(audienceId)) continue;
+    result.set(audienceId, historyFromRow(row));
+  }
+  return result;
+}
+
+function accountIdVariants(adAccountId: string): string[] {
+  const normalized = adAccountId.replace(/^act_/, "");
+  return [...new Set([adAccountId, normalized, `act_${normalized}`])];
 }
 
 async function storeOwns(

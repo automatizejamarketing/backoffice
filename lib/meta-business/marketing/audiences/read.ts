@@ -1,10 +1,21 @@
 import { callMeta } from "@/lib/meta-business/insights/client";
+import type { SanitizedCustomerFileHistory } from "@/lib/customer-file/sanitize";
 import { isSameAccount } from "@/lib/meta-business/account-match";
-import type { AudienceStatus, CustomAudienceView } from "./types";
+import { compromisesAudienceImport } from "./integrity";
+import type {
+  AudienceImportResult,
+  AudienceMetaProcessingState,
+  AudienceStatus,
+  CustomAudienceView,
+} from "./types";
 
 export type {
   AudienceCapabilities,
   AudienceCapability,
+  AudienceAvailability,
+  AudienceFunctionAvailability,
+  AudienceImportResult,
+  AudienceMetaProcessingState,
   AudienceStatus,
   CustomAudienceView,
 } from "./types";
@@ -32,8 +43,12 @@ type RawAudience = Record<string, unknown>;
 const num = (value: unknown) => typeof value === "number" ? value : undefined;
 const str = (value: unknown) => typeof value === "string" ? value : undefined;
 
-function mapAudience(audience: RawAudience, ruleWasRequested: boolean): CustomAudienceView {
-  return {
+function mapAudience(
+  audience: RawAudience,
+  ruleWasRequested: boolean,
+  importHistory?: ReadonlyMap<string, SanitizedCustomerFileHistory>,
+): CustomAudienceView {
+  const mapped: CustomAudienceView = {
     id: String(audience.id), name: str(audience.name), description: str(audience.description), subtype: str(audience.subtype),
     approximateCountLowerBound: num(audience.approximate_count_lower_bound), approximateCountUpperBound: num(audience.approximate_count_upper_bound),
     operationStatus: audience.operation_status as AudienceStatus | undefined, deliveryStatus: audience.delivery_status as AudienceStatus | undefined,
@@ -44,21 +59,80 @@ function mapAudience(audience: RawAudience, ruleWasRequested: boolean): CustomAu
     originAudienceId: str(audience.origin_audience_id), ruleSummary: !ruleWasRequested ? "not_loaded" : audience.rule == null ? "not_applicable" : "external",
     capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: "unknown", editRule: "unknown", manageMembers: "unknown", delete: "unknown", lookalikeSource: "unknown" },
   };
+
+  if (importHistory !== undefined) {
+    const history = importHistory.get(mapped.id);
+    const importState = history?.state ?? "not_recorded";
+    const importResult = history ? importResultOf(history) : undefined;
+    const compromised = compromisesAudienceImport(importState, importResult);
+    const sourceSupportsLookalike = Boolean(
+      mapped.customerFileSource ||
+        mapped.subtype === "ENGAGEMENT" ||
+        mapped.subtype === "WEBSITE",
+    );
+    mapped.importState = importState;
+    mapped.importResult = importResult ?? { known: false, state: "not_recorded" };
+    mapped.availability = {
+      include: compromised ? "blocked" : "available",
+      exclude: compromised ? "blocked" : "available",
+      lookalikeSource: !sourceSupportsLookalike
+        ? "unknown"
+        : compromised
+          ? "blocked"
+          : "available",
+      metaProcessing: metaProcessingState(mapped.operationStatus),
+    };
+  }
+
+  return mapped;
 }
 
-export async function listCustomAudiences(args: { adAccountId: string; accessToken: string; detailed?: boolean; after?: string }) {
+function importResultOf(history: SanitizedCustomerFileHistory): AudienceImportResult {
+  return {
+    known: true,
+    state: history.state,
+    operation: history.operation,
+    pendingUnresolved: history.pendingUnresolved,
+    receivedAt: history.receivedAt.toISOString(),
+    updatedAt: history.updatedAt.toISOString(),
+    confirmedBatches: history.confirmedBatches.length,
+    confirmedRecords: history.receipts.reduce(
+      (total, receipt) => total + Math.max(0, (receipt.received ?? 0) - (receipt.rejected ?? 0)),
+      0,
+    ) || Math.max(0, history.counts.confirmed ?? 0),
+    rejectedRecords: history.receipts.reduce(
+      (total, receipt) => total + Math.max(0, receipt.rejected ?? 0),
+      0,
+    ) || Math.max(0, history.counts.rejected ?? 0),
+  };
+}
+
+function metaProcessingState(status: AudienceStatus | undefined): AudienceMetaProcessingState {
+  if (!status) return "unknown";
+  if (status.code === 200) return "ready";
+  if (
+    status.code === 441 ||
+    /process|preench|upload|aguard/i.test(status.description ?? "")
+  ) {
+    return "processing";
+  }
+  return "unknown";
+}
+
+export async function listCustomAudiences(args: { adAccountId: string; accessToken: string; detailed?: boolean; after?: string; importHistory?: ReadonlyMap<string, SanitizedCustomerFileHistory> }) {
   const accountId = args.adAccountId.startsWith("act_") ? args.adAccountId : `act_${args.adAccountId}`;
   const fields = args.detailed ? DETAIL_FIELDS : LIST_FIELDS;
   const parameters = [`fields=${fields.join(",")}`, "limit=200"];
   if (args.after) parameters.push(`after=${args.after}`);
   const response = await callMeta<{ data?: RawAudience[]; paging?: { next?: string; cursors?: { after?: string } } }>({ method: "GET", path: `${accountId}/customaudiences`, params: parameters.join("&"), accessToken: args.accessToken }, { retryOnRateLimit: true });
   const nextCursor = response.paging?.cursors?.after;
-  return { items: (response.data ?? []).map((audience) => mapAudience(audience, Boolean(args.detailed))), truncated: Boolean(response.paging?.next), ...(nextCursor ? { nextCursor } : {}) };
+  return { items: (response.data ?? []).map((audience) => mapAudience(audience, Boolean(args.detailed), args.importHistory)), truncated: Boolean(response.paging?.next), ...(nextCursor ? { nextCursor } : {}) };
 }
 
 export async function getCustomAudienceDetail(args: {
   audienceId: string;
   accessToken: string;
+  importHistory?: ReadonlyMap<string, SanitizedCustomerFileHistory>;
 }): Promise<CustomAudienceView> {
   const response = await callMeta<RawAudience>(
     {
@@ -69,5 +143,5 @@ export async function getCustomAudienceDetail(args: {
     },
     { retryOnRateLimit: true },
   );
-  return mapAudience(response, true);
+  return mapAudience(response, true, args.importHistory);
 }

@@ -16,6 +16,7 @@ import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { metaApiCall } from "@/lib/meta-business/api";
+import { customerFileDurableStore } from "@/lib/customer-file/postgres";
 
 type GetAudiencesResponse = {
   audiences: Awaited<ReturnType<typeof listCustomAudiences>>["items"];
@@ -94,11 +95,16 @@ export async function GET(
       return NextResponse.json({ sources, events: [], guidance: sources.length ? "A fonte tem atividade observada. Eventos específicos não são oferecidos sem uma observação autenticada da fonte; a tela não usa catálogo genérico." : "Nenhum Pixel com atividade recebida e acessível foi encontrado. Configure ou reautorize o rastreamento existente; esta tela não instala Pixel nem CAPI." });
     }
 
+    const importHistory = await customerFileDurableStore().getLatestImportsForAccount(
+      userId,
+      accountId,
+    );
     const page = await listCustomAudiences({
       adAccountId: accountId,
       accessToken: tokenResult.accessToken,
       detailed: request.nextUrl.searchParams.get("detailed") === "1",
       after: request.nextUrl.searchParams.get("after") ?? undefined,
+      importHistory,
     });
 
     return NextResponse.json({
@@ -150,7 +156,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!body.originAudienceId || !body.name?.trim() || !body.country || body.percentage == null) return NextResponse.json({ error: "Invalid lookalike" }, { status: 400 });
       const formation = buildLookalikeFormation({ country: body.country, percentage: body.percentage });
       if (!formation.ok) return NextResponse.json({ error: "Invalid lookalike", message: formation.message }, { status: 400 });
-      const source = await getCustomAudienceDetail({ audienceId: body.originAudienceId, accessToken: tokenResult.accessToken });
+      const importHistory = await customerFileDurableStore().getLatestImportsForAudiences(
+        userId,
+        [body.originAudienceId],
+        accountId,
+      );
+      const source = await getCustomAudienceDetail({ audienceId: body.originAudienceId, accessToken: tokenResult.accessToken, importHistory });
       const eligibility = assessLookalikeSource(source);
       if (!eligibility.ok) return NextResponse.json({ error: eligibility.code, message: eligibility.message }, { status: 409 });
       const confirmationToken = JSON.stringify({ accountId, originAudienceId: source.id, name: body.name.trim(), description: body.description, ...formation.formation });

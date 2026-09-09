@@ -460,7 +460,8 @@ export function AdSetCreateDialog({
       const data = await response.json();
 
       if (!response.ok && response.status !== 207) {
-        throw new Error(data.message ?? "Falha ao criar conjunto de anúncios");
+        const message = data.message ?? "Falha ao criar conjunto de anúncios";
+        throw new Error(data.solution ? `${message}\n\n${data.solution}` : message);
       }
 
       void invalidateMarketing();
@@ -738,7 +739,8 @@ export function AdSetCreateDialog({
                 label="Selecionar públicos para incluir..."
                 audiences={availableAudiences}
                 selected={includedAudiences}
-                onChange={setIncludedAudiences}
+              onChange={setIncludedAudiences}
+              availabilityKey="include"
                 disabled={isSubmitting}
                 isLoading={isLoadingAudiences}
               />
@@ -750,7 +752,8 @@ export function AdSetCreateDialog({
                 label="Selecionar públicos para excluir..."
                 audiences={availableAudiences}
                 selected={excludedAudiences}
-                onChange={setExcludedAudiences}
+              onChange={setExcludedAudiences}
+              availabilityKey="exclude"
                 disabled={isSubmitting}
                 isLoading={isLoadingAudiences}
               />

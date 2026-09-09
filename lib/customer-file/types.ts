@@ -65,6 +65,20 @@ export type CustomerFileDurableStore = {
     now: Date,
   ): Promise<CustomerFileTemporaryMaterial | null>;
   getConflict(audienceIdentity: string): Promise<CustomerFileConflict | null>;
+  getLatestImportForAudience(
+    customerId: string,
+    audienceId: string,
+    adAccountId: string,
+  ): Promise<SanitizedCustomerFileHistory | null>;
+  getLatestImportsForAudiences(
+    customerId: string,
+    audienceIds: ReadonlyArray<string>,
+    adAccountId: string,
+  ): Promise<ReadonlyMap<string, SanitizedCustomerFileHistory>>;
+  getLatestImportsForAccount(
+    customerId: string,
+    adAccountId: string,
+  ): Promise<ReadonlyMap<string, SanitizedCustomerFileHistory>>;
   releaseAfterReconciliation(audienceIdentity: string, operationId: string): Promise<void>;
   listHistory(customerId: string): Promise<SanitizedCustomerFileHistory[]>;
   getOperation(operationId: string): Promise<SanitizedCustomerFileHistory | null>;

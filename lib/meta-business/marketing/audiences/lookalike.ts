@@ -1,4 +1,5 @@
 import type { CustomAudienceView } from "./types";
+import { compromisesAudienceImport } from "./integrity";
 
 export const LOOKALIKE_DEFAULT_COUNTRY = "BR";
 export const LOOKALIKE_DEFAULT_PERCENTAGE = 1;
@@ -52,9 +53,19 @@ export function buildLookalikeFormation(input: {
 export function assessLookalikeSource(
   audience: Pick<CustomAudienceView, "id" | "subtype" | "customerFileSource"> & {
     importState?: "partial" | "unknown" | string;
+    importResult?: {
+      known: boolean;
+      state?: string;
+      pendingUnresolved?: boolean;
+      confirmedBatches?: number;
+      confirmedRecords?: number;
+      rejectedRecords?: number;
+    };
   },
 ): LookalikeSourceAssessment {
-  if (audience.importState === "partial" || audience.importState === "unknown") {
+  const importState = audience.importState ??
+    (audience.importResult?.known ? audience.importResult.state : undefined);
+  if (compromisesAudienceImport(importState, audience.importResult)) {
     return {
       ok: false,
       code: "IMPORT_COMPROMISED",
