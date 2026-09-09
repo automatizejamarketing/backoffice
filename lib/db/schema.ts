@@ -823,6 +823,21 @@ export const productPayment = pgTable(
     providerPreferenceId: varchar("provider_preference_id", { length: 255 }),
     providerPaymentId: varchar("provider_payment_id", { length: 255 }),
     mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
+    /** G1 quote frozen before issuing an Expert Split Inicial charge. */
+    mercadoPagoExpectedProviderFeeCentavos: integer(
+      "mercadopago_expected_provider_fee_centavos",
+    ),
+    mercadoPagoExpectedApplicationFeeCentavos: integer(
+      "mercadopago_expected_application_fee_centavos",
+    ),
+    mercadoPagoSplitContractVersion: varchar(
+      "mercadopago_split_contract_version",
+      { length: 80 },
+    ),
+    /** Amount the provider actually reported as our application fee. */
+    mercadoPagoApplicationFeeCentavos: integer(
+      "mercadopago_application_fee_centavos",
+    ),
     status: varchar("status", {
       enum: ["pending", "approved", "failed", "refunded", "charged_back"],
     })
