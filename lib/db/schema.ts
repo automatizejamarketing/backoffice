@@ -1020,6 +1020,26 @@ export const productCardDispute = pgTable(
 
 export type ProductCardDispute = InferSelectModel<typeof productCardDispute>;
 
+/** Cost records stay separate from the legacy payout ledger: they can never
+ * create a new Expert withdrawal. */
+export const productPostSaleCostCase = pgTable("product_post_sale_cost_cases", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
+  reversal: varchar("reversal", { enum: ["integral_refund", "lost_full_chargeback", "external_partial", "pix_med"] }).$type<"integral_refund" | "lost_full_chargeback" | "external_partial" | "pix_med">().notNull(),
+  providerCaseId: varchar("provider_case_id", { length: 255 }),
+  status: varchar("status", { enum: ["open", "exception", "settled"] }).$type<"open" | "exception" | "settled">().notNull().default("open"),
+  createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({ paymentReversalUnique: unique("product_post_sale_cost_cases_payment_reversal_unique").on(table.paymentId, table.reversal) }));
+
+export const productPostSaleCostMovement = pgTable("product_post_sale_cost_movements", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), providerMovementId: varchar("provider_movement_id", { length: 255 }).notNull(),
+  kind: varchar("kind", { enum: ["cost", "credit"] }).$type<"cost" | "credit">().notNull(), attribution: varchar("attribution", { enum: ["common", "specific"] }).$type<"common" | "specific">().notNull(), orderId: uuid("order_id").references(() => productOrder.id), amountCentavos: integer("amount_centavos").notNull(), supportedBy: varchar("supported_by", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), observedAt: timestamp("observed_at").notNull(), createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({ providerMovementUnique: unique("product_post_sale_cost_movements_provider_unique").on(table.caseId, table.providerMovementId), caseIdx: index("product_post_sale_cost_movements_case_idx").on(table.caseId) }));
+
+export const productPostSaleCostSettlement = pgTable("product_post_sale_cost_settlements", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), debtor: varchar("debtor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), creditor: varchar("creditor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), amountCentavos: integer("amount_centavos").notNull(), operatorUserId: uuid("operator_user_id").notNull().references(() => user.id), proofUrl: text("proof_url").notNull(), proofKey: varchar("proof_key", { length: 255 }).notNull(), confirmedAt: timestamp("confirmed_at"), createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({ caseUnique: unique("product_post_sale_cost_settlements_case_unique").on(table.caseId), proofUnique: unique("product_post_sale_cost_settlements_proof_unique").on(table.proofKey), partiesAndAmount: check("product_post_sale_cost_settlements_valid", sql`${table.debtor} <> ${table.creditor} AND ${table.amountCentavos} > 0`) }));
+
 export const productDisputeDefence = pgTable(
   "product_dispute_defences",
   {
