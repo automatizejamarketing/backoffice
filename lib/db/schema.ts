@@ -839,6 +839,8 @@ export const productPayment = pgTable(
     }).$type<ProductFinancialModel>(),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     rawStatus: varchar("raw_status", { length: 80 }),
+    /** Cumulative amount confirmed returned by the provider, never inferred. */
+    refundedAmountCentavos: integer("refunded_amount_centavos"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -923,6 +925,32 @@ export const productRefundRequest = pgTable(
 );
 
 export type ProductRefundRequest = InferSelectModel<typeof productRefundRequest>;
+
+export const productRefundOperation = pgTable(
+  "product_refund_operations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
+    operatorUserId: uuid("operator_user_id").notNull().references(() => user.id),
+    idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
+    providerRefundId: varchar("provider_refund_id", { length: 255 }),
+    status: varchar("status", { enum: ["issuing", "confirmed", "failed", "external_partial"] })
+      .$type<"issuing" | "confirmed" | "failed" | "external_partial">()
+      .notNull()
+      .default("issuing"),
+    refundedAmountCentavos: integer("refunded_amount_centavos").notNull().default(0),
+    failureReason: text("failure_reason"),
+    attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
+    confirmedAt: timestamp("confirmed_at"),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    paymentUnique: unique("product_refund_operations_payment_unique").on(table.paymentId),
+    idempotencyUnique: unique("product_refund_operations_idempotency_unique").on(table.idempotencyKey),
+  }),
+);
+
+export type ProductRefundOperation = InferSelectModel<typeof productRefundOperation>;
 
 export const PRODUCT_CARD_DISPUTE_STATUS_VALUES = [
   "open_full",

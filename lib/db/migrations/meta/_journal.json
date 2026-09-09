@@ -421,6 +421,13 @@
       "when": 1795700000001,
       "tag": "0072_product_refund_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795800000001,
+      "tag": "0073_product_refund_operations",
+      "breakpoints": true
     }
   ]
 }
