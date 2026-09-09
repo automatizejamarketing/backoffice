@@ -37,7 +37,10 @@ export async function GET(
       );
     }
 
-    const authz = await requireMarketingUserAccessResponse(userId);
+    const authz = await requireMarketingUserAccessResponse(
+      userId,
+      "marketing:write",
+    );
     if (!authz.ok) return authz.response;
 
     const tokenResult = await getUserAccessTokenByUserId(userId);
