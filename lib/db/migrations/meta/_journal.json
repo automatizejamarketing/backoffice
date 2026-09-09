@@ -575,6 +575,13 @@
       "when": 1798100000000,
       "tag": "0094_product_dispute_defence_upload_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1798200000000,
+      "tag": "0095_post_sale_settlement_snapshots",
+      "breakpoints": true
     }
   ]
 }

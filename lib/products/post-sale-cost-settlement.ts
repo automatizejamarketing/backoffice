@@ -111,7 +111,7 @@ function allocateCommonAmount(amount: number, items: readonly PostSaleCostItem[]
   return new Map(shares.map((share) => [share.orderId, direction * (share.floor + (remaining-- > 0 ? 1 : 0))]));
 }
 
-/** Nearest cent, resolving exactly half a cent in the Expert's favour. */
+/** Nearest cent; an exact half-cent is rounded down for the Expert (R17). */
 function roundExpertCost(amountCentavos: number, expertShareBasisPoints: number) {
   return Math.floor((amountCentavos * expertShareBasisPoints + 4_999) / 10_000);
 }
