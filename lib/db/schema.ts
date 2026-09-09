@@ -952,6 +952,32 @@ export const productRefundOperation = pgTable(
 
 export type ProductRefundOperation = InferSelectModel<typeof productRefundOperation>;
 
+/** Shared operational record for a provider-confirmed refund balance shortage. */
+export const productRefundBalanceCase = pgTable(
+  "product_refund_balance_cases",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
+    expertId: uuid("expert_id").references(() => expertProfile.id),
+    responsible: varchar("responsible", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(),
+    status: varchar("status", { enum: ["pending", "resolved"] }).$type<"pending" | "resolved">().notNull().default("pending"),
+    firstFailedAt: timestamp("first_failed_at").notNull(),
+    lastFailedAt: timestamp("last_failed_at").notNull(),
+    regularizationDueAt: timestamp("regularization_due_at").notNull(),
+    noticeSentAt: timestamp("notice_sent_at").notNull(),
+    releasedByUserId: uuid("released_by_user_id").references(() => user.id),
+    releasedAt: timestamp("released_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    paymentUnique: unique("product_refund_balance_cases_payment_unique").on(table.paymentId),
+    expertPauseIdx: index("product_refund_balance_cases_expert_pause_idx").on(table.expertId, table.status, table.regularizationDueAt),
+  }),
+);
+
+export type ProductRefundBalanceCase = InferSelectModel<typeof productRefundBalanceCase>;
+
 export const PRODUCT_CARD_DISPUTE_STATUS_VALUES = [
   "open_full",
   "open_partial",
