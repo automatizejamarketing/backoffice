@@ -1,4 +1,5 @@
 import { metaApiCall } from "@/lib/meta-business/api";
+import { GraphApiError } from "@/lib/meta-business/error";
 
 type LookalikeCreateInput = {
   adAccountId: string;
@@ -27,18 +28,19 @@ type CreateIssue = {
   code: string;
   reason: string;
   suggestion: string;
+  transient?: boolean;
 };
 
 type CreateResult =
   | { ok: true; id: string; data: { id: string } }
   | { ok: false; error: string; message: string; issues: CreateIssue[] };
 
-function failure(message: string, code = "META_CREATE_FAILED"): Extract<CreateResult, { ok: false }> {
+function failure(message: string, code = "META_CREATE_FAILED", transient = false): Extract<CreateResult, { ok: false }> {
   return {
     ok: false,
     error: "Create failed",
     message,
-    issues: [{ code, reason: message, suggestion: "Revise os dados e tente novamente." }],
+    issues: [{ code, reason: message, suggestion: "Revise os dados e tente novamente.", ...(transient ? { transient: true } : {}) }],
   };
 }
 
@@ -92,6 +94,7 @@ export async function createCustomAudience(
     }
     return { ok: true, id: created.id, data: { id: created.id } };
   } catch (error) {
-    return failure(error instanceof Error ? error.message : "Não foi possível criar o público.");
+    const transient = error instanceof GraphApiError && (error.errorReturn.reason.isTransient || error.errorReturn.statusCode >= 500);
+    return failure(error instanceof Error ? error.message : "Não foi possível criar o público.", "META_CREATE_FAILED", transient);
   }
 }

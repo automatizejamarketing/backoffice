@@ -16,7 +16,10 @@ export type LookalikeSourceAssessment =
   | { ok: true }
   | {
       ok: false;
-      code: "IMPORT_COMPROMISED" | "SOURCE_TYPE_UNSUPPORTED";
+      code:
+        | "IMPORT_COMPROMISED"
+        | "SOURCE_CAPABILITY_UNAVAILABLE"
+        | "SOURCE_TYPE_UNSUPPORTED";
       message: string;
     };
 
@@ -52,6 +55,7 @@ export function buildLookalikeFormation(input: {
 /** Only a known partial/uncertain local import blocks a customer-list seed. */
 export function assessLookalikeSource(
   audience: Pick<CustomAudienceView, "id" | "subtype" | "customerFileSource"> & {
+    capabilities?: Pick<CustomAudienceView["capabilities"], "lookalikeSource">;
     importState?: "partial" | "unknown" | string;
     importResult?: {
       known: boolean;
@@ -70,6 +74,20 @@ export function assessLookalikeSource(
       ok: false,
       code: "IMPORT_COMPROMISED",
       message: "Esta lista tem uma importa\u00e7\u00e3o parcial ou incerta. Corrija-a antes de us\u00e1-la como origem.",
+    };
+  }
+  if (audience.capabilities?.lookalikeSource === "unavailable") {
+    return {
+      ok: false,
+      code: "SOURCE_CAPABILITY_UNAVAILABLE",
+      message: "A Meta não autorizou esta origem para criação de público semelhante nesta conexão.",
+    };
+  }
+  if (audience.subtype === "LOOKALIKE") {
+    return {
+      ok: false,
+      code: "SOURCE_TYPE_UNSUPPORTED",
+      message: "Um lookalike existente não pode ser usado como origem nesta criação.",
     };
   }
   if (

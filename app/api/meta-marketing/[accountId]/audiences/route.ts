@@ -11,10 +11,9 @@ import {
   reconcileWebsiteAudience,
   discoverWebsiteSources,
   websitePeriodEvidenceBySource,
-  assessLookalikeSource,
-  buildLookalikeFormation,
-  createCustomAudience,
-  getCustomAudienceDetail,
+  reviewLookalikeAudience,
+  confirmLookalikeAudience,
+  reconcileLookalikeAudience,
   previewAudienceMetadataUpdate,
   confirmAudienceMetadataUpdate,
   reconcileAudienceMetadataUpdate,
@@ -186,8 +185,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
-    const body = await request.json() as { action?: "review" | "confirm" | "reconcile" | "delete-review" | "delete-confirm" | "instagram-review" | "instagram-confirm" | "instagram-reconcile" | "website-review" | "website-confirm" | "website-reconcile" | "lookalike-review" | "lookalike-confirm"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; commandId?: string; profileId?: string; pixelId?: string; criterion?: string; retentionDays?: unknown; url?: string; event?: string };
-    if (!userId || !body.action || (!body.action.startsWith("instagram-") && !body.action.startsWith("website-") && !body.audienceId && body.action !== "lookalike-review" && body.action !== "lookalike-confirm") || (!body.action.startsWith("instagram-") && !body.action.startsWith("website-") && body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
+    const body = await request.json() as { action?: "review" | "confirm" | "reconcile" | "delete-review" | "delete-confirm" | "instagram-review" | "instagram-confirm" | "instagram-reconcile" | "website-review" | "website-confirm" | "website-reconcile" | "lookalike-review" | "lookalike-confirm" | "lookalike-reconcile"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; commandId?: string; profileId?: string; pixelId?: string; criterion?: string; retentionDays?: unknown; url?: string; event?: string };
+    if (!userId || !body.action || (!body.action.startsWith("instagram-") && !body.action.startsWith("website-") && !body.action.startsWith("lookalike-") && !body.audienceId) || (!body.action.startsWith("instagram-") && !body.action.startsWith("website-") && !body.action.startsWith("lookalike-") && body.action !== "delete-review" && body.action !== "delete-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const authz = await requireMarketingUserAccessResponse(userId, "marketing:write");
     if (!authz.ok) return authz.response;
     updateMetaMutationContext({
@@ -215,23 +214,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const responseBody = !result.ok && result.issues.some((candidate) => candidate.code === "META_MUTATION_UNCERTAIN") ? { ...result, state: "reconciliation_required" as const } : result;
       return NextResponse.json(responseBody, { status: result.ok ? 200 : 409 });
     }
-    if (body.action === "lookalike-review" || body.action === "lookalike-confirm") {
-      if (!body.originAudienceId || !body.name?.trim() || !body.country || body.percentage == null) return NextResponse.json({ error: "Invalid lookalike" }, { status: 400 });
-      const formation = buildLookalikeFormation({ country: body.country, percentage: body.percentage });
-      if (!formation.ok) return NextResponse.json({ error: "Invalid lookalike", message: formation.message }, { status: 400 });
-      const importHistory = await customerFileDurableStore().getLatestImportsForAudiences(
-        userId,
-        [body.originAudienceId],
-        accountId,
-      );
-      const source = await getCustomAudienceDetail({ audienceId: body.originAudienceId, accessToken: tokenResult.accessToken, importHistory });
-      const eligibility = assessLookalikeSource(source);
-      if (!eligibility.ok) return NextResponse.json({ error: eligibility.code, message: eligibility.message }, { status: 409 });
-      const confirmationToken = JSON.stringify({ accountId, originAudienceId: source.id, name: body.name.trim(), description: body.description, ...formation.formation });
-      if (body.action === "lookalike-review") return NextResponse.json({ ok: true, confirmationToken, source: { id: source.id, name: source.name }, formation: formation.formation, state: "ready_to_submit", notice: "O percentual define o tamanho do p\u00fablico semelhante no pa\u00eds. Ele n\u00e3o mede confian\u00e7a, correspond\u00eancia nem pessoas importadas." });
-      if (body.confirmationToken !== confirmationToken) return NextResponse.json({ error: "STALE_REVIEW", message: "Revise novamente antes de criar o p\u00fablico semelhante." }, { status: 409 });
-      const created = await createCustomAudience({ adAccountId: accountId, accessToken: tokenResult.accessToken, type: "lookalike", originAudienceId: source.id, name: body.name, description: body.description, lookalikeCountry: formation.formation.country, lookalikeRatio: formation.formation.ratio });
-      return NextResponse.json(created.ok ? { ok: true, id: created.id, state: "submitted" } : created, { status: created.ok ? 200 : 409 });
+    if (body.action === "lookalike-review" || body.action === "lookalike-confirm" || body.action === "lookalike-reconcile") {
+      if (!body.originAudienceId || !body.name?.trim() || !body.country || body.percentage == null || (body.action !== "lookalike-review" && !body.confirmationToken)) return NextResponse.json({ error: "Invalid lookalike" }, { status: 400 });
+      const importHistory = await customerFileDurableStore().getLatestImportsForAudiences(userId, [body.originAudienceId], accountId);
+      const input = { adAccountId: accountId, accessToken: tokenResult.accessToken, originAudienceId: body.originAudienceId, name: body.name, description: body.description, country: body.country, percentage: body.percentage, importHistory, confirmationToken: body.confirmationToken ?? "", commandId: body.commandId, actorUserId: userId, commandStore };
+      const result = body.action === "lookalike-review" ? await reviewLookalikeAudience(input) : body.action === "lookalike-confirm" ? await confirmLookalikeAudience(input) : await reconcileLookalikeAudience(input);
+      const responseBody = !result.ok && result.issues.some((candidate) => candidate.code === "META_MUTATION_UNCERTAIN") ? { ...result, state: "reconciliation_required" as const } : result;
+      return NextResponse.json(responseBody, { status: result.ok ? 200 : 409 });
     }
     if (body.action === "website-review" || body.action === "website-confirm" || body.action === "website-reconcile") {
       if (!body.name?.trim() || !body.pixelId || !body.criterion || !Number.isInteger(body.retentionDays)) return NextResponse.json({ error: "Invalid website audience" }, { status: 400 });
