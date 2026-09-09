@@ -512,6 +512,13 @@
       "when": 1797200000000,
       "tag": "0085_product_refund_operation_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1797300000000,
+      "tag": "0086_product_refund_balance_operations",
+      "breakpoints": true
     }
   ]
 }

@@ -63,7 +63,7 @@ export async function POST(
       }
       return NextResponse.json(
         result,
-        { status: result.status === "processing" ? 202 : result.status === "external_partial" ? 409 : 200 },
+        { status: result.status === "processing" || result.status === "balance_pending" ? 202 : result.status === "external_partial" ? 409 : 200 },
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "refund_failed";

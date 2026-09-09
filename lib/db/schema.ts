@@ -1102,8 +1102,14 @@ export const productRefundBalanceCase = pgTable(
     firstFailedAt: timestamp("first_failed_at").notNull(),
     lastFailedAt: timestamp("last_failed_at").notNull(),
     regularizationDueAt: timestamp("regularization_due_at").notNull(),
-    noticeSentAt: timestamp("notice_sent_at").notNull(),
+    noticeSentAt: timestamp("notice_sent_at"),
+    attemptCount: integer("attempt_count").notNull().default(1),
+    lastFailureCode: varchar("last_failure_code", { length: 120 }),
+    lastFailureMessage: text("last_failure_message"),
+    nextRetryAt: timestamp("next_retry_at"),
     releasedByUserId: uuid("released_by_user_id").references(() => user.id),
+    releasedByEmail: varchar("released_by_email", { length: 255 }),
+    releaseReason: text("release_reason"),
     releasedAt: timestamp("released_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -1111,6 +1117,7 @@ export const productRefundBalanceCase = pgTable(
   (table) => ({
     paymentUnique: unique("product_refund_balance_cases_payment_unique").on(table.paymentId),
     expertPauseIdx: index("product_refund_balance_cases_expert_pause_idx").on(table.expertId, table.status, table.regularizationDueAt),
+    retryIdx: index("product_refund_balance_cases_retry_idx").on(table.status, table.nextRetryAt),
   }),
 );
 

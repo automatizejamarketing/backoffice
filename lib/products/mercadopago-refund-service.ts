@@ -1,10 +1,11 @@
 import "server-only";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   productOrder,
   productPayment,
+  productRefundBalanceCase,
   productRefundOperation,
 } from "@/lib/db/schema";
 import { getMercadoPagoPayment } from "@/lib/mercadopago/fetch-payment";
@@ -14,13 +15,19 @@ import {
 import {
   readMercadoPagoRefundedAmountCentavos,
 } from "@/lib/mercadopago/reversal";
-import { refundMercadoPagoProductPayment } from "@/lib/mercadopago/product-refunds";
+import { isMercadoPagoInsufficientBalanceError, refundMercadoPagoProductPayment } from "@/lib/mercadopago/product-refunds";
 import { applyFullProductCheckoutRefund } from "@/lib/db/product-queries";
 import { decideProductIntegralRefund } from "./mercadopago-refund";
 import {
   getProductRefundBumpOrderIds,
   getProductRefundRootOrderId,
 } from "./refund-scope";
+import {
+  REFUND_BALANCE_REGULARIZATION_MS,
+  REFUND_BALANCE_RETRY_DELAY_MS,
+  resolveRefundBalanceResponsibility,
+} from "./refund-balance-policy";
+import { notifyProductRefundBalanceCase } from "./refund-balance-notifications";
 
 type OperatorInput = {
   operatorUserId?: string | null;
@@ -154,6 +161,35 @@ export async function executeProductIntegralRefund(input: OperatorInput & {
       .update(productRefundOperation)
       .set({ status: uncertain ? "issuing" : "failed", failureReason, updatedAt: new Date() })
       .where(eq(productRefundOperation.id, pending.id));
+    if (isMercadoPagoInsufficientBalanceError(error)) {
+      const responsibility = resolveRefundBalanceResponsibility({
+        expertId: rootOrder.expertIdSnapshot,
+        receiverAccountId: payment.mercadoPagoCollectorId,
+      });
+      if (responsibility.kind !== "unknown") {
+        const balanceCase = await recordProductRefundBalanceInsufficiency({
+          paymentId: payment.id,
+          expertId: responsibility.kind === "expert" ? responsibility.expertId : null,
+          responsible: responsibility.kind,
+          failureMessage: failureReason,
+        });
+        if (balanceCase) {
+          try {
+            await notifyProductRefundBalanceCase(balanceCase.id);
+          } catch (notificationError) {
+            console.error("product.refund_balance.notice_failed", notificationError);
+          }
+        }
+        return {
+          status: "balance_pending" as const,
+          rootOrderId: rootOrder.id,
+          orderIds,
+          amountCentavos: payment.grossAmountCentavos ?? 0,
+          caseId: balanceCase?.id ?? null,
+          responsible: responsibility.kind,
+        };
+      }
+    }
     throw error;
   }
 }
@@ -255,4 +291,89 @@ async function confirmWholeCheckout(input: {
     amountCentavos: input.amount,
     operationId: input.operationId ?? null,
   };
+}
+
+export async function recordProductRefundBalanceInsufficiency(input: {
+  paymentId: string;
+  expertId: string | null;
+  responsible: "expert" | "automatize";
+  failureMessage?: string;
+  now?: Date;
+}) {
+  if (input.responsible === "expert" && !input.expertId) {
+    throw new Error("refund_balance_expert_missing");
+  }
+  const now = input.now ?? new Date();
+  const nextRetryAt = new Date(now.getTime() + REFUND_BALANCE_RETRY_DELAY_MS);
+  const [caseRow] = await db
+    .insert(productRefundBalanceCase)
+    .values({
+      paymentId: input.paymentId,
+      expertId: input.responsible === "expert" ? input.expertId : null,
+      responsible: input.responsible,
+      firstFailedAt: now,
+      lastFailedAt: now,
+      regularizationDueAt: new Date(now.getTime() + REFUND_BALANCE_REGULARIZATION_MS),
+      noticeSentAt: null,
+      attemptCount: 1,
+      lastFailureCode: "insufficient_money_for_refund",
+      lastFailureMessage: input.failureMessage ?? null,
+      nextRetryAt,
+    })
+    .onConflictDoUpdate({
+      target: productRefundBalanceCase.paymentId,
+      set: {
+        lastFailedAt: now,
+        lastFailureCode: "insufficient_money_for_refund",
+        lastFailureMessage: input.failureMessage ?? null,
+        nextRetryAt,
+        attemptCount: sql`${productRefundBalanceCase.attemptCount} + 1`,
+        updatedAt: now,
+      },
+    })
+    .returning();
+  return caseRow ?? null;
+}
+
+export async function releaseExpertSalesAfterRefundBalanceResolution(input: {
+  caseId: string;
+  operatorUserId?: string | null;
+  operatorEmail: string;
+  reason: string;
+}) {
+  return db.transaction(async (tx) => {
+    const [caseRow] = await tx
+      .select()
+      .from(productRefundBalanceCase)
+      .where(eq(productRefundBalanceCase.id, input.caseId))
+      .limit(1)
+      .for("update");
+    if (!caseRow) throw new Error("refund_balance_case_not_found");
+    const [operation] = await tx
+      .select({ status: productRefundOperation.status })
+      .from(productRefundOperation)
+      .where(eq(productRefundOperation.paymentId, caseRow.paymentId))
+      .limit(1);
+    if (operation?.status !== "confirmed") {
+      throw new Error("refund_balance_release_requires_confirmed_refund");
+    }
+    const [released] = await tx
+      .update(productRefundBalanceCase)
+      .set({
+        status: "resolved",
+        releasedByUserId: input.operatorUserId ?? null,
+        releasedByEmail: input.operatorEmail,
+        releaseReason: input.reason,
+        releasedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(productRefundBalanceCase.id, input.caseId),
+        eq(productRefundBalanceCase.responsible, "expert"),
+        eq(productRefundBalanceCase.status, "pending"),
+      ))
+      .returning();
+    if (!released) throw new Error("refund_balance_case_not_pending");
+    return released;
+  });
 }

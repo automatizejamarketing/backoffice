@@ -1,5 +1,26 @@
 import "server-only";
 
+export class MercadoPagoRefundError extends Error {
+  constructor(
+    readonly status: number,
+    readonly responseBody: unknown,
+  ) {
+    super(`Mercado Pago refund failed (${status})`);
+    this.name = "MercadoPagoRefundError";
+  }
+}
+
+/** Only the provider's explicit insufficient-money response creates a
+ * balance case. A generic 4xx must remain a normal refund failure. */
+export function isMercadoPagoInsufficientBalanceError(error: unknown): boolean {
+  if (!(error instanceof MercadoPagoRefundError) || error.status !== 428) {
+    return false;
+  }
+  const body = JSON.stringify(error.responseBody).toLowerCase();
+  return body.includes("insufficient_money_for_refund") ||
+    (body.includes("insufficient") && (body.includes("balance") || body.includes("fund")));
+}
+
 export async function refundMercadoPagoProductPayment(
   paymentId: string,
   idempotencyKey: string,
@@ -23,8 +44,14 @@ export async function refundMercadoPagoProductPayment(
     },
   );
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Mercado Pago recusou o reembolso (${response.status}): ${body}`);
+    const bodyText = await response.text().catch(() => "");
+    let responseBody: unknown = bodyText;
+    try {
+      responseBody = JSON.parse(bodyText);
+    } catch {
+      // Keep the raw body for diagnostics when the provider does not return JSON.
+    }
+    throw new MercadoPagoRefundError(response.status, responseBody);
   }
   return response.json() as Promise<{ id?: number | string; status?: string }>;
 }

@@ -16,6 +16,7 @@ import {
   productDisputeDefence,
   productDisputeDefenceFile,
   productReconciliationCase,
+  productRefundBalanceCase,
   productRefundOperation,
   productRefundRequest,
   user,
@@ -437,6 +438,17 @@ export async function listProductOrders() {
       refundOperationReason: productRefundOperation.reason,
       refundOperationOperatorEmail: productRefundOperation.operatorEmail,
       refundOperationUpdatedAt: productRefundOperation.updatedAt,
+      refundBalanceCaseId: productRefundBalanceCase.id,
+      refundBalanceStatus: productRefundBalanceCase.status,
+      refundBalanceResponsible: productRefundBalanceCase.responsible,
+      refundBalanceFirstFailedAt: productRefundBalanceCase.firstFailedAt,
+      refundBalanceLastFailedAt: productRefundBalanceCase.lastFailedAt,
+      refundBalanceDueAt: productRefundBalanceCase.regularizationDueAt,
+      refundBalanceAttemptCount: productRefundBalanceCase.attemptCount,
+      refundBalanceNextRetryAt: productRefundBalanceCase.nextRetryAt,
+      refundBalanceNoticeSentAt: productRefundBalanceCase.noticeSentAt,
+      refundBalanceLastFailureCode: productRefundBalanceCase.lastFailureCode,
+      refundBalanceLastFailureMessage: productRefundBalanceCase.lastFailureMessage,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,
@@ -473,6 +485,7 @@ export async function listProductOrders() {
     .innerJoin(product, eq(productOrder.productId, product.id))
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
     .leftJoin(productRefundOperation, eq(productRefundOperation.paymentId, productPayment.id))
+    .leftJoin(productRefundBalanceCase, eq(productRefundBalanceCase.paymentId, productPayment.id))
     .orderBy(desc(productOrder.createdAt));
 
   const rowsById = new Map(rows.map((row) => [row.id, row]));
@@ -701,6 +714,13 @@ export async function applyFullProductCheckoutRefund(input: {
         })
         .where(eq(productRefundOperation.id, input.operationId));
     }
+    await tx
+      .update(productRefundBalanceCase)
+      .set({ nextRetryAt: null, lastFailureMessage: null, updatedAt: now })
+      .where(and(
+        eq(productRefundBalanceCase.paymentId, input.paymentId),
+        eq(productRefundBalanceCase.status, "pending"),
+      ));
     await tx
       .update(productRefundRequest)
       .set({ status: "completed", updatedAt: now })

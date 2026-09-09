@@ -249,6 +249,17 @@ type Order = {
   refundOperationAmountCentavos: number | null;
   refundOperationReason: string | null;
   refundOperationOperatorEmail: string | null;
+  refundBalanceCaseId: string | null;
+  refundBalanceStatus: "pending" | "resolved" | null;
+  refundBalanceResponsible: "expert" | "automatize" | null;
+  refundBalanceFirstFailedAt: string | null;
+  refundBalanceLastFailedAt: string | null;
+  refundBalanceDueAt: string | null;
+  refundBalanceAttemptCount: number | null;
+  refundBalanceNextRetryAt: string | null;
+  refundBalanceNoticeSentAt: string | null;
+  refundBalanceLastFailureCode: string | null;
+  refundBalanceLastFailureMessage: string | null;
 };
 
 type Payout = {
@@ -794,6 +805,7 @@ export function ProductsAdminWorkspace({
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
   const [orderDetailTarget, setOrderDetailTarget] = useState<Order | null>(null);
   const [refunding, setRefunding] = useState(false);
+  const [releasingBalance, setReleasingBalance] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
@@ -1628,6 +1640,10 @@ export function ProductsAdminWorkspace({
         toast.info(
           "Reembolso enviado e ainda em confirmação no Mercado Pago. O acesso permanece ativo.",
         );
+      } else if (body?.status === "balance_pending") {
+        toast.info(
+          "O Mercado Pago confirmou falta de saldo. O caso foi registrado para retentativa e nenhum acesso foi alterado.",
+        );
       } else {
         toast.success(
           viaMercadoPago
@@ -1639,6 +1655,31 @@ export function ProductsAdminWorkspace({
       await loadAll();
     } finally {
       setRefunding(false);
+    }
+  }
+
+  async function releaseRefundBalanceCase(order: Order) {
+    if (!order.refundBalanceCaseId) return;
+    const reason = window.prompt(
+      "Informe o motivo da liberação auditada das vendas do Expert:",
+    );
+    if (!reason?.trim()) return;
+    setReleasingBalance(true);
+    try {
+      const response = await fetch(
+        `/api/products/admin/refund-balance/${order.refundBalanceCaseId}/release`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
+      );
+      if (!response.ok) return toast.error(await readError(response));
+      toast.success("Vendas do Expert liberadas e ação registrada no log.");
+      await loadAll();
+      setOrderDetailTarget(null);
+    } finally {
+      setReleasingBalance(false);
     }
   }
 
@@ -3093,6 +3134,60 @@ export function ProductsAdminWorkspace({
                             ? ` · ${orderDetailTarget.refundOperationOperatorEmail}`
                             : ""}
                         </dd>
+                      </div>
+                    ) : null}
+                    {orderDetailTarget.refundBalanceCaseId ? (
+                      <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50/50 p-3 dark:bg-amber-950/20">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Caso de saldo</dt>
+                          <dd className="text-right text-xs">
+                            {orderDetailTarget.refundBalanceStatus === "resolved"
+                              ? "resolvido"
+                              : `pendente · ${orderDetailTarget.refundBalanceResponsible ?? "não atribuído"}`}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Valor / tentativas</dt>
+                          <dd className="font-mono tabular-nums">
+                            {money(orderDetailTarget.grossAmountCentavos ?? orderDetailTarget.checkoutTotalCentavos)} · {orderDetailTarget.refundBalanceAttemptCount ?? 0}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Primeira falha</dt>
+                          <dd>{orderDetailTarget.refundBalanceFirstFailedAt ? dateTime(orderDetailTarget.refundBalanceFirstFailedAt) : "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Prazo de 24h</dt>
+                          <dd>{orderDetailTarget.refundBalanceDueAt ? dateTime(orderDetailTarget.refundBalanceDueAt) : "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Próxima ação</dt>
+                          <dd className="text-right">
+                            {orderDetailTarget.refundBalanceStatus === "resolved"
+                              ? "Caso encerrado"
+                              : orderDetailTarget.refundOperationStatus === "confirmed"
+                                ? "Liberar vendas com motivo"
+                                : orderDetailTarget.refundBalanceNextRetryAt
+                                  ? `Retentar em ${dateTime(orderDetailTarget.refundBalanceNextRetryAt)}`
+                                  : "Retentar agora"}
+                          </dd>
+                        </div>
+                        {orderDetailTarget.refundBalanceLastFailureCode ? (
+                          <p className="text-xs text-muted-foreground">
+                            Último retorno: {orderDetailTarget.refundBalanceLastFailureCode}
+                          </p>
+                        ) : null}
+                        {orderDetailTarget.refundBalanceStatus === "pending" && orderDetailTarget.refundOperationStatus === "confirmed" && orderDetailTarget.refundBalanceResponsible === "expert" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={releasingBalance}
+                            onClick={() => void releaseRefundBalanceCase(orderDetailTarget)}
+                          >
+                            {releasingBalance ? "Registrando…" : "Liberar vendas após confirmação"}
+                          </Button>
+                        ) : null}
                       </div>
                     ) : null}
                   </>
