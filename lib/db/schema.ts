@@ -36,6 +36,7 @@ import {
   PRODUCT_FINANCIAL_RESPONSIBLE_VALUES,
   PRODUCT_ORDER_STATUS_VALUES,
   PRODUCT_PAYMENT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
   PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
   PRODUCT_POST_SALE_COST_STATUS_VALUES,
   PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
@@ -53,6 +54,7 @@ import {
   type ProductFinancialResponsible,
   type ProductOrderStatus,
   type ProductPaymentStatus,
+  type ProductPaymentAttemptStatus,
   type ProductPixFraudCaseStatus,
   type ProductPostSaleCostStatus,
   type ProductPostSaleMovementAttribution,
@@ -72,6 +74,7 @@ export {
   PRODUCT_FINANCIAL_RESPONSIBLE_VALUES,
   PRODUCT_ORDER_STATUS_VALUES,
   PRODUCT_PAYMENT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
   PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
   PRODUCT_POST_SALE_COST_STATUS_VALUES,
   PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
@@ -91,6 +94,7 @@ export type {
   ProductFinancialResponsible,
   ProductOrderStatus,
   ProductPaymentStatus,
+  ProductPaymentAttemptStatus,
   ProductPixFraudCaseStatus,
   ProductPostSaleCostStatus,
   ProductPostSaleMovementAttribution,
@@ -875,6 +879,58 @@ export const productOrder = pgTable(
 
 export type ProductOrder = InferSelectModel<typeof productOrder>;
 
+/** One immutable provider charge attempt; an order may have several. */
+export const productPaymentAttempt = pgTable(
+  "product_payment_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    attemptKey: varchar("attempt_key", { length: 80 }).notNull(),
+    requestFingerprint: varchar("request_fingerprint", { length: 64 }).notNull(),
+    orderId: uuid("order_id").notNull().references(() => productOrder.id),
+    provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"),
+    checkoutModel: varchar("checkout_model", { length: 60 }).notNull(),
+    paymentMethod: varchar("payment_method", { enum: ["pix", "card"] })
+      .$type<"pix" | "card">()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    buyerTotalCentavos: integer("buyer_total_centavos"),
+    buyerInterestCentavos: integer("buyer_interest_centavos"),
+    installments: integer("installments"),
+    paymentMethodId: varchar("payment_method_id", { length: 80 }),
+    issuerId: varchar("issuer_id", { length: 80 }),
+    productOfferId: varchar("product_offer_id", { length: 100 }),
+    mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
+    expectedProviderFeeCentavos: integer("expected_provider_fee_centavos"),
+    expectedApplicationFeeCentavos: integer("expected_application_fee_centavos"),
+    splitContractVersion: varchar("split_contract_version", { length: 80 }),
+    payloadSnapshot: jsonb("payload_snapshot").$type<Record<string, unknown>>().notNull(),
+    providerPaymentId: varchar("provider_payment_id", { length: 255 }),
+    status: varchar("status", { enum: [...PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES] })
+      .$type<ProductPaymentAttemptStatus>()
+      .notNull()
+      .default("prepared"),
+    failureCode: varchar("failure_code", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    issuedAt: timestamp("issued_at"),
+    terminalAt: timestamp("terminal_at"),
+    lastCheckedAt: timestamp("last_checked_at"),
+  },
+  (table) => ({
+    attemptKeyUnique: unique("product_payment_attempts_attempt_key_unique").on(table.attemptKey),
+    providerPaymentUnique: uniqueIndex("product_payment_attempts_provider_payment_unique")
+      .on(table.provider, table.providerPaymentId)
+      .where(sql`${table.providerPaymentId} IS NOT NULL`),
+    orderCreatedIdx: index("product_payment_attempts_order_created_idx").on(table.orderId, table.createdAt),
+    orderStatusIdx: index("product_payment_attempts_order_status_idx").on(table.orderId, table.status),
+    activeOrderUnique: uniqueIndex("product_payment_attempts_one_active_order_unique")
+      .on(table.orderId)
+      .where(sql`${table.status} IN ('prepared', 'issuing', 'pending', 'unknown')`),
+  }),
+);
+
+export type ProductPaymentAttempt = InferSelectModel<typeof productPaymentAttempt>;
+
 export const productPayment = pgTable(
   "product_payments",
   {
@@ -882,6 +938,7 @@ export const productPayment = pgTable(
     orderId: uuid("order_id")
       .notNull()
       .references(() => productOrder.id),
+    attemptId: uuid("attempt_id").references(() => productPaymentAttempt.id),
     provider: varchar("provider", { length: 30 })
       .notNull()
       .default("mercadopago"),

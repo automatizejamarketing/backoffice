@@ -554,6 +554,13 @@
       "when": 1797800000000,
       "tag": "0091_product_post_sale_cost_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1797900000000,
+      "tag": "0092_product_payment_attempts",
+      "breakpoints": true
     }
   ]
 }
