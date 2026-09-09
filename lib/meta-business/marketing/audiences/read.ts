@@ -61,7 +61,8 @@ function mapAudience(
     timeCreated: num(audience.time_created), timeUpdated: num(audience.time_updated), rule: audience.rule, lookalikeSpec: audience.lookalike_spec,
     lookalikeAudienceIds: Array.isArray(audience.lookalike_audience_ids) ? audience.lookalike_audience_ids as string[] : undefined,
     originAudienceId: str(audience.origin_audience_id), ruleSummary: !ruleWasRequested ? "not_loaded" : audience.rule == null ? "not_applicable" : "external",
-    capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: capability(permissions?.can_edit), share: capability(permissions?.can_share), editRule: "unknown", manageMembers: "unknown", delete: "unknown", lookalikeSource: capability(permissions?.supports_recipient_lookalike ?? permissions?.subtype_supports_lookalike) },
+    // Meta exposes one `can_edit` permission for the audience object; it authorizes both sparse metadata edits and replacing the complete rule.
+    capabilities: { read: "available", include: "unknown", exclude: "unknown", editMetadata: capability(permissions?.can_edit), share: capability(permissions?.can_share), editRule: capability(permissions?.can_edit), manageMembers: "unknown", delete: "unknown", lookalikeSource: capability(permissions?.supports_recipient_lookalike ?? permissions?.subtype_supports_lookalike) },
   };
 
   if (importHistory !== undefined) {

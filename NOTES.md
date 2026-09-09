@@ -11,3 +11,9 @@
 # Ticket 23 notes
 
 - Audience reads now join the latest sanitized local import result to Meta's audience state and expose include, exclude, lookalike-source, Meta-processing, and import-result facts independently. The builds passed without an authenticated Meta v25 account, so live re-read and lookalike refusal still require a controlled exercise.
+
+# Ticket 04 notes
+
+- The operator interface and API support the same five Instagram criteria through the documented `ig_business` rule source, with explicit criterion-specific periods and hermetic contract coverage. The headless environment has no authenticated Meta v25 test profile, so creation/re-read evidence, Ads Manager initial periods, and regional availability (notably messages) still require a controlled live verification; no universal period is invented.
+- Review/confirm/reconcile uses the durable ticket-02 command identity. It returns submitted identity/state, does not blindly retry uncertain operations, separates source access from activity and final availability, and guides missing-source configuration without provisioning assets or installing tracking.
+- Only losslessly representable simple rules with permission are editable. Exclusions, aggregations, opaque/external rules, stale reviews, and insufficient permissions are refused without mutation; audience targeting, campaign changes, and arbitrary criterion combinations remain out of scope.

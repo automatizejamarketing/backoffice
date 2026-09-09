@@ -13,7 +13,14 @@ import {
   previewAudienceMetadataUpdate,
   confirmAudienceMetadataUpdate,
   reconcileAudienceMetadataUpdate,
+  type InstagramAudienceCriterion,
+  INSTAGRAM_PERIOD_EVIDENCE,
+  instagramSourceEvidence,
+  reviewInstagramAudience,
+  confirmInstagramAudience,
+  reconcileInstagramAudience,
 } from "@/lib/meta-business/marketing/audiences";
+import { getAdvertisingIdentities } from "@/lib/meta-business/get-instagram-connected-page";
 import { getAdAccountPixels } from "@/lib/meta-business/get-ad-account-pixels";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
@@ -46,11 +53,17 @@ type GetWebsiteSourcesResponse = {
   guidance?: string;
 };
 
+type GetInstagramSourcesResponse = {
+  profiles: Array<{ id: string; username?: string; name?: string; source: ReturnType<typeof instagramSourceEvidence> }>;
+  periodEvidence: typeof INSTAGRAM_PERIOD_EVIDENCE;
+  guidance?: string;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
 ): Promise<
-  NextResponse<GetAudiencesResponse | GetAudiencesErrorResponse | GetWebsiteSourcesResponse>
+  NextResponse<GetAudiencesResponse | GetAudiencesErrorResponse | GetWebsiteSourcesResponse | GetInstagramSourcesResponse>
 > {
   try {
     const { accountId } = await params;
@@ -101,6 +114,15 @@ export async function GET(
       const pixels = await getAdAccountPixels(accountId.startsWith("act_") ? accountId : `act_${accountId}`, tokenResult.accessToken);
       const sources = pixels.data.filter((pixel) => pixel.is_unavailable !== true && Boolean(pixel.last_fired_time)).map((pixel) => ({ id: pixel.id, name: pixel.name, lastFiredTime: pixel.last_fired_time }));
       return NextResponse.json({ sources, events: [], guidance: sources.length ? "A fonte tem atividade observada. Eventos específicos não são oferecidos sem uma observação autenticada da fonte; a tela não usa catálogo genérico." : "Nenhum Pixel com atividade recebida e acessível foi encontrado. Configure ou reautorize o rastreamento existente; esta tela não instala Pixel nem CAPI." });
+    }
+    if (request.nextUrl.searchParams.get("sources") === "instagram") {
+      const profiles = await getAdvertisingIdentities(tokenResult.accessToken, accountId);
+      const sourceProfiles = profiles.map((profile) => ({ id: profile.instagramBusinessAccountId, username: profile.instagramUsername, name: profile.pageName }));
+      return NextResponse.json({
+        profiles: sourceProfiles.map((profile) => ({ ...profile, source: instagramSourceEvidence(sourceProfiles, profile.id) })),
+        periodEvidence: INSTAGRAM_PERIOD_EVIDENCE,
+        guidance: profiles.length ? undefined : "Nenhum perfil profissional do Instagram acessível foi encontrado para esta conta. Conecte um perfil profissional a uma Página do Facebook e autorize o acesso existente; esta tela não cria ativos nem instala rastreamento.",
+      });
     }
 
     const importHistory = await customerFileDurableStore().getLatestImportsForAccount(
@@ -158,8 +180,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
-    const body = await request.json() as { action?: "review" | "confirm" | "reconcile" | "delete-review" | "delete-confirm" | "website-create" | "website-update" | "lookalike-review" | "lookalike-confirm"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; commandId?: string; pixelId?: string; criterion?: "visitors" | "url" | "event"; retentionDays?: unknown; url?: string; event?: string };
-    if (!userId || (!body.audienceId && body.action !== "website-create" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm") || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "website-create" && body.action !== "website-update" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
+    const body = await request.json() as { action?: "review" | "confirm" | "reconcile" | "delete-review" | "delete-confirm" | "instagram-review" | "instagram-confirm" | "instagram-reconcile" | "website-create" | "website-update" | "lookalike-review" | "lookalike-confirm"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; commandId?: string; profileId?: string; pixelId?: string; criterion?: string; retentionDays?: unknown; url?: string; event?: string };
+    if (!userId || !body.action || (!body.action.startsWith("instagram-") && !body.audienceId && body.action !== "website-create" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm") || (!body.action.startsWith("instagram-") && body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "website-create" && body.action !== "website-update" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const authz = await requireMarketingUserAccessResponse(userId, "marketing:write");
     if (!authz.ok) return authz.response;
     updateMetaMutationContext({
@@ -179,6 +201,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const commandStore = createPostgresAudienceCommandStore();
     const connection = await getUserWithAdAccounts(tokenResult.accessToken, { tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId, clientBusinessId: tokenResult.connection.clientBusinessId, connectionName: tokenResult.connection.name });
     assertCustomAudienceAccountAccess(accountId, connection.adaccounts?.data ?? []);
+    if (body.action === "instagram-review" || body.action === "instagram-confirm" || body.action === "instagram-reconcile") {
+      if (!body.name?.trim() || !body.profileId || !body.criterion || !Number.isInteger(body.retentionDays) || !["all", "engaged", "profile_visit", "messaged", "saved"].includes(body.criterion) || (body.action !== "instagram-review" && !body.confirmationToken)) return NextResponse.json({ error: "Invalid Instagram audience" }, { status: 400 });
+      const profiles = await getAdvertisingIdentities(tokenResult.accessToken, accountId);
+      const input = { adAccountId: accountId, accessToken: tokenResult.accessToken, name: body.name, description: body.description, selection: { profileId: body.profileId, criterion: body.criterion as InstagramAudienceCriterion, retentionDays: body.retentionDays as number }, audienceId: body.audienceId, profiles: profiles.map((profile) => ({ id: profile.instagramBusinessAccountId, username: profile.instagramUsername, name: profile.pageName })), confirmationToken: body.confirmationToken ?? "", commandId: body.commandId, actorUserId: userId, commandStore };
+      const result = body.action === "instagram-review" ? await reviewInstagramAudience(input) : body.action === "instagram-confirm" ? await confirmInstagramAudience(input) : await reconcileInstagramAudience(input);
+      const responseBody = !result.ok && result.issues.some((candidate) => candidate.code === "META_MUTATION_UNCERTAIN") ? { ...result, state: "reconciliation_required" as const } : result;
+      return NextResponse.json(responseBody, { status: result.ok ? 200 : 409 });
+    }
     if (body.action === "lookalike-review" || body.action === "lookalike-confirm") {
       if (!body.originAudienceId || !body.name?.trim() || !body.country || body.percentage == null) return NextResponse.json({ error: "Invalid lookalike" }, { status: 400 });
       const formation = buildLookalikeFormation({ country: body.country, percentage: body.percentage });
@@ -202,7 +232,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const pixels = await getAdAccountPixels(accountId.startsWith("act_") ? accountId : `act_${accountId}`, tokenResult.accessToken);
       if (!pixels.data.some((pixel) => pixel.id === body.pixelId && pixel.is_unavailable !== true && pixel.last_fired_time)) return NextResponse.json({ error: "Website source unavailable", message: "O Pixel escolhido não tem atividade recebida acessível nesta conta." }, { status: 409 });
       try {
-        const payload = new URLSearchParams({ name: body.name.trim(), rule: JSON.stringify(buildWebsiteAudienceRule({ pixelId: body.pixelId, criterion: body.criterion, retentionDays: body.retentionDays as number, url: body.url, event: body.event })) });
+        const payload = new URLSearchParams({ name: body.name.trim(), rule: JSON.stringify(buildWebsiteAudienceRule({ pixelId: body.pixelId, criterion: body.criterion as "visitors" | "url" | "event", retentionDays: body.retentionDays as number, url: body.url, event: body.event })) });
         if (body.action === "website-create") payload.set("prefill", "true");
         if (body.description) payload.set("description", body.description);
         const path = body.action === "website-create" ? `act_${accountId.replace(/^act_/, "")}/customaudiences` : body.audienceId!;

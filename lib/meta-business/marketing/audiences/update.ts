@@ -9,6 +9,7 @@ import {
 } from "../creation/types";
 import { issuesFromError } from "../creation/normalize";
 import { ensureObjectInAccount } from "../update/ownership";
+import { type AudienceRuleInput, compileAudienceRule } from "./rule";
 import type { AudienceCommandStore } from "./command-store";
 
 export type AudienceKnownUse = {
@@ -65,6 +66,7 @@ type AudienceSnapshot = {
   account_id?: string;
   name?: string;
   description?: string;
+  rule?: unknown;
   lookalike_audience_ids?: string[];
   permission_for_actions?: { can_edit?: boolean };
 };
@@ -184,8 +186,9 @@ export async function previewAudienceMetadataUpdate(input: {
   accessToken: string;
   name?: string;
   description?: string;
+  allowNoChange?: boolean;
 }): Promise<AudienceMetadataReviewResult> {
-  if (input.name == null && input.description == null) {
+  if (input.name == null && input.description == null && !input.allowNoChange) {
     return {
       ok: false,
       issues: [
@@ -256,8 +259,10 @@ export async function updateCustomAudience(input: {
   name?: string;
   description?: string;
   expectedBefore?: { name?: string; description?: string };
+  expectedRule?: unknown;
+  rule?: AudienceRuleInput;
 }): Promise<CreateResult> {
-  if (input.name == null && input.description == null) {
+  if (input.name == null && input.description == null && input.rule == null) {
     return {
       ok: false,
       issues: [
@@ -285,10 +290,18 @@ export async function updateCustomAudience(input: {
     if (input.expectedBefore && (snapshot.name !== input.expectedBefore.name || snapshot.description !== input.expectedBefore.description)) {
       return fail([localIssue("audience", "STALE_REVIEW", "Os metadados mudaram enquanto a confirmação era processada.", "Revise novamente antes de confirmar.")]);
     }
+    if (input.expectedRule !== undefined && JSON.stringify(snapshot.rule) !== JSON.stringify(input.expectedRule)) {
+      return fail([localIssue("audience", "STALE_REVIEW", "A regra mudou enquanto a confirmação era processada.", "Revise novamente antes de confirmar.")]);
+    }
 
     const body = new URLSearchParams();
     if (input.name != null) body.set("name", input.name);
     if (input.description != null) body.set("description", input.description);
+    if (input.rule) {
+      const compiled = compileAudienceRule(input.rule);
+      if (!compiled.ok) return fail(compiled.issues);
+      body.set("rule", JSON.stringify(compiled.rule));
+    }
     await metaApiCall({
       method: "POST",
       path: input.audienceId,
