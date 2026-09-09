@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { parseWebsiteAudienceRule, type CustomAudienceView } from "@/lib/meta-business/marketing/audiences";
+import { parseWebsiteAudienceRule } from "@/lib/meta-business/marketing/audiences/website";
+import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/read";
 type Source = { id: string; name?: string };
 export function WebsiteAudienceEditor({ accountId, userId, audience, onSaved }: { accountId: string; userId: string; audience?: CustomAudienceView; onSaved: () => void }) {
   const current = audience?.rule ? parseWebsiteAudienceRule(audience.rule) : null;

@@ -7751,3 +7751,106 @@ export const creativeDiagnosis = pgTable(
 export type CreativeDiagnosis = InferSelectModel<typeof creativeDiagnosis>;
 
 // ===== END creative_diagnoses_* =====
+
+// ===== BEGIN customer_file_* — bloco espelhado byte a byte no projeto irmão =====
+//
+// Persistência operacional das importações de lista de clientes (I10, I11, I13).
+// O frontend é o dono da migration; o Postgres é compartilhado. Contatos, hashes
+// e amostras ficam somente em customer_file_temporary_material.
+
+export type CustomerFileActorKind = "user" | "backoffice";
+
+export type CustomerFileOperationType = "create" | "add" | "remove" | "replace";
+
+export const customerFileOperation = pgTable(
+  "customer_file_operations",
+  {
+    id: uuid("id").primaryKey().notNull(),
+    actorKind: varchar("actor_kind", { length: 32 })
+      .$type<CustomerFileActorKind>()
+      .notNull()
+      .default("user"),
+    actorId: uuid("actor_id"),
+    customerId: uuid("customer_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+    adAccountId: text("ad_account_id"),
+    audienceIdentity: text("audience_identity").notNull(),
+    audienceId: text("audience_id"),
+    audienceName: text("audience_name"),
+    operationType: varchar("operation_type", { length: 16 })
+      .$type<CustomerFileOperationType>()
+      .notNull(),
+    state: varchar("state", { length: 32 }).notNull(),
+    receivedAt: timestamp("received_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    previewConfirmed: boolean("preview_confirmed").notNull().default(false),
+    declarationsConfirmed: boolean("declarations_confirmed")
+      .notNull()
+      .default(false),
+    customerFileSource: text("customer_file_source"),
+    counts: text("counts").notNull().default("{}"),
+    sessionId: text("session_id"),
+    sessionStartedAt: timestamp("session_started_at"),
+    confirmedBatches: text("confirmed_batches").notNull().default("[]"),
+    receipts: text("receipts").notNull().default("[]"),
+    pendingUnresolved: boolean("pending_unresolved").notNull().default(false),
+    name: text("name"),
+    description: text("description"),
+  },
+  (table) => ({
+    customerIdx: index("customer_file_operations_customer_idx").on(
+      table.customerId,
+    ),
+    audienceIdx: index("customer_file_operations_audience_idx").on(
+      table.audienceIdentity,
+    ),
+    stateIdx: index("customer_file_operations_state_idx").on(table.state),
+  }),
+);
+
+export type CustomerFileOperationRecord = InferSelectModel<
+  typeof customerFileOperation
+>;
+
+export const customerFileCoordination = pgTable("customer_file_coordination", {
+  audienceIdentity: text("audience_identity").primaryKey().notNull(),
+  operationId: uuid("operation_id").notNull(),
+  executorToken: text("executor_token"),
+  leaseUntil: timestamp("lease_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type CustomerFileCoordinationRecord = InferSelectModel<
+  typeof customerFileCoordination
+>;
+
+export const customerFileTemporaryMaterial = pgTable(
+  "customer_file_temporary_material",
+  {
+    operationId: uuid("operation_id")
+      .primaryKey()
+      .notNull()
+      .references(() => customerFileOperation.id, { onDelete: "cascade" }),
+    receivedAt: timestamp("received_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    rawFile: text("raw_file"),
+    normalizedRows: text("normalized_rows"),
+    hashes: text("hashes"),
+    errorSamples: text("error_samples"),
+    correctionReport: text("correction_report"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    expiresIdx: index("customer_file_temporary_expires_idx").on(table.expiresAt),
+  }),
+);
+
+export type CustomerFileTemporaryMaterialRecord = InferSelectModel<
+  typeof customerFileTemporaryMaterial
+>;
+
+// ===== END customer_file_* =====
+

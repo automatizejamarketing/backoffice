@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AdAccountSelector } from "../components/ad-account-selector";
 import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
-import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences";
+import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/read";
 import { AudienceDeletionControl } from "./audience-deletion-control";
 import { WebsiteAudienceEditor } from "./website-audience-editor";
 import { LookalikeAudienceCreator } from "./lookalike-audience-creator";
