@@ -6,6 +6,10 @@ import {
   listCustomAudiences,
   deleteCustomAudience,
   buildWebsiteAudienceRule,
+  assessLookalikeSource,
+  buildLookalikeFormation,
+  createCustomAudience,
+  getCustomAudienceDetail,
 } from "@/lib/meta-business/marketing/audiences";
 import { getAdAccountPixels } from "@/lib/meta-business/get-ad-account-pixels";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
@@ -126,14 +130,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
-    const body = await request.json() as { action?: "review" | "confirm" | "delete-review" | "delete-confirm" | "website-create" | "website-update"; audienceId?: string; name?: string; description?: string; confirmationToken?: string; pixelId?: string; criterion?: "visitors" | "url" | "event"; retentionDays?: unknown; url?: string; event?: string };
-    if (!userId || (!body.audienceId && body.action !== "website-create") || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "website-create" && body.action !== "website-update" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
+    const body = await request.json() as { action?: "review" | "confirm" | "delete-review" | "delete-confirm" | "website-create" | "website-update" | "lookalike-review" | "lookalike-confirm"; audienceId?: string; originAudienceId?: string; name?: string; description?: string; country?: string; percentage?: number; confirmationToken?: string; pixelId?: string; criterion?: "visitors" | "url" | "event"; retentionDays?: unknown; url?: string; event?: string };
+    if (!userId || (!body.audienceId && body.action !== "website-create" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm") || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.action !== "website-create" && body.action !== "website-update" && body.action !== "lookalike-review" && body.action !== "lookalike-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const authz = await requireMarketingUserAccessResponse(userId, "marketing:write");
     if (!authz.ok) return authz.response;
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) return NextResponse.json(tokenResult.error, { status: tokenResult.error.statusCode });
     const connection = await getUserWithAdAccounts(tokenResult.accessToken, { tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId, clientBusinessId: tokenResult.connection.clientBusinessId, connectionName: tokenResult.connection.name });
     assertCustomAudienceAccountAccess(accountId, connection.adaccounts?.data ?? []);
+    if (body.action === "lookalike-review" || body.action === "lookalike-confirm") {
+      if (!body.originAudienceId || !body.name?.trim() || !body.country || body.percentage == null) return NextResponse.json({ error: "Invalid lookalike" }, { status: 400 });
+      const formation = buildLookalikeFormation({ country: body.country, percentage: body.percentage });
+      if (!formation.ok) return NextResponse.json({ error: "Invalid lookalike", message: formation.message }, { status: 400 });
+      const source = await getCustomAudienceDetail({ audienceId: body.originAudienceId, accessToken: tokenResult.accessToken });
+      const eligibility = assessLookalikeSource(source);
+      if (!eligibility.ok) return NextResponse.json({ error: eligibility.code, message: eligibility.message }, { status: 409 });
+      const confirmationToken = JSON.stringify({ accountId, originAudienceId: source.id, name: body.name.trim(), description: body.description, ...formation.formation });
+      if (body.action === "lookalike-review") return NextResponse.json({ ok: true, confirmationToken, source: { id: source.id, name: source.name }, formation: formation.formation, state: "ready_to_submit", notice: "O percentual define o tamanho do p\u00fablico semelhante no pa\u00eds. Ele n\u00e3o mede confian\u00e7a, correspond\u00eancia nem pessoas importadas." });
+      if (body.confirmationToken !== confirmationToken) return NextResponse.json({ error: "STALE_REVIEW", message: "Revise novamente antes de criar o p\u00fablico semelhante." }, { status: 409 });
+      const created = await createCustomAudience({ adAccountId: accountId, accessToken: tokenResult.accessToken, type: "lookalike", originAudienceId: source.id, name: body.name, description: body.description, lookalikeCountry: formation.formation.country, lookalikeRatio: formation.formation.ratio });
+      return NextResponse.json(created.ok ? { ok: true, id: created.id, state: "submitted" } : created, { status: created.ok ? 200 : 409 });
+    }
     if (body.action === "website-create" || body.action === "website-update") {
       if (!body.name?.trim() || !body.pixelId || !body.criterion || !Number.isInteger(body.retentionDays)) return NextResponse.json({ error: "Invalid website audience" }, { status: 400 });
       const pixels = await getAdAccountPixels(accountId.startsWith("act_") ? accountId : `act_${accountId}`, tokenResult.accessToken);
