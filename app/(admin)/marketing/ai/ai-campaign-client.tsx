@@ -63,6 +63,7 @@ import {
   type PlacementsMode,
 } from "./ai-placements-editor";
 import { AiDemographicLimitsEditor } from "./ai-demographic-limits-editor";
+import { AiAudienceLibraryDialog } from "./ai-audience-library-dialog";
 
 type Phase =
   | "objective"
@@ -212,6 +213,7 @@ export function AiCampaignClient() {
   const [placementsMode, setPlacementsMode] = useState<PlacementsMode>("automatic");
   const [selectedPlacements, setSelectedPlacements] = useState<PlacementKey[]>([]);
   const [demographics, setDemographics] = useState<DemographicLimits | undefined>(undefined);
+  const [audienceLibraryOpen, setAudienceLibraryOpen] = useState(false);
   const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
   const [periodEnd, setPeriodEnd] = useState(() =>
     addDays(startOfDay(new Date()), DEFAULT_FLIGHT_DAYS - 1),
@@ -1117,6 +1119,29 @@ export function AiCampaignClient() {
               value={demographics}
               onChange={setDemographics}
               disabled={isBusy}
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+              <div>
+                <p className="text-sm font-medium">Públicos da conta</p>
+                <p className="text-sm text-muted-foreground">
+                  Consulte ou gerencie a biblioteca sem alterar as respostas desta campanha.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isBusy}
+                onClick={() => setAudienceLibraryOpen(true)}
+              >
+                Gerenciar públicos
+              </Button>
+            </div>
+            <AiAudienceLibraryDialog
+              accountId={accountId}
+              userId={userId}
+              open={audienceLibraryOpen}
+              onOpenChange={setAudienceLibraryOpen}
             />
 
             {showDeliverySchedule ? (
