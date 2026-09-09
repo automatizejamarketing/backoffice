@@ -286,6 +286,13 @@ export function MarketingWorkspace({
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <CardTitle>Detalhes do usuário</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/marketing/audiences?userId=${selectedUser.id}`)}
+              >
+                Públicos
+              </Button>
               {showUserPicker && (
                 <Button
                   variant="outline"

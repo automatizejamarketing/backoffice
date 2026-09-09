@@ -1,30 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
-import { metaApiCall } from "@/lib/meta-business/api";
+import { listCustomAudiences } from "@/lib/meta-business/marketing/audiences";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 
-type GraphApiCustomAudience = {
-  id: string;
-  name?: string;
-  subtype?: string;
-  approximate_count_lower_bound?: number;
-  approximate_count_upper_bound?: number;
-};
-
-type GraphApiCustomAudiencesResponse = {
-  data: GraphApiCustomAudience[];
-};
-
-export type AudienceOption = {
-  id: string;
-  name: string;
-  subtype?: string;
-  approximateCount?: number;
-};
-
 type GetAudiencesResponse = {
-  audiences: AudienceOption[];
+  audiences: Awaited<ReturnType<typeof listCustomAudiences>>["items"];
+  nextCursor?: string;
+  hasNextPage: boolean;
+  queriedAt: string;
+  limitations: string[];
 };
 
 type GetAudiencesErrorResponse = {
@@ -32,14 +17,6 @@ type GetAudiencesErrorResponse = {
   message: string;
   solution?: string;
 };
-
-const AUDIENCE_FIELDS = [
-  "id",
-  "name",
-  "subtype",
-  "approximate_count_lower_bound",
-  "approximate_count_upper_bound",
-].join(",");
 
 export async function GET(
   request: NextRequest,
@@ -76,30 +53,23 @@ export async function GET(
       );
     }
 
-    const { accessToken } = tokenResult;
-
-    const actAccountId = accountId.startsWith("act_")
-      ? accountId
-      : `act_${accountId}`;
-
-    const response = await metaApiCall<GraphApiCustomAudiencesResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: `${actAccountId}/customaudiences`,
-      params: `fields=${AUDIENCE_FIELDS}&limit=200`,
-      accessToken,
+    const page = await listCustomAudiences({
+      adAccountId: accountId,
+      accessToken: tokenResult.accessToken,
+      detailed: request.nextUrl.searchParams.get("detailed") === "1",
+      after: request.nextUrl.searchParams.get("after") ?? undefined,
     });
 
-    const audiences: AudienceOption[] = response.data
-      .filter((a) => a.name)
-      .map((a) => ({
-        id: a.id,
-        name: a.name!,
-        subtype: a.subtype,
-        approximateCount: a.approximate_count_lower_bound,
-      }));
-
-    return NextResponse.json({ audiences }, { status: 200 });
+    return NextResponse.json({
+      audiences: page.items,
+      hasNextPage: page.truncated,
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+      queriedAt: new Date().toISOString(),
+      limitations: [
+        "A consulta não comprova permissão para alterar, usar ou excluir o público.",
+        "A Meta não informa membros individuais nem todos os usos em campanhas nesta consulta.",
+      ],
+    });
   } catch (error) {
     const errorReturn = errorToGraphErrorReturn(error);
 
