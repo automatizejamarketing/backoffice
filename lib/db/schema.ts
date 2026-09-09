@@ -1143,6 +1143,10 @@ export const productCardDispute = pgTable(
     provider: varchar("provider", { length: 30 }).notNull(),
     providerDisputeId: varchar("provider_dispute_id", { length: 255 }).notNull(),
     providerAccountId: varchar("provider_account_id", { length: 255 }),
+    responsible: varchar("responsible", { enum: ["expert", "automatize"] })
+      .$type<"expert" | "automatize">()
+      .notNull()
+      .default("automatize"),
     status: varchar("status", { enum: PRODUCT_CARD_DISPUTE_STATUS_VALUES })
       .$type<ProductCardDisputeStatus>()
       .notNull(),
@@ -1151,6 +1155,7 @@ export const productCardDispute = pgTable(
     chargeAmountCentavos: integer("charge_amount_centavos").notNull(),
     openedAt: timestamp("opened_at").notNull(),
     closedAt: timestamp("closed_at"),
+    responseDueAt: timestamp("response_due_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -1164,6 +1169,38 @@ export const productCardDispute = pgTable(
 );
 
 export type ProductCardDispute = InferSelectModel<typeof productCardDispute>;
+
+/** Immutable provider facts retained separately so replays and out-of-order
+ * updates never erase the raw evidence that led to an access decision. */
+export const productCardDisputeEvent = pgTable(
+  "product_card_dispute_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    disputeId: uuid("dispute_id")
+      .notNull()
+      .references(() => productCardDispute.id),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    providerEventId: varchar("provider_event_id", { length: 255 }).notNull(),
+    eventType: varchar("event_type", { length: 120 }).notNull(),
+    rawPayload: jsonb("raw_payload")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    occurredAt: timestamp("occurred_at").notNull(),
+    observedAt: timestamp("observed_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    providerEventUnique: unique(
+      "product_card_dispute_events_provider_event_unique",
+    ).on(table.provider, table.providerEventId),
+    disputeIdx: index("product_card_dispute_events_dispute_id_idx").on(
+      table.disputeId,
+    ),
+  }),
+);
+
+export type ProductCardDisputeEvent = InferSelectModel<
+  typeof productCardDisputeEvent
+>;
 
 /** Cost records stay separate from the legacy payout ledger: they can never
  * create a new Expert withdrawal. */
