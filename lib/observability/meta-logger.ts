@@ -57,6 +57,16 @@ const SENSITIVE_KEYS = new Set([
   "password",
 ]);
 
+/** Customer-file member material must never become a durable observability copy. */
+const CUSTOMER_FILE_DATA_KEYS = new Set([
+  "data",
+  "schema",
+  "invalid_entries",
+  "invalid_entry_samples",
+  "hashed_data",
+  "members",
+]);
+
 const LARGE_FIELD_KEYS = new Set([
   "asset_feed_spec",
   "object_story_spec",
@@ -112,6 +122,7 @@ function identifierKind(key: string): string {
 }
 
 function sanitizeStringValue(key: string, value: string): string {
+  if (CUSTOMER_FILE_DATA_KEYS.has(key.toLowerCase())) return "[OMITTED]";
   if (isSensitiveKey(key)) return "[REDACTED_TOKEN]";
   if (isEmailKey(key)) return "[REDACTED_EMAIL]";
   if (isIdentifierKey(key)) {
@@ -125,6 +136,8 @@ function sanitizeStringValue(key: string, value: string): string {
 
 function redactValue(key: string, value: unknown, depth = 0): unknown {
   if (depth > 6) return "[max_depth]";
+
+  if (CUSTOMER_FILE_DATA_KEYS.has(key.toLowerCase())) return "[OMITTED]";
 
   if (isSensitiveKey(key)) {
     return "[REDACTED]";
