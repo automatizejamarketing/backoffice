@@ -10,6 +10,5 @@ export * from "./instagram";
 export * from "./instagram-operation";
 export * from "./lookalike";
 export * from "./customer-file";
-@@
- export * from "./customer-file";
- export * from "./customer-file-operation";
+export * from "./customer-file-operation";
+export * from "./customer-list-creation";
