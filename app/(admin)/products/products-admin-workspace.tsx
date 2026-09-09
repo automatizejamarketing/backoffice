@@ -323,6 +323,22 @@ type PixFraudCase = {
   }>;
 };
 
+type ReconciliationCase = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  provider: string;
+  providerAccountId: string | null;
+  kind: string;
+  responsible: "operations" | "automatize_finance" | "expert";
+  status: "open" | "monitoring" | "resolved";
+  attributionProven: boolean;
+  effectiveAmountCentavos: number | null;
+  evidence: Record<string, string | number | null>;
+  nextReviewAt: string;
+  createdAt: string;
+};
+
 type PostSaleCostCase = {
   id: string;
   productTitle: string;
@@ -864,6 +880,7 @@ export function ProductsAdminWorkspace({
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [defences, setDefences] = useState<Defence[]>([]);
   const [pixFraudCases, setPixFraudCases] = useState<PixFraudCase[]>([]);
+  const [reconciliationCases, setReconciliationCases] = useState<ReconciliationCase[]>([]);
   const [postSaleCostCases, setPostSaleCostCases] = useState<PostSaleCostCase[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -953,7 +970,7 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, postSaleCostsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, reconciliationResponse, postSaleCostsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
@@ -961,12 +978,13 @@ export function ProductsAdminWorkspace({
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
           fetch("/api/products/admin/dispute-defences", { cache: "no-store" }),
           fetch("/api/products/admin/pix-fraud", { cache: "no-store" }),
+          fetch("/api/products/admin/reconciliation-cases", { cache: "no-store" }),
           fetch("/api/products/admin/post-sale-costs", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, postSaleCostsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, reconciliationResponse, postSaleCostsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud, nextPostSaleCosts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud, nextReconciliation, nextPostSaleCosts] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
@@ -974,6 +992,7 @@ export function ProductsAdminWorkspace({
           payoutsResponse.json(),
           defencesResponse.json(),
           pixFraudResponse.json(),
+          reconciliationResponse.json(),
           postSaleCostsResponse.json(),
         ]);
       setProducts(nextProducts);
@@ -982,6 +1001,7 @@ export function ProductsAdminWorkspace({
       setPayouts(nextPayouts);
       setDefences(nextDefences.defences ?? []);
       setPixFraudCases(nextPixFraud.cases ?? []);
+      setReconciliationCases(nextReconciliation.cases ?? []);
       setPostSaleCostCases(nextPostSaleCosts.cases ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
@@ -1025,6 +1045,13 @@ export function ProductsAdminWorkspace({
     });
     if (!response.ok) throw new Error(await readError(response));
     toast.success("Acerto manual confirmado com comprovante.");
+    await loadAll();
+  }
+
+  async function reconcileProductCase(orderId: string) {
+    const response = await fetch(`/api/products/admin/reconciliation-cases/${orderId}/reconcile`, { method: "POST" });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Conciliação manual executada pela conta original.");
     await loadAll();
   }
 
@@ -1867,13 +1894,14 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-      <TabsList className="grid w-full grid-cols-7 lg:w-fit">
+      <TabsList className="grid w-full grid-cols-8 lg:w-fit">
         <TabsTrigger value="products">Produtos</TabsTrigger>
         <TabsTrigger value="experts">Experts</TabsTrigger>
         <TabsTrigger value="orders">Vendas</TabsTrigger>
         <TabsTrigger value="payouts">Repasses</TabsTrigger>
         <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
         <TabsTrigger value="pix-fraud">Fraude Pix ({pixFraudCases.filter((item) => item.status === "under_review").length})</TabsTrigger>
+        <TabsTrigger value="reconciliation">Conciliação ({reconciliationCases.length})</TabsTrigger>
         <TabsTrigger value="post-sale-costs">Custos pós-venda ({postSaleCostCases.filter((item) => item.status === "open").length})</TabsTrigger>
         </TabsList>
 
@@ -2540,6 +2568,47 @@ export function ProductsAdminWorkspace({
                       <p>{fraudCase.events.length} evento(s)</p>
                       {fraudCase.events[0] ? <p>{fraudCase.events[0].eventType} · {dateTime(fraudCase.events[0].occurredAt)}</p> : null}
                     </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="reconciliation" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Fila de conciliação</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              A fila preserva a conta original, evidência, responsável e próxima revisão. A ação de conciliação consulta o provedor pela credencial histórica e nunca emite uma nova cobrança.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1160px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / pedido</TableHead>
+                  <TableHead>Estado / responsável</TableHead>
+                  <TableHead>Conta original</TableHead>
+                  <TableHead>Valor efetivo</TableHead>
+                  <TableHead>Evidência</TableHead>
+                  <TableHead>Próxima revisão</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reconciliationCases.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhuma exceção de conciliação pendente.</TableCell></TableRow>
+                ) : reconciliationCases.map((reconciliationCase) => (
+                  <TableRow key={reconciliationCase.id}>
+                    <TableCell><p className="font-medium">{reconciliationCase.productTitle}</p><p className="font-mono text-xs text-muted-foreground">{reconciliationCase.kind} · {reconciliationCase.orderId}</p></TableCell>
+                    <TableCell><Badge variant={reconciliationCase.status === "open" ? "destructive" : "outline"}>{reconciliationCase.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{reconciliationCase.responsible} · atribuição {reconciliationCase.attributionProven ? "comprovada" : "pendente"}</p></TableCell>
+                    <TableCell className="font-mono text-xs">{reconciliationCase.provider} · {reconciliationCase.providerAccountId ?? "não informada"}</TableCell>
+                    <TableCell className="tabular-nums">{reconciliationCase.effectiveAmountCentavos === null ? "Não informado" : money(reconciliationCase.effectiveAmountCentavos)}</TableCell>
+                    <TableCell className="max-w-[250px] text-xs text-muted-foreground"><p>{Object.keys(reconciliationCase.evidence).length} campo(s)</p><p className="truncate">{Object.entries(reconciliationCase.evidence).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</p></TableCell>
+                    <TableCell>{dateTime(reconciliationCase.nextReviewAt)}</TableCell>
+                    <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => { void reconcileProductCase(reconciliationCase.orderId).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível conciliar.")); }}>Conciliar agora</Button></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
