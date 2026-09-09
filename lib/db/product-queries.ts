@@ -18,6 +18,7 @@ import {
   productEvidenceConsultation,
   productDisputeDefence,
   productDisputeDefenceFile,
+  productPostSaleCostCase,
   productReconciliationCase,
   productRefundBalanceCase,
   productRefundOperation,
@@ -31,6 +32,7 @@ import {
   getProductRefundBumpOrderIds,
   getProductRefundRootOrderId,
 } from "@/lib/products/refund-scope";
+import { calculateProductPostSaleCostCase } from "@/lib/products/post-sale-costs";
 
 /** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
  * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
@@ -107,6 +109,33 @@ export async function listProductDisputeDefences() {
     .from(productDisputeDefenceFile)
     .where(inArray(productDisputeDefenceFile.defenceId, defenceIds));
   return rows.map((row) => ({ ...row, files: files.filter((file) => file.defenceId === row.defenceId) }));
+}
+
+/** Operational read model for post-sale obligations and their receipts. */
+export async function listProductPostSaleCostCases() {
+  const rows = await db
+    .select({
+      id: productPostSaleCostCase.id,
+      productTitle: productOrder.productTitleSnapshot,
+      paymentId: productPostSaleCostCase.paymentId,
+      provider: productPostSaleCostCase.provider,
+      providerAccountId: productPostSaleCostCase.providerAccountId,
+      providerCaseId: productPostSaleCostCase.providerCaseId,
+      reversal: productPostSaleCostCase.reversal,
+      status: productPostSaleCostCase.status,
+      responsible: productPostSaleCostCase.responsible,
+      evidence: productPostSaleCostCase.evidence,
+      createdAt: productPostSaleCostCase.createdAt,
+      updatedAt: productPostSaleCostCase.updatedAt,
+    })
+    .from(productPostSaleCostCase)
+    .innerJoin(productPayment, eq(productPayment.id, productPostSaleCostCase.paymentId))
+    .innerJoin(productOrder, eq(productOrder.id, productPayment.orderId))
+    .orderBy(desc(productPostSaleCostCase.updatedAt));
+  return Promise.all(rows.map(async (row) => ({
+    ...row,
+    ...(await calculateProductPostSaleCostCase(row.id)),
+  })));
 }
 
 /** Read-only queue for provider-confirmed Pix fraud/MED facts. The queue does

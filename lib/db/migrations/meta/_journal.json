@@ -547,6 +547,13 @@
       "when": 1797700000000,
       "tag": "0090_product_pix_fraud_events",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1797800000000,
+      "tag": "0091_product_post_sale_cost_operations",
+      "breakpoints": true
     }
   ]
 }

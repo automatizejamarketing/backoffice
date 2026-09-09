@@ -323,6 +323,26 @@ type PixFraudCase = {
   }>;
 };
 
+type PostSaleCostCase = {
+  id: string;
+  productTitle: string;
+  paymentId: string;
+  provider: string;
+  providerAccountId: string | null;
+  providerCaseId: string | null;
+  reversal: "integral_refund" | "lost_full_chargeback" | "external_partial" | "pix_med";
+  status: "open" | "exception" | "settled";
+  responsible: "expert" | "automatize";
+  evidence: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  movements: Array<{ providerMovementId: string; kind: "cost" | "credit"; amountCentavos: number; supportedBy: "expert" | "automatize"; orderId: string | null }>;
+  calculation:
+    | { kind: "ready"; items: Array<{ orderId: string; remainingCostCentavos: number; expertResponsibilityCentavos: number; automatizeResponsibilityCentavos: number; expertSupportedCentavos: number; automatizeSupportedCentavos: number }>; transfer: { debtor: "expert" | "automatize"; creditor: "expert" | "automatize"; amountCentavos: number } | null }
+    | { kind: "exception"; reason: string };
+  settlement: { debtor: "expert" | "automatize"; creditor: "expert" | "automatize"; amountCentavos: number; proofUrl: string; proofKey: string; operatorEmail: string | null; confirmedAt: string | null } | null;
+};
+
 type ProductFormState = {
   ownerType: "automatize" | "expert";
   expertId: string;
@@ -844,6 +864,7 @@ export function ProductsAdminWorkspace({
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [defences, setDefences] = useState<Defence[]>([]);
   const [pixFraudCases, setPixFraudCases] = useState<PixFraudCase[]>([]);
+  const [postSaleCostCases, setPostSaleCostCases] = useState<PostSaleCostCase[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
@@ -932,7 +953,7 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, postSaleCostsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
@@ -940,11 +961,12 @@ export function ProductsAdminWorkspace({
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
           fetch("/api/products/admin/dispute-defences", { cache: "no-store" }),
           fetch("/api/products/admin/pix-fraud", { cache: "no-store" }),
+          fetch("/api/products/admin/post-sale-costs", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, postSaleCostsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud, nextPostSaleCosts] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
@@ -952,6 +974,7 @@ export function ProductsAdminWorkspace({
           payoutsResponse.json(),
           defencesResponse.json(),
           pixFraudResponse.json(),
+          postSaleCostsResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
@@ -959,6 +982,7 @@ export function ProductsAdminWorkspace({
       setPayouts(nextPayouts);
       setDefences(nextDefences.defences ?? []);
       setPixFraudCases(nextPixFraud.cases ?? []);
+      setPostSaleCostCases(nextPostSaleCosts.cases ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -987,6 +1011,21 @@ export function ProductsAdminWorkspace({
     const result = (await response.json()) as { state?: string; reason?: string };
     toast.success(action === "review" ? "Defesa revisada." : result.state === "unknown" ? "Envio inconclusivo; o caso exige recuperação." : "Defesa enviada.");
     await refreshDefences();
+  }
+
+  async function settlePostSaleCost(caseId: string) {
+    const proofUrl = window.prompt("URL do comprovante da transferência manual");
+    if (!proofUrl) return;
+    const proofKey = window.prompt("Identificador imutável do comprovante");
+    if (!proofKey) return;
+    const response = await fetch(`/api/products/admin/post-sale-costs/${caseId}/settle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proofUrl, proofKey }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Acerto manual confirmado com comprovante.");
+    await loadAll();
   }
 
   async function uploadDefenceFiles(disputeId: string, selectedFiles: FileList | null) {
@@ -1828,13 +1867,14 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-      <TabsList className="grid w-full grid-cols-6 lg:w-fit">
+      <TabsList className="grid w-full grid-cols-7 lg:w-fit">
         <TabsTrigger value="products">Produtos</TabsTrigger>
         <TabsTrigger value="experts">Experts</TabsTrigger>
         <TabsTrigger value="orders">Vendas</TabsTrigger>
         <TabsTrigger value="payouts">Repasses</TabsTrigger>
         <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
         <TabsTrigger value="pix-fraud">Fraude Pix ({pixFraudCases.filter((item) => item.status === "under_review").length})</TabsTrigger>
+        <TabsTrigger value="post-sale-costs">Custos pós-venda ({postSaleCostCases.filter((item) => item.status === "open").length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="products" className="space-y-6 pt-4">
@@ -2499,6 +2539,67 @@ export function ProductsAdminWorkspace({
                     <TableCell className="text-xs text-muted-foreground">
                       <p>{fraudCase.events.length} evento(s)</p>
                       {fraudCase.events[0] ? <p>{fraudCase.events[0].eventType} · {dateTime(fraudCase.events[0].occurredAt)}</p> : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="post-sale-costs" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Custos pós-venda e acertos</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Só fatos confirmados de reembolso integral ou chargeback integral perdido geram cálculo liquidável. Parcial e MED permanecem exceções acompanhadas; confirmar aqui apenas uma transferência manual já executada e comprovada.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1320px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / caso</TableHead>
+                  <TableHead>Estado / responsável</TableHead>
+                  <TableHead>Movimentos</TableHead>
+                  <TableHead>Apuração</TableHead>
+                  <TableHead>Evidência</TableHead>
+                  <TableHead>Comprovante</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {postSaleCostCases.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhum custo pós-venda registrado.</TableCell></TableRow>
+                ) : postSaleCostCases.map((costCase) => (
+                  <TableRow key={costCase.id}>
+                    <TableCell>
+                      <p className="font-medium">{costCase.productTitle}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{costCase.reversal} · {costCase.providerCaseId ?? costCase.paymentId}</p>
+                      <p className="text-xs text-muted-foreground">conta: {costCase.providerAccountId ?? "não informada"}</p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={costCase.status === "exception" ? "destructive" : costCase.status === "settled" ? "secondary" : "outline"}>{costCase.status}</Badge>
+                      <p className="mt-1 text-xs text-muted-foreground">Responsável: {costCase.responsible === "expert" ? "Expert" : "Automatize"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <p>{costCase.movements.length} fato(s)</p>
+                      {costCase.movements.map((movement) => <p key={movement.providerMovementId} className="text-muted-foreground">{movement.kind} {money(movement.amountCentavos)} · {movement.supportedBy}</p>)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {costCase.calculation.kind === "exception" ? <Badge variant="destructive">Exceção: {costCase.calculation.reason}</Badge> : costCase.calculation.transfer ? <><p>Transferir {costCase.calculation.transfer.amountCentavos > 0 ? money(costCase.calculation.transfer.amountCentavos) : "R$ 0,00"}</p><p className="text-muted-foreground">{costCase.calculation.transfer.debtor} → {costCase.calculation.transfer.creditor}</p></> : <p>Saldo correto · sem transferência</p>}
+                      {costCase.calculation.kind === "ready" ? <p className="mt-1 text-muted-foreground">{costCase.calculation.items.length} item(ns), cálculo acumulado</p> : null}
+                    </TableCell>
+                    <TableCell className="max-w-[190px] text-xs text-muted-foreground">
+                      <p>{Object.keys(costCase.evidence).length} campo(s) preservado(s)</p>
+                      <p className="truncate">{Object.keys(costCase.evidence).join(", ") || "Sem evidência"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {costCase.settlement ? <><a className="text-primary underline" href={costCase.settlement.proofUrl} target="_blank" rel="noreferrer">Abrir comprovante</a><p className="text-muted-foreground">{costCase.settlement.operatorEmail ?? "Operador registrado"}</p></> : "Não confirmado"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {costCase.status === "open" && costCase.calculation.kind === "ready" && costCase.calculation.transfer ? <Button size="sm" onClick={() => { void settlePostSaleCost(costCase.id).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível confirmar o acerto.")); }}>Confirmar acerto</Button> : <span className="text-xs text-muted-foreground">Sem ação</span>}
                     </TableCell>
                   </TableRow>
                 ))}

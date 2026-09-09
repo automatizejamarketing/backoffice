@@ -1264,8 +1264,12 @@ export type ProductCardDisputeEvent = InferSelectModel<
 export const productPostSaleCostCase = pgTable("product_post_sale_cost_cases", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   paymentId: uuid("payment_id").notNull().references(() => productPayment.id),
+  provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"),
+  providerAccountId: varchar("provider_account_id", { length: 255 }),
   reversal: varchar("reversal", { enum: ["integral_refund", "lost_full_chargeback", "external_partial", "pix_med"] }).$type<"integral_refund" | "lost_full_chargeback" | "external_partial" | "pix_med">().notNull(),
   providerCaseId: varchar("provider_case_id", { length: 255 }),
+  responsible: varchar("responsible", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull().default("automatize"),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
   status: varchar("status", { enum: ["open", "exception", "settled"] }).$type<"open" | "exception" | "settled">().notNull().default("open"),
   createdAt: timestamp("created_at").notNull().defaultNow(), updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (table) => ({ paymentReversalUnique: unique("product_post_sale_cost_cases_payment_reversal_unique").on(table.paymentId, table.reversal) }));
@@ -1276,7 +1280,7 @@ export const productPostSaleCostMovement = pgTable("product_post_sale_cost_movem
 }, (table) => ({ providerMovementUnique: unique("product_post_sale_cost_movements_provider_unique").on(table.caseId, table.providerMovementId), caseIdx: index("product_post_sale_cost_movements_case_idx").on(table.caseId) }));
 
 export const productPostSaleCostSettlement = pgTable("product_post_sale_cost_settlements", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), debtor: varchar("debtor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), creditor: varchar("creditor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), amountCentavos: integer("amount_centavos").notNull(), operatorUserId: uuid("operator_user_id").notNull().references(() => user.id), proofUrl: text("proof_url").notNull(), proofKey: varchar("proof_key", { length: 255 }).notNull(), confirmedAt: timestamp("confirmed_at"), createdAt: timestamp("created_at").notNull().defaultNow(),
+  id: uuid("id").primaryKey().notNull().defaultRandom(), caseId: uuid("case_id").notNull().references(() => productPostSaleCostCase.id), debtor: varchar("debtor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), creditor: varchar("creditor", { enum: ["expert", "automatize"] }).$type<"expert" | "automatize">().notNull(), amountCentavos: integer("amount_centavos").notNull(), operatorUserId: uuid("operator_user_id").references(() => user.id), operatorEmail: varchar("operator_email", { length: 255 }), proofUrl: text("proof_url").notNull(), proofKey: varchar("proof_key", { length: 255 }).notNull(), confirmedAt: timestamp("confirmed_at"), createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => ({ caseUnique: unique("product_post_sale_cost_settlements_case_unique").on(table.caseId), proofUnique: unique("product_post_sale_cost_settlements_proof_unique").on(table.proofKey), partiesAndAmount: check("product_post_sale_cost_settlements_valid", sql`${table.debtor} <> ${table.creditor} AND ${table.amountCentavos} > 0`) }));
 
 export const PRODUCT_RECONCILIATION_CASE_KIND_VALUES = [
