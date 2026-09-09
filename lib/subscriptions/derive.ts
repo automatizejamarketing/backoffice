@@ -37,45 +37,66 @@ export function pickActiveSubscription<
   return sorted[0] ?? null;
 }
 
-export type StatusBadgeVariant =
-  | "default"
-  | "secondary"
-  | "destructive"
-  | "outline";
-
-export type SubscriptionAccessIssue = {
-  kind: "expired" | "missing";
-  expirationDate: Date | null;
-};
-
-export function getSubscriptionAccessIssue(
-  status: SubscriptionStatus | null | undefined,
-  expirationDate: Date | string | null | undefined,
-  now: Date = new Date(),
-): SubscriptionAccessIssue | null {
-  if (status !== "active" && status !== "trialing") return null;
-  if (!expirationDate) return { kind: "missing", expirationDate: null };
-
-  const normalizedExpiration = new Date(expirationDate);
-  if (Number.isNaN(normalizedExpiration.getTime())) {
-    return { kind: "missing", expirationDate: null };
-  }
-
-  if (normalizedExpiration.getTime() <= now.getTime()) {
-    return { kind: "expired", expirationDate: normalizedExpiration };
-  }
-
-  return null;
-}
+export type StatusTone = "success" | "warning" | "destructive" | "neutral";
 
 export interface StatusBadgeProps {
-  variant: StatusBadgeVariant;
+  tone: StatusTone;
   label: string;
   hint?: string;
-  className?: string;
 }
 
-const STATUS_LABELS: Record<SubscriptionStatus, string> = {
+export type AccessState =
+  | { kind: "active"; expirationDate: Date; daysLeft: number }
+  | { kind: "expired"; expirationDate: Date; daysAgo: number }
+  | { kind: "missing"; expirationDate: null };
+
+/**
+ * Whether the account can use the product. This is decided ONLY by
+ * `users.expiration_date`: Pix and manual grants have no "subscription status"
+ * (each Pix is a one-off charge that extends the date), and for Stripe the
+ * provider decides whether it keeps charging, not whether the user gets in.
+ */
+export function getAccessState(
+  expirationDate: Date | string | null | undefined,
+  now: Date = new Date(),
+): AccessState {
+  if (!expirationDate) return { kind: "missing", expirationDate: null };
+  const exp = new Date(expirationDate);
+  if (Number.isNaN(exp.getTime())) return { kind: "missing", expirationDate: null };
+  const days = calendarDaysBetween(now, exp);
+  if (exp.getTime() <= now.getTime()) {
+    return { kind: "expired", expirationDate: exp, daysAgo: Math.abs(days) };
+  }
+  return { kind: "active", expirationDate: exp, daysLeft: days };
+}
+
+export function getAccessBadgeProps(
+  expirationDate: Date | string | null | undefined,
+  now: Date = new Date(),
+): StatusBadgeProps {
+  const state = getAccessState(expirationDate, now);
+  if (state.kind === "missing") {
+    return { tone: "neutral", label: "Sem data de acesso" };
+  }
+  if (state.kind === "expired") {
+    return {
+      tone: "destructive",
+      label: `Vencido em ${formatShortDate(state.expirationDate)}`,
+      hint:
+        state.daysAgo === 0 ? "venceu hoje" : `há ${state.daysAgo} ${pluralDays(state.daysAgo)}`,
+    };
+  }
+  return {
+    tone: state.daysLeft <= 3 ? "warning" : "success",
+    label: `Ativo até ${formatShortDate(state.expirationDate)}`,
+    hint:
+      state.daysLeft === 0
+        ? "vence hoje"
+        : `em ${state.daysLeft} ${pluralDays(state.daysLeft)}`,
+  };
+}
+
+const STRIPE_STATUS_LABELS: Record<SubscriptionStatus, string> = {
   active: "Ativa",
   trialing: "Em trial",
   past_due: "Pagamento atrasado",
@@ -87,61 +108,108 @@ const STATUS_LABELS: Record<SubscriptionStatus, string> = {
 };
 
 /**
- * Returns props for a status badge given subscription state. The optional
- * expirationDate is consulted to flag access-expired users when no live
- * subscription is present (status === "canceled" + expired access).
+ * Billing state as Stripe sees it. Only meaningful for Stripe rows: it says
+ * whether Stripe still charges the card, never whether the user has access.
  */
-export function getStatusBadgeProps(
-  status: SubscriptionStatus | null | undefined,
-  expirationDate: Date | string | null | undefined,
-  cancelAtPeriodEnd: boolean | null | undefined,
-  currentPeriodEnd?: Date | string | null,
+export function getStripeBillingBadgeProps(
+  subscription: Pick<
+    Subscription,
+    "status" | "cancelAtPeriodEnd" | "currentPeriodEnd"
+  >,
 ): StatusBadgeProps {
-  const exp = expirationDate ? new Date(expirationDate) : null;
-  const accessExpired = exp ? exp.getTime() < Date.now() : false;
-
-  if (!status) {
-    return {
-      variant: accessExpired ? "destructive" : "outline",
-      label: accessExpired ? "Acesso expirado" : "Sem assinatura",
-    };
-  }
-
-  const label = STATUS_LABELS[status] ?? status;
-  let variant: StatusBadgeVariant;
-  switch (status) {
-    case "active":
-      variant = "default";
-      break;
-    case "trialing":
-      variant = "secondary";
-      break;
-    case "past_due":
-    case "unpaid":
-      variant = "destructive";
-      break;
-    case "incomplete":
-    case "incomplete_expired":
-    case "expired":
-      variant = "outline";
-      break;
-    case "canceled":
-      variant = accessExpired ? "destructive" : "secondary";
-      break;
-    default:
-      variant = "outline";
-  }
+  const { status, cancelAtPeriodEnd, currentPeriodEnd } = subscription;
+  const label = STRIPE_STATUS_LABELS[status] ?? status;
+  let tone: StatusTone = "neutral";
+  if (status === "active") tone = "success";
+  else if (status === "trialing") tone = "success";
+  else if (status === "past_due" || status === "unpaid") tone = "destructive";
 
   let hint: string | undefined;
   if (cancelAtPeriodEnd && currentPeriodEnd) {
-    hint = `Cancelará em ${formatShortDate(currentPeriodEnd)}`;
+    hint = `cancela em ${formatShortDate(currentPeriodEnd)}`;
+    tone = "warning";
   } else if (status === "trialing" && currentPeriodEnd) {
-    hint = `Trial até ${formatShortDate(currentPeriodEnd)}`;
-  } else if (status === "canceled" && exp && !accessExpired) {
-    hint = `Acesso até ${formatShortDate(exp)}`;
+    hint = `trial até ${formatShortDate(currentPeriodEnd)}`;
+  } else if (status === "active" && currentPeriodEnd) {
+    hint = `próxima cobrança ${formatShortDate(currentPeriodEnd)}`;
   }
+  return { tone, label, hint };
+}
 
-  return { variant, label, hint };
+/**
+ * One badge for lists and exports: access first, Stripe billing as a hint.
+ * Pix/manual rows add nothing, their subscription status is not information.
+ */
+export function getAccountStatusBadge(
+  expirationDate: Date | string | null | undefined,
+  subscription:
+    | Pick<
+        Subscription,
+        "provider" | "status" | "cancelAtPeriodEnd" | "currentPeriodEnd"
+      >
+    | null
+    | undefined,
+  now: Date = new Date(),
+): StatusBadgeProps {
+  const access = getAccessBadgeProps(expirationDate, now);
+  if (!subscription || subscription.provider !== "stripe") return access;
+  const billing = getStripeBillingBadgeProps(subscription);
+  const stripeHint =
+    subscription.cancelAtPeriodEnd && billing.hint
+      ? `Stripe: ${billing.label.toLowerCase()}, ${billing.hint}`
+      : `Stripe: ${billing.label.toLowerCase()}`;
+  return {
+    ...access,
+    hint: [access.hint, stripeHint].filter(Boolean).join(" · "),
+  };
+}
+
+export type StripeAccessMismatch = {
+  kind: "expired" | "missing";
+  statusLabel: string;
+  expirationDate: Date | null;
+};
+
+/**
+ * Stripe keeps charging (or trialing) but the user has no access. That is a
+ * real inconsistency worth a webhook check. Pix/manual never produce it: their
+ * subscription row is not a source of truth for anything.
+ */
+export function getStripeAccessMismatch(
+  subscription: Pick<Subscription, "provider" | "status"> | null | undefined,
+  expirationDate: Date | string | null | undefined,
+  now: Date = new Date(),
+): StripeAccessMismatch | null {
+  if (!subscription || subscription.provider !== "stripe") return null;
+  if (subscription.status !== "active" && subscription.status !== "trialing") {
+    return null;
+  }
+  const access = getAccessState(expirationDate, now);
+  if (access.kind === "active") return null;
+  return {
+    kind: access.kind,
+    statusLabel: STRIPE_STATUS_LABELS[subscription.status],
+    expirationDate: access.expirationDate,
+  };
+}
+
+function calendarDaysBetween(from: Date, to: Date): number {
+  const key = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  const [fy, fm, fd] = key(from).split("-").map(Number);
+  const [ty, tm, td] = key(to).split("-").map(Number);
+  return Math.round(
+    (Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000,
+  );
+}
+
+function pluralDays(n: number): string {
+  return n === 1 ? "dia" : "dias";
 }
 
 export function formatPlanLabel(planType: PlanType | null | undefined): string {
