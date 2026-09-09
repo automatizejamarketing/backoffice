@@ -4,6 +4,7 @@ import {
   AccountNotAccessibleError,
   assertCustomAudienceAccountAccess,
   listCustomAudiences,
+  deleteCustomAudience,
 } from "@/lib/meta-business/marketing/audiences";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
@@ -117,14 +118,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     const { accountId } = await params;
     const userId = request.nextUrl.searchParams.get("userId");
-    const body = await request.json() as { action?: "review" | "confirm"; audienceId?: string; name?: string; description?: string; confirmationToken?: string };
-    if (!userId || !body.audienceId || (body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid metadata update" }, { status: 400 });
+    const body = await request.json() as { action?: "review" | "confirm" | "delete-review" | "delete-confirm"; audienceId?: string; name?: string; description?: string; confirmationToken?: string };
+    if (!userId || !body.audienceId || (body.action !== "delete-review" && body.action !== "delete-confirm" && body.name == null && body.description == null)) return NextResponse.json({ error: "Invalid audience action" }, { status: 400 });
     const authz = await requireMarketingUserAccessResponse(userId, "marketing:write");
     if (!authz.ok) return authz.response;
     const tokenResult = await getUserAccessTokenByUserId(userId);
     if (!tokenResult.success) return NextResponse.json(tokenResult.error, { status: tokenResult.error.statusCode });
     const connection = await getUserWithAdAccounts(tokenResult.accessToken, { tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId, clientBusinessId: tokenResult.connection.clientBusinessId, connectionName: tokenResult.connection.name });
     assertCustomAudienceAccountAccess(accountId, connection.adaccounts?.data ?? []);
+    if (body.action === "delete-review" || body.action === "delete-confirm") {
+      if (body.action === "delete-confirm" && !body.confirmationToken) return NextResponse.json({ error: "Confirmation required" }, { status: 400 });
+      const result = await deleteCustomAudience({ audienceId: body.audienceId, adAccountId: accountId, accessToken: tokenResult.accessToken, confirm: body.action === "delete-confirm", confirmationToken: body.confirmationToken });
+      return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+    }
     const snapshot = await metaApiCall<{ account_id?: string; name?: string; description?: string; lookalike_audience_ids?: string[] }>({ method: "GET", path: body.audienceId, params: "fields=account_id,name,description,rule,lookalike_audience_ids", accessToken: tokenResult.accessToken });
     if (snapshot.account_id?.replace(/^act_/, "") !== accountId.replace(/^act_/, "")) return NextResponse.json({ error: "Audience not in account" }, { status: 403 });
     const before = { name: snapshot.name, description: snapshot.description }; const after = { name: body.name ?? snapshot.name, description: body.description ?? snapshot.description };
