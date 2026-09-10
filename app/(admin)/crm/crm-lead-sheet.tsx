@@ -84,6 +84,9 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
   if (query.isError) {
     return (
       <div className="p-6 text-sm">
+        <SheetHeader className="p-0">
+          <SheetTitle className="sr-only">Lead</SheetTitle>
+        </SheetHeader>
         Não deu para carregar o lead.{" "}
         <button type="button" className="font-medium underline" onClick={() => void query.refetch()}>
           Tentar de novo
@@ -96,6 +99,10 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
   if (!data) {
     return (
       <div className="space-y-3 p-6">
+        <SheetHeader className="p-0">
+          {/* Radix exige título mesmo enquanto carrega. */}
+          <SheetTitle className="sr-only">Carregando lead</SheetTitle>
+        </SheetHeader>
         <Skeleton className="h-6 w-56" />
         <Skeleton className="h-4 w-72" />
         <Skeleton className="mt-6 h-32 w-full" />
