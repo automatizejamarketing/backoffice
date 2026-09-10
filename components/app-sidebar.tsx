@@ -2,7 +2,7 @@
 
 import { WhatsappIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
   Briefcase,
   ChevronRight,
@@ -361,6 +361,108 @@ function LeafItem({
   );
 }
 
+const HOVER_CLOSE_DELAY_MS = 150;
+
+function CollapsedGroupMenu({
+  group,
+  activeHref,
+  onNavigate,
+}: {
+  group: NavGroup;
+  activeHref: string | null;
+  onNavigate: () => void;
+}) {
+  const active = activeHref !== null;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeTimer = useRef<number | null>(null);
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(
+      () => setMenuOpen(false),
+      HOVER_CLOSE_DELAY_MS,
+    );
+  };
+  useEffect(() => cancelClose, []);
+
+  const isMouse = (event: React.PointerEvent) => event.pointerType === "mouse";
+
+  return (
+    <SidebarMenuItem>
+      <DropdownMenu modal={false} onOpenChange={setMenuOpen} open={menuOpen}>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuButton
+            aria-label={group.label}
+            className={cn(
+              menuButtonClass,
+              "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
+              active && activeClass,
+            )}
+            onClick={() => {
+              cancelClose();
+              setMenuOpen(true);
+            }}
+            onPointerDown={(event) => {
+              // Sem isso o Radix alterna no pointerdown e fecha o menu que
+              // o hover acabou de abrir.
+              if (isMouse(event)) event.preventDefault();
+            }}
+            onPointerEnter={(event) => {
+              if (!isMouse(event)) return;
+              cancelClose();
+              setMenuOpen(true);
+            }}
+            onPointerLeave={(event) => {
+              if (isMouse(event)) scheduleClose();
+            }}
+          >
+            <group.icon className="size-4 shrink-0" />
+            <span className="invisible">{group.label}</span>
+          </SidebarMenuButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-44"
+          onPointerEnter={cancelClose}
+          onPointerLeave={(event) => {
+            if (isMouse(event)) scheduleClose();
+          }}
+          side="right"
+          sideOffset={8}
+        >
+          <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+            {group.label}
+          </DropdownMenuLabel>
+          {group.children.map((child) => {
+            const childActive = child.href === activeHref;
+            return (
+              <DropdownMenuItem
+                asChild
+                className={cn(childActive && "bg-primary/10 text-primary")}
+                key={child.href}
+              >
+                <Link
+                  aria-current={childActive ? "page" : undefined}
+                  href={child.href}
+                  onClick={onNavigate}
+                >
+                  {child.label}
+                </Link>
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </SidebarMenuItem>
+  );
+}
+
 function GroupItem({
   group,
   pathname,
@@ -389,55 +491,16 @@ function GroupItem({
     setOverride(next(open));
 
   // No modo ícone não há espaço para a lista embaixo: as opções abrem num
-  // menu ao lado, com o nome do grupo como cabeçalho.
+  // menu ao lado, com o nome do grupo como cabeçalho. Abre no hover e no
+  // clique; ao sair com o mouse, espera um instante para a pessoa conseguir
+  // atravessar o vão entre o ícone e o menu.
   if (collapsed) {
     return (
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton
-              aria-label={group.label}
-              className={cn(
-                menuButtonClass,
-                "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
-                active && activeClass,
-              )}
-              tooltip={group.label}
-            >
-              <group.icon className="size-4 shrink-0" />
-              <span className="invisible">{group.label}</span>
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="start"
-            className="min-w-44"
-            side="right"
-            sideOffset={8}
-          >
-            <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
-              {group.label}
-            </DropdownMenuLabel>
-            {group.children.map((child) => {
-              const childActive = child.href === activeHref;
-              return (
-                <DropdownMenuItem
-                  asChild
-                  className={cn(childActive && "bg-primary/10 text-primary")}
-                  key={child.href}
-                >
-                  <Link
-                    aria-current={childActive ? "page" : undefined}
-                    href={child.href}
-                    onClick={onNavigate}
-                  >
-                    {child.label}
-                  </Link>
-                </DropdownMenuItem>
-              );
-            })}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
+      <CollapsedGroupMenu
+        group={group}
+        activeHref={activeHref}
+        onNavigate={onNavigate}
+      />
     );
   }
 
@@ -543,7 +606,12 @@ export function AppSidebar({
             className={cn(index > 0 && "pt-0")}
           >
             {section.label ? (
-              <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+              // No modo ícone o rótulo fica invisível mas continua no lugar,
+              // sobreposto ao último item da seção anterior — sem isso ele
+              // engole o hover desse item.
+              <SidebarGroupLabel className="group-data-[collapsible=icon]:pointer-events-none">
+                {section.label}
+              </SidebarGroupLabel>
             ) : null}
             <SidebarGroupContent>
               <SidebarMenu>
