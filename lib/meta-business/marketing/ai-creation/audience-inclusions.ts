@@ -260,15 +260,14 @@ export function applyAudienceInclusions(
     return { targeting, issues };
   }
 
-  const hadIncludedAudience = audienceIds(targeting.custom_audiences).length > 0;
   delete targeting.custom_audiences;
   // Existing age/gender fields may be inherited from a mold. They are not
-  // evidence that this journey applied a hard demographic limit, so they must
-  // not keep Advantage+ disabled after the last inclusion is cleared.
+  // evidence that this journey applied a hard demographic limit, so clearing
+  // inclusions must preserve the base expansion mode instead of inventing one.
+  // An explicit demographic override is the one exception: its caller passes
+  // this option so the mandatory limit remains enforced.
   if (options.preserveManualAdvantage) {
     setAudienceExpansion(targeting, 0);
-  } else if (hadIncludedAudience) {
-    setAudienceExpansion(targeting, 1);
   }
   return { targeting, issues };
 }
