@@ -57,12 +57,12 @@ import {
   type DemographicLimits,
 } from "./demographic-limits";
 import { applyAudienceExclusions } from "./audience-exclusions";
-import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
+import { validateAudienceExclusionSelection } from "./audience-validation";
 import {
   applyAudienceInclusions,
   validateAudienceInclusionIds,
 } from "./audience-inclusions";
-import { validateAudienceInclusionSelection } from "./audience-inclusions-server";
+import { validateAudienceInclusionSelection } from "./audience-validation";
 import { verifyAudienceTargetingOnAdSets } from "./audience-targeting-verification";
 
 export type FallbackNiche =

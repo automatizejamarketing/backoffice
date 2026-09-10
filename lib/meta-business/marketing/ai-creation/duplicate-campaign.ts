@@ -45,13 +45,13 @@ import {
   applyAudienceExclusions,
   validateAudienceExclusionIds,
 } from "./audience-exclusions";
-import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
+import { validateAudienceExclusionSelection } from "./audience-validation";
 import {
   applyAudienceInclusions,
   summarizeAudienceTargeting,
   validateAudienceInclusionIds,
 } from "./audience-inclusions";
-import { validateAudienceInclusionSelection } from "./audience-inclusions-server";
+import { validateAudienceInclusionSelection } from "./audience-validation";
 import { verifyAudienceTargetingOnAdSets } from "./audience-targeting-verification";
 import { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 import type { MoldRef } from "./pick-mold";
