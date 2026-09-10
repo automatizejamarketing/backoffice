@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
+  ChartColumn,
+  ChartLine,
   CreditCard,
   Hash,
   QrCode,
@@ -10,7 +12,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useState, useSyncExternalStore } from "react";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  XAxis,
+  YAxis,
+} from "recharts";
 import {
   ChartContainer,
   ChartTooltip,
@@ -24,6 +34,7 @@ import {
 import { FilterBar } from "@/components/ui/filter";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { dateKey } from "@/lib/dates";
 import type {
   ProductSalesDashboard,
@@ -36,6 +47,8 @@ import {
 } from "@/lib/backoffice/finance-format";
 import { formatCalendarDateLabel } from "@/lib/backoffice/datetime-format";
 import { cn } from "@/lib/utils";
+
+type ChartMode = "bars" | "line";
 
 type SalesDashboardResponse = ProductSalesDashboard & {
   window: Pick<ProductSalesWindow, "fromDate" | "throughDate" | "bucket">;
@@ -92,6 +105,9 @@ function describeWindow(window: SalesDashboardResponse["window"]) {
 export function ProductSalesPanel() {
   const [range, setRange] = useState<DateRange>(todayRange);
   const [productIds, setProductIds] = useState<string[]>([]);
+  // Sem escolha explícita, um dia só lê melhor em linha por hora e vários
+  // dias em barras por dia.
+  const [chartModeOverride, setChartModeOverride] = useState<ChartMode | null>(null);
   const from = dateKey(range.from);
   const to = dateKey(range.to);
 
@@ -104,6 +120,8 @@ export function ProductSalesPanel() {
   const data = query.data;
   const summary = data?.summary;
   const stale = query.isPlaceholderData || query.isFetching;
+  const chartMode: ChartMode =
+    chartModeOverride ?? (data?.window.bucket === "hour" ? "line" : "bars");
 
   return (
     <section aria-labelledby="product-sales-title" className="space-y-5">
@@ -192,9 +210,35 @@ export function ProductSalesPanel() {
               </div>
             </dl>
           </div>
-          <div className="mt-6">
+          <div className="mt-6 flex items-center justify-between gap-4">
+            <p className="text-xs font-medium text-muted-foreground">
+              {data?.window.bucket === "hour"
+                ? "Líquido por hora"
+                : "Líquido por dia"}
+            </p>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              size="sm"
+              aria-label="Tipo de gráfico"
+              value={chartMode}
+              onValueChange={(value) => {
+                if (value) setChartModeOverride(value as ChartMode);
+              }}
+            >
+              <ToggleGroupItem value="bars" aria-label="Barras por período">
+                <ChartColumn />
+                Barras
+              </ToggleGroupItem>
+              <ToggleGroupItem value="line" aria-label="Linha por período">
+                <ChartLine />
+                Linha
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
+          <div className="mt-3">
             {data ? (
-              <SalesChart data={data} />
+              <SalesChart data={data} mode={chartMode} />
             ) : (
               <Skeleton className="h-[240px] w-full" />
             )}
@@ -290,14 +334,22 @@ function StatCard({
 }
 
 const chartConfig = {
-  netCentavos: { label: "Valor líquido", color: "var(--chart-1)" },
+  netCentavos: { label: "Líquido", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
 const subscribeToClient = () => () => undefined;
 const getClientSnapshot = () => true;
 const getServerSnapshot = () => false;
 
-function SalesChart({ data }: { data: SalesDashboardResponse }) {
+type ChartPoint = ProductSalesDashboard["series"][number];
+
+function SalesChart({
+  data,
+  mode,
+}: {
+  data: SalesDashboardResponse;
+  mode: ChartMode;
+}) {
   const mounted = useSyncExternalStore(
     subscribeToClient,
     getClientSnapshot,
@@ -305,69 +357,91 @@ function SalesChart({ data }: { data: SalesDashboardResponse }) {
   );
   if (!mounted) return <div className="h-[240px] w-full" aria-hidden />;
 
-  return (
-    <ChartContainer config={chartConfig} className="h-[240px] w-full">
-      <LineChart
-        accessibilityLayer
-        data={data.series}
-        margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
-      >
-        <CartesianGrid vertical={false} strokeDasharray="3 3" />
-        <XAxis
-          dataKey="label"
-          tickLine={false}
-          axisLine={false}
-          tickMargin={8}
-          minTickGap={24}
-        />
-        <YAxis
-          tickLine={false}
-          axisLine={false}
-          tickMargin={6}
-          width={56}
-          tickFormatter={(value: number) => formatAxisBRL(value)}
-        />
-        <ChartTooltip
-          content={
-            <ChartTooltipContent
-              formatter={(value, _name, item) => {
-                const point = (
-                  item as {
-                    payload?: { salesCount?: number; grossCentavos?: number };
-                  }
-                ).payload;
-                return (
-                  <div className="flex w-full flex-col gap-0.5 tabular-nums">
-                    <span className="flex items-center justify-between gap-4">
-                      <span className="text-muted-foreground">Líquido</span>
-                      <span className="font-medium">
-                        {formatBRLFromCentavos(Number(value))}
+  const points = data.series;
+  const axes = (
+    <>
+      <CartesianGrid vertical={false} strokeDasharray="3 3" />
+      <XAxis
+        dataKey="label"
+        tickLine={false}
+        axisLine={false}
+        tickMargin={8}
+        minTickGap={24}
+      />
+      <YAxis
+        tickLine={false}
+        axisLine={false}
+        tickMargin={6}
+        width={56}
+        tickFormatter={(value: number) => formatAxisBRL(value)}
+      />
+      <ChartTooltip
+        content={
+          <ChartTooltipContent
+            formatter={(_value, _name, item) => {
+              const point = (item as { payload?: ChartPoint }).payload;
+              const rows: Array<[string, string]> = [
+                ["Líquido", formatBRLFromCentavos(point?.netCentavos ?? 0)],
+                ["Bruto", formatBRLFromCentavos(point?.grossCentavos ?? 0)],
+                ["Vendas", formatFinanceNumber(point?.salesCount ?? 0)],
+              ];
+              return (
+                <div className="flex w-full flex-col gap-0.5 tabular-nums">
+                  {rows.map(([label, value], index) => (
+                    <span
+                      key={label}
+                      className="flex items-center justify-between gap-4"
+                    >
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className={cn(index === 0 && "font-medium")}>
+                        {value}
                       </span>
                     </span>
-                    <span className="flex items-center justify-between gap-4">
-                      <span className="text-muted-foreground">Bruto</span>
-                      <span>{formatBRLFromCentavos(point?.grossCentavos ?? 0)}</span>
-                    </span>
-                    <span className="flex items-center justify-between gap-4">
-                      <span className="text-muted-foreground">Vendas</span>
-                      <span>{formatFinanceNumber(point?.salesCount ?? 0)}</span>
-                    </span>
-                  </div>
-                );
-              }}
-            />
-          }
-        />
-        <Line
-          type="monotone"
-          dataKey="netCentavos"
-          stroke="var(--color-netCentavos)"
-          strokeWidth={2}
-          dot={false}
-          activeDot={{ r: 4 }}
-          isAnimationActive={false}
-        />
-      </LineChart>
+                  ))}
+                </div>
+              );
+            }}
+          />
+        }
+      />
+    </>
+  );
+
+  return (
+    <ChartContainer config={chartConfig} className="h-[240px] w-full">
+      {mode === "bars" ? (
+        <BarChart
+          accessibilityLayer
+          data={points}
+          margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
+        >
+          {axes}
+          <Bar
+            dataKey="netCentavos"
+            fill="var(--color-netCentavos)"
+            radius={[4, 4, 0, 0]}
+            maxBarSize={40}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      ) : (
+        <LineChart
+          accessibilityLayer
+          data={points}
+          margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
+        >
+          {axes}
+          <Line
+            type="monotone"
+            dataKey="netCentavos"
+            stroke="var(--color-netCentavos)"
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4 }}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      )}
     </ChartContainer>
   );
 }
