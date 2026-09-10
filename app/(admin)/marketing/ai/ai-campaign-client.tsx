@@ -61,6 +61,8 @@ import {
   placementsSummary,
   type PlacementsMode,
 } from "./ai-placements-editor";
+import { WhatsappDestinationCard } from "./whatsapp-destination-card";
+import { usePageWhatsappNumber } from "../hooks/use-page-whatsapp-number";
 
 type Phase =
   | "objective"
@@ -74,7 +76,7 @@ type Phase =
   | "review"
   | "publishing";
 
-type Objective = "sales" | "followers" | "leads";
+type Objective = "sales" | "whatsapp" | "followers" | "leads";
 
 type VideoUpload = {
   state: "uploading" | "processing" | "ready" | "error";
@@ -90,6 +92,7 @@ type PlanIssue = {
 
 const OBJECTIVE_LABEL: Record<Objective, string> = {
   sales: "Vendas",
+  whatsapp: "WhatsApp",
   followers: "Seguidores",
   leads: "Leads",
 };
@@ -119,8 +122,9 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) =>
 const END_TIME_OPTIONS = [...HOUR_OPTIONS, "23:59"];
 
 function fallbackAcceptsSchedule(niche: string, objective: Objective): boolean {
-  if (objective !== "sales") return false;
   const normalized = niche === "service" ? "insurance_broker" : niche;
+  if (objective === "whatsapp") return normalized === "food_service";
+  if (objective !== "sales") return false;
   return normalized === "food_service" || normalized === "outros";
 }
 
@@ -203,6 +207,8 @@ export function AiCampaignClient() {
   const [pixels, setPixels] = useState<Array<{ id: string; name?: string }>>([]);
   const [manualLocations, setManualLocations] = useState<SelectedGeoLocation[]>([]);
   const [promotionUrl, setPromotionUrl] = useState("");
+  const [whatsappAutofillMessage, setWhatsappAutofillMessage] = useState("");
+  const [whatsappGreeting, setWhatsappGreeting] = useState("");
   const [deliverySchedule, setDeliverySchedule] = useState<AdSetDeliveryScheduleValue>({
     deliveryMode: "specific_hours",
     scheduleBlocks: [],
@@ -287,6 +293,27 @@ export function AiCampaignClient() {
       })
       .catch(() => setPixels([]));
   }, [accountId, userId, pixelId]);
+
+  useEffect(() => {
+    if (objective === "whatsapp") {
+      setCtaType("WHATSAPP_MESSAGE");
+    }
+  }, [objective]);
+
+  /**
+   * Where the WhatsApp campaign actually lands. Owned here, not inside the destination card,
+   * because the publish gate reads it too: an explicit `not_linked` blocks (ADR 0032), while
+   * "we are not allowed to look" — every answer today — does not.
+   */
+  const whatsappNumber = usePageWhatsappNumber(
+    selectedPage?.pageId ?? pageId,
+    objective === "whatsapp",
+    accountId,
+    userId,
+  );
+  const whatsappPageNotLinked =
+    whatsappNumber.state.phase === "resolved" &&
+    whatsappNumber.state.data.status === "not_linked";
 
   useEffect(() => {
     if (objective === "followers") {
@@ -449,10 +476,20 @@ export function AiCampaignClient() {
         throw new Error(data.message ?? "Não foi possível analisar a conta.");
       }
       setCurrency(data.currency ?? "BRL");
-      setMold(data.mold ?? null);
-      setProvenAds(data.provenAds ?? []);
-      setKeepAdIds((data.provenAds ?? []).map((ad: ProvenAdRef) => ad.adId));
-      setPhase(data.mold ? "proven_ads" : "budget");
+      setMold(objective === "whatsapp" ? null : (data.mold ?? null));
+      setProvenAds(objective === "whatsapp" ? [] : (data.provenAds ?? []));
+      setKeepAdIds(
+        objective === "whatsapp"
+          ? []
+          : (data.provenAds ?? []).map((ad: ProvenAdRef) => ad.adId),
+      );
+      setPhase(
+        objective === "whatsapp"
+          ? "budget"
+          : data.mold
+            ? "proven_ads"
+            : "budget",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha no scan.");
       setPhase("objective");
@@ -473,7 +510,12 @@ export function AiCampaignClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           offer,
-          objective: objective === "leads" ? "leads" : "sales",
+          objective:
+            objective === "whatsapp"
+              ? "whatsapp"
+              : objective === "leads"
+                ? "leads"
+                : "sales",
         }),
       });
       const data = await res.json();
@@ -482,6 +524,9 @@ export function AiCampaignClient() {
       }
       setHeadline(data.headline);
       setMessage(data.message);
+      if (data.whatsappAutofillMessage) {
+        setWhatsappAutofillMessage(data.whatsappAutofillMessage);
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao gerar texto.");
     } finally {
@@ -505,6 +550,16 @@ export function AiCampaignClient() {
     }
     if (!selectedPage) {
       toast.error("Selecione a página do anúncio.");
+      return;
+    }
+    if (objective === "whatsapp" && !whatsappAutofillMessage.trim()) {
+      toast.error("Escreva a primeira mensagem que o cliente já vai ver digitada no WhatsApp.");
+      return;
+    }
+    if (objective === "whatsapp" && whatsappPageNotLinked) {
+      toast.error(
+        "Esta Página não tem número de WhatsApp vinculado. Adicione um na Meta antes de publicar.",
+      );
       return;
     }
     if (!hasMold && effectiveLocations.length === 0) {
@@ -563,6 +618,16 @@ export function AiCampaignClient() {
               startTime: combineDateTime(periodStart, periodStartTime),
               endTime: combineDateTime(periodEnd, periodEndTime),
             },
+            ...(objective === "whatsapp"
+              ? {
+                  whatsappWelcome: {
+                    autofillMessage: whatsappAutofillMessage.trim(),
+                    ...(whatsappGreeting.trim()
+                      ? { greeting: whatsappGreeting.trim() }
+                      : {}),
+                  },
+                }
+              : {}),
           }),
         });
         const data = await res.json();
@@ -668,21 +733,26 @@ export function AiCampaignClient() {
             <CardTitle>O que esta campanha deve gerar?</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              {(Object.keys(OBJECTIVE_LABEL) as Objective[]).map((value) => (
-                <button
-                  key={value}
-                  className={`rounded-xl border p-4 text-left ${
-                    objective === value
-                      ? "border-primary bg-primary/10"
-                      : "border-border hover:bg-muted/40"
-                  }`}
-                  onClick={() => setObjective(value)}
-                  type="button"
-                >
-                  <div className="font-semibold">{OBJECTIVE_LABEL[value]}</div>
-                </button>
-              ))}
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              {(Object.keys(OBJECTIVE_LABEL) as Objective[])
+                .filter(
+                  (value) =>
+                    value !== "whatsapp" || companyNiche === "food_service",
+                )
+                .map((value) => (
+                  <button
+                    key={value}
+                    className={`rounded-xl border p-4 text-left ${
+                      objective === value
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:bg-muted/40"
+                    }`}
+                    onClick={() => setObjective(value)}
+                    type="button"
+                  >
+                    <div className="font-semibold">{OBJECTIVE_LABEL[value]}</div>
+                  </button>
+                ))}
             </div>
             <Button disabled={isBusy} onClick={() => void scanAccount()}>
               Continuar
@@ -840,7 +910,7 @@ export function AiCampaignClient() {
               <Label>Texto</Label>
               <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
             </div>
-            {objective !== "followers" ? (
+            {objective !== "followers" && objective !== "whatsapp" ? (
               <div className="space-y-2">
                 <Label>Link de destino</Label>
                 <Input
@@ -970,6 +1040,40 @@ export function AiCampaignClient() {
                 selectedPageId={pageId}
               />
             </div>
+
+            {objective === "whatsapp" ? (
+              <WhatsappDestinationCard
+                pageId={selectedPage?.pageId ?? pageId}
+                pageName={selectedPage?.pageName}
+                whatsappNumber={whatsappNumber}
+                title="WhatsApp da campanha"
+              >
+                <div className="mt-4 space-y-3">
+                  <div className="space-y-2">
+                    <Label>Primeira mensagem do cliente</Label>
+                    <Textarea
+                      onChange={(event) =>
+                        setWhatsappAutofillMessage(event.target.value)
+                      }
+                      placeholder="Oi! Vi o anúncio e quero saber mais."
+                      rows={2}
+                      value={whatsappAutofillMessage}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      É o que já chega digitado no WhatsApp do cliente.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Saudação do negócio (opcional)</Label>
+                    <Input
+                      onChange={(event) => setWhatsappGreeting(event.target.value)}
+                      placeholder="Olá! Como podemos te ajudar?"
+                      value={whatsappGreeting}
+                    />
+                  </div>
+                </div>
+              </WhatsappDestinationCard>
+            ) : null}
 
             {needsTexts ? (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -1120,7 +1224,9 @@ export function AiCampaignClient() {
                 isBusy ||
                 pendingVideos ||
                 planMedias.length === 0 ||
-                (!hasMold && effectiveLocations.length === 0)
+                (!hasMold && effectiveLocations.length === 0) ||
+                (objective === "whatsapp" && !whatsappAutofillMessage.trim()) ||
+                (objective === "whatsapp" && whatsappPageNotLinked)
               }
               onClick={() => void publish()}
             >

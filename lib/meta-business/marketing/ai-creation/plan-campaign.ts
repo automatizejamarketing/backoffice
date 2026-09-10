@@ -132,6 +132,20 @@ export type ReviewSummary = {
   };
   identity: { pageId?: string; instagramUserId?: string };
   pixelId?: string;
+  /**
+   * Present ONLY on a click-to-WhatsApp campaign — its presence is what tells the review screen
+   * this ad leads to a conversation instead of a site. New CTWA campaigns are
+   * OUTCOME_ENGAGEMENT; legacy ones stay OUTCOME_SALES. The field, not the objective, is
+   * what the review keys off.
+   *
+   * No phone number here on purpose. The ad set promotes the Page and Meta resolves the number
+   * from it, so the number is not part of the plan — the screen reads it separately, and is
+   * allowed to fail to.
+   */
+  whatsapp?: {
+    /** The message that arrives already typed in the customer's chat. */
+    autofillMessage?: string;
+  };
 };
 
 /**

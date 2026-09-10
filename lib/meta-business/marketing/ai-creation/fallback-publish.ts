@@ -49,6 +49,20 @@ import {
   type PlanTexts,
 } from "./build-tree";
 import type { PublishResult } from "./publish-campaign";
+// Relative on purpose: the backoffice mirror keeps this file at the same
+// `lib/meta-business/marketing/` path, which the flattened `@/lib/meta-business/…` alias
+// would not resolve.
+import { getPageWhatsappNumber } from "../page-whatsapp-number";
+import {
+  buildPageWelcomeMessage,
+  whatsappCallToAction,
+  whatsappPromotedObject,
+  WHATSAPP_AD_LINK,
+  WHATSAPP_CAMPAIGN_OBJECTIVE,
+  WHATSAPP_DESTINATION_TYPE,
+  WHATSAPP_OPTIMIZATION_GOAL,
+  type WhatsappWelcomeMessage,
+} from "../creation/whatsapp-destination";
 
 export type FallbackNiche =
   | "food_service"
@@ -58,7 +72,12 @@ export type FallbackNiche =
   | "insurance_broker"
   | "outros";
 
-export type FallbackObjective = "sales" | "followers" | "leads";
+/**
+ * `whatsapp` is a click-to-WhatsApp campaign: OUTCOME_ENGAGEMENT + CONVERSATIONS,
+ * `destination_type: WHATSAPP`, promoting the Page. The creative's link and CTA
+ * are fixed by Meta. No pixel, no promotion URL.
+ */
+export type FallbackObjective = "sales" | "followers" | "leads" | "whatsapp";
 
 export type FallbackPeriod = {
   startTime: string;
@@ -85,15 +104,23 @@ export type FallbackPublishInput = {
    */
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  /** Click-to-WhatsApp greeting. Ignored by every other objective. */
+  whatsappWelcome?: WhatsappWelcomeMessage;
 };
 
 export type FallbackConfig = {
-  metaObjective: "OUTCOME_SALES" | "OUTCOME_TRAFFIC" | "OUTCOME_LEADS";
+  metaObjective:
+    | "OUTCOME_SALES"
+    | "OUTCOME_TRAFFIC"
+    | "OUTCOME_LEADS"
+    | typeof WHATSAPP_CAMPAIGN_OBJECTIVE;
   requiresPixel: boolean;
   requiresPromotionUrl: boolean;
   requiresInstagram: boolean;
   acceptsDeliverySchedule: boolean;
   usesInclusiveMinusOneDefault: boolean;
+  /** Click-to-WhatsApp: OUTCOME_ENGAGEMENT + WHATSAPP destination. */
+  isWhatsapp?: boolean;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -123,6 +150,25 @@ export function resolveFallbackConfig(
       requiresInstagram: false,
       acceptsDeliverySchedule: periodAndDelivery,
       usesInclusiveMinusOneDefault: periodAndDelivery,
+    };
+  }
+
+  if (objective === "whatsapp") {
+    if (normalizedNiche !== "food_service") {
+      return {
+        error: `Campanhas de WhatsApp não estão disponíveis para o nicho ${niche}.`,
+      };
+    }
+    return {
+      metaObjective: WHATSAPP_CAMPAIGN_OBJECTIVE,
+      requiresPixel: false,
+      requiresPromotionUrl: false,
+      requiresInstagram: false,
+      // Inherited from food-service sales on purpose: an ad that says "chama no zap" outside
+      // opening hours buys conversations nobody is there to answer.
+      acceptsDeliverySchedule: true,
+      usesInclusiveMinusOneDefault: true,
+      isWhatsapp: true,
     };
   }
 
@@ -260,6 +306,22 @@ export function fallbackIssues(
         "O anúncio precisa de um link de destino.",
         "Informe para onde o anúncio deve levar (site, cardápio, WhatsApp).",
         ["promotionUrl"],
+      ),
+    );
+  }
+
+  // Without this text Meta autofills the customer's chat with its own English default
+  // ("Hello! Can I get more info on this?"), which says nothing about the ad the person came
+  // from. Required on every surface that can create a CTWA campaign, so no path can publish
+  // one silently in English.
+  if (config.isWhatsapp && !input.whatsappWelcome?.autofillMessage?.trim()) {
+    issues.push(
+      localIssue(
+        "ad",
+        "FALLBACK_WHATSAPP_MESSAGE_REQUIRED",
+        "A campanha de WhatsApp precisa da primeira mensagem do cliente.",
+        "Escreva a mensagem que já vai chegar digitada no WhatsApp do cliente.",
+        ["whatsappWelcome"],
       ),
     );
   }
@@ -403,15 +465,17 @@ function creativeForFallback(args: {
   const { media, input, config, instagramProfileUrl, leadFormId } = args;
   const pageId = input.pageId;
   const instagramUserId = input.instagramUserId ?? "";
-  const link =
-    config.metaObjective === "OUTCOME_TRAFFIC"
+  const link = config.isWhatsapp
+    ? WHATSAPP_AD_LINK
+    : config.metaObjective === "OUTCOME_TRAFFIC"
       ? (instagramProfileUrl ?? "https://www.instagram.com")
       : config.metaObjective === "OUTCOME_LEADS"
         ? privacyPolicyUrl().replace("/lgpd", "")
         : (input.texts?.link?.trim() || input.promotionUrl?.trim() || "");
 
-  const ctaType =
-    config.metaObjective === "OUTCOME_LEADS"
+  const ctaType = config.isWhatsapp
+    ? whatsappCallToAction().type
+    : config.metaObjective === "OUTCOME_LEADS"
       ? "SIGN_UP"
       : (input.texts?.ctaType ?? "LEARN_MORE");
 
@@ -419,7 +483,20 @@ function creativeForFallback(args: {
     type: ctaType,
     ...(link ? { link } : {}),
     ...(leadFormId ? { leadGenFormId: leadFormId } : {}),
+    ...(config.isWhatsapp
+      ? { appDestination: WHATSAPP_DESTINATION_TYPE }
+      : {}),
   };
+
+  // Absent when the user wrote no greeting — Meta then sends its own English default rather
+  // than an empty one.
+  const pageWelcomeMessage = config.isWhatsapp
+    ? buildPageWelcomeMessage(input.whatsappWelcome)
+    : undefined;
+
+  const welcome = pageWelcomeMessage
+    ? { pageWelcomeMessage }
+    : {};
 
   if (media.kind === "instagram_post") {
     return {
@@ -428,6 +505,7 @@ function creativeForFallback(args: {
       pageId,
       instagramUserId,
       cta,
+      ...welcome,
     };
   }
 
@@ -441,6 +519,7 @@ function creativeForFallback(args: {
       ...(input.texts?.message ? { message: input.texts.message } : {}),
       ...(input.texts?.headline ? { headline: input.texts.headline } : {}),
       cta,
+      ...welcome,
     };
   }
 
@@ -453,6 +532,7 @@ function creativeForFallback(args: {
     ...(input.texts?.message ? { message: input.texts.message } : {}),
     ...(input.texts?.headline ? { headline: input.texts.headline } : {}),
     cta,
+    ...welcome,
   };
 }
 
@@ -534,9 +614,33 @@ export async function publishFallbackCampaign(args: {
     return { ok: false, issues, rolledBack: false };
   }
 
+  // A CTWA ad set promotes the Page and Meta reads the number off it, so a Page with no number
+  // linked buys a campaign that leads nowhere. Only an EXPLICIT `not_linked` stops the publish:
+  // every other answer — including "we are not allowed to look" — goes through, because the
+  // resolver cannot tell absence from a missing permission. See ADR 0032.
+  if (resolved.isWhatsapp && input.pageId) {
+    const linked = await getPageWhatsappNumber(accessToken, input.pageId);
+    if (linked.status === "not_linked") {
+      return {
+        ok: false,
+        issues: [
+          localIssue(
+            "adset",
+            "FALLBACK_WHATSAPP_PAGE_NOT_LINKED",
+            "Esta Página não tem nenhum número de WhatsApp vinculado.",
+            "Adicione o WhatsApp nas configurações da Página na Meta e tente de novo.",
+            ["pageId"],
+          ),
+        ],
+        rolledBack: false,
+      };
+    }
+  }
+
   const campaignName = buildConventionalCampaignName(
     resolved.metaObjective,
     input.niche,
+    resolved.isWhatsapp ? "whatsapp" : null,
   );
   const flight = resolveFlight(input, resolved, new Date());
   const geoLocations =
@@ -560,8 +664,11 @@ export async function publishFallbackCampaign(args: {
 
   const promotionUrl =
     input.texts?.link?.trim() || input.promotionUrl?.trim() || "";
+  // Only an offsite-conversion ad needs a verified domain. A click-to-WhatsApp ad converts in
+  // the conversation, and its creative link is api.whatsapp.com — sending that as the
+  // conversion domain would be both wrong and unverifiable.
   const conversionDomain =
-    resolved.metaObjective === "OUTCOME_SALES"
+    resolved.metaObjective === "OUTCOME_SALES" && !resolved.isWhatsapp
       ? registrableDomain(promotionUrl)
       : undefined;
 
@@ -587,20 +694,24 @@ export async function publishFallbackCampaign(args: {
       {
         adSet: {
           name: buildConventionalAdSetName(campaignName),
-          optimizationGoal:
-            resolved.metaObjective === "OUTCOME_SALES"
+          optimizationGoal: resolved.isWhatsapp
+            ? WHATSAPP_OPTIMIZATION_GOAL
+            : resolved.metaObjective === "OUTCOME_SALES"
               ? "OFFSITE_CONVERSIONS"
               : resolved.metaObjective === "OUTCOME_TRAFFIC"
                 ? "VISIT_INSTAGRAM_PROFILE"
                 : "LEAD_GENERATION",
           billingEvent: "IMPRESSIONS",
-          ...(resolved.metaObjective === "OUTCOME_TRAFFIC"
-            ? { destinationType: "INSTAGRAM_PROFILE" }
-            : resolved.metaObjective === "OUTCOME_LEADS"
-              ? { destinationType: "ON_AD" }
-              : {}),
-          promotedObject:
-            resolved.metaObjective === "OUTCOME_SALES"
+          ...(resolved.isWhatsapp
+            ? { destinationType: WHATSAPP_DESTINATION_TYPE }
+            : resolved.metaObjective === "OUTCOME_TRAFFIC"
+              ? { destinationType: "INSTAGRAM_PROFILE" }
+              : resolved.metaObjective === "OUTCOME_LEADS"
+                ? { destinationType: "ON_AD" }
+                : {}),
+          promotedObject: resolved.isWhatsapp
+            ? whatsappPromotedObject(input.pageId)
+            : resolved.metaObjective === "OUTCOME_SALES"
               ? { pixel_id: input.pixelId, custom_event_type: "PURCHASE" }
               : resolved.metaObjective === "OUTCOME_TRAFFIC"
                 ? {
