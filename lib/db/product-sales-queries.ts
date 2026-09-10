@@ -26,6 +26,9 @@ export async function listProductSalesRows({
     .select({
       orderId: productOrder.id,
       productId: productOrder.productId,
+      productTitle: productOrder.productTitleSnapshot,
+      buyerName: productOrder.buyerName,
+      buyerEmail: productOrder.buyerEmail,
       createdAt: productOrder.createdAt,
       approvedAt: productOrder.approvedAt,
       refundedAt: productOrder.refundedAt,

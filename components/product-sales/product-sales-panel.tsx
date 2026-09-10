@@ -33,15 +33,33 @@ import {
 } from "@/components/ui/date-range-picker";
 import { FilterBar } from "@/components/ui/filter";
 import { MultiSelect } from "@/components/ui/multi-select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { dateKey } from "@/lib/dates";
 import type {
   ProductSalesDashboard,
+  ProductSalesItem,
   ProductSalesWindow,
 } from "@/lib/backoffice/product-sales-dashboard";
 import {
   formatBRLFromCentavos,
+  formatFinanceDateTime,
   formatFinanceNumber,
   formatFinancePercentage,
 } from "@/lib/backoffice/finance-format";
@@ -108,6 +126,7 @@ export function ProductSalesPanel() {
   // Sem escolha explícita, um dia só lê melhor em linha por hora e vários
   // dias em barras por dia.
   const [chartModeOverride, setChartModeOverride] = useState<ChartMode | null>(null);
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const from = dateKey(range.from);
   const to = dateKey(range.to);
 
@@ -238,7 +257,11 @@ export function ProductSalesPanel() {
           </div>
           <div className="mt-3">
             {data ? (
-              <SalesChart data={data} mode={chartMode} />
+              <SalesChart
+                data={data}
+                mode={chartMode}
+                onSelectBucket={setSelectedBucket}
+              />
             ) : (
               <Skeleton className="h-[240px] w-full" />
             )}
@@ -294,7 +317,124 @@ export function ProductSalesPanel() {
           />
         </div>
       </div>
+
+      <BucketSalesSheet
+        data={data}
+        bucketKey={selectedBucket}
+        onClose={() => setSelectedBucket(null)}
+      />
     </section>
+  );
+}
+
+const methodLabel: Record<ProductSalesItem["method"], string> = {
+  pix: "Pix",
+  card: "Cartão",
+  unknown: "—",
+};
+
+const orderStatusLabel: Record<ProductSalesItem["orderStatus"], string> = {
+  pending: "Pendente",
+  approved: "Aprovado",
+  failed: "Falhou",
+  refunded: "Reembolsado",
+  canceled: "Cancelado",
+};
+
+function saleTone(sale: ProductSalesItem): StatusTone {
+  if (sale.paymentStatus === "charged_back") return "danger";
+  if (sale.orderStatus === "refunded") return "neutral";
+  return "success";
+}
+
+function saleStatusLabel(sale: ProductSalesItem) {
+  if (sale.paymentStatus === "charged_back") return "Chargeback";
+  return orderStatusLabel[sale.orderStatus];
+}
+
+function BucketSalesSheet({
+  data,
+  bucketKey,
+  onClose,
+}: {
+  data: SalesDashboardResponse | undefined;
+  bucketKey: string | null;
+  onClose: () => void;
+}) {
+  const point = data?.series.find((item) => item.key === bucketKey);
+  const sales = bucketKey
+    ? (data?.sales ?? []).filter((sale) => sale.bucketKey === bucketKey)
+    : [];
+  const title = point
+    ? data?.window.bucket === "hour"
+      ? `${formatCalendarDateLabel(data.window.fromDate)}, ${point.label}`
+      : formatCalendarDateLabel(point.key)
+    : "";
+
+  return (
+    <Sheet open={bucketKey !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-2xl">
+        <SheetHeader>
+          <SheetTitle>Vendas · {title}</SheetTitle>
+          <SheetDescription>
+            {point
+              ? `${formatFinanceNumber(point.salesCount)} ${point.salesCount === 1 ? "venda" : "vendas"} · ${formatBRLFromCentavos(point.netCentavos)} líquido · ${formatBRLFromCentavos(point.grossCentavos)} bruto`
+              : null}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+          {sales.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              Nenhuma venda aprovada nesse intervalo.
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Hora</TableHead>
+                  <TableHead>Produto</TableHead>
+                  <TableHead>Comprador</TableHead>
+                  <TableHead>Pagamento</TableHead>
+                  <TableHead className="text-right">Bruto</TableHead>
+                  <TableHead className="text-right">Líquido</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sales.map((sale) => (
+                  <TableRow key={sale.orderId}>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {formatFinanceDateTime(sale.approvedAt)}
+                    </TableCell>
+                    <TableCell className="max-w-48 truncate">
+                      {sale.productTitle}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-sm">{sale.buyerName}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {sale.buyerEmail}
+                      </div>
+                    </TableCell>
+                    <TableCell>{methodLabel[sale.method]}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right tabular-nums">
+                      {formatBRLFromCentavos(sale.grossCentavos)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right tabular-nums">
+                      {formatBRLFromCentavos(sale.netCentavos)}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge tone={saleTone(sale)}>
+                        {saleStatusLabel(sale)}
+                      </StatusBadge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -343,12 +483,20 @@ const getServerSnapshot = () => false;
 
 type ChartPoint = ProductSalesDashboard["series"][number];
 
+/** recharts 3: o clique no gráfico traz o índice do ponto ativo, não o payload. */
+type ChartClickState = {
+  activeTooltipIndex?: number | string | null;
+  activeLabel?: string | number | null;
+};
+
 function SalesChart({
   data,
   mode,
+  onSelectBucket,
 }: {
   data: SalesDashboardResponse;
   mode: ChartMode;
+  onSelectBucket: (key: string) => void;
 }) {
   const mounted = useSyncExternalStore(
     subscribeToClient,
@@ -358,6 +506,15 @@ function SalesChart({
   if (!mounted) return <div className="h-[240px] w-full" aria-hidden />;
 
   const points = data.series;
+  const handleClick = (state: unknown) => {
+    const { activeTooltipIndex, activeLabel } =
+      (state as ChartClickState | null) ?? {};
+    const index = Number(activeTooltipIndex);
+    const point = Number.isInteger(index)
+      ? points[index]
+      : points.find((item) => item.label === activeLabel);
+    if (point) onSelectBucket(point.key);
+  };
   const axes = (
     <>
       <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -408,12 +565,16 @@ function SalesChart({
   );
 
   return (
-    <ChartContainer config={chartConfig} className="h-[240px] w-full">
+    <ChartContainer
+      config={chartConfig}
+      className="h-[240px] w-full [&_.recharts-surface]:cursor-pointer"
+    >
       {mode === "bars" ? (
         <BarChart
           accessibilityLayer
           data={points}
           margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
+          onClick={handleClick}
         >
           {axes}
           <Bar
@@ -429,6 +590,7 @@ function SalesChart({
           accessibilityLayer
           data={points}
           margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
+          onClick={handleClick}
         >
           {axes}
           <Line

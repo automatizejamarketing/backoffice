@@ -106,6 +106,9 @@ export type ProductSalesOrderRow = Pick<
 > & {
   orderId: string;
   productId: string;
+  productTitle: string;
+  buyerName: string;
+  buyerEmail: string;
   createdAt: Date;
   approvedAt: Date | null;
   refundedAt: Date | null;
@@ -165,9 +168,26 @@ export type ProductSalesPoint = {
   salesCount: number;
 };
 
+/** Uma venda aprovada no período, já com o balde da série a que pertence. */
+export type ProductSalesItem = {
+  orderId: string;
+  bucketKey: string;
+  approvedAt: string;
+  productTitle: string;
+  buyerName: string;
+  buyerEmail: string;
+  method: ProductSalesMethod;
+  orderStatus: ProductSalesOrderStatus;
+  paymentStatus: string | null;
+  grossCentavos: number;
+  netCentavos: number;
+};
+
 export type ProductSalesDashboard = {
   summary: ProductSalesSummary;
   series: ProductSalesPoint[];
+  /** Ordenadas da mais recente para a mais antiga. */
+  sales: ProductSalesItem[];
 };
 
 const BRT_OFFSET_HOURS = 3;
@@ -233,6 +253,7 @@ export function buildProductSalesDashboard(
 ): ProductSalesDashboard {
   const series = emptySeries(window);
   const seriesByKey = new Map(series.map((point) => [point.key, point]));
+  const sales: ProductSalesItem[] = [];
 
   let salesCount = 0;
   let grossCentavos = 0;
@@ -253,12 +274,26 @@ export function buildProductSalesDashboard(
       grossCentavos += gross;
       netCentavos += net;
       if (row.paymentStatus === "charged_back") chargebackCount += 1;
-      const point = seriesByKey.get(bucketKey(row.approvedAt as Date, window));
+      const key = bucketKey(row.approvedAt as Date, window);
+      const point = seriesByKey.get(key);
       if (point) {
         point.grossCentavos += gross;
         point.netCentavos += net;
         point.salesCount += 1;
       }
+      sales.push({
+        orderId: row.orderId,
+        bucketKey: key,
+        approvedAt: (row.approvedAt as Date).toISOString(),
+        productTitle: row.productTitle,
+        buyerName: row.buyerName,
+        buyerEmail: row.buyerEmail,
+        method: classifyProductSalesMethod(row),
+        orderStatus: row.orderStatus,
+        paymentStatus: row.paymentStatus,
+        grossCentavos: gross,
+        netCentavos: net,
+      });
     }
 
     // Reembolsos: pelo dia do reembolso.
@@ -301,5 +336,6 @@ export function buildProductSalesDashboard(
       chargebackPercent: percent(chargebackCount, salesCount),
     },
     series,
+    sales: sales.sort((a, b) => b.approvedAt.localeCompare(a.approvedAt)),
   };
 }

@@ -13,6 +13,9 @@ function row(overrides: Partial<ProductSalesOrderRow>): ProductSalesOrderRow {
   return {
     orderId: "order",
     productId: "product",
+    productTitle: "Programa de Implementação",
+    buyerName: "Comprador",
+    buyerEmail: "comprador@example.com",
     createdAt: new Date("2026-09-10T13:00:00.000Z"),
     approvedAt: null,
     refundedAt: null,
@@ -125,10 +128,16 @@ describe("buildProductSalesDashboard", () => {
       // Aprovado ontem: fora.
       row({ orderId: "c", orderStatus: "approved", paymentStatus: "approved", approvedAt: new Date("2026-09-09T13:30:00.000Z") }),
     ];
-    const { summary, series } = buildProductSalesDashboard(rows, window);
+    const { summary, series, sales } = buildProductSalesDashboard(rows, window);
     expect(summary.salesCount).toBe(2);
     expect(summary.grossCentavos).toBe(15_000);
     expect(summary.netCentavos).toBe(4_000);
+    // Lista por balde, da mais recente para a mais antiga.
+    expect(sales.map((sale) => [sale.orderId, sale.bucketKey])).toEqual([
+      ["b", "2026-09-10T19"],
+      ["a", "2026-09-10T10"],
+    ]);
+    expect(sales[1]).toMatchObject({ method: "card", netCentavos: 3_000, grossCentavos: 10_000 });
     // 13:30Z = 10:30 BRT; 22:10Z = 19:10 BRT.
     expect(series).toHaveLength(24);
     expect(series[10]).toMatchObject({ label: "10h", grossCentavos: 10_000, netCentavos: 3_000, salesCount: 1 });
