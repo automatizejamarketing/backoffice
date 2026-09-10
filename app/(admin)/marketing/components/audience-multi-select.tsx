@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { X, ChevronsUpDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import type { AudienceAvailability } from "@/lib/meta-business/marketing/audiences/types";
 import {
   Command,
   CommandEmpty,
@@ -17,6 +18,7 @@ export type AudienceOption = {
   name: string;
   subtype?: string;
   approximateCount?: number;
+  availability?: { include: AudienceAvailability; exclude: AudienceAvailability };
 };
 
 type AudienceMultiSelectProps = {
@@ -25,6 +27,7 @@ type AudienceMultiSelectProps = {
   audiences: AudienceOption[];
   selected: AudienceOption[];
   onChange: (selected: AudienceOption[]) => void;
+  availabilityKey: "include" | "exclude";
   disabled?: boolean;
   isLoading?: boolean;
 };
@@ -35,6 +38,7 @@ export function AudienceMultiSelect({
   audiences,
   selected,
   onChange,
+  availabilityKey,
   disabled = false,
   isLoading = false,
 }: AudienceMultiSelectProps) {
@@ -49,6 +53,8 @@ export function AudienceMultiSelect({
   const handleToggle = (audience: AudienceOption) => {
     if (selectedIds.has(audience.id)) {
       onChange(selected.filter((a) => a.id !== audience.id));
+    } else if (audience.availability?.[availabilityKey] === "blocked") {
+      return;
     } else {
       onChange([...selected, audience]);
     }
@@ -108,10 +114,16 @@ export function AudienceMultiSelect({
                     key={audience.id}
                     value={`${audience.name} ${audience.id}`}
                     onSelect={() => handleToggle(audience)}
+                    disabled={!selectedIds.has(audience.id) && audience.availability?.[availabilityKey] === "blocked"}
                     data-checked={selectedIds.has(audience.id) || undefined}
                   >
                     <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                       <span className="truncate">{audience.name}</span>
+                      {audience.availability?.[availabilityKey] === "blocked" && (
+                        <span className="text-[10px] text-destructive">
+                          Indisponível: importação pendente
+                        </span>
+                      )}
                       {audience.subtype && (
                         <span className="text-[10px] text-muted-foreground">
                           {audience.subtype}

@@ -6,6 +6,10 @@ import type {
 } from "@/lib/meta-business/campaign-schedule";
 import type { PlanMedia, PlanTexts } from "@/lib/meta-business/marketing/ai-creation";
 import type { PlacementKey } from "@/lib/meta-business/placements";
+import {
+  isDemographicLimits,
+  type DemographicLimits,
+} from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
 import type { PublishResult } from "@/lib/meta-business/marketing/ai-creation";
 import {
   publishFallbackCampaign,
@@ -13,6 +17,7 @@ import {
   type FallbackObjective,
   type FallbackPeriod,
 } from "@/lib/meta-business/marketing/ai-creation/fallback-publish";
+import type { WhatsappWelcomeMessage } from "@/lib/meta-business/marketing/creation/whatsapp-destination";
 import {
   authorizeAiCampaignWrite,
   isTokenInvalidError,
@@ -39,6 +44,11 @@ export type FallbackAiCampaignRequest = {
   period?: FallbackPeriod;
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
+  whatsappWelcome?: WhatsappWelcomeMessage;
+  demographics?: DemographicLimits;
+  excludedCustomAudienceIds?: string[];
+  includedCustomAudienceIds?: string[];
+  specialAdCategories?: string[];
 };
 
 export type FallbackAiCampaignResponse = { success: true } & PublishResult;
@@ -60,7 +70,12 @@ const NICHES = new Set<FallbackNiche>([
   "outros",
 ]);
 
-const OBJECTIVES = new Set<FallbackObjective>(["sales", "followers", "leads"]);
+const OBJECTIVES = new Set<FallbackObjective>([
+  "sales",
+  "whatsapp",
+  "followers",
+  "leads",
+]);
 
 /**
  * POST /api/meta-marketing/[accountId]/campaigns/ai/fallback?userId=
@@ -98,7 +113,7 @@ export async function POST(
           success: false as const,
           error: "Invalid request",
           message:
-            "Informe um nicho (food_service, retail, real_estate_broker, service, outros) e um objetivo (sales, followers, leads).",
+            "Informe um nicho (food_service, retail, real_estate_broker, service, outros) e um objetivo (sales, whatsapp, followers, leads).",
         },
         { status: 400 },
       );
@@ -114,11 +129,22 @@ export async function POST(
         { status: 400 },
       );
     }
+    if (!isDemographicLimits(body.demographics)) {
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid request",
+          message: "Os limites demográficos enviados não têm um formato válido.",
+        },
+        { status: 400 },
+      );
+    }
 
     const result = await publishFallbackCampaign({
       adAccountId: auth.accountId,
       accessToken: auth.accessToken,
       input: {
+        customerId: auth.userId,
         niche,
         objective,
         dailyBudget: body.dailyBudget,
@@ -135,6 +161,11 @@ export async function POST(
         period: body.period,
         placementsMode: body.placementsMode,
         selectedPlacements: body.selectedPlacements,
+        whatsappWelcome: body.whatsappWelcome,
+        demographics: body.demographics,
+        excludedCustomAudienceIds: body.excludedCustomAudienceIds,
+        includedCustomAudienceIds: body.includedCustomAudienceIds,
+        specialAdCategories: body.specialAdCategories,
       },
     });
 

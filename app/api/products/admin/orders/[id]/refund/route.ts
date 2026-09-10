@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   applyFullProductRefund,
@@ -6,7 +7,6 @@ import {
 } from "@/lib/db/product-queries";
 import { db } from "@/lib/db";
 import { backofficeAuditLog } from "@/lib/db/schema";
-import { refundMercadoPagoProductPayment } from "@/lib/mercadopago/product-refunds";
 import { createStripeConnectRefundClient } from "@/lib/stripe/connect/client";
 import { refundProductOrder } from "@/lib/products/refund-product-order";
 
@@ -18,17 +18,41 @@ const REFUND_REASON_COPY = {
   stripe_payment_missing:
     "Pagamento Stripe sem identificador — não é possível reembolsar na conta conectada.",
 } as const;
+const requestSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const authz = await requireBackofficePermissionResponse("products:manage");
   if (!authz.ok) return authz.response;
+  const parsedBody = requestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsedBody.success) {
+    return NextResponse.json(
+      { error: "Informe um motivo entre 1 e 500 caracteres." },
+      { status: 400 },
+    );
+  }
+  const reason = parsedBody.data.reason;
   const { id } = await params;
   const order = (await listProductOrders()).find((row) => row.id === id);
   if (!order) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
+  }
+
+  // Cobrança de Mercado Pago é devolvida no painel do provedor. O fluxo
+  // automatizado saiu junto com a solicitação do comprador; o webhook continua
+  // reagindo ao evento e revogando o Acesso quando o dinheiro volta inteiro.
+  if ((order.checkoutProvider ?? order.provider) === "mercadopago") {
+    return NextResponse.json(
+      {
+        error:
+          "Reembolso de Mercado Pago é feito no painel do provedor. O Acesso é revogado sozinho quando a devolução integral for confirmada.",
+      },
+      { status: 422 },
+    );
   }
 
   const result = await refundProductOrder({
@@ -43,11 +67,7 @@ export async function POST(
       automatizeCoproductionRevenueCentavos:
         order.automatizeCoproductionRevenueCentavos,
     },
-    mercadoPago: {
-      refundPayment: async (paymentId, idempotencyKey) => {
-        await refundMercadoPagoProductPayment(paymentId, idempotencyKey);
-      },
-    },
+    mercadoPago: { refundPayment: async () => undefined },
     stripeConnect: createStripeConnectRefundClient(),
     store: {
       recordRefund: (orderId, eventSuffix) =>
@@ -76,7 +96,7 @@ export async function POST(
       fieldName: "product_order_status",
       oldValue: order.status,
       newValue: "refunded",
-      note: `Pedido ${order.id} · ${result.path} · ${order.priceCentavos} centavos`,
+      note: `Pedido ${order.id} · ${result.path} · ${order.priceCentavos} centavos · motivo: ${reason}`,
     });
   }
 

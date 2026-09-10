@@ -103,6 +103,21 @@ export type ReviewSummary = {
     advantagePlus: boolean;
     interestGroups: number;
     customAudiences: number;
+    /** IDs included by the effective targeting, used to identify inherited differences. */
+    includedCustomAudienceIds?: string[];
+    /** IDs excluded by the effective targeting, used to identify inherited differences. */
+    excludedCustomAudienceIds?: string[];
+    /** Included IDs remaining after exclusion precedence is applied. */
+    effectiveCustomAudiences: number;
+    /** Included IDs that also occur in the exclusion list. */
+    overlappingCustomAudiences: number;
+    /** Whether the count came from an explicit inclusion override in this review. */
+    includedCustomAudiencesApplied?: boolean;
+    excludedCustomAudiences: number;
+    /** Whether the count came from an explicit exclusion override in this review. */
+    excludedCustomAudiencesApplied?: boolean;
+    /** Number of source ad sets represented when inherited targeting differs. */
+    inheritedDifferences?: { adSets: number; fields: string[] };
     placements: {
       automatic: boolean;
       /**
@@ -119,6 +134,8 @@ export type ReviewSummary = {
     ageMax?: number;
     /** Meta's codes: 1 = male, 2 = female. Absent/empty = everyone. */
     genders?: number[];
+    /** The effective targeting facts for every ad set represented by the plan. */
+    adSets?: AudienceReviewAdSet[];
   };
   schedule?: {
     mode: "continuous" | "dayparting";
@@ -132,6 +149,52 @@ export type ReviewSummary = {
   };
   identity: { pageId?: string; instagramUserId?: string };
   pixelId?: string;
+  /**
+   * Present ONLY on a click-to-WhatsApp campaign — its presence is what tells the review screen
+   * this ad leads to a conversation instead of a site. New CTWA campaigns are
+   * OUTCOME_ENGAGEMENT; legacy ones stay OUTCOME_SALES. The field, not the objective, is
+   * what the review keys off.
+   *
+   * No phone number here on purpose. The ad set promotes the Page and Meta resolves the number
+   * from it, so the number is not part of the plan — the screen reads it separately, and is
+   * allowed to fail to.
+   */
+  whatsapp?: {
+    /** The message that arrives already typed in the customer's chat. */
+    autofillMessage?: string;
+  };
+};
+
+export type AudienceReviewAdSet = {
+  index: number;
+  geo: {
+    customLocations: number;
+    cities: number;
+    regions: number;
+    countries: number;
+    locations?: Array<{ label: string; radiusKm?: number }>;
+  };
+  advantagePlus: boolean;
+  interestGroups: number;
+  customAudiences: number;
+  includedCustomAudienceIds?: string[];
+  excludedCustomAudienceIds?: string[];
+  effectiveCustomAudiences: number;
+  overlappingCustomAudiences: number;
+  includedCustomAudiencesApplied?: boolean;
+  excludedCustomAudiences: number;
+  excludedCustomAudiencesApplied?: boolean;
+  placements: {
+    automatic: boolean;
+    platforms?: string[];
+    facebookPositions?: string[];
+    instagramPositions?: string[];
+  };
+  ageMin?: number;
+  ageMax?: number;
+  genders?: number[];
+  ageSource: "applied" | "inherited";
+  genderSource: "applied" | "inherited";
 };
 
 /**

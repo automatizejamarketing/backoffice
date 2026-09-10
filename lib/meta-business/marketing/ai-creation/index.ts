@@ -43,3 +43,33 @@ export {
 export { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 export type { MoldRef } from "./pick-mold";
 export type { MoldKind } from "./validation-rules";
+export {
+  applyDemographicLimits,
+  hasAppliedDemographicLimits,
+  isDemographicLimits,
+  validateDemographicContext,
+  validateAppliedDemographicTargeting,
+  type DemographicAge,
+  type DemographicDerivation,
+  type DemographicIssue,
+  type DemographicLimits,
+} from "./demographic-limits";
+export type { AudienceReviewAdSet } from "./plan-campaign";
+export {
+  applyAudienceInclusions,
+  summarizeAudienceTargeting,
+  validateAppliedAudienceTargeting,
+  validateAudienceInclusionIds,
+  validateAudienceInclusionsAgainstLibrary,
+  type AudienceInclusionDerivation,
+  type AudienceInclusionIds,
+  type AudienceTargetingFacts,
+  type AudienceTargetingExpectation,
+} from "./audience-inclusions";
+export {
+  applyAudienceExclusions,
+  validateAudienceExclusionIds,
+  validateAudienceExclusionsAgainstLibrary,
+  type AudienceExclusionDerivation,
+  type AudienceExclusionIds,
+} from "./audience-exclusions";

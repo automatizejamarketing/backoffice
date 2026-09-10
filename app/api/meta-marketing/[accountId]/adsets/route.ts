@@ -22,6 +22,7 @@ import type {
   CampaignScheduleBlock,
 } from "@/lib/meta-business/campaign-schedule";
 import { createAdSetInExistingCampaign } from "@/lib/meta-business/marketing/create-adset-in-existing-campaign";
+import { checkAudienceSelectionAvailability } from "@/lib/meta-business/marketing/audiences/selection-guard";
 import type { PlacementKey } from "@/lib/meta-business/placements";
 import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
 import { validateChangeNote } from "@/lib/meta-tracking/internal-change-event";
@@ -627,6 +628,24 @@ export async function POST(
     }
 
     const { accessToken } = tokenResult;
+
+    const selectionCheck = await checkAudienceSelectionAvailability({
+      customerId: userId,
+      adAccountId: accountId,
+      includedAudienceIds: targeting.custom_audiences?.map((audience) => audience.id),
+      excludedAudienceIds: targeting.excluded_custom_audiences?.map((audience) => audience.id),
+    });
+    if (!selectionCheck.ok) {
+      return NextResponse.json(
+        {
+          error: "AUDIENCE_IMPORT_COMPROMISED",
+          message: "A seleção contém um público com importação parcial ou incerta.",
+          solution: selectionCheck.blocked[0]?.solution,
+          blocked: selectionCheck.blocked,
+        },
+        { status: 409 },
+      );
+    }
 
     for (const source of creatives) {
       try {

@@ -22,26 +22,6 @@ import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
 import type { BackofficeRole } from "@/lib/auth/rbac-core";
 import {
-  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
-  PRODUCT_ORDER_STATUS_VALUES,
-  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
-  PRODUCT_PAYMENT_STATUS_VALUES,
-  type ProductExpertPayoutStatus,
-  type ProductOrderStatus,
-  type ProductPaymentAttemptStatus,
-  type ProductPaymentStatus,
-} from "@/lib/products/financial-states";
-export {
-  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
-  PRODUCT_ORDER_STATUS_VALUES,
-  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
-  PRODUCT_PAYMENT_STATUS_VALUES,
-  type ProductExpertPayoutStatus,
-  type ProductOrderStatus,
-  type ProductPaymentAttemptStatus,
-  type ProductPaymentStatus,
-};
-import {
   COMPANY_CAPABILITIES,
   COMPANY_OFFER_CODES,
   COMPANY_PRODUCT_CODES,
@@ -49,7 +29,88 @@ import {
   type CompanyOfferCode,
   type CompanyProductCode,
 } from "@/lib/company-access/catalog";
-
+import {
+  PRODUCT_CARD_DISPUTE_STATUS_VALUES,
+  PRODUCT_EXPERT_LEDGER_ENTRY_TYPE_VALUES,
+  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
+  PRODUCT_FINANCIAL_RESPONSIBLE_VALUES,
+  PRODUCT_ORDER_STATUS_VALUES,
+  PRODUCT_PAYMENT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES,
+  PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
+  PRODUCT_POST_SALE_COST_STATUS_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_KIND_VALUES,
+  PRODUCT_POST_SALE_REVERSAL_VALUES,
+  PRODUCT_RECONCILIATION_CASE_KIND_VALUES,
+  PRODUCT_RECONCILIATION_CASE_STATUS_VALUES,
+  PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES,
+  PRODUCT_REFUND_BALANCE_CASE_STATUS_VALUES,
+  PRODUCT_REFUND_OPERATION_STATUS_VALUES,
+  PRODUCT_REFUND_REQUEST_STATUS_VALUES,
+  type ProductCardDisputeStatus,
+  type ProductExpertLedgerEntryType,
+  type ProductExpertPayoutStatus,
+  type ProductFinancialResponsible,
+  type ProductOrderStatus,
+  type ProductPaymentStatus,
+  type ProductPaymentAttemptStatus,
+  type ProductPaymentAttemptResolution,
+  type ProductPixFraudCaseStatus,
+  type ProductPostSaleCostStatus,
+  type ProductPostSaleMovementAttribution,
+  type ProductPostSaleMovementKind,
+  type ProductPostSaleReversal,
+  type ProductReconciliationCaseKind,
+  type ProductReconciliationCaseStatus,
+  type ProductReconciliationResponsible,
+  type ProductRefundBalanceCaseStatus,
+  type ProductRefundOperationStatus,
+  type ProductRefundRequestStatus,
+} from "@/lib/products/financial-states";
+export {
+  PRODUCT_CARD_DISPUTE_STATUS_VALUES,
+  PRODUCT_EXPERT_LEDGER_ENTRY_TYPE_VALUES,
+  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
+  PRODUCT_FINANCIAL_RESPONSIBLE_VALUES,
+  PRODUCT_ORDER_STATUS_VALUES,
+  PRODUCT_PAYMENT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES,
+  PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
+  PRODUCT_POST_SALE_COST_STATUS_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
+  PRODUCT_POST_SALE_MOVEMENT_KIND_VALUES,
+  PRODUCT_POST_SALE_REVERSAL_VALUES,
+  PRODUCT_RECONCILIATION_CASE_KIND_VALUES,
+  PRODUCT_RECONCILIATION_CASE_STATUS_VALUES,
+  PRODUCT_RECONCILIATION_RESPONSIBLE_VALUES,
+  PRODUCT_REFUND_BALANCE_CASE_STATUS_VALUES,
+  PRODUCT_REFUND_OPERATION_STATUS_VALUES,
+  PRODUCT_REFUND_REQUEST_STATUS_VALUES,
+} from "@/lib/products/financial-states";
+export type {
+  ProductCardDisputeStatus,
+  ProductExpertLedgerEntryType,
+  ProductExpertPayoutStatus,
+  ProductFinancialResponsible,
+  ProductOrderStatus,
+  ProductPaymentStatus,
+  ProductPaymentAttemptStatus,
+  ProductPaymentAttemptResolution,
+  ProductPixFraudCaseStatus,
+  ProductPostSaleCostStatus,
+  ProductPostSaleMovementAttribution,
+  ProductPostSaleMovementKind,
+  ProductPostSaleReversal,
+  ProductReconciliationCaseKind,
+  ProductReconciliationCaseStatus,
+  ProductReconciliationResponsible,
+  ProductRefundBalanceCaseStatus,
+  ProductRefundOperationStatus,
+  ProductRefundRequestStatus,
+} from "@/lib/products/financial-states";
 
 export const user = pgTable(
   "users",
@@ -464,6 +525,93 @@ export const expertProfile = pgTable(
 
 export type ExpertProfile = InferSelectModel<typeof expertProfile>;
 
+/** OAuth credentials stay separate from profile/admin reads. */
+export const mercadoPagoExpertConnection = pgTable(
+  "mercado_pago_expert_connections",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    mpUserId: varchar("mp_user_id", { length: 64 }).notNull(),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    accessTokenEncrypted: text("access_token_encrypted").notNull(),
+    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at").notNull(),
+    scopes: text("scopes"),
+    pixStatus: varchar("pix_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">().notNull().default("unknown"),
+    cardStatus: varchar("card_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">().notNull().default("unknown"),
+    revokedAt: timestamp("revoked_at"),
+    lastValidatedAt: timestamp("last_validated_at"),
+    lastValidationError: varchar("last_validation_error", { length: 80 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    expertEnvironmentUnique: unique("mercado_pago_expert_connections_expert_environment_unique").on(table.expertId, table.environment),
+    mpUserEnvironmentUnique: unique("mercado_pago_expert_connections_user_environment_unique").on(table.mpUserId, table.environment),
+  }),
+);
+
+export const mercadoPagoOauthAttempt = pgTable(
+  "mercado_pago_oauth_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    stateHash: varchar("state_hash", { length: 64 }).notNull(),
+    codeVerifierEncrypted: text("code_verifier_encrypted").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    stateUnique: unique("mercado_pago_oauth_attempts_state_hash_unique").on(table.stateHash),
+    activeExpertIdx: index("mercado_pago_oauth_attempts_expert_idx").on(table.expertId, table.expiresAt),
+  }),
+);
+
+export const mercadoPagoExpertAccount = pgTable(
+  "mercado_pago_expert_accounts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    mpUserId: varchar("mp_user_id", { length: 64 }).notNull(),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    accessTokenEncrypted: text("access_token_encrypted").notNull(),
+    refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({ expertAccountUnique: unique("mercado_pago_expert_accounts_expert_user_environment_unique").on(table.expertId, table.mpUserId, table.environment) }),
+);
+
+export const mercadoPagoReceiverSwitch = pgTable(
+  "mercado_pago_receiver_switches",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").notNull().references(() => expertProfile.id),
+    environment: varchar("environment", { enum: ["sandbox", "production"] }).$type<"sandbox" | "production">().notNull(),
+    previousMpUserId: varchar("previous_mp_user_id", { length: 64 }).notNull(),
+    nextMpUserId: varchar("next_mp_user_id", { length: 64 }),
+    state: varchar("state", { enum: ["pending_authorization", "authorized", "resolving", "activated", "denied"] }).$type<"pending_authorization" | "authorized" | "resolving" | "activated" | "denied">().notNull().default("pending_authorization"),
+    authorizedBy: varchar("authorized_by", { length: 255 }),
+    authorizationReason: varchar("authorization_reason", { length: 500 }),
+    authorizedAt: timestamp("authorized_at").notNull().defaultNow(),
+    candidateAccessTokenEncrypted: text("candidate_access_token_encrypted"),
+    candidateRefreshTokenEncrypted: text("candidate_refresh_token_encrypted"),
+    candidateTokenExpiresAt: timestamp("candidate_token_expires_at"),
+    candidateScopes: text("candidate_scopes"),
+    candidatePixStatus: varchar("candidate_pix_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">(),
+    candidateCardStatus: varchar("candidate_card_status", { enum: ["available", "unavailable", "unknown"] }).$type<"available" | "unavailable" | "unknown">(),
+    candidateLastValidatedAt: timestamp("candidate_last_validated_at"),
+    candidateLastValidationError: varchar("candidate_last_validation_error", { length: 80 }),
+    activatedAt: timestamp("activated_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({ activeExpertEnvironmentUnique: unique("mercado_pago_receiver_switches_expert_environment_unique").on(table.expertId, table.environment) }),
+);
+
 export const productFinancialSetting = pgTable(
   "product_financial_settings",
   {
@@ -553,10 +701,7 @@ export const product = pgTable(
     coproducerExpertIdx: index("products_coproducer_expert_id_idx").on(
       table.coproducerExpertId,
     ),
-    priceCheck: check(
-      "products_price_non_negative",
-      sql`${table.priceCentavos} >= 0`,
-    ),
+    priceCheck: check("products_price_non_negative", sql`${table.priceCentavos} >= 0`),
     platformFeeOverrideCheck: check(
       "products_platform_fee_override_range",
       sql`${table.platformFeeBasisPointsOverride} IS NULL OR (${table.platformFeeBasisPointsOverride} >= 0 AND ${table.platformFeeBasisPointsOverride} <= 10000)`,
@@ -621,7 +766,6 @@ export const productContentItem = pgTable(
 );
 
 export type ProductContentItem = InferSelectModel<typeof productContentItem>;
-
 
 /** Where the buyer discovered the product. `direct` = public product URL
  * (the expert's own traffic, tracked via the `product_direct` cookie);
@@ -744,15 +888,14 @@ export const productOrder = pgTable(
 
 export type ProductOrder = InferSelectModel<typeof productOrder>;
 
+/** One immutable provider charge attempt; an order may have several. */
 export const productPaymentAttempt = pgTable(
   "product_payment_attempts",
   {
     id: uuid("id").primaryKey().notNull().defaultRandom(),
     attemptKey: varchar("attempt_key", { length: 80 }).notNull(),
     requestFingerprint: varchar("request_fingerprint", { length: 64 }).notNull(),
-    orderId: uuid("order_id")
-      .notNull()
-      .references(() => productOrder.id),
+    orderId: uuid("order_id").notNull().references(() => productOrder.id),
     provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"),
     checkoutModel: varchar("checkout_model", { length: 60 }).notNull(),
     paymentMethod: varchar("payment_method", { enum: ["pix", "card"] })
@@ -786,33 +929,59 @@ export const productPaymentAttempt = pgTable(
     lastCheckedAt: timestamp("last_checked_at"),
   },
   (table) => ({
-    attemptKeyUnique: unique("product_payment_attempts_attempt_key_unique").on(
-      table.attemptKey,
-    ),
-    providerPaymentUnique: uniqueIndex(
-      "product_payment_attempts_provider_payment_unique",
-    )
+    attemptKeyUnique: unique("product_payment_attempts_attempt_key_unique").on(table.attemptKey),
+    providerPaymentUnique: uniqueIndex("product_payment_attempts_provider_payment_unique")
       .on(table.provider, table.providerPaymentId)
       .where(sql`${table.providerPaymentId} IS NOT NULL`),
-    orderCreatedIdx: index("product_payment_attempts_order_created_idx").on(
-      table.orderId,
-      table.createdAt,
-    ),
-    orderStatusIdx: index("product_payment_attempts_order_status_idx").on(
-      table.orderId,
-      table.status,
-    ),
-    activeOrderUnique: uniqueIndex(
-      "product_payment_attempts_one_active_order_unique",
-    )
+    orderCreatedIdx: index("product_payment_attempts_order_created_idx").on(table.orderId, table.createdAt),
+    orderStatusIdx: index("product_payment_attempts_order_status_idx").on(table.orderId, table.status),
+    activeOrderUnique: uniqueIndex("product_payment_attempts_one_active_order_unique")
       .on(table.orderId)
-      .where(
-        sql`${table.status} IN ('prepared', 'issuing', 'pending', 'unknown')`,
-      ),
+      .where(sql`${table.status} IN ('prepared', 'issuing', 'pending', 'unknown')`),
   }),
 );
 
 export type ProductPaymentAttempt = InferSelectModel<typeof productPaymentAttempt>;
+
+/** Immutable operator evidence for deliberately closing an attempt after the
+ * provider confirmed that no payment exists. */
+export const productPaymentAttemptResolution = pgTable(
+  "product_payment_attempt_resolutions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => productPaymentAttempt.id),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productOrder.id),
+    attemptKey: varchar("attempt_key", { length: 80 }).notNull(),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    outcome: varchar("outcome", {
+      enum: [...PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES],
+    })
+      .$type<ProductPaymentAttemptResolution>()
+      .notNull(),
+    operatorEmail: varchar("operator_email", { length: 255 }).notNull(),
+    reason: text("reason").notNull(),
+    providerFact: jsonb("provider_fact")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    attemptUnique: unique(
+      "product_payment_attempt_resolutions_attempt_unique",
+    ).on(table.attemptId),
+    orderCreatedIdx: index(
+      "product_payment_attempt_resolutions_order_created_idx",
+    ).on(table.orderId, table.createdAt),
+  }),
+);
+
+export type ProductPaymentAttemptResolutionRow = InferSelectModel<
+  typeof productPaymentAttemptResolution
+>;
 
 export const productPayment = pgTable(
   "product_payments",
@@ -827,7 +996,6 @@ export const productPayment = pgTable(
       .default("mercadopago"),
     providerPreferenceId: varchar("provider_preference_id", { length: 255 }),
     providerPaymentId: varchar("provider_payment_id", { length: 255 }),
-    /** Collector identity is frozen before the payment is issued. */
     mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
     /** G1 quote frozen before issuing an Expert Split Inicial charge. */
     mercadoPagoExpectedProviderFeeCentavos: integer(
@@ -920,7 +1088,6 @@ export const productEntitlement = pgTable(
       .$type<"purchase" | "free">()
       .notNull(),
     grantedAt: timestamp("granted_at").notNull().defaultNow(),
-    /** A confirmed, full card dispute pauses this purchase source only. */
     suspendedAt: timestamp("suspended_at"),
     suspendedByCardDisputeId: uuid("suspended_by_card_dispute_id"),
     suspendedByPixFraudCaseId: uuid("suspended_by_pix_fraud_case_id"),
@@ -937,6 +1104,30 @@ export const productEntitlement = pgTable(
 
 export type ProductEntitlement = InferSelectModel<typeof productEntitlement>;
 
+/** Observed purchase and access facts used in a dispute defence. Opening a
+ * page or requesting a file is recorded as an observed action, never as proof
+ * that a video was watched or a download completed. */
+
+/** Audit trail for authorized evidence consultations. */
+
+/** Provider-confirmed Pix fraud facts remain scoped to their own payment and
+ * never infer an alleged fraud author. */
+
+/** Shared operational record for a provider-confirmed refund balance shortage. */
+
+/** Immutable provider facts retained separately so replays and out-of-order
+ * updates never erase the raw evidence that led to an access decision. */
+
+/** Cost records stay separate from the legacy payout ledger: they can never
+ * create a new Expert withdrawal. */
+
+/** Espelho de automatize-frontend: divergencia vira caso acompanhado, nunca uma
+ * correcao automatica do Split Inicial ou complemento de reembolso parcial. */
+
+/** One-use grant issued before a defence object is uploaded. The grant binds
+ * the object identity to the dispute and retains cleanup history for objects
+ * that never became evidence. */
+
 export const expertLedgerEntry = pgTable(
   "expert_ledger_entries",
   {
@@ -946,10 +1137,8 @@ export const expertLedgerEntry = pgTable(
       .references(() => expertProfile.id),
     orderId: uuid("order_id").references(() => productOrder.id),
     eventKey: varchar("event_key", { length: 255 }).notNull(),
-    type: varchar("type", {
-      enum: ["sale", "refund", "chargeback", "payout"],
-    })
-      .$type<"sale" | "refund" | "chargeback" | "payout">()
+    type: varchar("type", { enum: [...PRODUCT_EXPERT_LEDGER_ENTRY_TYPE_VALUES] })
+      .$type<ProductExpertLedgerEntryType>()
       .notNull(),
     amountCentavos: integer("amount_centavos").notNull(),
     availableAt: timestamp("available_at"),
@@ -1056,6 +1245,22 @@ export const backofficeAuditLog = pgTable("backoffice_audit_logs", {
 });
 
 export type BackofficeAuditLog = InferSelectModel<typeof backofficeAuditLog>;
+
+/** Durable command ledger for Meta audience mutations and uncertain outcomes. */
+export const metaAudienceCommand = pgTable("meta_audience_commands", {
+  commandId: text("command_id").primaryKey(),
+  actorUserId: uuid("actor_user_id").notNull().references(() => user.id),
+  accountId: text("account_id").notNull(),
+  audienceId: text("audience_id").notNull(),
+  request: jsonb("request").notNull(),
+  status: varchar("status", { length: 24 }).notNull().default("pending"),
+  result: jsonb("result"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type MetaAudienceCommand = InferSelectModel<typeof metaAudienceCommand>;
 
 export const businessOperatingRules = pgTable("business_operating_rules", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
@@ -3228,7 +3433,6 @@ export const referralAffiliateBlock = pgTable(
 export type ReferralAffiliateBlock = InferSelectModel<
   typeof referralAffiliateBlock
 >;
-
 
 /**
  * Acordo de Comissão — formato, valor e duração, e nada mais: carência e base
@@ -6701,7 +6905,6 @@ export type FoodServiceOrderStockAllocation = InferSelectModel<
   typeof foodServiceOrderStockAllocation
 >;
 
-
 export const foodServiceInventoryCount = pgTable(
   "food_service_inventory_counts",
   {
@@ -6791,7 +6994,6 @@ export type FoodServiceInventoryCountLine = InferSelectModel<
 export type FoodServiceRoutineSchedule =
   | { frequency: "daily" }
   | { frequency: "weekly"; weekdays: number[] };
-
 
 export const foodServiceIngredientGroup = pgTable(
   "food_service_ingredient_groups",
@@ -6962,7 +7164,6 @@ export const foodServiceInventoryCountDraftLine = pgTable(
   }),
 );
 
-
 export const foodServiceOperationalChecklist = pgTable(
   "food_service_operational_checklists",
   {
@@ -7106,7 +7307,6 @@ export const foodServiceOperationalChecklistRunItem = pgTable(
     ),
   }),
 );
-
 
 export const foodServiceIfoodConnection = pgTable(
   "food_service_ifood_connections",
@@ -7883,6 +8083,108 @@ export const creativeDiagnosis = pgTable(
 export type CreativeDiagnosis = InferSelectModel<typeof creativeDiagnosis>;
 
 // ===== END creative_diagnoses_* =====
+
+// ===== BEGIN customer_file_* — bloco espelhado byte a byte no projeto irmão =====
+//
+// Persistência operacional das importações de lista de clientes (I10, I11, I13).
+// O frontend é o dono da migration; o Postgres é compartilhado. Contatos, hashes
+// e amostras ficam somente em customer_file_temporary_material.
+
+export type CustomerFileActorKind = "user" | "backoffice";
+
+export type CustomerFileOperationType = "create" | "add" | "remove" | "replace";
+
+export const customerFileOperation = pgTable(
+  "customer_file_operations",
+  {
+    id: uuid("id").primaryKey().notNull(),
+    actorKind: varchar("actor_kind", { length: 32 })
+      .$type<CustomerFileActorKind>()
+      .notNull()
+      .default("user"),
+    actorId: uuid("actor_id"),
+    customerId: uuid("customer_id").references(() => user.id, {
+      onDelete: "cascade",
+    }),
+    adAccountId: text("ad_account_id"),
+    audienceIdentity: text("audience_identity").notNull(),
+    audienceId: text("audience_id"),
+    audienceName: text("audience_name"),
+    operationType: varchar("operation_type", { length: 16 })
+      .$type<CustomerFileOperationType>()
+      .notNull(),
+    state: varchar("state", { length: 32 }).notNull(),
+    receivedAt: timestamp("received_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    previewConfirmed: boolean("preview_confirmed").notNull().default(false),
+    declarationsConfirmed: boolean("declarations_confirmed")
+      .notNull()
+      .default(false),
+    customerFileSource: text("customer_file_source"),
+    counts: text("counts").notNull().default("{}"),
+    sessionId: text("session_id"),
+    sessionStartedAt: timestamp("session_started_at"),
+    confirmedBatches: text("confirmed_batches").notNull().default("[]"),
+    receipts: text("receipts").notNull().default("[]"),
+    pendingUnresolved: boolean("pending_unresolved").notNull().default(false),
+    name: text("name"),
+    description: text("description"),
+  },
+  (table) => ({
+    customerIdx: index("customer_file_operations_customer_idx").on(
+      table.customerId,
+    ),
+    audienceIdx: index("customer_file_operations_audience_idx").on(
+      table.audienceIdentity,
+    ),
+    stateIdx: index("customer_file_operations_state_idx").on(table.state),
+  }),
+);
+
+export type CustomerFileOperationRecord = InferSelectModel<
+  typeof customerFileOperation
+>;
+
+export const customerFileCoordination = pgTable("customer_file_coordination", {
+  audienceIdentity: text("audience_identity").primaryKey().notNull(),
+  operationId: uuid("operation_id").notNull(),
+  executorToken: text("executor_token"),
+  leaseUntil: timestamp("lease_until"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type CustomerFileCoordinationRecord = InferSelectModel<
+  typeof customerFileCoordination
+>;
+
+export const customerFileTemporaryMaterial = pgTable(
+  "customer_file_temporary_material",
+  {
+    operationId: uuid("operation_id")
+      .primaryKey()
+      .notNull()
+      .references(() => customerFileOperation.id, { onDelete: "cascade" }),
+    receivedAt: timestamp("received_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    rawFile: text("raw_file"),
+    normalizedRows: text("normalized_rows"),
+    hashes: text("hashes"),
+    errorSamples: text("error_samples"),
+    correctionReport: text("correction_report"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    expiresIdx: index("customer_file_temporary_expires_idx").on(table.expiresAt),
+  }),
+);
+
+export type CustomerFileTemporaryMaterialRecord = InferSelectModel<
+  typeof customerFileTemporaryMaterial
+>;
+
+// ===== END customer_file_* =====
 
 // ===== CRM interno (time comercial) =====
 // Status comercial é independente do status da conta (acesso/trial/pagamento):

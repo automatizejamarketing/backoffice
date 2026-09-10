@@ -92,6 +92,8 @@ export function buildGatewayNetV1OrderSnapshot(input: {
   coproducerType: ProductOwnerType | null;
   coproducerShareBasisPoints: number;
   paymentMethod?: "card" | "pix" | "free";
+  /** Stripe is retained only for historical direct-charge orders. */
+  paymentProvider?: "mercadopago" | "stripe";
   gatewayFeeEstimateBps?: number;
   gatewayFeeEstimateFixedCentavos?: number;
 }): GatewayNetV1OrderSnapshot {
@@ -134,7 +136,7 @@ export function buildGatewayNetV1OrderSnapshot(input: {
     coproducerShareBasisPoints: input.coproducerShareBasisPoints,
   };
 
-  if (input.paymentMethod !== "card") {
+  if (input.paymentMethod !== "card" || input.paymentProvider === "mercadopago") {
     return {
       ...snapshotBase,
       gatewayFeeEstimateBps: null,
