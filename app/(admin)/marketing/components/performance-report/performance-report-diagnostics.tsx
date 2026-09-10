@@ -76,17 +76,9 @@ export function PerformanceReportDiagnostics({
                     <span className="text-sm font-medium">{row.name}</span>
                     <Badge
                       variant="outline"
-                      className={`text-xs ${
-                        row.severity === "critical"
-                          ? "border-red-200 bg-red-50 text-red-700"
-                          : "border-amber-200 bg-amber-50 text-amber-700"
-                      }`}
+                      className="text-xs border-amber-200 bg-amber-50 text-amber-700"
                     >
-                      {row.dropPercent != null
-                        ? `−${row.dropPercent}%`
-                        : row.severity === "critical"
-                          ? "Crítico"
-                          : "Queda"}
+                      {row.dropPercent != null ? `−${row.dropPercent}%` : "Queda"}
                     </Badge>
                   </span>
                   <span className="text-xs text-muted-foreground">
