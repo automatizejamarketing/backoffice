@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Handshake,
   ImageIcon,
+  KanbanSquare,
   LayoutDashboard,
   LayoutGrid,
   Link2,
@@ -138,6 +139,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/users",
         label: "Usuários",
         icon: Users,
+        permission: "users:manage",
+      },
+      {
+        kind: "leaf",
+        href: "/crm",
+        label: "CRM",
+        icon: KanbanSquare,
         permission: "users:manage",
       },
       {
