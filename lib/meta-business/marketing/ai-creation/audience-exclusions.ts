@@ -64,15 +64,6 @@ export function applyAudienceExclusions(
     delete targeting.excluded_custom_audiences;
   } else {
     targeting.excluded_custom_audiences = ids.map((id) => ({ id }));
-    const automation = targeting.targeting_automation as
-      | { advantage_audience?: number | boolean }
-      | undefined;
-    if (automation?.advantage_audience === 1 || automation?.advantage_audience === true) {
-      targeting.targeting_relaxation_types = {
-        ...((targeting.targeting_relaxation_types as Record<string, unknown> | undefined) ?? {}),
-        custom_audience: 1,
-      };
-    }
   }
 
   return { targeting, issues };

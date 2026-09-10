@@ -44,6 +44,7 @@ export async function validateAudienceExclusionSelection(input: {
     const audiences: CustomAudienceView[] = [];
     const seenCursors = new Set<string>();
     let after: string | undefined;
+    let loadedCompletely = false;
 
     // The normal account page is 200 items. Follow its cursors so an audience
     // on a later page cannot be treated as missing after a context change.
@@ -57,10 +58,15 @@ export async function validateAudienceExclusionSelection(input: {
       });
       audiences.push(...page.items);
       if (!page.truncated || !page.nextCursor || seenCursors.has(page.nextCursor)) {
+        loadedCompletely = !page.truncated;
         break;
       }
       seenCursors.add(page.nextCursor);
       after = page.nextCursor;
+    }
+
+    if (!loadedCompletely) {
+      throw new Error("Audience library pagination did not complete");
     }
 
     return validateAudienceExclusionsAgainstLibrary(input.ids, audiences);

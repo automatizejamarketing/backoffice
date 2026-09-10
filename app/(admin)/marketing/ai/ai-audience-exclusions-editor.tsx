@@ -9,6 +9,8 @@ import type { AudienceExclusionIds } from "@/lib/meta-business/marketing/ai-crea
 
 type LibraryResponse = {
   audiences: CustomAudienceView[];
+  hasNextPage?: boolean;
+  nextCursor?: string | null;
 };
 
 function estimate(audience: CustomAudienceView): string {
@@ -40,6 +42,38 @@ function availabilityMessage(audience: CustomAudienceView): string | null {
   return null;
 }
 
+async function loadLibrary(
+  accountId: string,
+  userId: string,
+): Promise<CustomAudienceView[]> {
+  const audiences: CustomAudienceView[] = [];
+  let after: string | undefined;
+  const seenCursors = new Set<string>();
+
+  for (let page = 0; page < 20; page += 1) {
+    const params = new URLSearchParams({ userId, detailed: "1" });
+    if (after) params.set("after", after);
+    const response = await fetch(
+      `/api/meta-marketing/${accountId}/audiences?${params.toString()}`,
+    );
+    const body = (await response.json().catch(() => ({}))) as LibraryResponse & {
+      message?: string;
+    };
+    if (!response.ok) {
+      throw new Error(body.message ?? "Não foi possível carregar os públicos.");
+    }
+    audiences.push(...(body.audiences ?? []));
+    if (!body.hasNextPage) return audiences;
+    if (!body.nextCursor || seenCursors.has(body.nextCursor) || page === 19) {
+      throw new Error("A biblioteca de públicos não pôde ser carregada por completo.");
+    }
+    seenCursors.add(body.nextCursor);
+    after = body.nextCursor;
+  }
+
+  return audiences;
+}
+
 export function AiAudienceExclusionsEditor({
   accountId,
   userId,
@@ -67,15 +101,9 @@ export function AiAudienceExclusionsEditor({
     let active = true;
     setLoading(true);
     setError(null);
-    const query = new URLSearchParams({ userId, detailed: "1" });
-    void fetch("/api/meta-marketing/" + accountId + "/audiences?" + query)
-      .then(async (response) => {
-        const body = (await response.json().catch(() => ({}))) as LibraryResponse & { message?: string };
-        if (!response.ok) throw new Error(body.message ?? "Não foi possível carregar os públicos.");
-        return body;
-      })
-      .then((body) => {
-        if (active) setAudiences(body.audiences ?? []);
+    void loadLibrary(accountId, userId)
+      .then((loaded) => {
+        if (active) setAudiences(loaded);
       })
       .catch((caught) => {
         if (active) setError(caught instanceof Error ? caught.message : "Não foi possível carregar os públicos.");
@@ -137,7 +165,7 @@ export function AiAudienceExclusionsEditor({
                   aria-label={"Excluir " + (audience.name ?? audience.id)}
                   checked={draftIds.includes(audience.id)}
                   className="mt-1 size-4 shrink-0 accent-primary"
-                  disabled={disabled || unavailable}
+                  disabled={disabled || (unavailable && !draftIds.includes(audience.id))}
                   onChange={(event) => toggle(audience.id, event.target.checked)}
                   id={checkboxId}
                   type="checkbox"

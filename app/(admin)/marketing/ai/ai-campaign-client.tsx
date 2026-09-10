@@ -1361,6 +1361,14 @@ export function AiCampaignClient() {
                         </dd>
                       </div>
                       <div>
+                        <dt className="inline font-medium">Públicos personalizados: </dt>
+                        <dd className="inline">{adSet.customAudiences}</dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Públicos excluídos: </dt>
+                        <dd className="inline">{adSet.excludedCustomAudiences}</dd>
+                      </div>
+                      <div>
                         <dt className="inline font-medium">Idade: </dt>
                         <dd className="inline">
                           {adSet.ageMin != null || adSet.ageMax != null

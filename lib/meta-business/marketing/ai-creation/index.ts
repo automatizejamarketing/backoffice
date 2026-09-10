@@ -64,3 +64,10 @@ export {
   type AudienceInclusionIds,
   type AudienceTargetingExpectation,
 } from "./audience-inclusions";
+export {
+  applyAudienceExclusions,
+  validateAudienceExclusionIds,
+  validateAudienceExclusionsAgainstLibrary,
+  type AudienceExclusionDerivation,
+  type AudienceExclusionIds,
+} from "./audience-exclusions";
