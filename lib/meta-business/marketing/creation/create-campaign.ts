@@ -10,7 +10,7 @@
  * Endpoint: POST /act_{ad_account_id}/campaigns (Ad Campaign Group).
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import {
   type CreateIssue,
   type CreateResult,
@@ -209,7 +209,7 @@ export async function previewCampaign(
   const account = formatAccountId(input.adAccountId);
   const body = buildCampaignPayload(input);
   try {
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: `${account}/campaigns`,
       params: "",
@@ -241,7 +241,7 @@ export async function createCampaign(
 
   if (!opts.skipRemoteValidation) {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: `${account}/campaigns`,
         params: "",
@@ -256,7 +256,7 @@ export async function createCampaign(
   }
 
   try {
-    const res = await metaApiCall<{ id: string }>({
+    const res = await metaWrite<{ id: string }>({
       method: "POST",
       path: `${account}/campaigns`,
       params: "",

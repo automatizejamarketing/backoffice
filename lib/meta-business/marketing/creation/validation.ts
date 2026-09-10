@@ -411,6 +411,7 @@ export function validateCampaignBudget(input: {
 
 export function validateAdSetBudget(input: {
   parentUsesCampaignBudget: boolean;
+  parentHasLifetimeBudget?: boolean;
   dailyBudgetCents?: number;
   lifetimeBudgetCents?: number;
   hasEndTime?: boolean;
@@ -428,6 +429,19 @@ export function validateAdSetBudget(input: {
           "A campanha usa orçamento (CBO); o conjunto não pode ter orçamento próprio.",
           "Remova daily_budget/lifetime_budget do conjunto, ou crie a campanha sem orçamento (ABO).",
           ["daily_budget", "lifetime_budget"],
+        ),
+      );
+    }
+    // Same Meta rule as ABO lifetime: the ad set still needs end_time when the
+    // parent CBO budget is lifetime (code 100/1487094).
+    if (input.parentHasLifetimeBudget && !input.hasEndTime) {
+      issues.push(
+        localIssue(
+          "adset",
+          "LIFETIME_REQUIRES_END_TIME",
+          "Orçamento total (lifetime) da campanha exige end_time no conjunto.",
+          "Passe endTime no conjunto (o mesmo stopTime da campanha) ou deixe o sistema herdar o voo da campanha.",
+          ["end_time"],
         ),
       );
     }

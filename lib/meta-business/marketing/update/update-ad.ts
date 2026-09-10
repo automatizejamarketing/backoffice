@@ -15,7 +15,7 @@
  * Endpoints: POST /{ad_id}; POST /act_{id}/adcreatives; POST /{ad_id}/copies.
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import { GraphApiError } from "@/lib/meta-business/error";
 import { localIssue, mergeExtraFields } from "../creation/types";
 import { issuesFromError } from "../creation/normalize";
@@ -195,7 +195,7 @@ export async function repointWithFallback(args: {
 > {
   const { ad, creativeId, accessToken, allowReplacePaused } = args;
   const repoint = (adId: string) =>
-    metaApiCall<{ success?: boolean; id?: string }>({
+    metaWrite<{ success?: boolean; id?: string }>({
       method: "POST",
       path: adId,
       params: "",
@@ -214,7 +214,7 @@ export async function repointWithFallback(args: {
 
   // Fallback: copy into the same ad set, repoint the copy, pause the original.
   try {
-    const copy = await metaApiCall<{ copied_ad_id?: string }>({
+    const copy = await metaWrite<{ copied_ad_id?: string }>({
       method: "POST",
       path: `${ad.id}/copies`,
       params: "",
@@ -235,7 +235,7 @@ export async function repointWithFallback(args: {
       };
     }
     await repoint(newAdId);
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: ad.id,
       params: "",
@@ -277,7 +277,7 @@ export async function previewUpdateAd(input: UpdateAdInput): Promise<PreviewResu
   const body = buildAdUpdatePayload(input);
   if ([...body.keys()].length) {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: input.adId,
         params: "",
@@ -365,7 +365,7 @@ export async function updateAd(
     if (!skipRemote && strategy === "update") {
       // Only validate_only when we haven't already mutated via repoint/replace.
       try {
-        await metaApiCall<{ success?: boolean }>({
+        await metaWrite<{ success?: boolean }>({
           method: "POST",
           path: effectiveAdId,
           params: "",
@@ -377,7 +377,7 @@ export async function updateAd(
       }
     }
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: effectiveAdId,
         params: "",

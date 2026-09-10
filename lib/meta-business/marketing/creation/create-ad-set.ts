@@ -10,7 +10,7 @@
  * Endpoint: POST /act_{ad_account_id}/adsets (objeto "Ad Campaign" na doc).
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import {
   type CreateIssue,
   type CreateResult,
@@ -186,6 +186,7 @@ export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
     }),
     validateAdSetBudget({
       parentUsesCampaignBudget: Boolean(input.parentUsesCampaignBudget),
+      parentHasLifetimeBudget: Boolean(input.parentHasLifetimeBudget),
       dailyBudgetCents: input.dailyBudgetCents,
       lifetimeBudgetCents: input.lifetimeBudgetCents,
       hasEndTime: Boolean(input.endTime),
@@ -282,7 +283,7 @@ export async function previewAdSet(input: CreateAdSetInput): Promise<PreviewResu
   const account = formatAccountId(input.adAccountId);
   const body = buildAdSetPayload(input);
   try {
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: `${account}/adsets`,
       params: "",
@@ -310,7 +311,7 @@ export async function createAdSet(
 
   if (!opts.skipRemoteValidation) {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: `${account}/adsets`,
         params: "",
@@ -323,7 +324,7 @@ export async function createAdSet(
   }
 
   try {
-    const res = await metaApiCall<{ id: string }>({
+    const res = await metaWrite<{ id: string }>({
       method: "POST",
       path: `${account}/adsets`,
       params: "",

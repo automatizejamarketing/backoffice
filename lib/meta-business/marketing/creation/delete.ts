@@ -7,14 +7,14 @@
  * the surviving id as an orphan rather than throwing).
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 
 export async function deleteMetaObject(
   id: string,
   accessToken: string,
 ): Promise<boolean> {
   try {
-    const result = await metaApiCall<{ success?: boolean }>({
+    const result = await metaWrite<{ success?: boolean }>({
       method: "DELETE",
       path: id,
       params: "",

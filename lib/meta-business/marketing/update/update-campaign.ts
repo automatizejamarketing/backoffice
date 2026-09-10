@@ -11,7 +11,7 @@
  * Endpoint: POST /{campaign_id} (Ad Campaign Group).
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import { mergeExtraFields } from "../creation/types";
 import { issuesFromError } from "../creation/normalize";
 import {
@@ -246,7 +246,7 @@ export async function previewUpdateCampaign(
 
   const body = buildCampaignUpdatePayload(input);
   try {
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: input.campaignId,
       params: "",
@@ -290,7 +290,7 @@ export async function updateCampaign(
 
   if (mode !== "commit_unchecked") {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: input.campaignId,
         params: "",
@@ -310,7 +310,7 @@ export async function updateCampaign(
   }
 
   try {
-    await metaApiCall<{ success?: boolean; id?: string }>({
+    await metaWrite<{ success?: boolean; id?: string }>({
       method: "POST",
       path: input.campaignId,
       params: "",

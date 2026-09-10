@@ -10,7 +10,7 @@
  * Endpoints: POST /act_{id}/adcreatives then POST /act_{id}/ads.
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
 import { uploadAdVideoFromUrl, waitForVideoReady } from "../upload-ad-video";
@@ -326,6 +326,16 @@ export function validateAdInput(input: CreateAdInput): CreateIssue[] {
     case "creative_id":
       if (!c.creativeId?.trim())
         issues.push(localIssue("creative", "CREATIVE_ID_REQUIRED", "creativeId é obrigatório.", "Informe um creative_id válido.", ["creative"]));
+      else if (!/^\d{5,}$/.test(c.creativeId.trim()))
+        issues.push(
+          localIssue(
+            "creative",
+            "CREATIVE_ID_INVALID",
+            `creativeId "${c.creativeId}" não é um id numérico da Meta.`,
+            "Use o creative_id numérico do anúncio (getEntityDetails no anúncio). Não invente sufixos como _creative nem use o id do anúncio no lugar do criativo.",
+            ["creative"],
+          ),
+        );
       break;
     case "existing_post":
       if (!c.objectStoryId?.trim())
@@ -439,7 +449,7 @@ export async function createCreative(
 
   if (!skipRemoteValidation) {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: `${account}/adcreatives`,
         params: "",
@@ -452,7 +462,7 @@ export async function createCreative(
   }
 
   try {
-    const res = await metaApiCall<{ id: string }>({
+    const res = await metaWrite<{ id: string }>({
       method: "POST",
       path: `${account}/adcreatives`,
       params: "",
@@ -490,7 +500,7 @@ export async function previewAd(input: CreateAdInput): Promise<PreviewResult> {
   if (input.creative.format === "creative_id") {
     const adBody = buildAdPayload(input, input.creative.creativeId);
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: `${account}/ads`,
         params: "",
@@ -511,7 +521,7 @@ export async function previewAd(input: CreateAdInput): Promise<PreviewResult> {
   const ready = !specNeedsUpload(input.creative);
   if (ready) {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: `${account}/adcreatives`,
         params: "",
@@ -557,7 +567,7 @@ export async function createAd(
 
   const adBody = buildAdPayload(input, creativeId);
   try {
-    const res = await metaApiCall<{ id: string }>({
+    const res = await metaWrite<{ id: string }>({
       method: "POST",
       path: `${account}/ads`,
       params: "",

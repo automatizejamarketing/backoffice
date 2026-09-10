@@ -14,6 +14,7 @@
  */
 
 import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import { localIssue } from "../creation/types";
 import { issuesFromError } from "../creation/normalize";
 import {
@@ -212,7 +213,7 @@ export async function migrateCampaignBudgetMode(
 
   if (mode !== "commit_unchecked") {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: input.campaignId,
         params: "",
@@ -228,7 +229,7 @@ export async function migrateCampaignBudgetMode(
   if (mode === "preview") return okUpdate(data);
 
   try {
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: input.campaignId,
       params: "",

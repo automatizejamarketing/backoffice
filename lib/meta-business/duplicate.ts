@@ -4,6 +4,7 @@ import {
   type PlacementAdaptation,
   withPlacementAdaptation,
 } from "@/lib/meta-business/creative-features";
+import { withMetaRetry } from "@/lib/meta-business/write-retry";
 
 /**
  * MIRRORED FILE — `automatize-frontend` and `backoffice` must hold BYTE-IDENTICAL copies.
@@ -248,77 +249,11 @@ const AD_COPY_CONCURRENCY = 5;
 // destroys the operation.
 // ───────────────────────────────────────────────────────────────────────────
 
-const MAX_RETRY_ATTEMPTS = 5;
-const RETRY_BASE_MS = 800;
-/** Cap a single backoff so one retry can't blow the serverless function budget. */
-const RETRY_MAX_WAIT_MS = 20_000;
 /** Minimum spacing between write *starts* during the concurrent ad-copy phase. */
 const MIN_WRITE_INTERVAL_MS = 150;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Marketing-API throttle / rate-limit error codes (from Meta's Rate Limiting
- * reference). These are the ONLY errors safe to retry: a throttle is rejected
- * BEFORE any object is created, so a retry can't double-create. We match on the
- * Graph error `code` — NOT the mapped HTTP status (`genericError` maps everything
- * to 500) and NOT `reason.isTransient` (whose `genericError` default of `true`
- * wrongly retried permanent param errors like #194 six times).
- */
-const RETRYABLE_THROTTLE_CODES = new Set<number>([
-  4, // application request limit reached
-  17, // user request limit reached
-  341, // application limit reached
-  368, // temporarily blocked for policy violations
-  613, // calls-per-ad-account / QPS exceeded (incl. subcode 5044001)
-  80000, // BUC ads_management rate limit
-  80003,
-  80004,
-  80014,
-  1404078, // temporarily blocked
-  2859015, // action temporarily blocked
-]);
-
-/**
- * True only for a genuine Meta throttle (see `RETRYABLE_THROTTLE_CODES`). Synthetic
- * local errors (no `data`) and every permanent rejection (param errors, 1870227,
- * #194, …) return false, so the caller's rebuild/skip/rollback logic runs unchanged.
- */
-function isRetryableMetaError(err: unknown): boolean {
-  if (!(err instanceof GraphApiError)) return false;
-  const code = err.errorReturn.data?.code;
-  return code != null && RETRYABLE_THROTTLE_CODES.has(code);
-}
-
-/** Backoff for attempt N, honoring Meta's suggested wait but capped to the budget. */
-function retryWaitMs(err: unknown, attempt: number): number {
-  const rl = err instanceof GraphApiError ? err.errorReturn.rateLimit : undefined;
-  const serverWait = Math.max(rl?.retryAfterMs ?? 0, rl?.estimatedRegainMs ?? 0);
-  const backoff = RETRY_BASE_MS * 2 ** attempt;
-  const jitter = Math.floor(backoff * 0.25 * Math.random());
-  return Math.min(RETRY_MAX_WAIT_MS, Math.max(serverWait, backoff + jitter));
-}
-
-/**
- * Run a single Meta WRITE with throttle-aware retry. On a retryable throttle we
- * wait the server-suggested time (or exponential backoff) and try again, up to
- * `MAX_RETRY_ATTEMPTS`; anything else rethrows immediately so existing
- * rebuild/skip/rollback behavior is unchanged. This is what stops a momentary
- * rate limit from rolling back the whole duplicated tree.
- */
-async function withMetaRetry<T>(fn: () => Promise<T>): Promise<T> {
-  let attempt = 0;
-  for (;;) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (!isRetryableMetaError(err) || attempt >= MAX_RETRY_ATTEMPTS) throw err;
-      await sleep(retryWaitMs(err, attempt));
-      attempt += 1;
-    }
-  }
 }
 
 /**

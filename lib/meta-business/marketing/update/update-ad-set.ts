@@ -9,7 +9,7 @@
  * Endpoint: POST /{ad_set_id}.
  */
 
-import { metaApiCall } from "@/lib/meta-business/api";
+import { metaWrite } from "@/lib/meta-business/write-retry";
 import { localIssue, mergeExtraFields } from "../creation/types";
 import { issuesFromError } from "../creation/normalize";
 import { sanitizeGeoLocationsForMeta } from "@/lib/meta-business/geo-locations";
@@ -479,7 +479,7 @@ export async function previewUpdateAdSet(
 
   const body = buildAdSetUpdatePayload(input, snap);
   try {
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: input.adSetId,
       params: "",
@@ -523,7 +523,7 @@ export async function updateAdSet(
 
   if (mode !== "commit_unchecked") {
     try {
-      await metaApiCall<{ success?: boolean }>({
+      await metaWrite<{ success?: boolean }>({
         method: "POST",
         path: input.adSetId,
         params: "",
@@ -539,7 +539,7 @@ export async function updateAdSet(
   if (mode === "preview") return okUpdate(data, warnings);
 
   try {
-    await metaApiCall<{ success?: boolean }>({
+    await metaWrite<{ success?: boolean }>({
       method: "POST",
       path: input.adSetId,
       params: "",
