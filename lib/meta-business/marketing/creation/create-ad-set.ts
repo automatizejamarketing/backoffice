@@ -186,6 +186,7 @@ export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
     }),
     validateAdSetBudget({
       parentUsesCampaignBudget: Boolean(input.parentUsesCampaignBudget),
+      parentHasLifetimeBudget: Boolean(input.parentHasLifetimeBudget),
       dailyBudgetCents: input.dailyBudgetCents,
       lifetimeBudgetCents: input.lifetimeBudgetCents,
       hasEndTime: Boolean(input.endTime),

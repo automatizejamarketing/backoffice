@@ -87,6 +87,47 @@ function conversionDomainOf(ad: TreeAdLike): string | undefined {
 }
 
 /**
+ * Meta rejects an ad set under a lifetime CBO without its own `end_time`
+ * (code 100/1487094) even when `stop_time` already sits on the campaign.
+ * The wizard copies the flight window down; the chat tree must do the same
+ * or preview passes locally and create dies at validate_only.
+ */
+export function inheritTreeFlightWindow<
+  T extends {
+    campaign: { startTime?: string; stopTime?: string };
+    adSets: Array<{ adSet: { startTime?: string; endTime?: string } }>;
+  },
+>(tree: T): T {
+  const startTime = tree.campaign.startTime?.trim();
+  const stopTime = tree.campaign.stopTime?.trim();
+  if (!startTime && !stopTime) {
+    return tree;
+  }
+
+  return {
+    ...tree,
+    adSets: tree.adSets.map((spec) => ({
+      ...spec,
+      adSet: {
+        ...spec.adSet,
+        startTime: spec.adSet.startTime?.trim() || startTime,
+        endTime: spec.adSet.endTime?.trim() || stopTime,
+      },
+    })),
+  };
+}
+
+function prepareCampaignTree<T extends {
+  campaign: { startTime?: string; stopTime?: string };
+  adSets: Array<{
+    adSet: { startTime?: string; endTime?: string };
+    ads: TreeAdLike[];
+  }>;
+}>(tree: T): T {
+  return inheritTreeFlightWindow(inheritTreeConversionDomains(tree));
+}
+
+/**
  * Copy conversion_domain from any ad that already has a destination URL
  * (cardápio/site) onto siblings that still lack one — Instagram posts often
  * omit cta.link until this fill, and Meta then 400s the sales ad.
@@ -118,8 +159,12 @@ export function deriveAdSetInput(
   spec: TreeAdSetSpec,
   campaignId: string,
 ): CreateAdSetInput {
+  const inherited = inheritTreeFlightWindow({
+    campaign: tree.campaign,
+    adSets: [{ adSet: spec.adSet }],
+  }).adSets[0]?.adSet ?? spec.adSet;
   return {
-    ...spec.adSet,
+    ...inherited,
     adAccountId: tree.adAccountId,
     accessToken: tree.accessToken,
     campaignId,
@@ -179,7 +224,7 @@ export async function createCampaignTree(
   tree: CreateCampaignTreeInput,
   opts: { skipRemoteValidation?: boolean } = {},
 ): Promise<CampaignTreeResult> {
-  tree = inheritTreeConversionDomains(tree);
+  tree = prepareCampaignTree(tree);
   const shape = validateTreeShape(tree);
   if (shape.length) return { ok: false, issues: shape, rolledBack: false };
 
@@ -302,7 +347,7 @@ function buildTreePlan(tree: PreviewCampaignTreeInput): CampaignTreePlan {
 export async function previewCampaignTree(
   tree: PreviewCampaignTreeInput,
 ): Promise<CampaignTreePreviewResult> {
-  tree = inheritTreeConversionDomains(tree);
+  tree = prepareCampaignTree(tree);
   const plan = buildTreePlan(tree);
   const issues: CreateIssue[] = [];
   const warnings: CreateIssue[] = [];
