@@ -354,6 +354,7 @@ function LeafItem({
         tooltip={item.label}
       >
         <Link
+          prefetch={false}
           aria-current={active ? "page" : undefined}
           aria-label={item.label}
           href={item.href}
@@ -456,6 +457,7 @@ function CollapsedGroupMenu({
                 key={child.href}
               >
                 <Link
+                  prefetch={false}
                   aria-current={childActive ? "page" : undefined}
                   href={child.href}
                   onClick={onNavigate}
@@ -541,6 +543,7 @@ function GroupItem({
                   isActive={childActive}
                 >
                   <Link
+                    prefetch={false}
                     aria-current={childActive ? "page" : undefined}
                     href={child.href}
                     onClick={onNavigate}
@@ -578,6 +581,7 @@ export function AppSidebar({
         <SidebarMenu>
           <div className="flex flex-row items-center justify-between">
             <Link
+              prefetch={false}
               aria-label="AutomatizeJá Backoffice"
               className="flex items-center gap-1.5 overflow-hidden rounded-md p-2 transition-colors hover:bg-muted group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-1"
               href={

@@ -203,7 +203,7 @@ export default async function UsersPage({
                 size="sm"
                 className="h-8 px-3 text-xs gap-1"
               >
-                <Link href={buildPageHref(currentPage - 1)}>
+                <Link prefetch={false} href={buildPageHref(currentPage - 1)}>
                   <ChevronLeft className="size-3.5" />
                   Anterior
                 </Link>
@@ -226,7 +226,7 @@ export default async function UsersPage({
                 size="sm"
                 className="h-8 px-3 text-xs gap-1"
               >
-                <Link href={buildPageHref(currentPage + 1)}>
+                <Link prefetch={false} href={buildPageHref(currentPage + 1)}>
                   Próxima
                   <ChevronRight className="size-3.5" />
                 </Link>
