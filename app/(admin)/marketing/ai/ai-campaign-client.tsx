@@ -1388,7 +1388,7 @@ export function AiCampaignClient() {
                         <dt className="inline font-medium">Públicos personalizados: </dt>
                         <dd className="inline">
                           {adSet.overlappingCustomAudiences > 0
-                            ? `${adSet.customAudiences} selecionado(s); ${adSet.effectiveCustomAudiences} efetivo(s) apos exclusoes`
+                            ? `${adSet.customAudiences} selecionado(s); ${adSet.effectiveCustomAudiences} efetivo(s) após exclusões`
                             : adSet.customAudiences} ({adSet.includedCustomAudiencesApplied ? "aplicado" : "herdado"})
                         </dd>
                       </div>
@@ -1396,7 +1396,7 @@ export function AiCampaignClient() {
                         <dt className="inline font-medium">Públicos excluídos: </dt>
                         <dd className="inline">
                           {adSet.overlappingCustomAudiences > 0
-                            ? `${adSet.overlappingCustomAudiences} tambem incluido(s); a exclusao prevalece`
+                            ? `${adSet.overlappingCustomAudiences} também incluído(s); a exclusão prevalece`
                             : adSet.excludedCustomAudiences} ({adSet.excludedCustomAudiencesApplied ? "aplicado" : "herdado"})
                         </dd>
                       </div>
@@ -1435,8 +1435,8 @@ export function AiCampaignClient() {
               {includedCustomAudienceIds === undefined
                 ? "O Advantage+ permanece no estado herdado."
                 : includedCustomAudienceIds.length > 0
-                  ? "O Advantage+ e a expansÃ£o de pÃºblicos estÃ£o desativados para respeitar as inclusÃµes."
-                  : "A lista de inclusÃµes foi limpa; a expansÃ£o volta Ã  composiÃ§Ã£o da base."}
+                  ? "O Advantage+ e a expansão de públicos estão desativados para respeitar as inclusões."
+                  : "A lista de inclusões foi limpa; a expansão volta à composição da base."}
             </p>
 
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">

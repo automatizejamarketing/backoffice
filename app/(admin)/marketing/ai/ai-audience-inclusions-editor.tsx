@@ -17,28 +17,28 @@ type LibraryResponse = {
 function estimate(audience: CustomAudienceView): string {
   const lower = audience.approximateCountLowerBound;
   const upper = audience.approximateCountUpperBound;
-  if (lower === undefined && upper === undefined) return "tamanho nÃ£o informado";
+  if (lower === undefined && upper === undefined) return "tamanho não informado";
   const format = new Intl.NumberFormat("pt-BR");
   return lower !== undefined && upper !== undefined
-    ? format.format(lower) + "â€“" + format.format(upper)
+    ? format.format(lower) + "–" + format.format(upper)
     : format.format(lower ?? upper ?? 0);
 }
 
 function availabilityMessage(audience: CustomAudienceView): string | null {
   if (audience.availability?.include === "blocked") {
-    return "Bloqueado por integridade; corrija/reconcilie ou troque o pÃºblico.";
+    return "Bloqueado por integridade; corrija/reconcilie ou troque o público.";
   }
   if (audience.capabilities.include === "unavailable") {
-    return "PermissÃ£o de inclusÃ£o indisponÃ­vel; atualize/reautorize ou troque o pÃºblico.";
+    return "Permissão de inclusão indisponível; atualize/reautorize ou troque o público.";
   }
   if (
     audience.availability?.metaProcessing === "processing" ||
     audience.availability?.metaProcessing === "unknown"
   ) {
-    return "Processamento/tamanho nÃ£o confirmado; isso nÃ£o bloqueia a seleÃ§Ã£o por si sÃ³.";
+    return "Processamento/tamanho não confirmado; isso não bloqueia a seleção por si só.";
   }
   if (audience.capabilities.include === "unknown") {
-    return "PermissÃ£o serÃ¡ revalidada antes da publicaÃ§Ã£o.";
+    return "Permissão será revalidada antes da publicação.";
   }
   return null;
 }
@@ -82,15 +82,15 @@ export function AiAudienceInclusionsEditor({
           message?: string;
         };
         if (!response.ok) {
-          throw new Error(body.message ?? "NÃ£o foi possÃ­vel carregar os pÃºblicos.");
+          throw new Error(body.message ?? "Não foi possível carregar os públicos.");
         }
         all.push(...(body.audiences ?? []));
         if (!body.hasNextPage) break;
         if (!body.nextCursor) {
-          throw new Error("Nao foi possivel carregar a biblioteca completa de publicos.");
+          throw new Error("Não foi possível carregar a biblioteca completa de públicos.");
         }
         if (page === 19) {
-          throw new Error("Nao foi possivel carregar a biblioteca completa de publicos.");
+          throw new Error("Não foi possível carregar a biblioteca completa de públicos.");
         }
         after = body.nextCursor;
       }
@@ -101,7 +101,7 @@ export function AiAudienceInclusionsEditor({
           setError(
             caught instanceof Error
               ? caught.message
-              : "NÃ£o foi possÃ­vel carregar os pÃºblicos.",
+              : "Não foi possível carregar os públicos.",
           );
         }
       })
@@ -136,17 +136,17 @@ export function AiAudienceInclusionsEditor({
     >
       <div>
         <h2 id="ai-audience-inclusions-title" className="text-sm font-medium">
-          InclusÃµes de pÃºblicos
+          Inclusões de públicos
         </h2>
         <p className="text-sm text-muted-foreground">
-          Inclua pÃºblicos personalizados ou lookalikes. Eles se combinam por OU e restringem a
-          entrega; a expansÃ£o fica desativada.
+          Inclua públicos personalizados ou lookalikes. Eles se combinam por OU e restringem a
+          entrega; a expansão fica desativada.
         </p>
       </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> Carregando pÃºblicosâ€¦
+          <Loader2 className="size-4 animate-spin" /> Carregando públicos…
         </div>
       ) : null}
       {error ? (
@@ -182,7 +182,7 @@ export function AiAudienceInclusionsEditor({
                   </Label>
                   <p className="font-mono text-xs text-muted-foreground">{audience.id}</p>
                   <p className="text-xs text-muted-foreground">
-                    {audience.subtype ?? "Tipo nÃ£o informado"} Â· {estimate(audience)}
+                    {audience.subtype ?? "Tipo não informado"} · {estimate(audience)}
                   </p>
                   {guidance ? (
                     <p
@@ -199,7 +199,7 @@ export function AiAudienceInclusionsEditor({
           })}
           {missingIds.length ? (
             <p className="text-xs text-destructive" role="alert">
-              {missingIds.length} inclusÃ£o(Ãµes) aplicada(s) nÃ£o estÃ¡(Ã£o) mais acessÃ­vel(is).
+              {missingIds.length} inclusão(ões) aplicada(s) não está(ão) mais acessível(is).
               Atualize a biblioteca antes de publicar.
             </p>
           ) : null}
@@ -210,7 +210,7 @@ export function AiAudienceInclusionsEditor({
                 return (
                   <div key={id} className="flex min-h-11 items-start gap-3 rounded-md border border-destructive/50 p-3">
                     <Switch
-                      aria-label={"Remover inclusao " + id}
+                      aria-label={"Remover inclusão " + id}
                       checked={draftIds.includes(id)}
                       className="mt-0.5 h-11 w-11 shrink-0"
                       disabled={disabled}
@@ -219,11 +219,11 @@ export function AiAudienceInclusionsEditor({
                     />
                     <div className="min-w-0 space-y-1">
                       <Label className="cursor-pointer" htmlFor={checkboxId}>
-                        Referencia indisponivel
+                        Referência indisponível
                       </Label>
                       <p className="font-mono text-xs text-muted-foreground">{id}</p>
                       <p className="text-xs text-destructive">
-                        Atualize, corrija, troque ou remova este publico antes de publicar.
+                        Atualize, corrija, troque ou remova este público antes de publicar.
                       </p>
                     </div>
                   </div>
@@ -233,7 +233,7 @@ export function AiAudienceInclusionsEditor({
           ) : null}
           {audiences.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhum pÃºblico acessÃ­vel nesta conta.
+              Nenhum público acessível nesta conta.
             </p>
           ) : null}
         </div>
@@ -241,8 +241,8 @@ export function AiAudienceInclusionsEditor({
 
       <p className="text-xs text-muted-foreground" aria-live="polite">
         {value === undefined
-          ? "Estado atual: inclusÃµes herdadas do molde/base."
-          : "Estado atual: " + value.length + " inclusÃ£o(Ãµes) aplicada(s)."}
+          ? "Estado atual: inclusões herdadas do molde/base."
+          : "Estado atual: " + value.length + " inclusão(ões) aplicada(s)."}
         {draftIds.length !== (value?.length ?? 0) ? " Rascunho: " + draftIds.length + "." : ""}
       </p>
       <div className="flex flex-wrap gap-2">
@@ -251,7 +251,7 @@ export function AiAudienceInclusionsEditor({
           onClick={() => onChange([...draftIds])}
           type="button"
         >
-          Aplicar inclusÃµes
+          Aplicar inclusões
         </Button>
         <Button
           disabled={disabled}

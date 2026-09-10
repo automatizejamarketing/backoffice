@@ -54,7 +54,7 @@ function harness(overrides: Partial<CustomerFileImportDependencies> = {}): Harne
     store: storeA,
     authorize: async () => {
       if (!authorized) {
-        throw new CustomerFileImportError("UNAUTHORIZED", "A permissÃ£o sobre o pÃºblico foi revogada.");
+        throw new CustomerFileImportError("UNAUTHORIZED", "A permissão sobre o público foi revogada.");
       }
     },
     termsState: async () => (terms ? { accepted: true } : { accepted: false, guidance: "Aceite os termos." }),
@@ -104,7 +104,7 @@ async function upload(
   );
 }
 
-test("a jornada pÃºblica cria a lista, envia a primeira carga e elimina o material temporÃ¡rio", async () => {
+test("a jornada pública cria a lista, envia a primeira carga e elimina o material temporário", async () => {
   const harnessed = harness();
   try {
     const received = await upload(harnessed, {}, csv("cliente@example.com,11999998888", "outro@example.com,"));
@@ -157,7 +157,7 @@ test("a jornada pÃºblica cria a lista, envia a primeira carga e elimina o mate
     harnessed.cleanup();
   }
 });
-test("permissÃ£o revogada entre a prÃ©via e o envio recusa a aÃ§Ã£o sem mutaÃ§Ã£o e sem relatÃ³rio", async () => {
+test("permissão revogada entre a prévia e o envio recusa a ação sem mutação e sem relatório", async () => {
   const harnessed = harness();
   try {
     const received = await upload(harnessed, { operation: "add", audienceId: "meta-list-7" }, csv("cliente@example.com,"));
@@ -195,7 +195,7 @@ test("permissÃ£o revogada entre a prÃ©via e o envio recusa a aÃ§Ã£o sem 
   }
 });
 
-test("trocar o mapeamento ou o paÃ­s depois da prÃ©via exige uma nova prÃ©via", async () => {
+test("trocar o mapeamento ou o país depois da prévia exige uma nova prévia", async () => {
   const harnessed = harness();
   try {
     const received = await upload(harnessed, {}, csv("cliente@example.com,11999998888"));
@@ -230,7 +230,7 @@ test("trocar o mapeamento ou o paÃ­s depois da prÃ©via exige uma nova prÃ©
   }
 });
 
-test("linhas invÃ¡lidas seguem a regra da operaÃ§Ã£o e nunca truncam em silÃªncio", async () => {
+test("linhas inválidas seguem a regra da operação e nunca truncam em silêncio", async () => {
   const harnessed = harness();
   try {
     const file = csv("cliente@example.com,11999998888", "sem-identificador,");
@@ -288,7 +288,7 @@ test("linhas invÃ¡lidas seguem a regra da operaÃ§Ã£o e nunca truncam em si
   }
 });
 
-test("sem linhas vÃ¡lidas, sem declaraÃ§Ãµes ou sem termos aceitos nada Ã© enviado Ã  Meta", async () => {
+test("sem linhas válidas, sem declarações ou sem termos aceitos nada é enviado à Meta", async () => {
   const harnessed = harness();
   try {
     const empty = await upload(harnessed, {}, csv("sem-identificador,"));
@@ -331,7 +331,7 @@ test("sem linhas vÃ¡lidas, sem declaraÃ§Ãµes ou sem termos aceitos nada Ã
   }
 });
 
-test("um identificador de outro cliente nÃ£o abre prÃ©via, relatÃ³rio nem acompanhamento", async () => {
+test("um identificador de outro cliente não abre prévia, relatório nem acompanhamento", async () => {
   const harnessed = harness();
   try {
     const received = await upload(harnessed, {}, csv("cliente@example.com,"));
@@ -347,7 +347,7 @@ test("um identificador de outro cliente nÃ£o abre prÃ©via, relatÃ³rio nem 
   }
 });
 
-test("o relatÃ³rio de correÃ§Ã£o nÃ£o vira fÃ³rmula executÃ¡vel e morre com o material temporÃ¡rio", async () => {
+test("o relatório de correção não vira fórmula executável e morre com o material temporário", async () => {
   const harnessed = harness();
   try {
     const received = await upload(harnessed, {}, csv("=CMD()|'/c calc'!A1,11999998888", "cliente@example.com,"));
@@ -371,7 +371,7 @@ test("o relatÃ³rio de correÃ§Ã£o nÃ£o vira fÃ³rmula executÃ¡vel e mo
   }
 });
 
-test("um segundo envio sobre o mesmo pÃºblico Ã© recusado com a operaÃ§Ã£o em andamento", async () => {
+test("um segundo envio sobre o mesmo público é recusado com a operação em andamento", async () => {
   const harnessed = harness();
   try {
     const first = await upload(harnessed, { operation: "add", audienceId: "meta-list-7" }, csv("cliente@example.com,"));
@@ -388,7 +388,7 @@ test("um segundo envio sobre o mesmo pÃºblico Ã© recusado com a operaÃ§Ã�
   }
 });
 
-test("um arquivo acima do teto de bytes Ã© recusado antes de qualquer leitura de contatos", async () => {
+test("um arquivo acima do teto de bytes é recusado antes de qualquer leitura de contatos", async () => {
   const harnessed = harness();
   try {
     await assert.rejects(
@@ -435,7 +435,7 @@ test("uma lista criada cuja primeira carga falhou continua identificada com o es
   }
 });
 
-test("uma recuperaÃ§Ã£o sem evidÃªncia remota nÃ£o reenvia um lote incerto", async () => {
+test("uma recuperação sem evidência remota não reenvia um lote incerto", async () => {
   let attempts = 0;
   const harnessed = harness({
     send: async () => { attempts += 1; throw new Error("timeout"); },

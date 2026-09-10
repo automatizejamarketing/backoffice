@@ -199,8 +199,8 @@ export function validateDemographicContext(args: {
   ) {
     issues.push(
       contextIssue(
-        "A categoria especial restrita nao permite segmentacao por CEP.",
-        "Remova os CEPs e use cidades ou localizacoes compativeis.",
+        "A categoria especial restrita não permite segmentação por CEP.",
+        "Remova os CEPs e use cidades ou localizações compatíveis.",
       ),
     );
   }
