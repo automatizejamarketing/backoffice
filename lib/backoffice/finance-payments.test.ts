@@ -757,6 +757,24 @@ describe("gateway_gross_v1: líquido da Automatize", () => {
     expect(resolveAutomatizeProductNetCentavos(grossV1, gatewayNetCentavos)).toBe(5);
   });
 
+  test("compra do Lucas em staging: principal sem coprodução e order bump com coprodução", () => {
+    // Pagamento único de R$ 2,00 no Mercado Pago com application_fee R$ 0,40.
+    const principal = { ...grossV1, netAmountCentavos: 94 };
+    const bump = {
+      ...grossV1,
+      netAmountCentavos: 64,
+      expertShareBasisPoints: 7_000,
+      coproducerShareBasisPoints: 3_000,
+      coproducerTypeSnapshot: "automatize" as const,
+    };
+    const a = resolveProductPaymentNetAmounts(principal);
+    expect([a.automatizeRevenueCentavos, a.automatizeCoproductionCentavos, a.expertRevenueCentavos]).toEqual([5, 0, 94]);
+    const b = resolveProductPaymentNetAmounts(bump);
+    expect([b.automatizeRevenueCentavos, b.automatizeCoproductionCentavos, b.expertRevenueCentavos]).toEqual([35, 30, 64]);
+    expect(b.platformFeeGrossCentavos).toBe(5);
+    expect((a.automatizeRevenueCentavos ?? 0) + (b.automatizeRevenueCentavos ?? 0)).toBe(40);
+  });
+
   test("sem coprodutor, a coprodução da Automatize é zero e a taxa fica na coluna dela", () => {
     const amounts = resolveProductPaymentNetAmounts(grossV1);
     expect(amounts.automatizeRevenueCentavos).toBe(5);
