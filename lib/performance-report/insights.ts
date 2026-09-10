@@ -407,7 +407,11 @@ async function resolveAccounts(input: {
 
   return {
     accessToken: tokenResult.accessToken,
-    accounts: scope.selected.slice(0, MAX_ACCOUNTS),
+    accounts: scope.selected.slice(0, MAX_ACCOUNTS).map((account) => ({
+      id: account.id,
+      accountId: account.accountId,
+      name: account.name ?? undefined,
+    })),
     scope,
   };
 }
