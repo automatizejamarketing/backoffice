@@ -21,9 +21,24 @@ describe("deriveAccountStage", () => {
     const future = "2026-09-20T00:00:00.000Z";
     const past = "2026-09-01T00:00:00.000Z";
     expect(deriveAccountStage({ expirationDate: future, hasApprovedPayment: false }, NOW)).toBe("trial_ativo");
+    expect(deriveAccountStage({ expirationDate: future, hasApprovedPayment: false, subscriptionStatus: "trialing" }, NOW)).toBe("trial_ativo");
     expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false }, NOW)).toBe("trial_vencido");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "trialing" }, NOW)).toBe("trial_vencido");
     expect(deriveAccountStage({ expirationDate: new Date(future), hasApprovedPayment: true }, NOW)).toBe("assinante_ativo");
-    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: true }, NOW)).toBe("assinante_vencido");
+  });
+
+  test("assinatura cancelada é cancelado, mesmo com acesso vigente", () => {
+    const future = "2026-09-20T00:00:00.000Z";
+    const past = "2026-09-01T00:00:00.000Z";
+    expect(deriveAccountStage({ expirationDate: future, hasApprovedPayment: true, subscriptionStatus: "canceled" }, NOW)).toBe("cancelado");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "canceled" }, NOW)).toBe("cancelado");
+  });
+
+  test("acesso vencido de quem pagou ou passou do trial é expirado", () => {
+    const past = "2026-09-01T00:00:00.000Z";
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: true }, NOW)).toBe("expirado");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "past_due" }, NOW)).toBe("expirado");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "incomplete_expired" }, NOW)).toBe("expirado");
   });
 });
 
