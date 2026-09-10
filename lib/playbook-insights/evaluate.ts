@@ -4,10 +4,9 @@ import {
   PLAYBOOK_DEFAULT_CPA_ALERT,
   PLAYBOOK_MIN_SPEND,
   PLAYBOOK_MIN_SPEND_STALLED,
-  PLAYBOOK_ROAS_DECLINE_CRITICAL_PERCENT,
   PLAYBOOK_ROAS_DECLINE_LOOKBACK_DAYS,
   PLAYBOOK_ROAS_DECLINE_MIN_PREVIOUS_SPEND,
-  PLAYBOOK_ROAS_DECLINE_WARNING_PERCENT,
+  PLAYBOOK_ROAS_DECLINE_PERCENT,
   PLAYBOOK_ROAS_TRIGGER,
   PLAYBOOK_ROAS_VALIDATED,
   PLAYBOOK_RULE_CPA_ALERT,
@@ -24,7 +23,6 @@ import type {
   CreativeDiagnosisPlaybookRow,
   PlaybookEvaluationResult,
   PlaybookInsightCandidate,
-  PlaybookSeverity,
 } from "./types";
 
 function daysSince(now: Date, iso: string | null): number | null {
@@ -45,8 +43,9 @@ export type PlaybookRuleThresholds = {
   cpaAlert?: number;
   stalledPausedDays?: number;
   minSpendForStalled?: number;
+  dropPercent?: number;
+  /** @deprecated catalog key before the single-threshold change */
   dropWarningPercent?: number;
-  dropCriticalPercent?: number;
   lookbackDays?: number;
   minPreviousSpend?: number;
 };
@@ -91,14 +90,8 @@ function dropRatio(previous: number, current: number): number | null {
   return (previous - current) / previous;
 }
 
-function severityForRoasDrop(
-  ratio: number,
-  warningPercent: number,
-  criticalPercent: number,
-): PlaybookSeverity | null {
-  if (ratio >= criticalPercent / 100) return "critical";
-  if (ratio >= warningPercent / 100) return "warning";
-  return null;
+function resolveDeclinePercent(t: PlaybookRuleThresholds): number {
+  return t.dropPercent ?? t.dropWarningPercent ?? PLAYBOOK_ROAS_DECLINE_PERCENT;
 }
 
 function parseTimestamp(value: string | Date | null | undefined): number | null {
@@ -353,10 +346,7 @@ export function evaluatePlaybookInsights(args: {
 
     if (isEnabled(config, PLAYBOOK_RULE_ROAS_DECLINE)) {
       const t = thresholdsFor(config, PLAYBOOK_RULE_ROAS_DECLINE);
-      const warningPercent =
-        t.dropWarningPercent ?? PLAYBOOK_ROAS_DECLINE_WARNING_PERCENT;
-      const criticalPercent =
-        t.dropCriticalPercent ?? PLAYBOOK_ROAS_DECLINE_CRITICAL_PERCENT;
+      const declinePercent = resolveDeclinePercent(t);
       const minPreviousSpend =
         t.minPreviousSpend ?? PLAYBOOK_ROAS_DECLINE_MIN_PREVIOUS_SPEND;
       const lookbackDays =
@@ -369,8 +359,6 @@ export function evaluatePlaybookInsights(args: {
         previousRoas !== null && currentRoas !== null
           ? dropRatio(previousRoas, currentRoas)
           : null;
-      const severity =
-        ratio == null ? null : severityForRoasDrop(ratio, warningPercent, criticalPercent);
       if (
         isSales &&
         isDelivering &&
@@ -379,21 +367,18 @@ export function evaluatePlaybookInsights(args: {
         previousRoas > 0 &&
         currentRoas !== null &&
         ratio != null &&
-        severity
+        ratio >= declinePercent / 100
       ) {
         const dropPercent = Math.round(ratio * 100);
         candidates.push({
           ruleId: PLAYBOOK_RULE_ROAS_DECLINE,
-          severity,
+          severity: "warning",
           confidence: campaign.spendPrevious >= 150 ? "high" : "medium",
           entityLevel: "campaign",
           entityId: campaign.id,
           entityName: campaign.name,
           actionType: "analyze_performance",
-          title:
-            severity === "critical"
-              ? `ROAS em queda crítica (−${dropPercent}%)`
-              : `ROAS em queda (−${dropPercent}%)`,
+          title: `ROAS em queda (−${dropPercent}%)`,
           evidence:
             `Campanha "${campaign.name}" com ROAS ${formatRoas(previousRoas)} → ${formatRoas(currentRoas)} ` +
             `nos últimos ${lookbackDays}d vs. os ${lookbackDays}d anteriores` +

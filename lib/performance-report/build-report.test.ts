@@ -158,6 +158,6 @@ describe("performance report tables and facts", () => {
     expect(facts.roasInDecline).toHaveLength(1);
     expect(facts.roasInDecline[0]?.id).toBe("winner");
     expect(facts.roasInDecline[0]?.dropPercent).toBe(50);
-    expect(facts.roasInDecline[0]?.severity).toBe("critical");
+    expect(facts.roasInDecline[0]?.severity).toBe("warning");
   });
 });

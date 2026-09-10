@@ -175,7 +175,7 @@ export function attachRoasDeclineFacts(
       name: insight.entityName ?? campaign.name,
       accountId: campaign.accountId,
       dropPercent,
-      severity: insight.severity === "critical" ? "critical" : "warning",
+      severity: "warning",
       previousRoas: asNumber(metrics.purchaseRoasPrevious),
       currentRoas: asNumber(metrics.purchaseRoasLookback),
       lookbackDays: asNumber(metrics.lookbackDays) ?? 7,

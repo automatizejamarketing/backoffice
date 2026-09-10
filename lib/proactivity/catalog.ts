@@ -75,16 +75,14 @@ export const PROACTIVITY_ALERT_DEFINITIONS: readonly ProactivityAlertDefinition[
       audience: "consultant",
       playbookRuleId: "playbook.roas_decline",
       thresholdFields: [
-        numberField("dropWarningPercent", "Queda mínima", { suffix: "%", min: 1 }),
-        numberField("dropCriticalPercent", "Queda crítica", { suffix: "%", min: 1 }),
+        numberField("dropPercent", "Queda mínima", { suffix: "%", min: 1 }),
         numberField("lookbackDays", "Dias analisados", { suffix: "dias", min: 1 }),
         numberField("minPreviousSpend", "Gasto mín. janela anterior", {
           suffix: "R$",
         }),
       ],
       defaultThresholds: {
-        dropWarningPercent: 30,
-        dropCriticalPercent: 50,
+        dropPercent: 25,
         lookbackDays: 7,
         minPreviousSpend: 50,
       },
@@ -196,16 +194,14 @@ export const PROACTIVITY_ALERT_DEFINITIONS: readonly ProactivityAlertDefinition[
       audience: "client",
       clientRuleId: "roas_decline",
       thresholdFields: [
-        numberField("dropWarningPercent", "Queda mínima", { suffix: "%", min: 1 }),
-        numberField("dropCriticalPercent", "Queda crítica", { suffix: "%", min: 1 }),
+        numberField("dropPercent", "Queda mínima", { suffix: "%", min: 1 }),
         numberField("lookbackDays", "Dias analisados", { suffix: "dias", min: 1 }),
         numberField("minPreviousSpend", "Gasto mín. janela anterior", {
           suffix: "R$",
         }),
       ],
       defaultThresholds: {
-        dropWarningPercent: 30,
-        dropCriticalPercent: 50,
+        dropPercent: 25,
         lookbackDays: 7,
         minPreviousSpend: 50,
       },

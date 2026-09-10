@@ -84,7 +84,7 @@ export type RoasDeclineFact = {
   name: string;
   accountId: string;
   dropPercent: number | null;
-  severity: "warning" | "critical";
+  severity: "warning";
   previousRoas: number | null;
   currentRoas: number | null;
   lookbackDays: number;

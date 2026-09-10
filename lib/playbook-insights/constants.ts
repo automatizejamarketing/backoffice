@@ -27,10 +27,8 @@ export const PLAYBOOK_ROAS_VALIDATED = 5;
 
 /** Compare current N days vs the preceding N days. */
 export const PLAYBOOK_ROAS_DECLINE_LOOKBACK_DAYS = 7;
-/** Drop ≥ this % → warning (ROAS can still look “good” on last_30d). */
-export const PLAYBOOK_ROAS_DECLINE_WARNING_PERCENT = 30;
-/** Drop ≥ this % → critical. */
-export const PLAYBOOK_ROAS_DECLINE_CRITICAL_PERCENT = 50;
+/** Drop ≥ this % fires the alert (playbook has no drop %; 25% is the product floor). */
+export const PLAYBOOK_ROAS_DECLINE_PERCENT = 25;
 /** Minimum spend in the previous window before a drop is trusted. */
 export const PLAYBOOK_ROAS_DECLINE_MIN_PREVIOUS_SPEND = 50;
 

@@ -97,35 +97,33 @@ describe("evaluatePlaybookInsights", () => {
       (c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE,
     );
     expect(decline).toBeDefined();
-    expect(decline?.severity).toBe("critical");
-    expect(decline?.title).toContain("crítica");
+    expect(decline?.severity).toBe("warning");
+    expect(decline?.title).toBe("ROAS em queda (−50%)");
     expect(decline?.evidence).toContain("8.40 → 4.20");
     expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_SCALE)).toBe(
       true,
     );
   });
 
-  test("uses warning severity for a 30% ROAS drop", () => {
+  test("skips a ROAS drop below 25%", () => {
     const result = evaluatePlaybookInsights({
       accountId: "act_1",
       campaigns: [
         campaign({
-          id: "c-warn",
+          id: "c-ok",
           name: "Soft drop",
           purchaseRoas: 5.5,
           lookbackDays: 7,
           spendLookback: 70,
-          purchaseRoasLookback: 3.5,
+          purchaseRoasLookback: 4,
           spendPrevious: 80,
           purchaseRoasPrevious: 5,
         }),
       ],
     });
-    const decline = result.candidates.find(
-      (c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE,
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_DECLINE)).toBe(
+      false,
     );
-    expect(decline?.severity).toBe("warning");
-    expect(decline?.title).toBe("ROAS em queda (−30%)");
   });
 
   test("skips ROAS decline when previous spend is below the floor", () => {
@@ -167,7 +165,7 @@ describe("evaluatePlaybookInsights", () => {
         thresholdsByRuleId: new Map([
           [
             PLAYBOOK_RULE_ROAS_DECLINE,
-            { dropWarningPercent: 8, dropCriticalPercent: 20, minPreviousSpend: 50 },
+            { dropPercent: 8, minPreviousSpend: 50 },
           ],
         ]),
       },

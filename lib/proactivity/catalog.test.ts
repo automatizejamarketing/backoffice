@@ -77,8 +77,7 @@ describe("proactivity catalog", () => {
     expect(consultant?.playbookRuleId).toBe("playbook.roas_decline");
     expect(client?.clientRuleId).toBe("roas_decline");
     expect(consultant?.defaultThresholds).toEqual({
-      dropWarningPercent: 30,
-      dropCriticalPercent: 50,
+      dropPercent: 25,
       lookbackDays: 7,
       minPreviousSpend: 50,
     });
