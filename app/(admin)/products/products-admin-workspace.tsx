@@ -80,7 +80,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductSalesPanel } from "@/components/product-sales/product-sales-panel";
 import { FilterBar, FilterSelect } from "@/components/ui/filter";
-import { resolveAutomatizeFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
+import { resolveMarketplaceFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { RecoveryPixPanel } from "./recovery-pix-panel";
 import {
@@ -2355,8 +2355,8 @@ export function ProductsAdminWorkspace({
                     <TableHead className="text-right">Tarifa real</TableHead>
                     <TableHead className="text-right">Líquido</TableHead>
                     <TableHead className="text-right">Parte do Expert</TableHead>
-                    <TableHead className="text-right">Coprodução do Automatize</TableHead>
-                    <TableHead className="text-right">Taxa Automatize</TableHead>
+                    <TableHead className="text-right">Taxa coprodução</TableHead>
+                    <TableHead className="text-right">Taxa marketplace</TableHead>
                     <TableHead>Canal</TableHead>
                     <TableHead>Trilho de repasse</TableHead>
                     <TableHead>Status</TableHead>
@@ -2427,7 +2427,7 @@ export function ProductsAdminWorkspace({
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
                           {order.platformFeeBasisPoints && order.platformFeeBasisPoints > 0 ? (
                             <>
-                              {money(resolveAutomatizeFeeCentavos(order))}
+                              {money(resolveMarketplaceFeeCentavos(order))}
                               <span className="ml-1 text-xs text-muted-foreground">
                                 {(order.platformFeeBasisPoints / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
                               </span>
@@ -3280,7 +3280,7 @@ export function ProductsAdminWorkspace({
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-muted-foreground">
-                        Coprodução do Automatize
+                        Taxa coprodução
                       </dt>
                       <dd className="font-mono tabular-nums">
                         {amounts.automatizeCoproductionCentavos !== null

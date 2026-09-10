@@ -272,8 +272,18 @@ export function ProductSalesPanel() {
           <StatCard
             icon={Percent}
             label="Taxas Automatize"
-            value={summary ? formatBRLFromCentavos(summary.automatizeFeeCentavos) : null}
-            detail="Cobradas do expert sobre o bruto. Produto próprio não tem."
+            value={
+              summary
+                ? formatBRLFromCentavos(
+                    summary.marketplaceFeeCentavos + summary.coproductionFeeCentavos,
+                  )
+                : null
+            }
+            detail={
+              summary
+                ? `${formatBRLFromCentavos(summary.marketplaceFeeCentavos)} marketplace · ${formatBRLFromCentavos(summary.coproductionFeeCentavos)} coprodução`
+                : undefined
+            }
           />
           <StatCard
             icon={CreditCard}
@@ -410,7 +420,8 @@ function BucketSalesSheet({
                   <TableHead>Comprador</TableHead>
                   <TableHead>Pagamento</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
-                  <TableHead className="text-right">Taxa</TableHead>
+                  <TableHead className="text-right">Taxa marketplace</TableHead>
+                  <TableHead className="text-right">Taxa coprodução</TableHead>
                   <TableHead className="text-right">Líquido</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -435,16 +446,21 @@ function BucketSalesSheet({
                       {formatBRLFromCentavos(sale.grossCentavos)}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-right tabular-nums">
-                      {sale.feeBasisPoints > 0 ? (
+                      {sale.marketplaceFeeBasisPoints > 0 ? (
                         <>
-                          {formatBRLFromCentavos(sale.feeCentavos)}
+                          {formatBRLFromCentavos(sale.marketplaceFeeCentavos)}
                           <span className="ml-1 text-xs text-muted-foreground">
-                            {formatFinancePercentage(sale.feeBasisPoints / 100)}%
+                            {formatFinancePercentage(sale.marketplaceFeeBasisPoints / 100)}%
                           </span>
                         </>
                       ) : (
                         "—"
                       )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right tabular-nums">
+                      {sale.coproductionFeeCentavos > 0
+                        ? formatBRLFromCentavos(sale.coproductionFeeCentavos)
+                        : "—"}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-right tabular-nums">
                       {formatBRLFromCentavos(sale.netCentavos)}
