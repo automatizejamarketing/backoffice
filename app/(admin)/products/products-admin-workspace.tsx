@@ -1919,14 +1919,12 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-7 lg:w-fit">
+        <TabsList className="grid w-full grid-cols-5 lg:w-fit">
           <TabsTrigger value="dashboard">Painel</TabsTrigger>
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="experts">Experts</TabsTrigger>
           <TabsTrigger value="orders">Vendas</TabsTrigger>
           <TabsTrigger value="recovery">Pix vencido</TabsTrigger>
-          <TabsTrigger value="payouts">Repasses</TabsTrigger>
-          <TabsTrigger value="reconciliation">Conciliação ({paymentAttempts.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="pt-4">
@@ -2501,119 +2499,6 @@ export function ProductsAdminWorkspace({
       </TabsContent>
 
 
-
-      <TabsContent value="reconciliation" className="pt-4">
-        <Card className="mb-4">
-          <CardHeader>
-            <CardTitle>Tentativas de cobrança inconclusivas</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Tentativas sem fato terminal ficam bloqueadas contra uma nova cobrança. Com ID do provedor, concilie; sem ID, encerre somente após registrar o fato confirmado pelo Mercado Pago.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table className="min-w-[1050px]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Produto / pedido</TableHead>
-                  <TableHead>Método / estado</TableHead>
-                  <TableHead>Valor</TableHead>
-                  <TableHead>Provedor</TableHead>
-                  <TableHead>Atualizada</TableHead>
-                  <TableHead className="text-right">Ação explícita</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paymentAttempts.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhuma tentativa inconclusiva.</TableCell></TableRow>
-                ) : paymentAttempts.map((attempt) => (
-                  <TableRow key={attempt.id}>
-                    <TableCell><p className="font-medium">{attempt.productTitle}</p><p className="font-mono text-xs text-muted-foreground">{attempt.orderId}</p><p className="font-mono text-[10px] text-muted-foreground">{attempt.attemptKey}</p></TableCell>
-                    <TableCell><Badge variant={attempt.status === "unknown" ? "destructive" : "outline"}>{attempt.paymentMethod} · {attempt.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{attempt.failureCode ?? "sem erro terminal"}</p></TableCell>
-                    <TableCell className="tabular-nums">{money(attempt.amountCentavos)}</TableCell>
-                    <TableCell className="font-mono text-xs">{attempt.providerPaymentId ?? "sem ID"}{attempt.collectorId ? <p>conta {attempt.collectorId}</p> : null}</TableCell>
-                    <TableCell>{dateTime(attempt.updatedAt)}</TableCell>
-                    <TableCell className="text-right">
-                      {attempt.providerPaymentId ? (
-                        <Button size="sm" variant="outline" onClick={() => { void reconcileProductCase(attempt.orderId).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível conciliar.")); }}>Conciliar agora</Button>
-                      ) : (
-                        <Button size="sm" variant="destructive" onClick={() => { void resolvePaymentAttempt(attempt.id).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível encerrar.")); }}>Encerrar sem cobrança</Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </TabsContent>
-
-
-      <TabsContent value="payouts" className="pt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Repasses</CardTitle>
-            </CardHeader>
-            <CardContent className="divide-y p-0">
-              {payouts.map((payout) => (
-                <div
-                  key={payout.id}
-                  className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"
-                >
-                  <div>
-                    <p className="font-medium">
-                      {payout.expertName} · {money(payout.amountCentavos)}
-                    </p>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      Pix: {payout.pixKeySnapshot}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Prazo: {formatDateInSaoPaulo(payout.dueAt)}
-                    </p>
-                  </div>
-                  <Badge variant="outline">{payout.status}</Badge>
-                  {payout.status === "requested" || payout.status === "approved" ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="outline"
-                          className="ml-auto"
-                          aria-label={`Ações do repasse de ${payout.expertName}`}
-                          title="Ações"
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        {payout.status === "requested" ? (
-                          <>
-                            <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "approved")}>
-                              Aprovar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() => void updatePayout(payout.id, "rejected")}
-                            >
-                              Rejeitar
-                            </DropdownMenuItem>
-                          </>
-                        ) : null}
-                        {payout.status === "approved" ? (
-                          <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "paid")}>
-                            Registrar pagamento
-                          </DropdownMenuItem>
-                        ) : null}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
 
         {/* Painel próprio: ele busca a própria fila e se recarrega depois de cada
             geração, então não entra no `Promise.all` de carga deste workspace. */}
