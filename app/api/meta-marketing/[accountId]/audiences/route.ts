@@ -19,6 +19,7 @@ import {
   reconcileAudienceMetadataUpdate,
   type InstagramAudienceCriterion,
   INSTAGRAM_PERIOD_EVIDENCE,
+  instagramPeriodEvidenceByProfile,
   instagramSourceEvidence,
   reviewInstagramAudience,
   confirmInstagramAudience,
@@ -60,6 +61,7 @@ type GetWebsiteSourcesResponse = {
 type GetInstagramSourcesResponse = {
   profiles: Array<{ id: string; username?: string; name?: string; source: ReturnType<typeof instagramSourceEvidence> }>;
   periodEvidence: typeof INSTAGRAM_PERIOD_EVIDENCE;
+  periodEvidenceByProfile: ReturnType<typeof instagramPeriodEvidenceByProfile>;
   guidance?: string;
 };
 
@@ -122,10 +124,12 @@ export async function GET(
     }
     if (request.nextUrl.searchParams.get("sources") === "instagram") {
       const profiles = await getAdvertisingIdentities(tokenResult.accessToken, accountId);
+      const profileIds = profiles.map((profile) => profile.instagramBusinessAccountId);
       const sourceProfiles = profiles.map((profile) => ({ id: profile.instagramBusinessAccountId, username: profile.instagramUsername, name: profile.pageName }));
       return NextResponse.json({
         profiles: sourceProfiles.map((profile) => ({ ...profile, source: instagramSourceEvidence(sourceProfiles, profile.id) })),
         periodEvidence: INSTAGRAM_PERIOD_EVIDENCE,
+        periodEvidenceByProfile: instagramPeriodEvidenceByProfile(profileIds),
         guidance: profiles.length ? undefined : "Nenhum perfil profissional do Instagram acessível foi encontrado para esta conta. Conecte um perfil profissional a uma Página do Facebook e autorize o acesso existente; esta tela não cria ativos nem instala rastreamento.",
       });
     }

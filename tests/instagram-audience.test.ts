@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildInstagramAudienceRule, INSTAGRAM_AUDIENCE_CRITERIA, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, validateInstagramAudienceSelection } from "../lib/meta-business/marketing/audiences/instagram";
+import { buildInstagramAudienceRule, INSTAGRAM_AUDIENCE_CRITERIA, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceByProfile, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, validateInstagramAudienceSelection } from "../lib/meta-business/marketing/audiences/instagram";
 
 test("builds all five Instagram criteria with an ig_business event source", () => {
   for (const criterion of Object.keys(INSTAGRAM_AUDIENCE_CRITERIA) as Array<keyof typeof INSTAGRAM_AUDIENCE_CRITERIA>) {
@@ -20,6 +20,14 @@ test("records unknown period evidence instead of inventing a default", () => {
     assert.equal(evidence.historicalFill, "unknown");
   }
   assert.throws(() => validateInstagramAudienceSelection({ profileId: "ig-1", criterion: "all", retentionDays: 0 }));
+});
+
+test("keys period evidence by the selected Instagram profile and criterion", () => {
+  const evidence = instagramPeriodEvidenceFor("ig-1", "saved");
+  assert.equal(evidence.profileId, "ig-1");
+  assert.equal(evidence.criterion, "saved");
+  assert.deepEqual(Object.keys(instagramPeriodEvidenceByProfile(["ig-1", "ig-2"])), ["ig-1", "ig-2"]);
+  assert.equal(instagramPeriodEvidenceByProfile(["ig-2"])["ig-2"].messaged.profileId, "ig-2");
 });
 
 test("keeps source access separate from activity and audience availability", () => {

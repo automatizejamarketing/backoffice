@@ -16,6 +16,7 @@ export function resolveInstagramSourceEvidence(profiles: ReadonlyArray<{ id: str
   return { access: "available", activity: "unknown", availability: "unknown", guidance: "A fonte está acessível. A atividade do perfil e a disponibilidade final do público são decisões separadas da Meta e permanecem não confirmadas sem uma leitura autenticada do Gerenciador." };
 }
 export type InstagramPeriodEvidence = {
+  profileId?: string;
   criterion: InstagramAudienceCriterion;
   initialDays: number | null;
   editable: "yes" | "no" | "unknown";
@@ -40,14 +41,21 @@ export const INSTAGRAM_PERIOD_EVIDENCE: Record<InstagramAudienceCriterion, Insta
     localValidationMaximumDays: 730,
     unit: "days",
     historicalFill: "unknown",
-    observedAt: "2026-09-09",
-    context: "Contrato local do ticket 04; a confirmação v25 pelo Gerenciador não está disponível em execução headless.",
-    source: "NOTES do ticket 04 e contrato compilado de regras de audiência",
+    observedAt: "2026-09-10",
+    context: "V02: a confirmação v25 pelo Gerenciador não está disponível em execução headless; a interface e a API não foram equiparadas por inferência.",
+    source: "Documentação oficial Meta v25 de públicos de engajamento; sem observação autenticada da interface do Gerenciador.",
   } satisfies InstagramPeriodEvidence])) as Record<InstagramAudienceCriterion, InstagramPeriodEvidence>;
 
-export function instagramPeriodEvidenceStatus(criterion: InstagramAudienceCriterion): "ready" | "blocked" {
-  const evidence = INSTAGRAM_PERIOD_EVIDENCE[criterion];
+export function instagramPeriodEvidenceStatus(criterion: InstagramAudienceCriterion, evidence = INSTAGRAM_PERIOD_EVIDENCE[criterion]): "ready" | "blocked" {
   return evidence.initialDays !== null && evidence.editable !== "unknown" && evidence.metaMinimumDays !== null && evidence.metaMaximumDays !== null && evidence.historicalFill !== "unknown" ? "ready" : "blocked";
+}
+
+export function instagramPeriodEvidenceFor(profileId: string, criterion: InstagramAudienceCriterion): InstagramPeriodEvidence {
+  return { ...INSTAGRAM_PERIOD_EVIDENCE[criterion], profileId };
+}
+
+export function instagramPeriodEvidenceByProfile(profileIds: ReadonlyArray<string>): Record<string, Record<InstagramAudienceCriterion, InstagramPeriodEvidence>> {
+  return Object.fromEntries(profileIds.map((profileId) => [profileId, Object.fromEntries((Object.keys(INSTAGRAM_AUDIENCE_CRITERIA) as InstagramAudienceCriterion[]).map((criterion) => [criterion, instagramPeriodEvidenceFor(profileId, criterion)])) as Record<InstagramAudienceCriterion, InstagramPeriodEvidence>])) as Record<string, Record<InstagramAudienceCriterion, InstagramPeriodEvidence>>;
 }
 
 const DAY = 86_400;

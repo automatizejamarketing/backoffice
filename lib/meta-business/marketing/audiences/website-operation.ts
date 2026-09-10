@@ -4,7 +4,7 @@ import { type CreateIssue, type CreateResult, fail, localIssue, ok } from "../cr
 import { metaApiCall } from "@/lib/meta-business/api";
 import { issuesFromError } from "../creation/normalize";
 import { getCustomAudienceDetail, listCustomAudiences } from "./read";
-import { buildWebsiteAudienceRule, parseWebsiteAudienceRule, resolveWebsiteSourceEvidence, validateWebsiteAudienceSelection, websiteAudienceRuleInput, WEBSITE_PERIOD_EVIDENCE, websitePeriodEvidenceFor, websitePeriodEvidenceStatus, websiteSelectionsEqual, type WebsiteAudienceCriterion, type WebsiteAudienceSelection, type WebsiteSource, type WebsiteSourceEvidence } from "./website";
+import { buildWebsiteAudienceRule, parseWebsiteAudienceRule, resolveWebsiteSourceEvidence, validateWebsiteAudienceSelection, websiteAudienceRuleInput, WEBSITE_PERIOD_EVIDENCE, websitePeriodEvidenceFor, websitePeriodEvidenceStatus, websitePeriodSelectionsEqual, websiteSelectionsEqual, type WebsiteAudienceCriterion, type WebsiteAudienceSelection, type WebsiteSource, type WebsiteSourceEvidence } from "./website";
 import { previewAudienceMetadataUpdate, updateCustomAudience } from "./update";
 import type { AudienceCommandStore } from "./command-store";
 
@@ -40,12 +40,11 @@ export async function reviewWebsiteAudience(input: CommonInput): Promise<Website
   try {
     if (!input.name.trim()) return { ok: false, issues: [issue("NAME_REQUIRED", "O público precisa de um nome.", "Informe um nome antes de revisar.")] };
     const periodEvidence = websitePeriodEvidenceFor(input.selection.pixelId, input.selection.criterion);
-    if (websitePeriodEvidenceStatus(input.selection.criterion, periodEvidence) !== "ready") return { ok: false, issues: [issue("WEBSITE_PERIOD_EVIDENCE_REQUIRED", "A combinação de origem, critério e período ainda não tem evidência fechada do Gerenciador da Meta.", "Não informe o período às cegas. Registre a observação da interface Meta por origem e critério antes de disponibilizar esta combinação.")] };
     validateWebsiteAudienceSelection(input.selection);
     const source = resolveWebsiteSourceEvidence(input.sources ?? [], input.selection.pixelId);
     if (source.access !== "available") return { ok: false, issues: [issue("WEBSITE_SOURCE_UNAVAILABLE", source.guidance, "Escolha um Pixel acessível e configure o rastreamento existente.")] };
     if (source.activity !== "available") return { ok: false, issues: [issue("WEBSITE_ACTIVITY_UNAVAILABLE", source.guidance, "Confirme que o rastreamento existente recebeu atividade e revise novamente.")] };
-    if (input.selection.criterion === "event" && !source.observedEvents.includes(input.selection.event!)) return { ok: false, issues: [issue("WEBSITE_EVENT_UNCONFIRMED", "Este evento não foi observado como recebido pelo Pixel escolhido.", "Selecione somente um evento confirmado pela fonte; nenhum catálogo genérico é considerado evidência.")] };
+    if (input.selection.criterion === "event" && (source.observedEventsStatus !== "available" || !source.observedEvents.includes(input.selection.event!))) return { ok: false, issues: [issue("WEBSITE_EVENT_UNCONFIRMED", "Este evento não foi observado como recebido pelo Pixel escolhido.", "Selecione somente um evento confirmado pela fonte; nenhum catálogo genérico é considerado evidência.")] };
     let before: WebsiteAudienceSelection | null = null;
     let audienceName: string | undefined;
     let audienceDescription: string | undefined;
@@ -68,6 +67,7 @@ export async function reviewWebsiteAudience(input: CommonInput): Promise<Website
       if (listed.truncated) return { ok: false, issues: [issue("WEBSITE_CREATE_BASELINE_INCOMPLETE", "Não foi possível obter a lista completa antes da criação para garantir a reconciliação do comando.", "Reduza temporariamente a biblioteca ou conclua a criação no Gerenciador da Meta.")] };
       existingAudienceIds = listed.items.map((audience) => audience.id);
     }
+    if (websitePeriodEvidenceStatus(input.selection.criterion, periodEvidence) !== "ready" && !websitePeriodSelectionsEqual(before, input.selection)) return { ok: false, issues: [issue("WEBSITE_PERIOD_EVIDENCE_REQUIRED", "A combinação de origem, critério e período ainda não tem evidência fechada do Gerenciador da Meta.", "Não informe o período às cegas. Registre a observação da interface Meta por origem e critério antes de disponibilizar esta combinação.")] };
     const tokenSource = { access: source.access, activity: source.activity, availability: source.availability, observedEvents: source.observedEvents, observedEventsStatus: source.observedEventsStatus };
     const token = JSON.stringify({ operation: input.audienceId ? "update" : "create", expiresAt: reviewExpiresAt(input as ConfirmInput), ...(input.audienceId ? { audienceId: input.audienceId, beforeDescription: audienceDescription ?? null, beforeRule } : { existingAudienceIds, beforeDescription: null }), adAccountId: input.adAccountId, name: input.name.trim(), description: input.description, before, after: input.selection, source: tokenSource, periodEvidence, impact });
     return { ok: true, operation: input.audienceId ? "update" : "create", ...(input.audienceId ? { audienceId: input.audienceId } : {}), adAccountId: input.adAccountId, audienceName, audienceDescription, beforeRule, before, after: input.selection, source, periodEvidence, impact, confirmationToken: token, commandId: token, state: "ready_to_submit", notice: "A confirmação cria ou atualiza somente o público na biblioteca. A identidade e o processamento são retornados pela Meta; nenhum público é aplicado a campanhas." };

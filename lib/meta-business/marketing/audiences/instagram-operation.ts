@@ -4,7 +4,7 @@ import { type CreateIssue, type CreateResult, fail, localIssue, ok } from "../cr
 import { metaApiCall } from "@/lib/meta-business/api";
 import { issuesFromError } from "../creation/normalize";
 import { getCustomAudienceDetail, listCustomAudiences } from "./read";
-import { buildInstagramAudienceRule, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, type InstagramAudienceSelection, type InstagramSourceEvidence, validateInstagramAudienceSelection } from "./instagram";
+import { buildInstagramAudienceRule, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, type InstagramAudienceSelection, type InstagramSourceEvidence, validateInstagramAudienceSelection } from "./instagram";
 import { previewAudienceMetadataUpdate, updateCustomAudience } from "./update";
 import type { AudienceCommandStore } from "./command-store";
 
@@ -74,7 +74,7 @@ async function createInstagramAudience(input: { adAccountId: string; accessToken
 export async function reviewInstagramAudience(input: CommonInput): Promise<InstagramAudienceReviewResult> {
   try {
     if (!input.name.trim()) return { ok: false, issues: [issue("NAME_REQUIRED", "O público precisa de um nome.", "Informe um nome antes de revisar.")] };
-    if (instagramPeriodEvidenceStatus(input.selection.criterion) !== "ready") return { ok: false, issues: [issue("INSTAGRAM_PERIOD_EVIDENCE_REQUIRED", "A combinação de critério e período ainda não tem evidência fechada do Gerenciador da Meta.", "Não informe o período às cegas. Registre a observação da interface Meta por critério antes de disponibilizar esta combinação.")] };
+    const periodEvidence = instagramPeriodEvidenceFor(input.selection.profileId, input.selection.criterion);
     validateInstagramAudienceSelection(input.selection);
     const source = resolveInstagramSourceEvidence(input.profiles ?? [], input.selection.profileId);
     if (source.access !== "available") return { ok: false, issues: [issue("INSTAGRAM_SOURCE_UNAVAILABLE", source.guidance, "Escolha um perfil profissional retornado pela descoberta desta conta.")] };
@@ -100,9 +100,10 @@ export async function reviewInstagramAudience(input: CommonInput): Promise<Insta
       if (listed.truncated) return { ok: false, issues: [issue("INSTAGRAM_CREATE_BASELINE_INCOMPLETE", "Não foi possível obter a lista completa antes da criação para garantir a reconciliação do comando.", "Reduza temporariamente a biblioteca ou conclua a criação no Gerenciador da Meta.")] };
       existingAudienceIds = listed.items.map((audience) => audience.id);
     }
+    if (instagramPeriodEvidenceStatus(input.selection.criterion, periodEvidence) !== "ready" && !sameSelection(before, input.selection)) return { ok: false, issues: [issue("INSTAGRAM_PERIOD_EVIDENCE_REQUIRED", "A combinação de critério e período ainda não tem evidência fechada do Gerenciador da Meta.", "Não informe o período às cegas. Registre a observação da interface Meta por critério antes de disponibilizar esta combinação.")] };
     const tokenInput = { operation: input.audienceId ? "update" as const : "create" as const, ...(input.audienceId ? { audienceId: input.audienceId, beforeDescription: audienceDescription ?? null, beforeRule } : { existingAudienceIds }), adAccountId: input.adAccountId, name: input.name.trim(), ...(input.description !== undefined ? { description: input.description } : {}), before, after: input.selection, source, impact };
     const confirmationToken = JSON.stringify(tokenInput);
-    return { ok: true, operation: tokenInput.operation, ...(input.audienceId ? { audienceId: input.audienceId } : {}), adAccountId: input.adAccountId, audienceName, audienceDescription, beforeRule, before, after: input.selection, source, periodEvidence: INSTAGRAM_PERIOD_EVIDENCE[input.selection.criterion], impact, confirmationToken, commandId: confirmationToken, state: "ready_to_submit", notice: "A confirmação cria ou atualiza somente o público na biblioteca. A identidade e o processamento são retornados pela Meta; nenhum público é aplicado a campanhas." };
+    return { ok: true, operation: tokenInput.operation, ...(input.audienceId ? { audienceId: input.audienceId } : {}), adAccountId: input.adAccountId, audienceName, audienceDescription, beforeRule, before, after: input.selection, source, periodEvidence, impact, confirmationToken, commandId: confirmationToken, state: "ready_to_submit", notice: "A confirmação cria ou atualiza somente o público na biblioteca. A identidade e o processamento são retornados pela Meta; nenhum público é aplicado a campanhas." };
   } catch (error) {
     return { ok: false, issues: [issue("INSTAGRAM_REVIEW_FAILED", error instanceof Error ? error.message : "Não foi possível revisar o público do Instagram.", "Corrija os dados e revise novamente.")] };
   }

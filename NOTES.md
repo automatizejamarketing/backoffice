@@ -1,3 +1,21 @@
+# Ticket 24 notes
+
+- The period contract is now source-scoped and identical in the frontend and backoffice. New or changed Instagram/site combinations do not expose a free period field while V02 evidence is open; an existing simple rule shows and preserves its parsed period instead of reusing it as a default for another source or criterion.
+- Period evidence recorded on 2026-09-10 (all rows are currently blocked because no authenticated Ads Manager observation was available):
+
+| Origin / criterion | Initial | Editable | Unit sent | Meta limits | Local validation | Historical fill | Evidence origin |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Instagram / activity general (`all`) | unknown | unknown | days -> `retention_seconds` | unknown | 1-730 days | unknown | official Meta v25 engagement docs; no authenticated UI observation |
+| Instagram / engagement (`engaged`) | unknown | unknown | days -> `retention_seconds` | unknown | 1-730 days | unknown | official Meta v25 engagement docs; no authenticated UI observation |
+| Instagram / profile visits (`profile_visit`) | unknown | unknown | days -> `retention_seconds` | unknown | 1-730 days | unknown | official Meta v25 engagement docs; no authenticated UI observation |
+| Instagram / messages (`messaged`) | unknown | unknown | days -> `retention_seconds` | unknown | 1-730 days | unknown | official Meta v25 engagement docs; no authenticated UI observation; regional availability remains unverified |
+| Instagram / saved posts or ads (`saved`) | unknown | unknown | days -> `retention_seconds` | unknown | 1-730 days | unknown | official Meta v25 engagement docs; no authenticated UI observation |
+| Website / all visitors (`visitors`) | unknown | unknown | days -> `retention_seconds` | unknown | no universal cap | unknown | official Meta v25 website docs; no authenticated UI observation; published 180/365 discrepancy remains open |
+| Website / URL (`url`) | unknown | unknown | days -> `retention_seconds` | unknown | no universal cap | unknown | official Meta v25 website docs; no authenticated UI observation; published 180/365 discrepancy remains open |
+| Website / observed event (`event`) | unknown | unknown | days -> `retention_seconds` | unknown | no universal cap | unknown | official Meta v25 website docs; no authenticated UI observation; published 180/365 discrepancy remains open |
+
+- `prefill=true` is sent by the creation primitive, but it is not treated as evidence for an initial period or historical-fill behavior. No live Meta v25 mutation or authenticated Ads Manager exercise was possible headlessly; those remain controlled-environment follow-ups.
+
 # Ticket 02 notes
 
 
