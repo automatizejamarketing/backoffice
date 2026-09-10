@@ -92,3 +92,22 @@ test("expires correction data from its original receipt time and never emits exe
   assert.match(customerFileCorrectionReport(preview, new Date("2026-09-09T12:00:00.000Z")), /'=HYPERLINK/);
   assert.throws(() => customerFileCorrectionReport(preview, new Date("2026-09-10T12:00:00.001Z")), /novo arquivo/i);
 });
+
+test("neutralizes formulas hidden behind a leading tab or carriage return", () => {
+  const receivedAt = new Date("2026-09-09T12:00:00.000Z");
+  // A spreadsheet skips the leading control character and still evaluates the
+  // formula, so a report that only guards `=+-@` hands the user a live cell.
+  for (const lead of ["\t", "\r"]) {
+    const preview = prepareCustomerFileCsv({
+      bytes: new TextEncoder().encode(`email\n"${lead}=HYPERLINK"\n`),
+      mapping: { emailColumn: "email" }, context, now: receivedAt,
+    });
+    const csv = customerFileCorrectionReport(preview, receivedAt);
+    assert.match(csv, /'/, `célula iniciada por ${JSON.stringify(lead)} precisa ser neutralizada`);
+    assert.doesNotMatch(
+      csv,
+      new RegExp(`"${lead === "\t" ? "\\t" : "\\r"}=`),
+      `${JSON.stringify(lead)} seguido de = não pode chegar cru à planilha`,
+    );
+  }
+});

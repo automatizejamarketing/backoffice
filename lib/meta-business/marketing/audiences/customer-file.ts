@@ -356,7 +356,9 @@ export function isCustomerFilePreviewCurrent(
 }
 
 function reportCell(value: string): string {
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  // A spreadsheet still parses a formula when the cell opens with a TAB or a
+  // carriage return, so the guard cannot stop at the four visible prefixes.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
   return `"${safe.replaceAll('"', '""')}"`;
 }
 
