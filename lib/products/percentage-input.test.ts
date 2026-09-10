@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  formatProductParticipationInput,
   formatPercentageInput,
+  parseOptionalPercentageInput,
   parsePercentageInput,
 } from "./percentage-input";
 
@@ -20,5 +22,12 @@ describe("percentage input", () => {
   it("allows an empty field", () => {
     assert.equal(formatPercentageInput(""), "");
     assert.equal(parsePercentageInput(""), 0);
+  });
+
+  it("keeps product participation validation visible instead of capping 100%", () => {
+    assert.equal(formatProductParticipationInput("99,999"), "99,99%");
+    assert.equal(formatProductParticipationInput("100"), "100%");
+    assert.equal(parseOptionalPercentageInput(""), null);
+    assert.equal(parseOptionalPercentageInput("99,99%"), 99.99);
   });
 });

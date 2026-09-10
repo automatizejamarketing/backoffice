@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   applyFullProductRefund,
@@ -6,9 +7,9 @@ import {
 } from "@/lib/db/product-queries";
 import { db } from "@/lib/db";
 import { backofficeAuditLog } from "@/lib/db/schema";
-import { refundMercadoPagoProductPayment } from "@/lib/mercadopago/product-refunds";
 import { createStripeConnectRefundClient } from "@/lib/stripe/connect/client";
 import { refundProductOrder } from "@/lib/products/refund-product-order";
+import { executeProductIntegralRefund } from "@/lib/products/mercadopago-refund-service";
 
 const REFUND_REASON_COPY = {
   not_approved: "Pedido não está aprovado",
@@ -18,17 +19,59 @@ const REFUND_REASON_COPY = {
   stripe_payment_missing:
     "Pagamento Stripe sem identificador — não é possível reembolsar na conta conectada.",
 } as const;
+const requestSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const authz = await requireBackofficePermissionResponse("products:manage");
   if (!authz.ok) return authz.response;
+  const parsedBody = requestSchema.safeParse(await request.json().catch(() => null));
+  if (!parsedBody.success) {
+    return NextResponse.json(
+      { error: "Informe um motivo entre 1 e 500 caracteres." },
+      { status: 400 },
+    );
+  }
+  const reason = parsedBody.data.reason;
   const { id } = await params;
   const order = (await listProductOrders()).find((row) => row.id === id);
   if (!order) {
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
+  }
+
+  if ((order.checkoutProvider ?? order.provider) === "mercadopago") {
+    try {
+      const result = await executeProductIntegralRefund({
+        orderId: id,
+        operatorEmail: authz.actor.email,
+        reason,
+      });
+      if (order.buyerUserId) {
+        await db.insert(backofficeAuditLog).values({
+          adminEmail: authz.actor.email,
+          targetUserId: order.buyerUserId,
+          action: "refund_product_checkout",
+          fieldName: "product_checkout_refund",
+          oldValue: order.status,
+          newValue: result.status,
+          note: `Cobrança ${result.rootOrderId} · itens ${result.orderIds.join(",")} · ${result.amountCentavos} centavos · motivo: ${reason}`,
+        });
+      }
+      return NextResponse.json(
+        result,
+        { status: result.status === "processing" || result.status === "balance_pending" ? 202 : result.status === "external_partial" ? 409 : 200 },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "refund_failed";
+      return NextResponse.json(
+        { error: REFUND_REASON_COPY[message as keyof typeof REFUND_REASON_COPY] ?? message },
+        { status: message === "product_order_not_found" ? 404 : 422 },
+      );
+    }
   }
 
   const result = await refundProductOrder({
@@ -43,11 +86,7 @@ export async function POST(
       automatizeCoproductionRevenueCentavos:
         order.automatizeCoproductionRevenueCentavos,
     },
-    mercadoPago: {
-      refundPayment: async (paymentId, idempotencyKey) => {
-        await refundMercadoPagoProductPayment(paymentId, idempotencyKey);
-      },
-    },
+    mercadoPago: { refundPayment: async () => undefined },
     stripeConnect: createStripeConnectRefundClient(),
     store: {
       recordRefund: (orderId, eventSuffix) =>
@@ -76,7 +115,7 @@ export async function POST(
       fieldName: "product_order_status",
       oldValue: order.status,
       newValue: "refunded",
-      note: `Pedido ${order.id} · ${result.path} · ${order.priceCentavos} centavos`,
+      note: `Pedido ${order.id} · ${result.path} · ${order.priceCentavos} centavos · motivo: ${reason}`,
     });
   }
 

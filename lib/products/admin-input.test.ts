@@ -50,20 +50,71 @@ describe("product admin input", () => {
     assert.equal(parsed.coproducerShareBasisPoints, 0);
   });
 
-  it("ignores a leftover expert participation field on Expert products", () => {
+  it("normalizes an explicit expert participation agreement", () => {
     const parsed = parseProductAdminInput({
       ownerType: "expert",
       expertId: "11111111-1111-4111-8111-111111111111",
       title: "Produto",
       priceCentavos: 10_000,
-      hasCoproduction: false,
-      expertParticipationBps: 8_000,
+      expertParticipationPercent: 80,
+    });
+
+    assert.equal(parsed.expertParticipationBps, 8_000);
+    assert.equal(parsed.ownerExpertShareBasisPoints, 2_000);
+    assert.equal(parsed.coproducerType, "automatize");
+    assert.equal(parsed.coproducerShareBasisPoints, 8_000);
+  });
+
+  it("keeps an expert draft valid without an agreement", () => {
+    const parsed = parseProductAdminInput({
+      ownerType: "expert",
+      expertId: "11111111-1111-4111-8111-111111111111",
+      title: "Rascunho",
+      priceCentavos: 10_000,
+      status: "draft",
+      salesEnabled: true,
     });
 
     assert.equal("expertParticipationBps" in parsed, false);
-    assert.equal(parsed.ownerExpertShareBasisPoints, 10_000);
-    assert.equal(parsed.coproducerType, null);
-    assert.equal(parsed.coproducerShareBasisPoints, 0);
+  });
+
+  it("does not publish and enable an expert product without an agreement", () => {
+    assert.throws(
+      () =>
+        parseProductAdminInput({
+          ownerType: "expert",
+          expertId: "11111111-1111-4111-8111-111111111111",
+          title: "Produto",
+          priceCentavos: 10_000,
+          status: "published",
+          salesEnabled: true,
+        }),
+      /participação/,
+    );
+  });
+
+  it("accepts zero and 99.99 percent but rejects 100 and excess precision", () => {
+    for (const value of [0, 99.99]) {
+      const parsed = parseProductAdminInput({
+        ownerType: "expert",
+        expertId: "11111111-1111-4111-8111-111111111111",
+        title: "Produto",
+        priceCentavos: 10_000,
+        expertParticipationPercent: value,
+      });
+      assert.equal(parsed.expertParticipationBps, Math.round(value * 100));
+    }
+    for (const value of [100, 12.345, -0.01]) {
+      assert.throws(() =>
+        parseProductAdminInput({
+          ownerType: "expert",
+          expertId: "11111111-1111-4111-8111-111111111111",
+          title: "Produto",
+          priceCentavos: 10_000,
+          expertParticipationPercent: value,
+        }),
+      );
+    }
   });
 
   it("requires an expert for expert products", () => {

@@ -336,6 +336,16 @@ export function validateAdInput(input: CreateAdInput): CreateIssue[] {
     case "creative_id":
       if (!c.creativeId?.trim())
         issues.push(localIssue("creative", "CREATIVE_ID_REQUIRED", "creativeId é obrigatório.", "Informe um creative_id válido.", ["creative"]));
+      else if (!/^\d{5,}$/.test(c.creativeId.trim()))
+        issues.push(
+          localIssue(
+            "creative",
+            "CREATIVE_ID_INVALID",
+            `creativeId "${c.creativeId}" não é um id numérico da Meta.`,
+            "Use o creative_id numérico do anúncio (getEntityDetails no anúncio). Não invente sufixos como _creative nem use o id do anúncio no lugar do criativo.",
+            ["creative"],
+          ),
+        );
       break;
     case "existing_post":
       if (!c.objectStoryId?.trim())

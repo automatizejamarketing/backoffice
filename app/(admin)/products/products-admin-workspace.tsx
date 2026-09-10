@@ -92,6 +92,8 @@ import {
 } from "@/lib/products/currency-input";
 import {
   formatPercentageInput,
+  formatProductParticipationInput,
+  parseOptionalPercentageInput,
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
 import {
@@ -143,6 +145,22 @@ type Expert = {
   stripeAccountUpdatedAt: string | null;
 };
 
+type MercadoPagoExpertPanel = {
+  connected: boolean;
+  environment: "sandbox" | "production";
+  accountId?: string;
+  pix: "available" | "unavailable" | "unknown";
+  card: "available" | "unavailable" | "unknown";
+  lastValidatedAt: string | null;
+  validationError: string | null;
+  switch: {
+    state: "pending_authorization" | "authorized" | "resolving" | "activated" | "denied";
+    nextMpUserId: string | null;
+    authorizationReason: string | null;
+    authorizedBy: string | null;
+  } | null;
+};
+
 type Product = {
   id: string;
   ownerType: "automatize" | "expert";
@@ -152,6 +170,7 @@ type Product = {
   description: string | null;
   coverUrl: string | null;
   priceCentavos: number;
+  expertParticipationBps: number | null;
   ownerExpertShareBasisPoints: number;
   coproducerType: "automatize" | "expert" | null;
   coproducerExpertId: string | null;
@@ -218,6 +237,30 @@ type Order = {
   expertSettlement: "gateway" | "ledger" | null;
   gatewayFeeEstimateBps: number | null;
   gatewayFeeEstimateFixedCentavos: number | null;
+  checkoutRootOrderId: string;
+  checkoutOrderIds: string[];
+  checkoutItems: Array<{
+    orderId: string;
+    title: string;
+    amountCentavos: number;
+  }>;
+  checkoutTotalCentavos: number;
+  checkoutProvider: string | null;
+  refundOperationStatus: "issuing" | "confirmed" | "failed" | "external_partial" | null;
+  refundOperationAmountCentavos: number | null;
+  refundOperationReason: string | null;
+  refundOperationOperatorEmail: string | null;
+  refundBalanceCaseId: string | null;
+  refundBalanceStatus: "pending" | "resolved" | null;
+  refundBalanceResponsible: "expert" | "automatize" | null;
+  refundBalanceFirstFailedAt: string | null;
+  refundBalanceLastFailedAt: string | null;
+  refundBalanceDueAt: string | null;
+  refundBalanceAttemptCount: number | null;
+  refundBalanceNextRetryAt: string | null;
+  refundBalanceNoticeSentAt: string | null;
+  refundBalanceLastFailureCode: string | null;
+  refundBalanceLastFailureMessage: string | null;
 };
 
 type Payout = {
@@ -230,6 +273,109 @@ type Payout = {
   proofUrl: string | null;
 };
 
+type Defence = {
+  disputeId: string;
+  provider: string;
+  providerDisputeId: string;
+  caseStatus: string;
+  openedAt: string;
+  defenceId: string | null;
+  deadlineAt: string | null;
+  originalProviderAccountId: string | null;
+  submissionState: "draft" | "unknown" | "submitted" | null;
+  reviewedAt: string | null;
+  reviewedByEmail: string | null;
+  submittedAt: string | null;
+  providerResult: string | null;
+  expertNote: string | null;
+  operatorNote: string | null;
+  lastProviderCheckedAt: string | null;
+  lastProviderError: string | null;
+  productTitle: string;
+  files: Array<{
+    source: "proposed" | "expert" | "operator";
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  }>;
+};
+
+type PixFraudCase = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  buyerEmail: string;
+  provider: string;
+  providerCaseId: string;
+  providerPaymentId: string;
+  providerAccountId: string | null;
+  status: "under_review" | "closed_valid" | "payment_invalidated_by_fraud";
+  cause: string | null;
+  responsible: "expert" | "automatize";
+  recoveredAmountCentavos: number | null;
+  financialPending: boolean;
+  observedAt: string;
+  resolvedAt: string | null;
+  responseDueAt: string | null;
+  events: Array<{
+    providerEventId: string;
+    eventType: string;
+    occurredAt: string;
+  }>;
+};
+
+type ReconciliationCase = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  provider: string;
+  providerAccountId: string | null;
+  kind: string;
+  responsible: "operations" | "automatize_finance" | "expert";
+  status: "open" | "monitoring" | "resolved";
+  attributionProven: boolean;
+  effectiveAmountCentavos: number | null;
+  evidence: Record<string, string | number | null>;
+  nextReviewAt: string;
+  createdAt: string;
+};
+
+type ProductPaymentAttempt = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  attemptKey: string;
+  paymentMethod: "pix" | "card";
+  amountCentavos: number;
+  providerPaymentId: string | null;
+  collectorId: string | null;
+  status: "prepared" | "issuing" | "pending" | "unknown";
+  failureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastCheckedAt: string | null;
+};
+
+type PostSaleCostCase = {
+  id: string;
+  productTitle: string;
+  paymentId: string;
+  provider: string;
+  providerAccountId: string | null;
+  providerCaseId: string | null;
+  reversal: "integral_refund" | "lost_full_chargeback" | "external_partial" | "pix_med";
+  status: "open" | "exception" | "settled";
+  responsible: "expert" | "automatize";
+  evidence: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  movements: Array<{ providerMovementId: string; kind: "cost" | "credit"; amountCentavos: number; supportedBy: "expert" | "automatize"; orderId: string | null }>;
+  calculation:
+    | { kind: "ready"; items: Array<{ orderId: string; remainingCostCentavos: number; expertResponsibilityCentavos: number; automatizeResponsibilityCentavos: number; expertSupportedCentavos: number; automatizeSupportedCentavos: number }>; transfer: { debtor: "expert" | "automatize"; creditor: "expert" | "automatize"; amountCentavos: number } | null }
+    | { kind: "exception"; reason: string };
+  settlement: { debtor: "expert" | "automatize"; creditor: "expert" | "automatize"; amountCentavos: number; proofUrl: string; proofKey: string; operatorEmail: string | null; confirmedAt: string | null } | null;
+};
+
 type ProductFormState = {
   ownerType: "automatize" | "expert";
   expertId: string;
@@ -238,6 +384,7 @@ type ProductFormState = {
   description: string;
   coverUrl: string;
   priceReais: string;
+  expertParticipationPercent: string;
   hasCoproduction: boolean;
   coproducerType: "automatize";
   coproducerExpertId: string;
@@ -279,6 +426,7 @@ const emptyProduct: ProductFormState = {
   description: "",
   coverUrl: "",
   priceReais: "",
+  expertParticipationPercent: "",
   hasCoproduction: false,
   coproducerType: "automatize",
   coproducerExpertId: "",
@@ -747,6 +895,11 @@ export function ProductsAdminWorkspace({
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [defences, setDefences] = useState<Defence[]>([]);
+  const [pixFraudCases, setPixFraudCases] = useState<PixFraudCase[]>([]);
+  const [reconciliationCases, setReconciliationCases] = useState<ReconciliationCase[]>([]);
+  const [paymentAttempts, setPaymentAttempts] = useState<ProductPaymentAttempt[]>([]);
+  const [postSaleCostCases, setPostSaleCostCases] = useState<PostSaleCostCase[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
@@ -761,6 +914,7 @@ export function ProductsAdminWorkspace({
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
   const [orderDetailTarget, setOrderDetailTarget] = useState<Order | null>(null);
   const [refunding, setRefunding] = useState(false);
+  const [releasingBalance, setReleasingBalance] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
@@ -791,6 +945,11 @@ export function ProductsAdminWorkspace({
   const [stripeActionExpertId, setStripeActionExpertId] = useState<string | null>(
     null,
   );
+  const [mercadoPagoExpertPanel, setMercadoPagoExpertPanel] =
+    useState<MercadoPagoExpertPanel | null>(null);
+  const [mercadoPagoActionExpertId, setMercadoPagoActionExpertId] =
+    useState<string | null>(null);
+  const [mercadoPagoSwitchReason, setMercadoPagoSwitchReason] = useState("");
   const [onboardingLinkUrl, setOnboardingLinkUrl] = useState<string | null>(null);
   const [onboardingLinkDialogOpen, setOnboardingLinkDialogOpen] = useState(false);
 
@@ -829,27 +988,40 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, reconciliationResponse, postSaleCostsResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
+          fetch("/api/products/admin/dispute-defences", { cache: "no-store" }),
+          fetch("/api/products/admin/pix-fraud", { cache: "no-store" }),
+          fetch("/api/products/admin/reconciliation-cases", { cache: "no-store" }),
+          fetch("/api/products/admin/post-sale-costs", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, reconciliationResponse, postSaleCostsResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud, nextReconciliation, nextPostSaleCosts] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
+          defencesResponse.json(),
+          pixFraudResponse.json(),
+          reconciliationResponse.json(),
+          postSaleCostsResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
+      setDefences(nextDefences.defences ?? []);
+      setPixFraudCases(nextPixFraud.cases ?? []);
+      setReconciliationCases(nextReconciliation.cases ?? []);
+      setPaymentAttempts(nextReconciliation.attempts ?? []);
+      setPostSaleCostCases(nextPostSaleCosts.cases ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -860,6 +1032,106 @@ export function ProductsAdminWorkspace({
       setIsLoadingList(false);
     }
   }, []);
+
+  async function refreshDefences() {
+    const response = await fetch("/api/products/admin/dispute-defences", { cache: "no-store" });
+    if (!response.ok) throw new Error(await readError(response));
+    const body = (await response.json()) as { defences?: Defence[] };
+    setDefences(body.defences ?? []);
+  }
+
+  async function defenceAction(disputeId: string, action: "review" | "submit") {
+    const response = await fetch(`/api/products/admin/dispute-defences/${disputeId}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    const result = (await response.json()) as { state?: string; reason?: string };
+    toast.success(action === "review" ? "Defesa revisada." : result.state === "unknown" ? "Envio inconclusivo; o caso exige recuperação." : "Defesa enviada.");
+    await refreshDefences();
+  }
+
+  async function settlePostSaleCost(caseId: string) {
+    const proofUrl = window.prompt("URL do comprovante da transferência manual");
+    if (!proofUrl) return;
+    const proofKey = window.prompt("Identificador imutável do comprovante");
+    if (!proofKey) return;
+    const response = await fetch(`/api/products/admin/post-sale-costs/${caseId}/settle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proofUrl, proofKey }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Acerto manual confirmado com comprovante.");
+    await loadAll();
+  }
+
+  async function reconcileProductCase(orderId: string) {
+    const response = await fetch(`/api/products/admin/reconciliation-cases/${orderId}/reconcile`, { method: "POST" });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Conciliação manual executada pela conta original.");
+    await loadAll();
+  }
+
+  async function resolvePaymentAttempt(attemptId: string) {
+    const reason = window.prompt("Motivo do encerramento sem cobrança")?.trim();
+    if (!reason) return;
+    const providerFact = window.prompt(
+      "Fato confirmado pelo Mercado Pago (ex.: busca pela referência sem resultado)",
+    )?.trim();
+    if (!providerFact) return;
+    const response = await fetch(`/api/products/admin/payment-attempts/${attemptId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reason,
+        providerFact: { summary: providerFact, source: "operator_input" },
+      }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Tentativa encerrada com auditoria.");
+    await loadAll();
+  }
+
+  async function uploadDefenceFiles(disputeId: string, selectedFiles: FileList | null) {
+    if (!selectedFiles?.length) return;
+    try {
+      for (const file of Array.from(selectedFiles)) {
+        const prepare = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files/upload`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
+        });
+        if (!prepare.ok) throw new Error(await readError(prepare));
+        const prepared = (await prepare.json()) as {
+          uploadUrl: string;
+          grantId: string;
+          objectKey: string;
+          headers: Record<string, string>;
+        };
+        const localUpload = prepared.uploadUrl === "/api/products/admin/uploads/complete";
+        const upload = await fetch(prepared.uploadUrl, {
+          method: localUpload ? "POST" : "PUT",
+          headers: localUpload
+            ? { "Content-Type": file.type, "X-Object-Key": prepared.objectKey, "X-Cache-Control": "private, no-store" }
+            : prepared.headers,
+          body: file,
+        });
+        if (!upload.ok) throw new Error(await readError(upload));
+        const metadata = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source: "operator", grantId: prepared.grantId }),
+        });
+        if (!metadata.ok) throw new Error(await readError(metadata));
+      }
+      toast.success("Evidência anexada.");
+      await refreshDefences();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível anexar a evidência.");
+    }
+  }
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -904,6 +1176,9 @@ export function ProductsAdminWorkspace({
         coproducerExpertId: productForm.coproducerExpertId || null,
         coproducerSharePercent: parsePercentageInput(
           productForm.coproducerSharePercent,
+        ),
+        expertParticipationPercent: parseOptionalPercentageInput(
+          productForm.expertParticipationPercent,
         ),
         minimumPlanTier: productForm.minimumPlanTier || null,
       };
@@ -972,6 +1247,12 @@ export function ProductsAdminWorkspace({
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
+      expertParticipationPercent:
+        row.expertParticipationBps === null
+          ? ""
+          : formatProductParticipationInput(
+              String(row.expertParticipationBps / 100).replace(".", ","),
+            ),
       hasCoproduction: row.coproducerType === "automatize",
       coproducerType: "automatize",
       coproducerExpertId: "",
@@ -1262,6 +1543,9 @@ export function ProductsAdminWorkspace({
       ),
       status: expert.status,
     });
+    setMercadoPagoExpertPanel(null);
+    setMercadoPagoSwitchReason("");
+    void loadMercadoPagoExpertPanel(expert.id);
     setExpertDialogOpen(true);
   }
 
@@ -1269,6 +1553,8 @@ export function ProductsAdminWorkspace({
     setExpertDialogOpen(false);
     setEditingExpertId(null);
     setExpertForm(emptyExpert);
+    setMercadoPagoExpertPanel(null);
+    setMercadoPagoSwitchReason("");
     setExpertImageFile(null);
     if (expertImagePreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(expertImagePreviewUrl);
@@ -1458,6 +1744,53 @@ export function ProductsAdminWorkspace({
     }
   }
 
+  async function loadMercadoPagoExpertPanel(expertId: string) {
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/mercadopago`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      setMercadoPagoExpertPanel(
+        (await response.json()) as MercadoPagoExpertPanel,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível consultar a Conta Mercado Pago do Expert.",
+      );
+    }
+  }
+
+  async function authorizeMercadoPagoReceiverSwitch(expertId: string) {
+    setMercadoPagoActionExpertId(expertId);
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/mercadopago`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: mercadoPagoSwitchReason,
+            environment: mercadoPagoExpertPanel?.environment,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      toast.success("Troca de conta autorizada. O Expert precisa concluir o OAuth.");
+      await loadMercadoPagoExpertPanel(expertId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível autorizar a troca da conta.",
+      );
+    } finally {
+      setMercadoPagoActionExpertId(null);
+    }
+  }
+
   async function resendExpertStripeOnboarding(expertId: string) {
     setStripeActionExpertId(expertId);
     try {
@@ -1503,27 +1836,72 @@ export function ProductsAdminWorkspace({
     ? getExpertStripeAccountDisplay(selectedOwnerExpert)
     : null;
 
-  const isMercadoPagoRefund = refundTarget?.provider === "mercadopago";
+  const isMercadoPagoRefund =
+    (refundTarget?.checkoutProvider ?? refundTarget?.provider) === "mercadopago";
 
   async function confirmRefund() {
     if (!refundTarget) return;
+    const reason = window.prompt(
+      "Informe o motivo do reembolso integral (obrigatório):",
+    );
+    if (!reason?.trim()) return;
     const viaMercadoPago = isMercadoPagoRefund;
     setRefunding(true);
     try {
       const response = await fetch(
         `/api/products/admin/orders/${refundTarget.id}/refund`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
       );
       if (!response.ok) return toast.error(await readError(response));
-      toast.success(
-        viaMercadoPago
-          ? "Estorno solicitado no Mercado Pago — o valor volta ao comprador pelo Pix."
-          : "Reembolso registrado.",
-      );
+      const body = await response.json().catch(() => null);
+      if (body?.status === "processing") {
+        toast.info(
+          "Reembolso enviado e ainda em confirmação no Mercado Pago. O acesso permanece ativo.",
+        );
+      } else if (body?.status === "balance_pending") {
+        toast.info(
+          "O Mercado Pago confirmou falta de saldo. O caso foi registrado para retentativa e nenhum acesso foi alterado.",
+        );
+      } else {
+        toast.success(
+          viaMercadoPago
+            ? "Reembolso integral confirmado no Mercado Pago. Os acessos da cobrança foram revogados."
+            : "Reembolso registrado.",
+        );
+      }
       setRefundTarget(null);
       await loadAll();
     } finally {
       setRefunding(false);
+    }
+  }
+
+  async function releaseRefundBalanceCase(order: Order) {
+    if (!order.refundBalanceCaseId) return;
+    const reason = window.prompt(
+      "Informe o motivo da liberação auditada das vendas do Expert:",
+    );
+    if (!reason?.trim()) return;
+    setReleasingBalance(true);
+    try {
+      const response = await fetch(
+        `/api/products/admin/refund-balance/${order.refundBalanceCaseId}/release`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
+      );
+      if (!response.ok) return toast.error(await readError(response));
+      toast.success("Vendas do Expert liberadas e ação registrada no log.");
+      await loadAll();
+      setOrderDetailTarget(null);
+    } finally {
+      setReleasingBalance(false);
     }
   }
 
@@ -1560,12 +1938,16 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-5 lg:w-fit">
+        <TabsList className="grid w-full grid-cols-9 lg:w-fit">
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="experts">Experts</TabsTrigger>
           <TabsTrigger value="orders">Vendas</TabsTrigger>
           <TabsTrigger value="recovery">Pix vencido</TabsTrigger>
           <TabsTrigger value="payouts">Repasses</TabsTrigger>
+          <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
+          <TabsTrigger value="pix-fraud">Fraude Pix ({pixFraudCases.filter((item) => item.status === "under_review").length})</TabsTrigger>
+          <TabsTrigger value="reconciliation">Conciliação ({reconciliationCases.length + paymentAttempts.length})</TabsTrigger>
+          <TabsTrigger value="post-sale-costs">Custos pós-venda ({postSaleCostCases.filter((item) => item.status === "open").length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="products" className="space-y-6 pt-4">
@@ -1963,7 +2345,7 @@ export function ProductsAdminWorkspace({
           </Card>
         </TabsContent>
 
-        <TabsContent value="orders" className="pt-4">
+      <TabsContent value="orders" className="pt-4">
           <Card>
             <CardHeader>
               <CardTitle>Vendas</CardTitle>
@@ -2104,9 +2486,286 @@ export function ProductsAdminWorkspace({
               </Table>
             </CardContent>
           </Card>
-        </TabsContent>
+      </TabsContent>
 
-        <TabsContent value="payouts" className="pt-4">
+      <TabsContent value="defences" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Defesas de contestação</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Preparação e envio são ações explícitas. Um timeout fica como inconclusivo até a recuperação consultar o Mercado Pago.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1180px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / caso</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Prazo</TableHead>
+                  <TableHead>Arquivos</TableHead>
+                  <TableHead>Auditoria</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {defences.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Nenhuma contestação registrada.</TableCell></TableRow>
+                ) : defences.map((defence) => (
+                  <TableRow key={defence.disputeId}>
+                    <TableCell>
+                      <p className="font-medium">{defence.productTitle}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{defence.provider} · {defence.providerDisputeId}</p>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline">caso: {defence.caseStatus}</Badge>
+                        <Badge variant={defence.submissionState === "submitted" ? "default" : "secondary"}>
+                          defesa: {defence.submissionState ?? "sem caso"}
+                        </Badge>
+                      </div>
+                      {defence.providerResult ? <p className="mt-1 text-xs text-muted-foreground">{defence.providerResult}</p> : null}
+                    </TableCell>
+                    <TableCell className={defence.deadlineAt && new Date(defence.deadlineAt) <= new Date() ? "text-destructive" : ""}>
+                      {defence.deadlineAt ? dateTime(defence.deadlineAt) : "Sem prazo"}
+                    </TableCell>
+                    <TableCell>
+                      <p>{defence.files.length}/10</p>
+                      <p className="max-w-[220px] truncate text-xs text-muted-foreground">{defence.files.map((file) => file.fileName).join(", ") || "Nenhum arquivo"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      <p>{defence.reviewedAt ? `Revisada ${dateTime(defence.reviewedAt)}` : "Aguardando revisão"}</p>
+                      {defence.reviewedByEmail ? <p>por {defence.reviewedByEmail}</p> : null}
+                      {defence.submittedAt ? <p>Enviada {dateTime(defence.submittedAt)}</p> : null}
+                      {defence.lastProviderError ? <p className="text-destructive">{defence.lastProviderError}</p> : null}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {defence.defenceId ? (
+                          <>
+                            <label className="inline-flex cursor-pointer items-center rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted">
+                              <Upload className="mr-1 size-3" /> Anexar
+                              <input type="file" accept="application/pdf,image/jpeg,image/png" multiple className="sr-only" onChange={(event) => { void uploadDefenceFiles(defence.disputeId, event.currentTarget.files); event.currentTarget.value = ""; }} />
+                            </label>
+                            <Button size="sm" variant="outline" disabled={defence.submissionState === "submitted"} onClick={() => { void defenceAction(defence.disputeId, "review").catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível revisar.")); }}>Revisar</Button>
+                            <Button size="sm" disabled={defence.submissionState === "submitted"} onClick={() => { void defenceAction(defence.disputeId, "submit").catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível enviar.")); }}>Enviar</Button>
+                          </>
+                        ) : <span className="text-xs text-muted-foreground">Caso antigo sem rascunho</span>}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="pix-fraud" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Fraude Pix / MED</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Fatos confirmados pelo Mercado Pago. Esta fila acompanha acesso, prazo e recuperação efetiva; não transforma o caso em refund nem atribui autoria por inferência.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1220px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / comprador</TableHead>
+                  <TableHead>Caso / pagamento</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Prazo</TableHead>
+                  <TableHead>Responsável</TableHead>
+                  <TableHead className="text-right">Recuperado</TableHead>
+                  <TableHead>Fatos</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pixFraudCases.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhuma ocorrência de fraude Pix registrada.</TableCell></TableRow>
+                ) : pixFraudCases.map((fraudCase) => (
+                  <TableRow key={fraudCase.id}>
+                    <TableCell>
+                      <p className="font-medium">{fraudCase.productTitle}</p>
+                      <p className="text-xs text-muted-foreground">{fraudCase.buyerEmail}</p>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      <p>{fraudCase.providerCaseId}</p>
+                      <p>{fraudCase.providerPaymentId}</p>
+                      <p>{fraudCase.providerAccountId ? `conta ${fraudCase.providerAccountId}` : "conta não informada"}</p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={fraudCase.status === "payment_invalidated_by_fraud" ? "destructive" : fraudCase.status === "closed_valid" ? "secondary" : "outline"}>
+                        {fraudCase.status === "under_review" ? "Em análise · acesso suspenso" : fraudCase.status === "closed_valid" ? "Encerrada · compra válida" : "Pagamento invalidado por fraude"}
+                      </Badge>
+                      <p className="mt-1 text-xs text-muted-foreground">{fraudCase.cause ?? "Causa não informada"}{fraudCase.financialPending ? " · pendência financeira" : ""}</p>
+                    </TableCell>
+                    <TableCell className={fraudCase.responseDueAt && new Date(fraudCase.responseDueAt) <= new Date() ? "text-destructive" : ""}>
+                      {fraudCase.responseDueAt ? dateTime(fraudCase.responseDueAt) : "Sem prazo"}
+                    </TableCell>
+                    <TableCell>{fraudCase.responsible === "expert" ? "Expert" : "Equipe Automatize"}</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">
+                      {fraudCase.recoveredAmountCentavos === null ? "Não informado" : money(fraudCase.recoveredAmountCentavos)}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      <p>{fraudCase.events.length} evento(s)</p>
+                      {fraudCase.events[0] ? <p>{fraudCase.events[0].eventType} · {dateTime(fraudCase.events[0].occurredAt)}</p> : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="reconciliation" className="pt-4">
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Tentativas de cobrança inconclusivas</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Tentativas sem fato terminal ficam bloqueadas contra uma nova cobrança. Com ID do provedor, concilie; sem ID, encerre somente após registrar o fato confirmado pelo Mercado Pago.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1050px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / pedido</TableHead>
+                  <TableHead>Método / estado</TableHead>
+                  <TableHead>Valor</TableHead>
+                  <TableHead>Provedor</TableHead>
+                  <TableHead>Atualizada</TableHead>
+                  <TableHead className="text-right">Ação explícita</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paymentAttempts.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhuma tentativa inconclusiva.</TableCell></TableRow>
+                ) : paymentAttempts.map((attempt) => (
+                  <TableRow key={attempt.id}>
+                    <TableCell><p className="font-medium">{attempt.productTitle}</p><p className="font-mono text-xs text-muted-foreground">{attempt.orderId}</p><p className="font-mono text-[10px] text-muted-foreground">{attempt.attemptKey}</p></TableCell>
+                    <TableCell><Badge variant={attempt.status === "unknown" ? "destructive" : "outline"}>{attempt.paymentMethod} · {attempt.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{attempt.failureCode ?? "sem erro terminal"}</p></TableCell>
+                    <TableCell className="tabular-nums">{money(attempt.amountCentavos)}</TableCell>
+                    <TableCell className="font-mono text-xs">{attempt.providerPaymentId ?? "sem ID"}{attempt.collectorId ? <p>conta {attempt.collectorId}</p> : null}</TableCell>
+                    <TableCell>{dateTime(attempt.updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      {attempt.providerPaymentId ? (
+                        <Button size="sm" variant="outline" onClick={() => { void reconcileProductCase(attempt.orderId).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível conciliar.")); }}>Conciliar agora</Button>
+                      ) : (
+                        <Button size="sm" variant="destructive" onClick={() => { void resolvePaymentAttempt(attempt.id).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível encerrar.")); }}>Encerrar sem cobrança</Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Fila de conciliação</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              A fila preserva a conta original, evidência, responsável e próxima revisão. A ação de conciliação consulta o provedor pela credencial histórica e nunca emite uma nova cobrança.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1160px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / pedido</TableHead>
+                  <TableHead>Estado / responsável</TableHead>
+                  <TableHead>Conta original</TableHead>
+                  <TableHead>Valor efetivo</TableHead>
+                  <TableHead>Evidência</TableHead>
+                  <TableHead>Próxima revisão</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reconciliationCases.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhuma exceção de conciliação pendente.</TableCell></TableRow>
+                ) : reconciliationCases.map((reconciliationCase) => (
+                  <TableRow key={reconciliationCase.id}>
+                    <TableCell><p className="font-medium">{reconciliationCase.productTitle}</p><p className="font-mono text-xs text-muted-foreground">{reconciliationCase.kind} · {reconciliationCase.orderId}</p></TableCell>
+                    <TableCell><Badge variant={reconciliationCase.status === "open" ? "destructive" : "outline"}>{reconciliationCase.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{reconciliationCase.responsible} · atribuição {reconciliationCase.attributionProven ? "comprovada" : "pendente"}</p></TableCell>
+                    <TableCell className="font-mono text-xs">{reconciliationCase.provider} · {reconciliationCase.providerAccountId ?? "não informada"}</TableCell>
+                    <TableCell className="tabular-nums">{reconciliationCase.effectiveAmountCentavos === null ? "Não informado" : money(reconciliationCase.effectiveAmountCentavos)}</TableCell>
+                    <TableCell className="max-w-[250px] text-xs text-muted-foreground"><p>{Object.keys(reconciliationCase.evidence).length} campo(s)</p><p className="truncate">{Object.entries(reconciliationCase.evidence).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</p></TableCell>
+                    <TableCell>{dateTime(reconciliationCase.nextReviewAt)}</TableCell>
+                    <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => { void reconcileProductCase(reconciliationCase.orderId).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível conciliar.")); }}>Conciliar agora</Button></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="post-sale-costs" className="pt-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Custos pós-venda e acertos</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Só fatos confirmados de reembolso integral ou chargeback integral perdido geram cálculo liquidável. Parcial e MED permanecem exceções acompanhadas; confirmar aqui apenas uma transferência manual já executada e comprovada.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1320px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / caso</TableHead>
+                  <TableHead>Estado / responsável</TableHead>
+                  <TableHead>Movimentos</TableHead>
+                  <TableHead>Apuração</TableHead>
+                  <TableHead>Evidência</TableHead>
+                  <TableHead>Comprovante</TableHead>
+                  <TableHead className="text-right">Ação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {postSaleCostCases.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhum custo pós-venda registrado.</TableCell></TableRow>
+                ) : postSaleCostCases.map((costCase) => (
+                  <TableRow key={costCase.id}>
+                    <TableCell>
+                      <p className="font-medium">{costCase.productTitle}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{costCase.reversal} · {costCase.providerCaseId ?? costCase.paymentId}</p>
+                      <p className="text-xs text-muted-foreground">conta: {costCase.providerAccountId ?? "não informada"}</p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={costCase.status === "exception" ? "destructive" : costCase.status === "settled" ? "secondary" : "outline"}>{costCase.status}</Badge>
+                      <p className="mt-1 text-xs text-muted-foreground">Responsável: {costCase.responsible === "expert" ? "Expert" : "Automatize"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <p>{costCase.movements.length} fato(s)</p>
+                      {costCase.movements.map((movement) => <p key={movement.providerMovementId} className="text-muted-foreground">{movement.kind} {money(movement.amountCentavos)} · {movement.supportedBy}</p>)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {costCase.calculation.kind === "exception" ? <Badge variant="destructive">Exceção: {costCase.calculation.reason}</Badge> : costCase.calculation.transfer ? <><p>Transferir {costCase.calculation.transfer.amountCentavos > 0 ? money(costCase.calculation.transfer.amountCentavos) : "R$ 0,00"}</p><p className="text-muted-foreground">{costCase.calculation.transfer.debtor} → {costCase.calculation.transfer.creditor}</p></> : <p>Saldo correto · sem transferência</p>}
+                      {costCase.calculation.kind === "ready" ? <p className="mt-1 text-muted-foreground">{costCase.calculation.items.length} item(ns), cálculo acumulado</p> : null}
+                    </TableCell>
+                    <TableCell className="max-w-[190px] text-xs text-muted-foreground">
+                      <p>{Object.keys(costCase.evidence).length} campo(s) preservado(s)</p>
+                      <p className="truncate">{Object.keys(costCase.evidence).join(", ") || "Sem evidência"}</p>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {costCase.settlement ? <><a className="text-primary underline" href={costCase.settlement.proofUrl} target="_blank" rel="noreferrer">Abrir comprovante</a><p className="text-muted-foreground">{costCase.settlement.operatorEmail ?? "Operador registrado"}</p></> : "Não confirmado"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {costCase.status === "open" && costCase.calculation.kind === "ready" && costCase.calculation.transfer ? <Button size="sm" onClick={() => { void settlePostSaleCost(costCase.id).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível confirmar o acerto.")); }}>Confirmar acerto</Button> : <span className="text-xs text-muted-foreground">Sem ação</span>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="payouts" className="pt-4">
           <Card>
             <CardHeader>
               <CardTitle>Repasses</CardTitle>
@@ -2317,44 +2976,32 @@ export function ProductsAdminWorkspace({
             {productForm.ownerType === "expert" ? (
               <>
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-4 md:col-span-2">
-                  <label className="flex items-center gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={productForm.hasCoproduction}
+                  <Field label="Participação do Automatize (%)">
+                    <Input
+                      inputMode="decimal"
+                      value={productForm.expertParticipationPercent}
                       onChange={(event) =>
                         setProductForm({
                           ...productForm,
-                          hasCoproduction: event.target.checked,
-                          coproducerType: "automatize",
-                          coproducerExpertId: "",
-                          coproducerSharePercent: event.target.checked
-                            ? productForm.coproducerSharePercent
-                            : "",
+                          expertParticipationPercent:
+                            formatProductParticipationInput(event.target.value),
                         })
                       }
+                      placeholder="0% a 99,99%"
+                      aria-describedby="expert-participation-help"
                     />
-                    Coprodução do Automatize
-                  </label>
-                  {productForm.hasCoproduction ? (
-                    <Field label="Participação do Automatize (%)">
-                      <Input
-                        inputMode="decimal"
-                        value={productForm.coproducerSharePercent}
-                        onChange={(event) =>
-                          setProductForm({
-                            ...productForm,
-                            coproducerType: "automatize",
-                            coproducerSharePercent: formatPercentageInput(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        required={productForm.hasCoproduction}
-                      />
-                    </Field>
-                  ) : null}
+                  </Field>
+                  <p
+                    id="expert-participation-help"
+                    className="text-xs leading-5 text-muted-foreground"
+                  >
+                    Acordo explícito por produto. Rascunhos podem ficar sem valor;
+                    publicar e habilitar vendas exige de 0% a 99,99%. O Expert
+                    recebe o percentual complementar.
+                  </p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Coprodutor Expert não é permitido — somente Coprodução do Automatize ou nenhum coprodutor.
+                    A conta Mercado Pago elegível continua obrigatória, inclusive
+                    quando a participação do Automatize é 0%.
                   </p>
                 </div>
                 {selectedOwnerStripeDisplay &&
@@ -2509,6 +3156,94 @@ export function ProductsAdminWorkspace({
                     Reenviar onboarding
                   </Button>
                 </div>
+              </div>
+            ) : null}
+            {editingExpertId ? (
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Conta Mercado Pago do Expert</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Consulta sanitizada por ambiente. A equipe autoriza a troca;
+                      somente o Expert conclui o OAuth.
+                    </p>
+                  </div>
+                  {mercadoPagoExpertPanel ? (
+                    <Badge variant={mercadoPagoExpertPanel.connected ? "default" : "secondary"}>
+                      {mercadoPagoExpertPanel.connected ? "Conectada" : "Reconexão necessária"}
+                    </Badge>
+                  ) : null}
+                </div>
+                {mercadoPagoExpertPanel ? (
+                  <>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="outline">Ambiente: {mercadoPagoExpertPanel.environment}</Badge>
+                      <Badge variant={mercadoPagoExpertPanel.pix === "available" ? "default" : "secondary"}>
+                        Pix: {mercadoPagoExpertPanel.pix}
+                      </Badge>
+                      <Badge variant={mercadoPagoExpertPanel.card === "available" ? "default" : "secondary"}>
+                        Cartão: {mercadoPagoExpertPanel.card}
+                      </Badge>
+                      {mercadoPagoExpertPanel.accountId ? (
+                        <Badge variant="outline">Conta: {mercadoPagoExpertPanel.accountId}</Badge>
+                      ) : null}
+                    </div>
+                    {mercadoPagoExpertPanel.validationError ? (
+                      <p className="text-xs text-destructive">
+                        Validação: {mercadoPagoExpertPanel.validationError}
+                      </p>
+                    ) : null}
+                    {mercadoPagoExpertPanel.switch &&
+                    mercadoPagoExpertPanel.switch.state !== "activated" ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Troca: {mercadoPagoExpertPanel.switch.state}
+                        {mercadoPagoExpertPanel.switch.nextMpUserId
+                          ? ` · candidata ${mercadoPagoExpertPanel.switch.nextMpUserId}`
+                          : ""}
+                        {mercadoPagoExpertPanel.switch.authorizationReason
+                          ? ` · motivo: ${mercadoPagoExpertPanel.switch.authorizationReason}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={mercadoPagoActionExpertId === editingExpertId}
+                        onClick={() => void loadMercadoPagoExpertPanel(editingExpertId)}
+                      >
+                        <RefreshCcw className="size-4" /> Atualizar estado
+                      </Button>
+                      {mercadoPagoExpertPanel.connected ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={mercadoPagoActionExpertId === editingExpertId || !mercadoPagoSwitchReason.trim()}
+                          onClick={() => void authorizeMercadoPagoReceiverSwitch(editingExpertId)}
+                        >
+                          {mercadoPagoActionExpertId === editingExpertId ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : null}
+                          Autorizar troca de conta
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="mercadopago-switch-reason">Motivo da autorização</Label>
+                      <Input
+                        id="mercadopago-switch-reason"
+                        value={mercadoPagoSwitchReason}
+                        maxLength={500}
+                        placeholder="Ex.: conta anterior revogada pelo Expert"
+                        onChange={(event) => setMercadoPagoSwitchReason(event.target.value)}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Consultando o estado…</p>
+                )}
               </div>
             ) : null}
             <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
@@ -2898,6 +3633,73 @@ export function ProductsAdminWorkspace({
                         </dd>
                       </div>
                     ) : null}
+                    {orderDetailTarget.refundOperationStatus ? (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Operação de reembolso</dt>
+                        <dd className="max-w-[260px] text-right text-xs">
+                          {orderDetailTarget.refundOperationStatus === "external_partial"
+                            ? `Exceção parcial · ${money(orderDetailTarget.refundOperationAmountCentavos ?? 0)}`
+                            : orderDetailTarget.refundOperationStatus}
+                          {orderDetailTarget.refundOperationOperatorEmail
+                            ? ` · ${orderDetailTarget.refundOperationOperatorEmail}`
+                            : ""}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {orderDetailTarget.refundBalanceCaseId ? (
+                      <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50/50 p-3 dark:bg-amber-950/20">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Caso de saldo</dt>
+                          <dd className="text-right text-xs">
+                            {orderDetailTarget.refundBalanceStatus === "resolved"
+                              ? "resolvido"
+                              : `pendente · ${orderDetailTarget.refundBalanceResponsible ?? "não atribuído"}`}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Valor / tentativas</dt>
+                          <dd className="font-mono tabular-nums">
+                            {money(orderDetailTarget.grossAmountCentavos ?? orderDetailTarget.checkoutTotalCentavos)} · {orderDetailTarget.refundBalanceAttemptCount ?? 0}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Primeira falha</dt>
+                          <dd>{orderDetailTarget.refundBalanceFirstFailedAt ? dateTime(orderDetailTarget.refundBalanceFirstFailedAt) : "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Prazo de 24h</dt>
+                          <dd>{orderDetailTarget.refundBalanceDueAt ? dateTime(orderDetailTarget.refundBalanceDueAt) : "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Próxima ação</dt>
+                          <dd className="text-right">
+                            {orderDetailTarget.refundBalanceStatus === "resolved"
+                              ? "Caso encerrado"
+                              : orderDetailTarget.refundOperationStatus === "confirmed"
+                                ? "Liberar vendas com motivo"
+                                : orderDetailTarget.refundBalanceNextRetryAt
+                                  ? `Retentar em ${dateTime(orderDetailTarget.refundBalanceNextRetryAt)}`
+                                  : "Retentar agora"}
+                          </dd>
+                        </div>
+                        {orderDetailTarget.refundBalanceLastFailureCode ? (
+                          <p className="text-xs text-muted-foreground">
+                            Último retorno: {orderDetailTarget.refundBalanceLastFailureCode}
+                          </p>
+                        ) : null}
+                        {orderDetailTarget.refundBalanceStatus === "pending" && orderDetailTarget.refundOperationStatus === "confirmed" && orderDetailTarget.refundBalanceResponsible === "expert" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={releasingBalance}
+                            onClick={() => void releaseRefundBalanceCase(orderDetailTarget)}
+                          >
+                            {releasingBalance ? "Registrando…" : "Liberar vendas após confirmação"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </>
                 );
               })()}
@@ -2930,18 +3732,33 @@ export function ProductsAdminWorkspace({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {refundTarget
-                ? `${refundTarget.productTitle} · ${refundTarget.buyerName} · ${money(refundTarget.priceCentavos)}`
+                ? `${refundTarget.buyerName} · total da cobrança: ${money(refundTarget.checkoutTotalCentavos)}`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
+            {refundTarget ? (
+              <div className="rounded-md border bg-muted/30 p-3 text-foreground">
+                <p className="mb-2 font-medium">Itens abrangidos</p>
+                <ul className="space-y-1">
+                  {refundTarget.checkoutItems.map((item) => (
+                    <li key={item.orderId} className="flex justify-between gap-3">
+                      <span>{item.title}</span>
+                      <span className="font-mono tabular-nums">
+                        {money(item.amountCentavos)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <p className="font-medium text-foreground">
               {isMercadoPagoRefund
-                ? "O estorno é total e feito pela API do Mercado Pago — o valor volta ao comprador pelo Pix."
+                ? "A devolução é integral pela cobrança original. O sistema só conclui depois da confirmação do Mercado Pago."
                 : "Isso não devolve o dinheiro — o Pix ao cliente é feito manualmente, fora do sistema."}
             </p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>Revoga o acesso do comprador ao produto.</li>
+              <li>Revoga os acessos somente após a confirmação integral.</li>
               <li>Estorna o repasse do expert no ledger.</li>
               <li>Zera a receita líquida da Automatize neste pagamento.</li>
             </ul>
