@@ -174,7 +174,7 @@ export function CustomerListImport({
           method: "POST",
           body: form,
         });
-        if (!response.ok) throw new Error(await readError(response, "NÃ£o foi possÃ­vel receber o arquivo."));
+        if (!response.ok) throw new Error(await readError(response, "Não foi possível receber o arquivo."));
         return (await response.json()) as CustomerFileUploadResult;
       },
       (result) => {
@@ -185,7 +185,7 @@ export function CustomerListImport({
         invalidate();
         void loadHistory();
       },
-      "NÃ£o foi possÃ­vel receber o arquivo.",
+      "Não foi possível receber o arquivo.",
     );
 
   const post = async (body: Record<string, unknown>) => {
@@ -193,7 +193,7 @@ export function CustomerListImport({
       `${apiBase}/${upload!.operationId}?${userQuery}`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
     );
-    if (!response.ok) throw new Error(await readError(response, "NÃ£o foi possÃ­vel concluir a aÃ§Ã£o."));
+    if (!response.ok) throw new Error(await readError(response, "Não foi possível concluir a ação."));
     return response.json();
   };
 
@@ -205,7 +205,7 @@ export function CustomerListImport({
         setHeaders(result.headers ?? []);
         invalidate();
       },
-      "NÃ£o foi possÃ­vel ler a planilha escolhida.",
+      "Não foi possível ler a planilha escolhida.",
     );
 
   const selection = () => ({
@@ -219,7 +219,7 @@ export function CustomerListImport({
     operate(
       async () => post({ action: "preview", ...selection() }) as Promise<CustomerFileImportPreview>,
       (result) => setPreview(result),
-      "NÃ£o foi possÃ­vel gerar a prÃ©via.",
+      "Não foi possível gerar a prévia.",
     );
 
   const run = (action: "start" | "recover") =>
@@ -238,7 +238,7 @@ export function CustomerListImport({
         onChanged();
         void loadHistory();
       },
-      "NÃ£o foi possÃ­vel iniciar a operaÃ§Ã£o.",
+      "Não foi possível iniciar a operação.",
     );
 
   const acceptTerms = () =>
@@ -248,11 +248,11 @@ export function CustomerListImport({
           `${apiBase}/terms?${userQuery}`,
           { method: "POST" },
         );
-        if (!response.ok) throw new Error(await readError(response, "NÃ£o foi possÃ­vel registrar o aceite dos termos."));
+        if (!response.ok) throw new Error(await readError(response, "Não foi possível registrar o aceite dos termos."));
         return (await response.json()) as { accepted: boolean };
       },
       () => invalidate(),
-      "NÃ£o foi possÃ­vel registrar o aceite dos termos.",
+      "Não foi possível registrar o aceite dos termos.",
     );
 
   const reportHref = preview
@@ -277,13 +277,13 @@ export function CustomerListImport({
 
       {!enabled ? (
         <p className="mt-4 text-sm text-muted-foreground">
-          A importaÃ§Ã£o de listas de clientes estÃ¡ temporariamente indisponÃ­vel. Campanhas, pÃºblicos existentes e histÃ³rico permanecem inalterados.
+          A importação de listas de clientes está temporariamente indisponível. Campanhas, públicos existentes e histórico permanecem inalterados.
         </p>
       ) : null}
 
       {enabled ? <div className="mt-4 grid gap-3 md:grid-cols-2">
         <label>
-          OperaÃ§Ã£o
+          Operação
           <CustomerFileSelect
             value={operation}
             onChange={(value) => {
@@ -304,13 +304,13 @@ export function CustomerListImport({
               <Input value={name} onChange={(event) => { setName(event.target.value); setUpload(null); invalidate(); }} />
             </label>
             <label>
-              DescriÃ§Ã£o (opcional)
+              Descrição (opcional)
               <Input value={description} onChange={(event) => { setDescription(event.target.value); setUpload(null); invalidate(); }} />
             </label>
           </>
         ) : (
           <label>
-            PÃºblico de lista de clientes
+            Público de lista de clientes
             <CustomerFileSelect
               value={audienceId}
               onChange={(value) => { setAudienceId(value); setUpload(null); invalidate(); }}
@@ -320,7 +320,7 @@ export function CustomerListImport({
         )}
 
         <label>
-          Arquivo (atÃ© {formatCustomerFileBytes(CUSTOMER_FILE_MAX_BYTES)})
+          Arquivo (até {formatCustomerFileBytes(CUSTOMER_FILE_MAX_BYTES)})
           <Input
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -330,11 +330,11 @@ export function CustomerListImport({
       </div> : null}
 
       {enabled ? <p className="mt-3 text-xs text-muted-foreground">
-        O arquivo Ã© validado no servidor pelo conteÃºdo recebido, nÃ£o pela extensÃ£o. O limite Ã© de {formatCustomerFileBytes(CUSTOMER_FILE_MAX_BYTES)} e 100.000 registros de dados; nada Ã© truncado.
+        O arquivo é validado no servidor pelo conteúdo recebido, não pela extensão. O limite é de {formatCustomerFileBytes(CUSTOMER_FILE_MAX_BYTES)} e 100.000 registros de dados; nada é truncado.
       </p> : null}
 
       {enabled ? <Button className="mt-3" disabled={busy || !file} onClick={() => void submitFile()}>
-        {busy ? "Enviando..." : "Enviar arquivo e preparar prÃ©via"}
+        {busy ? "Enviando..." : "Enviar arquivo e preparar prévia"}
       </Button> : null}
 
       {enabled && upload ? (
@@ -359,7 +359,7 @@ export function CustomerListImport({
                 <CustomerFileSelect
                   value={emailColumn}
                   onChange={(value) => { setEmailColumn(value); invalidate(); }}
-                  options={[{ value: "", label: "NÃ£o mapear" }, ...headers.map((header) => ({ value: header, label: header }))]}
+                  options={[{ value: "", label: "Não mapear" }, ...headers.map((header) => ({ value: header, label: header }))]}
                 />
               </label>
               <label>
@@ -367,12 +367,12 @@ export function CustomerListImport({
                 <CustomerFileSelect
                   value={phoneColumn}
                   onChange={(value) => { setPhoneColumn(value); invalidate(); }}
-                  options={[{ value: "", label: "NÃ£o mapear" }, ...headers.map((header) => ({ value: header, label: header }))]}
+                  options={[{ value: "", label: "Não mapear" }, ...headers.map((header) => ({ value: header, label: header }))]}
                 />
               </label>
               {phoneColumn ? (
                 <label>
-                  PaÃ­s de referÃªncia dos telefones sem DDI
+                País de referência dos telefones sem DDI
                   <CustomerFileSelect
                     value={referenceCountry}
                     onChange={(value) => { setReferenceCountry(value); invalidate(); }}
@@ -385,7 +385,7 @@ export function CustomerListImport({
 
           {headers.length ? (
             <Button variant="outline" disabled={busy || (!emailColumn && !phoneColumn)} onClick={() => void requestPreview()}>
-              {busy ? "Analisando..." : "Gerar prÃ©via"}
+              {busy ? "Analisando..." : "Gerar prévia"}
             </Button>
           ) : null}
         </div>
@@ -394,18 +394,18 @@ export function CustomerListImport({
       {enabled && preview ? (
         <div className="mt-4 space-y-3 rounded border p-3 text-sm">
           <p>
-            Conta {preview.adAccountId} Â· {preview.audience.isNew ? "novo pÃºblico" : `pÃºblico ${preview.audience.name ?? preview.audience.id}`} Â· {OPERATION_LABELS[preview.operation]}
-            {preview.worksheet ? ` Â· planilha ${preview.worksheet}` : ""}
+            Conta {preview.adAccountId} · {preview.audience.isNew ? "novo público" : `público ${preview.audience.name ?? preview.audience.id}`} · {OPERATION_LABELS[preview.operation]}
+            {preview.worksheet ? ` · planilha ${preview.worksheet}` : ""}
           </p>
           <p className="text-xs text-muted-foreground">
             Campos mapeados: {[preview.mapping.emailColumn && `e-mail (${preview.mapping.emailColumn})`, preview.mapping.phoneColumn && `telefone (${preview.mapping.phoneColumn})`].filter(Boolean).join(", ")}
-            {preview.referenceCountry ? ` Â· paÃ­s de referÃªncia ${preview.referenceCountry}` : ""}
+            {preview.referenceCountry ? ` · país de referência ${preview.referenceCountry}` : ""}
           </p>
 
           <ul className="grid gap-1 md:grid-cols-5">
             <li>Lidos: {preview.counts.read}</li>
-            <li>VÃ¡lidos: {preview.counts.valid}</li>
-            <li>InvÃ¡lidos: {preview.counts.invalid}</li>
+            <li>Válidos: {preview.counts.valid}</li>
+            <li>Inválidos: {preview.counts.invalid}</li>
             <li>Avisos: {preview.counts.warnings}</li>
             <li>Duplicados removidos: {preview.counts.duplicatesRemoved}</li>
           </ul>
@@ -422,7 +422,7 @@ export function CustomerListImport({
             <tbody>
               {preview.samples.map((sample) => (
                 <tr key={sample.line}>
-                  <td>{sample.line}</td><td>{sample.email ?? "â€”"}</td><td>{sample.phone ?? "â€”"}</td><td>{sample.warnings.join(" ") || "â€”"}</td>
+                  <td>{sample.line}</td><td>{sample.email ?? "—"}</td><td>{sample.phone ?? "—"}</td><td>{sample.warnings.join(" ") || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -430,33 +430,33 @@ export function CustomerListImport({
 
           {preview.report.available && reportHref ? (
             <p className="text-xs">
-              <a className="underline" href={reportHref}>Baixar relatÃ³rio de correÃ§Ã£o</a> â€” {preview.report.notice}
+              <a className="underline" href={reportHref}>Baixar relatório de correção</a> — {preview.report.notice}
             </p>
           ) : null}
 
           {preview.confirmation.requiresCorrectedFile ? (
             <p role="alert" className="text-destructive">
-              A substituiÃ§Ã£o exige um arquivo corrigido: hÃ¡ linhas sem nenhum identificador vÃ¡lido e a lista nÃ£o pode ser trocada por um subconjunto involuntÃ¡rio.
+              A substituição exige um arquivo corrigido: há linhas sem nenhum identificador válido e a lista não pode ser trocada por um subconjunto involuntário.
             </p>
           ) : null}
           {!preview.confirmation.allowed && !preview.confirmation.requiresCorrectedFile ? (
-            <p role="alert" className="text-destructive">Nenhuma linha tem identificador vÃ¡lido; nada serÃ¡ enviado Ã  Meta.</p>
+            <p role="alert" className="text-destructive">Nenhuma linha tem identificador válido; nada será enviado à Meta.</p>
           ) : null}
 
           {preview.confirmation.requiresValidRowsChoice ? (
             <label className="flex items-start gap-2">
               <Input type="checkbox" className="mt-1 h-4 w-4 p-0" checked={sendValidRowsOnly} onChange={(event) => setSendValidRowsOnly(event.target.checked)} />
-              Enviar somente as {preview.counts.valid} linhas vÃ¡lidas, descartando {preview.counts.invalid} linha(s) sem identificador vÃ¡lido.
+              Enviar somente as {preview.counts.valid} linhas válidas, descartando {preview.counts.invalid} linha(s) sem identificador válido.
             </label>
           ) : null}
 
           <label className="flex items-start gap-2">
             <Input type="checkbox" className="mt-1 h-4 w-4 p-0" checked={dataOriginDeclared} onChange={(event) => setDataOriginDeclared(event.target.checked)} />
-            Declaro que estes contatos foram fornecidos diretamente pelos titulares ao meu negÃ³cio ({preview.declarations.dataOrigin}).
+            Declaro que estes contatos foram fornecidos diretamente pelos titulares ao meu negócio ({preview.declarations.dataOrigin}).
           </label>
           <label className="flex items-start gap-2">
             <Input type="checkbox" className="mt-1 h-4 w-4 p-0" checked={termsDeclared} onChange={(event) => setTermsDeclared(event.target.checked)} disabled={!preview.declarations.termsAccepted} />
-            Confirmo os termos de pÃºblicos de listas de clientes da Meta para esta conta.
+            Confirmo os termos de públicos de listas de clientes da Meta para esta conta.
           </label>
           {!preview.declarations.termsAccepted ? (
             <div className="space-y-2">
@@ -476,9 +476,9 @@ export function CustomerListImport({
           <p className="font-medium">{status.label}</p>
           <p className="text-xs text-muted-foreground">{status.detail}</p>
           <p className="text-xs text-muted-foreground">
-            Lotes confirmados: {status.confirmedBatches} Â· registros recebidos e confirmados: {status.confirmedRecords} Â· rejeitados pela Meta: {status.rejectedRecords}
+            Lotes confirmados: {status.confirmedBatches} · registros recebidos e confirmados: {status.confirmedRecords} · rejeitados pela Meta: {status.rejectedRecords}
           </p>
-          {status.audienceId ? <p className="font-mono text-xs text-muted-foreground">PÃºblico: {status.audienceId}</p> : null}
+          {status.audienceId ? <p className="font-mono text-xs text-muted-foreground">Público: {status.audienceId}</p> : null}
           {status.phase === "partial_or_unknown" || status.phase === "action_required" ? (
             <Button variant="outline" disabled={busy || !preview} onClick={() => void run("recover")}>Reconciliar e tentar novamente</Button>
           ) : null}
@@ -487,15 +487,15 @@ export function CustomerListImport({
 
       {history.length ? (
         <div className="mt-4 rounded border p-3">
-          <p className="text-sm font-medium">HistÃ³rico de importaÃ§Ãµes desta conta</p>
-          <p className="text-xs text-muted-foreground">Sem contatos: apenas metadados, contagens e resultado. Permanece disponÃ­vel mesmo depois de excluir o pÃºblico na Meta.</p>
+          <p className="text-sm font-medium">Histórico de importações desta conta</p>
+          <p className="text-xs text-muted-foreground">Sem contatos: apenas metadados, contagens e resultado. Permanece disponível mesmo depois de excluir o público na Meta.</p>
           <ul className="mt-2 divide-y text-xs">
             {history.map((item) => (
               <li key={item.operationId} className="py-2">
-                <span className="font-medium">{OPERATION_LABELS[item.operation as Operation] ?? item.operation}</span> Â· {item.label}
-                {item.audienceId ? <span className="font-mono"> Â· {item.audienceId}</span> : null}
-                <span className="text-muted-foreground"> Â· {new Date(item.receivedAt).toLocaleString("pt-BR")}</span>
-                {item.pendingUnresolved ? <span className="text-destructive"> Â· pendÃªncia nÃ£o resolvida</span> : null}
+                <span className="font-medium">{OPERATION_LABELS[item.operation as Operation] ?? item.operation}</span> · {item.label}
+                {item.audienceId ? <span className="font-mono"> · {item.audienceId}</span> : null}
+                <span className="text-muted-foreground"> · {new Date(item.receivedAt).toLocaleString("pt-BR")}</span>
+                {item.pendingUnresolved ? <span className="text-destructive"> · pendência não resolvida</span> : null}
                 <Button className="ml-2 h-6 px-2" variant="outline" onClick={() => setStatus(item)}>Acompanhar</Button>
               </li>
             ))}

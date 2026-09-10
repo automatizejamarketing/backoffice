@@ -77,7 +77,7 @@ function decodeCustomerFileCsv(bytes: Uint8Array): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, "");
   } catch {
-    throw new Error("CSV invÃ¡lido: use UTF-8.");
+    throw new Error("CSV inválido: use UTF-8.");
   }
 }
 
@@ -307,7 +307,7 @@ export function inspectCustomerFile(input: {
     const rows = parseCsv(decodeCustomerFileCsv(input.bytes));
     const headers = rows.shift()?.map((value) => value.trim()) ?? [];
     if (!headers.length || !nonEmpty(headers) || new Set(headers).size !== headers.length) {
-      throw new Error("CSV invÃ¡lido: informe um cabeÃ§alho Ãºnico.");
+      throw new Error("CSV inválido: informe um cabeçalho único.");
     }
     return { format: "csv", headers };
   }
@@ -317,7 +317,7 @@ export function inspectCustomerFile(input: {
     return { format: "xlsx", worksheet: selection.worksheet, headers: selection.headers ?? [] };
   }
   const selection = prepareCustomerFileXlsx({ bytes: input.bytes, worksheet: input.worksheet, mapping: { emailColumn: "__inspect__" }, context: { customerId: "inspect", adAccountId: "inspect", operation: "add" } });
-  if ("selectionRequired" in selection) throw new Error("A planilha selecionada nÃ£o existe no XLSX.");
+  if ("selectionRequired" in selection) throw new Error("A planilha selecionada não existe no XLSX.");
   return { format: "xlsx", worksheet: selection.worksheet, headers: selection.headers ?? [] };
 }
 

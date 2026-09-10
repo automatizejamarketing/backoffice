@@ -1,8 +1,8 @@
 /**
- * acceptCustomAudienceTos â€” accept the Custom Audiences Terms of Service for an ad
+ * acceptCustomAudienceTos — accept the Custom Audiences Terms of Service for an ad
  * account (POST /act_/customaudiencestos), required before any custom audience can
  * be created (ADR 0017). CONSENT-GATED: the assistant calls this ONLY after an
- * explicit user "yes" â€” never silently. Alternatively the user accepts in Ads
+ * explicit user "yes" — never silently. Alternatively the user accepts in Ads
  * Manager.
  */
 

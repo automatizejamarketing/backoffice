@@ -1,8 +1,8 @@
 /**
  * The public customer-list import operation: receive a file, preview it, confirm
  * it, run it durably, follow it and recover it. Both applications drive this
- * module â€” the frontend for the signed-in customer and the backoffice for an
- * authorized operator â€” so the rules, the limits and the observable states
+ * module — the frontend for the signed-in customer and the backoffice for an
+ * authorized operator — so the rules, the limits and the observable states
  * cannot drift between the two surfaces.
  *
  * Everything that talks to Meta is injected. The service itself only decides
@@ -275,48 +275,48 @@ export type CustomerFileImportStatus = {
 const PHASES: Record<string, { phase: CustomerFileImportPhase; label: string; detail: string }> = {
   awaiting_confirmation: {
     phase: "validating",
-    label: "Em validaÃ§Ã£o e prÃ©via",
-    detail: "Nenhum contato foi enviado Ã  Meta. Confirme a prÃ©via e as declaraÃ§Ãµes para iniciar.",
+    label: "Em validação e prévia",
+    detail: "Nenhum contato foi enviado à Meta. Confirme a prévia e as declarações para iniciar.",
   },
   creating: {
     phase: "running",
-    label: "Em execuÃ§Ã£o",
-    detail: "Criando a lista na Meta antes da primeira carga. A operaÃ§Ã£o continua com a tela fechada.",
+    label: "Em execução",
+    detail: "Criando a lista na Meta antes da primeira carga. A operação continua com a tela fechada.",
   },
   running: {
     phase: "running",
-    label: "Em execuÃ§Ã£o",
-    detail: "Enviando os lotes confirmados. A operaÃ§Ã£o continua com a tela fechada.",
+    label: "Em execução",
+    detail: "Enviando os lotes confirmados. A operação continua com a tela fechada.",
   },
   reconciling: {
     phase: "recovering",
-    label: "Em recuperaÃ§Ã£o e reconciliaÃ§Ã£o",
-    detail: "Consultando a evidÃªncia disponÃ­vel antes de continuar. As quantidades jÃ¡ confirmadas sÃ£o preservadas.",
+    label: "Em recuperação e reconciliação",
+    detail: "Consultando a evidência disponível antes de continuar. As quantidades já confirmadas são preservadas.",
   },
   completed: {
     phase: "completed",
-    label: "Envio concluÃ­do",
-    detail: "Todos os envios necessÃ¡rios foram confirmados e o material temporÃ¡rio foi eliminado. A populaÃ§Ã£o na Meta pode continuar em andamento e recebimento nÃ£o Ã© correspondÃªncia de pessoas.",
+    label: "Envio concluído",
+    detail: "Todos os envios necessários foram confirmados e o material temporário foi eliminado. A população na Meta pode continuar em andamento e recebimento não é correspondência de pessoas.",
   },
   failed_before_mutation: {
     phase: "failed_before_mutation",
-    label: "Falha comprovada antes de qualquer alteraÃ§Ã£o",
-    detail: "A operaÃ§Ã£o falhou antes de alterar a lista. Isso nÃ£o classifica a lista anterior como comprometida.",
+    label: "Falha comprovada antes de qualquer alteração",
+    detail: "A operação falhou antes de alterar a lista. Isso não classifica a lista anterior como comprometida.",
   },
   partial: {
     phase: "partial_or_unknown",
     label: "Resultado parcial ou incerto",
-    detail: "Parte dos registros foi rejeitada ou nÃ£o confirmada. A lista pode estar diferente da pretendida atÃ© a resoluÃ§Ã£o.",
+    detail: "Parte dos registros foi rejeitada ou não confirmada. A lista pode estar diferente da pretendida até a resolução.",
   },
   unknown: {
     phase: "partial_or_unknown",
     label: "Resultado parcial ou incerto",
-    detail: "NÃ£o hÃ¡ evidÃªncia suficiente do resultado do Ãºltimo envio. Reconcilie antes de qualquer nova tentativa.",
+    detail: "Não há evidência suficiente do resultado do último envio. Reconcilie antes de qualquer nova tentativa.",
   },
   action_required: {
     phase: "action_required",
-    label: "Nova aÃ§Ã£o necessÃ¡ria",
-    detail: "Ã‰ preciso corrigir o arquivo, enviar um novo arquivo ou resolver a pendÃªncia remota. Nada Ã© reiniciado automaticamente.",
+    label: "Nova ação necessária",
+    detail: "É preciso corrigir o arquivo, enviar um novo arquivo ou resolver a pendência remota. Nada é reiniciado automaticamente.",
   },
 };
 
@@ -342,7 +342,7 @@ function limits() {
 }
 
 function retentionNotice(expiresAt: Date): string {
-  return `O arquivo, os identificadores e o relatÃ³rio de correÃ§Ã£o ficam disponÃ­veis atÃ© ${expiresAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} (24 horas desde o recebimento) ou atÃ© a confirmaÃ§Ã£o de todos os envios, o que ocorrer primeiro. Depois disso, uma nova aÃ§Ã£o exige um novo arquivo.`;
+  return `O arquivo, os identificadores e o relatório de correção ficam disponíveis até ${expiresAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} (24 horas desde o recebimento) ou até a confirmação de todos os envios, o que ocorrer primeiro. Depois disso, uma nova ação exige um novo arquivo.`;
 }
 
 /** History is queried by customer; a foreign identifier never resolves. */
@@ -353,7 +353,7 @@ async function loadOperation(
 ): Promise<SanitizedCustomerFileHistory> {
   const operation = await deps.store.getOperation(operationId);
   if (!operation || operation.customerId !== actor.customerId) {
-    throw new CustomerFileImportError("NOT_FOUND", "A operaÃ§Ã£o de importaÃ§Ã£o nÃ£o existe neste contexto.");
+    throw new CustomerFileImportError("NOT_FOUND", "A operação de importação não existe neste contexto.");
   }
   return operation;
 }
@@ -370,7 +370,7 @@ function targetOf(operation: SanitizedCustomerFileHistory, override?: Partial<Cu
 /**
  * Rebuilds the preview from the stored file. Re-parsing (instead of trusting a
  * client-held preview) is what makes a changed mapping, country or worksheet
- * produce a different token â€” and therefore a refused confirmation.
+ * produce a different token — and therefore a refused confirmation.
  */
 async function reparse(
   operation: SanitizedCustomerFileHistory,
@@ -383,7 +383,7 @@ async function reparse(
   if (!material?.rawFile) {
     throw new CustomerFileImportError(
       "TEMPORARY_DATA_EXPIRED",
-      "Os dados temporÃ¡rios desta operaÃ§Ã£o nÃ£o estÃ£o mais disponÃ­veis. Envie o arquivo novamente; a operaÃ§Ã£o anterior continua registrada para reconciliaÃ§Ã£o.",
+      "Os dados temporários desta operação não estão mais disponíveis. Envie o arquivo novamente; a operação anterior continua registrada para reconciliação.",
     );
   }
   if (!selection.mapping.emailColumn && !selection.mapping.phoneColumn) {
@@ -404,7 +404,7 @@ async function reparse(
     now: material.receivedAt,
   });
   if ("selectionRequired" in prepared) {
-    throw new CustomerFileImportError("MAPPING_REQUIRED", "Escolha a planilha do arquivo antes de confirmar a prÃ©via.", {
+    throw new CustomerFileImportError("MAPPING_REQUIRED", "Escolha a planilha do arquivo antes de confirmar a prévia.", {
       worksheets: prepared.worksheets,
     });
   }
@@ -467,7 +467,7 @@ function invalidReasons(preview: CustomerFilePreview) {
     if (!row.valid) {
       const current = reasons.get("NO_IDENTIFIER") ?? {
         code: "NO_IDENTIFIER",
-        message: "Linha sem nenhum identificador vÃ¡lido.",
+        message: "Linha sem nenhum identificador válido.",
         count: 0,
       };
       reasons.set("NO_IDENTIFIER", { ...current, count: current.count + 1 });
@@ -505,18 +505,18 @@ export async function receiveCustomerFileUpload(
 ): Promise<CustomerFileUploadResult> {
   await deps.authorize({ stage: "upload", target: input.target });
   if (input.target.operation !== "create" && !input.target.audienceId) {
-    throw new CustomerFileImportError("NOT_FOUND", "Escolha o pÃºblico de lista de clientes desta operaÃ§Ã£o.");
+    throw new CustomerFileImportError("NOT_FOUND", "Escolha o público de lista de clientes desta operação.");
   }
   if (input.target.operation === "create" && !input.target.name?.trim()) {
     throw new CustomerFileImportError("INVALID_FILE", "Informe o nome da nova lista de clientes.");
   }
   if (input.bytes.byteLength === 0) {
-    throw new CustomerFileImportError("INVALID_FILE", "O arquivo recebido estÃ¡ vazio.");
+    throw new CustomerFileImportError("INVALID_FILE", "O arquivo recebido está vazio.");
   }
   if (input.bytes.byteLength > CUSTOMER_FILE_MAX_BYTES) {
     throw new CustomerFileImportError(
       "FILE_TOO_LARGE",
-      `O arquivo tem ${formatCustomerFileBytes(input.bytes.byteLength)} e excede o limite de ${formatCustomerFileBytes(CUSTOMER_FILE_MAX_BYTES)}. Envie um arquivo dentro do limite; nada Ã© truncado.`,
+      `O arquivo tem ${formatCustomerFileBytes(input.bytes.byteLength)} e excede o limite de ${formatCustomerFileBytes(CUSTOMER_FILE_MAX_BYTES)}. Envie um arquivo dentro do limite; nada é truncado.`,
     );
   }
 
@@ -526,7 +526,7 @@ export async function receiveCustomerFileUpload(
   if (conflict) {
     throw new CustomerFileImportError(
       "IMPORT_IN_PROGRESS",
-      "JÃ¡ existe uma importaÃ§Ã£o em andamento para este pÃºblico. Atualize a situaÃ§Ã£o dela; um segundo envio nÃ£o entra em fila.",
+      "Já existe uma importação em andamento para este público. Atualize a situação dela; um segundo envio não entra em fila.",
       { operationId: conflict.operationId, state: conflict.state },
     );
   }
@@ -537,7 +537,7 @@ export async function receiveCustomerFileUpload(
   } catch (error) {
     throw new CustomerFileImportError(
       "INVALID_FILE",
-      error instanceof Error ? error.message : "O arquivo recebido nÃ£o pÃ´de ser interpretado com seguranÃ§a.",
+      error instanceof Error ? error.message : "O arquivo recebido não pôde ser interpretado com segurança.",
     );
   }
 
@@ -583,19 +583,19 @@ export async function inspectCustomerFileImport(
   await deps.authorize({ stage: "preview", target: targetOf(operation) });
   const material = await deps.store.getTemporary(input.operationId, { customerId: input.actor.customerId }, clock(deps));
   if (!material?.rawFile) {
-    throw new CustomerFileImportError("TEMPORARY_DATA_EXPIRED", "Os dados temporÃ¡rios expiraram. Envie o arquivo novamente.");
+    throw new CustomerFileImportError("TEMPORARY_DATA_EXPIRED", "Os dados temporários expiraram. Envie o arquivo novamente.");
   }
   try {
     return inspectCustomerFile({ bytes: material.rawFile, worksheet: input.worksheet });
   } catch (error) {
     throw new CustomerFileImportError(
       "INVALID_FILE",
-      error instanceof Error ? error.message : "O arquivo recebido nÃ£o pÃ´de ser interpretado com seguranÃ§a.",
+      error instanceof Error ? error.message : "O arquivo recebido não pôde ser interpretado com segurança.",
     );
   }
 }
 
-/** Interpreted examples, counts and reasons â€” still with nothing sent to Meta. */
+/** Interpreted examples, counts and reasons — still with nothing sent to Meta. */
 export async function previewCustomerFileImport(
   input: {
     actor: CustomerFileImportActor;
@@ -690,8 +690,8 @@ export type CustomerFileImportPlan = {
 };
 
 /**
- * Validates a start or a recovery completely â€” authorization, freshness of the
- * confirmation, the declarations and the per-operation rules for invalid rows â€”
+ * Validates a start or a recovery completely — authorization, freshness of the
+ * confirmation, the declarations and the per-operation rules for invalid rows —
  * and returns the plan to execute. Nothing has reached Meta when this resolves.
  */
 export async function prepareCustomerFileImportRun(
@@ -721,7 +721,7 @@ export async function prepareCustomerFileImportRun(
     throw new CustomerFileImportError(
       "TERMS_PENDING",
       terms.guidance ??
-        "Os termos de pÃºblicos de listas de clientes ainda nÃ£o constam como aceitos para esta conta. Aceite-os explicitamente antes de enviar contatos.",
+        "Os termos de públicos de listas de clientes ainda não constam como aceitos para esta conta. Aceite-os explicitamente antes de enviar contatos.",
     );
   }
 
@@ -729,7 +729,7 @@ export async function prepareCustomerFileImportRun(
   if (token !== input.previewToken) {
     throw new CustomerFileImportError(
       "STALE_PREVIEW",
-      "O arquivo, o mapeamento, o paÃ­s de referÃªncia, o pÃºblico ou a operaÃ§Ã£o mudaram desde a prÃ©via confirmada. Gere uma nova prÃ©via antes de enviar.",
+      "O arquivo, o mapeamento, o país de referência, o público ou a operação mudaram desde a prévia confirmada. Gere uma nova prévia antes de enviar.",
     );
   }
 
@@ -742,7 +742,7 @@ export async function prepareCustomerFileImportRun(
   if (conflict && conflict.operationId !== operation.id) {
     throw new CustomerFileImportError(
       "IMPORT_IN_PROGRESS",
-      "JÃ¡ existe uma importaÃ§Ã£o em andamento para este pÃºblico. Atualize a situaÃ§Ã£o dela; um segundo envio nÃ£o entra em fila.",
+      "Já existe uma importação em andamento para este público. Atualize a situação dela; um segundo envio não entra em fila.",
       { operationId: conflict.operationId, state: conflict.state },
     );
   }
@@ -767,16 +767,16 @@ export async function prepareCustomerFileImportRun(
 }
 
 function refusalMessage(reason: "NO_VALID_ROWS" | "EXPLICIT_VALID_ROWS_CONSENT_REQUIRED" | "REPLACEMENT_REQUIRES_CORRECTED_FILE"): string {
-  if (reason === "NO_VALID_ROWS") return "Nenhuma linha tem identificador vÃ¡lido; nada serÃ¡ enviado Ã  Meta.";
+  if (reason === "NO_VALID_ROWS") return "Nenhuma linha tem identificador válido; nada será enviado à Meta.";
   if (reason === "REPLACEMENT_REQUIRES_CORRECTED_FILE") {
-    return "A substituiÃ§Ã£o exige um arquivo corrigido: hÃ¡ linhas sem nenhum identificador vÃ¡lido e a lista nÃ£o pode ser trocada por um subconjunto involuntÃ¡rio.";
+    return "A substituição exige um arquivo corrigido: há linhas sem nenhum identificador válido e a lista não pode ser trocada por um subconjunto involuntário.";
   }
-  return "HÃ¡ linhas sem identificador vÃ¡lido. Escolha explicitamente enviar somente as linhas vÃ¡lidas, conhecendo os descartes.";
+  return "Há linhas sem identificador válido. Escolha explicitamente enviar somente as linhas válidas, conhecendo os descartes.";
 }
 
 /**
  * Enriches every executor save with the actor and context of the operation, and
- * observes the Meta audience id as soon as a creation binds one â€” that is how a
+ * observes the Meta audience id as soon as a creation binds one — that is how a
  * first load knows where to send without a second lookup.
  */
 function persistingStore(
@@ -812,8 +812,8 @@ function persistingStore(
 
 /**
  * Runs the confirmed plan. Progress is written to the shared store after every
- * batch, so closing the screen does not lose it and a later query â€” or a later
- * recovery â€” sees exactly what was confirmed.
+ * batch, so closing the screen does not lose it and a later query — or a later
+ * recovery — sees exactly what was confirmed.
  */
 export async function runCustomerFileImportPlan(
   plan: CustomerFileImportPlan,
@@ -834,7 +834,7 @@ export async function runCustomerFileImportPlan(
     sessionId?: string;
     lastBatch?: boolean;
   }) => {
-    if (!audienceId) throw new Error("A operaÃ§Ã£o nÃ£o tem um pÃºblico Meta vinculado para receber os contatos.");
+    if (!audienceId) throw new Error("A operação não tem um público Meta vinculado para receber os contatos.");
     return deps.send({ ...request, audienceId });
   };
   const shared = {

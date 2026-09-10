@@ -34,7 +34,7 @@ export function buildLookalikeFormation(input: {
 }): { ok: true; formation: LookalikeFormation } | { ok: false; message: string } {
   const country = input.country.trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(country)) {
-    return { ok: false, message: "Escolha um pa\u00eds no c\u00f3digo ISO de duas letras." };
+    return { ok: false, message: "Escolha um país no código ISO de duas letras." };
   }
   if (
     !Number.isInteger(input.percentage) ||
@@ -73,7 +73,7 @@ export function assessLookalikeSource(
     return {
       ok: false,
       code: "IMPORT_COMPROMISED",
-      message: "Esta lista tem uma importa\u00e7\u00e3o parcial ou incerta. Corrija-a antes de us\u00e1-la como origem.",
+      message: "Esta lista tem uma importação parcial ou incerta. Corrija-a antes de usá-la como origem.",
     };
   }
   if (audience.capabilities?.lookalikeSource === "unavailable") {
@@ -100,6 +100,6 @@ export function assessLookalikeSource(
   return {
     ok: false,
     code: "SOURCE_TYPE_UNSUPPORTED",
-    message: "Esta origem n\u00e3o \u00e9 uma lista de clientes, p\u00fablico do Instagram ou p\u00fablico do site eleg\u00edvel.",
+    message: "Esta origem não é uma lista de clientes, público do Instagram ou público do site elegível.",
   };
 }

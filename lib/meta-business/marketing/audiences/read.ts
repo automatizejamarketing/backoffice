@@ -23,7 +23,7 @@ export class AccountNotAccessibleError extends Error {
   readonly adAccountId: string;
 
   constructor(adAccountId: string) {
-    super("A conta de an\u00fancios selecionada n\u00e3o est\u00e1 acess\u00edvel nesta conex\u00e3o.");
+    super("A conta de anúncios selecionada não está acessível nesta conexão.");
     this.name = "AccountNotAccessibleError";
     this.adAccountId = adAccountId;
   }
