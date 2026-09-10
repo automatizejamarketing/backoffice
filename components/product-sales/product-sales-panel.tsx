@@ -397,7 +397,7 @@ function BucketSalesSheet({
 
   return (
     <Sheet open={bucketKey !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-4xl">
+      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-5xl">
         <SheetHeader>
           <SheetTitle>Vendas · {title}</SheetTitle>
           <SheetDescription>
@@ -432,7 +432,7 @@ function BucketSalesSheet({
                     <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
                       {formatSaleTime(sale.approvedAt)}
                     </TableCell>
-                    <TableCell className="max-w-36 truncate" title={sale.productTitle}>
+                    <TableCell className="max-w-32 truncate" title={sale.productTitle}>
                       {sale.productTitle}
                     </TableCell>
                     <TableCell className="max-w-44">
