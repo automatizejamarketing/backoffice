@@ -5,6 +5,7 @@ import {
   describeProductPaymentProvider,
   formatGatewayFeeEstimateLabel,
   resolveAutomatizePaymentAmounts,
+  resolveAutomatizeProductNetCentavos,
   resolveProductPaymentAmounts,
   resolveProductPaymentNetAmounts,
   summarizeAutomatizePayments,
@@ -731,5 +732,47 @@ describe("gateway_net_v1 trilho de repasse na leitura", () => {
     expect(amounts.expertSettlementRail).toBeNull();
     expect(amounts.expertSettlementLabel).toBeNull();
     expect(amounts.countsTowardExpertPayableBalance).toBe(false);
+  });
+});
+
+describe("gateway_gross_v1: líquido da Automatize", () => {
+  // Pagamento real de staging (10/09/2026): bruto R$ 1,00, tarifa R$ 0,01,
+  // taxa 5% sobre o bruto. O frontend só grava a application fee do Mercado
+  // Pago; as colunas de repartição ficam nulas.
+  const grossV1 = {
+    ...productPaymentFixture,
+    financialModel: "gateway_gross_v1" as const,
+    grossAmountCentavos: 100,
+    netAmountCentavos: 94,
+    feeAmountCentavos: 1,
+    priceCentavos: 100,
+    platformFeeBasisPoints: 500,
+    platformFeeFixedCentavos: 0,
+    expertShareBasisPoints: 10_000,
+    expertRevenueCentavos: null,
+  };
+
+  test("a taxa sobre o bruto é o líquido inteiro; a tarifa do provedor é do expert", () => {
+    const { gatewayNetCentavos } = resolveProductPaymentAmounts(grossV1);
+    expect(resolveAutomatizeProductNetCentavos(grossV1, gatewayNetCentavos)).toBe(5);
+  });
+
+  test("sem coprodutor, a coprodução da Automatize é zero e a taxa fica na coluna dela", () => {
+    const amounts = resolveProductPaymentNetAmounts(grossV1);
+    expect(amounts.automatizeRevenueCentavos).toBe(5);
+    expect(amounts.automatizeCoproductionCentavos).toBe(0);
+  });
+
+  test("produto próprio da Automatize sem taxa mantém a parte inteira como antes", () => {
+    const own = {
+      ...productPaymentFixture,
+      ownerType: "automatize" as const,
+      financialModel: "gateway_net_v1" as const,
+      platformFeeBasisPoints: 0,
+      expertShareBasisPoints: 0,
+      expertRevenueCentavos: null,
+    };
+    const amounts = resolveProductPaymentNetAmounts(own);
+    expect(amounts.automatizeCoproductionCentavos).toBe(amounts.automatizeRevenueCentavos);
   });
 });

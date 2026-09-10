@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { PLAYBOOK_RULE_ROAS_DECLINE } from "@/lib/playbook-insights/constants";
 import {
+  attachRoasDeclineFacts,
   buildCampaignDiagnosticFacts,
   buildCampaignTable,
   type ConsolidatedCampaign,
@@ -73,6 +75,7 @@ describe("performance report tables and facts", () => {
     expect(facts.bestByRoas.at(0)?.workspaceUrl).toContain("campaignId=winner");
     expect(facts.evidenceRule.includes("slackBlocks")).toBe(false);
     expect(facts.evidenceRule.includes("```")).toBe(false);
+    expect(facts.roasInDecline).toEqual([]);
   });
 
   test("builds structured rows without ASCII slackBlocks", () => {
@@ -108,5 +111,53 @@ describe("performance report tables and facts", () => {
     expect(table.rows.at(0)?.Conta).toBe("Conta principal");
     expect(table.rowCount).toBe(1);
     expect("slackBlocks" in table).toBe(false);
+  });
+
+  test("attaches open ROAS-decline insights only for table campaigns", () => {
+    const campaigns: ConsolidatedCampaign[] = [
+      {
+        ...baseCampaign,
+        id: "winner",
+        name: "Campanha vencedora",
+        roas: 8,
+        valorDeCompra: 800,
+        compras: 10,
+        cpa: 10,
+        gasto: 100,
+      },
+    ];
+    const facts = attachRoasDeclineFacts(
+      buildCampaignDiagnosticFacts(campaigns, {}, workspace),
+      [
+        {
+          ruleId: PLAYBOOK_RULE_ROAS_DECLINE,
+          entityId: "winner",
+          entityName: "Campanha vencedora",
+          severity: "critical",
+          evidence: "ROAS 8.40 → 4.20",
+          metrics: {
+            dropPercent: 50,
+            purchaseRoasPrevious: 8.4,
+            purchaseRoasLookback: 4.2,
+            lookbackDays: 7,
+          },
+        },
+        {
+          ruleId: PLAYBOOK_RULE_ROAS_DECLINE,
+          entityId: "missing",
+          entityName: "Fora da tabela",
+          severity: "warning",
+          evidence: "ignorada",
+          metrics: { dropPercent: 30 },
+        },
+      ],
+      campaigns,
+      workspace,
+    );
+
+    expect(facts.roasInDecline).toHaveLength(1);
+    expect(facts.roasInDecline[0]?.id).toBe("winner");
+    expect(facts.roasInDecline[0]?.dropPercent).toBe(50);
+    expect(facts.roasInDecline[0]?.severity).toBe("critical");
   });
 });

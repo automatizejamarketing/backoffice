@@ -8,7 +8,7 @@ import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { formatBrazilianPhone } from "@/lib/phone";
 import {
   formatPlanLabel,
-  getStatusBadgeProps,
+  getAccountStatusBadge,
 } from "@/lib/subscriptions/derive";
 
 const PROVIDER_LABELS: Record<BillingProvider, string> = {
@@ -84,12 +84,7 @@ export function buildUsersCsv(users: UserWithUsage[]): string {
   const header = CSV_COLUMNS.map((column) => escapeCsvCell(column)).join(",");
   const rows = users.map((user) => {
     const sub = user.activeSubscription;
-    const badge = getStatusBadgeProps(
-      sub?.status ?? null,
-      user.expirationDate,
-      sub?.cancelAtPeriodEnd ?? false,
-      sub?.currentPeriodEnd ?? null,
-    );
+    const badge = getAccountStatusBadge(user.expirationDate, sub);
     const providerLabel = sub?.provider
       ? (isKnownBillingProvider(sub.provider)
           ? PROVIDER_LABELS[sub.provider]

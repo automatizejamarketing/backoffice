@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import type { ComponentType } from "react";
 import {
+  ArrowRight,
   BarChart3,
   BriefcaseBusiness,
   ClipboardList,
@@ -10,18 +11,25 @@ import {
   History,
   Megaphone,
   MessagesSquare,
+  Receipt,
   UserRound,
 } from "lucide-react";
+
+const SUMMARY_TIMELINE_LIMIT = 8;
 import { MarketingWorkspace } from "@/app/(admin)/marketing/components/marketing-workspace";
 import { BusinessHealthBadge } from "@/components/business-health-badge";
 import { ConversationsTab } from "@/components/conversations/conversations-tab";
 import { CopyEmailButton } from "@/components/copy-email-button";
 import { BusinessRulesSummary } from "@/components/business-rules-summary";
 import { CreditsControl } from "@/components/credits-control";
-import { ExpirationDateControl } from "@/components/expiration-date-control";
 import { MarketingConsultantControl } from "@/components/marketing-consultant-control";
 import { ManagedCampaignRefreshButton } from "@/components/managed-campaign-refresh-button";
-import { SubscriptionSummaryCard } from "@/components/subscription-summary-card";
+import { AccessOverview } from "@/components/access-overview";
+import { AccountHistoryTimeline } from "@/components/account-history-timeline";
+import { RecentPaymentsList } from "@/components/recent-payments-list";
+import { StatusBadgeWithHint } from "@/components/status-badge";
+import { getAccessBadgeProps } from "@/lib/subscriptions/derive";
+import { pickLatestPixCharge } from "@/lib/backoffice/pix-link-view";
 import { WhatsAppIcon } from "@/components/whatsapp-icon";
 import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
@@ -43,8 +51,11 @@ import {
   getAllUserGeneratedImages,
   getUserAuditLogs,
   getUserHubProfile,
+  getUserAccountHistory,
   getUserSubscriptionDetails,
   getUserWithDetailedUsage,
+  listUserMercadoPagoPaymentLinks,
+  listUserPayments,
 } from "@/lib/db/admin-queries";
 import {
   getAssignedMarketingConsultant,
@@ -73,6 +84,7 @@ import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 import {
   formatDateTimeInSaoPaulo,
+  formatNumericDateInSaoPaulo,
   formatShortDateInSaoPaulo,
   formatShortDateTimeInSaoPaulo,
 } from "@/lib/backoffice/datetime-format";
@@ -222,6 +234,9 @@ export async function UserHubPage({
     businessRules,
     conversations,
     whatsappHistory,
+    recentPixLinks,
+    recentPayments,
+    accountHistory,
   ] =
     await Promise.all([
       isAdminHub && (activeTab === "summary" || activeTab === "usage")
@@ -253,6 +268,15 @@ export async function UserHubPage({
         : Promise.resolve([]),
       activeTab === "whatsapp" && hasBackofficePermission(actor, "whatsapp:view")
         ? getUserWhatsappTemplateHistory(id)
+        : Promise.resolve([]),
+      isAdminHub && activeTab === "summary"
+        ? listUserMercadoPagoPaymentLinks(id)
+        : Promise.resolve([]),
+      isAdminHub && activeTab === "summary"
+        ? listUserPayments(id)
+        : Promise.resolve([]),
+      isAdminHub && activeTab === "summary"
+        ? getUserAccountHistory(id)
         : Promise.resolve([]),
     ]);
 
@@ -339,6 +363,21 @@ export async function UserHubPage({
             </div>
           </div>
         </div>
+
+        <div className="flex shrink-0 flex-col gap-1 lg:items-end">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+            Acesso até
+          </p>
+          <p className="text-lg font-semibold tabular-nums leading-tight">
+            {profile.expirationDate
+              ? formatNumericDateInSaoPaulo(profile.expirationDate)
+              : "Sem data"}
+          </p>
+          <StatusBadgeWithHint
+            badge={getAccessBadgeProps(profile.expirationDate)}
+            className="lg:items-end"
+          />
+        </div>
       </div>
 
       <div className="overflow-x-auto border-b">
@@ -367,27 +406,63 @@ export async function UserHubPage({
 
       {activeTab === "summary" && detailedUser && (
         <div className="space-y-6">
-          <div className="grid gap-6 lg:grid-cols-3">
-            <MarketingConsultantControl
-              userId={id}
-              consultants={consultants}
-              assignedConsultantId={assignedConsultant?.consultantId ?? null}
-            />
-            <ExpirationDateControl
-              userId={id}
-              expirationDate={detailedUser.expirationDate}
-            />
-            <CreditsControl userId={id} credits={detailedUser.credits} />
-          </div>
-
-          <SubscriptionSummaryCard
+          <AccessOverview
             userId={id}
+            expirationDate={detailedUser.expirationDate}
             subscription={detailedUser.activeSubscription}
             pendingPlanChange={detailedUser.activePendingPlanChange}
-            expirationDate={detailedUser.expirationDate}
+            latestPixCharge={pickLatestPixCharge(recentPixLinks)}
           />
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <History className="size-4" />
+                  Linha do tempo
+                </CardTitle>
+                {accountHistory.length > SUMMARY_TIMELINE_LIMIT ? (
+                  <Link
+                    href={`${userBasePath}?tab=subscription`}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    Ver tudo
+                    <ArrowRight className="size-3" />
+                  </Link>
+                ) : null}
+              </CardHeader>
+              <CardContent>
+                <AccountHistoryTimeline
+                  items={accountHistory.slice(0, SUMMARY_TIMELINE_LIMIT)}
+                />
+              </CardContent>
+            </Card>
+
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Receipt className="size-4" />
+                    Pagamentos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RecentPaymentsList
+                    payments={recentPayments}
+                    allPaymentsHref={`${userBasePath}?tab=subscription`}
+                  />
+                </CardContent>
+              </Card>
+              <CreditsControl userId={id} credits={detailedUser.credits} />
+              <MarketingConsultantControl
+                userId={id}
+                consultants={consultants}
+                assignedConsultantId={assignedConsultant?.consultantId ?? null}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
             <MetricCard
               label="Custo Total"
               value={formatCurrency(detailedUser.totalCost)}

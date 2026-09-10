@@ -68,6 +68,28 @@ export const PROACTIVITY_ALERT_DEFINITIONS: readonly ProactivityAlertDefinition[
       defaultThresholds: { minSpend: 50, roasValidated: 5 },
     },
     {
+      ruleKey: "roas_decline",
+      title: "ROAS em queda",
+      description:
+        "Campanha ativa cujo ROAS caiu vs. a janela anterior — dispara mesmo quando o ROAS dos últimos 30d ainda parece bom.",
+      audience: "consultant",
+      playbookRuleId: "playbook.roas_decline",
+      thresholdFields: [
+        numberField("dropWarningPercent", "Queda mínima", { suffix: "%", min: 1 }),
+        numberField("dropCriticalPercent", "Queda crítica", { suffix: "%", min: 1 }),
+        numberField("lookbackDays", "Dias analisados", { suffix: "dias", min: 1 }),
+        numberField("minPreviousSpend", "Gasto mín. janela anterior", {
+          suffix: "R$",
+        }),
+      ],
+      defaultThresholds: {
+        dropWarningPercent: 30,
+        dropCriticalPercent: 50,
+        lookbackDays: 7,
+        minPreviousSpend: 50,
+      },
+    },
+    {
       ruleKey: "cpa_alert",
       title: "CPA acima do alerta",
       description: "Campanha ativa com CPA acima do limite configurado.",
@@ -164,6 +186,28 @@ export const PROACTIVITY_ALERT_DEFINITIONS: readonly ProactivityAlertDefinition[
       defaultThresholds: {
         goodRoasOpportunity: 5,
         minSpendForRoasSignal: 50,
+      },
+    },
+    {
+      ruleKey: "roas_decline",
+      title: "ROAS em queda",
+      description:
+        "Campanha ativa cujo ROAS caiu vs. a janela anterior — mesmo com ROAS absoluto ainda bom.",
+      audience: "client",
+      clientRuleId: "roas_decline",
+      thresholdFields: [
+        numberField("dropWarningPercent", "Queda mínima", { suffix: "%", min: 1 }),
+        numberField("dropCriticalPercent", "Queda crítica", { suffix: "%", min: 1 }),
+        numberField("lookbackDays", "Dias analisados", { suffix: "dias", min: 1 }),
+        numberField("minPreviousSpend", "Gasto mín. janela anterior", {
+          suffix: "R$",
+        }),
+      ],
+      defaultThresholds: {
+        dropWarningPercent: 30,
+        dropCriticalPercent: 50,
+        lookbackDays: 7,
+        minPreviousSpend: 50,
       },
     },
     {

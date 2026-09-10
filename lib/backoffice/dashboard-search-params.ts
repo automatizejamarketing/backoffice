@@ -3,7 +3,7 @@ import type {
   DashboardDateWindow,
 } from "./dashboard-date-range";
 
-export const DASHBOARD_TAB_VALUES = ["visao", "retencao", "trials"] as const;
+export const DASHBOARD_TAB_VALUES = ["visao", "retencao", "trials", "produtos"] as const;
 export type DashboardTab = (typeof DASHBOARD_TAB_VALUES)[number];
 
 export type DashboardSearchParams = DashboardDateSearchParams & {

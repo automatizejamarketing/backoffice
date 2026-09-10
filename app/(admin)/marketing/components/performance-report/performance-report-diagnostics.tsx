@@ -42,6 +42,64 @@ export function PerformanceReportDiagnostics({
           onOpenCampaign={onOpenCampaign}
         />
       ) : null}
+      {facts.roasInDecline.length > 0 ? (
+        <div className="rounded-md border border-border/80 p-4">
+          <p className="text-sm font-medium text-foreground">ROAS em queda</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Comparado com a janela anterior — mesmo se o ROAS dos 30d ainda parecer bom.
+          </p>
+          <ul className="mt-2 space-y-2">
+            {facts.roasInDecline.map((row) => (
+              <li key={row.id}>
+                <button
+                  type="button"
+                  className="flex w-full flex-col items-start gap-1 rounded-md p-1 text-left hover:bg-muted/40"
+                  onClick={() => {
+                    const match =
+                      facts.bestByRoas.find((campaign) => campaign.id === row.id) ??
+                      facts.needsAttention.find((campaign) => campaign.id === row.id) ??
+                      facts.activeWithoutPurchases.find(
+                        (campaign) => campaign.id === row.id,
+                      );
+                    if (match) {
+                      onOpenCampaign(match);
+                      return;
+                    }
+                    onOpenCampaign({
+                      id: row.id,
+                      name: row.name,
+                      accountId: row.accountId,
+                    } as CampaignReportFact);
+                  }}
+                >
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium">{row.name}</span>
+                    <Badge
+                      variant="outline"
+                      className={`text-xs ${
+                        row.severity === "critical"
+                          ? "border-red-200 bg-red-50 text-red-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      {row.dropPercent != null
+                        ? `−${row.dropPercent}%`
+                        : row.severity === "critical"
+                          ? "Crítico"
+                          : "Queda"}
+                    </Badge>
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {row.previousRoas != null && row.currentRoas != null
+                      ? `ROAS ${formatReportRoas(row.previousRoas)} → ${formatReportRoas(row.currentRoas)} · ${row.lookbackDays}d vs. ${row.lookbackDays}d anteriores`
+                      : row.evidence}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="rounded-md border border-border/80 p-4 text-sm">
         <p className="font-medium text-foreground">Concentração</p>
         <p className="mt-1 text-xs text-muted-foreground">{facts.concentration.scope}</p>

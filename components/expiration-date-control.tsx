@@ -11,7 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadgeWithHint } from "@/components/status-badge";
+import { getAccessBadgeProps } from "@/lib/subscriptions/derive";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -76,26 +77,6 @@ export function ExpirationDateControl({
     return formatNumericDateInSaoPaulo(date);
   };
 
-  const getBadgeVariant = (): "default" | "destructive" | "secondary" => {
-    if (!expirationDate) return "secondary";
-    const now = new Date();
-    const expDate = new Date(expirationDate);
-    expDate.setHours(0, 0, 0, 0);
-    now.setHours(0, 0, 0, 0);
-    if (expDate < now) return "destructive";
-    return "default";
-  };
-
-  const getBadgeLabel = (): string => {
-    if (!expirationDate) return "Não definido";
-    const now = new Date();
-    const expDate = new Date(expirationDate);
-    expDate.setHours(0, 0, 0, 0);
-    now.setHours(0, 0, 0, 0);
-    if (expDate < now) return "Acesso expirado";
-    return "Acesso ativo";
-  };
-
   const persistDate = async (newDate: Date): Promise<boolean> => {
     const dateString = formatLocalYmd(new Date(newDate));
 
@@ -152,24 +133,6 @@ export function ExpirationDateControl({
     openConfirmation(date);
   };
 
-  const getAccessSummary = (): string => {
-    if (!expirationDate) return "Sem data definida";
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    const expDate = new Date(expirationDate);
-    expDate.setHours(0, 0, 0, 0);
-    const days = Math.round(
-      (expDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
-    );
-    if (days < 0) {
-      const ago = Math.abs(days);
-      return ago === 1 ? "Expirado ontem" : `Expirado há ${ago} dias`;
-    }
-    if (days === 0) return "Expira hoje";
-    if (days === 1) return "Expira amanhã";
-    return `${days} dias restantes`;
-  };
-
   const busy = isSaving || isPending;
   const adjustSteps = [
     { days: -30, label: "−30" },
@@ -206,14 +169,7 @@ export function ExpirationDateControl({
             />
           </PopoverContent>
         </Popover>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <Badge variant={getBadgeVariant()} className="w-fit">
-            {getBadgeLabel()}
-          </Badge>
-          <span className="text-xs text-muted-foreground">
-            {getAccessSummary()}
-          </span>
-        </div>
+        <StatusBadgeWithHint badge={getAccessBadgeProps(expirationDate)} />
         {busy ? (
           <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
@@ -234,8 +190,8 @@ export function ExpirationDateControl({
                 "rounded-none px-2.5 tabular-nums",
                 index > 0 && "border-l",
                 step.days < 0
-                  ? "text-red-600 hover:bg-red-500/10 dark:text-red-400"
-                  : "text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400",
+                  ? "text-destructive hover:bg-destructive/10"
+                  : "text-success hover:bg-success/10",
               )}
               disabled={busy}
               onClick={() => requestAdjustDate(step.days)}

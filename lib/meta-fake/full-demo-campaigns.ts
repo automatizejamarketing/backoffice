@@ -1,4 +1,7 @@
-import type { CampaignMetricsRow } from "@/lib/playbook-insights/types";
+import {
+  EMPTY_ROAS_LOOKBACK,
+  type CampaignMetricsRow,
+} from "@/lib/playbook-insights/types";
 import { META_FAKE_SCENARIO_KEY } from "./config";
 
 /**
@@ -29,6 +32,7 @@ export function buildFullDemoCampaignMetrics(
       purchaseValue: 462,
       impressions: 48_000,
       cpa: 18.33,
+      ...EMPTY_ROAS_LOOKBACK,
     },
     {
       id: "fake_campaign_roas_scale",
@@ -44,6 +48,13 @@ export function buildFullDemoCampaignMetrics(
       purchaseValue: 1984,
       impressions: 72_000,
       cpa: 7.75,
+      lookbackDays: 7,
+      spendLookback: 90,
+      purchaseRoasLookback: 4.2,
+      purchasesLookback: 10,
+      spendPrevious: 110,
+      purchaseRoasPrevious: 8.4,
+      purchasesPrevious: 18,
     },
     {
       id: "fake_campaign_cpa_high",
@@ -59,6 +70,7 @@ export function buildFullDemoCampaignMetrics(
       purchaseValue: 525,
       impressions: 30_000,
       cpa: 18.75,
+      ...EMPTY_ROAS_LOOKBACK,
     },
     {
       id: "fake_campaign_stalled",
@@ -74,6 +86,7 @@ export function buildFullDemoCampaignMetrics(
       purchaseValue: 399,
       impressions: 22_000,
       cpa: 9.5,
+      ...EMPTY_ROAS_LOOKBACK,
     },
     {
       id: "fake_campaign_no_delivery",
@@ -89,6 +102,7 @@ export function buildFullDemoCampaignMetrics(
       purchaseValue: 0,
       impressions: 0,
       cpa: null,
+      ...EMPTY_ROAS_LOOKBACK,
     },
   ];
 }

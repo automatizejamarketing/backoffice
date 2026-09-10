@@ -20,8 +20,14 @@ import {
 import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
-import { PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE } from "@/lib/playbook-insights/constants";
-import { evaluatePlaybookInsights } from "@/lib/playbook-insights/evaluate";
+import {
+  PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE,
+  PLAYBOOK_RULE_ROAS_DECLINE,
+} from "@/lib/playbook-insights/constants";
+import {
+  evaluatePlaybookInsights,
+  playbookRoasDeclineLookbackDays,
+} from "@/lib/playbook-insights/evaluate";
 import { fetchCampaignMetricsForAccount } from "@/lib/playbook-insights/fetch-campaign-metrics";
 import { loadReadyCreativeDiagnosesForUser } from "@/lib/playbook-insights/load-creative-diagnoses";
 import { deliverPlaybookInsightsToSlack } from "@/lib/proactivity/slack-delivery";
@@ -247,6 +253,11 @@ export async function runPlaybookInsightsBatch(
         const campaigns = await fetchCampaignMetricsForAccount({
           accessToken,
           accountId,
+          lookbackDays: evaluationConfig.enabledRuleIds.has(
+            PLAYBOOK_RULE_ROAS_DECLINE,
+          )
+            ? playbookRoasDeclineLookbackDays(evaluationConfig)
+            : undefined,
         });
         const evaluation = evaluatePlaybookInsights({
           accountId,

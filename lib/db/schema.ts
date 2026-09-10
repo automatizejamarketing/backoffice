@@ -8186,3 +8186,79 @@ export type CustomerFileTemporaryMaterialRecord = InferSelectModel<
 
 // ===== END customer_file_* =====
 
+// ===== CRM interno (time comercial) =====
+// Status comercial é independente do status da conta (acesso/trial/pagamento):
+// é o funil de vendas que o time comercial controla à mão. Usuário sem linha
+// aqui conta como "novo_lead".
+
+export const CRM_COMMERCIAL_STATUS_VALUES = [
+  "novo_lead",
+  "em_qualificacao",
+  "reuniao_agendada",
+  "reuniao_realizada",
+  "trial_feito",
+  "no_show",
+  "follow_up",
+] as const;
+
+export type CrmCommercialStatus = (typeof CRM_COMMERCIAL_STATUS_VALUES)[number];
+
+export const CRM_LEAD_EVENT_KIND_VALUES = ["note", "status"] as const;
+
+export type CrmLeadEventKind = (typeof CRM_LEAD_EVENT_KIND_VALUES)[number];
+
+export const crmLead = pgTable(
+  "crm_leads",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    commercialStatus: varchar("commercial_status", {
+      length: 32,
+      enum: CRM_COMMERCIAL_STATUS_VALUES,
+    })
+      .$type<CrmCommercialStatus>()
+      .notNull()
+      .default("novo_lead"),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    statusChangedBy: varchar("status_changed_by", { length: 100 }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    statusIdx: index("crm_leads_status_idx").on(
+      table.commercialStatus,
+      table.statusChangedAt,
+    ),
+  }),
+);
+
+export type CrmLead = InferSelectModel<typeof crmLead>;
+
+export const crmLeadEvent = pgTable(
+  "crm_lead_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: varchar("kind", { length: 16, enum: CRM_LEAD_EVENT_KIND_VALUES })
+      .$type<CrmLeadEventKind>()
+      .notNull(),
+    body: text("body"),
+    statusFrom: varchar("status_from", { length: 32 }),
+    statusTo: varchar("status_to", { length: 32 }),
+    authorEmail: varchar("author_email", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("crm_lead_events_user_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+export type CrmLeadEvent = InferSelectModel<typeof crmLeadEvent>;

@@ -6,6 +6,7 @@ export const PLAYBOOK_INSIGHTS_RULE_PREFIX = "playbook.";
 
 export const PLAYBOOK_RULE_ROAS_TRIGGER = "playbook.roas_trigger";
 export const PLAYBOOK_RULE_ROAS_SCALE = "playbook.roas_scale";
+export const PLAYBOOK_RULE_ROAS_DECLINE = "playbook.roas_decline";
 export const PLAYBOOK_RULE_CPA_ALERT = "playbook.cpa_alert";
 export const PLAYBOOK_RULE_STALLED = "playbook.campaign_stalled";
 export const PLAYBOOK_RULE_NO_DELIVERY = "playbook.no_delivery";
@@ -23,6 +24,15 @@ export const PLAYBOOK_MIN_SPEND = 50;
 export const PLAYBOOK_ROAS_TRIGGER = 3;
 /** ROAS ≥ this → validated / scale opportunity. */
 export const PLAYBOOK_ROAS_VALIDATED = 5;
+
+/** Compare current N days vs the preceding N days. */
+export const PLAYBOOK_ROAS_DECLINE_LOOKBACK_DAYS = 7;
+/** Drop ≥ this % → warning (ROAS can still look “good” on last_30d). */
+export const PLAYBOOK_ROAS_DECLINE_WARNING_PERCENT = 30;
+/** Drop ≥ this % → critical. */
+export const PLAYBOOK_ROAS_DECLINE_CRITICAL_PERCENT = 50;
+/** Minimum spend in the previous window before a drop is trusted. */
+export const PLAYBOOK_ROAS_DECLINE_MIN_PREVIOUS_SPEND = 50;
 
 /** Default ticket médio when company ticket is unknown (CPA table R$50 band). */
 export const PLAYBOOK_DEFAULT_TICKET_MEDIO = 50;
