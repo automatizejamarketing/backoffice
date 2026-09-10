@@ -603,6 +603,13 @@
       "when": 1798500000000,
       "tag": "0098_product_gateway_gross_v1",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1798600000000,
+      "tag": "0099_product_expert_transaction_fee",
+      "breakpoints": true
     }
   ]
 }

@@ -19,8 +19,13 @@ import type { ProductFinancialModel, ProductOwnerType } from "@/lib/db/schema";
  */
 export type GatewayGrossV1OrderSnapshot = Omit<
   GatewayNetV1OrderSnapshot,
-  "financialModel" | "gatewayFeeEstimateBps" | "gatewayFeeEstimateFixedCentavos"
+  | "financialModel"
+  | "platformFeeBasisPoints"
+  | "gatewayFeeEstimateBps"
+  | "gatewayFeeEstimateFixedCentavos"
 > & {
+  /** Taxa de transação do Expert; zero em Produto próprio do Automatize. */
+  platformFeeBasisPoints: number;
   financialModel: Extract<ProductFinancialModel, "gateway_gross_v1">;
   /** Sempre nulos: sem tarifa na divisão, não há estimativa a congelar. */
   gatewayFeeEstimateBps: null;
@@ -28,6 +33,8 @@ export type GatewayGrossV1OrderSnapshot = Omit<
 };
 
 export function buildGatewayGrossV1OrderSnapshot(input: {
+  /** Taxa de transação do Expert, em basis points sobre o bruto. */
+  platformFeeBasisPoints: number;
   ownerType: ProductOwnerType;
   ownerExpertShareBasisPoints: number;
   coproducerType: ProductOwnerType | null;
@@ -40,8 +47,16 @@ export function buildGatewayGrossV1OrderSnapshot(input: {
     ...input,
     paymentProvider: "mercadopago",
   });
+  if (
+    !Number.isInteger(input.platformFeeBasisPoints) ||
+    input.platformFeeBasisPoints < 0 ||
+    input.platformFeeBasisPoints > 10_000
+  ) {
+    throw new Error("Platform fee must be between 0 and 10000 basis points");
+  }
   return {
     ...base,
+    platformFeeBasisPoints: input.platformFeeBasisPoints,
     financialModel: "gateway_gross_v1",
     gatewayFeeEstimateBps: null,
     gatewayFeeEstimateFixedCentavos: null,
