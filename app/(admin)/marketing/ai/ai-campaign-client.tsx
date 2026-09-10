@@ -324,16 +324,24 @@ export function AiCampaignClient() {
     const advantagePlus =
       !hasAppliedDemographicLimits(demographics) &&
       !(includedCustomAudienceIds?.length);
+    const includedIds = [...(includedCustomAudienceIds ?? [])];
+    const excludedIds = [...(excludedCustomAudienceIds ?? [])];
+    const overlappingIds = includedIds.filter((id) => excludedIds.includes(id));
+    const effectiveIncludedIds = includedIds.filter((id) => !excludedIds.includes(id));
     const adSet = {
       index: 0,
       geo,
       advantagePlus,
       interestGroups: 0,
-      customAudiences: includedCustomAudienceIds?.length ?? 0,
+      customAudiences: includedIds.length,
+      includedCustomAudienceIds: includedIds,
+      excludedCustomAudienceIds: excludedIds,
+      effectiveCustomAudiences: effectiveIncludedIds.length,
+      overlappingCustomAudiences: overlappingIds.length,
       ...(includedCustomAudienceIds !== undefined
         ? { includedCustomAudiencesApplied: true }
         : {}),
-      excludedCustomAudiences: excludedCustomAudienceIds?.length ?? 0,
+      excludedCustomAudiences: excludedIds.length,
       ...(excludedCustomAudienceIds !== undefined
         ? { excludedCustomAudiencesApplied: true }
         : {}),
@@ -350,11 +358,15 @@ export function AiCampaignClient() {
       geo,
       advantagePlus,
       interestGroups: 0,
-      customAudiences: includedCustomAudienceIds?.length ?? 0,
+      customAudiences: includedIds.length,
+      includedCustomAudienceIds: includedIds,
+      excludedCustomAudienceIds: excludedIds,
+      effectiveCustomAudiences: effectiveIncludedIds.length,
+      overlappingCustomAudiences: overlappingIds.length,
       ...(includedCustomAudienceIds !== undefined
         ? { includedCustomAudiencesApplied: true }
         : {}),
-      excludedCustomAudiences: excludedCustomAudienceIds?.length ?? 0,
+      excludedCustomAudiences: excludedIds.length,
       ...(excludedCustomAudienceIds !== undefined
         ? { excludedCustomAudiencesApplied: true }
         : {}),
@@ -1375,13 +1387,17 @@ export function AiCampaignClient() {
                       <div>
                         <dt className="inline font-medium">Públicos personalizados: </dt>
                         <dd className="inline">
-                          {adSet.customAudiences} ({adSet.includedCustomAudiencesApplied ? "aplicado" : "herdado"})
+                          {adSet.overlappingCustomAudiences > 0
+                            ? `${adSet.customAudiences} selecionado(s); ${adSet.effectiveCustomAudiences} efetivo(s) apos exclusoes`
+                            : adSet.customAudiences} ({adSet.includedCustomAudiencesApplied ? "aplicado" : "herdado"})
                         </dd>
                       </div>
                       <div>
                         <dt className="inline font-medium">Públicos excluídos: </dt>
                         <dd className="inline">
-                          {adSet.excludedCustomAudiences} ({adSet.excludedCustomAudiencesApplied ? "aplicado" : "herdado"})
+                          {adSet.overlappingCustomAudiences > 0
+                            ? `${adSet.overlappingCustomAudiences} tambem incluido(s); a exclusao prevalece`
+                            : adSet.excludedCustomAudiences} ({adSet.excludedCustomAudiencesApplied ? "aplicado" : "herdado"})
                         </dd>
                       </div>
                       <div>

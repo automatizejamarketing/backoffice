@@ -203,6 +203,34 @@ export function AiAudienceInclusionsEditor({
               Atualize a biblioteca antes de publicar.
             </p>
           ) : null}
+          {missingIds.length ? (
+            <div className="space-y-2" role="alert">
+              {missingIds.map((id) => {
+                const checkboxId = "include-missing-" + id;
+                return (
+                  <div key={id} className="flex min-h-11 items-start gap-3 rounded-md border border-destructive/50 p-3">
+                    <Switch
+                      aria-label={"Remover inclusao " + id}
+                      checked={draftIds.includes(id)}
+                      className="mt-0.5 h-11 w-11 shrink-0"
+                      disabled={disabled}
+                      onCheckedChange={(checked) => toggle(id, checked)}
+                      id={checkboxId}
+                    />
+                    <div className="min-w-0 space-y-1">
+                      <Label className="cursor-pointer" htmlFor={checkboxId}>
+                        Referencia indisponivel
+                      </Label>
+                      <p className="font-mono text-xs text-muted-foreground">{id}</p>
+                      <p className="text-xs text-destructive">
+                        Atualize, corrija, troque ou remova este publico antes de publicar.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           {audiences.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nenhum pÃºblico acessÃ­vel nesta conta.
