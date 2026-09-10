@@ -171,16 +171,14 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
               </p>
             ) : null}
           </div>
-          <div className="sm:col-span-2">
-            <dt className="text-xs font-medium text-muted-foreground">Produtos comprados</dt>
-            <dd className="mt-1.5">
-              {lead.productTitles.length > 0 ? (
+          {lead.productTitles.length > 0 ? (
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium text-muted-foreground">Produtos comprados</dt>
+              <dd className="mt-1.5">
                 <ProductTags titles={lead.productTitles} max={10} />
-              ) : (
-                <span className="text-xs text-muted-foreground">Nenhum produto comprado.</span>
-              )}
-            </dd>
-          </div>
+              </dd>
+            </div>
+          ) : null}
         </dl>
 
         <Button asChild variant="outline" size="sm" className="mt-4">
