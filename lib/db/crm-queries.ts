@@ -35,6 +35,13 @@ const hasApprovedPaymentSql = sql<boolean>`exists (
     and ${billingPaymentPurposeSql()}
 )`;
 
+/** Status da última assinatura registrada para o usuário (null se nunca teve). */
+const lastSubscriptionStatusSql = sql<string | null>`(
+  select s.status from subscriptions s
+  where s.user_id = ${user.id}
+  order by s.created_at desc limit 1
+)`;
+
 const leadColumns = {
   id: user.id,
   email: user.email,
@@ -55,6 +62,7 @@ const leadColumns = {
     where umc.user_id = ${user.id}
   )`,
   hasApprovedPayment: hasApprovedPaymentSql,
+  subscriptionStatus: lastSubscriptionStatusSql,
   commercialStatus: commercialStatusSql,
   statusChangedAt: crmLead.statusChangedAt,
   statusChangedBy: crmLead.statusChangedBy,
@@ -92,6 +100,7 @@ type LeadRow = {
   companyName: string | null;
   consultantName: string | null;
   hasApprovedPayment: boolean;
+  subscriptionStatus: string | null;
   commercialStatus: CrmCommercialStatus;
   statusChangedAt: Date | null;
   statusChangedBy: string | null;
@@ -134,20 +143,27 @@ function toSummary(row: LeadRow, now: Date): CrmLeadSummary {
   };
 }
 
+/** Espelho SQL de deriveAccountStage; os dois precisam mudar juntos. */
 function accountStageCondition(stage: CrmAccountStage): SQL {
+  const hasAccessDate = sql`${user.expirationDate} is not null`;
   const active = sql`${user.expirationDate} > now()`;
   const expired = sql`${user.expirationDate} <= now()`;
+  const canceled = sql`${lastSubscriptionStatusSql} = 'canceled'`;
+  const notCanceled = sql`coalesce(${lastSubscriptionStatusSql}, '') <> 'canceled'`;
+  const passedTrial = sql`coalesce(${lastSubscriptionStatusSql}, 'trialing') <> 'trialing'`;
   switch (stage) {
     case "sem_trial":
       return sql`${user.expirationDate} is null`;
+    case "cancelado":
+      return sql`${hasAccessDate} and ${canceled}`;
     case "trial_ativo":
-      return sql`${active} and not ${hasApprovedPaymentSql}`;
-    case "trial_vencido":
-      return sql`${expired} and not ${hasApprovedPaymentSql}`;
+      return sql`${active} and ${notCanceled} and not ${hasApprovedPaymentSql}`;
     case "assinante_ativo":
-      return sql`${active} and ${hasApprovedPaymentSql}`;
-    case "assinante_vencido":
-      return sql`${expired} and ${hasApprovedPaymentSql}`;
+      return sql`${active} and ${notCanceled} and ${hasApprovedPaymentSql}`;
+    case "expirado":
+      return sql`${expired} and ${notCanceled} and (${hasApprovedPaymentSql} or ${passedTrial})`;
+    case "trial_vencido":
+      return sql`${expired} and ${notCanceled} and not ${hasApprovedPaymentSql} and not ${passedTrial}`;
   }
 }
 
