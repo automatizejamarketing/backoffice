@@ -1,6 +1,7 @@
 import type {
   CrmAccountStage,
   CrmCommercialStatus,
+  CrmDateRange,
   CrmKanbanColumn,
   CrmLeadEventView,
   CrmLeadSummary,
@@ -30,19 +31,36 @@ async function readJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function fetchCrmKanban(params: {
+export type CrmDateFilters = {
+  signup?: CrmDateRange;
+  expires?: CrmDateRange;
+};
+
+function applyDateFilters(query: URLSearchParams, params: CrmDateFilters) {
+  if (params.signup) {
+    query.set("signupFrom", params.signup.from);
+    query.set("signupTo", params.signup.to);
+  }
+  if (params.expires) {
+    query.set("expiresFrom", params.expires.from);
+    query.set("expiresTo", params.expires.to);
+  }
+}
+
+export function fetchCrmKanban(params: CrmDateFilters & {
   search: string;
   accountStage?: CrmAccountStage;
 }) {
   const query = new URLSearchParams({ view: "kanban" });
   if (params.search) query.set("q", params.search);
   if (params.accountStage) query.set("accountStage", params.accountStage);
+  applyDateFilters(query, params);
   return fetch(`/api/crm/leads?${query}`, { cache: "no-store" }).then((r) =>
     readJson<CrmKanbanResponse>(r),
   );
 }
 
-export function fetchCrmList(params: {
+export function fetchCrmList(params: CrmDateFilters & {
   search: string;
   accountStage?: CrmAccountStage;
   commercialStatus?: CrmCommercialStatus;
@@ -57,6 +75,7 @@ export function fetchCrmList(params: {
   if (params.search) query.set("q", params.search);
   if (params.accountStage) query.set("accountStage", params.accountStage);
   if (params.commercialStatus) query.set("commercialStatus", params.commercialStatus);
+  applyDateFilters(query, params);
   return fetch(`/api/crm/leads?${query}`, { cache: "no-store" }).then((r) =>
     readJson<CrmListResponse>(r),
   );
