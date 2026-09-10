@@ -15,11 +15,13 @@ import {
   Plus,
   Receipt,
   RefreshCcw,
+  Search,
   ShoppingCart,
   Trash2,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";
+import { OrderBuyerWhatsApp } from "@/components/order-buyer-whatsapp";
 import {
   ExpertImageCropDialog,
   ProductCoverCropDialog,
@@ -93,6 +95,7 @@ import {
   formatPercentageInput,
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
+import { orderMatchesBuyerSearch } from "@/lib/backoffice/product-order-search";
 import {
   formatExpertMarketplaceFee,
   formatExpertPlatformFee,
@@ -183,6 +186,7 @@ type Order = {
   productTitle: string;
   buyerName: string;
   buyerEmail: string;
+  userPhone: string | null;
   priceCentavos: number;
   status: string;
   createdAt: string;
@@ -745,6 +749,7 @@ export function ProductsAdminWorkspace({
   }>>([]);
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderSearch, setOrderSearch] = useState("");
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -805,6 +810,11 @@ export function ProductsAdminWorkspace({
     if (!paymentsDialogProduct) return [];
     return orders.filter((order) => order.productId === paymentsDialogProduct.id);
   }, [orders, paymentsDialogProduct]);
+  const visibleOrders = useMemo(
+    () =>
+      orders.filter((order) => orderMatchesBuyerSearch(order, orderSearch)),
+    [orders, orderSearch],
+  );
   function changeProductOwner(value: string) {
     const owner = parseProductOwnerSelection(value);
     setProductForm((current) => ({
@@ -1963,15 +1973,27 @@ export function ProductsAdminWorkspace({
 
         <TabsContent value="orders" className="pt-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>Vendas</CardTitle>
+              <div className="relative w-full sm:max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="search"
+                  value={orderSearch}
+                  onChange={(event) => setOrderSearch(event.target.value)}
+                  placeholder="Buscar por nome ou e-mail"
+                  className="h-9 pl-9 text-sm"
+                  aria-label="Buscar vendas por nome ou e-mail"
+                />
+              </div>
             </CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1760px]">
+              <Table className="min-w-[1900px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Produto</TableHead>
                     <TableHead>Comprador</TableHead>
+                    <TableHead>WhatsApp</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Pagamento</TableHead>
                     <TableHead className="text-right">Bruto</TableHead>
@@ -1987,21 +2009,30 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="h-28 text-center">
+                      <TableCell colSpan={13} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                       </TableCell>
                     </TableRow>
                   ) : orders.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={12}
+                        colSpan={13}
                         className="h-28 text-center text-muted-foreground"
                       >
                         Nenhuma venda registrada.
                       </TableCell>
                     </TableRow>
+                  ) : visibleOrders.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={13}
+                        className="h-28 text-center text-muted-foreground"
+                      >
+                        Nenhuma venda encontrada para essa busca.
+                      </TableCell>
+                    </TableRow>
                   ) : (
-                    orders.map((order) => {
+                    visibleOrders.map((order) => {
                       const amounts = resolveProductOrderNetAmounts(
                         orderFinanceRow(order),
                       );
@@ -2016,6 +2047,9 @@ export function ProductsAdminWorkspace({
                           <p className="text-xs text-muted-foreground">
                             {order.buyerEmail}
                           </p>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <OrderBuyerWhatsApp phone={order.userPhone} />
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-muted-foreground">
                           {dateTime(order.createdAt)}
@@ -2812,6 +2846,12 @@ export function ProductsAdminWorkspace({
           </DialogHeader>
           {orderDetailTarget ? (
             <dl className="space-y-3 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">WhatsApp</dt>
+                <dd className="text-right">
+                  <OrderBuyerWhatsApp phone={orderDetailTarget.userPhone} />
+                </dd>
+              </div>
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Modelo financeiro</dt>
                 <dd className="font-mono text-xs">

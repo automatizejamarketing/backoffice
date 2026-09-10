@@ -280,6 +280,7 @@ export async function listProductOrders() {
       productTitle: productOrder.productTitleSnapshot,
       buyerName: productOrder.buyerName,
       buyerEmail: productOrder.buyerEmail,
+      userPhone: user.phone,
       priceCentavos: productOrder.priceCentavos,
       status: productOrder.status,
       approvedAt: productOrder.approvedAt,
@@ -337,6 +338,7 @@ export async function listProductOrders() {
     .from(productOrder)
     .innerJoin(product, eq(productOrder.productId, product.id))
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+    .leftJoin(user, eq(productOrder.userId, user.id))
     .orderBy(desc(productOrder.createdAt));
 }
 
