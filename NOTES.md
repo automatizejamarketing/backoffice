@@ -3,6 +3,11 @@
 - Os textos e nomes acessíveis das opções avançadas de públicos da campanha com IA foram normalizados nos dois aplicativos. A verificação de codificação agora percorre também as árvores de IA, seus endpoints e testes de feature do frontend e do backoffice.
 - O ambiente headless não possui uma conta Meta v25 autenticada nem permite abrir manualmente os dois aplicativos; a apresentação visual e a validação ao vivo das permissões continuam exigindo ensaio controlado. Nenhuma mutação autenticada foi tentada.
 
+# Ticket 33 notes
+
+- A página independente de Públicos e a biblioteca aberta nas opções avançadas da campanha com IA agora renderizam o mesmo `AudienceLibraryManager`, incluindo a jornada completa de importação de listas, com o contexto de cliente/conta do operador isolado e sem callback de seleção para a campanha.
+- O ambiente headless não possui uma conta Meta v25 autenticada nem permite abrir manualmente os dois aplicativos; a apresentação visual e a validação ao vivo das permissões continuam exigindo ensaio controlado. Nenhuma mutação autenticada foi tentada.
+
 # Ticket 29 notes
 
 - On 2026-09-10, `tests/audience-integration.test.ts` passed in both applications with a headless integrated journey: it creates fresh Instagram and website audiences through the unified primitive, creates and loads a customer list through the public import service, forms one lookalike from each origin, rereads the library, and applies the audiences to AI targeting derivations. The test also proves OR-minus-exclusions, expansion disabling, and functional preservation when options are undefined; no campaign route is called.
