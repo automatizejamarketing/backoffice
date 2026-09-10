@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clock3, LayoutDashboard, UsersRound } from "lucide-react";
+import { Clock3, LayoutDashboard, Package, UsersRound } from "lucide-react";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import {
   buildDashboardHref,
@@ -15,6 +15,7 @@ const TABS: Array<{
   { value: "visao", label: "Visão geral", icon: LayoutDashboard },
   { value: "retencao", label: "Retenção de pagantes", icon: UsersRound },
   { value: "trials", label: "Trials por dia", icon: Clock3 },
+  { value: "produtos", label: "Vendas de produtos", icon: Package },
 ];
 
 export function DashboardTabsNav({
