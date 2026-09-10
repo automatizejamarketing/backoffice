@@ -59,7 +59,6 @@ import type {
 } from "@/lib/backoffice/product-sales-dashboard";
 import {
   formatBRLFromCentavos,
-  formatFinanceDateTime,
   formatFinanceNumber,
   formatFinancePercentage,
 } from "@/lib/backoffice/finance-format";
@@ -341,6 +340,14 @@ const orderStatusLabel: Record<ProductSalesItem["orderStatus"], string> = {
   canceled: "Cancelado",
 };
 
+function formatSaleTime(iso: string) {
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  }).format(new Date(iso));
+}
+
 function saleTone(sale: ProductSalesItem): StatusTone {
   if (sale.paymentStatus === "charged_back") return "danger";
   if (sale.orderStatus === "refunded") return "neutral";
@@ -373,7 +380,7 @@ function BucketSalesSheet({
 
   return (
     <Sheet open={bucketKey !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-2xl">
+      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-4xl">
         <SheetHeader>
           <SheetTitle>Vendas · {title}</SheetTitle>
           <SheetDescription>
@@ -403,14 +410,14 @@ function BucketSalesSheet({
               <TableBody>
                 {sales.map((sale) => (
                   <TableRow key={sale.orderId}>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {formatFinanceDateTime(sale.approvedAt)}
+                    <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
+                      {formatSaleTime(sale.approvedAt)}
                     </TableCell>
-                    <TableCell className="max-w-48 truncate">
+                    <TableCell className="max-w-44 truncate" title={sale.productTitle}>
                       {sale.productTitle}
                     </TableCell>
-                    <TableCell>
-                      <div className="text-sm">{sale.buyerName}</div>
+                    <TableCell className="max-w-56">
+                      <div className="truncate text-sm">{sale.buyerName}</div>
                       <div className="truncate text-xs text-muted-foreground">
                         {sale.buyerEmail}
                       </div>
