@@ -16,6 +16,7 @@ import {
   fetchCrmKanban,
   formatRelativeDays,
   updateCrmLeadStatus,
+  type CrmDateFilters,
   type CrmKanbanResponse,
 } from "./crm-api";
 import { AccountStageBadge, ProductTags } from "./crm-badges";
@@ -54,17 +55,19 @@ function moveLead(
 export function CrmKanban({
   search,
   accountStage,
+  signup,
+  expires,
   onOpenLead,
-}: {
+}: CrmDateFilters & {
   search: string;
   accountStage?: CrmAccountStage;
   onOpenLead: (userId: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const queryKey = ["crm", "kanban", search, accountStage ?? ""] as const;
+  const queryKey = ["crm", "kanban", search, accountStage ?? "", signup ?? null, expires ?? null] as const;
   const query = useQuery({
     queryKey,
-    queryFn: () => fetchCrmKanban({ search, accountStage }),
+    queryFn: () => fetchCrmKanban({ search, accountStage, signup, expires }),
     placeholderData: (previous) => previous,
   });
   const [dragOver, setDragOver] = useState<CrmCommercialStatus | null>(null);

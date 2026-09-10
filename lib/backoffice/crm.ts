@@ -145,3 +145,26 @@ export type CrmKanbanColumn = {
 export function displayLeadName(lead: Pick<CrmLeadSummary, "name" | "companyName" | "email">) {
   return lead.name?.trim() || lead.companyName?.trim() || lead.email;
 }
+
+/** Intervalo de datas de calendário (YYYY-MM-DD), inclusivo nas duas pontas. */
+export type CrmDateRange = { from: string; to: string };
+
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+/** Só aceita as duas datas válidas; invertidas são corrigidas. */
+export function parseCrmDateRange(
+  from: unknown,
+  to: unknown,
+): CrmDateRange | undefined {
+  if (!isCalendarDate(from) || !isCalendarDate(to)) return undefined;
+  return from <= to ? { from, to } : { from: to, to: from };
+}

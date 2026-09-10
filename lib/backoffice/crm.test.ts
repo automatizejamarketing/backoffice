@@ -6,6 +6,7 @@ import {
   displayLeadName,
   isCrmCommercialStatus,
   normalizeCrmNote,
+  parseCrmDateRange,
 } from "./crm";
 
 const NOW = new Date("2026-09-10T18:00:00.000Z");
@@ -51,5 +52,14 @@ describe("displayLeadName", () => {
     expect(displayLeadName({ name: "Ana", companyName: "Burger", email: "a@b.c" })).toBe("Ana");
     expect(displayLeadName({ name: " ", companyName: "Burger", email: "a@b.c" })).toBe("Burger");
     expect(displayLeadName({ name: null, companyName: null, email: "a@b.c" })).toBe("a@b.c");
+  });
+});
+
+describe("parseCrmDateRange", () => {
+  test("aceita datas válidas, corrige ordem invertida e rejeita lixo", () => {
+    expect(parseCrmDateRange("2026-09-01", "2026-09-10")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
+    expect(parseCrmDateRange("2026-09-10", "2026-09-01")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
+    expect(parseCrmDateRange("2026-02-30", "2026-09-10")).toBeUndefined();
+    expect(parseCrmDateRange(null, "2026-09-10")).toBeUndefined();
   });
 });
