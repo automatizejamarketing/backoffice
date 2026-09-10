@@ -42,11 +42,22 @@ export {
 } from "./duplicate-campaign";
 export { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 export type { MoldRef } from "./pick-mold";
+export type { AudienceReviewAdSet } from "./plan-campaign";
 export type { MoldKind } from "./validation-rules";
 export {
   applyDemographicLimits,
+  hasAppliedDemographicLimits,
+  isDemographicLimits,
+  validateDemographicContext,
+  validateAppliedDemographicTargeting,
   type DemographicAge,
   type DemographicDerivation,
   type DemographicIssue,
   type DemographicLimits,
 } from "./demographic-limits";
+export {
+  applyAudienceInclusions,
+  validateAudienceInclusionIds,
+  type AudienceInclusionDerivation,
+  type AudienceInclusionIds,
+} from "./audience-inclusions";

@@ -120,6 +120,10 @@ export type ReviewSummary = {
     ageMax?: number;
     /** Meta's codes: 1 = male, 2 = female. Absent/empty = everyone. */
     genders?: number[];
+    /** Number of source ad sets represented when copied ad sets inherit different audience facts. */
+    inheritedDifferences?: { adSets: number; fields: string[] };
+    /** The effective targeting facts for every ad set represented by the plan. */
+    adSets?: AudienceReviewAdSet[];
   };
   schedule?: {
     mode: "continuous" | "dayparting";
@@ -133,6 +137,32 @@ export type ReviewSummary = {
   };
   identity: { pageId?: string; instagramUserId?: string };
   pixelId?: string;
+};
+
+export type AudienceReviewAdSet = {
+  index: number;
+  geo: {
+    customLocations: number;
+    cities: number;
+    regions: number;
+    countries: number;
+    locations?: Array<{ label: string; radiusKm?: number }>;
+  };
+  advantagePlus: boolean;
+  interestGroups: number;
+  customAudiences: number;
+  excludedCustomAudiences: number;
+  placements: {
+    automatic: boolean;
+    platforms?: string[];
+    facebookPositions?: string[];
+    instagramPositions?: string[];
+  };
+  ageMin?: number;
+  ageMax?: number;
+  genders?: number[];
+  ageSource: "applied" | "inherited";
+  genderSource: "applied" | "inherited";
 };
 
 /**

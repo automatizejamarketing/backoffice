@@ -16,9 +16,9 @@ function genderLabel(genders: number[] | null | undefined): string {
   if (genders == null) return "Herdado da campanha/base";
   if (genders.length === 2) return "Feminino e masculino (aplicado)";
   return genders[0] === 1
-    ? "Feminino (aplicado)"
+    ? "Masculino (aplicado)"
     : genders[0] === 2
-      ? "Masculino (aplicado)"
+      ? "Feminino (aplicado)"
       : "Sem gênero aplicado";
 }
 
@@ -27,16 +27,16 @@ export function AiDemographicLimitsEditor({ value, onChange, disabled }: Props) 
   const [ageEnabled, setAgeEnabled] = useState(value?.age != null);
   const [ageMin, setAgeMin] = useState(value?.age ? String(value.age.min) : "");
   const [ageMax, setAgeMax] = useState(value?.age ? String(value.age.max) : "");
-  const [female, setFemale] = useState(value?.genders?.includes(1) ?? false);
-  const [male, setMale] = useState(value?.genders?.includes(2) ?? false);
+  const [female, setFemale] = useState(value?.genders?.includes(2) ?? false);
+  const [male, setMale] = useState(value?.genders?.includes(1) ?? false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setAgeEnabled(value?.age != null);
     setAgeMin(value?.age ? String(value.age.min) : "");
     setAgeMax(value?.age ? String(value.age.max) : "");
-    setFemale(value?.genders?.includes(1) ?? false);
-    setMale(value?.genders?.includes(2) ?? false);
+    setFemale(value?.genders?.includes(2) ?? false);
+    setMale(value?.genders?.includes(1) ?? false);
   }, [value]);
 
   function cancel() {
@@ -45,8 +45,8 @@ export function AiDemographicLimitsEditor({ value, onChange, disabled }: Props) 
     setAgeEnabled(value?.age != null);
     setAgeMin(value?.age ? String(value.age.min) : "");
     setAgeMax(value?.age ? String(value.age.max) : "");
-    setFemale(value?.genders?.includes(1) ?? false);
-    setMale(value?.genders?.includes(2) ?? false);
+    setFemale(value?.genders?.includes(2) ?? false);
+    setMale(value?.genders?.includes(1) ?? false);
   }
 
   function apply() {
@@ -60,17 +60,17 @@ export function AiDemographicLimitsEditor({ value, onChange, disabled }: Props) 
       }
       next.age = { min, max };
     }
-    const genders = [female ? 1 : null, male ? 2 : null].filter(
+    const genders = [male ? 1 : null, female ? 2 : null].filter(
       (gender): gender is 1 | 2 => gender != null,
     );
     if (genders.length > 0) next.genders = genders;
-    onChange(next);
+    onChange(next.age != null || next.genders != null ? next : undefined);
     setError(null);
     setOpen(false);
   }
 
   function restore() {
-    onChange({ age: null, genders: null });
+    onChange(undefined);
     setAgeEnabled(false);
     setAgeMin("");
     setAgeMax("");

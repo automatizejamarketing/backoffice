@@ -22,7 +22,9 @@ export type DemographicIssue = {
   level: "adset";
   code:
     | "DEMOGRAPHIC_AGE_RANGE_INVALID"
-    | "DEMOGRAPHIC_GENDERS_INVALID";
+    | "DEMOGRAPHIC_GENDERS_INVALID"
+    | "DEMOGRAPHIC_SPECIAL_CATEGORY_INCOMPATIBLE"
+    | "DEMOGRAPHIC_TARGETING_VERIFY_FAILED";
   reason: string;
   suggestion: string;
   field: ["targeting"];
@@ -65,8 +67,169 @@ function gendersIssue(): DemographicIssue {
   };
 }
 
-function hasAppliedField(limits: DemographicLimits | undefined): boolean {
+export function hasAppliedDemographicLimits(
+  limits: DemographicLimits | undefined,
+): boolean {
   return limits?.age != null || limits?.genders != null;
+}
+
+/** Runtime boundary for JSON requests; typed callers are not a substitute for this check. */
+export function isDemographicLimits(
+  value: unknown,
+): value is DemographicLimits | undefined {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+  const limits = value as Record<string, unknown>;
+  if (limits.age !== undefined && limits.age !== null) {
+    if (!limits.age || typeof limits.age !== "object" || Array.isArray(limits.age)) {
+      return false;
+    }
+    const age = limits.age as Record<string, unknown>;
+    if (typeof age.min !== "number" || typeof age.max !== "number") return false;
+  }
+  if (limits.genders !== undefined && limits.genders !== null) {
+    if (
+      !Array.isArray(limits.genders) ||
+      limits.genders.some((gender) => typeof gender !== "number")
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+const RESTRICTED_SPECIAL_CATEGORIES = new Set([
+  "CREDIT",
+  "EMPLOYMENT",
+  "FINANCIAL_PRODUCTS_SERVICES",
+  "HOUSING",
+]);
+
+/**
+ * Restricted special-ad categories cannot accept the same hard age/gender
+ * controls as ordinary campaigns. Keep this check opt-in so an unapplied
+ * override preserves the existing flow and its payload exactly.
+ */
+export function validateDemographicContext(args: {
+  limits: DemographicLimits | undefined;
+  specialAdCategories?: readonly string[];
+}): DemographicIssue[] {
+  if (!hasAppliedDemographicLimits(args.limits)) return [];
+  if (
+    !(args.specialAdCategories ?? []).some((category) =>
+      RESTRICTED_SPECIAL_CATEGORIES.has(category),
+    )
+  ) {
+    return [];
+  }
+
+  const issues: DemographicIssue[] = [];
+  if (args.limits?.genders != null && args.limits.genders.length > 0) {
+    issues.push({
+      stage: "local",
+      level: "adset",
+      code: "DEMOGRAPHIC_SPECIAL_CATEGORY_INCOMPATIBLE",
+      reason: "A categoria especial restrita não permite limite demográfico por gênero.",
+      suggestion: "Remova o limite de gênero para publicar esta campanha.",
+      field: ["targeting"],
+    });
+  }
+  if (args.limits?.age != null && args.limits.age.min < 18) {
+    issues.push({
+      stage: "local",
+      level: "adset",
+      code: "DEMOGRAPHIC_SPECIAL_CATEGORY_INCOMPATIBLE",
+      reason: "A categoria especial restrita exige idade mínima de 18 anos.",
+      suggestion: "Defina a faixa etária a partir de 18 anos para publicar esta campanha.",
+      field: ["targeting"],
+    });
+  }
+  return issues;
+}
+
+function targetingVerificationIssue(field: string): DemographicIssue {
+  return {
+    stage: "local",
+    level: "adset",
+    code: "DEMOGRAPHIC_TARGETING_VERIFY_FAILED",
+    reason: `A segmentação efetiva retornada pela Meta não corresponde ao limite demográfico aplicado em ${field}.`,
+    suggestion: "Não ative a campanha; revise os limites e tente novamente.",
+    field: ["targeting"],
+  };
+}
+
+function isDisabled(value: unknown): boolean {
+  return value === 0 || value === false;
+}
+
+function isEnabled(value: unknown): boolean {
+  return value === 1 || value === true;
+}
+
+function sameNumbers(actual: unknown, expected: readonly number[]): boolean {
+  if (!Array.isArray(actual) || actual.length !== expected.length) return false;
+  const actualNumbers = actual.map((value) =>
+    typeof value === "number" ? value : Number(value),
+  );
+  const sortedExpected = [...expected].sort((a, b) => a - b);
+  return [...actualNumbers]
+    .sort((a, b) => a - b)
+    .every((value, index) => value === sortedExpected[index]);
+}
+
+/**
+ * Verify the hard demographic fields after Meta accepted a create or update.
+ * An undefined/null field is deliberately not checked: its current value is
+ * inherited from the path's base targeting and must remain untouched.
+ */
+export function validateAppliedDemographicTargeting(
+  targeting: Record<string, unknown> | undefined,
+  expected: DemographicLimits | undefined,
+): DemographicIssue[] {
+  if (!hasAppliedDemographicLimits(expected)) return [];
+  if (!targeting) return [targetingVerificationIssue("targeting")];
+
+  if (expected?.age != null) {
+    if (
+      Number(targeting.age_min) !== expected.age.min ||
+      Number(targeting.age_max) !== expected.age.max
+    ) {
+      return [targetingVerificationIssue("idade")];
+    }
+  }
+
+  if (expected?.genders != null && !sameNumbers(targeting.genders, expected.genders)) {
+    return [targetingVerificationIssue("gênero")];
+  }
+
+  const automation = targeting.targeting_automation;
+  const automationRecord =
+    automation && typeof automation === "object"
+      ? (automation as Record<string, unknown>)
+      : undefined;
+  const relaxation = targeting.targeting_relaxation_types;
+  const relaxationRecord =
+    relaxation && typeof relaxation === "object"
+      ? (relaxation as Record<string, unknown>)
+      : undefined;
+  const individualSetting = automationRecord?.individual_setting;
+  const individualRecord =
+    individualSetting && typeof individualSetting === "object"
+      ? (individualSetting as Record<string, unknown>)
+      : undefined;
+
+  if (
+    !isDisabled(automationRecord?.advantage_audience) ||
+    !isDisabled(relaxationRecord?.custom_audience) ||
+    !isDisabled(relaxationRecord?.lookalike) ||
+    isEnabled(individualRecord?.age) ||
+    isEnabled(individualRecord?.gender)
+  ) {
+    return [targetingVerificationIssue("expansão de público")];
+  }
+
+  return [];
 }
 
 /**
@@ -82,7 +245,7 @@ export function applyDemographicLimits(
   const issues: DemographicIssue[] = [];
 
   if (!targeting) {
-    if (!hasAppliedField(limits)) return { targeting: undefined, issues };
+    if (!hasAppliedDemographicLimits(limits)) return { targeting: undefined, issues };
     return { issues };
   }
 
@@ -120,11 +283,20 @@ export function applyDemographicLimits(
 
   if (issues.length) return { issues };
 
-  if (hasAppliedField(limits)) {
-    targeting.targeting_automation = {
+  if (hasAppliedDemographicLimits(limits)) {
+    const automation: Record<string, unknown> = {
       ...((targeting.targeting_automation as Record<string, unknown> | undefined) ?? {}),
       advantage_audience: 0,
     };
+    const individualSetting = automation.individual_setting;
+    if (individualSetting && typeof individualSetting === "object") {
+      automation.individual_setting = {
+        ...(individualSetting as Record<string, unknown>),
+        age: false,
+        gender: false,
+      };
+    }
+    targeting.targeting_automation = automation;
     targeting.targeting_relaxation_types = {
       ...((targeting.targeting_relaxation_types as Record<string, unknown> | undefined) ?? {}),
       custom_audience: 0,

@@ -48,9 +48,17 @@ import {
   needsTexts as planNeedsTexts,
   type PlanMedia,
 } from "@/lib/meta-business/marketing/ai-creation/build-tree";
-import type { MoldRef, ProvenAdRef } from "@/lib/meta-business/marketing/ai-creation";
-import type { DemographicLimits } from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
+import type {
+  MoldRef,
+  ProvenAdRef,
+  ReviewSummary,
+} from "@/lib/meta-business/marketing/ai-creation";
+import {
+  hasAppliedDemographicLimits,
+  type DemographicLimits,
+} from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
 import type { AudienceExclusionIds } from "@/lib/meta-business/marketing/ai-creation/audience-exclusions";
+import type { AudienceInclusionIds } from "@/lib/meta-business/marketing/ai-creation/audience-inclusions";
 import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-types";
 import {
   ALL_PLACEMENTS,
@@ -66,6 +74,7 @@ import {
 import { AiDemographicLimitsEditor } from "./ai-demographic-limits-editor";
 import { AiAudienceLibraryDialog } from "./ai-audience-library-dialog";
 import { AiAudienceExclusionsEditor } from "./ai-audience-exclusions-editor";
+import { AiAudienceInclusionsEditor } from "./ai-audience-inclusions-editor";
 
 type Phase =
   | "objective"
@@ -92,6 +101,35 @@ type PlanIssue = {
   message?: string;
   suggestion?: string;
 };
+
+type AudienceReviewAdSet = NonNullable<ReviewSummary["audience"]["adSets"]>[number];
+
+function audienceGeoLabel(geo: AudienceReviewAdSet["geo"]): string {
+  if (geo.locations?.length) {
+    return geo.locations
+      .map((location) =>
+        location.radiusKm != null
+          ? `${location.label} · ${location.radiusKm} km`
+          : location.label,
+      )
+      .join(" · ");
+  }
+  return [
+    geo.customLocations ? `${geo.customLocations} endereço(s)` : "",
+    geo.cities ? `${geo.cities} cidade(s)` : "",
+    geo.regions ? `${geo.regions} região(ões)` : "",
+    geo.countries ? `${geo.countries} país(es)` : "",
+  ]
+    .filter(Boolean)
+    .join(" + ") || "não especificada";
+}
+
+function audienceGenderLabel(genders: number[] | undefined): string {
+  if (genders?.includes(1) && genders.includes(2)) return "homens e mulheres";
+  if (genders?.includes(1)) return "homens";
+  if (genders?.includes(2)) return "mulheres";
+  return "não especificado";
+}
 
 const OBJECTIVE_LABEL: Record<Objective, string> = {
   sales: "Vendas",
@@ -216,6 +254,7 @@ export function AiCampaignClient() {
   const [selectedPlacements, setSelectedPlacements] = useState<PlacementKey[]>([]);
   const [demographics, setDemographics] = useState<DemographicLimits | undefined>(undefined);
   const [excludedCustomAudienceIds, setExcludedCustomAudienceIds] = useState<AudienceExclusionIds | undefined>(undefined);
+  const [includedCustomAudienceIds, setIncludedCustomAudienceIds] = useState<AudienceInclusionIds | undefined>(undefined);
   const [audienceLibraryOpen, setAudienceLibraryOpen] = useState(false);
   const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
   const [periodEnd, setPeriodEnd] = useState(() =>
@@ -224,7 +263,9 @@ export function AiCampaignClient() {
   const [periodStartTime, setPeriodStartTime] = useState("00:00");
   const [periodEndTime, setPeriodEndTime] = useState("23:59");
   const [planIssues, setPlanIssues] = useState<PlanIssue[]>([]);
+  const [plannedAudience, setPlannedAudience] = useState<ReviewSummary["audience"]>();
   const [plannedExcludedAudienceCount, setPlannedExcludedAudienceCount] = useState<number | undefined>();
+  const [plannedIncludedAudienceCount, setPlannedIncludedAudienceCount] = useState<number | undefined>();
   const [daypartingAllowed, setDaypartingAllowed] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
@@ -260,6 +301,67 @@ export function AiCampaignClient() {
       media.mediaType === "video" &&
       videoUploads[media.blobUrl]?.state !== "ready",
   );
+
+  const localAudienceReview = useMemo<ReviewSummary["audience"]>(() => {
+    const geo = {
+      customLocations: effectiveLocations.filter((location) => location.type === "custom_location").length,
+      cities: effectiveLocations.filter((location) => location.type === "city").length,
+      regions: effectiveLocations.filter((location) => location.type === "region").length,
+      countries: effectiveLocations.filter((location) => location.type === "country").length,
+      ...(effectiveLocations.length
+        ? {
+            locations: effectiveLocations.map((location) => ({
+              label: location.name,
+              ...(location.radius != null ? { radiusKm: location.radius } : {}),
+            })),
+          }
+        : {}),
+    };
+    const placements =
+      placementsMode === "automatic"
+        ? { automatic: true as const }
+        : { automatic: false as const, platforms: [...selectedPlacements] };
+    const advantagePlus =
+      !hasAppliedDemographicLimits(demographics) &&
+      !(includedCustomAudienceIds?.length);
+    const adSet = {
+      index: 0,
+      geo,
+      advantagePlus,
+      interestGroups: 0,
+      customAudiences: includedCustomAudienceIds?.length ?? 0,
+      excludedCustomAudiences: excludedCustomAudienceIds?.length ?? 0,
+      placements,
+      ...(demographics?.age
+        ? { ageMin: demographics.age.min, ageMax: demographics.age.max }
+        : {}),
+      ...(demographics?.genders?.length ? { genders: [...demographics.genders] } : {}),
+      ageSource: demographics?.age != null ? ("applied" as const) : ("inherited" as const),
+      genderSource:
+        demographics?.genders != null ? ("applied" as const) : ("inherited" as const),
+    };
+    return {
+      geo,
+      advantagePlus,
+      interestGroups: 0,
+      customAudiences: includedCustomAudienceIds?.length ?? 0,
+      excludedCustomAudiences: excludedCustomAudienceIds?.length ?? 0,
+      placements,
+      ...(demographics?.age
+        ? { ageMin: demographics.age.min, ageMax: demographics.age.max }
+        : {}),
+      ...(demographics?.genders?.length ? { genders: [...demographics.genders] } : {}),
+      adSets: [adSet],
+    };
+  }, [
+    demographics,
+    effectiveLocations,
+    excludedCustomAudienceIds,
+    includedCustomAudienceIds,
+    placementsMode,
+    selectedPlacements,
+  ]);
+  const effectiveAudienceReview = hasMold ? plannedAudience : localAudienceReview;
 
   const backHref = `/users/${userId}?tab=marketing`;
 
@@ -399,16 +501,40 @@ export function AiCampaignClient() {
     );
   }
 
-  function buildAnswers(overrides: { excludedCustomAudienceIds?: AudienceExclusionIds } = {}) {
-    const hasExcludedAudienceOverride = Object.prototype.hasOwnProperty.call(
-      overrides,
-      "excludedCustomAudienceIds",
-    );
+  function buildAnswers(
+    overrides: {
+      demographics?: DemographicLimits;
+      excludedCustomAudienceIds?: AudienceExclusionIds;
+      includedCustomAudienceIds?: AudienceInclusionIds;
+      pageId?: string | null;
+      pixelId?: string | null;
+      dailyBudget?: string;
+      placementsMode?: PlacementsMode;
+      selectedPlacements?: PlacementKey[];
+    } = {},
+  ) {
+    const hasExcludedAudienceOverride = Object.hasOwn(overrides, "excludedCustomAudienceIds");
     const effectiveExcludedCustomAudienceIds = hasExcludedAudienceOverride
       ? overrides.excludedCustomAudienceIds
       : excludedCustomAudienceIds;
+    const hasIncludedAudienceOverride = Object.hasOwn(overrides, "includedCustomAudienceIds");
+    const effectiveIncludedCustomAudienceIds = hasIncludedAudienceOverride
+      ? overrides.includedCustomAudienceIds
+      : includedCustomAudienceIds;
+    const hasDemographicOverride = Object.hasOwn(overrides, "demographics");
+    const effectiveDemographics = hasDemographicOverride
+      ? overrides.demographics
+      : demographics;
+    const effectivePixelId = Object.hasOwn(overrides, "pixelId")
+      ? overrides.pixelId
+      : pixelId;
+    const effectivePageId = Object.hasOwn(overrides, "pageId")
+      ? overrides.pageId
+      : selectedPage?.pageId;
+    const effectivePage =
+      pages.find((page) => page.pageId === effectivePageId) ?? selectedPage;
     return {
-      dailyBudget: Number(dailyBudget) || DEFAULT_DAILY_BUDGET,
+      dailyBudget: Number(overrides.dailyBudget ?? dailyBudget) || DEFAULT_DAILY_BUDGET,
       medias: planMedias,
       texts: {
         headline,
@@ -416,9 +542,9 @@ export function AiCampaignClient() {
         ctaType,
         link: promotionUrl || undefined,
       },
-      pageId: selectedPage?.pageId,
-      instagramUserId: selectedPage?.instagramBusinessAccountId,
-      pixelId: pixelId || undefined,
+      pageId: effectivePageId ?? undefined,
+      instagramUserId: effectivePage?.instagramBusinessAccountId,
+      pixelId: effectivePixelId || undefined,
       keepAdIds: hasMold ? keepAdIds : undefined,
       ...(showDeliverySchedule
         ? {
@@ -429,17 +555,33 @@ export function AiCampaignClient() {
                 : [],
           }
         : {}),
-      placementsMode,
-      ...(placementsMode === "manual" ? { selectedPlacements } : {}),
-      ...(demographics ? { demographics } : {}),
+      placementsMode: overrides.placementsMode ?? placementsMode,
+      ...((overrides.placementsMode ?? placementsMode) === "manual"
+        ? { selectedPlacements: overrides.selectedPlacements ?? selectedPlacements }
+        : {}),
+      ...(hasAppliedDemographicLimits(effectiveDemographics)
+        ? { demographics: effectiveDemographics }
+        : {}),
       ...(effectiveExcludedCustomAudienceIds !== undefined
         ? { excludedCustomAudienceIds: effectiveExcludedCustomAudienceIds }
+        : {}),
+      ...(effectiveIncludedCustomAudienceIds !== undefined
+        ? { includedCustomAudienceIds: effectiveIncludedCustomAudienceIds }
         : {}),
     };
   }
 
   async function refreshPlan(
-    overrides: { excludedCustomAudienceIds?: AudienceExclusionIds } = {},
+    overrides: {
+      demographics?: DemographicLimits;
+      excludedCustomAudienceIds?: AudienceExclusionIds;
+      includedCustomAudienceIds?: AudienceInclusionIds;
+      pageId?: string | null;
+      pixelId?: string | null;
+      dailyBudget?: string;
+      placementsMode?: PlacementsMode;
+      selectedPlacements?: PlacementKey[];
+    } = {},
   ) {
     if (!mold) return;
     try {
@@ -450,20 +592,29 @@ export function AiCampaignClient() {
       });
       const data = await res.json();
       setPlanIssues(Array.isArray(data.issues) ? data.issues : []);
+      setPlannedAudience(data.review?.audience);
       setDaypartingAllowed(data.review?.budget?.daypartingAllowed !== false);
       setPlannedExcludedAudienceCount(
         typeof data.review?.audience?.excludedCustomAudiences === "number"
           ? data.review.audience.excludedCustomAudiences
           : undefined,
       );
+      setPlannedIncludedAudienceCount(
+        typeof data.review?.audience?.customAudiences === "number"
+          ? data.review.audience.customAudiences
+          : undefined,
+      );
     } catch {
       setPlanIssues([]);
+      setPlannedAudience(undefined);
     }
   }
 
   async function scanAccount() {
     setIsBusy(true);
     setError(null);
+    setPlanIssues([]);
+    setPlannedAudience(undefined);
     setPhase("scanning");
     try {
       const res = await fetch(apiPath(accountId, userId, "scan"), {
@@ -588,6 +739,7 @@ export function AiCampaignClient() {
               placementsMode === "manual" ? selectedPlacements : undefined,
             demographics,
             excludedCustomAudienceIds,
+            includedCustomAudienceIds,
             period: {
               startTime: combineDateTime(periodStart, periodStartTime),
               endTime: combineDateTime(periodEnd, periodEndTime),
@@ -994,7 +1146,10 @@ export function AiCampaignClient() {
               <Label>Identidade</Label>
               <PageSelector
                 isLoading={isLoadingPages}
-                onSelectPage={setPageId}
+                onSelectPage={(nextPageId) => {
+                  setPageId(nextPageId);
+                  if (mold) void refreshPlan({ pageId: nextPageId });
+                }}
                 pages={pages}
                 selectedPageId={pageId}
               />
@@ -1120,15 +1275,33 @@ export function AiCampaignClient() {
             <AiPlacementsEditor
               mode={placementsMode}
               objective={objective}
-              onChange={setSelectedPlacements}
+              onChange={(nextPlacements) => {
+                setSelectedPlacements(nextPlacements);
+                if (mold) {
+                  void refreshPlan({ selectedPlacements: nextPlacements });
+                }
+              }}
               onModeChange={(mode) => {
                 setPlacementsMode(mode);
                 if (mode === "manual" && selectedPlacements.length === 0) {
-                  setSelectedPlacements(
+                  const nextPlacements =
                     objective === "followers"
                       ? [...INSTAGRAM_PLACEMENTS]
-                      : [...ALL_PLACEMENTS],
-                  );
+                      : [...ALL_PLACEMENTS];
+                  setSelectedPlacements(nextPlacements);
+                  if (mold) {
+                    void refreshPlan({
+                      placementsMode: mode,
+                      selectedPlacements: nextPlacements,
+                    });
+                  }
+                  return;
+                }
+                if (mold) {
+                  void refreshPlan({
+                    placementsMode: mode,
+                    selectedPlacements,
+                  });
                 }
               }}
               selectedPlacements={selectedPlacements}
@@ -1139,7 +1312,10 @@ export function AiCampaignClient() {
 
             <AiDemographicLimitsEditor
               value={demographics}
-              onChange={setDemographics}
+              onChange={(next) => {
+                setDemographics(next);
+                if (mold) void refreshPlan({ demographics: next });
+              }}
               disabled={isBusy}
             />
             <AiAudienceExclusionsEditor
@@ -1152,11 +1328,75 @@ export function AiCampaignClient() {
               }}
               disabled={isBusy}
             />
+            <AiAudienceInclusionsEditor
+              accountId={accountId}
+              userId={userId}
+              value={includedCustomAudienceIds}
+              onChange={(next) => {
+                setIncludedCustomAudienceIds(next);
+                if (mold) void refreshPlan({ includedCustomAudienceIds: next });
+              }}
+              disabled={isBusy}
+            />
+            {effectiveAudienceReview?.adSets?.length ? (
+              <div className="space-y-3 rounded-md border p-3" aria-live="polite">
+                <div>
+                  <p className="font-medium">Segmentação efetiva por conjunto</p>
+                  <p className="text-xs text-muted-foreground">
+                    Valores aplicados substituem somente o campo correspondente; os demais permanecem herdados.
+                  </p>
+                </div>
+                {effectiveAudienceReview.adSets.map((adSet) => (
+                  <div key={adSet.index} className="rounded border p-3 text-sm">
+                    <p className="font-medium">Conjunto {adSet.index + 1}</p>
+                    <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                      <div>
+                        <dt className="inline font-medium">Localização: </dt>
+                        <dd className="inline">{audienceGeoLabel(adSet.geo)}</dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Expansão: </dt>
+                        <dd className="inline">
+                          {adSet.advantagePlus ? "ativada (Advantage+)" : "desativada"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Idade: </dt>
+                        <dd className="inline">
+                          {adSet.ageMin != null || adSet.ageMax != null
+                            ? `${adSet.ageMin ?? 18}–${adSet.ageMax ?? 65}`
+                            : "não especificada"}{" "}
+                          ({adSet.ageSource})
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Gênero: </dt>
+                        <dd className="inline">
+                          {audienceGenderLabel(adSet.genders)} ({adSet.genderSource})
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="inline font-medium">Posicionamentos: </dt>
+                        <dd className="inline">
+                          {adSet.placements.automatic ? "automáticos (Advantage+)" : "manuais"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <p className="text-xs text-muted-foreground" aria-live="polite">
               Configuração efetiva em todos os novos conjuntos: {mold
+                ? plannedIncludedAudienceCount ?? includedCustomAudienceIds?.length ?? 0
+                : includedCustomAudienceIds?.length ?? 0} inclusão(ões) e {mold
                 ? plannedExcludedAudienceCount ?? excludedCustomAudienceIds?.length ?? 0
                 : excludedCustomAudienceIds?.length ?? 0} exclusão(ões) de públicos.
-              O Advantage+ permanece no estado herdado.
+              {includedCustomAudienceIds === undefined
+                ? "O Advantage+ permanece no estado herdado."
+                : includedCustomAudienceIds.length > 0
+                  ? "O Advantage+ e a expansÃ£o de pÃºblicos estÃ£o desativados para respeitar as inclusÃµes."
+                  : "A lista de inclusÃµes foi limpa; a expansÃ£o volta Ã  composiÃ§Ã£o da base."}
             </p>
 
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
@@ -1192,6 +1432,7 @@ export function AiCampaignClient() {
             <Button
               disabled={
                 isBusy ||
+                planIssues.length > 0 ||
                 pendingVideos ||
                 planMedias.length === 0 ||
                 (!hasMold && effectiveLocations.length === 0)

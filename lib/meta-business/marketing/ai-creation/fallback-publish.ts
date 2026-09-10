@@ -49,7 +49,19 @@ import {
   type PlanTexts,
 } from "./build-tree";
 import type { PublishResult } from "./publish-campaign";
-import { applyDemographicLimits, type DemographicLimits } from "./demographic-limits";
+import {
+  applyDemographicLimits,
+  hasAppliedDemographicLimits,
+  isDemographicLimits,
+  validateDemographicContext,
+  type DemographicLimits,
+} from "./demographic-limits";
+import {
+  applyAudienceInclusions,
+  validateAudienceInclusionIds,
+} from "./audience-inclusions";
+import { validateAudienceInclusionSelection } from "./audience-inclusions-server";
+import { verifyAudienceTargetingOnAdSets } from "./audience-targeting-verification";
 import { applyAudienceExclusions } from "./audience-exclusions";
 import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
 
@@ -92,6 +104,10 @@ export type FallbackPublishInput = {
   demographics?: DemographicLimits;
   /** Absent = no mold exclusions; [] explicitly clears the list. */
   excludedCustomAudienceIds?: string[];
+  /** Absent = no inclusion override; [] explicitly clears the list. */
+  includedCustomAudienceIds?: string[];
+  /** Special-ad categories selected for the campaign, when applicable. */
+  specialAdCategories?: string[];
 };
 
 export type FallbackConfig = {
@@ -169,7 +185,25 @@ export function fallbackIssues(
   config: FallbackConfig,
 ): CreateIssue[] {
   const issues: CreateIssue[] = [];
+  if (!isDemographicLimits(input.demographics)) {
+    issues.push(
+      localIssue(
+        "adset",
+        "DEMOGRAPHIC_PAYLOAD_INVALID",
+        "Os limites demográficos enviados não têm um formato válido.",
+        "Reabra os limites avançados e tente novamente.",
+        ["targeting"],
+      ),
+    );
+  }
   issues.push(...applyDemographicLimits({}, input.demographics).issues);
+  issues.push(
+    ...validateDemographicContext({
+      limits: input.demographics,
+      specialAdCategories: input.specialAdCategories,
+    }),
+  );
+  issues.push(...validateAudienceInclusionIds(input.includedCustomAudienceIds));
   issues.push(...applyAudienceExclusions({}, input.excludedCustomAudienceIds).issues);
 
   if (!input.dailyBudget || input.dailyBudget <= 0) {
@@ -552,6 +586,15 @@ export async function publishFallbackCampaign(args: {
   if (exclusionIssues.length) {
     return { ok: false, issues: exclusionIssues, rolledBack: false };
   }
+  const inclusionIssues = await validateAudienceInclusionSelection({
+    adAccountId,
+    accessToken,
+    customerId: input.customerId,
+    ids: input.includedCustomAudienceIds,
+  });
+  if (inclusionIssues.length) {
+    return { ok: false, issues: inclusionIssues, rolledBack: false };
+  }
 
   const campaignName = buildConventionalCampaignName(
     resolved.metaObjective,
@@ -582,8 +625,19 @@ export async function publishFallbackCampaign(args: {
       rolledBack: false,
     };
   }
-  const audienceTargeting = applyAudienceExclusions(
+  const inclusionTargeting = applyAudienceInclusions(
     demographicTargeting.targeting,
+    input.includedCustomAudienceIds,
+  );
+  if (inclusionTargeting.issues.length || !inclusionTargeting.targeting) {
+    return {
+      ok: false,
+      issues: inclusionTargeting.issues,
+      rolledBack: false,
+    };
+  }
+  const audienceTargeting = applyAudienceExclusions(
+    inclusionTargeting.targeting,
     input.excludedCustomAudienceIds,
   );
   if (audienceTargeting.issues.length || !audienceTargeting.targeting) {
@@ -617,7 +671,7 @@ export async function publishFallbackCampaign(args: {
       name: campaignName,
       objective: resolved.metaObjective,
       status: "PAUSED",
-      specialAdCategories: [],
+      specialAdCategories: input.specialAdCategories ?? [],
       lifetimeBudgetCents: flight.lifetimeCents,
       startTime: flight.startTime,
       stopTime: flight.endTime,
@@ -684,7 +738,7 @@ export async function publishFallbackCampaign(args: {
         })),
       },
     ],
-  }, { skipRemoteValidation: true });
+  }, { skipRemoteValidation: !hasAppliedDemographicLimits(input.demographics) });
 
   const published = treeToPublish(tree);
   if (!published.ok) {
@@ -695,6 +749,22 @@ export async function publishFallbackCampaign(args: {
   }
 
   try {
+    const latestInclusionIssues = await validateAudienceInclusionSelection({
+      adAccountId,
+      accessToken,
+      customerId: input.customerId,
+      ids: input.includedCustomAudienceIds,
+    });
+    if (latestInclusionIssues.length) {
+      const deleted = await deleteMetaObject(published.campaignId, accessToken);
+      if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
+      return {
+        ok: false,
+        issues: latestInclusionIssues,
+        rolledBack: deleted,
+        ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
+      };
+    }
     const latestExclusionIssues = await validateAudienceExclusionSelection({
       adAccountId,
       accessToken,
@@ -707,6 +777,27 @@ export async function publishFallbackCampaign(args: {
       return {
         ok: false,
         issues: latestExclusionIssues,
+        rolledBack: deleted,
+        ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
+      };
+    }
+    const targetingIssues = await verifyAudienceTargetingOnAdSets({
+      accessToken,
+      adSetIds: published.adSetIds,
+      expected: {
+        ...(input.demographics !== undefined
+          ? { demographics: input.demographics }
+          : {}),
+        includedCustomAudienceIds: input.includedCustomAudienceIds,
+        excludedCustomAudienceIds: input.excludedCustomAudienceIds,
+      },
+    });
+    if (targetingIssues.length) {
+      const deleted = await deleteMetaObject(published.campaignId, accessToken);
+      if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
+      return {
+        ok: false,
+        issues: targetingIssues,
         rolledBack: deleted,
         ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
       };

@@ -114,7 +114,7 @@ const cents = (n?: number): string | undefined =>
 
 /** Compile the convenience targeting object into the Meta `targeting` payload. */
 export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown> {
-  const tt: Record<string, unknown> = {};
+  const tt: Record<string, unknown> = { ...(t?.raw ?? {}) };
   tt.geo_locations = t?.geoLocations ?? { countries: ["BR"] };
   if (t?.excludedGeoLocations) tt.excluded_geo_locations = t.excludedGeoLocations;
   if (t?.ageMin != null) tt.age_min = t.ageMin;
@@ -153,7 +153,6 @@ export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown>
     tt.targeting_relaxation_types = { custom_audience: 0 };
   }
 
-  if (t?.raw) Object.assign(tt, t.raw);
   return tt;
 }
 
@@ -186,6 +185,7 @@ export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
     }),
     validateAdSetBudget({
       parentUsesCampaignBudget: Boolean(input.parentUsesCampaignBudget),
+      parentHasLifetimeBudget: Boolean(input.parentHasLifetimeBudget),
       dailyBudgetCents: input.dailyBudgetCents,
       lifetimeBudgetCents: input.lifetimeBudgetCents,
       hasEndTime: Boolean(input.endTime),
@@ -219,7 +219,23 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
   p.set("optimization_goal", input.optimizationGoal);
   p.set("billing_event", input.billingEvent ?? "IMPRESSIONS");
   p.set("status", input.status ?? "PAUSED");
-  p.set("targeting", JSON.stringify(buildTargeting(input.targeting)));
+  const compiledTargeting = buildTargeting(input.targeting);
+  const extraTargeting = input.extraFields?.targeting;
+  const targeting =
+    input.targeting &&
+    extraTargeting &&
+    typeof extraTargeting === "object" &&
+    !Array.isArray(extraTargeting)
+      ? {
+          ...(extraTargeting as Record<string, unknown>),
+          ...compiledTargeting,
+        }
+      : extraTargeting &&
+          typeof extraTargeting === "object" &&
+          !Array.isArray(extraTargeting)
+        ? (extraTargeting as Record<string, unknown>)
+        : compiledTargeting;
+  p.set("targeting", JSON.stringify(targeting));
   if (input.destinationType) p.set("destination_type", input.destinationType);
   if (input.promotedObject)
     p.set("promoted_object", JSON.stringify(input.promotedObject));
@@ -261,7 +277,12 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
     );
   }
 
-  mergeExtraFields(p, input.extraFields);
+  const extraFields = input.extraFields
+    ? Object.fromEntries(
+        Object.entries(input.extraFields).filter(([key]) => key !== "targeting"),
+      )
+    : undefined;
+  mergeExtraFields(p, extraFields);
   return p;
 }
 

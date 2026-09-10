@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyDemographicLimits,
+  validateDemographicContext,
+  validateAppliedDemographicTargeting,
   type DemographicLimits,
 } from "@/lib/meta-business/marketing/ai-creation/demographic-limits";
 
@@ -44,4 +46,60 @@ test("an incompatible demographic combination is reported before anything can ac
   const result = applyDemographicLimits({}, { age: { min: 44, max: 20 } });
   assert.equal(result.targeting, undefined);
   assert.equal(result.issues[0]?.code, "DEMOGRAPHIC_AGE_RANGE_INVALID");
+});
+
+test("hard demographic limits turn off inherited individual suggestions", () => {
+  const result = applyDemographicLimits(
+    {
+      age_min: 21,
+      age_max: 53,
+      genders: [2],
+      targeting_automation: {
+        advantage_audience: 1,
+        individual_setting: { age: true, gender: true, placement: true },
+      },
+      targeting_relaxation_types: { custom_audience: 1, lookalike: 1 },
+    },
+    { age: { min: 25, max: 44 }, genders: [1] },
+  );
+
+  assert.deepEqual(result.targeting?.targeting_automation, {
+    advantage_audience: 0,
+    individual_setting: { age: false, gender: false, placement: true },
+  });
+  assert.deepEqual(
+    validateAppliedDemographicTargeting(result.targeting, {
+      age: { min: 25, max: 44 },
+      genders: [1],
+    }),
+    [],
+  );
+});
+
+test("read-back validation refuses a demographic override that Meta relaxed", () => {
+  const issues = validateAppliedDemographicTargeting(
+    {
+      age_min: 25,
+      age_max: 44,
+      genders: [1],
+      targeting_automation: {
+        advantage_audience: 1,
+        individual_setting: { age: true, gender: false },
+      },
+      targeting_relaxation_types: { custom_audience: 1, lookalike: 1 },
+    },
+    { age: { min: 25, max: 44 }, genders: [1] },
+  );
+
+  assert.equal(issues[0]?.code, "DEMOGRAPHIC_TARGETING_VERIFY_FAILED");
+});
+
+test("restricted special categories reject incompatible applied limits", () => {
+  const issues = validateDemographicContext({
+    limits: { age: { min: 13, max: 65 }, genders: [1] },
+    specialAdCategories: ["HOUSING"],
+  });
+
+  assert.equal(issues.length, 2);
+  assert.ok(issues.every((issue) => issue.code === "DEMOGRAPHIC_SPECIAL_CATEGORY_INCOMPATIBLE"));
 });

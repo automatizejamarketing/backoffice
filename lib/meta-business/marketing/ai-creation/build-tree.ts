@@ -13,6 +13,7 @@ import type { PlacementAdaptation } from "@/lib/meta-business/creative-features"
 import type { PlacementKey } from "@/lib/meta-business/placements";
 import type { CampaignMold } from "./read-mold";
 import type { DemographicLimits } from "./demographic-limits";
+import type { AudienceInclusionIds } from "./audience-inclusions";
 
 /** What the flow suggests, and the floor it advises (ADR 0022, decision 7). */
 export const DEFAULT_DAILY_BUDGET = 30;
@@ -83,6 +84,8 @@ export type PlanAnswers = {
   demographics?: DemographicLimits;
   /** Session-only exclusions. Absent preserves a mold's exclusions; [] clears them. */
   excludedCustomAudienceIds?: string[];
+  /** Session-only inclusions. Absent preserves a mold's inclusions; [] clears them. */
+  includedCustomAudienceIds?: AudienceInclusionIds;
   /**
    * Como o Meta pode reenquadrar a mídia nos posicionamentos onde ela não cabe
    * (o quadrado servido em Stories/Reels, o vertical servido no Feed).
