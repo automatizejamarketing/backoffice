@@ -103,6 +103,14 @@ export type ReviewSummary = {
     advantagePlus: boolean;
     interestGroups: number;
     customAudiences: number;
+    /** IDs included by the effective targeting, used to identify inherited differences. */
+    includedCustomAudienceIds?: string[];
+    /** IDs excluded by the effective targeting, used to identify inherited differences. */
+    excludedCustomAudienceIds?: string[];
+    /** Included IDs remaining after exclusion precedence is applied. */
+    effectiveCustomAudiences: number;
+    /** Included IDs that also occur in the exclusion list. */
+    overlappingCustomAudiences: number;
     /** Whether the count came from an explicit inclusion override in this review. */
     includedCustomAudiencesApplied?: boolean;
     excludedCustomAudiences: number;
@@ -155,6 +163,10 @@ export type AudienceReviewAdSet = {
   advantagePlus: boolean;
   interestGroups: number;
   customAudiences: number;
+  includedCustomAudienceIds?: string[];
+  excludedCustomAudienceIds?: string[];
+  effectiveCustomAudiences: number;
+  overlappingCustomAudiences: number;
   includedCustomAudiencesApplied?: boolean;
   excludedCustomAudiences: number;
   excludedCustomAudiencesApplied?: boolean;

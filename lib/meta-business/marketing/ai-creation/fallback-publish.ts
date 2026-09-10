@@ -637,6 +637,7 @@ export async function publishFallbackCampaign(args: {
   const inclusionTargeting = applyAudienceInclusions(
     demographicTargeting.targeting,
     input.includedCustomAudienceIds,
+    { preserveManualAdvantage: hasAppliedDemographicLimits(input.demographics) },
   );
   if (inclusionTargeting.issues.length || !inclusionTargeting.targeting) {
     return {
@@ -747,7 +748,11 @@ export async function publishFallbackCampaign(args: {
         })),
       },
     ],
-  }, { skipRemoteValidation: !hasAppliedDemographicLimits(input.demographics) });
+  }, {
+    skipRemoteValidation:
+      !hasAppliedDemographicLimits(input.demographics) &&
+      input.includedCustomAudienceIds === undefined,
+  });
 
   const published = treeToPublish(tree);
   if (!published.ok) {

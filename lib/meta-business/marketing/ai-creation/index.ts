@@ -57,11 +57,13 @@ export {
 export type { AudienceReviewAdSet } from "./plan-campaign";
 export {
   applyAudienceInclusions,
+  summarizeAudienceTargeting,
   validateAppliedAudienceTargeting,
   validateAudienceInclusionIds,
   validateAudienceInclusionsAgainstLibrary,
   type AudienceInclusionDerivation,
   type AudienceInclusionIds,
+  type AudienceTargetingFacts,
   type AudienceTargetingExpectation,
 } from "./audience-inclusions";
 export {

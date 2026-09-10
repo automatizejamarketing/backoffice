@@ -50,14 +50,6 @@ export function validateAudienceInclusionIds(
   return [];
 }
 
-function hasHardDemographicLimit(targeting: Record<string, unknown>): boolean {
-  return (
-    targeting.age_min != null ||
-    targeting.age_max != null ||
-    (Array.isArray(targeting.genders) && targeting.genders.length > 0)
-  );
-}
-
 function setAudienceExpansion(
   targeting: Record<string, unknown>,
   advantageAudience: 0 | 1,
@@ -95,6 +87,36 @@ function audienceIds(value: unknown): string[] {
     }
     return [];
   });
+}
+
+function uniqueAudienceIds(ids: readonly string[]): string[] {
+  return [...new Set(ids)];
+}
+
+/** Effective audience facts shared by the fallback and proven-campaign reviews. */
+export type AudienceTargetingFacts = {
+  includedIds: string[];
+  excludedIds: string[];
+  effectiveIncludedIds: string[];
+  overlappingIds: string[];
+};
+
+export function summarizeAudienceTargeting(
+  targeting: Record<string, unknown>,
+): AudienceTargetingFacts {
+  const includedIds = uniqueAudienceIds(audienceIds(targeting.custom_audiences));
+  const excludedIds = uniqueAudienceIds(
+    audienceIds(targeting.excluded_custom_audiences),
+  );
+  const excluded = new Set(excludedIds);
+  const overlappingIds = includedIds.filter((id) => excluded.has(id));
+
+  return {
+    includedIds,
+    excludedIds,
+    effectiveIncludedIds: includedIds.filter((id) => !excluded.has(id)),
+    overlappingIds,
+  };
 }
 
 function sameAudienceIds(actual: string[], expected: readonly string[]): boolean {
@@ -240,10 +262,10 @@ export function applyAudienceInclusions(
 
   const hadIncludedAudience = audienceIds(targeting.custom_audiences).length > 0;
   delete targeting.custom_audiences;
-  if (
-    options.preserveManualAdvantage ||
-    hasHardDemographicLimit(targeting)
-  ) {
+  // Existing age/gender fields may be inherited from a mold. They are not
+  // evidence that this journey applied a hard demographic limit, so they must
+  // not keep Advantage+ disabled after the last inclusion is cleared.
+  if (options.preserveManualAdvantage) {
     setAudienceExpansion(targeting, 0);
   } else if (hadIncludedAudience) {
     setAudienceExpansion(targeting, 1);

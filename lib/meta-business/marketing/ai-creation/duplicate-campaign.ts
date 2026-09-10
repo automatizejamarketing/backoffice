@@ -48,6 +48,7 @@ import {
 import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
 import {
   applyAudienceInclusions,
+  summarizeAudienceTargeting,
   validateAudienceInclusionIds,
 } from "./audience-inclusions";
 import { validateAudienceInclusionSelection } from "./audience-inclusions-server";
@@ -449,6 +450,7 @@ function describeAudienceTargeting(
   const inclusions = applyAudienceInclusions(
     demographic.targeting ?? targeting,
     answers.includedCustomAudienceIds,
+    { preserveManualAdvantage: hasAppliedDemographicLimits(answers.demographics) },
   );
   const exclusions = applyAudienceExclusions(
     inclusions.targeting ?? demographic.targeting ?? targeting,
@@ -456,6 +458,7 @@ function describeAudienceTargeting(
   );
   const effectiveTargeting =
     exclusions.targeting ?? inclusions.targeting ?? demographic.targeting ?? targeting;
+  const audienceFacts = summarizeAudienceTargeting(effectiveTargeting);
   const geo = (effectiveTargeting.geo_locations ?? {}) as Record<string, unknown>;
   const automation = (effectiveTargeting.targeting_automation ?? {}) as { advantage_audience?: number };
   const genders = (effectiveTargeting.genders ?? []) as number[];
@@ -489,11 +492,15 @@ function describeAudienceTargeting(
     },
     advantagePlus: automation.advantage_audience === 1,
     interestGroups: count(effectiveTargeting.flexible_spec),
-    customAudiences: count(effectiveTargeting.custom_audiences),
+    customAudiences: audienceFacts.includedIds.length,
+    includedCustomAudienceIds: audienceFacts.includedIds,
+    excludedCustomAudienceIds: audienceFacts.excludedIds,
+    effectiveCustomAudiences: audienceFacts.effectiveIncludedIds.length,
+    overlappingCustomAudiences: audienceFacts.overlappingIds.length,
     ...(answers.includedCustomAudienceIds !== undefined
       ? { includedCustomAudiencesApplied: true }
       : {}),
-    excludedCustomAudiences: count(effectiveTargeting.excluded_custom_audiences),
+    excludedCustomAudiences: audienceFacts.excludedIds.length,
     ...(answers.excludedCustomAudienceIds !== undefined
       ? { excludedCustomAudiencesApplied: true }
       : {}),
@@ -545,9 +552,22 @@ function describeAudience(
     "genders",
     ...(answers.placementsMode == null ? ["placements"] : []),
   ].filter((field) => {
-    const values = descriptions.map((description) =>
-      JSON.stringify(description[field as keyof typeof description]),
-    );
+    const values = descriptions.map((description) => {
+      if (field === "customAudiences") {
+        return JSON.stringify({
+          ids: description.includedCustomAudienceIds,
+          count: description.customAudiences,
+          effective: description.effectiveCustomAudiences,
+        });
+      }
+      if (field === "excludedCustomAudiences") {
+        return JSON.stringify({
+          ids: description.excludedCustomAudienceIds,
+          count: description.excludedCustomAudiences,
+        });
+      }
+      return JSON.stringify(description[field as keyof typeof description]);
+    });
     return values.some((value) => value !== values[0]);
   });
 
@@ -792,6 +812,11 @@ async function applyAudienceInclusionOverride(args: {
     const derived = applyAudienceInclusions(
       (snapshot.targeting ?? {}) as Record<string, unknown>,
       args.answers.includedCustomAudienceIds,
+      {
+        preserveManualAdvantage: hasAppliedDemographicLimits(
+          args.answers.demographics,
+        ),
+      },
     );
     if (derived.issues.length || !derived.targeting) {
       throw new AudienceInclusionApplicationError(derived.issues);

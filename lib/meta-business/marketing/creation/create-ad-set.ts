@@ -112,6 +112,46 @@ export type CreateAdSetInput = {
 const cents = (n?: number): string | undefined =>
   n != null ? String(Math.round(n)) : undefined;
 
+/**
+ * Included audiences are hard constraints. Keep this last in the compiler so
+ * raw targeting and extraFields cannot turn the reviewed selection back into
+ * an expandable Advantage+ suggestion.
+ */
+function enforceIncludedAudienceRestriction(
+  targeting: Record<string, unknown>,
+): void {
+  const included = targeting.custom_audiences;
+  if (!Array.isArray(included) || included.length === 0) return;
+
+  const automation =
+    targeting.targeting_automation &&
+    typeof targeting.targeting_automation === "object"
+      ? (targeting.targeting_automation as Record<string, unknown>)
+      : {};
+  if (automation.individual_setting && typeof automation.individual_setting === "object") {
+    automation.individual_setting = {
+      ...(automation.individual_setting as Record<string, unknown>),
+      age: false,
+      gender: false,
+    };
+  }
+  targeting.targeting_automation = {
+    ...automation,
+    advantage_audience: 0,
+  };
+
+  const relaxation =
+    targeting.targeting_relaxation_types &&
+    typeof targeting.targeting_relaxation_types === "object"
+      ? (targeting.targeting_relaxation_types as Record<string, unknown>)
+      : {};
+  targeting.targeting_relaxation_types = {
+    ...relaxation,
+    custom_audience: 0,
+    lookalike: 0,
+  };
+}
+
 /** Compile the convenience targeting object into the Meta `targeting` payload. */
 export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown> {
   const tt: Record<string, unknown> = { ...(t?.raw ?? {}) };
@@ -210,6 +250,8 @@ export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown>
     };
   }
 
+  enforceIncludedAudienceRestriction(tt);
+
   return tt;
 }
 
@@ -292,6 +334,7 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
           !Array.isArray(extraTargeting)
         ? (extraTargeting as Record<string, unknown>)
         : compiledTargeting;
+  enforceIncludedAudienceRestriction(targeting);
   p.set("targeting", JSON.stringify(targeting));
   if (input.destinationType) p.set("destination_type", input.destinationType);
   if (input.promotedObject)
