@@ -63,6 +63,21 @@ import {
   WHATSAPP_OPTIMIZATION_GOAL,
   type WhatsappWelcomeMessage,
 } from "../creation/whatsapp-destination";
+import {
+  applyDemographicLimits,
+  hasAppliedDemographicLimits,
+  isDemographicLimits,
+  validateDemographicContext,
+  type DemographicLimits,
+} from "./demographic-limits";
+import { applyAudienceExclusions } from "./audience-exclusions";
+import { validateAudienceExclusionSelection } from "./audience-validation";
+import {
+  applyAudienceInclusions,
+  validateAudienceInclusionIds,
+} from "./audience-inclusions";
+import { validateAudienceInclusionSelection } from "./audience-validation";
+import { verifyAudienceTargetingOnAdSets } from "./audience-targeting-verification";
 
 export type FallbackNiche =
   | "food_service"
@@ -85,6 +100,7 @@ export type FallbackPeriod = {
 };
 
 export type FallbackPublishInput = {
+  customerId?: string;
   niche: FallbackNiche;
   objective: FallbackObjective;
   dailyBudget: number;
@@ -106,6 +122,13 @@ export type FallbackPublishInput = {
   selectedPlacements?: PlacementKey[];
   /** Click-to-WhatsApp greeting. Ignored by every other objective. */
   whatsappWelcome?: WhatsappWelcomeMessage;
+  demographics?: DemographicLimits;
+  /** Absent = no mold inclusions; [] explicitly clears the list. */
+  includedCustomAudienceIds?: string[];
+  /** Absent = no mold exclusions; [] explicitly clears the list. */
+  excludedCustomAudienceIds?: string[];
+  /** Special-ad categories selected for the campaign, when applicable. */
+  specialAdCategories?: string[];
 };
 
 export type FallbackConfig = {
@@ -114,6 +137,11 @@ export type FallbackConfig = {
     | "OUTCOME_TRAFFIC"
     | "OUTCOME_LEADS"
     | typeof WHATSAPP_CAMPAIGN_OBJECTIVE;
+  optimizationGoal:
+    | "OFFSITE_CONVERSIONS"
+    | "VISIT_INSTAGRAM_PROFILE"
+    | "LEAD_GENERATION"
+    | typeof WHATSAPP_OPTIMIZATION_GOAL;
   requiresPixel: boolean;
   requiresPromotionUrl: boolean;
   requiresInstagram: boolean;
@@ -145,6 +173,7 @@ export function resolveFallbackConfig(
       normalizedNiche === "food_service" || normalizedNiche === "outros";
     return {
       metaObjective: "OUTCOME_SALES",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
       requiresPixel: true,
       requiresPromotionUrl: true,
       requiresInstagram: false,
@@ -161,6 +190,7 @@ export function resolveFallbackConfig(
     }
     return {
       metaObjective: WHATSAPP_CAMPAIGN_OBJECTIVE,
+      optimizationGoal: WHATSAPP_OPTIMIZATION_GOAL,
       requiresPixel: false,
       requiresPromotionUrl: false,
       requiresInstagram: false,
@@ -175,6 +205,7 @@ export function resolveFallbackConfig(
   if (objective === "followers") {
     return {
       metaObjective: "OUTCOME_TRAFFIC",
+      optimizationGoal: "VISIT_INSTAGRAM_PROFILE",
       requiresPixel: false,
       requiresPromotionUrl: false,
       requiresInstagram: true,
@@ -195,6 +226,7 @@ export function resolveFallbackConfig(
 
   return {
     metaObjective: "OUTCOME_LEADS",
+    optimizationGoal: "LEAD_GENERATION",
     requiresPixel: false,
     requiresPromotionUrl: false,
     requiresInstagram: false,
@@ -208,6 +240,28 @@ export function fallbackIssues(
   config: FallbackConfig,
 ): CreateIssue[] {
   const issues: CreateIssue[] = [];
+  if (!isDemographicLimits(input.demographics)) {
+    issues.push(
+      localIssue(
+        "adset",
+        "DEMOGRAPHIC_PAYLOAD_INVALID",
+        "Os limites demográficos enviados não têm um formato válido.",
+        "Reabra os limites avançados e tente novamente.",
+        ["targeting"],
+      ),
+    );
+  }
+  issues.push(
+    ...validateDemographicContext({
+      limits: input.demographics,
+      objective: config.metaObjective,
+      optimizationGoal: config.optimizationGoal,
+      specialAdCategories: input.specialAdCategories,
+    }),
+  );
+  issues.push(...applyDemographicLimits({}, input.demographics).issues);
+  issues.push(...validateAudienceInclusionIds(input.includedCustomAudienceIds));
+  issues.push(...applyAudienceExclusions({}, input.excludedCustomAudienceIds).issues);
 
   if (!input.dailyBudget || input.dailyBudget <= 0) {
     issues.push(
@@ -637,6 +691,25 @@ export async function publishFallbackCampaign(args: {
     }
   }
 
+  const exclusionIssues = await validateAudienceExclusionSelection({
+    adAccountId,
+    accessToken,
+    customerId: input.customerId,
+    ids: input.excludedCustomAudienceIds,
+  });
+  if (exclusionIssues.length) {
+    return { ok: false, issues: exclusionIssues, rolledBack: false };
+  }
+  const inclusionIssues = await validateAudienceInclusionSelection({
+    adAccountId,
+    accessToken,
+    customerId: input.customerId,
+    ids: input.includedCustomAudienceIds,
+  });
+  if (inclusionIssues.length) {
+    return { ok: false, issues: inclusionIssues, rolledBack: false };
+  }
+
   const campaignName = buildConventionalCampaignName(
     resolved.metaObjective,
     input.niche,
@@ -652,6 +725,44 @@ export async function publishFallbackCampaign(args: {
     (input.scheduleBlocks?.length ?? 0) > 0;
 
   const placementFields = resolvePlacementFields(input, resolved);
+  const demographicTargeting = applyDemographicLimits(
+    {
+      geo_locations: geoLocations,
+      targeting_automation: { advantage_audience: 1 },
+      ...placementFields,
+    },
+    input.demographics,
+  );
+  if (demographicTargeting.issues.length || !demographicTargeting.targeting) {
+    return {
+      ok: false,
+      issues: demographicTargeting.issues,
+      rolledBack: false,
+    };
+  }
+  const inclusionTargeting = applyAudienceInclusions(
+    demographicTargeting.targeting,
+    input.includedCustomAudienceIds,
+    { preserveManualAdvantage: hasAppliedDemographicLimits(input.demographics) },
+  );
+  if (inclusionTargeting.issues.length || !inclusionTargeting.targeting) {
+    return {
+      ok: false,
+      issues: inclusionTargeting.issues,
+      rolledBack: false,
+    };
+  }
+  const audienceTargeting = applyAudienceExclusions(
+    inclusionTargeting.targeting,
+    input.excludedCustomAudienceIds,
+  );
+  if (audienceTargeting.issues.length || !audienceTargeting.targeting) {
+    return {
+      ok: false,
+      issues: audienceTargeting.issues,
+      rolledBack: false,
+    };
+  }
 
   let leadFormId: string | undefined;
   if (resolved.metaObjective === "OUTCOME_LEADS") {
@@ -679,7 +790,7 @@ export async function publishFallbackCampaign(args: {
       name: campaignName,
       objective: resolved.metaObjective,
       status: "PAUSED",
-      specialAdCategories: [],
+      specialAdCategories: input.specialAdCategories ?? [],
       lifetimeBudgetCents: flight.lifetimeCents,
       startTime: flight.startTime,
       stopTime: flight.endTime,
@@ -732,11 +843,7 @@ export async function publishFallbackCampaign(args: {
               }
             : {}),
           extraFields: {
-            targeting: {
-              geo_locations: geoLocations,
-              targeting_automation: { advantage_audience: 1 },
-              ...placementFields,
-            },
+            targeting: audienceTargeting.targeting,
           },
         },
         ads: input.media.map((media, index) => ({
@@ -754,7 +861,11 @@ export async function publishFallbackCampaign(args: {
         })),
       },
     ],
-  }, { skipRemoteValidation: true });
+  }, {
+    skipRemoteValidation:
+      !hasAppliedDemographicLimits(input.demographics) &&
+      input.includedCustomAudienceIds === undefined,
+  });
 
   const published = treeToPublish(tree);
   if (!published.ok) {
@@ -765,6 +876,51 @@ export async function publishFallbackCampaign(args: {
   }
 
   try {
+    const latestInclusionIssues = await validateAudienceInclusionSelection({
+      adAccountId,
+      accessToken,
+      customerId: input.customerId,
+      ids: input.includedCustomAudienceIds,
+    });
+    const latestExclusionIssues = await validateAudienceExclusionSelection({
+      adAccountId,
+      accessToken,
+      customerId: input.customerId,
+      ids: input.excludedCustomAudienceIds,
+    });
+    const targetingVerificationIssues = await verifyAudienceTargetingOnAdSets({
+      accessToken,
+      adSetIds: published.adSetIds,
+      expected: {
+        ...(hasAppliedDemographicLimits(input.demographics)
+          ? { demographics: input.demographics }
+          : {}),
+        ...(input.includedCustomAudienceIds !== undefined
+          ? { includedCustomAudienceIds: input.includedCustomAudienceIds }
+          : {}),
+        ...(input.excludedCustomAudienceIds !== undefined
+          ? { excludedCustomAudienceIds: input.excludedCustomAudienceIds }
+          : {}),
+      },
+    });
+    if (
+      latestInclusionIssues.length ||
+      latestExclusionIssues.length ||
+      targetingVerificationIssues.length
+    ) {
+      const deleted = await deleteMetaObject(published.campaignId, accessToken);
+      if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
+      return {
+        ok: false,
+        issues: [
+          ...latestInclusionIssues,
+          ...latestExclusionIssues,
+          ...targetingVerificationIssues,
+        ],
+        rolledBack: deleted,
+        ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
+      };
+    }
     await activateTree({
       accessToken,
       campaignId: published.campaignId,

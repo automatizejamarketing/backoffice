@@ -6,6 +6,7 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { checkAudienceSelectionAvailability } from "@/lib/meta-business/marketing/audiences/selection-guard";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
 import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
 import { buildInternalChangeEvent } from "@/lib/meta-tracking/internal-change-event";
@@ -323,6 +324,32 @@ export async function PATCH(
         "fields=id,name,daily_budget,lifetime_budget,start_time,end_time,campaign_id,pacing_type,adset_schedule,targeting,promoted_object",
       accessToken,
     });
+
+    const effectiveTargeting = {
+      ...(currentAdSet.targeting ?? {}),
+      ...(targeting ?? {}),
+    };
+    const selectionCheck = await checkAudienceSelectionAvailability({
+      customerId: userId,
+      adAccountId: accountId,
+      includedAudienceIds: effectiveTargeting.custom_audiences
+        ?.map((audience) => audience.id)
+        .filter((id): id is string => Boolean(id)),
+      excludedAudienceIds: effectiveTargeting.excluded_custom_audiences
+        ?.map((audience) => audience.id)
+        .filter((id): id is string => Boolean(id)),
+    });
+    if (!selectionCheck.ok) {
+      return NextResponse.json(
+        {
+          error: "AUDIENCE_IMPORT_COMPROMISED",
+          message: "A seleção contém um público com importação parcial ou incerta.",
+          solution: selectionCheck.blocked[0]?.solution,
+          blocked: selectionCheck.blocked,
+        },
+        { status: 409 },
+      );
+    }
 
     const previousDailyBudget = currentAdSet.daily_budget ?? null;
     const previousLifetimeBudget = currentAdSet.lifetime_budget ?? null;
