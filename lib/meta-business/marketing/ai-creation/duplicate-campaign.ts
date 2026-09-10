@@ -494,6 +494,9 @@ function describeAudienceTargeting(
       ? { includedCustomAudiencesApplied: true }
       : {}),
     excludedCustomAudiences: count(effectiveTargeting.excluded_custom_audiences),
+    ...(answers.excludedCustomAudienceIds !== undefined
+      ? { excludedCustomAudiencesApplied: true }
+      : {}),
     placements,
     ...(typeof effectiveTargeting.age_min === "number"
       ? { ageMin: effectiveTargeting.age_min }

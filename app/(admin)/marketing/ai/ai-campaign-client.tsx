@@ -1362,11 +1362,15 @@ export function AiCampaignClient() {
                       </div>
                       <div>
                         <dt className="inline font-medium">Públicos personalizados: </dt>
-                        <dd className="inline">{adSet.customAudiences}</dd>
+                        <dd className="inline">
+                          {adSet.customAudiences} ({adSet.includedCustomAudiencesApplied ? "aplicado" : "herdado"})
+                        </dd>
                       </div>
                       <div>
                         <dt className="inline font-medium">Públicos excluídos: </dt>
-                        <dd className="inline">{adSet.excludedCustomAudiences}</dd>
+                        <dd className="inline">
+                          {adSet.excludedCustomAudiences} ({adSet.excludedCustomAudiencesApplied ? "aplicado" : "herdado"})
+                        </dd>
                       </div>
                       <div>
                         <dt className="inline font-medium">Idade: </dt>

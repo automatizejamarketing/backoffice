@@ -106,6 +106,8 @@ export type ReviewSummary = {
     /** Whether the count came from an explicit inclusion override in this review. */
     includedCustomAudiencesApplied?: boolean;
     excludedCustomAudiences: number;
+    /** Whether the count came from an explicit exclusion override in this review. */
+    excludedCustomAudiencesApplied?: boolean;
     /** Number of source ad sets represented when inherited targeting differs. */
     inheritedDifferences?: { adSets: number; fields: string[] };
     placements: {
@@ -153,7 +155,9 @@ export type AudienceReviewAdSet = {
   advantagePlus: boolean;
   interestGroups: number;
   customAudiences: number;
+  includedCustomAudiencesApplied?: boolean;
   excludedCustomAudiences: number;
+  excludedCustomAudiencesApplied?: boolean;
   placements: {
     automatic: boolean;
     platforms?: string[];

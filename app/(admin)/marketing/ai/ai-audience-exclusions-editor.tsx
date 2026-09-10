@@ -50,7 +50,7 @@ async function loadLibrary(
   let after: string | undefined;
   const seenCursors = new Set<string>();
 
-  for (let page = 0; page < 20; page += 1) {
+  while (true) {
     const params = new URLSearchParams({ userId, detailed: "1" });
     if (after) params.set("after", after);
     const response = await fetch(
@@ -64,7 +64,7 @@ async function loadLibrary(
     }
     audiences.push(...(body.audiences ?? []));
     if (!body.hasNextPage) return audiences;
-    if (!body.nextCursor || seenCursors.has(body.nextCursor) || page === 19) {
+    if (!body.nextCursor || seenCursors.has(body.nextCursor)) {
       throw new Error("A biblioteca de públicos não pôde ser carregada por completo.");
     }
     seenCursors.add(body.nextCursor);
@@ -188,9 +188,36 @@ export function AiAudienceExclusionsEditor({
             );
           })}
           {missingIds.length ? (
-            <p className="text-xs text-destructive" role="alert">
-              {missingIds.length} exclusão(ões) aplicada(s) não está(ão) mais nesta página. Atualize a biblioteca antes de publicar.
-            </p>
+            <div className="space-y-2" role="alert">
+              <p className="text-xs text-destructive">
+                Estas referências não estão acessíveis nesta conta. Atualize a biblioteca e remova ou troque cada uma antes de publicar.
+              </p>
+              {missingIds.map((id) => {
+                const checkboxId = "exclude-missing-" + id;
+                return (
+                  <div key={id} className="flex items-start gap-3 rounded-md border border-destructive/50 p-3">
+                    <input
+                      aria-label={"Remover exclusão " + id}
+                      checked={draftIds.includes(id)}
+                      className="mt-1 size-4 shrink-0 accent-primary"
+                      disabled={disabled}
+                      onChange={(event) => toggle(id, event.target.checked)}
+                      id={checkboxId}
+                      type="checkbox"
+                    />
+                    <div className="min-w-0 space-y-1">
+                      <Label className="cursor-pointer" htmlFor={checkboxId}>
+                        Referência indisponível
+                      </Label>
+                      <p className="font-mono text-xs text-muted-foreground">{id}</p>
+                      <p className="text-xs text-destructive">
+                        Atualize, corrija, troque ou remova este público antes de publicar.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : null}
           {audiences.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nenhum público acessível nesta conta.</p>
