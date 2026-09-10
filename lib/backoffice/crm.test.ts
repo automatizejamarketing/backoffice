@@ -6,6 +6,7 @@ import {
   displayLeadName,
   isCrmCommercialStatus,
   normalizeCrmNote,
+  parseCrmDateRange,
 } from "./crm";
 
 const NOW = new Date("2026-09-10T18:00:00.000Z");
@@ -20,9 +21,24 @@ describe("deriveAccountStage", () => {
     const future = "2026-09-20T00:00:00.000Z";
     const past = "2026-09-01T00:00:00.000Z";
     expect(deriveAccountStage({ expirationDate: future, hasApprovedPayment: false }, NOW)).toBe("trial_ativo");
+    expect(deriveAccountStage({ expirationDate: future, hasApprovedPayment: false, subscriptionStatus: "trialing" }, NOW)).toBe("trial_ativo");
     expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false }, NOW)).toBe("trial_vencido");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "trialing" }, NOW)).toBe("trial_vencido");
     expect(deriveAccountStage({ expirationDate: new Date(future), hasApprovedPayment: true }, NOW)).toBe("assinante_ativo");
-    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: true }, NOW)).toBe("assinante_vencido");
+  });
+
+  test("assinatura cancelada é cancelado, mesmo com acesso vigente", () => {
+    const future = "2026-09-20T00:00:00.000Z";
+    const past = "2026-09-01T00:00:00.000Z";
+    expect(deriveAccountStage({ expirationDate: future, hasApprovedPayment: true, subscriptionStatus: "canceled" }, NOW)).toBe("cancelado");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "canceled" }, NOW)).toBe("cancelado");
+  });
+
+  test("acesso vencido de quem pagou ou passou do trial é expirado", () => {
+    const past = "2026-09-01T00:00:00.000Z";
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: true }, NOW)).toBe("expirado");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "past_due" }, NOW)).toBe("expirado");
+    expect(deriveAccountStage({ expirationDate: past, hasApprovedPayment: false, subscriptionStatus: "incomplete_expired" }, NOW)).toBe("expirado");
   });
 });
 
@@ -51,5 +67,14 @@ describe("displayLeadName", () => {
     expect(displayLeadName({ name: "Ana", companyName: "Burger", email: "a@b.c" })).toBe("Ana");
     expect(displayLeadName({ name: " ", companyName: "Burger", email: "a@b.c" })).toBe("Burger");
     expect(displayLeadName({ name: null, companyName: null, email: "a@b.c" })).toBe("a@b.c");
+  });
+});
+
+describe("parseCrmDateRange", () => {
+  test("aceita datas válidas, corrige ordem invertida e rejeita lixo", () => {
+    expect(parseCrmDateRange("2026-09-01", "2026-09-10")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
+    expect(parseCrmDateRange("2026-09-10", "2026-09-01")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
+    expect(parseCrmDateRange("2026-02-30", "2026-09-10")).toBeUndefined();
+    expect(parseCrmDateRange(null, "2026-09-10")).toBeUndefined();
   });
 });

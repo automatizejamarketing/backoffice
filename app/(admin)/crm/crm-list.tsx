@@ -19,7 +19,7 @@ import {
   type CrmCommercialStatus,
 } from "@/lib/backoffice/crm";
 import { cn } from "@/lib/utils";
-import { fetchCrmList, formatRelativeDays } from "./crm-api";
+import { fetchCrmList, formatRelativeDays, type CrmDateFilters } from "./crm-api";
 import { AccountStageBadge, CommercialStatusBadge, ProductTags } from "./crm-badges";
 
 const PAGE_SIZE = 25;
@@ -28,15 +28,17 @@ export function CrmList({
   search,
   accountStage,
   commercialStatus,
+  signup,
+  expires,
   onOpenLead,
-}: {
+}: CrmDateFilters & {
   search: string;
   accountStage?: CrmAccountStage;
   commercialStatus?: CrmCommercialStatus;
   onOpenLead: (userId: string) => void;
 }) {
   const [page, setPage] = useState(1);
-  const filtersKey = `${search}|${accountStage ?? ""}|${commercialStatus ?? ""}`;
+  const filtersKey = `${search}|${accountStage ?? ""}|${commercialStatus ?? ""}|${signup?.from ?? ""}-${signup?.to ?? ""}|${expires?.from ?? ""}-${expires?.to ?? ""}`;
   const [lastFiltersKey, setLastFiltersKey] = useState(filtersKey);
   if (filtersKey !== lastFiltersKey) {
     setLastFiltersKey(filtersKey);
@@ -44,9 +46,9 @@ export function CrmList({
   }
 
   const query = useQuery({
-    queryKey: ["crm", "list", search, accountStage ?? "", commercialStatus ?? "", page],
+    queryKey: ["crm", "list", search, accountStage ?? "", commercialStatus ?? "", signup ?? null, expires ?? null, page],
     queryFn: () =>
-      fetchCrmList({ search, accountStage, commercialStatus, page, pageSize: PAGE_SIZE }),
+      fetchCrmList({ search, accountStage, commercialStatus, signup, expires, page, pageSize: PAGE_SIZE }),
     placeholderData: (previous) => previous,
   });
 

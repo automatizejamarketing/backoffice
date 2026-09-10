@@ -61,7 +61,8 @@ export const CRM_ACCOUNT_STAGE_VALUES = [
   "trial_ativo",
   "trial_vencido",
   "assinante_ativo",
-  "assinante_vencido",
+  "expirado",
+  "cancelado",
 ] as const;
 
 export type CrmAccountStage = (typeof CRM_ACCOUNT_STAGE_VALUES)[number];
@@ -74,27 +75,42 @@ export const CRM_ACCOUNT_STAGE_META: Record<
   trial_ativo: { label: "Em trial", tone: "warning" },
   trial_vencido: { label: "Trial vencido", tone: "danger" },
   assinante_ativo: { label: "Assinante", tone: "success" },
-  assinante_vencido: { label: "Assinatura vencida", tone: "danger" },
+  expirado: { label: "Expirado", tone: "danger" },
+  cancelado: { label: "Cancelado", tone: "danger" },
 };
 
 export function isCrmAccountStage(value: unknown): value is CrmAccountStage {
   return CRM_ACCOUNT_STAGE_VALUES.includes(value as CrmAccountStage);
 }
 
+/**
+ * Estágio da conta a partir do acesso (expiration_date), do histórico de
+ * pagamento e da última assinatura registrada:
+ * - cancelado: a última assinatura foi cancelada, com ou sem acesso vigente;
+ * - expirado: acesso vencido de quem pagou ou de quem teve assinatura que
+ *   passou do trial (past_due, incomplete_expired, active...);
+ * - trial vencido: acesso vencido de quem nunca pagou e nunca passou do trial.
+ */
 export function deriveAccountStage(
   input: {
     expirationDate: Date | string | null | undefined;
     hasApprovedPayment: boolean;
+    /** Status da última assinatura (Stripe) ou null se nunca teve. */
+    subscriptionStatus?: string | null;
   },
   now: Date = new Date(),
 ): CrmAccountStage {
   if (!input.expirationDate) return "sem_trial";
+  const subscriptionStatus = input.subscriptionStatus ?? null;
+  if (subscriptionStatus === "canceled") return "cancelado";
   const expiresAt = new Date(input.expirationDate);
   const active = expiresAt.getTime() > now.getTime();
-  if (input.hasApprovedPayment) {
-    return active ? "assinante_ativo" : "assinante_vencido";
+  if (active) {
+    return input.hasApprovedPayment ? "assinante_ativo" : "trial_ativo";
   }
-  return active ? "trial_ativo" : "trial_vencido";
+  const passedTrial =
+    subscriptionStatus !== null && subscriptionStatus !== "trialing";
+  return input.hasApprovedPayment || passedTrial ? "expirado" : "trial_vencido";
 }
 
 export const CRM_NOTE_MAX_LENGTH = 4_000;
@@ -144,4 +160,27 @@ export type CrmKanbanColumn = {
 
 export function displayLeadName(lead: Pick<CrmLeadSummary, "name" | "companyName" | "email">) {
   return lead.name?.trim() || lead.companyName?.trim() || lead.email;
+}
+
+/** Intervalo de datas de calendário (YYYY-MM-DD), inclusivo nas duas pontas. */
+export type CrmDateRange = { from: string; to: string };
+
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
+}
+
+/** Só aceita as duas datas válidas; invertidas são corrigidas. */
+export function parseCrmDateRange(
+  from: unknown,
+  to: unknown,
+): CrmDateRange | undefined {
+  if (!isCalendarDate(from) || !isCalendarDate(to)) return undefined;
+  return from <= to ? { from, to } : { from: to, to: from };
 }

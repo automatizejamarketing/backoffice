@@ -1,4 +1,5 @@
-import { and, count, desc, eq, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import {
   CRM_COMMERCIAL_STATUS_VALUES,
@@ -10,8 +11,13 @@ import {
 import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
 import {
+  brtStartOfCalendarDate,
+  shiftCalendarDate,
+} from "@/lib/backoffice/dashboard-date-range";
+import {
   deriveAccountStage,
   type CrmAccountStage,
+  type CrmDateRange,
   type CrmKanbanColumn,
   type CrmLeadEventView,
   type CrmLeadSummary,
@@ -27,6 +33,13 @@ const hasApprovedPaymentSql = sql<boolean>`exists (
   where p.user_id = ${user.id}
     and p.status = 'succeeded'
     and ${billingPaymentPurposeSql()}
+)`;
+
+/** Status da última assinatura registrada para o usuário (null se nunca teve). */
+const lastSubscriptionStatusSql = sql<string | null>`(
+  select s.status from subscriptions s
+  where s.user_id = ${user.id}
+  order by s.created_at desc limit 1
 )`;
 
 const leadColumns = {
@@ -49,6 +62,7 @@ const leadColumns = {
     where umc.user_id = ${user.id}
   )`,
   hasApprovedPayment: hasApprovedPaymentSql,
+  subscriptionStatus: lastSubscriptionStatusSql,
   commercialStatus: commercialStatusSql,
   statusChangedAt: crmLead.statusChangedAt,
   statusChangedBy: crmLead.statusChangedBy,
@@ -86,6 +100,7 @@ type LeadRow = {
   companyName: string | null;
   consultantName: string | null;
   hasApprovedPayment: boolean;
+  subscriptionStatus: string | null;
   commercialStatus: CrmCommercialStatus;
   statusChangedAt: Date | null;
   statusChangedBy: string | null;
@@ -128,28 +143,47 @@ function toSummary(row: LeadRow, now: Date): CrmLeadSummary {
   };
 }
 
+/** Espelho SQL de deriveAccountStage; os dois precisam mudar juntos. */
 function accountStageCondition(stage: CrmAccountStage): SQL {
+  const hasAccessDate = sql`${user.expirationDate} is not null`;
   const active = sql`${user.expirationDate} > now()`;
   const expired = sql`${user.expirationDate} <= now()`;
+  const canceled = sql`${lastSubscriptionStatusSql} = 'canceled'`;
+  const notCanceled = sql`coalesce(${lastSubscriptionStatusSql}, '') <> 'canceled'`;
+  const passedTrial = sql`coalesce(${lastSubscriptionStatusSql}, 'trialing') <> 'trialing'`;
   switch (stage) {
     case "sem_trial":
       return sql`${user.expirationDate} is null`;
+    case "cancelado":
+      return sql`${hasAccessDate} and ${canceled}`;
     case "trial_ativo":
-      return sql`${active} and not ${hasApprovedPaymentSql}`;
-    case "trial_vencido":
-      return sql`${expired} and not ${hasApprovedPaymentSql}`;
+      return sql`${active} and ${notCanceled} and not ${hasApprovedPaymentSql}`;
     case "assinante_ativo":
-      return sql`${active} and ${hasApprovedPaymentSql}`;
-    case "assinante_vencido":
-      return sql`${expired} and ${hasApprovedPaymentSql}`;
+      return sql`${active} and ${notCanceled} and ${hasApprovedPaymentSql}`;
+    case "expirado":
+      return sql`${expired} and ${notCanceled} and (${hasApprovedPaymentSql} or ${passedTrial})`;
+    case "trial_vencido":
+      return sql`${expired} and ${notCanceled} and not ${hasApprovedPaymentSql} and not ${passedTrial}`;
   }
 }
 
-function buildConditions(input: {
+type CrmLeadFilters = {
   search?: string;
   commercialStatus?: CrmCommercialStatus;
   accountStage?: CrmAccountStage;
-}): SQL | undefined {
+  /** Data do cadastro, dias de calendário BRT, inclusivo. */
+  signup?: CrmDateRange;
+  /** Data de expiração do acesso, dias de calendário BRT, inclusivo. */
+  expires?: CrmDateRange;
+};
+
+function dateRangeCondition(column: AnyPgColumn, range: CrmDateRange): SQL {
+  const from = brtStartOfCalendarDate(range.from);
+  const to = brtStartOfCalendarDate(shiftCalendarDate(range.to, 1));
+  return and(gte(column, from), lt(column, to))!;
+}
+
+function buildConditions(input: CrmLeadFilters): SQL | undefined {
   const conditions: SQL[] = [];
   const search = input.search?.trim() ?? "";
   if (search.length >= 3) {
@@ -162,13 +196,16 @@ function buildConditions(input: {
   if (input.accountStage) {
     conditions.push(accountStageCondition(input.accountStage));
   }
+  if (input.signup) {
+    conditions.push(dateRangeCondition(user.createdAt, input.signup));
+  }
+  if (input.expires) {
+    conditions.push(dateRangeCondition(user.expirationDate, input.expires));
+  }
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
-export async function listCrmLeads(input: {
-  search?: string;
-  commercialStatus?: CrmCommercialStatus;
-  accountStage?: CrmAccountStage;
+export async function listCrmLeads(input: CrmLeadFilters & {
   page: number;
   pageSize: number;
 }): Promise<{ leads: CrmLeadSummary[]; total: number; page: number; pageSize: number }> {
@@ -203,9 +240,7 @@ export async function listCrmLeads(input: {
   };
 }
 
-export async function listCrmKanban(input: {
-  search?: string;
-  accountStage?: CrmAccountStage;
+export async function listCrmKanban(input: Omit<CrmLeadFilters, "commercialStatus"> & {
   perColumn?: number;
 }): Promise<CrmKanbanColumn[]> {
   const where = buildConditions(input);
