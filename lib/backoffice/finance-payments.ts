@@ -335,7 +335,9 @@ function usesPlatformFeeFinancialModel(
   return (
     financialModel === "platform_fee_coproduction" ||
     financialModel === "platform_fee_coproduction_v2" ||
-    financialModel === "platform_fee_coproduction_v3"
+    financialModel === "platform_fee_coproduction_v3" ||
+    // Coprodução sobre o bruto: a taxa da Automatize é basis points do bruto.
+    financialModel === "gateway_gross_v1"
   );
 }
 

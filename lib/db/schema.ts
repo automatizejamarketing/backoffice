@@ -22,6 +22,26 @@ import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
 import type { BackofficeRole } from "@/lib/auth/rbac-core";
 import {
+  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
+  PRODUCT_ORDER_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
+  PRODUCT_PAYMENT_STATUS_VALUES,
+  type ProductExpertPayoutStatus,
+  type ProductOrderStatus,
+  type ProductPaymentAttemptStatus,
+  type ProductPaymentStatus,
+} from "@/lib/products/financial-states";
+export {
+  PRODUCT_EXPERT_PAYOUT_STATUS_VALUES,
+  PRODUCT_ORDER_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
+  PRODUCT_PAYMENT_STATUS_VALUES,
+  type ProductExpertPayoutStatus,
+  type ProductOrderStatus,
+  type ProductPaymentAttemptStatus,
+  type ProductPaymentStatus,
+};
+import {
   COMPANY_CAPABILITIES,
   COMPANY_OFFER_CODES,
   COMPANY_PRODUCT_CODES,
@@ -369,6 +389,12 @@ export const PRODUCT_FINANCIAL_MODEL_VALUES = [
   "platform_fee_coproduction_v2",
   "platform_fee_coproduction_v3",
   "gateway_net_v1",
+  /** Coproducao sobre o BRUTO: o Expert custeia integralmente a tarifa do
+   * provedor e o Automatize retira apenas sua participacao. Substitui
+   * `gateway_net_v1` nas cobrancas novas de Mercado Pago; o valor anterior
+   * permanece porque os pedidos ja gravados foram precificados sobre o
+   * liquido e reinterpreta-los mudaria o passado. */
+  "gateway_gross_v1",
 ] as const;
 export type ProductFinancialModel =
   (typeof PRODUCT_FINANCIAL_MODEL_VALUES)[number];
@@ -593,14 +619,6 @@ export const productContentItem = pgTable(
 
 export type ProductContentItem = InferSelectModel<typeof productContentItem>;
 
-export const PRODUCT_ORDER_STATUS_VALUES = [
-  "pending",
-  "approved",
-  "failed",
-  "canceled",
-  "refunded",
-] as const;
-export type ProductOrderStatus = (typeof PRODUCT_ORDER_STATUS_VALUES)[number];
 
 /** Where the buyer discovered the product. `direct` = public product URL
  * (the expert's own traffic, tracked via the `product_direct` cookie);
@@ -623,6 +641,14 @@ export const productOrder = pgTable(
     expertIdSnapshot: uuid("expert_id_snapshot").references(
       () => expertProfile.id,
     ),
+    /** Frozen platform participation for this item. Null is retained only for
+     * historical orders created before the explicit agreement existed. */
+    platformParticipationBps: integer("platform_participation_bps"),
+    participationRuleVersion: varchar("participation_rule_version", {
+      length: 40,
+    })
+      .notNull()
+      .default("legacy"),
     coproducerTypeSnapshot: varchar("coproducer_type_snapshot", {
       enum: [...PRODUCT_OWNER_VALUES],
     }).$type<ProductOwnerType>(),
@@ -702,14 +728,88 @@ export const productOrder = pgTable(
       "product_orders_checkout_channel_consistency",
       sql`${table.checkoutChannel} IN ('direct', 'marketplace') AND ${table.marketplaceFeeBasisPoints} >= 0 AND ${table.marketplaceFeeBasisPoints} <= 10000 AND (${table.checkoutChannel} = 'marketplace' OR ${table.marketplaceFeeBasisPoints} = 0)`,
     ),
+    participationSnapshotCheck: check(
+      "product_orders_participation_snapshot_range",
+      sql`${table.platformParticipationBps} IS NULL OR (${table.platformParticipationBps} >= 0 AND ${table.platformParticipationBps} <= 9999)`,
+    ),
     snapshotCheck: check(
       "product_orders_snapshot_consistency",
-      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'gateway_net_v1' AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.marketplaceFeeBasisPoints} = 0 AND (${table.gatewayFeeEstimateBps} IS NULL OR ${table.gatewayFeeEstimateBps} >= 0) AND (${table.gatewayFeeEstimateFixedCentavos} IS NULL OR ${table.gatewayFeeEstimateFixedCentavos} >= 0) AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0)))))`,
+      sql`${table.priceCentavos} >= 0 AND ${table.currency} = 'brl' AND ${table.ownerExpertShareBasisPoints} >= 0 AND ${table.ownerExpertShareBasisPoints} <= 10000 AND ${table.coproducerShareBasisPoints} >= 0 AND ${table.coproducerShareBasisPoints} <= 10000 AND ((${table.financialModel} = 'legacy_net_split' AND ${table.platformFeeBasisPoints} IS NULL AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0) OR ${table.expertIdSnapshot} IS NOT NULL)) OR (${table.financialModel} = 'platform_fee_coproduction_v2' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'platform_fee_coproduction_v3' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} >= 0 AND ((${table.expertIdSnapshot} IS NULL AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0) OR (${table.coproducerTypeSnapshot} = 'expert' AND ${table.coproducerExpertIdSnapshot} IS NOT NULL AND ${table.coproducerExpertIdSnapshot} <> ${table.expertIdSnapshot} AND ${table.coproducerShareBasisPoints} > 0)))) OR (${table.financialModel} = 'gateway_net_v1' AND ${table.platformFeeBasisPoints} = 0 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.marketplaceFeeBasisPoints} = 0 AND (${table.gatewayFeeEstimateBps} IS NULL OR ${table.gatewayFeeEstimateBps} >= 0) AND (${table.gatewayFeeEstimateFixedCentavos} IS NULL OR ${table.gatewayFeeEstimateFixedCentavos} >= 0) AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0))))) OR (${table.financialModel} = 'gateway_gross_v1' AND ${table.platformFeeBasisPoints} >= 0 AND ${table.platformFeeBasisPoints} <= 10000 AND ${table.platformFeeFixedCentavos} = 0 AND ${table.marketplaceFeeBasisPoints} = 0 AND ${table.gatewayFeeEstimateBps} IS NULL AND ${table.gatewayFeeEstimateFixedCentavos} IS NULL AND ((${table.expertIdSnapshot} IS NULL AND ${table.ownerExpertShareBasisPoints} = 0 AND ${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.expertIdSnapshot} IS NOT NULL AND ${table.ownerExpertShareBasisPoints} + ${table.coproducerShareBasisPoints} = 10000 AND ((${table.coproducerTypeSnapshot} IS NULL AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} = 0) OR (${table.coproducerTypeSnapshot} = 'automatize' AND ${table.coproducerExpertIdSnapshot} IS NULL AND ${table.coproducerShareBasisPoints} > 0)))))`,
     ),
   }),
 );
 
 export type ProductOrder = InferSelectModel<typeof productOrder>;
+
+export const productPaymentAttempt = pgTable(
+  "product_payment_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    attemptKey: varchar("attempt_key", { length: 80 }).notNull(),
+    requestFingerprint: varchar("request_fingerprint", { length: 64 }).notNull(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productOrder.id),
+    provider: varchar("provider", { length: 30 }).notNull().default("mercadopago"),
+    checkoutModel: varchar("checkout_model", { length: 60 }).notNull(),
+    paymentMethod: varchar("payment_method", { enum: ["pix", "card"] })
+      .$type<"pix" | "card">()
+      .notNull(),
+    amountCentavos: integer("amount_centavos").notNull(),
+    buyerTotalCentavos: integer("buyer_total_centavos"),
+    buyerInterestCentavos: integer("buyer_interest_centavos"),
+    installments: integer("installments"),
+    paymentMethodId: varchar("payment_method_id", { length: 80 }),
+    issuerId: varchar("issuer_id", { length: 80 }),
+    productOfferId: varchar("product_offer_id", { length: 100 }),
+    mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
+    mercadoPagoEnvironment: varchar("mercadopago_environment", {
+      enum: ["sandbox", "production"],
+    }).$type<"sandbox" | "production">(),
+    expectedProviderFeeCentavos: integer("expected_provider_fee_centavos"),
+    expectedApplicationFeeCentavos: integer("expected_application_fee_centavos"),
+    splitContractVersion: varchar("split_contract_version", { length: 80 }),
+    payloadSnapshot: jsonb("payload_snapshot").$type<Record<string, unknown>>().notNull(),
+    providerPaymentId: varchar("provider_payment_id", { length: 255 }),
+    status: varchar("status", { enum: [...PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES] })
+      .$type<ProductPaymentAttemptStatus>()
+      .notNull()
+      .default("prepared"),
+    failureCode: varchar("failure_code", { length: 120 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    issuedAt: timestamp("issued_at"),
+    terminalAt: timestamp("terminal_at"),
+    lastCheckedAt: timestamp("last_checked_at"),
+  },
+  (table) => ({
+    attemptKeyUnique: unique("product_payment_attempts_attempt_key_unique").on(
+      table.attemptKey,
+    ),
+    providerPaymentUnique: uniqueIndex(
+      "product_payment_attempts_provider_payment_unique",
+    )
+      .on(table.provider, table.providerPaymentId)
+      .where(sql`${table.providerPaymentId} IS NOT NULL`),
+    orderCreatedIdx: index("product_payment_attempts_order_created_idx").on(
+      table.orderId,
+      table.createdAt,
+    ),
+    orderStatusIdx: index("product_payment_attempts_order_status_idx").on(
+      table.orderId,
+      table.status,
+    ),
+    activeOrderUnique: uniqueIndex(
+      "product_payment_attempts_one_active_order_unique",
+    )
+      .on(table.orderId)
+      .where(
+        sql`${table.status} IN ('prepared', 'issuing', 'pending', 'unknown')`,
+      ),
+  }),
+);
+
+export type ProductPaymentAttempt = InferSelectModel<typeof productPaymentAttempt>;
 
 export const productPayment = pgTable(
   "product_payments",
@@ -718,15 +818,37 @@ export const productPayment = pgTable(
     orderId: uuid("order_id")
       .notNull()
       .references(() => productOrder.id),
+    attemptId: uuid("attempt_id").references(() => productPaymentAttempt.id),
     provider: varchar("provider", { length: 30 })
       .notNull()
       .default("mercadopago"),
     providerPreferenceId: varchar("provider_preference_id", { length: 255 }),
     providerPaymentId: varchar("provider_payment_id", { length: 255 }),
-    status: varchar("status", {
-      enum: ["pending", "approved", "failed", "refunded", "charged_back"],
-    })
-      .$type<"pending" | "approved" | "failed" | "refunded" | "charged_back">()
+    /** Collector identity is frozen before the payment is issued. */
+    mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
+    /** G1 quote frozen before issuing an Expert Split Inicial charge. */
+    mercadoPagoExpectedProviderFeeCentavos: integer(
+      "mercadopago_expected_provider_fee_centavos",
+    ),
+    mercadoPagoExpectedApplicationFeeCentavos: integer(
+      "mercadopago_expected_application_fee_centavos",
+    ),
+    mercadoPagoSplitContractVersion: varchar(
+      "mercadopago_split_contract_version",
+      { length: 80 },
+    ),
+    /** Amount the provider actually reported as our application fee. */
+    mercadoPagoApplicationFeeCentavos: integer(
+      "mercadopago_application_fee_centavos",
+    ),
+    /** Number of credit-card installments selected in the MP Brick. */
+    mercadoPagoInstallments: integer("mercadopago_installments"),
+    /** Interest observed in the provider's paid total, never guessed. */
+    mercadoPagoBuyerInterestCentavos: integer(
+      "mercadopago_buyer_interest_centavos",
+    ),
+    status: varchar("status", { enum: [...PRODUCT_PAYMENT_STATUS_VALUES] })
+      .$type<ProductPaymentStatus>()
       .notNull()
       .default("pending"),
     grossAmountCentavos: integer("gross_amount_centavos"),
@@ -762,6 +884,8 @@ export const productPayment = pgTable(
     }).$type<ProductFinancialModel>(),
     currency: varchar("currency", { length: 3 }).notNull().default("brl"),
     rawStatus: varchar("raw_status", { length: 80 }),
+    /** Cumulative amount confirmed returned by the provider, never inferred. */
+    refundedAmountCentavos: integer("refunded_amount_centavos"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -793,6 +917,10 @@ export const productEntitlement = pgTable(
       .$type<"purchase" | "free">()
       .notNull(),
     grantedAt: timestamp("granted_at").notNull().defaultNow(),
+    /** A confirmed, full card dispute pauses this purchase source only. */
+    suspendedAt: timestamp("suspended_at"),
+    suspendedByCardDisputeId: uuid("suspended_by_card_dispute_id"),
+    suspendedByPixFraudCaseId: uuid("suspended_by_pix_fraud_case_id"),
     revokedAt: timestamp("revoked_at"),
   },
   (table) => ({
@@ -848,10 +976,8 @@ export const expertPayoutRequest = pgTable(
       .references(() => expertProfile.id),
     amountCentavos: integer("amount_centavos").notNull(),
     pixKeySnapshot: varchar("pix_key_snapshot", { length: 255 }).notNull(),
-    status: varchar("status", {
-      enum: ["requested", "approved", "paid", "rejected", "canceled"],
-    })
-      .$type<"requested" | "approved" | "paid" | "rejected" | "canceled">()
+    status: varchar("status", { enum: [...PRODUCT_EXPERT_PAYOUT_STATUS_VALUES] })
+      .$type<ProductExpertPayoutStatus>()
       .notNull()
       .default("requested"),
     dueAt: timestamp("due_at").notNull(),
@@ -870,9 +996,12 @@ export const expertPayoutRequest = pgTable(
     oneOpenRequest: uniqueIndex("expert_payout_requests_one_open")
       .on(table.expertId)
       .where(sql`${table.status} IN ('requested', 'approved')`),
-    minimumCheck: check(
-      "expert_payout_requests_minimum_amount",
-      sql`${table.amountCentavos} >= 10000`,
+    // Na transição do Repasse Legado o mínimo é a moeda, não R$100 (R20): um
+    // Saque vale por qualquer saldo disponível e positivo. Zero e negativo
+    // continuam impedidos — não geram pagamento.
+    positiveAmountCheck: check(
+      "expert_payout_requests_positive_amount",
+      sql`${table.amountCentavos} > 0`,
     ),
   }),
 );

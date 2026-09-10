@@ -390,8 +390,232 @@
     {
       "idx": 68,
       "version": "7",
+      "when": 1795300000000,
+      "tag": "0068_mercadopago_expert_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795500000000,
+      "tag": "0069_product_card_disputes",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795600000000,
+      "tag": "0070_mercadopago_receiver_switches",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795700000000,
+      "tag": "0071_product_refund_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1795800000000,
+      "tag": "0072_product_refund_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1795900000000,
+      "tag": "0073_product_refund_balance_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1796000000000,
+      "tag": "0074_product_purchase_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1796100000000,
+      "tag": "0075_product_dispute_defences",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1796200000000,
+      "tag": "0076_product_pix_fraud_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1796300000000,
+      "tag": "0077_product_post_sale_costs",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1796400000000,
+      "tag": "0078_product_reconciliation_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1796500000000,
+      "tag": "0079_expert_payout_no_minimum",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1796600000000,
+      "tag": "0080_product_schema_parity",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1796700000000,
+      "tag": "0081_product_participation_eligibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1796800000000,
+      "tag": "0082_expert_mercadopago_validation",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1796900000000,
+      "tag": "0083_expert_receiver_switch_candidate",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1797000000000,
+      "tag": "0084_product_pix_split_snapshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1797100000000,
+      "tag": "0085_product_card_mercadopago",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1797200000000,
+      "tag": "0086_product_refund_operation_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1797300000000,
+      "tag": "0087_product_refund_balance_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1797400000000,
+      "tag": "0088_product_card_dispute_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1797500000000,
+      "tag": "0089_product_evidence_retention_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1797600000000,
+      "tag": "0090_product_dispute_defence_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1797700000000,
+      "tag": "0091_product_pix_fraud_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1797800000000,
+      "tag": "0092_product_post_sale_cost_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1797900000000,
+      "tag": "0093_product_payment_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1798000000000,
+      "tag": "0094_reconcile_cases_by_root",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1798100000000,
+      "tag": "0095_product_dispute_defence_upload_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1798200000000,
+      "tag": "0096_post_sale_settlement_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1798300000000,
+      "tag": "0097_product_payment_attempt_resolutions",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1798400000000,
+      "tag": "0098_product_payment_attempt_environment",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1798500000000,
+      "tag": "0099_product_gateway_gross_v1",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
       "when": 1798600000000,
-      "tag": "0068_crm_leads",
+      "tag": "0100_crm_leads",
       "breakpoints": true
     }
   ]
