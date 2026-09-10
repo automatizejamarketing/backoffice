@@ -144,6 +144,8 @@ export type FinanceProductPaymentAmountRow = Pick<
 export type FinanceProductPaymentNetAmounts = FinanceProductPaymentAmounts & {
   netCentavos: number;
   automatizeRevenueCentavos: number | null;
+  /** Só a coprodução: o que a Automatize leva além da taxa da plataforma. */
+  automatizeCoproductionCentavos: number | null;
   expertSettlementRail: ExpertSettlementRail | null;
   expertSettlementLabel: string | null;
   gatewayFeeEstimateLabel: string | null;
@@ -335,7 +337,9 @@ function usesPlatformFeeFinancialModel(
   return (
     financialModel === "platform_fee_coproduction" ||
     financialModel === "platform_fee_coproduction_v2" ||
-    financialModel === "platform_fee_coproduction_v3"
+    financialModel === "platform_fee_coproduction_v3" ||
+    // Coprodução sobre o bruto: a taxa da Automatize é basis points do bruto.
+    financialModel === "gateway_gross_v1"
   );
 }
 
@@ -588,11 +592,22 @@ export function resolveProductPaymentNetAmounts<
     gatewayFeeEstimateFixedCentavos: payment.gatewayFeeEstimateFixedCentavos,
   });
 
+  // Nos modelos com taxa da plataforma, a taxa já tem coluna própria; o que
+  // sobra da parte da Automatize é coprodução. Sem taxa (gateway_net_v1,
+  // produto próprio) a parte inteira continua aparecendo como antes.
+  const platformFeeCentavos = resolveProductPlatformFeeGrossCentavos(payment);
+  const automatizeCoproductionCentavos =
+    automatizeRevenueCentavos === null
+      ? null
+      : platformFeeCentavos !== null
+        ? Math.max(0, automatizeRevenueCentavos - platformFeeCentavos)
+        : automatizeRevenueCentavos;
   return {
     ...base,
     expertRevenueCentavos,
     automatizeNetCentavos: automatizeRevenueCentavos,
     automatizeRevenueCentavos,
+    automatizeCoproductionCentavos,
     netCentavos,
     expertSettlementRail,
     expertSettlementLabel,
@@ -684,6 +699,12 @@ export function resolveAutomatizeProductNetCentavos(
       platformFee +
       (payment.automatizeCoproductionRevenueCentavos ?? 0) +
       (payment.automatizeProductRevenueCentavos ?? 0);
+
+    // Coprodução sobre o bruto: o expert custeia a tarifa do provedor
+    // inteira, então a taxa sobre o bruto já é o líquido da Automatize.
+    if (payment.financialModel === "gateway_gross_v1") {
+      return automatizeGross;
+    }
 
     return automatizeGross - (payment.feeAmountCentavos ?? 0);
   }

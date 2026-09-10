@@ -263,7 +263,7 @@ export async function getUserExpirationDayCounts(
 
 export type UserHubProfile = Pick<
   User,
-  "id" | "email" | "name" | "image_url" | "phone"
+  "id" | "email" | "name" | "image_url" | "phone" | "expirationDate"
 > & {
   companyName: string | null;
   onboardingCompleted: boolean;
@@ -1132,6 +1132,7 @@ export async function getUserHubProfile(
       name: user.name,
       image_url: user.image_url,
       phone: user.phone,
+      expirationDate: user.expirationDate,
     })
     .from(user)
     .where(eq(user.id, userId))
@@ -1154,6 +1155,30 @@ export async function getUserHubProfile(
     companyName: companyInfo?.companyName ?? null,
     onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
   };
+}
+
+export async function listUserPayments(
+  userId: string,
+  limit = 5,
+): Promise<Payment[]> {
+  return db
+    .select()
+    .from(payment)
+    .where(eq(payment.userId, userId))
+    .orderBy(desc(payment.createdAt))
+    .limit(limit);
+}
+
+export async function listUserMercadoPagoPaymentLinks(
+  userId: string,
+  limit = 5,
+): Promise<MercadoPagoPaymentLink[]> {
+  return db
+    .select()
+    .from(mercadopagoPaymentLink)
+    .where(eq(mercadopagoPaymentLink.userId, userId))
+    .orderBy(desc(mercadopagoPaymentLink.createdAt))
+    .limit(limit);
 }
 
 export interface UserSubscriptionDetails {

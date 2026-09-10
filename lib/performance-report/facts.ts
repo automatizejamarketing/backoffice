@@ -1,7 +1,13 @@
 import type { AnalyticalTag, HudDelivery, SampleCaveat } from "./analysis";
 import { sortCampaignsNewestFirst } from "./analysis";
 import { campaignActionHint } from "./labels";
-import type { CampaignReportFact, CampaignTableRow } from "./types";
+import { PLAYBOOK_RULE_ROAS_DECLINE } from "@/lib/playbook-insights/constants";
+import type {
+  CampaignReportFact,
+  CampaignTableRow,
+  DiagnosticFacts,
+  RoasDeclineFact,
+} from "./types";
 import { buildCampaignWorkspaceUrl } from "./url";
 
 export type ClassifiedCampaign = {
@@ -110,10 +116,11 @@ export function buildCampaignDiagnosticFacts(
 
   return {
     evidenceRule:
-      "Cite somente campanhas em `citableCampaignIds`. Copie nome, startDate e métricas exatamente. Nunca mencione campanha ausente da tabela.",
+      "Cite somente campanhas em `citableCampaignIds`. Copie nome, startDate e métricas exatamente. Nunca mencione campanha ausente da tabela. `roasInDecline` é tendência recente (N dias vs. N anteriores) — não trate ROAS absoluto alto como saudável quando houver queda.",
     citableCampaignIds: campaigns.map((campaign) => campaign.id),
     bestByRoas: byRoas.slice(0, 3).map(fact),
     needsAttention: [...attentionById.values()].slice(0, 3).map(fact),
+    roasInDecline: [],
     activeWithoutPurchases: campaigns
       .filter(
         (campaign) => campaign.delivery === "active" && campaign.compras === 0,
@@ -127,6 +134,63 @@ export function buildCampaignDiagnosticFacts(
       displayedCampaignPurchaseValue: displayedPurchaseValue,
     },
   };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function attachRoasDeclineFacts(
+  facts: DiagnosticFacts,
+  insights: Array<{
+    ruleId: string;
+    entityId: string;
+    entityName: string | null;
+    severity: string;
+    evidence: string;
+    metrics: unknown;
+  }>,
+  campaigns: ConsolidatedCampaign[],
+  workspace: WorkspaceLinkInput,
+): DiagnosticFacts {
+  const byId = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+  const roasInDecline: RoasDeclineFact[] = [];
+  for (const insight of insights) {
+    if (insight.ruleId !== PLAYBOOK_RULE_ROAS_DECLINE) continue;
+    const campaign = byId.get(insight.entityId);
+    if (!campaign) continue;
+    const metrics = asRecord(insight.metrics);
+    const dropPercent =
+      asNumber(metrics.dropPercent) ??
+      (asNumber(metrics.dropRatio) != null
+        ? Math.round((asNumber(metrics.dropRatio) as number) * 100)
+        : null);
+    roasInDecline.push({
+      id: insight.entityId,
+      name: insight.entityName ?? campaign.name,
+      accountId: campaign.accountId,
+      dropPercent,
+      severity: insight.severity === "critical" ? "critical" : "warning",
+      previousRoas: asNumber(metrics.purchaseRoasPrevious),
+      currentRoas: asNumber(metrics.purchaseRoasLookback),
+      lookbackDays: asNumber(metrics.lookbackDays) ?? 7,
+      evidence: insight.evidence,
+      workspaceUrl: buildCampaignWorkspaceUrl({
+        userId: workspace.userId,
+        accountId: campaign.accountId,
+        campaignId: campaign.id,
+        datePreset: workspace.datePreset,
+        since: workspace.since,
+        until: workspace.until,
+      }),
+    });
+  }
+  return { ...facts, roasInDecline };
 }
 
 export function buildCampaignTable(

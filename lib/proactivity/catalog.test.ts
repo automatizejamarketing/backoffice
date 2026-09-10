@@ -70,4 +70,18 @@ describe("proactivity catalog", () => {
     expect(client?.clientRuleId).toBe("campaign_stalled");
     expect(consultant?.playbookRuleId).toBe("playbook.campaign_stalled");
   });
+
+  test("roas_decline exists for consultant and client with the same defaults", () => {
+    const consultant = getAlertDefinition("roas_decline", "consultant");
+    const client = getAlertDefinition("roas_decline", "client");
+    expect(consultant?.playbookRuleId).toBe("playbook.roas_decline");
+    expect(client?.clientRuleId).toBe("roas_decline");
+    expect(consultant?.defaultThresholds).toEqual({
+      dropWarningPercent: 30,
+      dropCriticalPercent: 50,
+      lookbackDays: 7,
+      minPreviousSpend: 50,
+    });
+    expect(client?.defaultThresholds).toEqual(consultant?.defaultThresholds);
+  });
 });

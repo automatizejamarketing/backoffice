@@ -15,6 +15,14 @@ export type CampaignMetricsRow = {
   purchaseValue: number;
   impressions: number;
   cpa: number | null;
+  /** Length of the adjacent windows used for ROAS-decline (0 = not fetched). */
+  lookbackDays: number;
+  spendLookback: number;
+  purchaseRoasLookback: number | null;
+  purchasesLookback: number;
+  spendPrevious: number;
+  purchaseRoasPrevious: number | null;
+  purchasesPrevious: number;
 };
 
 export type PlaybookInsightCandidate = {
@@ -46,3 +54,22 @@ export type PlaybookEvaluationResult = {
   campaigns: CampaignMetricsRow[];
   candidates: PlaybookInsightCandidate[];
 };
+
+export const EMPTY_ROAS_LOOKBACK = {
+  lookbackDays: 0,
+  spendLookback: 0,
+  purchaseRoasLookback: null,
+  purchasesLookback: 0,
+  spendPrevious: 0,
+  purchaseRoasPrevious: null,
+  purchasesPrevious: 0,
+} as const satisfies Pick<
+  CampaignMetricsRow,
+  | "lookbackDays"
+  | "spendLookback"
+  | "purchaseRoasLookback"
+  | "purchasesLookback"
+  | "spendPrevious"
+  | "purchaseRoasPrevious"
+  | "purchasesPrevious"
+>;

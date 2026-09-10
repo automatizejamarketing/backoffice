@@ -39,3 +39,34 @@ export function trailingInclusiveRange(
   const since = shiftYmd(until, -(Math.max(1, days) - 1));
   return { since, until };
 }
+
+/** Inclusive window immediately before `current`, same length. */
+export function previousInclusiveRange(current: {
+  since: string;
+  until: string;
+}): { since: string; until: string } {
+  const until = shiftYmd(current.since, -1);
+  const lengthDays = inclusiveDayCount(current.since, current.until);
+  const since = shiftYmd(until, -(lengthDays - 1));
+  return { since, until };
+}
+
+export function adjacentInclusiveRanges(
+  now = new Date(),
+  days: number,
+): {
+  current: { since: string; until: string };
+  previous: { since: string; until: string };
+} {
+  const current = trailingInclusiveRange(now, days);
+  return { current, previous: previousInclusiveRange(current) };
+}
+
+function inclusiveDayCount(since: string, until: string): number {
+  const start = Date.parse(`${since}T12:00:00.000Z`);
+  const end = Date.parse(`${until}T12:00:00.000Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+    return 1;
+  }
+  return Math.round((end - start) / (24 * 60 * 60 * 1000)) + 1;
+}

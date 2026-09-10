@@ -2,11 +2,16 @@ import {
   PLAYBOOK_DEFAULT_CPA_ALERT,
   PLAYBOOK_MIN_SPEND,
   PLAYBOOK_MIN_SPEND_STALLED,
+  PLAYBOOK_ROAS_DECLINE_CRITICAL_PERCENT,
+  PLAYBOOK_ROAS_DECLINE_LOOKBACK_DAYS,
+  PLAYBOOK_ROAS_DECLINE_MIN_PREVIOUS_SPEND,
+  PLAYBOOK_ROAS_DECLINE_WARNING_PERCENT,
   PLAYBOOK_ROAS_TRIGGER,
   PLAYBOOK_ROAS_VALIDATED,
   PLAYBOOK_RULE_CPA_ALERT,
   PLAYBOOK_RULE_CREATIVE_DIAGNOSIS,
   PLAYBOOK_RULE_NO_DELIVERY,
+  PLAYBOOK_RULE_ROAS_DECLINE,
   PLAYBOOK_RULE_ROAS_SCALE,
   PLAYBOOK_RULE_ROAS_TRIGGER,
   PLAYBOOK_RULE_STALLED,
@@ -17,6 +22,7 @@ import type {
   CreativeDiagnosisPlaybookRow,
   PlaybookEvaluationResult,
   PlaybookInsightCandidate,
+  PlaybookSeverity,
 } from "./types";
 
 function daysSince(now: Date, iso: string | null): number | null {
@@ -37,6 +43,10 @@ export type PlaybookRuleThresholds = {
   cpaAlert?: number;
   stalledPausedDays?: number;
   minSpendForStalled?: number;
+  dropWarningPercent?: number;
+  dropCriticalPercent?: number;
+  lookbackDays?: number;
+  minPreviousSpend?: number;
 };
 
 export type PlaybookEvaluationConfig = {
@@ -63,6 +73,30 @@ function thresholdsFor(
   ruleId: string,
 ): PlaybookRuleThresholds {
   return config?.thresholdsByRuleId?.get(ruleId) ?? {};
+}
+
+export function playbookRoasDeclineLookbackDays(
+  config?: PlaybookEvaluationConfig,
+): number {
+  const raw =
+    thresholdsFor(config, PLAYBOOK_RULE_ROAS_DECLINE).lookbackDays ??
+    PLAYBOOK_ROAS_DECLINE_LOOKBACK_DAYS;
+  return Math.min(30, Math.max(1, Math.round(raw)));
+}
+
+function dropRatio(previous: number, current: number): number | null {
+  if (!(previous > 0)) return null;
+  return (previous - current) / previous;
+}
+
+function severityForRoasDrop(
+  ratio: number,
+  warningPercent: number,
+  criticalPercent: number,
+): PlaybookSeverity | null {
+  if (ratio >= criticalPercent / 100) return "critical";
+  if (ratio >= warningPercent / 100) return "warning";
+  return null;
 }
 
 function parseTimestamp(value: string | Date | null | undefined): number | null {
@@ -280,6 +314,72 @@ export function evaluatePlaybookInsights(args: {
             spend: campaign.spend,
             purchases: campaign.purchases,
             effectiveStatus: status,
+          },
+        });
+      }
+    }
+
+    if (isEnabled(config, PLAYBOOK_RULE_ROAS_DECLINE)) {
+      const t = thresholdsFor(config, PLAYBOOK_RULE_ROAS_DECLINE);
+      const warningPercent =
+        t.dropWarningPercent ?? PLAYBOOK_ROAS_DECLINE_WARNING_PERCENT;
+      const criticalPercent =
+        t.dropCriticalPercent ?? PLAYBOOK_ROAS_DECLINE_CRITICAL_PERCENT;
+      const minPreviousSpend =
+        t.minPreviousSpend ?? PLAYBOOK_ROAS_DECLINE_MIN_PREVIOUS_SPEND;
+      const lookbackDays =
+        campaign.lookbackDays > 0
+          ? campaign.lookbackDays
+          : (t.lookbackDays ?? PLAYBOOK_ROAS_DECLINE_LOOKBACK_DAYS);
+      const previousRoas = campaign.purchaseRoasPrevious;
+      const currentRoas = campaign.purchaseRoasLookback;
+      const ratio =
+        previousRoas !== null && currentRoas !== null
+          ? dropRatio(previousRoas, currentRoas)
+          : null;
+      const severity =
+        ratio == null ? null : severityForRoasDrop(ratio, warningPercent, criticalPercent);
+      if (
+        status === "ACTIVE" &&
+        campaign.spendPrevious >= minPreviousSpend &&
+        previousRoas !== null &&
+        previousRoas > 0 &&
+        currentRoas !== null &&
+        ratio != null &&
+        severity
+      ) {
+        const dropPercent = Math.round(ratio * 100);
+        candidates.push({
+          ruleId: PLAYBOOK_RULE_ROAS_DECLINE,
+          severity,
+          confidence: campaign.spendPrevious >= 150 ? "high" : "medium",
+          entityLevel: "campaign",
+          entityId: campaign.id,
+          entityName: campaign.name,
+          actionType: "analyze_performance",
+          title:
+            severity === "critical"
+              ? `ROAS em queda crítica (−${dropPercent}%)`
+              : `ROAS em queda (−${dropPercent}%)`,
+          evidence:
+            `Campanha "${campaign.name}" com ROAS ${formatRoas(previousRoas)} → ${formatRoas(currentRoas)} ` +
+            `nos últimos ${lookbackDays}d vs. os ${lookbackDays}d anteriores` +
+            (roas !== null
+              ? ` (ROAS 30d ainda ${formatRoas(roas)}).`
+              : "."),
+          recommendation:
+            "Investigar a curva recente mesmo se o ROAS dos 30d parecer bom: criativo/oferta, pixel, horário e destino. Não escalar só pela média longa enquanto a janela curta cai.",
+          metrics: {
+            purchaseRoas: roas,
+            purchaseRoasLookback: currentRoas,
+            purchaseRoasPrevious: previousRoas,
+            dropRatio: ratio,
+            dropPercent,
+            lookbackDays,
+            spendLookback: campaign.spendLookback,
+            spendPrevious: campaign.spendPrevious,
+            purchasesLookback: campaign.purchasesLookback,
+            purchasesPrevious: campaign.purchasesPrevious,
           },
         });
       }

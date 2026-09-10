@@ -1,6 +1,6 @@
 import { metaApiCall } from "@/lib/meta-business/api";
 import { PLAYBOOK_RECENT_SPEND_DAYS } from "./constants";
-import { trailingInclusiveRange } from "./dates";
+import { adjacentInclusiveRanges, trailingInclusiveRange } from "./dates";
 import type { CampaignMetricsRow } from "./types";
 
 function formatAccountId(accountId: string): string {
@@ -77,59 +77,151 @@ async function fetchCampaignSpendLast10Days(args: {
   return spendByCampaignId;
 }
 
+type WindowInsightRow = {
+  campaign_id?: string;
+  spend?: string;
+  purchase_roas?: Array<{ value?: string }>;
+  actions?: Array<{ action_type?: string; value?: string }>;
+  action_values?: Array<{ action_type?: string; value?: string }>;
+};
+
+type WindowMetrics = {
+  spend: number;
+  purchases: number;
+  purchaseRoas: number | null;
+};
+
+function windowMetricsFromInsight(row: WindowInsightRow | undefined): WindowMetrics {
+  const spend = parseNumber(row?.spend);
+  const purchases = purchaseCountFromActions(row?.actions);
+  let purchaseValue = purchaseValueFromActions(row?.action_values);
+  const purchaseRoas = parseRoas(row?.purchase_roas);
+  if (purchaseValue <= 0 && spend > 0 && purchaseRoas !== null) {
+    purchaseValue = purchaseRoas * spend;
+  }
+  return {
+    spend,
+    purchases,
+    purchaseRoas:
+      purchaseRoas ?? (spend > 0 && purchaseValue > 0 ? purchaseValue / spend : null),
+  };
+}
+
+const EMPTY_WINDOW: WindowMetrics = {
+  spend: 0,
+  purchases: 0,
+  purchaseRoas: null,
+};
+
+async function fetchCampaignWindowMetrics(args: {
+  accessToken: string;
+  accountId: string;
+  limit: number;
+  since: string;
+  until: string;
+}): Promise<Map<string, WindowMetrics>> {
+  const response = await metaApiCall<{ data?: WindowInsightRow[] }>({
+    method: "GET",
+    path: `${args.accountId}/insights`,
+    params: [
+      "level=campaign",
+      "fields=campaign_id,spend,purchase_roas,actions,action_values",
+      `time_range=${encodeURIComponent(JSON.stringify({ since: args.since, until: args.until }))}`,
+      `limit=${args.limit}`,
+    ].join("&"),
+    accessToken: args.accessToken,
+  });
+
+  const byId = new Map<string, WindowMetrics>();
+  for (const row of response.data ?? []) {
+    if (!row.campaign_id) continue;
+    byId.set(row.campaign_id, windowMetricsFromInsight(row));
+  }
+  return byId;
+}
+
 /**
  * Fetch campaign-level last_30d insights for playbook evaluation,
- * plus created_time and trailing-10d spend for eligibility.
+ * plus created_time, trailing-10d spend, and optional adjacent lookback
+ * windows for ROAS-decline.
  */
 export async function fetchCampaignMetricsForAccount(args: {
   accessToken: string;
   accountId: string;
   limit?: number;
   now?: Date;
+  lookbackDays?: number;
 }): Promise<CampaignMetricsRow[]> {
   const accountId = formatAccountId(args.accountId);
   const limit = Math.min(args.limit ?? 40, 50);
+  const lookbackDays =
+    args.lookbackDays != null && args.lookbackDays > 0
+      ? Math.min(30, Math.max(1, Math.round(args.lookbackDays)))
+      : 0;
+  const ranges =
+    lookbackDays > 0
+      ? adjacentInclusiveRanges(args.now ?? new Date(), lookbackDays)
+      : null;
 
-  const [response, spendLast10DaysById] = await Promise.all([
-    metaApiCall<{
-      data: Array<{
-        id: string;
-        name?: string;
-        status?: string;
-        effective_status?: string;
-        updated_time?: string;
-        created_time?: string;
-        insights?: {
-          data?: Array<{
-            spend?: string;
-            impressions?: string;
-            purchase_roas?: Array<{ value?: string }>;
-            actions?: Array<{ action_type?: string; value?: string }>;
-            action_values?: Array<{ action_type?: string; value?: string }>;
-          }>;
-        };
-      }>;
-    }>({
-      method: "GET",
-      path: `${accountId}/campaigns`,
-      // Campaign effective_status enum does not include COMPLETED (ad-level).
-      // Passing invalid values makes Meta reject the whole request for every user.
-      params: [
-        "fields=id,name,status,effective_status,updated_time,created_time,insights.date_preset(last_30d){spend,impressions,purchase_roas,actions,action_values}",
-        `limit=${limit}`,
-        `effective_status=${encodeURIComponent(
-          JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED"]),
-        )}`,
-      ].join("&"),
-      accessToken: args.accessToken,
-    }),
-    fetchCampaignSpendLast10Days({
-      accessToken: args.accessToken,
-      accountId,
-      limit,
-      now: args.now,
-    }),
-  ]);
+  const [response, spendLast10DaysById, currentWindow, previousWindow] =
+    await Promise.all([
+      metaApiCall<{
+        data: Array<{
+          id: string;
+          name?: string;
+          status?: string;
+          effective_status?: string;
+          updated_time?: string;
+          created_time?: string;
+          insights?: {
+            data?: Array<{
+              spend?: string;
+              impressions?: string;
+              purchase_roas?: Array<{ value?: string }>;
+              actions?: Array<{ action_type?: string; value?: string }>;
+              action_values?: Array<{ action_type?: string; value?: string }>;
+            }>;
+          };
+        }>;
+      }>({
+        method: "GET",
+        path: `${accountId}/campaigns`,
+        // Campaign effective_status enum does not include COMPLETED (ad-level).
+        // Passing invalid values makes Meta reject the whole request for every user.
+        params: [
+          "fields=id,name,status,effective_status,updated_time,created_time,insights.date_preset(last_30d){spend,impressions,purchase_roas,actions,action_values}",
+          `limit=${limit}`,
+          `effective_status=${encodeURIComponent(
+            JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED"]),
+          )}`,
+        ].join("&"),
+        accessToken: args.accessToken,
+      }),
+      fetchCampaignSpendLast10Days({
+        accessToken: args.accessToken,
+        accountId,
+        limit,
+        now: args.now,
+      }),
+      ranges
+        ? fetchCampaignWindowMetrics({
+            accessToken: args.accessToken,
+            accountId,
+            limit,
+            since: ranges.current.since,
+            until: ranges.current.until,
+          })
+        : Promise.resolve(new Map<string, WindowMetrics>()),
+      ranges
+        ? fetchCampaignWindowMetrics({
+            accessToken: args.accessToken,
+            accountId,
+            limit,
+            since: ranges.previous.since,
+            until: ranges.previous.until,
+          })
+        : Promise.resolve(new Map<string, WindowMetrics>()),
+    ]);
 
   return response.data.map((campaign) => {
     const insight = campaign.insights?.data?.[0];
@@ -143,6 +235,8 @@ export async function fetchCampaignMetricsForAccount(args: {
     }
 
     const cpa = purchases > 0 ? spend / purchases : null;
+    const current = currentWindow.get(campaign.id) ?? EMPTY_WINDOW;
+    const previous = previousWindow.get(campaign.id) ?? EMPTY_WINDOW;
 
     return {
       id: campaign.id,
@@ -159,6 +253,13 @@ export async function fetchCampaignMetricsForAccount(args: {
       purchaseValue,
       impressions: parseNumber(insight?.impressions),
       cpa,
+      lookbackDays,
+      spendLookback: current.spend,
+      purchaseRoasLookback: current.purchaseRoas,
+      purchasesLookback: current.purchases,
+      spendPrevious: previous.spend,
+      purchaseRoasPrevious: previous.purchaseRoas,
+      purchasesPrevious: previous.purchases,
     };
   });
 }

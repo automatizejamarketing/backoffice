@@ -18,6 +18,8 @@ import {
   ShoppingCart,
   Trash2,
   Upload,
+  Ban,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -76,6 +78,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProductSalesPanel } from "@/components/product-sales/product-sales-panel";
+import { FilterBar, FilterSelect } from "@/components/ui/filter";
+import { resolveAutomatizeFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import { RecoveryPixPanel } from "./recovery-pix-panel";
 import {
   formatBrazilianPhone,
@@ -556,6 +562,48 @@ const paymentStatusLabel: Record<string, string> = {
   charged_back: "Chargeback",
 };
 
+const orderStatusTone: Record<string, StatusTone> = {
+  pending: "warning",
+  approved: "success",
+  failed: "danger",
+  refunded: "neutral",
+  canceled: "neutral",
+};
+
+const paymentStatusTone: Record<string, StatusTone> = {
+  pending: "warning",
+  approved: "success",
+  failed: "danger",
+  refunded: "neutral",
+  charged_back: "danger",
+};
+
+const ORDER_STATUS_FILTER_OPTIONS = Object.entries(orderStatusLabel).map(
+  ([value, label]) => ({ value, label }),
+);
+
+function OrderStatusBadge({ status }: { status: string }) {
+  return (
+    <StatusBadge
+      tone={orderStatusTone[status] ?? "neutral"}
+      icon={status === "refunded" ? Undo2 : status === "canceled" ? Ban : undefined}
+    >
+      {orderStatusLabel[status] ?? status}
+    </StatusBadge>
+  );
+}
+
+function PaymentStatusBadge({ status }: { status: string }) {
+  return (
+    <StatusBadge
+      tone={paymentStatusTone[status] ?? "neutral"}
+      icon={status === "refunded" ? Undo2 : status === "charged_back" ? Ban : undefined}
+    >
+      {paymentStatusLabel[status] ?? status}
+    </StatusBadge>
+  );
+}
+
 function money(value: number) {
   return new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -894,6 +942,10 @@ export function ProductsAdminWorkspace({
   }>>([]);
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string | undefined>();
+  const visibleOrders = orderStatusFilter
+    ? orders.filter((order) => order.status === orderStatusFilter)
+    : orders;
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [paymentAttempts, setPaymentAttempts] = useState<ProductPaymentAttempt[]>([]);
   const [content, setContent] = useState<Content[]>([]);
@@ -1867,7 +1919,8 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-6 lg:w-fit">
+        <TabsList className="grid w-full grid-cols-7 lg:w-fit">
+          <TabsTrigger value="dashboard">Painel</TabsTrigger>
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="experts">Experts</TabsTrigger>
           <TabsTrigger value="orders">Vendas</TabsTrigger>
@@ -1875,6 +1928,10 @@ export function ProductsAdminWorkspace({
           <TabsTrigger value="payouts">Repasses</TabsTrigger>
           <TabsTrigger value="reconciliation">Conciliação ({paymentAttempts.length})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dashboard" className="pt-4">
+          <ProductSalesPanel />
+        </TabsContent>
 
         <TabsContent value="products" className="space-y-6 pt-4">
           <Card>
@@ -2273,11 +2330,23 @@ export function ProductsAdminWorkspace({
 
       <TabsContent value="orders" className="pt-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
               <CardTitle>Vendas</CardTitle>
+              <FilterBar
+                activeCount={orderStatusFilter ? 1 : 0}
+                onClear={() => setOrderStatusFilter(undefined)}
+              >
+                <FilterSelect
+                  label="Status"
+                  value={orderStatusFilter}
+                  onValueChange={setOrderStatusFilter}
+                  options={ORDER_STATUS_FILTER_OPTIONS}
+                  allLabel="Todos"
+                />
+              </FilterBar>
             </CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1760px]">
+              <Table className="min-w-[2000px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Produto</TableHead>
@@ -2289,6 +2358,8 @@ export function ProductsAdminWorkspace({
                     <TableHead className="text-right">Líquido</TableHead>
                     <TableHead className="text-right">Parte do Expert</TableHead>
                     <TableHead className="text-right">Coprodução do Automatize</TableHead>
+                    <TableHead className="text-right">Taxa Automatize</TableHead>
+                    <TableHead>Canal</TableHead>
                     <TableHead>Trilho de repasse</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -2297,21 +2368,23 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="h-28 text-center">
+                      <TableCell colSpan={14} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                       </TableCell>
                     </TableRow>
-                  ) : orders.length === 0 ? (
+                  ) : visibleOrders.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={12}
+                        colSpan={14}
                         className="h-28 text-center text-muted-foreground"
                       >
-                        Nenhuma venda registrada.
+                        {orderStatusFilter
+                          ? "Nenhuma venda com esse status."
+                          : "Nenhuma venda registrada."}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    orders.map((order) => {
+                    visibleOrders.map((order) => {
                       const amounts = resolveProductOrderNetAmounts(
                         orderFinanceRow(order),
                       );
@@ -2349,9 +2422,24 @@ export function ProductsAdminWorkspace({
                           {money(amounts.expertRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {amounts.automatizeRevenueCentavos !== null
-                            ? money(amounts.automatizeRevenueCentavos)
+                          {amounts.automatizeCoproductionCentavos !== null
+                            ? money(amounts.automatizeCoproductionCentavos)
                             : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.platformFeeBasisPoints && order.platformFeeBasisPoints > 0 ? (
+                            <>
+                              {money(resolveAutomatizeFeeCentavos(order))}
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                {(order.platformFeeBasisPoints / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+                              </span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {order.checkoutChannel === "marketplace" ? "Marketplace" : "Link direto"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {amounts.expertSettlementLabel ? (
@@ -2369,9 +2457,7 @@ export function ProductsAdminWorkspace({
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">
-                            {orderStatusLabel[order.status] ?? order.status}
-                          </Badge>
+                          <OrderStatusBadge status={order.status} />
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -3198,16 +3284,11 @@ export function ProductsAdminWorkspace({
                         {order.providerPaymentId ?? "—"}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">
-                          {orderStatusLabel[order.status] ?? order.status}
-                        </Badge>
+                        <OrderStatusBadge status={order.status} />
                       </TableCell>
                       <TableCell>
                         {order.paymentStatus ? (
-                          <Badge variant="outline">
-                            {paymentStatusLabel[order.paymentStatus] ??
-                              order.paymentStatus}
-                          </Badge>
+                          <PaymentStatusBadge status={order.paymentStatus} />
                         ) : (
                           "—"
                         )}
@@ -3317,8 +3398,8 @@ export function ProductsAdminWorkspace({
                         Coprodução do Automatize
                       </dt>
                       <dd className="font-mono tabular-nums">
-                        {amounts.automatizeRevenueCentavos !== null
-                          ? money(amounts.automatizeRevenueCentavos)
+                        {amounts.automatizeCoproductionCentavos !== null
+                          ? money(amounts.automatizeCoproductionCentavos)
                           : "—"}
                       </dd>
                     </div>
