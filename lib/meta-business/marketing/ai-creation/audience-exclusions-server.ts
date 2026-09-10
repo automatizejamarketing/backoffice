@@ -1,4 +1,5 @@
 import { customerFileDurableStore } from "@/lib/customer-file/postgres";
+import type { SanitizedCustomerFileHistory } from "@/lib/customer-file/sanitize";
 import {
   listCustomAudiences,
   type CustomAudienceView,
@@ -41,27 +42,14 @@ export async function validateAudienceExclusionSelection(input: {
       [...new Set(input.ids)],
       input.adAccountId,
     );
-    const audiences: CustomAudienceView[] = [];
-    const seenCursors = new Set<string>();
-    let after: string | undefined;
     // The normal account page is 200 items. Follow its cursors so an audience
     // on a later page cannot be treated as missing after a context change.
-    while (true) {
-      const page = await listCustomAudiences({
-        adAccountId: input.adAccountId,
-        accessToken: input.accessToken,
-        detailed: true,
-        ...(after ? { after } : {}),
-        importHistory: history,
-      });
-      audiences.push(...page.items);
-      if (!page.truncated || !page.nextCursor || seenCursors.has(page.nextCursor)) {
-        if (page.truncated) throw new Error("Audience library pagination did not complete");
-        return validateAudienceExclusionsAgainstLibrary(input.ids, audiences);
-      }
-      seenCursors.add(page.nextCursor);
-      after = page.nextCursor;
-    }
+    const audiences = await loadAudienceLibrary({
+      adAccountId: input.adAccountId,
+      accessToken: input.accessToken,
+      importHistory: history,
+    });
+    return validateAudienceExclusionsAgainstLibrary(input.ids, audiences);
   } catch {
     return [
       {
@@ -76,4 +64,36 @@ export async function validateAudienceExclusionSelection(input: {
       },
     ];
   }
+}
+
+async function loadAudienceLibrary(input: {
+  adAccountId: string;
+  accessToken: string;
+  importHistory: ReadonlyMap<string, SanitizedCustomerFileHistory>;
+  after?: string;
+  audiences?: CustomAudienceView[];
+  seenCursors?: Set<string>;
+}): Promise<CustomAudienceView[]> {
+  const page = await listCustomAudiences({
+    adAccountId: input.adAccountId,
+    accessToken: input.accessToken,
+    detailed: true,
+    ...(input.after ? { after: input.after } : {}),
+    importHistory: input.importHistory,
+  });
+  const audiences = [...(input.audiences ?? []), ...page.items];
+  if (!page.truncated) return audiences;
+
+  const nextCursor = page.nextCursor;
+  const seenCursors = input.seenCursors ?? new Set<string>();
+  if (!nextCursor || seenCursors.has(nextCursor)) {
+    throw new Error("Audience library pagination did not complete");
+  }
+  seenCursors.add(nextCursor);
+  return loadAudienceLibrary({
+    ...input,
+    after: nextCursor,
+    audiences,
+    seenCursors,
+  });
 }

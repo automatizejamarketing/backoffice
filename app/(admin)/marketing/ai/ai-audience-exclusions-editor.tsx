@@ -42,15 +42,13 @@ function availabilityMessage(audience: CustomAudienceView): string | null {
   return null;
 }
 
-async function loadLibrary(
+async function loadLibraryPage(
   accountId: string,
   userId: string,
+  after: string | undefined,
+  audiences: CustomAudienceView[],
+  seenCursors: Set<string>,
 ): Promise<CustomAudienceView[]> {
-  const audiences: CustomAudienceView[] = [];
-  let after: string | undefined;
-  const seenCursors = new Set<string>();
-
-  while (true) {
     const params = new URLSearchParams({ userId, detailed: "1" });
     if (after) params.set("after", after);
     const response = await fetch(
@@ -62,16 +60,17 @@ async function loadLibrary(
     if (!response.ok) {
       throw new Error(body.message ?? "Não foi possível carregar os públicos.");
     }
-    audiences.push(...(body.audiences ?? []));
-    if (!body.hasNextPage) return audiences;
+    const allAudiences = [...audiences, ...(body.audiences ?? [])];
+    if (!body.hasNextPage) return allAudiences;
     if (!body.nextCursor || seenCursors.has(body.nextCursor)) {
       throw new Error("A biblioteca de públicos não pôde ser carregada por completo.");
     }
     seenCursors.add(body.nextCursor);
-    after = body.nextCursor;
-  }
+    return loadLibraryPage(accountId, userId, body.nextCursor, allAudiences, seenCursors);
+}
 
-  return audiences;
+function loadLibrary(accountId: string, userId: string): Promise<CustomAudienceView[]> {
+  return loadLibraryPage(accountId, userId, undefined, [], new Set());
 }
 
 export function AiAudienceExclusionsEditor({
@@ -193,11 +192,11 @@ export function AiAudienceExclusionsEditor({
                 Estas referências não estão acessíveis nesta conta. Atualize a biblioteca e remova ou troque cada uma antes de publicar.
               </p>
               {missingIds.map((id) => {
-                const checkboxId = "exclude-missing-" + id;
+                const checkboxId = `exclude-missing-${id}`;
                 return (
                   <div key={id} className="flex items-start gap-3 rounded-md border border-destructive/50 p-3">
                     <input
-                      aria-label={"Remover exclusão " + id}
+                      aria-label={`Remover exclusão ${id}`}
                       checked={draftIds.includes(id)}
                       className="mt-1 size-4 shrink-0 accent-primary"
                       disabled={disabled}

@@ -330,7 +330,13 @@ export function AiCampaignClient() {
       advantagePlus,
       interestGroups: 0,
       customAudiences: includedCustomAudienceIds?.length ?? 0,
+      ...(includedCustomAudienceIds !== undefined
+        ? { includedCustomAudiencesApplied: true }
+        : {}),
       excludedCustomAudiences: excludedCustomAudienceIds?.length ?? 0,
+      ...(excludedCustomAudienceIds !== undefined
+        ? { excludedCustomAudiencesApplied: true }
+        : {}),
       placements,
       ...(demographics?.age
         ? { ageMin: demographics.age.min, ageMax: demographics.age.max }
@@ -345,7 +351,13 @@ export function AiCampaignClient() {
       advantagePlus,
       interestGroups: 0,
       customAudiences: includedCustomAudienceIds?.length ?? 0,
+      ...(includedCustomAudienceIds !== undefined
+        ? { includedCustomAudiencesApplied: true }
+        : {}),
       excludedCustomAudiences: excludedCustomAudienceIds?.length ?? 0,
+      ...(excludedCustomAudienceIds !== undefined
+        ? { excludedCustomAudiencesApplied: true }
+        : {}),
       placements,
       ...(demographics?.age
         ? { ageMin: demographics.age.min, ageMax: demographics.age.max }
