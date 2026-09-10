@@ -14,6 +14,46 @@
 
 import { type CreateIssue, type CreateLevel, localIssue } from "./types";
 
+/**
+ * Meta rejects lifetime ad sets whose end is not more than 24h after start
+ * (code 100/1487094). Same floor as duplicate.ts — 25h clears clock skew.
+ */
+export const MIN_LIFETIME_FLIGHT_MS = 25 * 60 * 60 * 1000;
+
+export function lifetimeFlightMs(
+  start?: string | null,
+  end?: string | null,
+): number | null {
+  const from = start?.trim();
+  const to = end?.trim();
+  if (!from || !to) return null;
+  const startMs = Date.parse(from);
+  const endMs = Date.parse(to);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return endMs - startMs;
+}
+
+export function isLifetimeFlightTooShort(
+  start?: string | null,
+  end?: string | null,
+): boolean {
+  const ms = lifetimeFlightMs(start, end);
+  return ms !== null && ms < MIN_LIFETIME_FLIGHT_MS;
+}
+
+function lifetimeFlightTooShortIssue(
+  level: CreateLevel,
+  fields: string[],
+): CreateIssue {
+  return localIssue(
+    level,
+    "LIFETIME_FLIGHT_TOO_SHORT",
+    "Orçamento vitalício exige mais de 24h entre início e término (Meta 100/1487094).",
+    "Mantenha a grade de horários se houver dayparting, mas estenda a data de término para pelo menos 25 horas após o início.",
+    fields,
+  );
+}
+
 // ───────────────────────── enums / tables ─────────────────────────
 
 /** The only objectives creatable on a NEW campaign in v25.0 (verbatim API error). */
@@ -350,6 +390,8 @@ export function validateCampaignBudget(input: {
   dailyBudgetCents?: number;
   lifetimeBudgetCents?: number;
   hasStopTime?: boolean;
+  startTime?: string;
+  stopTime?: string;
   isAdsetBudgetSharingEnabledProvided?: boolean;
 }): CreateIssue[] {
   const issues: CreateIssue[] = [];
@@ -406,6 +448,15 @@ export function validateCampaignBudget(input: {
     );
   }
 
+  if (
+    hasLifetime &&
+    isLifetimeFlightTooShort(input.startTime, input.stopTime)
+  ) {
+    issues.push(
+      lifetimeFlightTooShortIssue("campaign", ["start_time", "stop_time"]),
+    );
+  }
+
   return issues;
 }
 
@@ -415,6 +466,8 @@ export function validateAdSetBudget(input: {
   dailyBudgetCents?: number;
   lifetimeBudgetCents?: number;
   hasEndTime?: boolean;
+  startTime?: string;
+  endTime?: string;
 }): CreateIssue[] {
   const issues: CreateIssue[] = [];
   const hasDaily = (input.dailyBudgetCents ?? 0) > 0;
@@ -443,6 +496,14 @@ export function validateAdSetBudget(input: {
           "Passe endTime no conjunto (o mesmo stopTime da campanha) ou deixe o sistema herdar o voo da campanha.",
           ["end_time"],
         ),
+      );
+    }
+    if (
+      input.parentHasLifetimeBudget &&
+      isLifetimeFlightTooShort(input.startTime, input.endTime)
+    ) {
+      issues.push(
+        lifetimeFlightTooShortIssue("adset", ["start_time", "end_time"]),
       );
     }
     return issues;
@@ -481,6 +542,10 @@ export function validateAdSetBudget(input: {
         ["end_time"],
       ),
     );
+  }
+
+  if (hasLifetime && isLifetimeFlightTooShort(input.startTime, input.endTime)) {
+    issues.push(lifetimeFlightTooShortIssue("adset", ["start_time", "end_time"]));
   }
 
   return issues;

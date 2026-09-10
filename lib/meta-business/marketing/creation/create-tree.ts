@@ -26,6 +26,10 @@ import {
 } from "./create-ad";
 import { deleteMetaObjects } from "./delete";
 import { type CreateIssue, localIssue } from "./types";
+import {
+  MIN_LIFETIME_FLIGHT_MS,
+  isLifetimeFlightTooShort,
+} from "./validation";
 
 /** An ad set plus its ads, minus the fields the orchestrator derives. */
 export type TreeAdSetSpec = {
@@ -118,13 +122,55 @@ export function inheritTreeFlightWindow<
 }
 
 function prepareCampaignTree<T extends {
-  campaign: { startTime?: string; stopTime?: string };
+  campaign: {
+    lifetimeBudgetCents?: number;
+    startTime?: string;
+    stopTime?: string;
+  };
   adSets: Array<{
     adSet: { startTime?: string; endTime?: string };
     ads: TreeAdLike[];
   }>;
 }>(tree: T): T {
-  return inheritTreeFlightWindow(inheritTreeConversionDomains(tree));
+  return inheritTreeFlightWindow(
+    inheritTreeConversionDomains(extendShortLifetimeFlight(tree)),
+  );
+}
+
+/**
+ * Dayparting is a weekly hour grid; the Meta *flight* still has to last >24h.
+ * A "hoje 15h–22h" vitalício herda end_time no mesmo dia e a Graph devolve 1487094.
+ */
+export function extendShortLifetimeFlight<
+  T extends {
+    campaign: {
+      lifetimeBudgetCents?: number;
+      startTime?: string;
+      stopTime?: string;
+    };
+  },
+>(tree: T): T {
+  const campaign = tree.campaign;
+  if ((campaign.lifetimeBudgetCents ?? 0) <= 0) {
+    return tree;
+  }
+  if (
+    !isLifetimeFlightTooShort(campaign.startTime, campaign.stopTime) ||
+    !campaign.startTime
+  ) {
+    return tree;
+  }
+  const startMs = Date.parse(campaign.startTime);
+  if (!Number.isFinite(startMs)) {
+    return tree;
+  }
+  return {
+    ...tree,
+    campaign: {
+      ...campaign,
+      stopTime: new Date(startMs + MIN_LIFETIME_FLIGHT_MS).toISOString(),
+    },
+  };
 }
 
 /**

@@ -103,6 +103,8 @@ export function validateCampaignInput(input: CreateCampaignInput): CreateIssue[]
       dailyBudgetCents: input.dailyBudgetCents,
       lifetimeBudgetCents: input.lifetimeBudgetCents,
       hasStopTime: Boolean(input.stopTime),
+      startTime: input.startTime,
+      stopTime: input.stopTime,
       isAdsetBudgetSharingEnabledProvided:
         input.isAdsetBudgetSharingEnabled !== undefined,
     }),
