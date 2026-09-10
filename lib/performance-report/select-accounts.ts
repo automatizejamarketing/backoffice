@@ -17,6 +17,9 @@ export type AccountSelection = {
   summary: string;
 };
 
+/** Trailing calendar days (including today) used inside Automatize-managed accounts. */
+export const ACCOUNT_RECENT_SPEND_DAYS = 15;
+
 const NAME_STOP = new Set([
   "cliente",
   "conta",
@@ -94,6 +97,7 @@ export function buildAccountScopeSummary(input: {
   mode: AccountScopeMode;
   selected: SelectableAccount[];
   skipped: SelectableAccount[];
+  usedRecentSpend?: boolean;
 }): string {
   const selectedLabels = input.selected.map(accountLabel);
   const skippedLabels = input.skipped.map(accountLabel);
@@ -115,10 +119,13 @@ export function buildAccountScopeSummary(input: {
         : `contas que batem com o nome do cliente — ${selectedLabels.join(", ")}`;
     return `Escopo desta análise: ${who}.${skippedSuffix}`;
   }
+  const spendNote = input.usedRecentSpend
+    ? `, com gasto nos últimos ${ACCOUNT_RECENT_SPEND_DAYS} dias`
+    : "";
   const who =
     selectedLabels.length === 1
-      ? `somente a conta ${selectedLabels[0]} (campanha criada pelo Automatize)`
-      : `contas com campanha criada pelo Automatize — ${selectedLabels.join(", ")}`;
+      ? `somente a conta ${selectedLabels[0]} (campanha criada pelo Automatize${spendNote})`
+      : `contas com campanha criada pelo Automatize${spendNote} — ${selectedLabels.join(", ")}`;
   return `Escopo desta análise: ${who}.${skippedSuffix}`;
 }
 
@@ -127,6 +134,8 @@ export function selectReportAccounts(input: {
   explicitAccountId?: string | null;
   managedAccountIds: string[];
   liveManagedAccountIds?: string[];
+  /** Spend in the last 15 days; only applied inside the Automatize-managed set. */
+  recentSpendAccountIds?: string[];
   clientName?: string | null;
 }): AccountSelection {
   const connected = input.connected;
@@ -167,17 +176,34 @@ export function selectReportAccounts(input: {
       accountInKeySet(account, managedKeys),
     );
     if (selected.length > 0) {
-      const skipped = connected.filter(
+      const outsideManaged = connected.filter(
         (account) => !accountInKeySet(account, managedKeys),
       );
+      const spendKeys = toAccountKeySet(input.recentSpendAccountIds ?? []);
+      let scoped = selected;
+      let usedRecentSpend = false;
+      if (selected.length > 1 && spendKeys.size > 0) {
+        const withSpend = selected.filter((account) =>
+          accountInKeySet(account, spendKeys),
+        );
+        if (withSpend.length > 0) {
+          scoped = withSpend;
+          usedRecentSpend = true;
+        }
+      }
+      const idleManaged = selected.filter(
+        (account) => !accountInKeySet(account, toAccountKeySet(scoped.map((row) => row.id))),
+      );
+      const skipped = [...outsideManaged, ...idleManaged];
       return {
         mode: "automatize_managed",
-        selected,
+        selected: scoped,
         skipped,
         summary: buildAccountScopeSummary({
           mode: "automatize_managed",
-          selected,
+          selected: scoped,
           skipped,
+          usedRecentSpend,
         }),
       };
     }

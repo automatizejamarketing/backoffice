@@ -12,10 +12,13 @@ import type { ReportClient } from "./client";
 import type { PerformanceDatePreset } from "./filters";
 import { listAutomatizeManagedAdAccountIds } from "./managed-account-ids";
 import { metricsFromInsight, type InsightMetrics, type RawInsight } from "./metrics";
+import { trailingInclusiveRange } from "@/lib/playbook-insights/dates";
 import {
+  ACCOUNT_RECENT_SPEND_DAYS,
   campaignHasManagedPrefix,
   selectReportAccounts,
   type AccountSelection,
+  type SelectableAccount,
 } from "./select-accounts";
 
 const MAX_ACCOUNTS = 5;
@@ -358,6 +361,33 @@ async function listLiveManagedAccountIds(input: {
   return hits;
 }
 
+async function listAccountsWithRecentSpend(input: {
+  accessToken: string;
+  accounts: SelectableAccount[];
+}): Promise<string[]> {
+  const { since, until } = trailingInclusiveRange(
+    new Date(),
+    ACCOUNT_RECENT_SPEND_DAYS,
+  );
+  const hits = await Promise.all(
+    input.accounts.map(async (account) => {
+      try {
+        const metrics = await fetchAccountInsight({
+          accessToken: input.accessToken,
+          accountId: account.id,
+          datePreset: "last_14d",
+          since,
+          until,
+        });
+        return metrics.spend > 0 ? account.id : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return hits.filter((id): id is string => Boolean(id));
+}
+
 async function resolveAccounts(input: {
   client: ReportClient;
   accountId?: string;
@@ -397,11 +427,31 @@ async function resolveAccounts(input: {
     });
   }
 
+  let recentSpendAccountIds: string[] = [];
+  const managedPreview = selectReportAccounts({
+    connected,
+    explicitAccountId: input.accountId,
+    managedAccountIds,
+    liveManagedAccountIds,
+    clientName: input.client.name,
+  });
+  if (
+    !input.accountId &&
+    managedPreview.mode === "automatize_managed" &&
+    managedPreview.selected.length > 1
+  ) {
+    recentSpendAccountIds = await listAccountsWithRecentSpend({
+      accessToken: tokenResult.accessToken,
+      accounts: managedPreview.selected,
+    });
+  }
+
   const scope = selectReportAccounts({
     connected,
     explicitAccountId: input.accountId,
     managedAccountIds,
     liveManagedAccountIds,
+    recentSpendAccountIds,
     clientName: input.client.name,
   });
 

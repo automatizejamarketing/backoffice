@@ -91,6 +91,58 @@ describe("selectReportAccounts", () => {
     expect(selection.mode).toBe("automatize_managed");
     expect(selection.selected.map((row) => row.id)).toEqual([midnight.id]);
   });
+
+  test("recent spend on a foreign account never pulls it in", () => {
+    const selection = selectReportAccounts({
+      connected,
+      managedAccountIds: [midnight.id],
+      recentSpendAccountIds: [cabello.id, infinite.id],
+      clientName: "Gabriel - Midnight",
+    });
+
+    expect(selection.selected.map((row) => row.id)).toEqual([midnight.id]);
+    expect(selection.skipped.map((row) => row.name)).toEqual([
+      cabello.name,
+      infinite.name,
+    ]);
+    expect(selection.summary).not.toContain("15 dias");
+  });
+
+  test("among two Automatize accounts, keeps only the one with recent spend", () => {
+    const otherAm = { id: "act_444", name: "CA - Midnight Delivery" };
+    const selection = selectReportAccounts({
+      connected: [...connected, otherAm],
+      managedAccountIds: [midnight.id, otherAm.id],
+      recentSpendAccountIds: [midnight.id],
+      clientName: "Gabriel - Midnight",
+    });
+
+    expect(selection.selected.map((row) => row.id)).toEqual([midnight.id]);
+    expect(selection.skipped.map((row) => row.name)).toEqual([
+      cabello.name,
+      infinite.name,
+      otherAm.name,
+    ]);
+    expect(selection.summary).toContain("gasto nos últimos 15 dias");
+  });
+
+  test("idle Automatize accounts stay in scope if none of them spent recently", () => {
+    const otherAm = { id: "act_444", name: "CA - Midnight Delivery" };
+    const selection = selectReportAccounts({
+      connected: [...connected, otherAm],
+      managedAccountIds: [midnight.id, otherAm.id],
+      recentSpendAccountIds: [cabello.id],
+      clientName: "Gabriel - Midnight",
+    });
+
+    expect(selection.selected.map((row) => row.id).sort()).toEqual(
+      [midnight.id, otherAm.id].sort(),
+    );
+    expect(selection.skipped.map((row) => row.name)).toEqual([
+      cabello.name,
+      infinite.name,
+    ]);
+  });
 });
 
 describe("account name and managed prefix helpers", () => {
