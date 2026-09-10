@@ -6,6 +6,7 @@ import {
   completePlaybookInsightsRun,
   createPlaybookInsightsRun,
   failPlaybookInsightsRun,
+  getPlaybookUserAccess,
   persistPlaybookInsightsForUser,
 } from "@/lib/db/playbook-insights-queries";
 import { getConsultantPlaybookAlertConfig } from "@/lib/db/proactivity-alert-queries";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/playbook-insights/constants";
 import {
   evaluatePlaybookInsights,
+  isPlaybookAccessActive,
   playbookRoasDeclineLookbackDays,
 } from "@/lib/playbook-insights/evaluate";
 import { fetchCampaignMetricsForAccount } from "@/lib/playbook-insights/fetch-campaign-metrics";
@@ -131,7 +133,24 @@ export async function runPlaybookInsightsBatch(
     }
   }
 
-  const targets = allUsers.slice(0, maxUsers);
+  const accessByUser = await getPlaybookUserAccess(allUsers.map((row) => row.id));
+  const eligibleUsers: typeof allUsers = [];
+  const inactiveUsers: typeof allUsers = [];
+  for (const row of allUsers) {
+    if (isMetaFakeScenarioUser(row.id)) {
+      eligibleUsers.push(row);
+      continue;
+    }
+    const access = accessByUser.get(row.id);
+    if (isPlaybookAccessActive({ expirationDate: access?.expirationDate })) {
+      eligibleUsers.push(row);
+    } else {
+      inactiveUsers.push(row);
+    }
+  }
+
+  const targets = eligibleUsers.slice(0, maxUsers);
+  const inactiveTargets = inactiveUsers.slice(0, maxUsers);
   const runId = await createPlaybookInsightsRun({
     triggeredBy,
     requestedByEmail: options.requestedByEmail ?? null,
@@ -149,6 +168,37 @@ export async function runPlaybookInsightsBatch(
   let errorCount = 0;
 
   try {
+    for (const target of inactiveTargets) {
+      try {
+        const empty = evaluatePlaybookInsights({
+          accountId: null,
+          campaigns: [],
+          config: evaluationConfig,
+        });
+        await persistPlaybookInsightsForUser({
+          runId,
+          userId: target.id,
+          evaluation: empty,
+        });
+        results.push({
+          userId: target.id,
+          email: target.email,
+          insightsCreated: 0,
+          campaignsEvaluated: 0,
+          errorMessage: null,
+        });
+      } catch (error) {
+        errorCount += 1;
+        results.push({
+          userId: target.id,
+          email: target.email,
+          insightsCreated: 0,
+          campaignsEvaluated: 0,
+          errorMessage: formatBatchError(error),
+        });
+      }
+    }
+
     for (const target of targets) {
       try {
         if (isMetaFakeScenarioUser(target.id)) {
@@ -311,7 +361,7 @@ export async function runPlaybookInsightsBatch(
     }
 
     await completePlaybookInsightsRun(runId, {
-      usersEvaluated: targets.length,
+      usersEvaluated: targets.length + inactiveTargets.length,
       insightsCreated,
       campaignsEvaluated,
       errorCount,
@@ -327,7 +377,7 @@ export async function runPlaybookInsightsBatch(
   return {
     runId,
     totalWithMeta,
-    evaluated: targets.length,
+    evaluated: targets.length + inactiveTargets.length,
     insightsCreated,
     campaignsEvaluated,
     errorCount,

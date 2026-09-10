@@ -4,6 +4,7 @@ import {
   performanceInsight,
   performanceSnapshot,
   performanceSnapshotRun,
+  user,
   type PerformanceInsight,
 } from "@/lib/db/schema";
 import {
@@ -392,6 +393,33 @@ export async function getPlaybookInsightSummariesForUsers(
       current.highestSeverity = severity;
     }
     result.set(row.userId, current);
+  }
+
+  return result;
+}
+
+export type PlaybookUserAccess = {
+  expirationDate: Date | null;
+};
+
+export async function getPlaybookUserAccess(
+  userIds: string[],
+): Promise<Map<string, PlaybookUserAccess>> {
+  const result = new Map<string, PlaybookUserAccess>();
+  if (userIds.length === 0) return result;
+
+  const users = await db
+    .select({
+      id: user.id,
+      expirationDate: user.expirationDate,
+    })
+    .from(user)
+    .where(inArray(user.id, userIds));
+
+  for (const row of users) {
+    result.set(row.id, {
+      expirationDate: row.expirationDate,
+    });
   }
 
   return result;

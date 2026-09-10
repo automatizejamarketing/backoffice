@@ -5,6 +5,10 @@ export type CampaignMetricsRow = {
   name: string;
   status: string | null;
   effectiveStatus: string | null;
+  /** Campaign `stop_time`. Past dates mean Concluída even when Graph stays ACTIVE. */
+  stopTime: string | null;
+  /** Meta campaign objective (ODAX or legacy). Gates ROAS/CPA rules. */
+  objective: string | null;
   updatedTime: string | null;
   createdTime: string | null;
   spend: number;

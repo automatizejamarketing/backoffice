@@ -173,6 +173,8 @@ export async function fetchCampaignMetricsForAccount(args: {
           effective_status?: string;
           updated_time?: string;
           created_time?: string;
+          stop_time?: string;
+          objective?: string;
           insights?: {
             data?: Array<{
               spend?: string;
@@ -189,7 +191,7 @@ export async function fetchCampaignMetricsForAccount(args: {
         // Campaign effective_status enum does not include COMPLETED (ad-level).
         // Passing invalid values makes Meta reject the whole request for every user.
         params: [
-          "fields=id,name,status,effective_status,updated_time,created_time,insights.date_preset(last_30d){spend,impressions,purchase_roas,actions,action_values}",
+          "fields=id,name,status,effective_status,updated_time,created_time,stop_time,objective,insights.date_preset(last_30d){spend,impressions,purchase_roas,actions,action_values}",
           `limit=${limit}`,
           `effective_status=${encodeURIComponent(
             JSON.stringify(["ACTIVE", "PAUSED", "ARCHIVED"]),
@@ -243,6 +245,8 @@ export async function fetchCampaignMetricsForAccount(args: {
       name: campaign.name ?? campaign.id,
       status: campaign.status ?? null,
       effectiveStatus: campaign.effective_status ?? null,
+      stopTime: campaign.stop_time ?? null,
+      objective: campaign.objective ?? null,
       updatedTime: campaign.updated_time ?? null,
       createdTime: campaign.created_time ?? null,
       spend,

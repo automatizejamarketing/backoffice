@@ -9,10 +9,12 @@ import {
   backofficeUser,
 } from "@/lib/db/schema";
 import type { NewlyCreatedPlaybookInsight } from "@/lib/db/playbook-insights-queries";
+import { getPlaybookUserAccess } from "@/lib/db/playbook-insights-queries";
 import {
   isMetaFakeScenarioUser,
   META_FAKE_SKIP_REASON,
 } from "@/lib/meta-fake/config";
+import { isPlaybookAccessActive } from "@/lib/playbook-insights/evaluate";
 
 function getBackofficeBaseUrl(): string {
   return (
@@ -173,6 +175,21 @@ export async function deliverPlaybookInsightsToSlack(args: {
   }
 
   const fakeScenarioUser = isMetaFakeScenarioUser(args.userId);
+  if (!fakeScenarioUser) {
+    const access = await getPlaybookUserAccess([args.userId]);
+    if (
+      !isPlaybookAccessActive({
+        expirationDate: access.get(args.userId)?.expirationDate,
+      })
+    ) {
+      return {
+        attempted: 0,
+        sent: 0,
+        skipped: args.createdInsights.length,
+        failed: 0,
+      };
+    }
+  }
   const clientLabel = await resolveClientLabel(args.userId);
   const consultantLabel = await resolveConsultantLabel(args.userId);
   const deepLink = `${getBackofficeBaseUrl()}/users/${args.userId}?tab=marketing`;

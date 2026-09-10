@@ -1,3 +1,5 @@
+import { OBJECTIVE_RESULTS } from "@/lib/meta-business/insights/catalogs/objectives";
+import { mapHudDelivery } from "@/lib/performance-report/analysis";
 import {
   PLAYBOOK_DEFAULT_CPA_ALERT,
   PLAYBOOK_MIN_SPEND,
@@ -103,6 +105,31 @@ function parseTimestamp(value: string | Date | null | undefined): number | null 
   if (!value) return null;
   const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * ROAS/CPA only exist for sales-shaped objectives. Traffic/reach/leads never
+ * get a ROAS alert.
+ */
+export function isPlaybookSalesObjective(
+  objective: string | null | undefined,
+): boolean {
+  if (!objective) return false;
+  return OBJECTIVE_RESULTS[objective.toUpperCase()]?.hasValue === true;
+}
+
+/**
+ * Same rule as the product subscribe-gate: `users.expiration_date > now`.
+ * Billing `subscriptions.status` is ignored — Pix prepaid can stay `active`
+ * after access already expired.
+ */
+export function isPlaybookAccessActive(args: {
+  expirationDate?: Date | string | null;
+  now?: Date;
+}): boolean {
+  const expirationMs = parseTimestamp(args.expirationDate ?? null);
+  if (expirationMs === null) return false;
+  return expirationMs > (args.now ?? new Date()).getTime();
 }
 
 /**
@@ -249,6 +276,9 @@ export function evaluatePlaybookInsights(args: {
 
   for (const campaign of campaigns) {
     const status = campaign.effectiveStatus ?? campaign.status;
+    const delivery = mapHudDelivery(status, campaign.stopTime, now.getTime());
+    const isDelivering = delivery === "active";
+    const isSales = isPlaybookSalesObjective(campaign.objective);
     const roas = campaign.purchaseRoas;
 
     if (isEnabled(config, PLAYBOOK_RULE_ROAS_TRIGGER)) {
@@ -256,7 +286,8 @@ export function evaluatePlaybookInsights(args: {
       const minSpend = t.minSpend ?? PLAYBOOK_MIN_SPEND;
       const roasTrigger = t.roasTrigger ?? PLAYBOOK_ROAS_TRIGGER;
       if (
-        status === "ACTIVE" &&
+        isSales &&
+        isDelivering &&
         campaign.spend >= minSpend &&
         roas !== null &&
         roas <= roasTrigger
@@ -288,8 +319,9 @@ export function evaluatePlaybookInsights(args: {
       const minSpend = t.minSpend ?? PLAYBOOK_MIN_SPEND;
       const roasValidated = t.roasValidated ?? PLAYBOOK_ROAS_VALIDATED;
       if (
-        (status === "ACTIVE" ||
-          status === "COMPLETED" ||
+        isSales &&
+        (isDelivering ||
+          delivery === "completed" ||
           status === "ARCHIVED") &&
         campaign.spend >= minSpend &&
         roas !== null &&
@@ -306,8 +338,8 @@ export function evaluatePlaybookInsights(args: {
           title: "ROAS validado — oportunidade de escala",
           evidence: `Campanha "${campaign.name}" com ROAS ${formatRoas(roas)} (≥ ${roasValidated}) e gasto R$ ${campaign.spend.toFixed(2)}.`,
           recommendation:
-            status === "ACTIVE"
-              ? "Campanha validada pelo playbook. Avaliar aumento de orçamento, extensão do período e reforço com novos criativos/ofertas sem quebrar a estrutura que está convertendo."
+            isDelivering
+              ? "Campanha validada pelo playbook. Duplicar para um novo voo de 30 dias com orçamento total ~20% maior (gasto diário proporcional). Não aumentar o orçamento na campanha atual: o prazo restante concentraria o gasto extra e prejudicaria o CPA."
               : "Campanha encerrou com ROAS validado. Duplicar e estender para 30–45 dias com orçamento adequado ao período, preservando a inteligência acumulada.",
           metrics: {
             purchaseRoas: roas,
@@ -340,7 +372,8 @@ export function evaluatePlaybookInsights(args: {
       const severity =
         ratio == null ? null : severityForRoasDrop(ratio, warningPercent, criticalPercent);
       if (
-        status === "ACTIVE" &&
+        isSales &&
+        isDelivering &&
         campaign.spendPrevious >= minPreviousSpend &&
         previousRoas !== null &&
         previousRoas > 0 &&
@@ -393,7 +426,8 @@ export function evaluatePlaybookInsights(args: {
         config.cpaAlertThreshold ??
         PLAYBOOK_DEFAULT_CPA_ALERT;
       if (
-        status === "ACTIVE" &&
+        isSales &&
+        isDelivering &&
         campaign.spend >= minSpend &&
         campaign.cpa !== null &&
         campaign.cpa > cpaAlert
@@ -455,11 +489,7 @@ export function evaluatePlaybookInsights(args: {
     }
 
     if (isEnabled(config, PLAYBOOK_RULE_NO_DELIVERY)) {
-      if (
-        status === "ACTIVE" &&
-        campaign.impressions === 0 &&
-        campaign.spend === 0
-      ) {
+      if (isDelivering && campaign.impressions === 0 && campaign.spend === 0) {
         candidates.push({
           ruleId: PLAYBOOK_RULE_NO_DELIVERY,
           severity: "warning",
@@ -476,6 +506,7 @@ export function evaluatePlaybookInsights(args: {
             impressions: campaign.impressions,
             spend: campaign.spend,
             effectiveStatus: status,
+            stopTime: campaign.stopTime,
           },
         });
       }
