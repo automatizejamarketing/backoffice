@@ -17,7 +17,7 @@ WITH RECURSIVE ancestry AS (
 SELECT DISTINCT ON (original_id) original_id, current_id AS root_id
 FROM ancestry WHERE parent_id IS NULL ORDER BY original_id, depth DESC;
 CREATE TEMP TABLE product_reconciliation_case_groups ON COMMIT DROP AS
-SELECT roots.root_id, c.kind, min(c.id) AS canonical_id,
+SELECT roots.root_id, c.kind, min(c.id::text)::uuid AS canonical_id,
   min(c.next_review_at) AS next_review_at,
   bool_or(c.status IN ('open', 'monitoring')) AS has_open,
   jsonb_agg(jsonb_build_object('caseId', c.id, 'orderId', c.order_id,
