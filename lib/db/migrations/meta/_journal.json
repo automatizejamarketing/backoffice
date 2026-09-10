@@ -615,7 +615,21 @@
       "idx": 100,
       "version": "7",
       "when": 1798600000000,
-      "tag": "0100_crm_leads",
+      "tag": "0100_product_expert_transaction_fee",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1798700000000,
+      "tag": "0101_drop_product_post_sale_surface",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1798800000000,
+      "tag": "0102_crm_leads",
       "breakpoints": true
     }
   ]
