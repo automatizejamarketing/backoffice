@@ -129,7 +129,7 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
         </SheetDescription>
       </SheetHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+      <div className="min-h-0 flex-1 overflow-y-auto pb-6">
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
             <dt className="text-xs font-medium text-muted-foreground">Status comercial</dt>
