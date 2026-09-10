@@ -749,7 +749,8 @@ export function AdSetEditDialog({
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message ?? "Falha ao aplicar alterações");
+        const message = errorData.message ?? "Falha ao aplicar alterações";
+        throw new Error(errorData.solution ? `${message}\n\n${errorData.solution}` : message);
       }
 
       // Targeting/budget/schedule edits change this ad set and may shift its
@@ -1031,6 +1032,7 @@ export function AdSetEditDialog({
                 audiences={availableAudiences}
                 selected={includedAudiences}
                 onChange={setIncludedAudiences}
+                availabilityKey="include"
                 disabled={isSubmitting}
                 isLoading={isLoadingAudiences}
               />
@@ -1044,6 +1046,7 @@ export function AdSetEditDialog({
                 audiences={availableAudiences}
                 selected={excludedAudiences}
                 onChange={setExcludedAudiences}
+                availabilityKey="exclude"
                 disabled={isSubmitting}
                 isLoading={isLoadingAudiences}
               />

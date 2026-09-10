@@ -51,6 +51,11 @@ export const RESULT_FIELDS = [
   "actions",
   "action_values",
   "cost_per_action_type",
+  // Meta names the row's OWN result here (`indicator: "actions:<type>"`), which is the only
+  // way to read a result whose action type the objective map does not list — a
+  // click-to-WhatsApp ad set under OUTCOME_SALES being the case that forced it. Requested
+  // always: it is one field, and `normalize` only consults it when the map matched nothing.
+  "cost_per_result",
   "purchase_roas",
   "website_purchase_roas",
 ] as const;

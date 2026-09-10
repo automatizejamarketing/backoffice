@@ -112,10 +112,52 @@ export type CreateAdSetInput = {
 const cents = (n?: number): string | undefined =>
   n != null ? String(Math.round(n)) : undefined;
 
+/**
+ * Included audiences are hard constraints. Keep this last in the compiler so
+ * raw targeting and extraFields cannot turn the reviewed selection back into
+ * an expandable Advantage+ suggestion.
+ */
+function enforceIncludedAudienceRestriction(
+  targeting: Record<string, unknown>,
+): void {
+  const included = targeting.custom_audiences;
+  if (!Array.isArray(included) || included.length === 0) return;
+
+  const automation =
+    targeting.targeting_automation &&
+    typeof targeting.targeting_automation === "object"
+      ? (targeting.targeting_automation as Record<string, unknown>)
+      : {};
+  if (automation.individual_setting && typeof automation.individual_setting === "object") {
+    automation.individual_setting = {
+      ...(automation.individual_setting as Record<string, unknown>),
+      age: false,
+      gender: false,
+    };
+  }
+  targeting.targeting_automation = {
+    ...automation,
+    advantage_audience: 0,
+  };
+
+  const relaxation =
+    targeting.targeting_relaxation_types &&
+    typeof targeting.targeting_relaxation_types === "object"
+      ? (targeting.targeting_relaxation_types as Record<string, unknown>)
+      : {};
+  targeting.targeting_relaxation_types = {
+    ...relaxation,
+    custom_audience: 0,
+    lookalike: 0,
+  };
+}
+
 /** Compile the convenience targeting object into the Meta `targeting` payload. */
 export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown> {
-  const tt: Record<string, unknown> = {};
-  tt.geo_locations = t?.geoLocations ?? { countries: ["BR"] };
+  const tt: Record<string, unknown> = { ...(t?.raw ?? {}) };
+  if (t?.geoLocations !== undefined || !Object.hasOwn(tt, "geo_locations")) {
+    tt.geo_locations = t?.geoLocations ?? { countries: ["BR"] };
+  }
   if (t?.excludedGeoLocations) tt.excluded_geo_locations = t.excludedGeoLocations;
   if (t?.ageMin != null) tt.age_min = t.ageMin;
   if (t?.ageMax != null) tt.age_max = t.ageMax;
@@ -134,8 +176,47 @@ export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown>
   if (t?.devicePlatforms?.length) tt.device_platforms = t.devicePlatforms;
 
   const hasIncludedAudiences = Boolean(t?.customAudiences?.length);
-  const advantage = hasIncludedAudiences ? false : t?.advantageAudience !== false;
-  tt.targeting_automation = { advantage_audience: advantage ? 1 : 0 };
+  const hasHardDemographicLimits = Boolean(
+    t?.ageMin != null || t?.ageMax != null || t?.genders?.length,
+  );
+  const hardLimitsMustDisableExpansion = hasHardDemographicLimits;
+  const hasTargetingModeOverride = Boolean(
+    hasIncludedAudiences ||
+      hardLimitsMustDisableExpansion ||
+      t?.advantageAudience !== undefined,
+  );
+  const rawAutomation =
+    tt.targeting_automation && typeof tt.targeting_automation === "object"
+      ? (tt.targeting_automation as Record<string, unknown>)
+      : {};
+  const rawAdvantage = rawAutomation.advantage_audience;
+  const hasExplicitAdvantage = t?.advantageAudience !== undefined;
+  const advantage = hasIncludedAudiences || hardLimitsMustDisableExpansion
+    ? false
+    : hasExplicitAdvantage
+      ? t?.advantageAudience !== false
+      : rawAdvantage === 0 || rawAdvantage === false
+        ? false
+        : true;
+  if (hasTargetingModeOverride || !Object.hasOwn(tt, "targeting_automation")) {
+    const automation: Record<string, unknown> = {
+      ...rawAutomation,
+      // The modeled control is authoritative; raw fields may add metadata but
+      // must never turn a hard targeting choice back into a suggestion.
+      advantage_audience: advantage ? 1 : 0,
+    };
+    if (hardLimitsMustDisableExpansion) {
+      const individualSetting = automation.individual_setting;
+      if (individualSetting && typeof individualSetting === "object") {
+        automation.individual_setting = {
+          ...(individualSetting as Record<string, unknown>),
+          age: false,
+          gender: false,
+        };
+      }
+    }
+    tt.targeting_automation = automation;
+  }
 
   const hasManualSignals = Boolean(
     t?.customAudiences?.length ||
@@ -148,12 +229,29 @@ export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown>
   if (advantage && hasManualSignals) {
     // advantage_audience:1 with non-default selections must declare relaxation,
     // else Meta errors. Allow expansion (the Advantage+ behaviour).
-    tt.targeting_relaxation_types = { lookalike: 1, custom_audience: 1 };
+    const rawRelaxation =
+      tt.targeting_relaxation_types && typeof tt.targeting_relaxation_types === "object"
+        ? (tt.targeting_relaxation_types as Record<string, unknown>)
+        : {};
+    tt.targeting_relaxation_types = {
+      ...rawRelaxation,
+      lookalike: 1,
+      custom_audience: 1,
+    };
   } else if (!advantage) {
-    tt.targeting_relaxation_types = { custom_audience: 0 };
+    const rawRelaxation =
+      tt.targeting_relaxation_types && typeof tt.targeting_relaxation_types === "object"
+        ? (tt.targeting_relaxation_types as Record<string, unknown>)
+        : {};
+    tt.targeting_relaxation_types = {
+      ...rawRelaxation,
+      ...(hardLimitsMustDisableExpansion ? { lookalike: 0 } : {}),
+      custom_audience: 0,
+    };
   }
 
-  if (t?.raw) Object.assign(tt, t.raw);
+  enforceIncludedAudienceRestriction(tt);
+
   return tt;
 }
 
@@ -222,7 +320,24 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
   p.set("optimization_goal", input.optimizationGoal);
   p.set("billing_event", input.billingEvent ?? "IMPRESSIONS");
   p.set("status", input.status ?? "PAUSED");
-  p.set("targeting", JSON.stringify(buildTargeting(input.targeting)));
+  const compiledTargeting = buildTargeting(input.targeting);
+  const extraTargeting = input.extraFields?.targeting;
+  const targeting =
+    input.targeting &&
+    extraTargeting &&
+    typeof extraTargeting === "object" &&
+    !Array.isArray(extraTargeting)
+      ? {
+          ...(extraTargeting as Record<string, unknown>),
+          ...compiledTargeting,
+        }
+      : extraTargeting &&
+          typeof extraTargeting === "object" &&
+          !Array.isArray(extraTargeting)
+        ? (extraTargeting as Record<string, unknown>)
+        : compiledTargeting;
+  enforceIncludedAudienceRestriction(targeting);
+  p.set("targeting", JSON.stringify(targeting));
   if (input.destinationType) p.set("destination_type", input.destinationType);
   if (input.promotedObject)
     p.set("promoted_object", JSON.stringify(input.promotedObject));
@@ -264,7 +379,12 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
     );
   }
 
-  mergeExtraFields(p, input.extraFields);
+  const extraFields = input.extraFields
+    ? Object.fromEntries(
+        Object.entries(input.extraFields).filter(([key]) => key !== "targeting"),
+      )
+    : undefined;
+  mergeExtraFields(p, extraFields);
   return p;
 }
 

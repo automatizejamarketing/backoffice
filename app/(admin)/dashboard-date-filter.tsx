@@ -30,15 +30,17 @@ export function DashboardDateFilter({
   return (
     <nav aria-label="Período dos dados" className="w-full sm:w-auto">
       <DateRangePicker
-        date={{
+        value={{
           from: parseCalendarDate(window.fromDate),
           to: parseCalendarDate(window.throughDate),
         }}
-        disabledAfter={new Date()}
-        placeholder="Selecionar período"
-        className="h-9 w-full px-3 text-xs shadow-none sm:w-[220px]"
-        onDateChange={({ from, to }) => {
-          if (!from || !to) return;
+        maxDate={new Date()}
+        label="Período dos dados"
+        className="w-full sm:w-64"
+        onChange={(range) => {
+          // "Limpar" não tem sentido aqui: a página sempre tem um período.
+          if (!range) return;
+          const { from, to } = range;
           const params = new URLSearchParams({
             ...extraParams,
             range: "custom",

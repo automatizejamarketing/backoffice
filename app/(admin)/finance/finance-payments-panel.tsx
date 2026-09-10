@@ -41,9 +41,9 @@ type FinancePaymentsPanelProps = {
   backfillQuery?: string;
 };
 
-const PRODUCT_NET_LABEL = "Coprodução do Automatize";
+const PRODUCT_NET_LABEL = "Líquido Automatize";
 const PRODUCT_NET_HELP =
-  "Soma da Coprodução do Automatize e receita de produtos próprios no período.";
+  "Taxa marketplace + taxa coprodução dos produtos de expert, mais a receita de produtos próprios, no período.";
 
 function ProductSettlementBreakdown({
   settlement,
@@ -92,7 +92,7 @@ function ProductSettlementBreakdown({
                 <dd>{formatBRLFromCentavos(rail.totals.expertRevenueCentavos)}</dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-muted-foreground">Coprodução do Automatize</dt>
+                <dt className="text-muted-foreground">Líquido Automatize</dt>
                 <dd>
                   {formatBRLFromCentavos(rail.totals.automatizeRevenueCentavos)}
                 </dd>
@@ -368,7 +368,7 @@ function ProductPaymentsTable({
           <TableHead className="text-right">Tarifa real</TableHead>
           <TableHead className="text-right">Líquido</TableHead>
           <TableHead className="text-right">Parte do Expert</TableHead>
-          <TableHead className="text-right">Coprodução do Automatize</TableHead>
+          <TableHead className="text-right">Líquido Automatize</TableHead>
           <TableHead>Trilho de repasse</TableHead>
         </TableRow>
       </TableHeader>

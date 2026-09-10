@@ -144,6 +144,8 @@ export type FinanceProductPaymentAmountRow = Pick<
 export type FinanceProductPaymentNetAmounts = FinanceProductPaymentAmounts & {
   netCentavos: number;
   automatizeRevenueCentavos: number | null;
+  /** Só a coprodução: o que a Automatize leva além da taxa da plataforma. */
+  automatizeCoproductionCentavos: number | null;
   expertSettlementRail: ExpertSettlementRail | null;
   expertSettlementLabel: string | null;
   gatewayFeeEstimateLabel: string | null;
@@ -335,7 +337,9 @@ function usesPlatformFeeFinancialModel(
   return (
     financialModel === "platform_fee_coproduction" ||
     financialModel === "platform_fee_coproduction_v2" ||
-    financialModel === "platform_fee_coproduction_v3"
+    financialModel === "platform_fee_coproduction_v3" ||
+    // Coprodução sobre o bruto: a taxa da Automatize é basis points do bruto.
+    financialModel === "gateway_gross_v1"
   );
 }
 
@@ -588,11 +592,22 @@ export function resolveProductPaymentNetAmounts<
     gatewayFeeEstimateFixedCentavos: payment.gatewayFeeEstimateFixedCentavos,
   });
 
+  // Nos modelos com taxa da plataforma, a taxa já tem coluna própria; o que
+  // sobra da parte da Automatize é coprodução. Sem taxa (gateway_net_v1,
+  // produto próprio) a parte inteira continua aparecendo como antes.
+  const platformFeeCentavos = resolveProductPlatformFeeGrossCentavos(payment);
+  const automatizeCoproductionCentavos =
+    automatizeRevenueCentavos === null
+      ? null
+      : platformFeeCentavos !== null
+        ? Math.max(0, automatizeRevenueCentavos - platformFeeCentavos)
+        : automatizeRevenueCentavos;
   return {
     ...base,
     expertRevenueCentavos,
     automatizeNetCentavos: automatizeRevenueCentavos,
     automatizeRevenueCentavos,
+    automatizeCoproductionCentavos,
     netCentavos,
     expertSettlementRail,
     expertSettlementLabel,
@@ -654,6 +669,8 @@ export function resolveAutomatizeProductNetCentavos(
     | "automatizeProductRevenueCentavos"
     | "automatizeTotalNetRevenueCentavos"
     | "expertShareBasisPoints"
+    | "coproducerShareBasisPoints"
+    | "coproducerTypeSnapshot"
     | "expertRevenueCentavos"
     | "netAmountCentavos"
   >,
@@ -680,6 +697,18 @@ export function resolveAutomatizeProductNetCentavos(
                 : 0),
           )
         : 0);
+    // Coprodução sobre o bruto (gateway_gross_v1): o expert custeia a tarifa
+    // do provedor inteira; a Automatize leva taxa + participação, ambas em
+    // basis points do bruto, somadas no application_fee do Mercado Pago.
+    if (payment.financialModel === "gateway_gross_v1") {
+      const coproduction =
+        payment.automatizeCoproductionRevenueCentavos ??
+        (payment.coproducerTypeSnapshot === "automatize"
+          ? Math.round((gross * payment.coproducerShareBasisPoints) / 10_000)
+          : 0);
+      return Math.min(gross, platformFee + coproduction);
+    }
+
     const automatizeGross =
       platformFee +
       (payment.automatizeCoproductionRevenueCentavos ?? 0) +
@@ -721,10 +750,15 @@ export function resolveProductPaymentAmounts<
       : 0;
   const ledgerExpertRevenue = payment.expertRevenueCentavos;
   const expertRevenue =
-    ledgerExpertRevenue !== null &&
-    ledgerExpertRevenue <= gatewayNet
-      ? ledgerExpertRevenue
-      : derivedExpertRevenue;
+    payment.financialModel === "gateway_gross_v1"
+      ? // No gross_v1 o net_amount do pagamento já é o que sobra para o
+        // expert depois da tarifa e do application_fee.
+        payment.ownerType === "automatize"
+        ? 0
+        : gatewayNet
+      : ledgerExpertRevenue !== null && ledgerExpertRevenue <= gatewayNet
+        ? ledgerExpertRevenue
+        : derivedExpertRevenue;
   const automatizeNet = resolveAutomatizeProductNetCentavos(
     payment,
     gatewayNet,

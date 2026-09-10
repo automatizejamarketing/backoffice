@@ -16,7 +16,7 @@
  */
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
@@ -32,14 +32,20 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
-const siblingMigrations = join(
-  root,
-  "..",
-  "automatize-frontend",
-  "lib",
-  "db",
-  "migrations",
-);
+
+function siblingFrontendMigrations(backofficeRoot: string): string | null {
+  const dirName = basename(backofficeRoot);
+  const suffix = dirName.startsWith("backoffice")
+    ? dirName.slice("backoffice".length)
+    : "";
+  const candidates = [
+    join(backofficeRoot, "..", `automatize-frontend${suffix}`, "lib", "db", "migrations"),
+    join(backofficeRoot, "..", "automatize-frontend", "lib", "db", "migrations"),
+  ];
+  return candidates.find((path) => existsSync(path)) ?? null;
+}
+
+const siblingMigrations = siblingFrontendMigrations(root);
 
 /**
  * Colisões `when` que já existiam quando a auditoria foi escrita. Todas são
@@ -50,9 +56,47 @@ const siblingMigrations = join(
  * barrar a colisão nova, não reabrir as velhas.
  */
 const KNOWN_CROSS_REPO_COLLISIONS = new Set([
-  1775058776698, 1778289002646, 1790500000000, 1791200000000, 1792100000000,
-  1792200000000, 1793400000000,
+  "0004_old_maginty|0004_old_maginty",
+  "0010_keen_ben_parker|0012_tranquil_scarlet_witch",
+  "0027_onboarding_whatsapp_gate|0027_video_templates_max_duration",
+  "0034_digital_products|0034_meta_oauth_auth_mode",
+  "0039_customer_base_daily_snapshots|0042_product_funnel_events",
+  "0046_proactivity_alerts|0054_marketplace_fee_checkout_channel",
+  "0040_expert_platform_fee|0043_payments_reversal",
+  // Product migrations created before the parity bridge. They are preserved
+  // as history because changing an applied `when` can make Drizzle replay DDL.
+  "0068_product_participation_bounds|0075_mercadopago_expert_connections",
+  "0076_product_post_sale_costs|0084_product_post_sale_costs",
 ]);
+
+/**
+ * Older deploys already recorded these byte-identical files under different
+ * `when` values. They remain as immutable history; the bridge added by this
+ * ticket and the migration preflight make the Product pairs safe without
+ * editing those historical files.
+ */
+const KNOWN_TWIN_WHEN_DRIFT = new Set([
+  "0011_panoramic_iron_fist|0013_famous_wild_child",
+  "0013_adset_dayparting_audit|0017_adset_dayparting_audit",
+  "0014_progressive_onboarding|0018_progressive_onboarding",
+  "0015_profile_reminder_banner|0019_profile_reminder_banner",
+  "0016_company_locations|0020_company_locations",
+  "0018_trackable_links|0022_trackable_links",
+  "0019_users_created_at|0023_users_created_at",
+  "0040_expert_platform_fee|0043_payments_reversal",
+  "0040_payments_reversal|0043_payments_reversal",
+  "0046_proactivity_alerts|0047_proactivity_alerts",
+  "0040_expert_platform_fee|0048_expert_platform_fee",
+  "0069_mercadopago_expert_connections|0075_mercadopago_expert_connections",
+  "0072_product_refund_requests|0078_product_refund_requests",
+  "0073_product_refund_operations|0079_product_refund_operations",
+  "0074_product_refund_balance_cases|0080_product_refund_balance_cases",
+  "0075_product_dispute_defences|0082_product_dispute_defences",
+]);
+
+function pairKey(left: string, right: string): string {
+  return [left, right].sort().join("|");
+}
 
 function fakeFile(
   tag: string,
@@ -76,8 +120,8 @@ describe("journal de migrations", () => {
   });
 
   it("não estreia colisão de `when` com o repositório irmão", (t) => {
-    if (!existsSync(siblingMigrations)) {
-      t.skip("../automatize-frontend não está presente");
+    if (!siblingMigrations) {
+      t.skip("automatize-frontend irmão não está presente");
       return;
     }
 
@@ -98,10 +142,46 @@ describe("journal de migrations", () => {
       if (sameMigration) continue;
 
       assert.ok(
-        KNOWN_CROSS_REPO_COLLISIONS.has(entry.when),
+        KNOWN_CROSS_REPO_COLLISIONS.has(pairKey(entry.tag, twin.tag)),
         `when=${entry.when} está gasto por backoffice/${entry.tag} e por ` +
           `frontend/${twin.tag}, que são migrations diferentes. Escolha outro ` +
           `\`when\` — uma das duas jamais será aplicada.`,
+      );
+    }
+  });
+
+  it("gêmeas byte-idênticas compartilham o mesmo when", (t) => {
+    if (!siblingMigrations) {
+      t.skip("automatize-frontend irmão não está presente");
+      return;
+    }
+
+    const sibling = readMigrationJournal(siblingMigrations);
+    const byHash = new Map<string, (typeof sibling)[number]>();
+    for (const file of sibling) {
+      for (const hash of file.hashes) {
+        byHash.set(hash, file);
+      }
+    }
+
+    for (const entry of entries) {
+      const twin = entry.hashes
+        .map((hash) => byHash.get(hash))
+        .find((file) => file !== undefined);
+      if (!twin) continue;
+
+      if (
+        Math.abs(twin.when - entry.when) <= 1 ||
+        KNOWN_TWIN_WHEN_DRIFT.has(pairKey(entry.tag, twin.tag))
+      ) {
+        continue;
+      }
+
+      assert.equal(
+        twin.when,
+        entry.when,
+        `${entry.tag} e ${twin.tag} são o mesmo SQL com when ` +
+          `${entry.when} ≠ ${twin.when} — a segunda pode reaplicar ou sumir`,
       );
     }
   });

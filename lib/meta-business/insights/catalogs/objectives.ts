@@ -190,6 +190,35 @@ export const DEFAULT_OBJECTIVE_RESULT: ObjectiveResult = {
   kind: "action",
 };
 
+/**
+ * Labels keyed by the `action_type` that was actually measured, overriding the objective's
+ * generic one.
+ *
+ * The objective alone cannot name the result once a campaign's DESTINATION varies: a
+ * click-to-WhatsApp campaign and a website one are both `OUTCOME_SALES`, and both an
+ * Instagram post boost and a WhatsApp ad are `OUTCOME_ENGAGEMENT`. Naming the result after the
+ * action type that produced it is the one thing that stays true in every combination.
+ *
+ * Deliberately narrow: only action types whose objective label would be vague or wrong. Any
+ * action type absent here keeps the objective's own label, so no number or wording that works
+ * today changes.
+ */
+export const ACTION_TYPE_LABELS: Record<string, string> = {
+  "onsite_conversion.messaging_conversation_started_7d": "Conversas iniciadas",
+  "onsite_conversion.total_messaging_connection": "Conexões por mensagem",
+  "onsite_conversion.messaging_conversation_replied_7d": "Conversas respondidas",
+  post_engagement: "Engajamento da publicação",
+};
+
+/** The measured action type's own label, or `fallback` when it has no override. */
+export function labelForActionType(
+  actionType: string | null,
+  fallback: string,
+): string {
+  if (!actionType) return fallback;
+  return ACTION_TYPE_LABELS[actionType] ?? fallback;
+}
+
 /** Resolve the result definition for a campaign objective (case-insensitive). */
 export function resolveObjectiveResult(
   objective: string | null | undefined,

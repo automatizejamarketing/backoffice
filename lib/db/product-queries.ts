@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "./index";
 import {
   expertLedgerEntry,
@@ -12,9 +12,47 @@ import {
   productFinancialSetting,
   productOrder,
   productPayment,
+  productPaymentAttempt,
   user,
   type ProductContentType,
 } from "./schema";
+import {
+  buildProductRefundCheckoutSummary,
+  getProductRefundBumpOrderIds,
+  getProductRefundRootOrderId,
+} from "@/lib/products/refund-scope";
+
+/** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
+ * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
+ * transferência que conserte o Split Inicial ou complete um parcial. */
+/** Attempts without a terminal provider fact must remain visible separately
+ * from reconciliation cases: they can be explicitly resolved only after an
+ * operator records the provider's no-payment fact. */
+export async function listProductPaymentAttempts() {
+  return db
+    .select({
+      id: productPaymentAttempt.id,
+      orderId: productPaymentAttempt.orderId,
+      productTitle: productOrder.productTitleSnapshot,
+      attemptKey: productPaymentAttempt.attemptKey,
+      paymentMethod: productPaymentAttempt.paymentMethod,
+      amountCentavos: productPaymentAttempt.amountCentavos,
+      providerPaymentId: productPaymentAttempt.providerPaymentId,
+      collectorId: productPaymentAttempt.mercadoPagoCollectorId,
+      status: productPaymentAttempt.status,
+      failureCode: productPaymentAttempt.failureCode,
+      createdAt: productPaymentAttempt.createdAt,
+      updatedAt: productPaymentAttempt.updatedAt,
+      lastCheckedAt: productPaymentAttempt.lastCheckedAt,
+    })
+    .from(productPaymentAttempt)
+    .innerJoin(productOrder, eq(productOrder.id, productPaymentAttempt.orderId))
+    .where(inArray(productPaymentAttempt.status, ["prepared", "issuing", "pending", "unknown"]))
+    .orderBy(asc(productPaymentAttempt.updatedAt));
+}
+
+/** A read-only operational queue. Submission is intentionally a separate,
+ * explicit command so opening this screen can never contact Mercado Pago. */
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
 import { parseExpertAdminInput } from "@/lib/products/expert-input";
@@ -37,6 +75,7 @@ export async function getProductFinancialSettings() {
   };
 }
 
+/** Operational queue only. Executing a refund remains an explicit, audited action. */
 export async function updateProductFinancialSettings(input: unknown) {
   const values = parseProductFinancialSettingsInput(input);
   const [settings] = await db
@@ -273,7 +312,7 @@ export async function deleteProductContent(id: string) {
 }
 
 export async function listProductOrders() {
-  return db
+  const rows = await db
     .select({
       id: productOrder.id,
       productId: productOrder.productId,
@@ -282,6 +321,7 @@ export async function listProductOrders() {
       buyerEmail: productOrder.buyerEmail,
       userPhone: user.phone,
       priceCentavos: productOrder.priceCentavos,
+      attribution: productOrder.attribution,
       status: productOrder.status,
       approvedAt: productOrder.approvedAt,
       createdAt: productOrder.createdAt,
@@ -340,6 +380,27 @@ export async function listProductOrders() {
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
     .leftJoin(user, eq(productOrder.userId, user.id))
     .orderBy(desc(productOrder.createdAt));
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  return rows.map((row) => {
+    const rootOrderId = getProductRefundRootOrderId(row);
+    const root = rowsById.get(rootOrderId) ?? row;
+    const bumpRows = getProductRefundBumpOrderIds(root.attribution)
+      .map((id) => rowsById.get(id))
+      .filter((item): item is (typeof row) => Boolean(item));
+    const summary = buildProductRefundCheckoutSummary(
+      { id: root.id, productTitle: root.productTitle, priceCentavos: root.priceCentavos },
+      bumpRows.map((item) => ({ id: item.id, productTitle: item.productTitle, priceCentavos: item.priceCentavos })),
+    );
+    return {
+      ...row,
+      checkoutRootOrderId: root.id,
+      checkoutOrderIds: summary.orderIds,
+      checkoutItems: summary.items,
+      checkoutTotalCentavos: summary.totalCentavos,
+      checkoutProvider: root.provider,
+    };
+  });
 }
 
 export async function listPayoutRequests() {
@@ -432,6 +493,113 @@ export async function updatePayoutRequest({
   });
 }
 
+/**
+ * Commits the local consequences of an already provider-confirmed integral
+ * refund.  Orders, entitlements, ledger reversals, payment state, operation,
+ * and buyer request are one transaction so a bump can never be left active
+ * while the principal order is marked refunded.
+ */
+export async function applyFullProductCheckoutRefund(input: {
+  orderIds: string[];
+  rootOrderId: string;
+  paymentId: string;
+  refundedAmountCentavos: number;
+  operationId?: string;
+  eventSuffix: string;
+}) {
+  const orderIds = [...new Set(input.orderIds)];
+  if (!orderIds.length || !orderIds.includes(input.rootOrderId)) {
+    throw new Error("invalid_product_checkout_group");
+  }
+  return db.transaction(async (tx) => {
+    const orders = await tx
+      .select()
+      .from(productOrder)
+      .where(inArray(productOrder.id, orderIds))
+      .for("update");
+    if (orders.length !== orderIds.length) {
+      throw new Error("invalid_product_checkout_group");
+    }
+    if (orders.some((order) => !["approved", "refunded"].includes(order.status))) {
+      throw new Error("checkout_not_approved");
+    }
+
+    const now = new Date();
+    await tx
+      .update(productEntitlement)
+      .set({ revokedAt: now })
+      .where(
+        and(
+          inArray(productEntitlement.orderId, orderIds),
+          isNull(productEntitlement.revokedAt),
+        ),
+      );
+    const approvedOrderIds = orders
+      .filter((order) => order.status === "approved")
+      .map((order) => order.id);
+    if (approvedOrderIds.length) {
+      await tx
+        .update(productOrder)
+        .set({ status: "refunded", refundedAt: now, updatedAt: now })
+        .where(inArray(productOrder.id, approvedOrderIds));
+    }
+
+    const [payment] = await tx
+      .select()
+      .from(productPayment)
+      .where(
+        and(
+          eq(productPayment.id, input.paymentId),
+          eq(productPayment.orderId, input.rootOrderId),
+        ),
+      )
+      .limit(1);
+    if (!payment) throw new Error("refund_payment_not_found");
+    await tx
+      .update(productPayment)
+      .set({
+        status: "refunded",
+        refundedAmountCentavos: input.refundedAmountCentavos,
+        platformGatewayNetRevenueCentavos: 0,
+        ownerExpertReceivableCentavos: 0,
+        coproducerExpertReceivableCentavos: 0,
+        automatizeCoproductionRevenueCentavos: 0,
+        automatizeProductRevenueCentavos: 0,
+        automatizeTotalNetRevenueCentavos: 0,
+        updatedAt: now,
+      })
+      .where(eq(productPayment.id, input.paymentId));
+
+    for (const orderId of approvedOrderIds) {
+      const sales = await tx
+        .select()
+        .from(expertLedgerEntry)
+        .where(
+          and(
+            eq(expertLedgerEntry.orderId, orderId),
+            eq(expertLedgerEntry.type, "sale"),
+          ),
+        );
+      for (const sale of sales) {
+        await tx
+          .insert(expertLedgerEntry)
+          .values({
+            expertId: sale.expertId,
+            orderId,
+            eventKey: `product-refund:${orderId}:${sale.id}:${input.eventSuffix}`,
+            type: "refund",
+            amountCentavos: -sale.amountCentavos,
+            availableAt: now,
+            description: `Estorno de ${orders.find((order) => order.id === orderId)?.productTitleSnapshot ?? "produto"}`,
+          })
+          .onConflictDoNothing({ target: expertLedgerEntry.eventKey });
+      }
+    }
+
+    return { orders, payment, refundedAmountCentavos: input.refundedAmountCentavos };
+  });
+}
+
 export async function applyFullProductRefund(
   orderId: string,
   eventSuffix: string,
@@ -503,4 +671,96 @@ export async function applyFullProductRefund(
     }
     return updated;
   });
+}
+
+/**
+ * Fila de recuperação de venda: quem gerou Pix de infoproduto e deixou vencer.
+ *
+ * Dois grupos entram, e é de propósito (ver `resolveRecoveryPixState`):
+ * o Pix vencido, que é o trabalho a fazer, e o pedido que voltou para `pending`
+ * porque um admin já gerou o código de recuperação — esse continua na lista,
+ * marcado, para o vendedor não abordar a mesma pessoa duas vezes.
+ *
+ * Order bump é linha própria em `product_orders` e não pode aparecer aqui: a
+ * venda é uma só, e quem carrega o grupo é o pedido primário. Na prática o bump
+ * nem tem linha em `product_payments` enquanto não aprova — o filtro de
+ * atribuição é cinto e suspensório.
+ */
+export async function listRecoveryPixOrders() {
+  return db
+    .select({
+      id: productOrder.id,
+      productId: productOrder.productId,
+      productTitle: productOrder.productTitleSnapshot,
+      buyerName: productOrder.buyerName,
+      buyerEmail: productOrder.buyerEmail,
+      buyerPhone: productOrder.buyerPhone,
+      buyerUserId: productOrder.userId,
+      priceCentavos: productOrder.priceCentavos,
+      currency: productOrder.currency,
+      status: productOrder.status,
+      createdAt: productOrder.createdAt,
+      updatedAt: productOrder.updatedAt,
+      attribution: productOrder.attribution,
+      paymentStatus: productPayment.status,
+      paymentRawStatus: productPayment.rawStatus,
+      paymentMethodId: productPayment.paymentMethodId,
+      providerPaymentId: productPayment.providerPaymentId,
+    })
+    .from(productOrder)
+    .innerJoin(product, eq(productOrder.productId, product.id))
+    .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
+    .where(
+      and(
+        sql`coalesce(${productOrder.attribution} ->> 'order_bump', '') <> 'true'`,
+        or(
+          and(
+            eq(productOrder.status, "failed"),
+            eq(productPayment.status, "failed"),
+            eq(productPayment.rawStatus, "cancelled"),
+            eq(productPayment.paymentMethodId, "pix"),
+          ),
+          and(
+            eq(productOrder.status, "pending"),
+            // `->> IS NOT NULL` e não o operador `?` do jsonb: `?` é ambíguo com
+            // placeholder de driver e o carimbo é sempre string, nunca json null.
+            sql`${productOrder.attribution} ->> 'recovery_pix_expires_at' IS NOT NULL`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(desc(productOrder.createdAt));
+}
+
+/**
+ * Existe OUTRA compra aberta ou paga deste produto para este e-mail?
+ *
+ * Guarda do índice único parcial `product_orders_one_open_purchase`: reabrir um
+ * pedido vencido para `pending` reengata o índice, e se o cliente voltou ao site
+ * e comprou de novo no meio-tempo, o UPDATE estouraria. Melhor recusar antes,
+ * com motivo legível.
+ */
+export async function buyerHasOtherOpenProductOrder({
+  orderId,
+  productId,
+  buyerEmail,
+}: {
+  orderId: string;
+  productId: string;
+  buyerEmail: string;
+}): Promise<boolean> {
+  const [row] = await db
+    .select({ id: productOrder.id })
+    .from(productOrder)
+    .where(
+      and(
+        eq(productOrder.productId, productId),
+        eq(productOrder.buyerEmail, buyerEmail),
+        ne(productOrder.id, orderId),
+        inArray(productOrder.status, ["pending", "approved"]),
+      ),
+    )
+    .limit(1);
+
+  return Boolean(row);
 }

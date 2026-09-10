@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import { recordCoveredLegacyProductMigrations } from "../lib/db/migration-preflight";
 import { loadAppEnv } from "../lib/env/load-env";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -123,6 +124,7 @@ async function main() {
       )
     `;
     await baselineFirstMigrationIfNeeded(sql);
+    await recordCoveredLegacyProductMigrations(sql, migrationsFolder);
   } finally {
     await sql.end({ timeout: 5 });
   }

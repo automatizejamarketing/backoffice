@@ -19,6 +19,8 @@ import {
   ShoppingCart,
   Trash2,
   Upload,
+  Ban,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { OrderBuyerWhatsApp } from "@/components/order-buyer-whatsapp";
@@ -78,6 +80,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ProductSalesPanel } from "@/components/product-sales/product-sales-panel";
+import { FilterBar, FilterSelect } from "@/components/ui/filter";
+import { resolveMarketplaceFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
+import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { RecoveryPixPanel } from "./recovery-pix-panel";
 import {
   formatBrazilianPhone,
   formatBrazilianPhoneInput,
@@ -93,6 +100,8 @@ import {
 } from "@/lib/products/currency-input";
 import {
   formatPercentageInput,
+  formatProductParticipationInput,
+  parseOptionalPercentageInput,
   parsePercentageInput,
 } from "@/lib/products/percentage-input";
 import { orderMatchesBuyerSearch } from "@/lib/backoffice/product-order-search";
@@ -145,6 +154,22 @@ type Expert = {
   stripeAccountUpdatedAt: string | null;
 };
 
+type MercadoPagoExpertPanel = {
+  connected: boolean;
+  environment: "sandbox" | "production";
+  accountId?: string;
+  pix: "available" | "unavailable" | "unknown";
+  card: "available" | "unavailable" | "unknown";
+  lastValidatedAt: string | null;
+  validationError: string | null;
+  switch: {
+    state: "pending_authorization" | "authorized" | "resolving" | "activated" | "denied";
+    nextMpUserId: string | null;
+    authorizationReason: string | null;
+    authorizedBy: string | null;
+  } | null;
+};
+
 type Product = {
   id: string;
   ownerType: "automatize" | "expert";
@@ -154,6 +179,7 @@ type Product = {
   description: string | null;
   coverUrl: string | null;
   priceCentavos: number;
+  expertParticipationBps: number | null;
   ownerExpertShareBasisPoints: number;
   coproducerType: "automatize" | "expert" | null;
   coproducerExpertId: string | null;
@@ -221,6 +247,30 @@ type Order = {
   expertSettlement: "gateway" | "ledger" | null;
   gatewayFeeEstimateBps: number | null;
   gatewayFeeEstimateFixedCentavos: number | null;
+  checkoutRootOrderId: string;
+  checkoutOrderIds: string[];
+  checkoutItems: Array<{
+    orderId: string;
+    title: string;
+    amountCentavos: number;
+  }>;
+  checkoutTotalCentavos: number;
+  checkoutProvider: string | null;
+  refundOperationStatus: "issuing" | "confirmed" | "failed" | "external_partial" | null;
+  refundOperationAmountCentavos: number | null;
+  refundOperationReason: string | null;
+  refundOperationOperatorEmail: string | null;
+  refundBalanceCaseId: string | null;
+  refundBalanceStatus: "pending" | "resolved" | null;
+  refundBalanceResponsible: "expert" | "automatize" | null;
+  refundBalanceFirstFailedAt: string | null;
+  refundBalanceLastFailedAt: string | null;
+  refundBalanceDueAt: string | null;
+  refundBalanceAttemptCount: number | null;
+  refundBalanceNextRetryAt: string | null;
+  refundBalanceNoticeSentAt: string | null;
+  refundBalanceLastFailureCode: string | null;
+  refundBalanceLastFailureMessage: string | null;
 };
 
 type Payout = {
@@ -233,6 +283,109 @@ type Payout = {
   proofUrl: string | null;
 };
 
+type Defence = {
+  disputeId: string;
+  provider: string;
+  providerDisputeId: string;
+  caseStatus: string;
+  openedAt: string;
+  defenceId: string | null;
+  deadlineAt: string | null;
+  originalProviderAccountId: string | null;
+  submissionState: "draft" | "unknown" | "submitted" | null;
+  reviewedAt: string | null;
+  reviewedByEmail: string | null;
+  submittedAt: string | null;
+  providerResult: string | null;
+  expertNote: string | null;
+  operatorNote: string | null;
+  lastProviderCheckedAt: string | null;
+  lastProviderError: string | null;
+  productTitle: string;
+  files: Array<{
+    source: "proposed" | "expert" | "operator";
+    fileName: string;
+    contentType: string;
+    sizeBytes: number;
+  }>;
+};
+
+type PixFraudCase = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  buyerEmail: string;
+  provider: string;
+  providerCaseId: string;
+  providerPaymentId: string;
+  providerAccountId: string | null;
+  status: "under_review" | "closed_valid" | "payment_invalidated_by_fraud";
+  cause: string | null;
+  responsible: "expert" | "automatize";
+  recoveredAmountCentavos: number | null;
+  financialPending: boolean;
+  observedAt: string;
+  resolvedAt: string | null;
+  responseDueAt: string | null;
+  events: Array<{
+    providerEventId: string;
+    eventType: string;
+    occurredAt: string;
+  }>;
+};
+
+type ReconciliationCase = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  provider: string;
+  providerAccountId: string | null;
+  kind: string;
+  responsible: "operations" | "automatize_finance" | "expert";
+  status: "open" | "monitoring" | "resolved";
+  attributionProven: boolean;
+  effectiveAmountCentavos: number | null;
+  evidence: Record<string, string | number | null>;
+  nextReviewAt: string;
+  createdAt: string;
+};
+
+type ProductPaymentAttempt = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  attemptKey: string;
+  paymentMethod: "pix" | "card";
+  amountCentavos: number;
+  providerPaymentId: string | null;
+  collectorId: string | null;
+  status: "prepared" | "issuing" | "pending" | "unknown";
+  failureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastCheckedAt: string | null;
+};
+
+type PostSaleCostCase = {
+  id: string;
+  productTitle: string;
+  paymentId: string;
+  provider: string;
+  providerAccountId: string | null;
+  providerCaseId: string | null;
+  reversal: "integral_refund" | "lost_full_chargeback" | "external_partial" | "pix_med";
+  status: "open" | "exception" | "settled";
+  responsible: "expert" | "automatize";
+  evidence: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  movements: Array<{ providerMovementId: string; kind: "cost" | "credit"; amountCentavos: number; supportedBy: "expert" | "automatize"; orderId: string | null }>;
+  calculation:
+    | { kind: "ready"; items: Array<{ orderId: string; remainingCostCentavos: number; expertResponsibilityCentavos: number; automatizeResponsibilityCentavos: number; expertSupportedCentavos: number; automatizeSupportedCentavos: number }>; transfer: { debtor: "expert" | "automatize"; creditor: "expert" | "automatize"; amountCentavos: number } | null }
+    | { kind: "exception"; reason: string };
+  settlement: { debtor: "expert" | "automatize"; creditor: "expert" | "automatize"; amountCentavos: number; proofUrl: string; proofKey: string; operatorEmail: string | null; confirmedAt: string | null } | null;
+};
+
 type ProductFormState = {
   ownerType: "automatize" | "expert";
   expertId: string;
@@ -241,6 +394,7 @@ type ProductFormState = {
   description: string;
   coverUrl: string;
   priceReais: string;
+  expertParticipationPercent: string;
   hasCoproduction: boolean;
   coproducerType: "automatize";
   coproducerExpertId: string;
@@ -282,6 +436,7 @@ const emptyProduct: ProductFormState = {
   description: "",
   coverUrl: "",
   priceReais: "",
+  expertParticipationPercent: "",
   hasCoproduction: false,
   coproducerType: "automatize",
   coproducerExpertId: "",
@@ -410,6 +565,48 @@ const paymentStatusLabel: Record<string, string> = {
   refunded: "Reembolsado",
   charged_back: "Chargeback",
 };
+
+const orderStatusTone: Record<string, StatusTone> = {
+  pending: "warning",
+  approved: "success",
+  failed: "danger",
+  refunded: "neutral",
+  canceled: "neutral",
+};
+
+const paymentStatusTone: Record<string, StatusTone> = {
+  pending: "warning",
+  approved: "success",
+  failed: "danger",
+  refunded: "neutral",
+  charged_back: "danger",
+};
+
+const ORDER_STATUS_FILTER_OPTIONS = Object.entries(orderStatusLabel).map(
+  ([value, label]) => ({ value, label }),
+);
+
+function OrderStatusBadge({ status }: { status: string }) {
+  return (
+    <StatusBadge
+      tone={orderStatusTone[status] ?? "neutral"}
+      icon={status === "refunded" ? Undo2 : status === "canceled" ? Ban : undefined}
+    >
+      {orderStatusLabel[status] ?? status}
+    </StatusBadge>
+  );
+}
+
+function PaymentStatusBadge({ status }: { status: string }) {
+  return (
+    <StatusBadge
+      tone={paymentStatusTone[status] ?? "neutral"}
+      icon={status === "refunded" ? Undo2 : status === "charged_back" ? Ban : undefined}
+    >
+      {paymentStatusLabel[status] ?? status}
+    </StatusBadge>
+  );
+}
 
 function money(value: number) {
   return new Intl.NumberFormat("pt-BR", {
@@ -750,7 +947,9 @@ export function ProductsAdminWorkspace({
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string | undefined>();
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [paymentAttempts, setPaymentAttempts] = useState<ProductPaymentAttempt[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
@@ -765,6 +964,7 @@ export function ProductsAdminWorkspace({
   const [refundTarget, setRefundTarget] = useState<Order | null>(null);
   const [orderDetailTarget, setOrderDetailTarget] = useState<Order | null>(null);
   const [refunding, setRefunding] = useState(false);
+  const [releasingBalance, setReleasingBalance] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
@@ -795,6 +995,11 @@ export function ProductsAdminWorkspace({
   const [stripeActionExpertId, setStripeActionExpertId] = useState<string | null>(
     null,
   );
+  const [mercadoPagoExpertPanel, setMercadoPagoExpertPanel] =
+    useState<MercadoPagoExpertPanel | null>(null);
+  const [mercadoPagoActionExpertId, setMercadoPagoActionExpertId] =
+    useState<string | null>(null);
+  const [mercadoPagoSwitchReason, setMercadoPagoSwitchReason] = useState("");
   const [onboardingLinkUrl, setOnboardingLinkUrl] = useState<string | null>(null);
   const [onboardingLinkDialogOpen, setOnboardingLinkDialogOpen] = useState(false);
 
@@ -812,8 +1017,10 @@ export function ProductsAdminWorkspace({
   }, [orders, paymentsDialogProduct]);
   const visibleOrders = useMemo(
     () =>
-      orders.filter((order) => orderMatchesBuyerSearch(order, orderSearch)),
-    [orders, orderSearch],
+      orders.filter((order) =>
+        (!orderStatusFilter || order.status === orderStatusFilter) &&
+        orderMatchesBuyerSearch(order, orderSearch)),
+    [orders, orderSearch, orderStatusFilter],
   );
   function changeProductOwner(value: string) {
     const owner = parseProductOwnerSelection(value);
@@ -838,27 +1045,30 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, reconciliationResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
+          fetch("/api/products/admin/reconciliation-cases", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, reconciliationResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextReconciliation] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
+          reconciliationResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
+      setPaymentAttempts(nextReconciliation.attempts ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -869,6 +1079,49 @@ export function ProductsAdminWorkspace({
       setIsLoadingList(false);
     }
   }, []);
+
+  async function settlePostSaleCost(caseId: string) {
+    const proofUrl = window.prompt("URL do comprovante da transferência manual");
+    if (!proofUrl) return;
+    const proofKey = window.prompt("Identificador imutável do comprovante");
+    if (!proofKey) return;
+    const response = await fetch(`/api/products/admin/post-sale-costs/${caseId}/settle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proofUrl, proofKey }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Acerto manual confirmado com comprovante.");
+    await loadAll();
+  }
+
+  async function reconcileProductCase(orderId: string) {
+    const response = await fetch(`/api/products/admin/reconciliation-cases/${orderId}/reconcile`, { method: "POST" });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Conciliação manual executada pela conta original.");
+    await loadAll();
+  }
+
+  async function resolvePaymentAttempt(attemptId: string) {
+    const reason = window.prompt("Motivo do encerramento sem cobrança")?.trim();
+    if (!reason) return;
+    const providerFact = window.prompt(
+      "Fato confirmado pelo Mercado Pago (ex.: busca pela referência sem resultado)",
+    )?.trim();
+    if (!providerFact) return;
+    const response = await fetch(`/api/products/admin/payment-attempts/${attemptId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reason,
+        providerFact: { summary: providerFact, source: "operator_input" },
+      }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Tentativa encerrada com auditoria.");
+    await loadAll();
+  }
+
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -913,6 +1166,9 @@ export function ProductsAdminWorkspace({
         coproducerExpertId: productForm.coproducerExpertId || null,
         coproducerSharePercent: parsePercentageInput(
           productForm.coproducerSharePercent,
+        ),
+        expertParticipationPercent: parseOptionalPercentageInput(
+          productForm.expertParticipationPercent,
         ),
         minimumPlanTier: productForm.minimumPlanTier || null,
       };
@@ -981,6 +1237,12 @@ export function ProductsAdminWorkspace({
       description: row.description ?? "",
       coverUrl: row.coverUrl ?? "",
       priceReais: formatBrlCurrencyFromCentavos(row.priceCentavos),
+      expertParticipationPercent:
+        row.expertParticipationBps === null
+          ? ""
+          : formatProductParticipationInput(
+              String(row.expertParticipationBps / 100).replace(".", ","),
+            ),
       hasCoproduction: row.coproducerType === "automatize",
       coproducerType: "automatize",
       coproducerExpertId: "",
@@ -1271,6 +1533,9 @@ export function ProductsAdminWorkspace({
       ),
       status: expert.status,
     });
+    setMercadoPagoExpertPanel(null);
+    setMercadoPagoSwitchReason("");
+    void loadMercadoPagoExpertPanel(expert.id);
     setExpertDialogOpen(true);
   }
 
@@ -1278,6 +1543,8 @@ export function ProductsAdminWorkspace({
     setExpertDialogOpen(false);
     setEditingExpertId(null);
     setExpertForm(emptyExpert);
+    setMercadoPagoExpertPanel(null);
+    setMercadoPagoSwitchReason("");
     setExpertImageFile(null);
     if (expertImagePreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(expertImagePreviewUrl);
@@ -1467,6 +1734,53 @@ export function ProductsAdminWorkspace({
     }
   }
 
+  async function loadMercadoPagoExpertPanel(expertId: string) {
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/mercadopago`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      setMercadoPagoExpertPanel(
+        (await response.json()) as MercadoPagoExpertPanel,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível consultar a Conta Mercado Pago do Expert.",
+      );
+    }
+  }
+
+  async function authorizeMercadoPagoReceiverSwitch(expertId: string) {
+    setMercadoPagoActionExpertId(expertId);
+    try {
+      const response = await fetch(
+        `/api/products/admin/experts/${expertId}/mercadopago`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: mercadoPagoSwitchReason,
+            environment: mercadoPagoExpertPanel?.environment,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      toast.success("Troca de conta autorizada. O Expert precisa concluir o OAuth.");
+      await loadMercadoPagoExpertPanel(expertId);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Não foi possível autorizar a troca da conta.",
+      );
+    } finally {
+      setMercadoPagoActionExpertId(null);
+    }
+  }
+
   async function resendExpertStripeOnboarding(expertId: string) {
     setStripeActionExpertId(expertId);
     try {
@@ -1512,27 +1826,72 @@ export function ProductsAdminWorkspace({
     ? getExpertStripeAccountDisplay(selectedOwnerExpert)
     : null;
 
-  const isMercadoPagoRefund = refundTarget?.provider === "mercadopago";
+  const isMercadoPagoRefund =
+    (refundTarget?.checkoutProvider ?? refundTarget?.provider) === "mercadopago";
 
   async function confirmRefund() {
     if (!refundTarget) return;
+    const reason = window.prompt(
+      "Informe o motivo do reembolso integral (obrigatório):",
+    );
+    if (!reason?.trim()) return;
     const viaMercadoPago = isMercadoPagoRefund;
     setRefunding(true);
     try {
       const response = await fetch(
         `/api/products/admin/orders/${refundTarget.id}/refund`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
       );
       if (!response.ok) return toast.error(await readError(response));
-      toast.success(
-        viaMercadoPago
-          ? "Estorno solicitado no Mercado Pago — o valor volta ao comprador pelo Pix."
-          : "Reembolso registrado.",
-      );
+      const body = await response.json().catch(() => null);
+      if (body?.status === "processing") {
+        toast.info(
+          "Reembolso enviado e ainda em confirmação no Mercado Pago. O acesso permanece ativo.",
+        );
+      } else if (body?.status === "balance_pending") {
+        toast.info(
+          "O Mercado Pago confirmou falta de saldo. O caso foi registrado para retentativa e nenhum acesso foi alterado.",
+        );
+      } else {
+        toast.success(
+          viaMercadoPago
+            ? "Reembolso integral confirmado no Mercado Pago. Os acessos da cobrança foram revogados."
+            : "Reembolso registrado.",
+        );
+      }
       setRefundTarget(null);
       await loadAll();
     } finally {
       setRefunding(false);
+    }
+  }
+
+  async function releaseRefundBalanceCase(order: Order) {
+    if (!order.refundBalanceCaseId) return;
+    const reason = window.prompt(
+      "Informe o motivo da liberação auditada das vendas do Expert:",
+    );
+    if (!reason?.trim()) return;
+    setReleasingBalance(true);
+    try {
+      const response = await fetch(
+        `/api/products/admin/refund-balance/${order.refundBalanceCaseId}/release`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        },
+      );
+      if (!response.ok) return toast.error(await readError(response));
+      toast.success("Vendas do Expert liberadas e ação registrada no log.");
+      await loadAll();
+      setOrderDetailTarget(null);
+    } finally {
+      setReleasingBalance(false);
     }
   }
 
@@ -1569,12 +1928,17 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-4 lg:w-fit">
+        <TabsList className="grid w-full grid-cols-5 lg:w-fit">
+          <TabsTrigger value="dashboard">Painel</TabsTrigger>
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="experts">Experts</TabsTrigger>
           <TabsTrigger value="orders">Vendas</TabsTrigger>
-          <TabsTrigger value="payouts">Repasses</TabsTrigger>
+          <TabsTrigger value="recovery">Pix vencido</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="dashboard" className="pt-4">
+          <ProductSalesPanel />
+        </TabsContent>
 
         <TabsContent value="products" className="space-y-6 pt-4">
           <Card>
@@ -1971,9 +2335,9 @@ export function ProductsAdminWorkspace({
           </Card>
         </TabsContent>
 
-        <TabsContent value="orders" className="pt-4">
+      <TabsContent value="orders" className="pt-4">
           <Card>
-            <CardHeader className="flex flex-col gap-3 space-y-0 sm:flex-row sm:items-center sm:justify-between">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
               <CardTitle>Vendas</CardTitle>
               <div className="relative w-full sm:max-w-sm">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1986,9 +2350,21 @@ export function ProductsAdminWorkspace({
                   aria-label="Buscar vendas por nome ou e-mail"
                 />
               </div>
+              <FilterBar
+                activeCount={orderStatusFilter ? 1 : 0}
+                onClear={() => setOrderStatusFilter(undefined)}
+              >
+                <FilterSelect
+                  label="Status"
+                  value={orderStatusFilter}
+                  onValueChange={setOrderStatusFilter}
+                  options={ORDER_STATUS_FILTER_OPTIONS}
+                  allLabel="Todos"
+                />
+              </FilterBar>
             </CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1900px]">
+              <Table className="min-w-[2000px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Produto</TableHead>
@@ -2000,7 +2376,9 @@ export function ProductsAdminWorkspace({
                     <TableHead className="text-right">Tarifa real</TableHead>
                     <TableHead className="text-right">Líquido</TableHead>
                     <TableHead className="text-right">Parte do Expert</TableHead>
-                    <TableHead className="text-right">Coprodução do Automatize</TableHead>
+                    <TableHead className="text-right">Taxa coprodução</TableHead>
+                    <TableHead className="text-right">Taxa marketplace</TableHead>
+                    <TableHead>Canal</TableHead>
                     <TableHead>Trilho de repasse</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -2009,28 +2387,22 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="h-28 text-center">
+                      <TableCell colSpan={15} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
-                      </TableCell>
-                    </TableRow>
-                  ) : orders.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={13}
-                        className="h-28 text-center text-muted-foreground"
-                      >
-                        Nenhuma venda registrada.
                       </TableCell>
                     </TableRow>
                   ) : visibleOrders.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={13}
+                        colSpan={15}
                         className="h-28 text-center text-muted-foreground"
                       >
-                        Nenhuma venda encontrada para essa busca.
+                        {orderStatusFilter || orderSearch.trim()
+                          ? "Nenhuma venda para os filtros selecionados."
+                          : "Nenhuma venda registrada."}
                       </TableCell>
                     </TableRow>
+
                   ) : (
                     visibleOrders.map((order) => {
                       const amounts = resolveProductOrderNetAmounts(
@@ -2073,9 +2445,24 @@ export function ProductsAdminWorkspace({
                           {money(amounts.expertRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {amounts.automatizeRevenueCentavos !== null
-                            ? money(amounts.automatizeRevenueCentavos)
+                          {amounts.automatizeCoproductionCentavos !== null
+                            ? money(amounts.automatizeCoproductionCentavos)
                             : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.platformFeeBasisPoints && order.platformFeeBasisPoints > 0 ? (
+                            <>
+                              {money(resolveMarketplaceFeeCentavos(order))}
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                {(order.platformFeeBasisPoints / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+                              </span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {order.checkoutChannel === "marketplace" ? "Marketplace" : "Link direto"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {amounts.expertSettlementLabel ? (
@@ -2093,9 +2480,7 @@ export function ProductsAdminWorkspace({
                           )}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">
-                            {orderStatusLabel[order.status] ?? order.status}
-                          </Badge>
+                          <OrderStatusBadge status={order.status} />
                         </TableCell>
                         <TableCell className="text-right">
                           <DropdownMenu>
@@ -2136,73 +2521,14 @@ export function ProductsAdminWorkspace({
               </Table>
             </CardContent>
           </Card>
-        </TabsContent>
+      </TabsContent>
 
-        <TabsContent value="payouts" className="pt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Repasses</CardTitle>
-            </CardHeader>
-            <CardContent className="divide-y p-0">
-              {payouts.map((payout) => (
-                <div
-                  key={payout.id}
-                  className="grid gap-3 px-5 py-4 lg:grid-cols-[1fr_auto_auto] lg:items-center"
-                >
-                  <div>
-                    <p className="font-medium">
-                      {payout.expertName} · {money(payout.amountCentavos)}
-                    </p>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      Pix: {payout.pixKeySnapshot}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Prazo: {formatDateInSaoPaulo(payout.dueAt)}
-                    </p>
-                  </div>
-                  <Badge variant="outline">{payout.status}</Badge>
-                  {payout.status === "requested" || payout.status === "approved" ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="outline"
-                          className="ml-auto"
-                          aria-label={`Ações do repasse de ${payout.expertName}`}
-                          title="Ações"
-                        >
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        {payout.status === "requested" ? (
-                          <>
-                            <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "approved")}>
-                              Aprovar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onSelect={() => void updatePayout(payout.id, "rejected")}
-                            >
-                              Rejeitar
-                            </DropdownMenuItem>
-                          </>
-                        ) : null}
-                        {payout.status === "approved" ? (
-                          <DropdownMenuItem onSelect={() => void updatePayout(payout.id, "paid")}>
-                            Registrar pagamento
-                          </DropdownMenuItem>
-                        ) : null}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+
+
+        {/* Painel próprio: ele busca a própria fila e se recarrega depois de cada
+            geração, então não entra no `Promise.all` de carga deste workspace. */}
+        <TabsContent value="recovery" className="pt-4">
+          <RecoveryPixPanel />
         </TabsContent>
       </Tabs>
 
@@ -2343,44 +2669,32 @@ export function ProductsAdminWorkspace({
             {productForm.ownerType === "expert" ? (
               <>
                 <div className="space-y-3 rounded-lg border bg-muted/20 p-4 md:col-span-2">
-                  <label className="flex items-center gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={productForm.hasCoproduction}
+                  <Field label="Participação do Automatize (%)">
+                    <Input
+                      inputMode="decimal"
+                      value={productForm.expertParticipationPercent}
                       onChange={(event) =>
                         setProductForm({
                           ...productForm,
-                          hasCoproduction: event.target.checked,
-                          coproducerType: "automatize",
-                          coproducerExpertId: "",
-                          coproducerSharePercent: event.target.checked
-                            ? productForm.coproducerSharePercent
-                            : "",
+                          expertParticipationPercent:
+                            formatProductParticipationInput(event.target.value),
                         })
                       }
+                      placeholder="0% a 99,99%"
+                      aria-describedby="expert-participation-help"
                     />
-                    Coprodução do Automatize
-                  </label>
-                  {productForm.hasCoproduction ? (
-                    <Field label="Participação do Automatize (%)">
-                      <Input
-                        inputMode="decimal"
-                        value={productForm.coproducerSharePercent}
-                        onChange={(event) =>
-                          setProductForm({
-                            ...productForm,
-                            coproducerType: "automatize",
-                            coproducerSharePercent: formatPercentageInput(
-                              event.target.value,
-                            ),
-                          })
-                        }
-                        required={productForm.hasCoproduction}
-                      />
-                    </Field>
-                  ) : null}
+                  </Field>
+                  <p
+                    id="expert-participation-help"
+                    className="text-xs leading-5 text-muted-foreground"
+                  >
+                    Acordo explícito por produto. Rascunhos podem ficar sem valor;
+                    publicar e habilitar vendas exige de 0% a 99,99%. O Expert
+                    recebe o percentual complementar.
+                  </p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Coprodutor Expert não é permitido — somente Coprodução do Automatize ou nenhum coprodutor.
+                    A conta Mercado Pago elegível continua obrigatória, inclusive
+                    quando a participação do Automatize é 0%.
                   </p>
                 </div>
                 {selectedOwnerStripeDisplay &&
@@ -2535,6 +2849,94 @@ export function ProductsAdminWorkspace({
                     Reenviar onboarding
                   </Button>
                 </div>
+              </div>
+            ) : null}
+            {editingExpertId ? (
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Conta Mercado Pago do Expert</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Consulta sanitizada por ambiente. A equipe autoriza a troca;
+                      somente o Expert conclui o OAuth.
+                    </p>
+                  </div>
+                  {mercadoPagoExpertPanel ? (
+                    <Badge variant={mercadoPagoExpertPanel.connected ? "default" : "secondary"}>
+                      {mercadoPagoExpertPanel.connected ? "Conectada" : "Reconexão necessária"}
+                    </Badge>
+                  ) : null}
+                </div>
+                {mercadoPagoExpertPanel ? (
+                  <>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="outline">Ambiente: {mercadoPagoExpertPanel.environment}</Badge>
+                      <Badge variant={mercadoPagoExpertPanel.pix === "available" ? "default" : "secondary"}>
+                        Pix: {mercadoPagoExpertPanel.pix}
+                      </Badge>
+                      <Badge variant={mercadoPagoExpertPanel.card === "available" ? "default" : "secondary"}>
+                        Cartão: {mercadoPagoExpertPanel.card}
+                      </Badge>
+                      {mercadoPagoExpertPanel.accountId ? (
+                        <Badge variant="outline">Conta: {mercadoPagoExpertPanel.accountId}</Badge>
+                      ) : null}
+                    </div>
+                    {mercadoPagoExpertPanel.validationError ? (
+                      <p className="text-xs text-destructive">
+                        Validação: {mercadoPagoExpertPanel.validationError}
+                      </p>
+                    ) : null}
+                    {mercadoPagoExpertPanel.switch &&
+                    mercadoPagoExpertPanel.switch.state !== "activated" ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-300">
+                        Troca: {mercadoPagoExpertPanel.switch.state}
+                        {mercadoPagoExpertPanel.switch.nextMpUserId
+                          ? ` · candidata ${mercadoPagoExpertPanel.switch.nextMpUserId}`
+                          : ""}
+                        {mercadoPagoExpertPanel.switch.authorizationReason
+                          ? ` · motivo: ${mercadoPagoExpertPanel.switch.authorizationReason}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={mercadoPagoActionExpertId === editingExpertId}
+                        onClick={() => void loadMercadoPagoExpertPanel(editingExpertId)}
+                      >
+                        <RefreshCcw className="size-4" /> Atualizar estado
+                      </Button>
+                      {mercadoPagoExpertPanel.connected ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={mercadoPagoActionExpertId === editingExpertId || !mercadoPagoSwitchReason.trim()}
+                          onClick={() => void authorizeMercadoPagoReceiverSwitch(editingExpertId)}
+                        >
+                          {mercadoPagoActionExpertId === editingExpertId ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : null}
+                          Autorizar troca de conta
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="mercadopago-switch-reason">Motivo da autorização</Label>
+                      <Input
+                        id="mercadopago-switch-reason"
+                        value={mercadoPagoSwitchReason}
+                        maxLength={500}
+                        placeholder="Ex.: conta anterior revogada pelo Expert"
+                        onChange={(event) => setMercadoPagoSwitchReason(event.target.value)}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Consultando o estado…</p>
+                )}
               </div>
             ) : null}
             <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
@@ -2792,16 +3194,11 @@ export function ProductsAdminWorkspace({
                         {order.providerPaymentId ?? "—"}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">
-                          {orderStatusLabel[order.status] ?? order.status}
-                        </Badge>
+                        <OrderStatusBadge status={order.status} />
                       </TableCell>
                       <TableCell>
                         {order.paymentStatus ? (
-                          <Badge variant="outline">
-                            {paymentStatusLabel[order.paymentStatus] ??
-                              order.paymentStatus}
-                          </Badge>
+                          <PaymentStatusBadge status={order.paymentStatus} />
                         ) : (
                           "—"
                         )}
@@ -2914,11 +3311,11 @@ export function ProductsAdminWorkspace({
                     </div>
                     <div className="flex justify-between gap-4">
                       <dt className="text-muted-foreground">
-                        Coprodução do Automatize
+                        Taxa coprodução
                       </dt>
                       <dd className="font-mono tabular-nums">
-                        {amounts.automatizeRevenueCentavos !== null
-                          ? money(amounts.automatizeRevenueCentavos)
+                        {amounts.automatizeCoproductionCentavos !== null
+                          ? money(amounts.automatizeCoproductionCentavos)
                           : "—"}
                       </dd>
                     </div>
@@ -2928,6 +3325,73 @@ export function ProductsAdminWorkspace({
                         <dd className="max-w-[220px] truncate font-mono text-xs">
                           {orderDetailTarget.stripeAccountId}
                         </dd>
+                      </div>
+                    ) : null}
+                    {orderDetailTarget.refundOperationStatus ? (
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-muted-foreground">Operação de reembolso</dt>
+                        <dd className="max-w-[260px] text-right text-xs">
+                          {orderDetailTarget.refundOperationStatus === "external_partial"
+                            ? `Exceção parcial · ${money(orderDetailTarget.refundOperationAmountCentavos ?? 0)}`
+                            : orderDetailTarget.refundOperationStatus}
+                          {orderDetailTarget.refundOperationOperatorEmail
+                            ? ` · ${orderDetailTarget.refundOperationOperatorEmail}`
+                            : ""}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {orderDetailTarget.refundBalanceCaseId ? (
+                      <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50/50 p-3 dark:bg-amber-950/20">
+                        <div className="flex justify-between gap-4">
+                          <dt className="text-muted-foreground">Caso de saldo</dt>
+                          <dd className="text-right text-xs">
+                            {orderDetailTarget.refundBalanceStatus === "resolved"
+                              ? "resolvido"
+                              : `pendente · ${orderDetailTarget.refundBalanceResponsible ?? "não atribuído"}`}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Valor / tentativas</dt>
+                          <dd className="font-mono tabular-nums">
+                            {money(orderDetailTarget.grossAmountCentavos ?? orderDetailTarget.checkoutTotalCentavos)} · {orderDetailTarget.refundBalanceAttemptCount ?? 0}
+                          </dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Primeira falha</dt>
+                          <dd>{orderDetailTarget.refundBalanceFirstFailedAt ? dateTime(orderDetailTarget.refundBalanceFirstFailedAt) : "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Prazo de 24h</dt>
+                          <dd>{orderDetailTarget.refundBalanceDueAt ? dateTime(orderDetailTarget.refundBalanceDueAt) : "—"}</dd>
+                        </div>
+                        <div className="flex justify-between gap-4 text-xs">
+                          <dt className="text-muted-foreground">Próxima ação</dt>
+                          <dd className="text-right">
+                            {orderDetailTarget.refundBalanceStatus === "resolved"
+                              ? "Caso encerrado"
+                              : orderDetailTarget.refundOperationStatus === "confirmed"
+                                ? "Liberar vendas com motivo"
+                                : orderDetailTarget.refundBalanceNextRetryAt
+                                  ? `Retentar em ${dateTime(orderDetailTarget.refundBalanceNextRetryAt)}`
+                                  : "Retentar agora"}
+                          </dd>
+                        </div>
+                        {orderDetailTarget.refundBalanceLastFailureCode ? (
+                          <p className="text-xs text-muted-foreground">
+                            Último retorno: {orderDetailTarget.refundBalanceLastFailureCode}
+                          </p>
+                        ) : null}
+                        {orderDetailTarget.refundBalanceStatus === "pending" && orderDetailTarget.refundOperationStatus === "confirmed" && orderDetailTarget.refundBalanceResponsible === "expert" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={releasingBalance}
+                            onClick={() => void releaseRefundBalanceCase(orderDetailTarget)}
+                          >
+                            {releasingBalance ? "Registrando…" : "Liberar vendas após confirmação"}
+                          </Button>
+                        ) : null}
                       </div>
                     ) : null}
                   </>
@@ -2962,18 +3426,33 @@ export function ProductsAdminWorkspace({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {refundTarget
-                ? `${refundTarget.productTitle} · ${refundTarget.buyerName} · ${money(refundTarget.priceCentavos)}`
+                ? `${refundTarget.buyerName} · total da cobrança: ${money(refundTarget.checkoutTotalCentavos)}`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
+            {refundTarget ? (
+              <div className="rounded-md border bg-muted/30 p-3 text-foreground">
+                <p className="mb-2 font-medium">Itens abrangidos</p>
+                <ul className="space-y-1">
+                  {refundTarget.checkoutItems.map((item) => (
+                    <li key={item.orderId} className="flex justify-between gap-3">
+                      <span>{item.title}</span>
+                      <span className="font-mono tabular-nums">
+                        {money(item.amountCentavos)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <p className="font-medium text-foreground">
               {isMercadoPagoRefund
-                ? "O estorno é total e feito pela API do Mercado Pago — o valor volta ao comprador pelo Pix."
+                ? "A devolução é integral pela cobrança original. O sistema só conclui depois da confirmação do Mercado Pago."
                 : "Isso não devolve o dinheiro — o Pix ao cliente é feito manualmente, fora do sistema."}
             </p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>Revoga o acesso do comprador ao produto.</li>
+              <li>Revoga os acessos somente após a confirmação integral.</li>
               <li>Estorna o repasse do expert no ledger.</li>
               <li>Zera a receita líquida da Automatize neste pagamento.</li>
             </ul>

@@ -92,6 +92,8 @@ export function buildGatewayNetV1OrderSnapshot(input: {
   coproducerType: ProductOwnerType | null;
   coproducerShareBasisPoints: number;
   paymentMethod?: "card" | "pix" | "free";
+  /** Stripe is retained only for historical direct-charge orders. */
+  paymentProvider?: "mercadopago" | "stripe";
   gatewayFeeEstimateBps?: number;
   gatewayFeeEstimateFixedCentavos?: number;
 }): GatewayNetV1OrderSnapshot {
@@ -134,7 +136,7 @@ export function buildGatewayNetV1OrderSnapshot(input: {
     coproducerShareBasisPoints: input.coproducerShareBasisPoints,
   };
 
-  if (input.paymentMethod !== "card") {
+  if (input.paymentMethod !== "card" || input.paymentProvider === "mercadopago") {
     return {
       ...snapshotBase,
       gatewayFeeEstimateBps: null,
@@ -202,6 +204,63 @@ export function calculateGatewayNetV1PixSettlement(input: {
     netAmountCentavos,
     ownerExpertReceivableCentavos,
     automatizeCoproductionRevenueCentavos,
+  };
+}
+
+export type GatewayNetV1PixPaymentBreakdown = {
+  platformFeeGrossCentavos: number;
+  providerFeeAmountCentavos: number;
+  platformGatewayNetRevenueCentavos: number;
+  coproductionBaseCentavos: number;
+  ownerExpertReceivableCentavos: number;
+  coproducerExpertReceivableCentavos: number;
+  automatizeCoproductionRevenueCentavos: number;
+  automatizeProductRevenueCentavos: number;
+  automatizeTotalNetRevenueCentavos: number;
+};
+
+/**
+ * Pix (Mercado Pago) no gateway_net_v1: o que vai para `product_payments`.
+ *
+ * Produto da própria Automatize não tem coprodução: o líquido inteiro é
+ * receita de produto e o total é esse líquido, uma vez só. Antes, o mesmo
+ * líquido entrava também como "coprodução da Automatize" e o total saía
+ * dobrado — maior que o bruto.
+ */
+export function calculateGatewayNetV1PixPaymentBreakdown(input: {
+  grossAmountCentavos: number;
+  providerFeeAmountCentavos: number;
+  ownerExpertShareBasisPoints: number;
+  coproducerShareBasisPoints: number;
+  coproducerType: "automatize" | null;
+  /** `expert_id_snapshot` nulo no pedido. */
+  automatizeOwned: boolean;
+}): GatewayNetV1PixPaymentBreakdown {
+  const settlement = calculateGatewayNetV1PixSettlement({
+    grossAmountCentavos: input.grossAmountCentavos,
+    providerFeeAmountCentavos: input.providerFeeAmountCentavos,
+    ownerExpertShareBasisPoints: input.ownerExpertShareBasisPoints,
+    coproducerShareBasisPoints: input.coproducerShareBasisPoints,
+    coproducerType: input.coproducerType,
+  });
+  const automatizeProductRevenueCentavos = input.automatizeOwned
+    ? settlement.netAmountCentavos
+    : 0;
+  const automatizeCoproductionRevenueCentavos = input.automatizeOwned
+    ? 0
+    : settlement.automatizeCoproductionRevenueCentavos;
+
+  return {
+    platformFeeGrossCentavos: 0,
+    providerFeeAmountCentavos: input.providerFeeAmountCentavos,
+    platformGatewayNetRevenueCentavos: -input.providerFeeAmountCentavos,
+    coproductionBaseCentavos: settlement.netAmountCentavos,
+    ownerExpertReceivableCentavos: settlement.ownerExpertReceivableCentavos,
+    coproducerExpertReceivableCentavos: 0,
+    automatizeCoproductionRevenueCentavos,
+    automatizeProductRevenueCentavos,
+    automatizeTotalNetRevenueCentavos:
+      automatizeCoproductionRevenueCentavos + automatizeProductRevenueCentavos,
   };
 }
 

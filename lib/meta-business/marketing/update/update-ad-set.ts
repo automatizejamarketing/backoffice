@@ -152,13 +152,25 @@ function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-/** Merge a sparse targeting patch onto the current targeting (preserve untouched). */
+/**
+ * Merge a sparse targeting patch onto the current targeting (preserve untouched).
+ * `raw` is the already-derived full targeting object and therefore replaces the
+ * snapshot verbatim; this is what lets an explicit empty array remove a field.
+ */
 export function mergeAdSetTargeting(
   current: AdSetTargeting | undefined,
   patch: AdSetTargetingPatch | undefined,
   raw: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
   if (!patch && !raw) return undefined;
+
+  if (raw) {
+    const targeting = clone(raw);
+    const cleanGeo = sanitizeGeoLocationsForMeta(targeting.geo_locations as never);
+    if (cleanGeo) targeting.geo_locations = cleanGeo;
+    return targeting;
+  }
+
   const t: Record<string, unknown> = current ? clone(current) : {};
 
   if (patch) {
@@ -226,8 +238,6 @@ export function mergeAdSetTargeting(
     }
     if (patch.raw) Object.assign(t, patch.raw);
   }
-
-  if (raw) Object.assign(t, raw);
 
   const cleanGeo = sanitizeGeoLocationsForMeta(t.geo_locations as never);
   if (cleanGeo) t.geo_locations = cleanGeo;

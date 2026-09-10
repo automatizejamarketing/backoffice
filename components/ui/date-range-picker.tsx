@@ -1,148 +1,212 @@
 "use client";
-
-import { useMemo, useState, type ComponentProps } from "react";
-import { format, isSameDay } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { useId, useState } from "react";
 import { CalendarIcon } from "lucide-react";
-import type { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import { Input } from "@/components/ui/input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-  buildDateRangePresets,
-  type DateRangePreset,
-} from "@/lib/backoffice/date-range-presets";
-import { resolveDateRangeSelection } from "@/lib/backoffice/date-range-selection";
+  dateKey,
+  parseDate,
+  formatDate,
+  isDateAllowed,
+  validateDateRange,
+  getDatePresets,
+  type DateRange,
+  type DatePreset,
+} from "@/lib/dates";
 import { cn } from "@/lib/utils";
+export type { DateRange, DatePreset } from "@/lib/dates";
 
-type DateRangePickerProps = {
-  date?: DateRange;
-  onDateChange: (date: DateRange) => void;
-  placeholder?: string;
-  className?: string;
+export type DateRangePickerProps = {
+  value?: DateRange;
+  onChange: (range: DateRange | undefined) => void;
+  label?: string;
+  minDate?: Date;
+  maxDate?: Date;
   disabled?: boolean;
-  disabledAfter?: Date;
-  active?: boolean;
-  triggerVariant?: ComponentProps<typeof Button>["variant"];
+  /** Custom shortcuts; [] hides them. Dates are inclusive. */
+  presets?: DatePreset[];
+  className?: string;
 };
-
 export function DateRangePicker({
-  date,
-  onDateChange,
-  placeholder = "Selecionar período",
+  value,
+  onChange,
+  label = "Período",
+  minDate,
+  maxDate,
+  disabled,
+  presets,
   className,
-  disabled = false,
-  disabledAfter = new Date(),
-  active = false,
-  triggerVariant = "outline",
 }: DateRangePickerProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [draftRange, setDraftRange] = useState<DateRange | undefined>(date);
-
-  const presets = useMemo(
-    () => buildDateRangePresets(disabledAfter),
-    [disabledAfter],
-  );
-
-  const selectedRange = isOpen ? draftRange : date;
-
-  function applyRange(range: DateRange) {
-    setDraftRange(range);
-    onDateChange(range);
-    setIsOpen(false);
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [month, setMonth] = useState(new Date());
+  const id = useId();
+  const error = validateDateRange(from, to, minDate, maxDate);
+  const options = presets ?? getDatePresets();
+  const display = value
+    ? `${formatDate(value.from)} – ${formatDate(value.to)}`
+    : "Selecionar período";
+  function setDraft(range?: DateRange) {
+    setFrom(range ? dateKey(range.from) : "");
+    setTo(range ? dateKey(range.to) : "");
+    if (range) setMonth(range.from);
   }
-
-  function formatDateRange(range: DateRange | undefined) {
-    if (!range?.from) return placeholder;
-    if (!range.to) return format(range.from, "dd/MM/yy");
-    return `${format(range.from, "dd/MM/yy")} – ${format(range.to, "dd/MM/yy")}`;
-  }
-
-  function isSelectedPreset(preset: DateRangePreset) {
-    return Boolean(
-      draftRange?.from &&
-        draftRange.to &&
-        preset.range.from &&
-        preset.range.to &&
-        isSameDay(draftRange.from, preset.range.from) &&
-        isSameDay(draftRange.to, preset.range.to),
-    );
-  }
-
   return (
     <Popover
-      open={isOpen}
-      onOpenChange={(nextOpen) => {
-        if (nextOpen) setDraftRange(date);
-        setIsOpen(nextOpen);
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          setDraft(value);
+          setMonth(value?.from ?? minDate ?? new Date());
+        }
+        setOpen(next);
       }}
     >
       <PopoverTrigger asChild>
         <Button
           type="button"
-          size="sm"
-          variant={triggerVariant}
-          className={cn(
-            "justify-start gap-1.5 text-left font-normal",
-            !selectedRange?.from && "text-muted-foreground",
-            className,
-          )}
+          variant="outline"
           disabled={disabled}
-          aria-pressed={active}
+          aria-label={`${label}: ${display}`}
+          className={cn("w-80 max-w-full justify-start", className)}
         >
-          <CalendarIcon className="size-3.5" aria-hidden="true" />
-          <span className="truncate">{formatDateRange(selectedRange)}</span>
+          <CalendarIcon />
+          <span className="truncate">{display}</span>
         </Button>
       </PopoverTrigger>
-
       <PopoverContent
-        className="max-h-[calc(100vh-2rem)] w-auto max-w-[calc(100vw-2rem)] overflow-auto p-0"
         align="start"
+        aria-label={label}
+        collisionPadding={8}
+        className="flex w-auto max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] flex-col overflow-hidden p-2"
       >
-        <div className="flex flex-col sm:flex-row">
-          <ScrollArea className="h-40 border-b sm:h-[20.5rem] sm:w-48 sm:border-r sm:border-b-0">
-            <div className="grid grid-cols-2 content-start gap-1 p-2 sm:grid-cols-1">
-              {presets.map((preset) => (
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto sm:flex-row">
+          {options.length > 0 && (
+            <div
+              aria-label="Atalhos de período"
+              className="flex shrink-0 w-[280px] max-w-full gap-1 overflow-x-auto sm:w-36 sm:flex-col sm:border-r sm:pr-2 [@media(pointer:coarse)]:w-[308px] sm:[@media(pointer:coarse)]:w-36"
+            >
+              {options.map((preset) => (
                 <Button
-                  key={preset.label}
+                  key={preset.id}
                   type="button"
-                  variant={isSelectedPreset(preset) ? "secondary" : "ghost"}
                   size="sm"
-                  className="h-8 justify-start px-2 text-xs font-normal"
-                  aria-pressed={isSelectedPreset(preset)}
-                  onClick={() => applyRange(preset.range)}
+                  variant="ghost"
+                  className="shrink-0 justify-start"
+                  aria-pressed={
+                    from === dateKey(preset.range.from) &&
+                    to === dateKey(preset.range.to)
+                  }
+                  disabled={
+                    !!validateDateRange(
+                      dateKey(preset.range.from),
+                      dateKey(preset.range.to),
+                      minDate,
+                      maxDate,
+                    )
+                  }
+                  onClick={() => setDraft(preset.range)}
                 >
                   {preset.label}
                 </Button>
               ))}
             </div>
-          </ScrollArea>
-
-          <Calendar
-            mode="range"
-            selected={draftRange}
-            defaultMonth={draftRange?.from}
-            onSelect={(nextRange) => {
-              const selection = resolveDateRangeSelection(
-                draftRange,
-                nextRange,
-              );
-
-              setDraftRange(selection.draftRange);
-
-              if (selection.isComplete && selection.draftRange) {
-                applyRange(selection.draftRange);
+          )}
+          <div className="flex min-w-0 shrink-0 flex-col gap-2">
+            <p className="px-1 text-sm font-semibold">{label}</p>
+            <div className="grid grid-cols-2 gap-2 w-[280px] max-w-full [@media(pointer:coarse)]:w-[308px]">
+              <Field>
+                <FieldLabel htmlFor={`${id}-from`}>Início</FieldLabel>
+                <Input
+                  id={`${id}-from`}
+                  className="min-w-0 px-2"
+                  type="date"
+                  value={from}
+                  min={minDate && dateKey(minDate)}
+                  max={maxDate && dateKey(maxDate)}
+                  aria-describedby={`${id}-status`}
+                  aria-invalid={!!from && !!to && !!error}
+                  onChange={(e) => {
+                    setFrom(e.target.value);
+                    const date = parseDate(e.target.value);
+                    if (date) setMonth(date);
+                  }}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`${id}-to`}>Fim</FieldLabel>
+                <Input
+                  id={`${id}-to`}
+                  className="min-w-0 px-2"
+                  type="date"
+                  value={to}
+                  min={minDate && dateKey(minDate)}
+                  max={maxDate && dateKey(maxDate)}
+                  aria-describedby={`${id}-status`}
+                  aria-invalid={!!from && !!to && !!error}
+                  onChange={(e) => setTo(e.target.value)}
+                />
+              </Field>
+            </div>
+            <Calendar
+              mode="range"
+              month={month}
+              onMonthChange={setMonth}
+              selected={{ from: parseDate(from), to: parseDate(to) }}
+              disabled={(date) => !isDateAllowed(date, minDate, maxDate)}
+              excludeDisabled
+              onSelect={(range) => {
+                setFrom(range?.from ? dateKey(range.from) : "");
+                setTo(range?.to ? dateKey(range.to) : "");
+              }}
+            />
+          </div>
+        </div>
+        <p
+          id={`${id}-status`}
+          role="status"
+          className="my-2 min-h-8 max-w-80 shrink-0 text-xs text-muted-foreground"
+        >
+          {error ?? "Período pronto para aplicar."}
+        </p>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              onChange(undefined);
+              setOpen(false);
+            }}
+          >
+            Limpar
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setOpen(false)}
+          >
+            Cancelar
+          </Button>
+          <Button
+            type="button"
+            disabled={!!error}
+            onClick={() => {
+              if (!error) {
+                onChange({ from: parseDate(from)!, to: parseDate(to)! });
+                setOpen(false);
               }
             }}
-            disabled={{ after: disabledAfter }}
-            locale={ptBR}
-            className="mx-auto bg-background p-2"
-          />
+          >
+            Aplicar
+          </Button>
         </div>
       </PopoverContent>
     </Popover>

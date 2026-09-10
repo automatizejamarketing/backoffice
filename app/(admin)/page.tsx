@@ -50,6 +50,7 @@ import {
   DashboardNavigationProvider,
 } from "./dashboard-navigation-feedback";
 import { CustomerBaseStatusPanel } from "./customer-base-status";
+import { ProductSalesPanel } from "@/components/product-sales/product-sales-panel";
 import { DashboardTabsNav } from "./dashboard-tabs-nav";
 import { PayerRetentionChart } from "./payer-retention-chart";
 import { TrialActivationPanel } from "./trial-activation-panel";
@@ -371,7 +372,9 @@ export default async function DashboardPage({
                 ? "Compare a evolução semanal de cada grupo de clientes desde o primeiro pagamento."
                 : activeTab === "trials"
                   ? "Quantos trials começaram em cada dia e quanto tempo cada pessoa levou entre criar a conta e ativar."
-                  : "Acompanhe a conversão histórica e a jornada das pessoas que entraram no período selecionado."}
+                  : activeTab === "produtos"
+                    ? "Vendas, aprovação de cartão, conversão de Pix e reembolsos dos produtos digitais no período."
+                    : "Acompanhe a conversão histórica e a jornada das pessoas que entraram no período selecionado."}
             </p>
           </div>
 
@@ -396,6 +399,8 @@ export default async function DashboardPage({
           </div>
           <PayerRetentionChart summary={payerRetention} />
         </section>
+      ) : activeTab === "produtos" ? (
+        <ProductSalesPanel />
       ) : activeTab === "trials" && trialActivation ? (
         <TrialActivationPanel
           dashboard={trialActivation}

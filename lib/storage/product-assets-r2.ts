@@ -1,9 +1,15 @@
 import "server-only";
 
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 type ProductAssetsR2Config = {
@@ -101,20 +107,10 @@ async function readLocalProductAsset(objectKey: string) {
     throw new Error("product_asset_not_found");
   }
 
-  const [body, metaRaw] = await Promise.all([
+  const [body, head] = await Promise.all([
     readFile(filePath),
-    readFile(getLocalAssetMetaPath(objectKey), "utf8").catch(() => null),
+    readLocalProductAssetHead(objectKey),
   ]);
-
-  let contentType = guessContentType(objectKey);
-  if (metaRaw) {
-    try {
-      const meta = JSON.parse(metaRaw) as { contentType?: string };
-      if (meta.contentType) contentType = meta.contentType;
-    } catch {
-      // Ignore invalid metadata and fall back to extension guessing.
-    }
-  }
 
   return {
     Body: {
@@ -127,8 +123,28 @@ async function readLocalProductAsset(objectKey: string) {
         });
       },
     },
-    ContentType: contentType,
+    ContentLength: head.ContentLength,
+    ContentType: head.ContentType,
   };
+}
+
+async function readLocalProductAssetHead(objectKey: string) {
+  const filePath = getLocalAssetPath(objectKey);
+  if (!existsSync(filePath)) throw new Error("product_asset_not_found");
+  const [file, metaRaw] = await Promise.all([
+    stat(filePath),
+    readFile(getLocalAssetMetaPath(objectKey), "utf8").catch(() => null),
+  ]);
+  let contentType = guessContentType(objectKey);
+  if (metaRaw) {
+    try {
+      const meta = JSON.parse(metaRaw) as { contentType?: string };
+      if (meta.contentType) contentType = meta.contentType;
+    } catch {
+      // Ignore invalid metadata and fall back to extension guessing.
+    }
+  }
+  return { ContentLength: file.size, ContentType: contentType };
 }
 
 async function writeLocalProductAsset(input: {
@@ -178,6 +194,95 @@ export async function getProductAsset(objectKey: string) {
     return readLocalProductAsset(objectKey);
   }
 
+  throw new Error(PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE);
+}
+
+/** Reads storage metadata without downloading the object body. */
+export async function headProductAsset(objectKey: string) {
+  if (isProductAssetsR2Configured()) {
+    const config = getConfig();
+    return getClient(config).send(
+      new HeadObjectCommand({ Bucket: config.bucket, Key: objectKey }),
+    );
+  }
+  if (isProductAssetsDevLocalStorageEnabled()) {
+    return readLocalProductAssetHead(objectKey);
+  }
+  throw new Error(PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE);
+}
+
+/**
+ * Materializes only a caller-defined bounded payload. Defence submission uses
+ * this after HEAD has confirmed the 10 MiB ceiling, so a forged client size or
+ * an unexpectedly large object cannot become an unbounded allocation.
+ */
+export async function readProductAssetBytes(
+  objectKey: string,
+  maxBytes: number,
+) {
+  const head = await headProductAsset(objectKey);
+  if (
+    typeof head.ContentLength !== "number" ||
+    head.ContentLength <= 0 ||
+    head.ContentLength > maxBytes
+  ) {
+    throw new Error("product_asset_size_limit_exceeded");
+  }
+  const asset = await getProductAsset(objectKey);
+  const body = asset.Body as unknown as {
+    transformToWebStream?: () => ReadableStream<Uint8Array>;
+    transformToByteArray?: () => Promise<Uint8Array>;
+  } | undefined;
+  if (!body) throw new Error("product_asset_not_found");
+
+  if (body.transformToWebStream) {
+    const reader = body.transformToWebStream().getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        const chunk = next.value;
+        total += chunk.byteLength;
+        if (total > maxBytes) throw new Error("product_asset_size_limit_exceeded");
+        chunks.push(chunk);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  }
+
+  if (body.transformToByteArray) {
+    const bytes = await body.transformToByteArray();
+    if (bytes.byteLength > maxBytes) throw new Error("product_asset_size_limit_exceeded");
+    return bytes;
+  }
+  throw new Error("product_asset_body_unreadable");
+}
+
+export async function deleteProductAsset(objectKey: string) {
+  if (isProductAssetsR2Configured()) {
+    const config = getConfig();
+    await getClient(config).send(
+      new DeleteObjectCommand({ Bucket: config.bucket, Key: objectKey }),
+    );
+    return;
+  }
+  if (isProductAssetsDevLocalStorageEnabled()) {
+    await Promise.all([
+      unlink(getLocalAssetPath(objectKey)).catch(() => undefined),
+      unlink(getLocalAssetMetaPath(objectKey)).catch(() => undefined),
+    ]);
+    return;
+  }
   throw new Error(PRODUCT_ASSETS_R2_NOT_CONFIGURED_MESSAGE);
 }
 
