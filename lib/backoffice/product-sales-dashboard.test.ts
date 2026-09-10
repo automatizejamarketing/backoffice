@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProductSalesDashboard,
   classifyProductSalesMethod,
+  resolveAutomatizeFeeCentavos,
   resolveProductSalesWindow,
   type ProductSalesOrderRow,
 } from "./product-sales-dashboard";
@@ -204,5 +205,21 @@ describe("buildProductSalesDashboard", () => {
     expect(summary.pixConversionPercent).toBeNull();
     expect(summary.refundPercent).toBeNull();
     expect(series.map((point) => point.label)).toEqual(["04/09", "05/09", "06/09", "07/09", "08/09", "09/09", "10/09"]);
+  });
+});
+
+describe("resolveAutomatizeFeeCentavos", () => {
+  test("usa o valor gravado no pagamento quando existe", () => {
+    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 500, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: 437, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(437);
+  });
+
+  test("deriva do bruto pelos basis points do pedido, com parte fixa, limitado ao bruto", () => {
+    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 500, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: null, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(435);
+    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 549, platformFeeFixedCentavos: 39, platformFeeGrossCentavos: null, grossAmountCentavos: null, priceCentavos: 10_000 })).toBe(588);
+    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 10_000, platformFeeFixedCentavos: 500, platformFeeGrossCentavos: null, grossAmountCentavos: 1_000, priceCentavos: 1_000 })).toBe(1_000);
+  });
+
+  test("produto próprio da Automatize não tem taxa", () => {
+    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 0, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: null, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(0);
   });
 });

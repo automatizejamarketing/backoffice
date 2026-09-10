@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
   ChartColumn,
+  Percent,
   ChartLine,
   CreditCard,
   Hash,
@@ -267,7 +268,13 @@ export function ProductSalesPanel() {
           </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+          <StatCard
+            icon={Percent}
+            label="Taxas Automatize"
+            value={summary ? formatBRLFromCentavos(summary.automatizeFeeCentavos) : null}
+            detail="Cobradas do expert sobre o bruto. Produto próprio não tem."
+          />
           <StatCard
             icon={CreditCard}
             label="Aprovação cartão"
@@ -403,6 +410,7 @@ function BucketSalesSheet({
                   <TableHead>Comprador</TableHead>
                   <TableHead>Pagamento</TableHead>
                   <TableHead className="text-right">Bruto</TableHead>
+                  <TableHead className="text-right">Taxa</TableHead>
                   <TableHead className="text-right">Líquido</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
@@ -425,6 +433,18 @@ function BucketSalesSheet({
                     <TableCell>{methodLabel[sale.method]}</TableCell>
                     <TableCell className="whitespace-nowrap text-right tabular-nums">
                       {formatBRLFromCentavos(sale.grossCentavos)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right tabular-nums">
+                      {sale.feeBasisPoints > 0 ? (
+                        <>
+                          {formatBRLFromCentavos(sale.feeCentavos)}
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            {formatFinancePercentage(sale.feeBasisPoints / 100)}%
+                          </span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-right tabular-nums">
                       {formatBRLFromCentavos(sale.netCentavos)}

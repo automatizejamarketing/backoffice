@@ -80,6 +80,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProductSalesPanel } from "@/components/product-sales/product-sales-panel";
 import { FilterBar, FilterSelect } from "@/components/ui/filter";
+import { resolveAutomatizeFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
 import {
   formatBrazilianPhone,
@@ -2035,7 +2036,7 @@ export function ProductsAdminWorkspace({
               </FilterBar>
             </CardHeader>
             <CardContent className="p-0">
-              <Table className="min-w-[1760px]">
+              <Table className="min-w-[2000px]">
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
                     <TableHead>Produto</TableHead>
@@ -2047,6 +2048,8 @@ export function ProductsAdminWorkspace({
                     <TableHead className="text-right">Líquido</TableHead>
                     <TableHead className="text-right">Parte do Expert</TableHead>
                     <TableHead className="text-right">Coprodução do Automatize</TableHead>
+                    <TableHead className="text-right">Taxa Automatize</TableHead>
+                    <TableHead>Canal</TableHead>
                     <TableHead>Trilho de repasse</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
@@ -2055,14 +2058,14 @@ export function ProductsAdminWorkspace({
                 <TableBody>
                   {isLoadingList ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="h-28 text-center">
+                      <TableCell colSpan={14} className="h-28 text-center">
                         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />
                       </TableCell>
                     </TableRow>
                   ) : visibleOrders.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={12}
+                        colSpan={14}
                         className="h-28 text-center text-muted-foreground"
                       >
                         {orderStatusFilter
@@ -2112,6 +2115,21 @@ export function ProductsAdminWorkspace({
                           {amounts.automatizeRevenueCentavos !== null
                             ? money(amounts.automatizeRevenueCentavos)
                             : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
+                          {order.platformFeeBasisPoints && order.platformFeeBasisPoints > 0 ? (
+                            <>
+                              {money(resolveAutomatizeFeeCentavos(order))}
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                {(order.platformFeeBasisPoints / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+                              </span>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {order.checkoutChannel === "marketplace" ? "Marketplace" : "Link direto"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {amounts.expertSettlementLabel ? (

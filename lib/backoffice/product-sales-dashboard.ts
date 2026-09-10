@@ -147,6 +147,8 @@ export type ProductSalesSummary = {
   grossCentavos: number;
   /** Líquido da Automatize; reembolso zera a parcela do pedido. */
   netCentavos: number;
+  /** Taxa da Automatize cobrada do expert (sobre o bruto). Zero em produto próprio. */
+  automatizeFeeCentavos: number;
   cardApproved: number;
   /** Cartões que já tiveram resposta do gateway: aprovados + recusados. */
   cardDecided: number;
@@ -181,6 +183,8 @@ export type ProductSalesItem = {
   paymentStatus: string | null;
   grossCentavos: number;
   netCentavos: number;
+  feeBasisPoints: number;
+  feeCentavos: number;
 };
 
 export type ProductSalesDashboard = {
@@ -203,6 +207,28 @@ function wasApproved(row: ProductSalesOrderRow): boolean {
 function percent(numerator: number, denominator: number): number | null {
   if (denominator === 0) return null;
   return Math.round((numerator / denominator) * 1000) / 10;
+}
+
+/**
+ * Taxa da Automatize congelada no pedido. O pagamento grava o valor quando
+ * fecha; antes disso, deriva do bruto pelos basis points do pedido.
+ */
+export function resolveAutomatizeFeeCentavos(
+  row: Pick<
+    ProductSalesOrderRow,
+    | "platformFeeBasisPoints"
+    | "platformFeeFixedCentavos"
+    | "platformFeeGrossCentavos"
+    | "grossAmountCentavos"
+    | "priceCentavos"
+  >,
+): number {
+  if (row.platformFeeGrossCentavos !== null) return row.platformFeeGrossCentavos;
+  const bps = row.platformFeeBasisPoints ?? 0;
+  const fixed = row.platformFeeFixedCentavos ?? 0;
+  if (bps <= 0 && fixed <= 0) return 0;
+  const gross = row.grossAmountCentavos ?? row.priceCentavos ?? 0;
+  return Math.min(gross, Math.round((gross * bps) / 10_000) + fixed);
 }
 
 function resolveNetCentavos(row: ProductSalesOrderRow): number {
@@ -258,6 +284,7 @@ export function buildProductSalesDashboard(
   let salesCount = 0;
   let grossCentavos = 0;
   let netCentavos = 0;
+  let automatizeFeeCentavos = 0;
   let chargebackCount = 0;
   let refundCount = 0;
   let cardApproved = 0;
@@ -271,8 +298,10 @@ export function buildProductSalesDashboard(
       salesCount += 1;
       const gross = resolveProductPaymentAmounts(row).grossCentavos;
       const net = resolveNetCentavos(row);
+      const fee = resolveAutomatizeFeeCentavos(row);
       grossCentavos += gross;
       netCentavos += net;
+      automatizeFeeCentavos += fee;
       if (row.paymentStatus === "charged_back") chargebackCount += 1;
       const key = bucketKey(row.approvedAt as Date, window);
       const point = seriesByKey.get(key);
@@ -293,6 +322,8 @@ export function buildProductSalesDashboard(
         paymentStatus: row.paymentStatus,
         grossCentavos: gross,
         netCentavos: net,
+        feeBasisPoints: row.platformFeeBasisPoints ?? 0,
+        feeCentavos: fee,
       });
     }
 
@@ -324,6 +355,7 @@ export function buildProductSalesDashboard(
       salesCount,
       grossCentavos,
       netCentavos,
+      automatizeFeeCentavos,
       cardApproved,
       cardDecided,
       cardApprovalPercent: percent(cardApproved, cardDecided),
