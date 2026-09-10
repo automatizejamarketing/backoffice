@@ -687,6 +687,12 @@ export function resolveAutomatizeProductNetCentavos(
       (payment.automatizeCoproductionRevenueCentavos ?? 0) +
       (payment.automatizeProductRevenueCentavos ?? 0);
 
+    // Coprodução sobre o bruto: o expert custeia a tarifa do provedor
+    // inteira, então a taxa sobre o bruto já é o líquido da Automatize.
+    if (payment.financialModel === "gateway_gross_v1") {
+      return automatizeGross;
+    }
+
     return automatizeGross - (payment.feeAmountCentavos ?? 0);
   }
 
