@@ -389,7 +389,7 @@ function BucketSalesSheet({
               : null}
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4 [&_td]:px-2 [&_th]:px-2">
           {sales.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
               Nenhuma venda aprovada nesse intervalo.
@@ -413,10 +413,10 @@ function BucketSalesSheet({
                     <TableCell className="whitespace-nowrap tabular-nums text-muted-foreground">
                       {formatSaleTime(sale.approvedAt)}
                     </TableCell>
-                    <TableCell className="max-w-44 truncate" title={sale.productTitle}>
+                    <TableCell className="max-w-36 truncate" title={sale.productTitle}>
                       {sale.productTitle}
                     </TableCell>
-                    <TableCell className="max-w-56">
+                    <TableCell className="max-w-44">
                       <div className="truncate text-sm">{sale.buyerName}</div>
                       <div className="truncate text-xs text-muted-foreground">
                         {sale.buyerEmail}
@@ -429,7 +429,7 @@ function BucketSalesSheet({
                     <TableCell className="whitespace-nowrap text-right tabular-nums">
                       {formatBRLFromCentavos(sale.netCentavos)}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
                       <StatusBadge tone={saleTone(sale)}>
                         {saleStatusLabel(sale)}
                       </StatusBadge>
