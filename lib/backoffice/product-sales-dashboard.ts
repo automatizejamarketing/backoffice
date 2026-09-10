@@ -147,8 +147,10 @@ export type ProductSalesSummary = {
   grossCentavos: number;
   /** Líquido da Automatize; reembolso zera a parcela do pedido. */
   netCentavos: number;
-  /** Taxa da Automatize cobrada do expert (sobre o bruto). Zero em produto próprio. */
-  automatizeFeeCentavos: number;
+  /** Taxa marketplace: cobrada do expert sobre o bruto. Zero em produto próprio. */
+  marketplaceFeeCentavos: number;
+  /** Taxa coprodução: participação da Automatize no produto do expert. */
+  coproductionFeeCentavos: number;
   cardApproved: number;
   /** Cartões que já tiveram resposta do gateway: aprovados + recusados. */
   cardDecided: number;
@@ -183,8 +185,9 @@ export type ProductSalesItem = {
   paymentStatus: string | null;
   grossCentavos: number;
   netCentavos: number;
-  feeBasisPoints: number;
-  feeCentavos: number;
+  marketplaceFeeBasisPoints: number;
+  marketplaceFeeCentavos: number;
+  coproductionFeeCentavos: number;
 };
 
 export type ProductSalesDashboard = {
@@ -210,10 +213,10 @@ function percent(numerator: number, denominator: number): number | null {
 }
 
 /**
- * Taxa da Automatize congelada no pedido. O pagamento grava o valor quando
+ * Taxa marketplace congelada no pedido. O pagamento grava o valor quando
  * fecha; antes disso, deriva do bruto pelos basis points do pedido.
  */
-export function resolveAutomatizeFeeCentavos(
+export function resolveMarketplaceFeeCentavos(
   row: Pick<
     ProductSalesOrderRow,
     | "platformFeeBasisPoints"
@@ -284,7 +287,8 @@ export function buildProductSalesDashboard(
   let salesCount = 0;
   let grossCentavos = 0;
   let netCentavos = 0;
-  let automatizeFeeCentavos = 0;
+  let marketplaceFeeCentavos = 0;
+  let coproductionFeeCentavos = 0;
   let chargebackCount = 0;
   let refundCount = 0;
   let cardApproved = 0;
@@ -298,10 +302,15 @@ export function buildProductSalesDashboard(
       salesCount += 1;
       const gross = resolveProductPaymentAmounts(row).grossCentavos;
       const net = resolveNetCentavos(row);
-      const fee = resolveAutomatizeFeeCentavos(row);
+      const marketplaceFee = resolveMarketplaceFeeCentavos(row);
+      // O que a Automatize leva além da taxa marketplace é coprodução;
+      // produto próprio não tem coprodução, é receita do produto.
+      const coproductionFee =
+        row.ownerType === "automatize" ? 0 : Math.max(0, net - marketplaceFee);
       grossCentavos += gross;
       netCentavos += net;
-      automatizeFeeCentavos += fee;
+      marketplaceFeeCentavos += marketplaceFee;
+      coproductionFeeCentavos += coproductionFee;
       if (row.paymentStatus === "charged_back") chargebackCount += 1;
       const key = bucketKey(row.approvedAt as Date, window);
       const point = seriesByKey.get(key);
@@ -322,8 +331,9 @@ export function buildProductSalesDashboard(
         paymentStatus: row.paymentStatus,
         grossCentavos: gross,
         netCentavos: net,
-        feeBasisPoints: row.platformFeeBasisPoints ?? 0,
-        feeCentavos: fee,
+        marketplaceFeeBasisPoints: row.platformFeeBasisPoints ?? 0,
+        marketplaceFeeCentavos: marketplaceFee,
+        coproductionFeeCentavos: coproductionFee,
       });
     }
 
@@ -355,7 +365,8 @@ export function buildProductSalesDashboard(
       salesCount,
       grossCentavos,
       netCentavos,
-      automatizeFeeCentavos,
+      marketplaceFeeCentavos,
+      coproductionFeeCentavos,
       cardApproved,
       cardDecided,
       cardApprovalPercent: percent(cardApproved, cardDecided),

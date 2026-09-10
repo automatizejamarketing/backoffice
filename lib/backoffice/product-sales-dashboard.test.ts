@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProductSalesDashboard,
   classifyProductSalesMethod,
-  resolveAutomatizeFeeCentavos,
+  resolveMarketplaceFeeCentavos,
   resolveProductSalesWindow,
   type ProductSalesOrderRow,
 } from "./product-sales-dashboard";
@@ -208,18 +208,51 @@ describe("buildProductSalesDashboard", () => {
   });
 });
 
-describe("resolveAutomatizeFeeCentavos", () => {
+describe("taxa marketplace e taxa coprodução na venda", () => {
+  test("gross_v1 com coprodução: marketplace 5%, coprodução é o resto do líquido da Automatize", () => {
+    const window = resolveProductSalesWindow({ from: "2026-09-10", to: "2026-09-10" }, NOW);
+    const bump = row({
+      orderId: "bump",
+      orderStatus: "approved",
+      paymentStatus: "approved",
+      approvedAt: new Date("2026-09-10T21:20:00.000Z"),
+      provider: "mercadopago",
+      paymentMethodId: "pix",
+      paymentTypeId: "bank_transfer",
+      financialModel: "gateway_gross_v1",
+      grossAmountCentavos: 100,
+      priceCentavos: 100,
+      feeAmountCentavos: 1,
+      netAmountCentavos: 64,
+      platformFeeBasisPoints: 500,
+      platformFeeFixedCentavos: 0,
+      platformFeeGrossCentavos: null,
+      automatizeCoproductionRevenueCentavos: null,
+      automatizeProductRevenueCentavos: null,
+      automatizeTotalNetRevenueCentavos: null,
+      expertShareBasisPoints: 7_000,
+      coproducerShareBasisPoints: 3_000,
+      coproducerTypeSnapshot: "automatize",
+    });
+    const { summary, sales } = buildProductSalesDashboard([bump], window);
+    expect(sales[0]).toMatchObject({ marketplaceFeeCentavos: 5, coproductionFeeCentavos: 30, netCentavos: 35 });
+    expect(summary.marketplaceFeeCentavos).toBe(5);
+    expect(summary.coproductionFeeCentavos).toBe(30);
+  });
+});
+
+describe("resolveMarketplaceFeeCentavos", () => {
   test("usa o valor gravado no pagamento quando existe", () => {
-    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 500, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: 437, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(437);
+    expect(resolveMarketplaceFeeCentavos({ platformFeeBasisPoints: 500, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: 437, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(437);
   });
 
   test("deriva do bruto pelos basis points do pedido, com parte fixa, limitado ao bruto", () => {
-    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 500, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: null, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(435);
-    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 549, platformFeeFixedCentavos: 39, platformFeeGrossCentavos: null, grossAmountCentavos: null, priceCentavos: 10_000 })).toBe(588);
-    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 10_000, platformFeeFixedCentavos: 500, platformFeeGrossCentavos: null, grossAmountCentavos: 1_000, priceCentavos: 1_000 })).toBe(1_000);
+    expect(resolveMarketplaceFeeCentavos({ platformFeeBasisPoints: 500, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: null, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(435);
+    expect(resolveMarketplaceFeeCentavos({ platformFeeBasisPoints: 549, platformFeeFixedCentavos: 39, platformFeeGrossCentavos: null, grossAmountCentavos: null, priceCentavos: 10_000 })).toBe(588);
+    expect(resolveMarketplaceFeeCentavos({ platformFeeBasisPoints: 10_000, platformFeeFixedCentavos: 500, platformFeeGrossCentavos: null, grossAmountCentavos: 1_000, priceCentavos: 1_000 })).toBe(1_000);
   });
 
   test("produto próprio da Automatize não tem taxa", () => {
-    expect(resolveAutomatizeFeeCentavos({ platformFeeBasisPoints: 0, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: null, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(0);
+    expect(resolveMarketplaceFeeCentavos({ platformFeeBasisPoints: 0, platformFeeFixedCentavos: 0, platformFeeGrossCentavos: null, grossAmountCentavos: 8_700, priceCentavos: 8_700 })).toBe(0);
   });
 });
