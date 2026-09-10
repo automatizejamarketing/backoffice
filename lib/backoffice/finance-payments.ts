@@ -144,6 +144,8 @@ export type FinanceProductPaymentAmountRow = Pick<
 export type FinanceProductPaymentNetAmounts = FinanceProductPaymentAmounts & {
   netCentavos: number;
   automatizeRevenueCentavos: number | null;
+  /** Só a coprodução: o que a Automatize leva além da taxa da plataforma. */
+  automatizeCoproductionCentavos: number | null;
   expertSettlementRail: ExpertSettlementRail | null;
   expertSettlementLabel: string | null;
   gatewayFeeEstimateLabel: string | null;
@@ -590,11 +592,22 @@ export function resolveProductPaymentNetAmounts<
     gatewayFeeEstimateFixedCentavos: payment.gatewayFeeEstimateFixedCentavos,
   });
 
+  // Nos modelos com taxa da plataforma, a taxa já tem coluna própria; o que
+  // sobra da parte da Automatize é coprodução. Sem taxa (gateway_net_v1,
+  // produto próprio) a parte inteira continua aparecendo como antes.
+  const platformFeeCentavos = resolveProductPlatformFeeGrossCentavos(payment);
+  const automatizeCoproductionCentavos =
+    automatizeRevenueCentavos === null
+      ? null
+      : platformFeeCentavos !== null
+        ? Math.max(0, automatizeRevenueCentavos - platformFeeCentavos)
+        : automatizeRevenueCentavos;
   return {
     ...base,
     expertRevenueCentavos,
     automatizeNetCentavos: automatizeRevenueCentavos,
     automatizeRevenueCentavos,
+    automatizeCoproductionCentavos,
     netCentavos,
     expertSettlementRail,
     expertSettlementLabel,

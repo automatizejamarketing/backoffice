@@ -2112,8 +2112,8 @@ export function ProductsAdminWorkspace({
                           {money(amounts.expertRevenueCentavos)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
-                          {amounts.automatizeRevenueCentavos !== null
-                            ? money(amounts.automatizeRevenueCentavos)
+                          {amounts.automatizeCoproductionCentavos !== null
+                            ? money(amounts.automatizeCoproductionCentavos)
                             : "—"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right font-mono tabular-nums">
@@ -2958,8 +2958,8 @@ export function ProductsAdminWorkspace({
                         Coprodução do Automatize
                       </dt>
                       <dd className="font-mono tabular-nums">
-                        {amounts.automatizeRevenueCentavos !== null
-                          ? money(amounts.automatizeRevenueCentavos)
+                        {amounts.automatizeCoproductionCentavos !== null
+                          ? money(amounts.automatizeCoproductionCentavos)
                           : "—"}
                       </dd>
                     </div>

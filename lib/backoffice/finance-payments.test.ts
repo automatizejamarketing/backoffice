@@ -756,4 +756,23 @@ describe("gateway_gross_v1: líquido da Automatize", () => {
     const { gatewayNetCentavos } = resolveProductPaymentAmounts(grossV1);
     expect(resolveAutomatizeProductNetCentavos(grossV1, gatewayNetCentavos)).toBe(5);
   });
+
+  test("sem coprodutor, a coprodução da Automatize é zero e a taxa fica na coluna dela", () => {
+    const amounts = resolveProductPaymentNetAmounts(grossV1);
+    expect(amounts.automatizeRevenueCentavos).toBe(5);
+    expect(amounts.automatizeCoproductionCentavos).toBe(0);
+  });
+
+  test("produto próprio da Automatize sem taxa mantém a parte inteira como antes", () => {
+    const own = {
+      ...productPaymentFixture,
+      ownerType: "automatize" as const,
+      financialModel: "gateway_net_v1" as const,
+      platformFeeBasisPoints: 0,
+      expertShareBasisPoints: 0,
+      expertRevenueCentavos: null,
+    };
+    const amounts = resolveProductPaymentNetAmounts(own);
+    expect(amounts.automatizeCoproductionCentavos).toBe(amounts.automatizeRevenueCentavos);
+  });
 });
