@@ -553,7 +553,10 @@ export const product = pgTable(
     coproducerExpertIdx: index("products_coproducer_expert_id_idx").on(
       table.coproducerExpertId,
     ),
-    priceCheck: check("products_price_non_negative", sql`${table.priceCentavos} >= 0`),
+    priceCheck: check(
+      "products_price_non_negative",
+      sql`${table.priceCentavos} >= 0`,
+    ),
     platformFeeOverrideCheck: check(
       "products_platform_fee_override_range",
       sql`${table.platformFeeBasisPointsOverride} IS NULL OR (${table.platformFeeBasisPointsOverride} >= 0 AND ${table.platformFeeBasisPointsOverride} <= 10000)`,
@@ -564,7 +567,7 @@ export const product = pgTable(
     ),
     participationCheck: check(
       "products_expert_participation_range",
-      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 10000)`,
+      sql`${table.expertParticipationBps} IS NULL OR (${table.expertParticipationBps} >= 0 AND ${table.expertParticipationBps} <= 9999)`,
     ),
     ownerCheck: check(
       "products_owner_consistency",
