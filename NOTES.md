@@ -1,3 +1,22 @@
+# Ticket 29 notes
+
+- On 2026-09-10, `tests/audience-integration.test.ts` passed in both applications with a headless integrated journey: it creates fresh Instagram and website audiences through the unified primitive, creates and loads a customer list through the public import service, forms one lookalike from each origin, rereads the library, and applies the audiences to AI targeting derivations. The test also proves OR-minus-exclusions, expansion disabling, and functional preservation when options are undefined; no campaign route is called.
+- The backoffice confirmation paths now use the frontend's unified audience-creation contract, including the lookalike and customer-list shapes. Whole-percent validation tolerates IEEE-754 decimal representations such as 7% and 14%.
+
+| Check | Version/context | Source/observation | Sanitized outcome | Status |
+| --- | --- | --- | --- | --- |
+| V01 - access/capabilities | Simulated Graph/Marketing API v25.0, both applications | `customer-list-import-journey`, `audience-selection-guard`, metadata and integration tests | revocation, cross-customer/account access, and explicit capability denials refuse without contact material | hermetic pass; live permissions/terms pending |
+| V02 - Instagram/website | v25.0; no authenticated Ads Manager account | official documentation and Ticket 24 matrix; UI not observable headlessly | five Instagram criteria and three website criteria remain `unknown` for period evidence; new combinations are blocked | pending; do not claim live support |
+| V03 - targeting | Simulated Graph v25.0 | inclusion/exclusion, demographic-limit, fallback, and integration tests | OR-minus-exclusions, per-type expansion disabling, and effective restoration are preserved when options are absent | hermetic pass; effective Meta read-back pending |
+| V04 - imports/sessions | Simulated Graph v25.0; shared SQLite | CSV/XLSX journey, removal, replacement, and recovery tests | batches/receipts/states and conflicts use shared coordination; sanitized batches contain no email/phone | hermetic pass; live session/capacity pending |
+| V05 - lookalike/management | Simulated Graph v25.0 | integration creates fresh origins and lookalikes; exclusion/metadata/delete tests | every origin type is consulted, whole percentages are sent, and no object/campaign is cascaded | hermetic pass; live eligibility pending |
+| V06 - capacity/temporary data | local limits of 100,000 records/20 MiB, 24-hour retention | CSV/XLSX ceiling/overflow, formula, expiry, and multi-batch tests | no truncation; reports expire and sanitized history survives cleanup | hermetic pass; real volume/time measurement pending |
+| V07 - integration/regression | frontend + backoffice, simulated Graph v25.0 | tracer in both worktrees, schema parity, client boundary, and builds | public contracts, release switch, and routes compile in both apps; stale test drift was corrected | hermetic pass; authenticated validation and frontend full-runner baseline pending |
+
+- The existing operational switch remains reversible and on by default for marketing-enabled customers: `CUSTOMER_AUDIENCE_IMPORTS_ENABLED=false` stops only the import journey and preserves the library, campaigns, Meta audiences, and history. There is no pilot, new plan, or extra charge.
+- The headless environment has no authenticated Meta v25 account and does not allow manual opening of the two applications. Controlled Ads Manager confirmation, capabilities/terms, real limits, and rule round-trips remain pending; this is not an implementation block.
+- The backoffice repository-wide suite passed 1,090/1,090. The frontend repository-wide Bun discovery still reports unrelated baseline `postgresClient` import failures and Bun nested `describe`/`test` runner errors; the ticket-focused audience, parity, migration, and modified customer-file checks pass.
+
 # Ticket 24 notes
 
 - The period contract is now source-scoped and identical in the frontend and backoffice. New or changed Instagram/site combinations do not expose a free period field while V02 evidence is open; an existing simple rule shows and preserves its parsed period instead of reusing it as a default for another source or criterion.

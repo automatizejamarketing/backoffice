@@ -1,10 +1,9 @@
 import "server-only";
 
 import { type CreateIssue, type CreateResult, fail, localIssue, ok } from "../creation/types";
-import { metaApiCall } from "@/lib/meta-business/api";
-import { issuesFromError } from "../creation/normalize";
+import { createCustomAudience } from "./create";
 import { getCustomAudienceDetail, listCustomAudiences } from "./read";
-import { buildInstagramAudienceRule, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, type InstagramAudienceSelection, type InstagramSourceEvidence, validateInstagramAudienceSelection } from "./instagram";
+import { INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, type InstagramAudienceSelection, type InstagramSourceEvidence, validateInstagramAudienceSelection } from "./instagram";
 import { previewAudienceMetadataUpdate, updateCustomAudience } from "./update";
 import type { AudienceCommandStore } from "./command-store";
 
@@ -62,15 +61,6 @@ function existingAudienceIdsFromCommand(commandId: string): Set<string> | null {
     return null;
   }
 }
-async function createInstagramAudience(input: { adAccountId: string; accessToken: string; name: string; description?: string; selection: InstagramAudienceSelection }): Promise<CreateResult> {
-  const body = new URLSearchParams({ name: input.name.trim(), rule: JSON.stringify(buildInstagramAudienceRule(input.selection)), prefill: "true" });
-  if (input.description) body.set("description", input.description);
-  try {
-    const created = await metaApiCall<{ id?: string }>({ method: "POST", path: `act_${input.adAccountId.replace(/^act_/, "")}/customaudiences`, params: "", body, accessToken: input.accessToken });
-    return created.id ? ok(created.id, { id: created.id }) : fail([issue("META_CREATE_MISSING_ID", "A Meta não devolveu a identidade do público.", "Reconcilie a biblioteca antes de repetir a operação.")]);
-  } catch (error) { return fail(issuesFromError(error, "create", "audience")); }
-}
-
 export async function reviewInstagramAudience(input: CommonInput): Promise<InstagramAudienceReviewResult> {
   try {
     if (!input.name.trim()) return { ok: false, issues: [issue("NAME_REQUIRED", "O público precisa de um nome.", "Informe um nome antes de revisar.")] };
@@ -140,7 +130,7 @@ export async function confirmInstagramAudience(input: ConfirmInput): Promise<Ins
     const rule = instagramAudienceRuleInput(input.selection);
     const result = input.audienceId
       ? await updateCustomAudience({ audienceId: input.audienceId, adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name.trim(), description: input.description, expectedBefore: { name: reviewed.audienceName, description: reviewed.audienceDescription }, expectedRule: reviewed.beforeRule, rule })
-      : await createInstagramAudience({ adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name, description: input.description, selection: input.selection });
+      : await createCustomAudience({ adAccountId: input.adAccountId, accessToken: input.accessToken, type: "engagement", name: input.name, description: input.description, rule: instagramAudienceRuleInput(input.selection), prefill: true });
     if (isUncertain(result)) {
       unresolvedCommands.add(commandId);
       if (input.commandStore && input.actorUserId) await input.commandStore.markUncertain(commandId);

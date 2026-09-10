@@ -23,6 +23,13 @@ export type LookalikeSourceAssessment =
       message: string;
     };
 
+/** Ratios arrive as IEEE-754 decimals, so valid values such as 0.07 and 0.14
+ * cannot be checked with `Number.isInteger(ratio * 100)` directly. */
+export function isWholeLookalikeRatio(ratio: number): boolean {
+  const percentage = ratio * 100;
+  return Number.isFinite(ratio) && Math.abs(percentage - Math.round(percentage)) <= Number.EPSILON * Math.max(1, Math.abs(percentage)) * 4;
+}
+
 /**
  * The initial flow is deliberately one country and one whole percentage.  Meta
  * v25 accepts ratios, but accepting a decimal here and rounding it would create

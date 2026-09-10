@@ -89,7 +89,6 @@ test("expires correction data from its original receipt time and never emits exe
     mapping: { emailColumn: "email" }, context, now: receivedAt,
   });
 
-  assert.match(customerFileCorrectionReport(preview), /'=HYPERLINK/);
+  assert.match(customerFileCorrectionReport(preview, new Date("2026-09-09T12:00:00.000Z")), /'=HYPERLINK/);
   assert.throws(() => customerFileCorrectionReport(preview, new Date("2026-09-10T12:00:00.001Z")), /novo arquivo/i);
 });
-

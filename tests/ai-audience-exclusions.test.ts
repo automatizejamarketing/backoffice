@@ -44,9 +44,21 @@ test("audience exclusions replace only the exclusion field", () => {
   assert.deepEqual(result.targeting, {
     ...base,
     excluded_custom_audiences: [{ id: "new-1" }, { id: "new-2" }],
-    targeting_relaxation_types: { custom_audience: 1 },
   });
   assert.deepEqual(base.excluded_custom_audiences, [{ id: "old" }]);
+});
+
+test("exclusion-only edits preserve existing expansion metadata", () => {
+  const base = {
+    targeting_automation: { advantage_audience: 1 },
+    targeting_relaxation_types: { custom_audience: 0, lookalike: 1 },
+    custom_audiences: [{ id: "include-1" }],
+  };
+
+  assert.deepEqual(applyAudienceExclusions(base, ["exclude-1"]).targeting, {
+    ...base,
+    excluded_custom_audiences: [{ id: "exclude-1" }],
+  });
 });
 
 test("undefined preserves inherited exclusions and an empty list clears them", () => {
@@ -110,4 +122,27 @@ test("only known integrity or permission failures block selection", () => {
       "AUDIENCE_EXCLUSION_NOT_FOUND",
     ],
   );
+});
+
+test("lookalike ineligibility does not block an available exclusion", () => {
+  const issues = validateAudienceExclusionsAgainstLibrary(
+    ["audience"],
+    [
+      audience("audience", {
+        capabilities: {
+          ...audience("audience").capabilities,
+          exclude: "available",
+          lookalikeSource: "unavailable",
+        },
+        availability: {
+          include: "available",
+          exclude: "available",
+          lookalikeSource: "blocked",
+          metaProcessing: "ready",
+        },
+      }),
+    ],
+  );
+
+  assert.deepEqual(issues, []);
 });

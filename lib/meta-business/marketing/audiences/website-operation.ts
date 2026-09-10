@@ -1,10 +1,9 @@
 import "server-only";
 
 import { type CreateIssue, type CreateResult, fail, localIssue, ok } from "../creation/types";
-import { metaApiCall } from "@/lib/meta-business/api";
-import { issuesFromError } from "../creation/normalize";
+import { createCustomAudience } from "./create";
 import { getCustomAudienceDetail, listCustomAudiences } from "./read";
-import { buildWebsiteAudienceRule, parseWebsiteAudienceRule, resolveWebsiteSourceEvidence, validateWebsiteAudienceSelection, websiteAudienceRuleInput, WEBSITE_PERIOD_EVIDENCE, websitePeriodEvidenceFor, websitePeriodEvidenceStatus, websitePeriodSelectionsEqual, websiteSelectionsEqual, type WebsiteAudienceCriterion, type WebsiteAudienceSelection, type WebsiteSource, type WebsiteSourceEvidence } from "./website";
+import { parseWebsiteAudienceRule, resolveWebsiteSourceEvidence, validateWebsiteAudienceSelection, websiteAudienceRuleInput, WEBSITE_PERIOD_EVIDENCE, websitePeriodEvidenceFor, websitePeriodEvidenceStatus, websitePeriodSelectionsEqual, websiteSelectionsEqual, type WebsiteAudienceCriterion, type WebsiteAudienceSelection, type WebsiteSource, type WebsiteSourceEvidence } from "./website";
 import { previewAudienceMetadataUpdate, updateCustomAudience } from "./update";
 import type { AudienceCommandStore } from "./command-store";
 
@@ -29,11 +28,6 @@ function reviewExpiresAt(input: ConfirmInput): string { const existing = reviewE
 function descriptionMatches(input: ConfirmInput, current: { description?: string }, operation: "create" | "update", beforeDescription?: string) { return operation === "create" ? (current.description ?? undefined) === input.description : (current.description ?? undefined) === (input.description ?? beforeDescription); }
 function beforeDescriptionFromCommand(commandId: string): { ok: true; value?: string } | { ok: false } { try { const parsed = JSON.parse(commandId) as { beforeDescription?: unknown }; if (parsed.beforeDescription !== null && parsed.beforeDescription !== undefined && typeof parsed.beforeDescription !== "string") return { ok: false }; return { ok: true, value: parsed.beforeDescription ?? undefined }; } catch { return { ok: false }; } }
 function existingAudienceIdsFromCommand(commandId: string): Set<string> | null { try { const parsed = JSON.parse(commandId) as { operation?: unknown; existingAudienceIds?: unknown }; if (parsed.operation !== "create") return new Set(); if (!Array.isArray(parsed.existingAudienceIds) || parsed.existingAudienceIds.some((id) => typeof id !== "string")) return null; return new Set(parsed.existingAudienceIds); } catch { return null; } }
-function createWebsiteAudience(input: { adAccountId: string; accessToken: string; name: string; description?: string; selection: WebsiteAudienceSelection }): Promise<CreateResult> {
-  const body = new URLSearchParams({ name: input.name.trim(), rule: JSON.stringify(buildWebsiteAudienceRule(input.selection)), prefill: "true" });
-  if (input.description) body.set("description", input.description);
-  return metaApiCall<{ id?: string }>({ method: "POST", path: `act_${input.adAccountId.replace(/^act_/, "")}/customaudiences`, params: "", body, accessToken: input.accessToken }).then((created) => created.id ? ok(created.id, { id: created.id }) : fail([issue("META_CREATE_MISSING_ID", "A Meta não devolveu a identidade do público.", "Reconcilie a biblioteca antes de repetir a operação.")])).catch((error) => fail(issuesFromError(error, "create", "audience")));
-}
 export function websiteSourceEvidence(sources: WebsiteSource[], pixelId: string): WebsiteSourceEvidence { return resolveWebsiteSourceEvidence(sources, pixelId); }
 
 export async function reviewWebsiteAudience(input: CommonInput): Promise<WebsiteAudienceReviewResult> {
@@ -105,7 +99,7 @@ export async function confirmWebsiteAudience(input: ConfirmInput): Promise<Websi
     }
     const result = input.audienceId
       ? await updateCustomAudience({ audienceId: input.audienceId, adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name.trim(), description: input.description, expectedBefore: { name: reviewed.audienceName, description: reviewed.audienceDescription }, expectedRule: reviewed.beforeRule, rawRule: websiteAudienceRuleInput(input.selection) })
-      : await createWebsiteAudience({ adAccountId: input.adAccountId, accessToken: input.accessToken, name: input.name, description: input.description, selection: input.selection });
+      : await createCustomAudience({ adAccountId: input.adAccountId, accessToken: input.accessToken, type: "website", name: input.name, description: input.description, rawRule: websiteAudienceRuleInput(input.selection), prefill: true });
     if (isUncertain(result)) { unresolvedCommands.add(commandId); if (input.commandStore && input.actorUserId) await input.commandStore.markUncertain(commandId); return fail([uncertainIssue()]); }
     if (!result.ok) { completedCommands.set(commandId, result); if (input.commandStore && input.actorUserId) await input.commandStore.complete(commandId, result); return result; }
     const committed = ok(result.id, { id: result.id, state: "submitted" as const });

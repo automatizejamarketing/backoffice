@@ -79,6 +79,7 @@ test("does not begin a removal for zero valid rows or after authorization is rev
       save: async () => {}, discardTemporary: async () => {},
     },
     authorize: async () => {}, revalidateRemote: async () => ({ safeToContinue: true }), send: async () => ({}),
+    now: () => new Date("2026-09-09T01:00:00Z"),
   };
   await assert.rejects(executeCustomerListRemoval({ removal: removal(), preview: preview(0), explicitlySendValidRows: false }, deps), /NO_VALID_ROWS/);
   const expiredPreview = preview(1);
@@ -94,6 +95,7 @@ test("does not enqueue a concurrent removal and leaves a lost response uncertain
       save: async () => {}, discardTemporary: async () => {},
     },
     authorize: async () => {}, revalidateRemote: async () => ({ safeToContinue: true }), send: async () => ({}),
+    now: () => new Date("2026-09-09T01:00:00Z"),
   }), /importa\u00e7\u00e3o em andamento/);
 
   const result = await executeCustomerListRemoval({ removal: removal(), preview: preview(1), explicitlySendValidRows: false }, {
@@ -103,7 +105,7 @@ test("does not enqueue a concurrent removal and leaves a lost response uncertain
     },
     authorize: async () => {}, revalidateRemote: async () => ({ safeToContinue: true }),
     send: async () => { throw new Error("timeout after remote send"); },
+    now: () => new Date("2026-09-09T01:00:00Z"),
   });
   assert.equal(result.state, "unknown");
 });
-

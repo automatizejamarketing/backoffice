@@ -128,7 +128,7 @@ export async function confirmLookalikeAudience(input: LookalikeConfirmInput): Pr
       return fail([uncertainIssue()]);
     }
     if (!result.ok) {
-      const failed = fail(result.issues.map((candidate) => ({ stage: "create" as const, level: "audience" as const, ...candidate })));
+      const failed = fail(result.issues);
       completedCommands.set(commandId, failed);
       if (input.commandStore && input.actorUserId) await input.commandStore.complete(commandId, failed);
       return failed;
