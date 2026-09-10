@@ -589,6 +589,13 @@
       "when": 1798300000000,
       "tag": "0096_product_payment_attempt_resolutions",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1798400000000,
+      "tag": "0097_product_payment_attempt_environment",
+      "breakpoints": true
     }
   ]
 }

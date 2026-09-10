@@ -904,6 +904,9 @@ export const productPaymentAttempt = pgTable(
     issuerId: varchar("issuer_id", { length: 80 }),
     productOfferId: varchar("product_offer_id", { length: 100 }),
     mercadoPagoCollectorId: varchar("mercadopago_collector_id", { length: 64 }),
+    mercadoPagoEnvironment: varchar("mercadopago_environment", {
+      enum: ["sandbox", "production"],
+    }).$type<"sandbox" | "production">(),
     expectedProviderFeeCentavos: integer("expected_provider_fee_centavos"),
     expectedApplicationFeeCentavos: integer("expected_application_fee_centavos"),
     splitContractVersion: varchar("split_contract_version", { length: 80 }),
