@@ -42,7 +42,6 @@ export {
 } from "./duplicate-campaign";
 export { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 export type { MoldRef } from "./pick-mold";
-export type { AudienceReviewAdSet } from "./plan-campaign";
 export type { MoldKind } from "./validation-rules";
 export {
   applyDemographicLimits,
@@ -55,9 +54,13 @@ export {
   type DemographicIssue,
   type DemographicLimits,
 } from "./demographic-limits";
+export type { AudienceReviewAdSet } from "./plan-campaign";
 export {
   applyAudienceInclusions,
+  validateAppliedAudienceTargeting,
   validateAudienceInclusionIds,
+  validateAudienceInclusionsAgainstLibrary,
   type AudienceInclusionDerivation,
   type AudienceInclusionIds,
+  type AudienceTargetingExpectation,
 } from "./audience-inclusions";

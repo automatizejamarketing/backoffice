@@ -1,15 +1,12 @@
 import { customerFileDurableStore } from "@/lib/customer-file/postgres";
-import {
-  listCustomAudiences,
-  type CustomAudienceView,
-} from "../audiences";
+import { listCustomAudiences, type CustomAudienceView } from "../audiences";
 import { localIssue, type CreateIssue } from "../creation/types";
 import {
   validateAudienceInclusionIds,
   validateAudienceInclusionsAgainstLibrary,
 } from "./audience-inclusions";
 
-/** Read the account library and import ledger again at the mutation boundary. */
+/** Re-read the account library and import ledger at the mutation boundary. */
 export async function validateAudienceInclusionSelection(input: {
   adAccountId: string;
   accessToken: string;
@@ -25,8 +22,8 @@ export async function validateAudienceInclusionSelection(input: {
       localIssue(
         "adset",
         "AUDIENCE_INCLUSION_CONTEXT_REQUIRED",
-        "Nao foi possivel confirmar o cliente responsavel pelos publicos selecionados.",
-        "Atualize a sessao e revise as inclusoes antes de publicar.",
+        "Não foi possível confirmar o cliente responsável pelos públicos selecionados.",
+        "Atualize a sessão e revise as inclusões antes de publicar.",
         ["targeting", "custom_audiences"],
       ),
     ];
@@ -52,11 +49,11 @@ export async function validateAudienceInclusionSelection(input: {
       });
       audiences.push(...page.items);
       if (!page.truncated) break;
-      if (!page.nextCursor) return [incompleteLibraryIssue()];
-      if (seenCursors.has(page.nextCursor)) return [incompleteLibraryIssue()];
+      if (!page.nextCursor || seenCursors.has(page.nextCursor) || pageNumber === 19) {
+        return [incompleteLibraryIssue()];
+      }
       seenCursors.add(page.nextCursor);
       after = page.nextCursor;
-      if (pageNumber === 19) return [incompleteLibraryIssue()];
     }
 
     return validateAudienceInclusionsAgainstLibrary(input.ids, audiences);
@@ -66,8 +63,8 @@ export async function validateAudienceInclusionSelection(input: {
         ...localIssue(
           "adset",
           "AUDIENCE_INCLUSION_REVALIDATION_FAILED",
-          "Nao foi possivel revalidar as inclusoes de publicos antes da publicacao.",
-          "Atualize a biblioteca e revise as inclusoes antes de tentar novamente.",
+          "Não foi possível revalidar as inclusões de públicos antes da publicação.",
+          "Atualize a biblioteca e revise as inclusões antes de tentar novamente.",
           ["targeting", "custom_audiences"],
         ),
         transient: true,
@@ -81,7 +78,7 @@ function incompleteLibraryIssue(): CreateIssue {
     ...localIssue(
       "adset",
       "AUDIENCE_INCLUSION_LIBRARY_INCOMPLETE",
-      "A biblioteca de publicos nao pode ser carregada por completo para confirmar as inclusoes.",
+      "A biblioteca de públicos não pôde ser carregada por completo para confirmar as inclusões.",
       "Atualize a biblioteca e tente novamente antes de publicar.",
       ["targeting", "custom_audiences"],
     ),

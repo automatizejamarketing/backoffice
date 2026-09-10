@@ -56,14 +56,14 @@ import {
   validateDemographicContext,
   type DemographicLimits,
 } from "./demographic-limits";
+import { applyAudienceExclusions } from "./audience-exclusions";
+import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
 import {
   applyAudienceInclusions,
   validateAudienceInclusionIds,
 } from "./audience-inclusions";
 import { validateAudienceInclusionSelection } from "./audience-inclusions-server";
 import { verifyAudienceTargetingOnAdSets } from "./audience-targeting-verification";
-import { applyAudienceExclusions } from "./audience-exclusions";
-import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
 
 export type FallbackNiche =
   | "food_service"
@@ -102,16 +102,20 @@ export type FallbackPublishInput = {
   placementsMode?: "automatic" | "manual";
   selectedPlacements?: PlacementKey[];
   demographics?: DemographicLimits;
+  /** Absent = no mold inclusions; [] explicitly clears the list. */
+  includedCustomAudienceIds?: string[];
   /** Absent = no mold exclusions; [] explicitly clears the list. */
   excludedCustomAudienceIds?: string[];
-  /** Absent = no inclusion override; [] explicitly clears the list. */
-  includedCustomAudienceIds?: string[];
   /** Special-ad categories selected for the campaign, when applicable. */
   specialAdCategories?: string[];
 };
 
 export type FallbackConfig = {
   metaObjective: "OUTCOME_SALES" | "OUTCOME_TRAFFIC" | "OUTCOME_LEADS";
+  optimizationGoal:
+    | "OFFSITE_CONVERSIONS"
+    | "VISIT_INSTAGRAM_PROFILE"
+    | "LEAD_GENERATION";
   requiresPixel: boolean;
   requiresPromotionUrl: boolean;
   requiresInstagram: boolean;
@@ -141,6 +145,7 @@ export function resolveFallbackConfig(
       normalizedNiche === "food_service" || normalizedNiche === "outros";
     return {
       metaObjective: "OUTCOME_SALES",
+      optimizationGoal: "OFFSITE_CONVERSIONS",
       requiresPixel: true,
       requiresPromotionUrl: true,
       requiresInstagram: false,
@@ -152,6 +157,7 @@ export function resolveFallbackConfig(
   if (objective === "followers") {
     return {
       metaObjective: "OUTCOME_TRAFFIC",
+      optimizationGoal: "VISIT_INSTAGRAM_PROFILE",
       requiresPixel: false,
       requiresPromotionUrl: false,
       requiresInstagram: true,
@@ -172,6 +178,7 @@ export function resolveFallbackConfig(
 
   return {
     metaObjective: "OUTCOME_LEADS",
+    optimizationGoal: "LEAD_GENERATION",
     requiresPixel: false,
     requiresPromotionUrl: false,
     requiresInstagram: false,
@@ -196,13 +203,15 @@ export function fallbackIssues(
       ),
     );
   }
-  issues.push(...applyDemographicLimits({}, input.demographics).issues);
   issues.push(
     ...validateDemographicContext({
       limits: input.demographics,
+      objective: config.metaObjective,
+      optimizationGoal: config.optimizationGoal,
       specialAdCategories: input.specialAdCategories,
     }),
   );
+  issues.push(...applyDemographicLimits({}, input.demographics).issues);
   issues.push(...validateAudienceInclusionIds(input.includedCustomAudienceIds));
   issues.push(...applyAudienceExclusions({}, input.excludedCustomAudienceIds).issues);
 
@@ -755,49 +764,41 @@ export async function publishFallbackCampaign(args: {
       customerId: input.customerId,
       ids: input.includedCustomAudienceIds,
     });
-    if (latestInclusionIssues.length) {
-      const deleted = await deleteMetaObject(published.campaignId, accessToken);
-      if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
-      return {
-        ok: false,
-        issues: latestInclusionIssues,
-        rolledBack: deleted,
-        ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
-      };
-    }
     const latestExclusionIssues = await validateAudienceExclusionSelection({
       adAccountId,
       accessToken,
       customerId: input.customerId,
       ids: input.excludedCustomAudienceIds,
     });
-    if (latestExclusionIssues.length) {
-      const deleted = await deleteMetaObject(published.campaignId, accessToken);
-      if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
-      return {
-        ok: false,
-        issues: latestExclusionIssues,
-        rolledBack: deleted,
-        ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
-      };
-    }
-    const targetingIssues = await verifyAudienceTargetingOnAdSets({
+    const targetingVerificationIssues = await verifyAudienceTargetingOnAdSets({
       accessToken,
       adSetIds: published.adSetIds,
       expected: {
-        ...(input.demographics !== undefined
+        ...(hasAppliedDemographicLimits(input.demographics)
           ? { demographics: input.demographics }
           : {}),
-        includedCustomAudienceIds: input.includedCustomAudienceIds,
-        excludedCustomAudienceIds: input.excludedCustomAudienceIds,
+        ...(input.includedCustomAudienceIds !== undefined
+          ? { includedCustomAudienceIds: input.includedCustomAudienceIds }
+          : {}),
+        ...(input.excludedCustomAudienceIds !== undefined
+          ? { excludedCustomAudienceIds: input.excludedCustomAudienceIds }
+          : {}),
       },
     });
-    if (targetingIssues.length) {
+    if (
+      latestInclusionIssues.length ||
+      latestExclusionIssues.length ||
+      targetingVerificationIssues.length
+    ) {
       const deleted = await deleteMetaObject(published.campaignId, accessToken);
       if (leadFormId) await deleteMetaObject(leadFormId, accessToken).catch(() => false);
       return {
         ok: false,
-        issues: targetingIssues,
+        issues: [
+          ...latestInclusionIssues,
+          ...latestExclusionIssues,
+          ...targetingVerificationIssues,
+        ],
         rolledBack: deleted,
         ...(!deleted ? { orphanIds: [published.campaignId] } : {}),
       };

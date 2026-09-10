@@ -43,8 +43,8 @@ export async function verifyAudienceTargetingOnAdSets(args: {
         ...localIssue(
           "adset",
           "AUDIENCE_TARGETING_VERIFY_FAILED",
-          "Nao foi possivel ler de volta a segmentacao efetiva de todos os conjuntos.",
-          "Nao ative a campanha; tente novamente para confirmar os publicos aplicados.",
+          "Não foi possível ler de volta a segmentação efetiva de todos os conjuntos.",
+          "Não ative a campanha; tente novamente para confirmar os públicos aplicados.",
           ["targeting"],
         ),
         transient: true,

@@ -42,16 +42,16 @@ import {
   validateDemographicContext,
 } from "./demographic-limits";
 import {
+  applyAudienceExclusions,
+  validateAudienceExclusionIds,
+} from "./audience-exclusions";
+import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
+import {
   applyAudienceInclusions,
   validateAudienceInclusionIds,
 } from "./audience-inclusions";
 import { validateAudienceInclusionSelection } from "./audience-inclusions-server";
 import { verifyAudienceTargetingOnAdSets } from "./audience-targeting-verification";
-import {
-  applyAudienceExclusions,
-  validateAudienceExclusionIds,
-} from "./audience-exclusions";
-import { validateAudienceExclusionSelection } from "./audience-exclusions-server";
 import { listProvenAdsInCampaign, provenAdIds, type ProvenAdRef } from "./proven-ads";
 import type { MoldRef } from "./pick-mold";
 import {
@@ -237,7 +237,6 @@ async function prepareDuplication(
   const issues: CreateIssue[] = [];
   const hasNewMedia = answers.medias.length > 0;
   const hasKeptAds = keepAdIds.length > 0;
-
   const sourceAdSetTargetings: Array<Record<string, unknown>> = [];
   const hasAudienceOverride =
     hasAppliedDemographicLimits(answers.demographics) ||
@@ -261,21 +260,6 @@ async function prepareDuplication(
     }
   }
 
-  const inclusionLocalIssues = validateAudienceInclusionIds(
-    answers.includedCustomAudienceIds,
-  );
-  issues.push(...inclusionLocalIssues);
-  if (!inclusionLocalIssues.length && answers.includedCustomAudienceIds?.length) {
-    issues.push(
-      ...(await validateAudienceInclusionSelection({
-        adAccountId: ctx.adAccountId,
-        accessToken: ctx.accessToken,
-        customerId: ctx.customerId,
-        ids: answers.includedCustomAudienceIds,
-      })),
-    );
-  }
-
   const exclusionLocalIssues = validateAudienceExclusionIds(
     answers.excludedCustomAudienceIds,
   );
@@ -287,6 +271,20 @@ async function prepareDuplication(
         accessToken: ctx.accessToken,
         customerId: ctx.customerId,
         ids: answers.excludedCustomAudienceIds,
+      })),
+    );
+  }
+  const inclusionLocalIssues = validateAudienceInclusionIds(
+    answers.includedCustomAudienceIds,
+  );
+  issues.push(...inclusionLocalIssues);
+  if (!inclusionLocalIssues.length && answers.includedCustomAudienceIds?.length) {
+    issues.push(
+      ...(await validateAudienceInclusionSelection({
+        adAccountId: ctx.adAccountId,
+        accessToken: ctx.accessToken,
+        customerId: ctx.customerId,
+        ids: answers.includedCustomAudienceIds,
       })),
     );
   }
@@ -331,6 +329,9 @@ async function prepareDuplication(
     ...validateDemographicContext({
       limits: answers.demographics,
       specialAdCategories: mold.campaign.specialAdCategories,
+      objective: mold.campaign.objective,
+      optimizationGoal: mold.adSet.optimizationGoal,
+      targeting: mold.adSet.targeting,
     }),
   );
 
@@ -433,9 +434,8 @@ function namedGeoLocations(
 
 /**
  * Meta's raw targeting → the facts the review needs (counts + named places), never prose: the UI
- * writes the words (the app is pt-BR + en). The elected mold's ad set is the audience being copied.
- * This is the ONE describeAudience — it was duplicated near-verbatim in plan-campaign.ts, whose copy
- * was dead once planCampaign became a thin delegator (ADR 0023 ticket 06).
+ * writes the words (the app is pt-BR + en). Every source ad set is described before the review is
+ * returned so inherited differences cannot be hidden by the elected mold.
  */
 function describeAudienceTargeting(
   targeting: Record<string, unknown>,
@@ -460,6 +460,23 @@ function describeAudienceTargeting(
   const automation = (effectiveTargeting.targeting_automation ?? {}) as { advantage_audience?: number };
   const genders = (effectiveTargeting.genders ?? []) as number[];
   const locations = namedGeoLocations(geo);
+  const placements =
+    answers.placementsMode !== undefined
+      ? reviewPlacementsFromMode(
+          answers.placementsMode,
+          answers.selectedPlacements ?? [],
+        )
+      : {
+          // No placement keys at all = Meta chooses them (Advantage+ placements).
+          automatic: !PLACEMENT_KEYS.some((key) => count(effectiveTargeting[key]) > 0),
+          platforms: (effectiveTargeting.publisher_platforms ?? []) as string[],
+          ...(count(effectiveTargeting.facebook_positions)
+            ? { facebookPositions: effectiveTargeting.facebook_positions as string[] }
+            : {}),
+          ...(count(effectiveTargeting.instagram_positions)
+            ? { instagramPositions: effectiveTargeting.instagram_positions as string[] }
+            : {}),
+        };
 
   return {
     index,
@@ -473,18 +490,11 @@ function describeAudienceTargeting(
     advantagePlus: automation.advantage_audience === 1,
     interestGroups: count(effectiveTargeting.flexible_spec),
     customAudiences: count(effectiveTargeting.custom_audiences),
+    ...(answers.includedCustomAudienceIds !== undefined
+      ? { includedCustomAudiencesApplied: true }
+      : {}),
     excludedCustomAudiences: count(effectiveTargeting.excluded_custom_audiences),
-    placements: {
-      // No placement keys at all = Meta chooses them (Advantage+ placements).
-      automatic: !PLACEMENT_KEYS.some((key) => count(effectiveTargeting[key]) > 0),
-      platforms: (effectiveTargeting.publisher_platforms ?? []) as string[],
-      ...(count(effectiveTargeting.facebook_positions)
-        ? { facebookPositions: effectiveTargeting.facebook_positions as string[] }
-        : {}),
-      ...(count(effectiveTargeting.instagram_positions)
-        ? { instagramPositions: effectiveTargeting.instagram_positions as string[] }
-        : {}),
-    },
+    placements,
     ...(typeof effectiveTargeting.age_min === "number"
       ? { ageMin: effectiveTargeting.age_min }
       : {}),
@@ -509,10 +519,17 @@ function describeAudience(
   const first =
     descriptions[0] ?? describeAudienceTargeting(mold.adSet.targeting, answers, 0);
   const summaryOf = (description: (typeof descriptions)[number]) => {
-    const { index: _index, ageSource: _ageSource, genderSource: _genderSource, ...summary } = description;
+    const {
+      index: _index,
+      ageSource: _ageSource,
+      genderSource: _genderSource,
+      ...summary
+    } = description;
     return summary;
   };
-  if (descriptions.length < 2) return { ...summaryOf(first), adSets: descriptions };
+  if (descriptions.length < 2) {
+    return { ...summaryOf(first), adSets: descriptions };
+  }
 
   const fields = [
     "geo",
@@ -720,23 +737,32 @@ async function applyDemographicOverride(args: {
 }
 
 class DemographicApplicationError extends Error {
-  constructor(readonly issues: CreateIssue[]) {
+  readonly issues: CreateIssue[];
+
+  constructor(issues: CreateIssue[]) {
     super(issues[0]?.reason ?? "demographic override failed");
+    this.issues = issues;
     this.name = "DemographicApplicationError";
   }
 }
 
-class AudienceInclusionApplicationError extends Error {
-  constructor(readonly issues: CreateIssue[]) {
-    super(issues[0]?.reason ?? "audience inclusion override failed");
-    this.name = "AudienceInclusionApplicationError";
+class AudienceExclusionApplicationError extends Error {
+  readonly issues: CreateIssue[];
+
+  constructor(issues: CreateIssue[]) {
+    super(issues[0]?.reason ?? "audience exclusion override failed");
+    this.issues = issues;
+    this.name = "AudienceExclusionApplicationError";
   }
 }
 
-class AudienceTargetingVerificationError extends Error {
-  constructor(readonly issues: CreateIssue[]) {
-    super(issues[0]?.reason ?? "audience targeting verification failed");
-    this.name = "AudienceTargetingVerificationError";
+class AudienceInclusionApplicationError extends Error {
+  readonly issues: CreateIssue[];
+
+  constructor(issues: CreateIssue[]) {
+    super(issues[0]?.reason ?? "audience inclusion override failed");
+    this.issues = issues;
+    this.name = "AudienceInclusionApplicationError";
   }
 }
 
@@ -776,13 +802,6 @@ async function applyAudienceInclusionOverride(args: {
     if (!result.ok) {
       throw new AudienceInclusionApplicationError(result.issues);
     }
-  }
-}
-
-class AudienceExclusionApplicationError extends Error {
-  constructor(readonly issues: CreateIssue[]) {
-    super(issues[0]?.reason ?? "audience exclusion override failed");
-    this.name = "AudienceExclusionApplicationError";
   }
 }
 
@@ -1137,25 +1156,12 @@ export async function createDuplicatedCampaign(
       });
       await applyAudienceInclusionOverride({ ctx, adSetIds: result.adSetIds, answers });
       await applyAudienceExclusionOverride({ ctx, adSetIds: result.adSetIds, answers });
-      const targetingIssues = await verifyAudienceTargetingOnAdSets({
-        accessToken: ctx.accessToken,
-        adSetIds: result.adSetIds,
-        expected: {
-          demographics: answers.demographics,
-          includedCustomAudienceIds: answers.includedCustomAudienceIds,
-          excludedCustomAudienceIds: answers.excludedCustomAudienceIds,
-        },
-      });
-      if (targetingIssues.length) {
-        throw new AudienceTargetingVerificationError(targetingIssues);
-      }
     } catch (error) {
       const deleted = await deleteMetaObject(result.campaignId, ctx.accessToken);
       const issues =
         error instanceof DemographicApplicationError ||
-        error instanceof AudienceInclusionApplicationError ||
         error instanceof AudienceExclusionApplicationError ||
-        error instanceof AudienceTargetingVerificationError
+        error instanceof AudienceInclusionApplicationError
           ? error.issues
           : [
               localIssue(
@@ -1176,17 +1182,6 @@ export async function createDuplicatedCampaign(
 
     const allAdIds = [...result.adIds, ...newMedia.adIds];
     try {
-      if (answers.includedCustomAudienceIds !== undefined) {
-        const latestInclusionIssues = await validateAudienceInclusionSelection({
-          adAccountId: ctx.adAccountId,
-          accessToken: ctx.accessToken,
-          customerId: ctx.customerId,
-          ids: answers.includedCustomAudienceIds,
-        });
-        if (latestInclusionIssues.length) {
-          throw new AudienceInclusionApplicationError(latestInclusionIssues);
-        }
-      }
       if (answers.excludedCustomAudienceIds !== undefined) {
         const latestExclusionIssues = await validateAudienceExclusionSelection({
           adAccountId: ctx.adAccountId,
@@ -1198,17 +1193,34 @@ export async function createDuplicatedCampaign(
           throw new AudienceExclusionApplicationError(latestExclusionIssues);
         }
       }
-      const targetingIssues = await verifyAudienceTargetingOnAdSets({
+      if (answers.includedCustomAudienceIds !== undefined) {
+        const latestInclusionIssues = await validateAudienceInclusionSelection({
+          adAccountId: ctx.adAccountId,
+          accessToken: ctx.accessToken,
+          customerId: ctx.customerId,
+          ids: answers.includedCustomAudienceIds,
+        });
+        if (latestInclusionIssues.length) {
+          throw new AudienceInclusionApplicationError(latestInclusionIssues);
+        }
+      }
+      const targetingVerificationIssues = await verifyAudienceTargetingOnAdSets({
         accessToken: ctx.accessToken,
         adSetIds: result.adSetIds,
         expected: {
-          demographics: answers.demographics,
-          includedCustomAudienceIds: answers.includedCustomAudienceIds,
-          excludedCustomAudienceIds: answers.excludedCustomAudienceIds,
+          ...(hasAppliedDemographicLimits(answers.demographics)
+            ? { demographics: answers.demographics }
+            : {}),
+          ...(answers.includedCustomAudienceIds !== undefined
+            ? { includedCustomAudienceIds: answers.includedCustomAudienceIds }
+            : {}),
+          ...(answers.excludedCustomAudienceIds !== undefined
+            ? { excludedCustomAudienceIds: answers.excludedCustomAudienceIds }
+            : {}),
         },
       });
-      if (targetingIssues.length) {
-        throw new AudienceTargetingVerificationError(targetingIssues);
+      if (targetingVerificationIssues.length) {
+        throw new AudienceInclusionApplicationError(targetingVerificationIssues);
       }
       await activateDuplicatedTree({
         accessToken: ctx.accessToken,
@@ -1221,9 +1233,8 @@ export async function createDuplicatedCampaign(
       const deleted = await deleteMetaObject(result.campaignId, ctx.accessToken);
       const issues =
         error instanceof DemographicApplicationError ||
-        error instanceof AudienceInclusionApplicationError ||
         error instanceof AudienceExclusionApplicationError ||
-        error instanceof AudienceTargetingVerificationError
+        error instanceof AudienceInclusionApplicationError
           ? error.issues
           : [
               localIssue(

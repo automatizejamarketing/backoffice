@@ -24,6 +24,7 @@ export type DemographicIssue = {
     | "DEMOGRAPHIC_AGE_RANGE_INVALID"
     | "DEMOGRAPHIC_GENDERS_INVALID"
     | "DEMOGRAPHIC_SPECIAL_CATEGORY_INCOMPATIBLE"
+    | "DEMOGRAPHIC_CONTEXT_UNSUPPORTED"
     | "DEMOGRAPHIC_TARGETING_VERIFY_FAILED";
   reason: string;
   suggestion: string;
@@ -67,6 +68,17 @@ function gendersIssue(): DemographicIssue {
   };
 }
 
+function contextIssue(reason: string, suggestion: string): DemographicIssue {
+  return {
+    stage: "local",
+    level: "adset",
+    code: "DEMOGRAPHIC_CONTEXT_UNSUPPORTED",
+    reason,
+    suggestion,
+    field: ["targeting"],
+  };
+}
+
 export function hasAppliedDemographicLimits(
   limits: DemographicLimits | undefined,
 ): boolean {
@@ -106,6 +118,11 @@ const RESTRICTED_SPECIAL_CATEGORIES = new Set([
   "HOUSING",
 ]);
 
+import {
+  validateObjective,
+  validateOptimizationForObjective,
+} from "../creation/validation";
+
 /**
  * Restricted special-ad categories cannot accept the same hard age/gender
  * controls as ordinary campaigns. Keep this check opt-in so an unapplied
@@ -114,17 +131,41 @@ const RESTRICTED_SPECIAL_CATEGORIES = new Set([
 export function validateDemographicContext(args: {
   limits: DemographicLimits | undefined;
   specialAdCategories?: readonly string[];
+  objective?: string;
+  optimizationGoal?: string;
+  targeting?: Record<string, unknown>;
 }): DemographicIssue[] {
   if (!hasAppliedDemographicLimits(args.limits)) return [];
+
+  const issues: DemographicIssue[] = [];
+  if (args.objective) {
+    const objectiveIssues = validateObjective(args.objective);
+    if (objectiveIssues.length) {
+      issues.push(contextIssue(objectiveIssues[0]!.reason, objectiveIssues[0]!.suggestion));
+    } else if (args.optimizationGoal) {
+      const optimizationIssues = validateOptimizationForObjective(
+        args.objective,
+        args.optimizationGoal,
+      );
+      if (optimizationIssues.length) {
+        issues.push(
+          contextIssue(
+            optimizationIssues[0]!.reason,
+            optimizationIssues[0]!.suggestion,
+          ),
+        );
+      }
+    }
+  }
+
   if (
     !(args.specialAdCategories ?? []).some((category) =>
       RESTRICTED_SPECIAL_CATEGORIES.has(category),
     )
   ) {
-    return [];
+    return issues;
   }
 
-  const issues: DemographicIssue[] = [];
   if (args.limits?.genders != null && args.limits.genders.length > 0) {
     issues.push({
       stage: "local",
@@ -135,7 +176,10 @@ export function validateDemographicContext(args: {
       field: ["targeting"],
     });
   }
-  if (args.limits?.age != null && args.limits.age.min < 18) {
+  if (
+    args.limits?.age != null &&
+    (args.limits.age.min < 18 || args.limits.age.max > 65)
+  ) {
     issues.push({
       stage: "local",
       level: "adset",
@@ -144,6 +188,21 @@ export function validateDemographicContext(args: {
       suggestion: "Defina a faixa etária a partir de 18 anos para publicar esta campanha.",
       field: ["targeting"],
     });
+  }
+  const geo = args.targeting?.geo_locations;
+  if (
+    geo &&
+    typeof geo === "object" &&
+    !Array.isArray(geo) &&
+    Array.isArray((geo as Record<string, unknown>).zips) &&
+    ((geo as Record<string, unknown>).zips as unknown[]).length > 0
+  ) {
+    issues.push(
+      contextIssue(
+        "A categoria especial restrita nao permite segmentacao por CEP.",
+        "Remova os CEPs e use cidades ou localizacoes compativeis.",
+      ),
+    );
   }
   return issues;
 }
@@ -173,9 +232,8 @@ function sameNumbers(actual: unknown, expected: readonly number[]): boolean {
     typeof value === "number" ? value : Number(value),
   );
   const sortedExpected = [...expected].sort((a, b) => a - b);
-  return [...actualNumbers]
-    .sort((a, b) => a - b)
-    .every((value, index) => value === sortedExpected[index]);
+  const sortedActual = actualNumbers.sort((a, b) => a - b);
+  return sortedActual.join(",") === sortedExpected.join(",");
 }
 
 /**
@@ -296,7 +354,9 @@ export function applyDemographicLimits(
         gender: false,
       };
     }
-    targeting.targeting_automation = automation;
+    targeting.targeting_automation = {
+      ...automation,
+    };
     targeting.targeting_relaxation_types = {
       ...((targeting.targeting_relaxation_types as Record<string, unknown> | undefined) ?? {}),
       custom_audience: 0,

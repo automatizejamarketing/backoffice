@@ -11,6 +11,7 @@ export type AudienceInclusionDerivation = {
   issues: CreateIssue[];
 };
 
+/** The audience fields that must survive Meta's create/update round trip. */
 export type AudienceTargetingExpectation = {
   demographics?: DemographicLimits;
   includedCustomAudienceIds?: readonly string[];
@@ -28,8 +29,8 @@ function invalidIssue(): CreateIssue {
   return localIssue(
     "adset",
     "AUDIENCE_INCLUSION_INVALID",
-    "A lista de inclusoes contem um identificador de publico invalido ou repetido.",
-    "Selecione novamente apenas publicos personalizados acessiveis.",
+    "A lista de inclusões contém um identificador de público inválido ou repetido.",
+    "Selecione novamente apenas públicos personalizados acessíveis.",
     ["targeting", "custom_audiences"],
   );
 }
@@ -60,25 +61,28 @@ function hasHardDemographicLimit(targeting: Record<string, unknown>): boolean {
 function setAudienceExpansion(
   targeting: Record<string, unknown>,
   advantageAudience: 0 | 1,
+  options: { disableIndividualSuggestions?: boolean } = {},
 ): void {
-  targeting.targeting_automation = {
+  const automation: Record<string, unknown> = {
     ...((targeting.targeting_automation as Record<string, unknown> | undefined) ?? {}),
     advantage_audience: advantageAudience,
   };
+  if (options.disableIndividualSuggestions) {
+    const individualSetting = automation.individual_setting;
+    if (individualSetting && typeof individualSetting === "object") {
+      automation.individual_setting = {
+        ...(individualSetting as Record<string, unknown>),
+        age: false,
+        gender: false,
+      };
+    }
+  }
+  targeting.targeting_automation = automation;
   targeting.targeting_relaxation_types = {
     ...((targeting.targeting_relaxation_types as Record<string, unknown> | undefined) ?? {}),
     custom_audience: advantageAudience,
     lookalike: advantageAudience,
   };
-}
-
-function withoutTargetingField(
-  targeting: Record<string, unknown>,
-  field: string,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(targeting).filter(([key]) => key !== field),
-  );
 }
 
 function audienceIds(value: unknown): string[] {
@@ -104,6 +108,10 @@ function isExpansionDisabled(value: unknown): boolean {
   return value === 0 || value === false;
 }
 
+function isExpansionEnabled(value: unknown): boolean {
+  return value === 1 || value === true;
+}
+
 /** Verify audience-owned fields after Meta accepted an update or create request. */
 export function validateAppliedAudienceTargeting(
   targeting: Record<string, unknown> | undefined,
@@ -120,14 +128,18 @@ export function validateAppliedAudienceTargeting(
       localIssue(
         "adset",
         "AUDIENCE_TARGETING_VERIFY_FAILED",
-        "A Meta nao devolveu a segmentacao efetiva do conjunto para conferencia.",
-        "Nao ative a campanha; tente novamente para confirmar a segmentacao.",
+        "A Meta não devolveu a segmentação efetiva do conjunto para conferência.",
+        "Não ative a campanha; tente novamente para confirmar a segmentação.",
         ["targeting"],
       ),
     ];
   }
 
-  const checks: Array<{ actual: string[]; expected: readonly string[]; field: string }> = [];
+  const checks: Array<{
+    actual: string[];
+    expected: readonly string[];
+    field: "custom_audiences" | "excluded_custom_audiences";
+  }> = [];
   if (expected.includedCustomAudienceIds !== undefined) {
     checks.push({
       actual: audienceIds(targeting.custom_audiences),
@@ -149,8 +161,8 @@ export function validateAppliedAudienceTargeting(
         localIssue(
           "adset",
           "AUDIENCE_TARGETING_VERIFY_FAILED",
-          `A segmentacao efetiva retornada pela Meta nao corresponde a lista aplicada em ${check.field}.`,
-          "Nao ative a campanha; revise os publicos e tente novamente.",
+          `A segmentação efetiva retornada pela Meta não corresponde à lista aplicada em ${check.field}.`,
+          "Não ative a campanha; revise os públicos e tente novamente.",
           ["targeting", check.field],
         ),
       ];
@@ -172,17 +184,31 @@ export function validateAppliedAudienceTargeting(
       relaxation && typeof relaxation === "object"
         ? (relaxation as { lookalike?: unknown }).lookalike
         : undefined;
+    const individualSetting =
+      automation && typeof automation === "object"
+        ? (automation as { individual_setting?: unknown }).individual_setting
+        : undefined;
+    const individualAgeSuggestion =
+      individualSetting && typeof individualSetting === "object"
+        ? (individualSetting as { age?: unknown }).age
+        : undefined;
+    const individualGenderSuggestion =
+      individualSetting && typeof individualSetting === "object"
+        ? (individualSetting as { gender?: unknown }).gender
+        : undefined;
     if (
       !isExpansionDisabled(advantageAudience) ||
       !isExpansionDisabled(customAudienceExpansion) ||
-      !isExpansionDisabled(lookalikeExpansion)
+      !isExpansionDisabled(lookalikeExpansion) ||
+      isExpansionEnabled(individualAgeSuggestion) ||
+      isExpansionEnabled(individualGenderSuggestion)
     ) {
       return [
         localIssue(
           "adset",
           "AUDIENCE_TARGETING_VERIFY_FAILED",
-          "A inclusao foi retornada com Advantage+ ou expansao de publicos ainda ativa.",
-          "Nao ative a campanha; tente novamente para aplicar a restricao completa.",
+          "A inclusão foi retornada com Advantage+ ou expansão de públicos ainda ativa.",
+          "Não ative a campanha; tente novamente para aplicar a restrição completa.",
           ["targeting", "targeting_automation"],
         ),
       ];
@@ -208,17 +234,21 @@ export function applyAudienceInclusions(
 
   if (ids.length > 0) {
     targeting.custom_audiences = ids.map((id) => ({ id }));
-    setAudienceExpansion(targeting, 0);
+    setAudienceExpansion(targeting, 0, { disableIndividualSuggestions: true });
     return { targeting, issues };
   }
 
-  const clearedTargeting = withoutTargetingField(targeting, "custom_audiences");
-  if (options.preserveManualAdvantage || hasHardDemographicLimit(clearedTargeting)) {
-    setAudienceExpansion(clearedTargeting, 0);
-  } else {
-    setAudienceExpansion(clearedTargeting, 1);
+  const hadIncludedAudience = audienceIds(targeting.custom_audiences).length > 0;
+  delete targeting.custom_audiences;
+  if (
+    options.preserveManualAdvantage ||
+    hasHardDemographicLimit(targeting)
+  ) {
+    setAudienceExpansion(targeting, 0);
+  } else if (hadIncludedAudience) {
+    setAudienceExpansion(targeting, 1);
   }
-  return { targeting: clearedTargeting, issues };
+  return { targeting, issues };
 }
 
 /**
@@ -243,8 +273,8 @@ export function validateAudienceInclusionsAgainstLibrary(
         localIssue(
           "adset",
           "AUDIENCE_INCLUSION_NOT_FOUND",
-          `O publico ${id} nao esta mais acessivel nesta conta.`,
-          "Revise a biblioteca e remova ou troque a referencia antes de publicar.",
+          `O público ${id} não está mais acessível nesta conta.`,
+          "Revise a biblioteca e remova ou troque a referência antes de publicar.",
           ["targeting", "custom_audiences"],
         ),
       ];
@@ -254,8 +284,8 @@ export function validateAudienceInclusionsAgainstLibrary(
         localIssue(
           "adset",
           "AUDIENCE_INCLUSION_INTEGRITY_BLOCKED",
-          `O publico ${audience.name ?? id} esta bloqueado por integridade e nao pode ser usado como inclusao.`,
-          "Corrija ou reconcilie a importacao, ou remova/troque esse publico.",
+          `O público ${audience.name ?? id} está bloqueado por integridade e não pode ser usado como inclusão.`,
+          "Corrija ou reconcilie a importação, ou remova/troque esse público.",
           ["targeting", "custom_audiences"],
         ),
       ];
@@ -265,8 +295,8 @@ export function validateAudienceInclusionsAgainstLibrary(
         localIssue(
           "adset",
           "AUDIENCE_INCLUSION_UNAVAILABLE",
-          `A permissao para incluir o publico ${audience.name ?? id} nao esta disponivel nesta conexao.`,
-          "Reautorize ou atualize a biblioteca; se continuar indisponivel, remova/troque esse publico.",
+          `A permissão para incluir o público ${audience.name ?? id} não está disponível nesta conexão.`,
+          "Reautorize ou atualize a biblioteca; se continuar indisponível, remova/troque esse público.",
           ["targeting", "custom_audiences"],
         ),
       ];

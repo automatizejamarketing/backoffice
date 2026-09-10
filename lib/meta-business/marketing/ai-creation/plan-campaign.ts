@@ -103,7 +103,11 @@ export type ReviewSummary = {
     advantagePlus: boolean;
     interestGroups: number;
     customAudiences: number;
+    /** Whether the count came from an explicit inclusion override in this review. */
+    includedCustomAudiencesApplied?: boolean;
     excludedCustomAudiences: number;
+    /** Number of source ad sets represented when inherited targeting differs. */
+    inheritedDifferences?: { adSets: number; fields: string[] };
     placements: {
       automatic: boolean;
       /**
@@ -120,8 +124,6 @@ export type ReviewSummary = {
     ageMax?: number;
     /** Meta's codes: 1 = male, 2 = female. Absent/empty = everyone. */
     genders?: number[];
-    /** Number of source ad sets represented when copied ad sets inherit different audience facts. */
-    inheritedDifferences?: { adSets: number; fields: string[] };
     /** The effective targeting facts for every ad set represented by the plan. */
     adSets?: AudienceReviewAdSet[];
   };
