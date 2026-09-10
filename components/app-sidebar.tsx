@@ -28,6 +28,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -387,22 +388,55 @@ function GroupItem({
   const setOpen = (next: (value: boolean) => boolean) =>
     setOverride(next(open));
 
-  // No modo ícone não há espaço para a lista: o ícone leva à primeira tela
-  // do grupo, que é a principal.
+  // No modo ícone não há espaço para a lista embaixo: as opções abrem num
+  // menu ao lado, com o nome do grupo como cabeçalho.
   if (collapsed) {
-    const first = group.children[0];
     return (
       <SidebarMenuItem>
-        <SidebarMenuButton
-          asChild
-          className={cn(menuButtonClass, active && activeClass)}
-          tooltip={group.label}
-        >
-          <Link aria-label={group.label} href={first.href} onClick={onNavigate}>
-            <group.icon className="size-4 shrink-0" />
-            <span className="invisible">{group.label}</span>
-          </Link>
-        </SidebarMenuButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              aria-label={group.label}
+              className={cn(
+                menuButtonClass,
+                "data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground",
+                active && activeClass,
+              )}
+              tooltip={group.label}
+            >
+              <group.icon className="size-4 shrink-0" />
+              <span className="invisible">{group.label}</span>
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="min-w-44"
+            side="right"
+            sideOffset={8}
+          >
+            <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">
+              {group.label}
+            </DropdownMenuLabel>
+            {group.children.map((child) => {
+              const childActive = child.href === activeHref;
+              return (
+                <DropdownMenuItem
+                  asChild
+                  className={cn(childActive && "bg-primary/10 text-primary")}
+                  key={child.href}
+                >
+                  <Link
+                    aria-current={childActive ? "page" : undefined}
+                    href={child.href}
+                    onClick={onNavigate}
+                  >
+                    {child.label}
+                  </Link>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </SidebarMenuItem>
     );
   }
