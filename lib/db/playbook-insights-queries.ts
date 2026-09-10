@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, like, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  metaBusinessAccount,
   performanceInsight,
   performanceSnapshot,
   performanceSnapshotRun,
@@ -9,7 +10,9 @@ import {
 } from "@/lib/db/schema";
 import {
   PLAYBOOK_INSIGHTS_RULE_PREFIX,
+  PLAYBOOK_INSIGHTS_RULEBOOK_PREFIX,
   PLAYBOOK_INSIGHTS_RULEBOOK_VERSION,
+  PLAYBOOK_INSIGHTS_TIME_ZONE,
   PLAYBOOK_INSIGHTS_WINDOW,
 } from "@/lib/playbook-insights/constants";
 import type {
@@ -257,6 +260,162 @@ export async function persistPlaybookInsightsForUser(args: {
 
     return { insightsCreated, createdInsights };
   });
+}
+
+/**
+ * Record a Graph/token miss without closing open insights.
+ * Counts as "attempted today" so the drain can move on, and as a failure so
+ * the next shots still retry after everyone else is done.
+ */
+export async function persistPlaybookErrorSnapshot(args: {
+  runId: string;
+  userId: string;
+  errorMessage: string;
+}): Promise<void> {
+  await db.insert(performanceSnapshot).values({
+    runId: args.runId,
+    userId: args.userId,
+    accountId: null,
+    entityLevel: "account",
+    entityId: `user:${args.userId}`,
+    entityName: "Playbook evaluation error",
+    window: PLAYBOOK_INSIGHTS_WINDOW,
+    metrics: {
+      error: true,
+      errorMessage: args.errorMessage.slice(0, 500),
+      campaignCount: 0,
+      candidateCount: 0,
+    },
+    payload: {
+      kind: "playbook-insights",
+      rulebookVersion: PLAYBOOK_INSIGHTS_RULEBOOK_VERSION,
+      campaigns: [],
+      candidates: [],
+    },
+    capturedAt: new Date(),
+  });
+}
+
+/**
+ * Close consultant alerts for accounts that no longer have platform access.
+ * Cheap SQL — no Meta round-trip, does not consume the claim batch.
+ */
+export async function resolveExpiredPlaybookInsights(): Promise<number> {
+  const updated = await db
+    .update(performanceInsight)
+    .set({
+      status: "resolved",
+      updatedAt: new Date(),
+      reviewNote: "Access expired (playbook re-evaluation)",
+    })
+    .where(
+      and(
+        eq(performanceInsight.status, "open"),
+        like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`),
+        sql`${performanceInsight.userId} IN (
+          SELECT ${user.id}
+          FROM ${user}
+          WHERE ${user.expirationDate} IS NULL
+             OR ${user.expirationDate} <= now()
+        )`,
+      ),
+    )
+    .returning({ id: performanceInsight.id });
+
+  return updated.length;
+}
+
+export type PlaybookClaimedUser = { id: string; email: string };
+
+/**
+ * Active Meta-connected users still due a *successful* playbook eval today (SP).
+ * Same ranking as `rankPlaybookClaimQueue`.
+ */
+export async function claimPlaybookUsersDue(
+  limit: number,
+): Promise<PlaybookClaimedUser[]> {
+  const rows = await db.execute(sql`
+    WITH latest_success AS (
+      SELECT DISTINCT ON (s.user_id)
+        s.user_id,
+        s.captured_at
+      FROM ${performanceSnapshot} s
+      INNER JOIN ${performanceSnapshotRun} r ON r.id = s.run_id
+      WHERE r.rulebook_version LIKE ${`${PLAYBOOK_INSIGHTS_RULEBOOK_PREFIX}%`}
+        AND coalesce(s.metrics->>'error', 'false') <> 'true'
+      ORDER BY s.user_id, s.captured_at DESC
+    ),
+    success_today AS (
+      SELECT DISTINCT s.user_id
+      FROM ${performanceSnapshot} s
+      INNER JOIN ${performanceSnapshotRun} r ON r.id = s.run_id
+      WHERE r.rulebook_version LIKE ${`${PLAYBOOK_INSIGHTS_RULEBOOK_PREFIX}%`}
+        AND coalesce(s.metrics->>'error', 'false') <> 'true'
+        AND (s.captured_at AT TIME ZONE ${PLAYBOOK_INSIGHTS_TIME_ZONE})::date
+          = (timezone(${PLAYBOOK_INSIGHTS_TIME_ZONE}, now()))::date
+    ),
+    attempted_today AS (
+      SELECT DISTINCT s.user_id
+      FROM ${performanceSnapshot} s
+      INNER JOIN ${performanceSnapshotRun} r ON r.id = s.run_id
+      WHERE r.rulebook_version LIKE ${`${PLAYBOOK_INSIGHTS_RULEBOOK_PREFIX}%`}
+        AND (s.captured_at AT TIME ZONE ${PLAYBOOK_INSIGHTS_TIME_ZONE})::date
+          = (timezone(${PLAYBOOK_INSIGHTS_TIME_ZONE}, now()))::date
+    )
+    SELECT
+      ${user.id} AS id,
+      ${user.email} AS email
+    FROM ${user}
+    INNER JOIN ${metaBusinessAccount}
+      ON ${metaBusinessAccount.userId} = ${user.id}
+     AND ${metaBusinessAccount.deletedAt} IS NULL
+    LEFT JOIN latest_success ls ON ls.user_id = ${user.id}
+    LEFT JOIN attempted_today att ON att.user_id = ${user.id}
+    WHERE ${user.expirationDate} > now()
+      AND ${user.id} NOT IN (SELECT user_id FROM success_today)
+    GROUP BY ${user.id}, ${user.email}, ls.captured_at, att.user_id
+    ORDER BY
+      CASE WHEN att.user_id IS NULL THEN 0 ELSE 1 END,
+      ls.captured_at ASC NULLS FIRST,
+      ${user.id} ASC
+    LIMIT ${limit}
+  `);
+
+  return asRowList<{ id: string; email: string }>(rows).map((row) => ({
+    id: String(row.id),
+    email: String(row.email),
+  }));
+}
+
+export async function countPlaybookUsersDue(): Promise<number> {
+  const rows = await db.execute(sql`
+    SELECT count(DISTINCT ${user.id})::int AS n
+    FROM ${user}
+    INNER JOIN ${metaBusinessAccount}
+      ON ${metaBusinessAccount.userId} = ${user.id}
+     AND ${metaBusinessAccount.deletedAt} IS NULL
+    WHERE ${user.expirationDate} > now()
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ${performanceSnapshot} s
+        INNER JOIN ${performanceSnapshotRun} r ON r.id = s.run_id
+        WHERE s.user_id = ${user.id}
+          AND r.rulebook_version LIKE ${`${PLAYBOOK_INSIGHTS_RULEBOOK_PREFIX}%`}
+          AND coalesce(s.metrics->>'error', 'false') <> 'true'
+          AND (s.captured_at AT TIME ZONE ${PLAYBOOK_INSIGHTS_TIME_ZONE})::date
+            = (timezone(${PLAYBOOK_INSIGHTS_TIME_ZONE}, now()))::date
+      )
+  `);
+  return Number(asRowList<{ n?: number }>(rows)[0]?.n ?? 0);
+}
+
+function asRowList<T>(rows: unknown): T[] {
+  if (Array.isArray(rows)) return rows as T[];
+  if (rows && typeof rows === "object" && "rows" in rows) {
+    const inner = (rows as { rows?: unknown }).rows;
+    if (Array.isArray(inner)) return inner as T[];
+  }
+  return [];
 }
 
 export async function listOpenPlaybookInsightsForUser(

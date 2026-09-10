@@ -16,6 +16,16 @@ export function playbookBusinessDateKey(
   }).format(date);
 }
 
+export function wasCapturedOnPlaybookBusinessDay(
+  capturedAt: Date | string | null,
+  referenceDate = new Date(),
+): boolean {
+  if (!capturedAt) return false;
+  const date = capturedAt instanceof Date ? capturedAt : new Date(capturedAt);
+  if (Number.isNaN(date.getTime())) return false;
+  return playbookBusinessDateKey(date) === playbookBusinessDateKey(referenceDate);
+}
+
 /** Shift a YYYY-MM-DD calendar date by `days` (UTC noon to avoid DST edges). */
 export function shiftYmd(ymd: string, days: number): string {
   const [year, month, day] = ymd.split("-").map(Number);

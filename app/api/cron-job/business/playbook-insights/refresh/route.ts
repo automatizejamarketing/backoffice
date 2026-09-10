@@ -7,7 +7,10 @@ export const maxDuration = 300;
 
 /**
  * Playbook optimization suggestions for account consultants.
- * Writes performance_insights with ruleId prefix playbook.*
+ * Writes performance_insights with ruleId prefix playbook.*.
+ *
+ * Cron fires every 15 min from 12:00–18:45 UTC (09:00–15:45 BRT). Each shot
+ * claims up to 25 active users still due today; later shots drain the rest.
  */
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[playbook-insights-cron]");
@@ -36,7 +39,9 @@ export async function GET(request: NextRequest) {
 
     console.log("[playbook-insights-cron] completed", {
       runId: result.runId,
-      totalWithMeta: result.totalWithMeta,
+      queueDue: result.queueDue,
+      remainingDue: result.remainingDue,
+      expiredResolved: result.expiredResolved,
       evaluated: result.evaluated,
       insightsCreated: result.insightsCreated,
       errorCount: result.errorCount,
@@ -47,6 +52,9 @@ export async function GET(request: NextRequest) {
       ok: true,
       runId: result.runId,
       totalWithMeta: result.totalWithMeta,
+      queueDue: result.queueDue,
+      remainingDue: result.remainingDue,
+      expiredResolved: result.expiredResolved,
       evaluated: result.evaluated,
       insightsCreated: result.insightsCreated,
       campaignsEvaluated: result.campaignsEvaluated,

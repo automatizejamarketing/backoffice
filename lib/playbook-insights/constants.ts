@@ -43,8 +43,21 @@ export const PLAYBOOK_MIN_SPEND_STALLED = 30;
 
 export const PLAYBOOK_INSIGHTS_TIME_ZONE = "America/Sao_Paulo";
 
-/** Cron: users claimed per invocation. */
+/** Prefix shared across rulebook versions (`food-service-playbook@2`, `@3`, …). */
+export const PLAYBOOK_INSIGHTS_RULEBOOK_PREFIX = "food-service-playbook";
+
+/**
+ * Users claimed per invocation. The cron fires every 15 min in the daytime
+ * window and each shot drains a stale slice — the cap exists so one call fits
+ * `maxDuration`, not to limit the portfolio. ~28 shots × 25 = 700 slots/day.
+ */
 export const PLAYBOOK_INSIGHTS_CLAIM_BATCH_SIZE = 25;
+
+/**
+ * Stop claiming new users this far into the invocation so the in-flight
+ * Graph call can finish before Vercel kills the function (`maxDuration` 300s).
+ */
+export const PLAYBOOK_INSIGHTS_SOFT_DEADLINE_MS = 240_000;
 
 /** One-click scale: Meta’s usual 20% budget step, without jumping the learning phase. */
 export const PLAYBOOK_SCALE_BUDGET_FACTOR = 1.2;

@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/cron-job/business/playbook-insights/refresh",
-      "schedule": "15 12 * * *"
+      "schedule": "*/15 12-18 * * *"
     },
     {
       "path": "/api/cron-job/customer-base/daily-snapshot",
