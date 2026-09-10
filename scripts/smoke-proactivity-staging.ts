@@ -65,6 +65,8 @@ const evaluation = evaluatePlaybookInsights({
       effectiveStatus: "ACTIVE",
       updatedTime: null,
       createdTime: "2026-08-01T00:00:00.000Z",
+      stopTime: null,
+      objective: "OUTCOME_SALES",
       spend: 100,
       spendLast10Days: 100,
       purchaseRoas: 2,

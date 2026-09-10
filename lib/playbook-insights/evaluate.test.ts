@@ -8,7 +8,11 @@ import {
   PLAYBOOK_RULE_ROAS_TRIGGER,
   PLAYBOOK_RULE_STALLED,
 } from "./constants";
-import { evaluatePlaybookInsights } from "./evaluate";
+import {
+  evaluatePlaybookInsights,
+  isPlaybookAccessActive,
+  isPlaybookSalesObjective,
+} from "./evaluate";
 import { EMPTY_ROAS_LOOKBACK, type CampaignMetricsRow } from "./types";
 
 const CONNECTION_CREATED_AT = new Date("2026-06-01T00:00:00.000Z");
@@ -19,6 +23,8 @@ function campaign(
   return {
     status: "ACTIVE",
     effectiveStatus: "ACTIVE",
+    stopTime: null,
+    objective: "OUTCOME_SALES",
     updatedTime: null,
     createdTime: "2026-07-01T00:00:00.000Z",
     spend: 100,
@@ -474,5 +480,77 @@ describe("evaluatePlaybookInsights", () => {
     expect(creative.find((row) => row.entityId === "ad-ok")?.recommendation).toMatch(
       /pixel/i,
     );
+  });
+
+  test("does not flag no-delivery when Graph is ACTIVE but stop_time has elapsed", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      now: new Date("2026-09-09T12:00:00.000Z"),
+      campaigns: [
+        campaign({
+          id: "c-done",
+          name: "Concluída",
+          impressions: 0,
+          spend: 0,
+          spendLast10Days: 0,
+          stopTime: "2026-08-07T14:21:33-0300",
+        }),
+      ],
+    });
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_NO_DELIVERY)).toBe(
+      false,
+    );
+  });
+
+  test("does not flag ROAS or CPA on traffic/reach campaigns", () => {
+    const result = evaluatePlaybookInsights({
+      accountId: "act_1",
+      campaigns: [
+        campaign({
+          id: "c-traffic",
+          name: "Alcance",
+          objective: "OUTCOME_TRAFFIC",
+          purchaseRoas: 0,
+          spend: 80,
+        }),
+      ],
+    });
+    expect(
+      result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_ROAS_TRIGGER),
+    ).toBe(false);
+    expect(result.candidates.some((c) => c.ruleId === PLAYBOOK_RULE_CPA_ALERT)).toBe(
+      false,
+    );
+  });
+
+  test("isPlaybookSalesObjective only accepts catalogued sales objectives", () => {
+    expect(isPlaybookSalesObjective("OUTCOME_SALES")).toBe(true);
+    expect(isPlaybookSalesObjective("CONVERSIONS")).toBe(true);
+    expect(isPlaybookSalesObjective("LINK_CLICKS")).toBe(false);
+    expect(isPlaybookSalesObjective("OUTCOME_TRAFFIC")).toBe(false);
+    expect(isPlaybookSalesObjective(null)).toBe(false);
+  });
+
+  test("isPlaybookAccessActive uses expiration_date only, never billing status", () => {
+    const now = new Date("2026-09-09T16:00:00.000Z");
+    expect(
+      isPlaybookAccessActive({
+        expirationDate: "2026-07-21T02:49:11.000Z",
+        now,
+      }),
+    ).toBe(false);
+    expect(
+      isPlaybookAccessActive({
+        expirationDate: "2026-10-01T00:00:00.000Z",
+        now,
+      }),
+    ).toBe(true);
+    expect(isPlaybookAccessActive({ expirationDate: null, now })).toBe(false);
+    expect(
+      isPlaybookAccessActive({
+        expirationDate: "2026-08-01T14:42:31.000Z",
+        now,
+      }),
+    ).toBe(false);
   });
 });
