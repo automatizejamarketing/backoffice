@@ -150,7 +150,12 @@ export interface CustomerFileExecutionDependencies {
   /** Revalidates customer, account, token, capability and operator linkage. */
   authorize(): Promise<void>;
   /** Checks remote audience/session evidence before any send or recovery. */
-  revalidateRemote(): Promise<{ safeToContinue: boolean }>;
+  revalidateRemote(request?: {
+    operation: CustomerFileOperation;
+    state: CustomerFileOperationState;
+    confirmedBatches: number[];
+    sessionId?: string;
+  }): Promise<{ safeToContinue: boolean }>;
   send(request: {
     operation: CustomerFileOperation;
     batch: CustomerFileBatch;
@@ -179,7 +184,12 @@ export async function executeCustomerFileOperation(
   }
   const lease = await deps.store.acquire(execution.id, execution.audienceIdentity, now());
   if (!lease) throw new Error("Já existe uma importação em andamento para este público.");
-  if (!(await deps.revalidateRemote()).safeToContinue) {
+  if (!(await deps.revalidateRemote({
+    operation: execution.operation,
+    state: execution.state,
+    confirmedBatches: execution.confirmedBatches,
+    ...(execution.sessionId ? { sessionId: execution.sessionId } : {}),
+  })).safeToContinue) {
     const blocked = { ...execution, state: "action_required" as const };
     await deps.store.save(blocked);
     return blocked;
@@ -243,4 +253,3 @@ export async function executeCustomerFileOperation(
   await deps.store.discardTemporary(completed.id);
   return completed;
 }
-

@@ -19,6 +19,7 @@ export type CustomerFilePersistedRecord = {
   declarationsConfirmed?: boolean;
   counts?: Record<string, number>;
   name?: string;
+  audienceName?: string;
   description?: string;
   rows?: Array<{ email?: string; phone?: string }>;
 };

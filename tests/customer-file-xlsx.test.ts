@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   CUSTOMER_FILE_MAX_BYTES,
   CUSTOMER_FILE_XLSX_MAX_EXPANDED_BYTES,
+  inspectCustomerFile,
   isCustomerFilePreviewCurrent,
   prepareCustomerFileXlsx,
 } from "../lib/meta-business/marketing/audiences/customer-file";
@@ -94,6 +95,18 @@ test("requires an explicit XLSX worksheet selection and produces the CSV-equival
   assert.equal(isCustomerFilePreviewCurrent(preview, { ...preview, worksheet: "Arquivo" }), false);
 });
 
+test("inspects XLSX headers even when the selected worksheet has no data rows", () => {
+  const bytes = workbook({
+    Clientes: "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>email</t></is></c><c r=\"B1\" t=\"inlineStr\"><is><t>telefone</t></is></c></row></sheetData></worksheet>",
+  });
+
+  assert.deepEqual(inspectCustomerFile({ bytes, worksheet: "Clientes" }), {
+    format: "xlsx",
+    worksheet: "Clientes",
+    headers: ["email", "telefone"],
+  });
+});
+
 test("rejects unsafe XLSX expansion and formulas before a preview can be confirmed", () => {
   const tooLarge = storedZip({ "xl/workbook.xml": "<workbook/>" }, CUSTOMER_FILE_XLSX_MAX_EXPANDED_BYTES + 1);
   assert.throws(() => prepareCustomerFileXlsx({ bytes: tooLarge, worksheet: "Clientes", mapping: { emailColumn: "email" }, context }), /expansão/i);
@@ -118,4 +131,3 @@ test("rejects a workbook whose sheet relationship is not a worksheet", () => {
 
   assert.throws(() => prepareCustomerFileXlsx({ bytes, mapping: { emailColumn: "email" }, context }), /relação válida/i);
 });
-

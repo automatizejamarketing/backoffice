@@ -42,6 +42,7 @@ type OperationRow = {
   receipts: unknown;
   confirmed_batches: unknown;
   session_id: string | null;
+  session_started_at: Date | string | null;
   pending_unresolved: boolean | number;
 };
 
@@ -86,6 +87,7 @@ function historyFromRow(row: OperationRow): SanitizedCustomerFileHistory {
     receipts: parseReceipts(row.receipts),
     confirmedBatches: parseNumberArray(row.confirmed_batches),
     sessionId: row.session_id,
+    sessionStartedAt: asDate(row.session_started_at),
     pendingUnresolved: Boolean(row.pending_unresolved),
   };
   assertSanitizedHistory(history);
@@ -190,6 +192,7 @@ export function createCustomerFileDurableStore(
       const actorKind = "actorKind" in record && record.actorKind === "backoffice" ? "backoffice" : "user";
       const actorId = "actorId" in record ? record.actorId ?? null : null;
       const name = "name" in record ? record.name ?? null : null;
+      const audienceName = "audienceName" in record ? record.audienceName ?? name : name;
       const description = "description" in record ? record.description ?? null : null;
       const sessionStartedAt = "sessionStartedAt" in record ? record.sessionStartedAt : undefined;
       const now = new Date();
@@ -209,6 +212,7 @@ export function createCustomerFileDurableStore(
            ad_account_id = COALESCE(EXCLUDED.ad_account_id, customer_file_operations.ad_account_id),
            audience_identity = COALESCE(EXCLUDED.audience_identity, customer_file_operations.audience_identity),
            audience_id = COALESCE(EXCLUDED.audience_id, customer_file_operations.audience_id),
+           audience_name = COALESCE(EXCLUDED.audience_name, customer_file_operations.audience_name),
            operation_type = COALESCE(EXCLUDED.operation_type, customer_file_operations.operation_type),
            state = EXCLUDED.state,
            received_at = customer_file_operations.received_at,
@@ -235,7 +239,7 @@ export function createCustomerFileDurableStore(
           adAccountId ?? null,
           record.audienceIdentity,
           "audienceId" in record ? record.audienceId ?? null : null,
-          null,
+          audienceName,
           operation,
           record.state,
           receivedAt.toISOString(),
@@ -372,7 +376,7 @@ export function createCustomerFileDurableStore(
       const rows = await sql.query<OperationRow>(
         `SELECT id, actor_kind, actor_id, customer_id, ad_account_id, audience_identity, audience_id,
                 audience_name, operation_type, state, received_at, updated_at, preview_confirmed,
-                declarations_confirmed, counts, receipts, confirmed_batches, session_id, pending_unresolved
+                declarations_confirmed, counts, receipts, confirmed_batches, session_id, session_started_at, pending_unresolved
          FROM customer_file_operations
          WHERE customer_id = $1
          ORDER BY received_at DESC`,
@@ -385,7 +389,7 @@ export function createCustomerFileDurableStore(
       const rows = await sql.query<OperationRow>(
         `SELECT id, actor_kind, actor_id, customer_id, ad_account_id, audience_identity, audience_id,
                 audience_name, operation_type, state, received_at, updated_at, preview_confirmed,
-                declarations_confirmed, counts, receipts, confirmed_batches, session_id, pending_unresolved
+                declarations_confirmed, counts, receipts, confirmed_batches, session_id, session_started_at, pending_unresolved
          FROM customer_file_operations WHERE id = $1`,
         [operationId],
       );
@@ -436,7 +440,7 @@ export function createCustomerFileDurableStore(
 const OPERATION_HISTORY_SELECT = `
   SELECT id, actor_kind, actor_id, customer_id, ad_account_id, audience_identity, audience_id,
          audience_name, operation_type, state, received_at, updated_at, preview_confirmed,
-         declarations_confirmed, counts, receipts, confirmed_batches, session_id, pending_unresolved
+         declarations_confirmed, counts, receipts, confirmed_batches, session_id, session_started_at, pending_unresolved
   FROM customer_file_operations`;
 
 async function getLatestImportsForAudiences(

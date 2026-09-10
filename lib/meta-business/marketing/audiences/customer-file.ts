@@ -44,6 +44,7 @@ export type CustomerFileRow = {
 export type CustomerFilePreview = {
   format: "csv" | "xlsx";
   worksheet?: string;
+  headers?: string[];
   context: CustomerFileContext;
   mapping: CustomerFileMapping;
   referenceCountry: CountryCode;
@@ -66,6 +67,19 @@ export type CustomerFileXlsxSelection = {
 };
 
 type CsvRow = string[];
+
+/** The received bytes, rather than a filename, determine the format. */
+export function detectCustomerFileFormat(bytes: Uint8Array): "csv" | "xlsx" {
+  return bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04 ? "xlsx" : "csv";
+}
+
+function decodeCustomerFileCsv(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/^\uFEFF/, "");
+  } catch {
+    throw new Error("CSV invÃ¡lido: use UTF-8.");
+  }
+}
 
 function parseCsv(text: string): CsvRow[] {
   const rows: CsvRow[] = [];
@@ -122,6 +136,7 @@ function normalizePhone(value: string, referenceCountry: CountryCode): string | 
 }
 
 function assertMapping(headers: string[], mapping: CustomerFileMapping): void {
+  if (mapping.emailColumn === "__inspect__" && !mapping.phoneColumn) return;
   if (!mapping.emailColumn && !mapping.phoneColumn) throw new Error("Mapeie uma coluna de e-mail ou telefone.");
   if (mapping.emailColumn && !headers.includes(mapping.emailColumn)) throw new Error("A coluna de e-mail mapeada não existe no CSV.");
   if (mapping.phoneColumn && !headers.includes(mapping.phoneColumn)) throw new Error("A coluna de telefone mapeada não existe no CSV.");
@@ -165,7 +180,7 @@ export function prepareCustomerFileCsv(input: {
   });
   const receivedAt = input.now ?? new Date();
   return {
-    format: "csv", context: input.context, mapping: input.mapping, referenceCountry, receivedAt,
+    format: "csv", headers: header, context: input.context, mapping: input.mapping, referenceCountry, receivedAt,
     expiresAt: new Date(receivedAt.getTime() + CUSTOMER_FILE_RETENTION_MS), rows,
     counts: {
       read: rows.length,
@@ -284,6 +299,39 @@ export function prepareCustomerFileXlsx(input: {
   return { ...preview, format: "xlsx", worksheet: selected.name };
 }
 
+export function inspectCustomerFile(input: {
+  bytes: Uint8Array;
+  worksheet?: string;
+}): CustomerFileXlsxSelection | { format: "csv" | "xlsx"; worksheet?: string; headers: string[] } {
+  if (detectCustomerFileFormat(input.bytes) === "csv") {
+    const rows = parseCsv(decodeCustomerFileCsv(input.bytes));
+    const headers = rows.shift()?.map((value) => value.trim()) ?? [];
+    if (!headers.length || !nonEmpty(headers) || new Set(headers).size !== headers.length) {
+      throw new Error("CSV invÃ¡lido: informe um cabeÃ§alho Ãºnico.");
+    }
+    return { format: "csv", headers };
+  }
+  if (!input.worksheet) {
+    const selection = prepareCustomerFileXlsx({ bytes: input.bytes, mapping: { emailColumn: "__inspect__" }, context: { customerId: "inspect", adAccountId: "inspect", operation: "add" } });
+    if ("selectionRequired" in selection) return selection;
+    return { format: "xlsx", worksheet: selection.worksheet, headers: selection.headers ?? [] };
+  }
+  const selection = prepareCustomerFileXlsx({ bytes: input.bytes, worksheet: input.worksheet, mapping: { emailColumn: "__inspect__" }, context: { customerId: "inspect", adAccountId: "inspect", operation: "add" } });
+  if ("selectionRequired" in selection) throw new Error("A planilha selecionada nÃ£o existe no XLSX.");
+  return { format: "xlsx", worksheet: selection.worksheet, headers: selection.headers ?? [] };
+}
+
+export function prepareCustomerFile(input: {
+  bytes: Uint8Array;
+  worksheet?: string;
+  mapping: CustomerFileMapping;
+  context: CustomerFileContext;
+  referenceCountry?: CountryCode;
+  now?: Date;
+}): CustomerFilePreview | CustomerFileXlsxSelection {
+  return detectCustomerFileFormat(input.bytes) === "xlsx" ? prepareCustomerFileXlsx(input) : prepareCustomerFileCsv(input);
+}
+
 export function reviewCustomerFileConfirmation(preview: CustomerFilePreview, explicitlySendValidRows: boolean): { allowed: true } | { allowed: false; reason: "NO_VALID_ROWS" | "EXPLICIT_VALID_ROWS_CONSENT_REQUIRED" | "REPLACEMENT_REQUIRES_CORRECTED_FILE" } {
   if (preview.counts.valid === 0) return { allowed: false, reason: "NO_VALID_ROWS" };
   if (preview.counts.invalid > 0 && preview.context.operation === "replace") return { allowed: false, reason: "REPLACEMENT_REQUIRES_CORRECTED_FILE" };
@@ -324,4 +372,3 @@ export function customerFileCorrectionReport(preview: CustomerFilePreview, now =
     ].map(reportCell).join(",")),
   ].join("\r\n");
 }
-

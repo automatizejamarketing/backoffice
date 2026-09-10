@@ -21,6 +21,7 @@ export type SanitizedCustomerFileHistory = {
   receipts: Array<{ sequence: number; received?: number; rejected?: number }>;
   confirmedBatches: number[];
   sessionId: string | null;
+  sessionStartedAt?: Date | null;
   pendingUnresolved: boolean;
 };
 

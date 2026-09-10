@@ -1,5 +1,11 @@
 # Ticket 02 notes
 
+
+# Ticket 17 notes
+
+- The backoffice now exposes the same customer-list import journey as the frontend at `/api/meta-marketing/[accountId]/audiences/customer-file`, with operator/customer context, marketing RBAC, account ownership and token revalidation on every stage. It uses the shared public import service and durable store for CSV/XLSX create/add/remove/replace, reports, progress, recovery, expiry and sanitized history.
+- The focused hermetic journey covers first-load creation, authorization revocation, stale preview, invalid-row consent, replacement correction, terms/declarations, context isolation, formula-safe expiring reports, cross-store audience conflict, byte cap, failed creation reconciliation and compromised lookalike-source availability: 10/10. No contacts or hashes enter operational history, LLM context, analytics or logs.
+- `bun run build` passed. The headless environment had no authenticated Meta v25 customer-audience account, so controlled live capability/capacity and the final integrated AI paths remain pending. Existing focused removal failures are date-sensitive pre-existing failures caused by fixed previews predating the current clock.
 - Operator metadata editing is sparse and preserves the external audience rule. The review re-reads the audience, account ownership and one paginated ad-set inventory before confirmation, exposes known include/exclude uses, lookalike dependencies and the absence of Meta's global reverse-use guarantee, then revalidates before writing.
 - Confirmation carries the reviewed object, effective fields and impact snapshot. The server requires explicit `permission_for_actions.can_edit`, rechecks the reviewed metadata immediately before the sparse POST, and rejects mismatched command identities. A shared `meta_audience_commands` ledger coordinates pending, completed and uncertain commands across instances with a seven-day expiry; repeated confirmation is acknowledged as `alreadyApplied`, while uncertain responses expose an explicit reconciliation action without a blind retry. An authenticated Meta v25 account was not available headlessly, so live capability/permission behavior and the exact external-rule round trip still require the controlled exercise.
 
