@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, or, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { product, productOrder, productPayment } from "@/lib/db/schema";
@@ -12,11 +12,12 @@ import type { ProductSalesOrderRow } from "@/lib/backoffice/product-sales-dashbo
 export async function listProductSalesRows({
   gte: from,
   lt: to,
-  productId,
+  productIds,
 }: {
   gte: Date;
   lt: Date;
-  productId?: string;
+  /** Vazio é "todos". */
+  productIds?: string[];
 }): Promise<ProductSalesOrderRow[]> {
   const inWindow = (column: AnyPgColumn) =>
     and(gte(column, from), lt(column, to)) as SQL;
@@ -68,7 +69,9 @@ export async function listProductSalesRows({
           inWindow(productOrder.approvedAt),
           inWindow(productOrder.refundedAt),
         ),
-        productId ? eq(productOrder.productId, productId) : undefined,
+        productIds && productIds.length > 0
+          ? inArray(productOrder.productId, productIds)
+          : undefined,
       ),
     );
 

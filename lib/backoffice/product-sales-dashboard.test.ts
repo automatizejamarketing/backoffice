@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   buildProductSalesDashboard,
   classifyProductSalesMethod,
-  resolveProductSalesPeriod,
   resolveProductSalesWindow,
   type ProductSalesOrderRow,
 } from "./product-sales-dashboard";
@@ -47,9 +46,11 @@ function row(overrides: Partial<ProductSalesOrderRow>): ProductSalesOrderRow {
 }
 
 describe("resolveProductSalesWindow", () => {
-  test("hoje usa a data de calendário BRT e série por hora", () => {
-    // 01:00 UTC do dia 11 ainda é dia 10 em BRT.
-    const window = resolveProductSalesWindow("today", new Date("2026-09-11T01:00:00.000Z"));
+  test("um dia só usa a fronteira BRT e série por hora", () => {
+    const window = resolveProductSalesWindow(
+      { from: "2026-09-10", to: "2026-09-10" },
+      NOW,
+    );
     expect(window.fromDate).toBe("2026-09-10");
     expect(window.throughDate).toBe("2026-09-10");
     expect(window.gte.toISOString()).toBe("2026-09-10T03:00:00.000Z");
@@ -57,34 +58,37 @@ describe("resolveProductSalesWindow", () => {
     expect(window.bucket).toBe("hour");
   });
 
-  test("ontem, últimos 7 e 30 dias, este mês e mês passado", () => {
-    expect(resolveProductSalesWindow("yesterday", NOW)).toMatchObject({
-      fromDate: "2026-09-09",
-      throughDate: "2026-09-09",
-      bucket: "hour",
-    });
-    expect(resolveProductSalesWindow("last_7_days", NOW)).toMatchObject({
+  test("sem datas cai em hoje pela data de calendário BRT", () => {
+    // 01:00 UTC do dia 11 ainda é dia 10 em BRT.
+    const window = resolveProductSalesWindow({}, new Date("2026-09-11T01:00:00.000Z"));
+    expect(window).toMatchObject({ fromDate: "2026-09-10", throughDate: "2026-09-10", bucket: "hour" });
+  });
+
+  test("intervalo de vários dias vira série diária; datas invertidas são corrigidas", () => {
+    expect(resolveProductSalesWindow({ from: "2026-09-04", to: "2026-09-10" }, NOW)).toMatchObject({
       fromDate: "2026-09-04",
       throughDate: "2026-09-10",
       bucket: "day",
     });
-    expect(resolveProductSalesWindow("last_30_days", NOW)).toMatchObject({
-      fromDate: "2026-08-12",
+    expect(resolveProductSalesWindow({ from: "2026-09-10", to: "2026-09-04" }, NOW)).toMatchObject({
+      fromDate: "2026-09-04",
       throughDate: "2026-09-10",
-    });
-    expect(resolveProductSalesWindow("this_month", NOW)).toMatchObject({
-      fromDate: "2026-09-01",
-      throughDate: "2026-09-10",
-    });
-    expect(resolveProductSalesWindow("last_month", NOW)).toMatchObject({
-      fromDate: "2026-08-01",
-      throughDate: "2026-08-31",
     });
   });
 
-  test("período desconhecido cai em hoje", () => {
-    expect(resolveProductSalesPeriod("whatever")).toBe("today");
-    expect(resolveProductSalesPeriod("last_month")).toBe("last_month");
+  test("futuro é cortado em hoje, lixo cai em hoje, e a janela não passa de um ano", () => {
+    expect(resolveProductSalesWindow({ from: "2026-09-01", to: "2026-12-31" }, NOW)).toMatchObject({
+      fromDate: "2026-09-01",
+      throughDate: "2026-09-10",
+    });
+    expect(resolveProductSalesWindow({ from: "2026-02-30", to: "x" }, NOW)).toMatchObject({
+      fromDate: "2026-09-10",
+      throughDate: "2026-09-10",
+    });
+    expect(resolveProductSalesWindow({ from: "2020-01-01", to: "2026-09-10" }, NOW)).toMatchObject({
+      fromDate: "2025-09-10",
+      throughDate: "2026-09-10",
+    });
   });
 });
 
@@ -103,7 +107,7 @@ describe("classifyProductSalesMethod", () => {
 });
 
 describe("buildProductSalesDashboard", () => {
-  const window = resolveProductSalesWindow("today", NOW);
+  const window = resolveProductSalesWindow({ from: "2026-09-10", to: "2026-09-10" }, NOW);
 
   test("conta vendas e líquido pelo dia da aprovação, inclusive pedido criado antes", () => {
     const rows = [
@@ -127,7 +131,7 @@ describe("buildProductSalesDashboard", () => {
     expect(summary.netCentavos).toBe(4_000);
     // 13:30Z = 10:30 BRT; 22:10Z = 19:10 BRT.
     expect(series).toHaveLength(24);
-    expect(series[10]).toMatchObject({ label: "10h", grossCentavos: 10_000, salesCount: 1 });
+    expect(series[10]).toMatchObject({ label: "10h", grossCentavos: 10_000, netCentavos: 3_000, salesCount: 1 });
     expect(series[19]).toMatchObject({ label: "19h", grossCentavos: 5_000, salesCount: 1 });
     expect(series[0].grossCentavos).toBe(0);
   });
@@ -185,7 +189,7 @@ describe("buildProductSalesDashboard", () => {
   });
 
   test("sem dados, taxas ficam nulas e a série diária cobre o período inteiro", () => {
-    const weekly = resolveProductSalesWindow("last_7_days", NOW);
+    const weekly = resolveProductSalesWindow({ from: "2026-09-04", to: "2026-09-10" }, NOW);
     const { summary, series } = buildProductSalesDashboard([], weekly);
     expect(summary.cardApprovalPercent).toBeNull();
     expect(summary.pixConversionPercent).toBeNull();

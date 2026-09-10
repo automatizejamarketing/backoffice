@@ -3,11 +3,9 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
-  CircleDollarSign,
   CreditCard,
   Hash,
   QrCode,
-  TrendingUp,
   Undo2,
   type LucideIcon,
 } from "lucide-react";
@@ -19,14 +17,17 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { FilterBar, FilterSelect } from "@/components/ui/filter";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
-  PRODUCT_SALES_PERIOD_LABELS,
-  PRODUCT_SALES_PERIOD_VALUES,
-  type ProductSalesDashboard,
-  type ProductSalesPeriod,
-  type ProductSalesWindow,
+  DateRangePicker,
+  type DateRange,
+} from "@/components/ui/date-range-picker";
+import { FilterBar } from "@/components/ui/filter";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { dateKey } from "@/lib/dates";
+import type {
+  ProductSalesDashboard,
+  ProductSalesWindow,
 } from "@/lib/backoffice/product-sales-dashboard";
 import {
   formatBRLFromCentavos,
@@ -37,19 +38,24 @@ import { formatCalendarDateLabel } from "@/lib/backoffice/datetime-format";
 import { cn } from "@/lib/utils";
 
 type SalesDashboardResponse = ProductSalesDashboard & {
-  window: Pick<ProductSalesWindow, "period" | "fromDate" | "throughDate" | "bucket">;
-  productId: string | null;
+  window: Pick<ProductSalesWindow, "fromDate" | "throughDate" | "bucket">;
+  productIds: string[];
   products: Array<{ id: string; title: string }>;
 };
 
-const ALL_PRODUCTS = "all";
+function todayRange(): DateRange {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return { from: today, to: today };
+}
 
 async function fetchSalesDashboard(
-  period: ProductSalesPeriod,
-  productId: string,
+  from: string,
+  to: string,
+  productIds: string[],
 ): Promise<SalesDashboardResponse> {
-  const params = new URLSearchParams({ period });
-  if (productId !== ALL_PRODUCTS) params.set("productId", productId);
+  const params = new URLSearchParams({ from, to });
+  if (productIds.length > 0) params.set("productIds", productIds.join(","));
   const response = await fetch(
     `/api/products/admin/sales-dashboard?${params.toString()}`,
     { cache: "no-store" },
@@ -66,8 +72,16 @@ function formatPercent(value: number | null) {
 
 function formatAxisBRL(centavos: number) {
   const reais = centavos / 100;
-  if (reais >= 1000) return `R$ ${formatFinanceNumber(Math.round(reais / 100) / 10)}k`;
+  if (reais >= 1000) {
+    return `R$ ${formatFinanceNumber(Math.round(reais / 100) / 10)}k`;
+  }
   return `R$ ${formatFinanceNumber(Math.round(reais))}`;
+}
+
+function describeWindow(window: SalesDashboardResponse["window"]) {
+  return window.fromDate === window.throughDate
+    ? formatCalendarDateLabel(window.fromDate)
+    : `${formatCalendarDateLabel(window.fromDate)} a ${formatCalendarDateLabel(window.throughDate)}`;
 }
 
 /**
@@ -76,12 +90,14 @@ function formatAxisBRL(centavos: number) {
  * aqui dentro para as duas telas se comportarem igual.
  */
 export function ProductSalesPanel() {
-  const [period, setPeriod] = useState<ProductSalesPeriod>("today");
-  const [productId, setProductId] = useState(ALL_PRODUCTS);
+  const [range, setRange] = useState<DateRange>(todayRange);
+  const [productIds, setProductIds] = useState<string[]>([]);
+  const from = dateKey(range.from);
+  const to = dateKey(range.to);
 
   const query = useQuery({
-    queryKey: ["product-sales-dashboard", period, productId],
-    queryFn: () => fetchSalesDashboard(period, productId),
+    queryKey: ["product-sales-dashboard", from, to, productIds],
+    queryFn: () => fetchSalesDashboard(from, to, productIds),
     placeholderData: (previous) => previous,
   });
 
@@ -92,44 +108,31 @@ export function ProductSalesPanel() {
   return (
     <section aria-labelledby="product-sales-title" className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 id="product-sales-title" className="text-base font-semibold">
-            Vendas de produtos
-          </h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {data
-              ? data.window.fromDate === data.window.throughDate
-                ? formatCalendarDateLabel(data.window.fromDate)
-                : `${formatCalendarDateLabel(data.window.fromDate)} a ${formatCalendarDateLabel(data.window.throughDate)}`
-              : "Carregando período…"}
-            {" · "}valores em BRL
-          </p>
-        </div>
+        <h2 id="product-sales-title" className="text-base font-semibold">
+          Vendas de produtos
+        </h2>
         <FilterBar
-          activeCount={productId === ALL_PRODUCTS ? 0 : 1}
-          onClear={() => setProductId(ALL_PRODUCTS)}
+          activeCount={productIds.length}
+          onClear={() => setProductIds([])}
         >
-          <FilterSelect
+          <DateRangePicker
             label="Período"
-            value={period}
-            onValueChange={(value) =>
-              setPeriod(value ? (value as ProductSalesPeriod) : "today")
-            }
-            options={PRODUCT_SALES_PERIOD_VALUES.map((value) => ({
-              value,
-              label: PRODUCT_SALES_PERIOD_LABELS[value],
-            }))}
+            value={range}
+            maxDate={new Date()}
+            onChange={(next) => setRange(next ?? todayRange())}
+            className="w-full sm:w-64"
           />
-          <FilterSelect
+          <MultiSelect
             label="Produto"
-            value={productId === ALL_PRODUCTS ? undefined : productId}
-            onValueChange={(value) => setProductId(value ?? ALL_PRODUCTS)}
             options={(data?.products ?? []).map((item) => ({
               value: item.id,
               label: item.title,
             }))}
+            value={productIds}
+            onValueChange={setProductIds}
             allLabel="Todos os produtos"
-            className="max-w-72"
+            searchPlaceholder="Buscar produto…"
+            className="w-full sm:w-72"
           />
         </FilterBar>
       </div>
@@ -152,38 +155,78 @@ export function ProductSalesPanel() {
 
       <div
         aria-busy={stale}
-        className={cn(
-          "grid gap-4 lg:grid-cols-2 transition-opacity",
-          stale && "opacity-60",
-        )}
+        className={cn("space-y-4 transition-opacity", stale && "opacity-60")}
       >
-        <div className="flex flex-col gap-4">
-          <div className="rounded-xl border bg-card p-4 shadow-xs sm:p-5">
-            <div className="flex items-baseline justify-between gap-3">
+        <div className="rounded-xl border bg-card p-5 shadow-xs sm:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-5">
+            <div>
               <p className="text-xs font-medium text-muted-foreground">
-                Faturamento bruto
+                Valor líquido
               </p>
-              <p className="text-sm font-semibold tabular-nums">
-                {summary ? formatBRLFromCentavos(summary.grossCentavos) : "—"}
-              </p>
-            </div>
-            <div className="mt-3">
-              {data ? (
-                <SalesChart data={data} />
+              {summary ? (
+                <p className="mt-1 text-4xl font-semibold tracking-tight tabular-nums sm:text-5xl">
+                  {formatBRLFromCentavos(summary.netCentavos)}
+                </p>
               ) : (
-                <Skeleton className="h-[220px] w-full" />
+                <Skeleton className="mt-2 h-11 w-56 sm:h-12" />
               )}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Parte da Automatize, já descontados gateway e expert
+                {data ? ` · ${describeWindow(data.window)}` : null}
+              </p>
             </div>
+            <dl className="flex gap-8">
+              <div>
+                <dt className="text-xs text-muted-foreground">Vendas</dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                  {summary ? formatFinanceNumber(summary.salesCount) : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Faturamento bruto
+                </dt>
+                <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+                  {summary ? formatBRLFromCentavos(summary.grossCentavos) : "—"}
+                </dd>
+              </div>
+            </dl>
           </div>
+          <div className="mt-6">
+            {data ? (
+              <SalesChart data={data} />
+            ) : (
+              <Skeleton className="h-[240px] w-full" />
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard
             icon={CreditCard}
             label="Aprovação cartão"
             value={summary ? formatPercent(summary.cardApprovalPercent) : null}
             detail={
               summary
-                ? `${formatFinanceNumber(summary.cardApproved)} de ${formatFinanceNumber(summary.cardDecided)} cartões respondidos`
+                ? `${formatFinanceNumber(summary.cardApproved)} de ${formatFinanceNumber(summary.cardDecided)} respondidos`
                 : undefined
             }
+          />
+          <StatCard
+            icon={QrCode}
+            label="Conversão Pix"
+            value={summary ? formatPercent(summary.pixConversionPercent) : null}
+            detail={
+              summary
+                ? `${formatFinanceNumber(summary.pixApproved)} pagos de ${formatFinanceNumber(summary.pixGenerated)}`
+                : undefined
+            }
+          />
+          <StatCard
+            icon={Hash}
+            label="Pix gerados"
+            value={summary ? formatFinanceNumber(summary.pixGenerated) : null}
+            detail="Pedidos com Pix criados no período"
           />
           <StatCard
             icon={Undo2}
@@ -206,37 +249,6 @@ export function ProductSalesPanel() {
             }
           />
         </div>
-
-        <div className="flex flex-col gap-4">
-          <StatCard
-            icon={CircleDollarSign}
-            label="Valor líquido"
-            value={summary ? formatBRLFromCentavos(summary.netCentavos) : null}
-            detail="Parte da Automatize, já descontados gateway e expert"
-          />
-          <StatCard
-            icon={TrendingUp}
-            label="Vendas"
-            value={summary ? formatFinanceNumber(summary.salesCount) : null}
-            detail="Pedidos aprovados no período"
-          />
-          <StatCard
-            icon={QrCode}
-            label="Conversão Pix"
-            value={summary ? formatPercent(summary.pixConversionPercent) : null}
-            detail={
-              summary
-                ? `${formatFinanceNumber(summary.pixApproved)} pagos de ${formatFinanceNumber(summary.pixGenerated)} gerados`
-                : undefined
-            }
-          />
-          <StatCard
-            icon={Hash}
-            label="Pix gerados"
-            value={summary ? formatFinanceNumber(summary.pixGenerated) : null}
-            detail="Pedidos com Pix criados no período"
-          />
-        </div>
       </div>
     </section>
   );
@@ -254,14 +266,14 @@ function StatCard({
   detail?: string;
 }) {
   return (
-    <div className="flex items-start gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
+    <div className="flex items-start gap-3 rounded-xl border bg-card p-4 shadow-xs">
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <Icon className="size-4" aria-hidden="true" />
       </div>
       <div className="min-w-0">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         {value === null ? (
-          <Skeleton className="mt-1.5 h-7 w-24" />
+          <Skeleton className="mt-1.5 h-7 w-20" />
         ) : (
           <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums">
             {value}
@@ -278,7 +290,7 @@ function StatCard({
 }
 
 const chartConfig = {
-  grossCentavos: { label: "Faturamento", color: "var(--chart-1)" },
+  netCentavos: { label: "Valor líquido", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
 const subscribeToClient = () => () => undefined;
@@ -291,10 +303,10 @@ function SalesChart({ data }: { data: SalesDashboardResponse }) {
     getClientSnapshot,
     getServerSnapshot,
   );
-  if (!mounted) return <div className="h-[220px] w-full" aria-hidden />;
+  if (!mounted) return <div className="h-[240px] w-full" aria-hidden />;
 
   return (
-    <ChartContainer config={chartConfig} className="h-[220px] w-full">
+    <ChartContainer config={chartConfig} className="h-[240px] w-full">
       <LineChart
         accessibilityLayer
         data={data.series}
@@ -319,18 +331,28 @@ function SalesChart({ data }: { data: SalesDashboardResponse }) {
           content={
             <ChartTooltipContent
               formatter={(value, _name, item) => {
-                const point = (item as { payload?: { salesCount?: number } })
-                  .payload;
-                const sales = point?.salesCount ?? 0;
+                const point = (
+                  item as {
+                    payload?: { salesCount?: number; grossCentavos?: number };
+                  }
+                ).payload;
                 return (
-                  <span className="flex w-full items-center justify-between gap-4 tabular-nums">
-                    <span className="text-muted-foreground">
-                      {formatFinanceNumber(sales)} {sales === 1 ? "venda" : "vendas"}
+                  <div className="flex w-full flex-col gap-0.5 tabular-nums">
+                    <span className="flex items-center justify-between gap-4">
+                      <span className="text-muted-foreground">Líquido</span>
+                      <span className="font-medium">
+                        {formatBRLFromCentavos(Number(value))}
+                      </span>
                     </span>
-                    <span className="font-medium">
-                      {formatBRLFromCentavos(Number(value))}
+                    <span className="flex items-center justify-between gap-4">
+                      <span className="text-muted-foreground">Bruto</span>
+                      <span>{formatBRLFromCentavos(point?.grossCentavos ?? 0)}</span>
                     </span>
-                  </span>
+                    <span className="flex items-center justify-between gap-4">
+                      <span className="text-muted-foreground">Vendas</span>
+                      <span>{formatFinanceNumber(point?.salesCount ?? 0)}</span>
+                    </span>
+                  </div>
                 );
               }}
             />
@@ -338,8 +360,8 @@ function SalesChart({ data }: { data: SalesDashboardResponse }) {
         />
         <Line
           type="monotone"
-          dataKey="grossCentavos"
-          stroke="var(--color-grossCentavos)"
+          dataKey="netCentavos"
+          stroke="var(--color-netCentavos)"
           strokeWidth={2}
           dot={false}
           activeDot={{ r: 4 }}

@@ -15,30 +15,9 @@ import {
  * tem CHECK em `brl`, então não há moeda para escolher.
  */
 
-export const PRODUCT_SALES_PERIOD_VALUES = [
-  "today",
-  "yesterday",
-  "last_7_days",
-  "last_30_days",
-  "this_month",
-  "last_month",
-] as const;
-
-export type ProductSalesPeriod = (typeof PRODUCT_SALES_PERIOD_VALUES)[number];
-
-export const PRODUCT_SALES_PERIOD_LABELS: Record<ProductSalesPeriod, string> = {
-  today: "Hoje",
-  yesterday: "Ontem",
-  last_7_days: "Últimos 7 dias",
-  last_30_days: "Últimos 30 dias",
-  this_month: "Este mês",
-  last_month: "Mês passado",
-};
-
 export type ProductSalesBucket = "hour" | "day";
 
 export type ProductSalesWindow = {
-  period: ProductSalesPeriod;
   /** Data de calendário BRT (YYYY-MM-DD) do primeiro dia do período. */
   fromDate: string;
   /** Data de calendário BRT (YYYY-MM-DD) do último dia, inclusivo. */
@@ -49,46 +28,39 @@ export type ProductSalesWindow = {
   bucket: ProductSalesBucket;
 };
 
-export function resolveProductSalesPeriod(value: unknown): ProductSalesPeriod {
-  return PRODUCT_SALES_PERIOD_VALUES.includes(value as ProductSalesPeriod)
-    ? (value as ProductSalesPeriod)
-    : "today";
+const MAX_WINDOW_DAYS = 366;
+
+function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12));
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
 }
 
+/**
+ * Janela a partir de datas de calendário. Entrada inválida cai em "hoje";
+ * datas futuras são cortadas em hoje; a janela é limitada a um ano.
+ */
 export function resolveProductSalesWindow(
-  period: ProductSalesPeriod,
+  input: { from?: string | null; to?: string | null },
   now: Date = new Date(),
 ): ProductSalesWindow {
   const today = formatBrtCalendarDate(now);
-  const firstOfThisMonth = `${today.slice(0, 8)}01`;
-  let fromDate = today;
-  let throughDate = today;
-
-  switch (period) {
-    case "today":
-      break;
-    case "yesterday":
-      fromDate = shiftCalendarDate(today, -1);
-      throughDate = fromDate;
-      break;
-    case "last_7_days":
-      fromDate = shiftCalendarDate(today, -6);
-      break;
-    case "last_30_days":
-      fromDate = shiftCalendarDate(today, -29);
-      break;
-    case "this_month":
-      fromDate = firstOfThisMonth;
-      break;
-    case "last_month": {
-      throughDate = shiftCalendarDate(firstOfThisMonth, -1);
-      fromDate = `${throughDate.slice(0, 8)}01`;
-      break;
-    }
-  }
+  let fromDate = isCalendarDate(input.from) ? input.from : today;
+  let throughDate = isCalendarDate(input.to) ? input.to : fromDate;
+  if (fromDate > throughDate) [fromDate, throughDate] = [throughDate, fromDate];
+  if (throughDate > today) throughDate = today;
+  if (fromDate > today) fromDate = today;
+  const floor = shiftCalendarDate(throughDate, -(MAX_WINDOW_DAYS - 1));
+  if (fromDate < floor) fromDate = floor;
 
   return {
-    period,
     fromDate,
     throughDate,
     gte: brtStartOfCalendarDate(fromDate),
@@ -189,6 +161,7 @@ export type ProductSalesPoint = {
   key: string;
   label: string;
   grossCentavos: number;
+  netCentavos: number;
   salesCount: number;
 };
 
@@ -231,6 +204,7 @@ function emptySeries(window: ProductSalesWindow): ProductSalesPoint[] {
         key: `${window.fromDate}T${hh}`,
         label: `${hh}h`,
         grossCentavos: 0,
+        netCentavos: 0,
         salesCount: 0,
       };
     });
@@ -242,7 +216,13 @@ function emptySeries(window: ProductSalesWindow): ProductSalesPoint[] {
     date = shiftCalendarDate(date, 1)
   ) {
     const [, month, day] = date.split("-");
-    points.push({ key: date, label: `${day}/${month}`, grossCentavos: 0, salesCount: 0 });
+    points.push({
+      key: date,
+      label: `${day}/${month}`,
+      grossCentavos: 0,
+      netCentavos: 0,
+      salesCount: 0,
+    });
   }
   return points;
 }
@@ -269,12 +249,14 @@ export function buildProductSalesDashboard(
     if (wasApproved(row) && isInWindow(row.approvedAt, window)) {
       salesCount += 1;
       const gross = resolveProductPaymentAmounts(row).grossCentavos;
+      const net = resolveNetCentavos(row);
       grossCentavos += gross;
-      netCentavos += resolveNetCentavos(row);
+      netCentavos += net;
       if (row.paymentStatus === "charged_back") chargebackCount += 1;
       const point = seriesByKey.get(bucketKey(row.approvedAt as Date, window));
       if (point) {
         point.grossCentavos += gross;
+        point.netCentavos += net;
         point.salesCount += 1;
       }
     }

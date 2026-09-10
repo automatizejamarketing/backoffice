@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   buildProductSalesDashboard,
-  resolveProductSalesPeriod,
   resolveProductSalesWindow,
 } from "@/lib/backoffice/product-sales-dashboard";
 import {
@@ -20,26 +19,27 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   const params = new URL(request.url).searchParams;
-  const window = resolveProductSalesWindow(
-    resolveProductSalesPeriod(params.get("period")),
-  );
-  const rawProductId = params.get("productId");
-  const productId =
-    rawProductId && UUID_PATTERN.test(rawProductId) ? rawProductId : undefined;
+  const window = resolveProductSalesWindow({
+    from: params.get("from"),
+    to: params.get("to"),
+  });
+  const productIds = (params.get("productIds") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => UUID_PATTERN.test(value));
 
   const [rows, products] = await Promise.all([
-    listProductSalesRows({ gte: window.gte, lt: window.lt, productId }),
+    listProductSalesRows({ gte: window.gte, lt: window.lt, productIds }),
     listProductSalesFilterOptions(),
   ]);
 
   return NextResponse.json({
     window: {
-      period: window.period,
       fromDate: window.fromDate,
       throughDate: window.throughDate,
       bucket: window.bucket,
     },
-    productId: productId ?? null,
+    productIds,
     products,
     ...buildProductSalesDashboard(rows, window),
   });

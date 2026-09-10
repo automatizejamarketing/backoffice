@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { subDays } from "date-fns";
-import type { DateRange } from "react-day-picker";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { DatePreset } from "@/lib/meta-business/types";
 
@@ -45,7 +44,10 @@ function formatLocalDate(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function resolvePresetRange(preset: DatePreset | null, today: Date): DateRange {
+function resolvePresetRange(
+  preset: DatePreset | null,
+  today: Date,
+): { from: Date; to: Date } {
   switch (preset) {
     case DatePreset.TODAY:
       return { from: today, to: today };
@@ -90,12 +92,17 @@ export function DateFilter({
 
   return (
     <DateRangePicker
-      date={selectedRange}
-      disabledAfter={today}
-      placeholder="Selecionar período"
-      className="h-9 w-full px-3 text-xs shadow-none sm:w-[220px]"
-      onDateChange={({ from, to }) => {
-        if (!from || !to) return;
+      value={selectedRange}
+      maxDate={today}
+      className="w-full sm:w-64"
+      onChange={(range) => {
+        if (!range) {
+          // Limpar volta ao padrão da tela.
+          onDatePresetChange?.(DatePreset.LAST_30D);
+          onCustomRangeChange?.(null);
+          return;
+        }
+        const { from, to } = range;
 
         onDatePresetChange?.(null);
         onCustomRangeChange?.({
