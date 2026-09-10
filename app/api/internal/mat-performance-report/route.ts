@@ -53,12 +53,17 @@ export async function POST(
       until: body.until,
       includeCreatives: Boolean(body.includeCreatives),
     });
+    const scopedAccountId =
+      body.accountId ||
+      (report.accountScope.selected.length === 1
+        ? report.accountScope.selected[0]?.accountId
+        : undefined);
     return NextResponse.json({
       report,
       backofficeUrl: buildPerformanceReportUrl({
         userId: report.client.userId,
         view: "report",
-        accountId: body.accountId,
+        accountId: scopedAccountId,
         campaignId: body.campaignId,
         datePreset: report.accountTotals.period.datePreset,
         since: report.accountTotals.period.since ?? undefined,

@@ -97,13 +97,16 @@ function consolidationReason(
 }
 
 function totalsScope(accountCount: number, coverageComplete: boolean): string {
+  if (accountCount === 0) {
+    return "Nenhuma conta no escopo desta análise; não consolide contas de outras empresas.";
+  }
   if (!coverageComplete) {
     return "Não foi possível consolidar todas as contas; use os totais individuais e cite as falhas.";
   }
   if (accountCount === 1) {
     return "Estes valores cobrem toda a conta de anúncio no período; não representam uma única campanha.";
   }
-  return `Estes valores consolidam todas as ${accountCount} contas de anúncio no período; não representam uma única campanha.`;
+  return `Estes valores consolidam as ${accountCount} contas no escopo desta análise; não representam uma única campanha.`;
 }
 
 function adjustedUnavailableLabel(
@@ -367,6 +370,21 @@ export async function buildClientPerformanceReport(
     singleCurrency,
   );
 
+  const accountScope = {
+    mode: bundle.accountScope.mode,
+    summary: bundle.accountScope.summary,
+    selected: bundle.accountScope.selected.map((account) => ({
+      accountId: account.id,
+      name: account.name ?? null,
+    })),
+    skipped: bundle.accountScope.skipped.map((account) => ({
+      accountId: account.id,
+      name: account.name ?? null,
+    })),
+    connectedCount:
+      bundle.accountScope.selected.length + bundle.accountScope.skipped.length,
+  };
+
   const accountTotals = {
     scope: totalsScope(accountRows.length, coverageComplete),
     consolidated: canConsolidate,
@@ -450,6 +468,7 @@ export async function buildClientPerformanceReport(
         currency: account.currency,
       })),
     },
+    accountScope,
     accountTotals,
     campaignCount: campaigns.length,
     campaignsComplete: accountRows.every(

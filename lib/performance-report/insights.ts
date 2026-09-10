@@ -1,3 +1,4 @@
+import { getBusinessOperatingRulesUncached } from "@/lib/db/business-queries";
 import { graphApiVersion, graphFacebookBaseUrl } from "@/lib/meta-business/constant";
 import { appSecretProof, facebookAppSecret } from "@/lib/meta-business/appsecret-proof";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
@@ -9,7 +10,13 @@ import {
 } from "./analysis";
 import type { ReportClient } from "./client";
 import type { PerformanceDatePreset } from "./filters";
+import { listAutomatizeManagedAdAccountIds } from "./managed-account-ids";
 import { metricsFromInsight, type InsightMetrics, type RawInsight } from "./metrics";
+import {
+  campaignHasManagedPrefix,
+  selectReportAccounts,
+  type AccountSelection,
+} from "./select-accounts";
 
 const MAX_ACCOUNTS = 5;
 const MAX_CAMPAIGNS = 500;
@@ -316,44 +323,92 @@ async function fetchAdInsights(input: {
   };
 }
 
+async function fetchCampaignNames(
+  accessToken: string,
+  accountId: string,
+): Promise<string[]> {
+  const result = await graphGetAll<{ name?: string }>({
+    path: `${formatActId(accountId)}/campaigns`,
+    accessToken,
+    params: { fields: "name" },
+    maxItems: 200,
+  });
+  return result.rows
+    .map((row) => row.name ?? "")
+    .filter((name) => name.length > 0);
+}
+
+async function listLiveManagedAccountIds(input: {
+  accessToken: string;
+  accounts: StoredAdAccount[];
+}): Promise<string[]> {
+  const rules = await getBusinessOperatingRulesUncached();
+  const prefix = rules.managedCampaignNamePrefix.trim() || "[AM]";
+  const hits: string[] = [];
+  for (const account of input.accounts) {
+    try {
+      const names = await fetchCampaignNames(input.accessToken, account.id);
+      if (names.some((name) => campaignHasManagedPrefix(name, prefix))) {
+        hits.push(account.id);
+      }
+    } catch {
+      // A Graph miss on a sibling account must not pull it into the report.
+    }
+  }
+  return hits;
+}
+
 async function resolveAccounts(input: {
   client: ReportClient;
   accountId?: string;
-}): Promise<{ accessToken: string; accounts: StoredAdAccount[] }> {
+}): Promise<{
+  accessToken: string;
+  accounts: StoredAdAccount[];
+  scope: AccountSelection;
+}> {
   const tokenResult = await getUserAccessTokenByUserId(input.client.userId);
   if (!tokenResult.success) {
     throw new Error(tokenResult.error.message);
   }
 
-  let accounts: StoredAdAccount[] = input.client.assignedAdAccounts;
-  if (accounts.length === 0) {
+  let connected: StoredAdAccount[] = input.client.assignedAdAccounts;
+  if (connected.length === 0) {
     const graphUser = await getUserWithAdAccounts(tokenResult.accessToken, {
       tokenKind: tokenResult.connection.tokenKind,
       bisuAppScopedId: tokenResult.connection.bisuAppScopedId,
       clientBusinessId: tokenResult.connection.clientBusinessId,
       connectionName: tokenResult.connection.name,
     });
-    accounts = (graphUser.adaccounts?.data ?? []).map((account) => ({
+    connected = (graphUser.adaccounts?.data ?? []).map((account) => ({
       id: account.id,
       accountId: account.account_id,
       name: account.name,
     }));
   }
 
-  if (input.accountId) {
-    const wanted = formatActId(input.accountId);
-    accounts = accounts.filter(
-      (account) =>
-        formatActId(account.id) === wanted || account.accountId === input.accountId,
-    );
-    if (accounts.length === 0) {
-      accounts = [{ id: wanted, name: wanted }];
-    }
+  const managedAccountIds = input.accountId
+    ? []
+    : await listAutomatizeManagedAdAccountIds(input.client.userId);
+  let liveManagedAccountIds: string[] = [];
+  if (!input.accountId && managedAccountIds.length === 0 && connected.length > 1) {
+    liveManagedAccountIds = await listLiveManagedAccountIds({
+      accessToken: tokenResult.accessToken,
+      accounts: connected,
+    });
   }
+
+  const scope = selectReportAccounts({
+    connected,
+    explicitAccountId: input.accountId,
+    managedAccountIds,
+    liveManagedAccountIds,
+    clientName: input.client.name,
+  });
 
   return {
     accessToken: tokenResult.accessToken,
-    accounts: accounts.slice(0, MAX_ACCOUNTS),
+    accounts: scope.selected.slice(0, MAX_ACCOUNTS),
+    scope,
   };
 }
 
@@ -370,8 +425,9 @@ export async function loadClientInsightsBundle(input: {
   since: string | null;
   until: string | null;
   accounts: AccountInsightBundle[];
+  accountScope: AccountSelection;
 }> {
-  const { accessToken, accounts } = await resolveAccounts(input);
+  const { accessToken, accounts, scope } = await resolveAccounts(input);
   const campaignLimit = MAX_CAMPAIGNS;
   const adLimit = MAX_ADS;
 
@@ -440,5 +496,6 @@ export async function loadClientInsightsBundle(input: {
     since: input.since ?? null,
     until: input.until ?? null,
     accounts: results,
+    accountScope: scope,
   };
 }

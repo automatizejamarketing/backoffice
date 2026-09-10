@@ -107,6 +107,14 @@ export type DiagnosticFacts = {
   };
 };
 
+export type ReportAccountScope = {
+  mode: "explicit" | "automatize_managed" | "name_match" | "needs_choice";
+  summary: string;
+  selected: Array<{ accountId: string; name: string | null }>;
+  skipped: Array<{ accountId: string; name: string | null }>;
+  connectedCount: number;
+};
+
 export type ReportAccountSummary = {
   accountId: string;
   name: string | null;
@@ -148,6 +156,7 @@ export type ClientPerformanceReportV1 = {
       currency: string | null;
     }>;
   };
+  accountScope: ReportAccountScope;
   accountTotals: AccountTotals;
   campaignCount: number;
   campaignsComplete: boolean;
