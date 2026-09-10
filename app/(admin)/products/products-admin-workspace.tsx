@@ -895,11 +895,7 @@ export function ProductsAdminWorkspace({
   const [experts, setExperts] = useState<Expert[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
-  const [defences, setDefences] = useState<Defence[]>([]);
-  const [pixFraudCases, setPixFraudCases] = useState<PixFraudCase[]>([]);
-  const [reconciliationCases, setReconciliationCases] = useState<ReconciliationCase[]>([]);
   const [paymentAttempts, setPaymentAttempts] = useState<ProductPaymentAttempt[]>([]);
-  const [postSaleCostCases, setPostSaleCostCases] = useState<PostSaleCostCase[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
@@ -988,40 +984,30 @@ export function ProductsAdminWorkspace({
     setLoading(true);
     setIsLoadingList(true);
     try {
-      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, reconciliationResponse, postSaleCostsResponse] =
+      const [productsResponse, expertsResponse, ordersResponse, payoutsResponse, reconciliationResponse] =
         await Promise.all([
           fetch("/api/products/admin", { cache: "no-store" }),
           fetch("/api/products/admin/experts", { cache: "no-store" }),
           fetch("/api/products/admin/orders", { cache: "no-store" }),
           fetch("/api/products/admin/payouts", { cache: "no-store" }),
-          fetch("/api/products/admin/dispute-defences", { cache: "no-store" }),
-          fetch("/api/products/admin/pix-fraud", { cache: "no-store" }),
           fetch("/api/products/admin/reconciliation-cases", { cache: "no-store" }),
-          fetch("/api/products/admin/post-sale-costs", { cache: "no-store" }),
         ]);
-      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, defencesResponse, pixFraudResponse, reconciliationResponse, postSaleCostsResponse].every((r) => r.ok)) {
+      if (![productsResponse, expertsResponse, ordersResponse, payoutsResponse, reconciliationResponse].every((r) => r.ok)) {
         throw new Error("Não foi possível carregar o módulo.");
       }
-      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextDefences, nextPixFraud, nextReconciliation, nextPostSaleCosts] =
+      const [nextProducts, nextExperts, nextOrders, nextPayouts, nextReconciliation] =
         await Promise.all([
           productsResponse.json(),
           expertsResponse.json(),
           ordersResponse.json(),
           payoutsResponse.json(),
-          defencesResponse.json(),
-          pixFraudResponse.json(),
           reconciliationResponse.json(),
-          postSaleCostsResponse.json(),
         ]);
       setProducts(nextProducts);
       setExperts(nextExperts);
       setOrders(nextOrders);
       setPayouts(nextPayouts);
-      setDefences(nextDefences.defences ?? []);
-      setPixFraudCases(nextPixFraud.cases ?? []);
-      setReconciliationCases(nextReconciliation.cases ?? []);
       setPaymentAttempts(nextReconciliation.attempts ?? []);
-      setPostSaleCostCases(nextPostSaleCosts.cases ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
       );
@@ -1032,25 +1018,6 @@ export function ProductsAdminWorkspace({
       setIsLoadingList(false);
     }
   }, []);
-
-  async function refreshDefences() {
-    const response = await fetch("/api/products/admin/dispute-defences", { cache: "no-store" });
-    if (!response.ok) throw new Error(await readError(response));
-    const body = (await response.json()) as { defences?: Defence[] };
-    setDefences(body.defences ?? []);
-  }
-
-  async function defenceAction(disputeId: string, action: "review" | "submit") {
-    const response = await fetch(`/api/products/admin/dispute-defences/${disputeId}/${action}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!response.ok) throw new Error(await readError(response));
-    const result = (await response.json()) as { state?: string; reason?: string };
-    toast.success(action === "review" ? "Defesa revisada." : result.state === "unknown" ? "Envio inconclusivo; o caso exige recuperação." : "Defesa enviada.");
-    await refreshDefences();
-  }
 
   async function settlePostSaleCost(caseId: string) {
     const proofUrl = window.prompt("URL do comprovante da transferência manual");
@@ -1094,44 +1061,6 @@ export function ProductsAdminWorkspace({
     await loadAll();
   }
 
-  async function uploadDefenceFiles(disputeId: string, selectedFiles: FileList | null) {
-    if (!selectedFiles?.length) return;
-    try {
-      for (const file of Array.from(selectedFiles)) {
-        const prepare = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files/upload`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
-        });
-        if (!prepare.ok) throw new Error(await readError(prepare));
-        const prepared = (await prepare.json()) as {
-          uploadUrl: string;
-          grantId: string;
-          objectKey: string;
-          headers: Record<string, string>;
-        };
-        const localUpload = prepared.uploadUrl === "/api/products/admin/uploads/complete";
-        const upload = await fetch(prepared.uploadUrl, {
-          method: localUpload ? "POST" : "PUT",
-          headers: localUpload
-            ? { "Content-Type": file.type, "X-Object-Key": prepared.objectKey, "X-Cache-Control": "private, no-store" }
-            : prepared.headers,
-          body: file,
-        });
-        if (!upload.ok) throw new Error(await readError(upload));
-        const metadata = await fetch(`/api/products/admin/dispute-defences/${disputeId}/files`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source: "operator", grantId: prepared.grantId }),
-        });
-        if (!metadata.ok) throw new Error(await readError(metadata));
-      }
-      toast.success("Evidência anexada.");
-      await refreshDefences();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível anexar a evidência.");
-    }
-  }
 
   async function loadContent(productId: string) {
     if (!productId) return setContent([]);
@@ -1938,16 +1867,13 @@ export function ProductsAdminWorkspace({
       </header>
 
       <Tabs defaultValue="products">
-        <TabsList className="grid w-full grid-cols-9 lg:w-fit">
+        <TabsList className="grid w-full grid-cols-6 lg:w-fit">
           <TabsTrigger value="products">Produtos</TabsTrigger>
           <TabsTrigger value="experts">Experts</TabsTrigger>
           <TabsTrigger value="orders">Vendas</TabsTrigger>
           <TabsTrigger value="recovery">Pix vencido</TabsTrigger>
           <TabsTrigger value="payouts">Repasses</TabsTrigger>
-          <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
-          <TabsTrigger value="pix-fraud">Fraude Pix ({pixFraudCases.filter((item) => item.status === "under_review").length})</TabsTrigger>
-          <TabsTrigger value="reconciliation">Conciliação ({reconciliationCases.length + paymentAttempts.length})</TabsTrigger>
-          <TabsTrigger value="post-sale-costs">Custos pós-venda ({postSaleCostCases.filter((item) => item.status === "open").length})</TabsTrigger>
+          <TabsTrigger value="reconciliation">Conciliação ({paymentAttempts.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="products" className="space-y-6 pt-4">
@@ -2488,138 +2414,7 @@ export function ProductsAdminWorkspace({
           </Card>
       </TabsContent>
 
-      <TabsContent value="defences" className="pt-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Defesas de contestação</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Preparação e envio são ações explícitas. Um timeout fica como inconclusivo até a recuperação consultar o Mercado Pago.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table className="min-w-[1180px]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Produto / caso</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Prazo</TableHead>
-                  <TableHead>Arquivos</TableHead>
-                  <TableHead>Auditoria</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {defences.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Nenhuma contestação registrada.</TableCell></TableRow>
-                ) : defences.map((defence) => (
-                  <TableRow key={defence.disputeId}>
-                    <TableCell>
-                      <p className="font-medium">{defence.productTitle}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{defence.provider} · {defence.providerDisputeId}</p>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        <Badge variant="outline">caso: {defence.caseStatus}</Badge>
-                        <Badge variant={defence.submissionState === "submitted" ? "default" : "secondary"}>
-                          defesa: {defence.submissionState ?? "sem caso"}
-                        </Badge>
-                      </div>
-                      {defence.providerResult ? <p className="mt-1 text-xs text-muted-foreground">{defence.providerResult}</p> : null}
-                    </TableCell>
-                    <TableCell className={defence.deadlineAt && new Date(defence.deadlineAt) <= new Date() ? "text-destructive" : ""}>
-                      {defence.deadlineAt ? dateTime(defence.deadlineAt) : "Sem prazo"}
-                    </TableCell>
-                    <TableCell>
-                      <p>{defence.files.length}/10</p>
-                      <p className="max-w-[220px] truncate text-xs text-muted-foreground">{defence.files.map((file) => file.fileName).join(", ") || "Nenhum arquivo"}</p>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      <p>{defence.reviewedAt ? `Revisada ${dateTime(defence.reviewedAt)}` : "Aguardando revisão"}</p>
-                      {defence.reviewedByEmail ? <p>por {defence.reviewedByEmail}</p> : null}
-                      {defence.submittedAt ? <p>Enviada {dateTime(defence.submittedAt)}</p> : null}
-                      {defence.lastProviderError ? <p className="text-destructive">{defence.lastProviderError}</p> : null}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {defence.defenceId ? (
-                          <>
-                            <label className="inline-flex cursor-pointer items-center rounded-md border px-2 py-1 text-xs font-medium hover:bg-muted">
-                              <Upload className="mr-1 size-3" /> Anexar
-                              <input type="file" accept="application/pdf,image/jpeg,image/png" multiple className="sr-only" onChange={(event) => { void uploadDefenceFiles(defence.disputeId, event.currentTarget.files); event.currentTarget.value = ""; }} />
-                            </label>
-                            <Button size="sm" variant="outline" disabled={defence.submissionState === "submitted"} onClick={() => { void defenceAction(defence.disputeId, "review").catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível revisar.")); }}>Revisar</Button>
-                            <Button size="sm" disabled={defence.submissionState === "submitted"} onClick={() => { void defenceAction(defence.disputeId, "submit").catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível enviar.")); }}>Enviar</Button>
-                          </>
-                        ) : <span className="text-xs text-muted-foreground">Caso antigo sem rascunho</span>}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </TabsContent>
 
-      <TabsContent value="pix-fraud" className="pt-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Fraude Pix / MED</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Fatos confirmados pelo Mercado Pago. Esta fila acompanha acesso, prazo e recuperação efetiva; não transforma o caso em refund nem atribui autoria por inferência.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table className="min-w-[1220px]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Produto / comprador</TableHead>
-                  <TableHead>Caso / pagamento</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead>Prazo</TableHead>
-                  <TableHead>Responsável</TableHead>
-                  <TableHead className="text-right">Recuperado</TableHead>
-                  <TableHead>Fatos</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pixFraudCases.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhuma ocorrência de fraude Pix registrada.</TableCell></TableRow>
-                ) : pixFraudCases.map((fraudCase) => (
-                  <TableRow key={fraudCase.id}>
-                    <TableCell>
-                      <p className="font-medium">{fraudCase.productTitle}</p>
-                      <p className="text-xs text-muted-foreground">{fraudCase.buyerEmail}</p>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      <p>{fraudCase.providerCaseId}</p>
-                      <p>{fraudCase.providerPaymentId}</p>
-                      <p>{fraudCase.providerAccountId ? `conta ${fraudCase.providerAccountId}` : "conta não informada"}</p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={fraudCase.status === "payment_invalidated_by_fraud" ? "destructive" : fraudCase.status === "closed_valid" ? "secondary" : "outline"}>
-                        {fraudCase.status === "under_review" ? "Em análise · acesso suspenso" : fraudCase.status === "closed_valid" ? "Encerrada · compra válida" : "Pagamento invalidado por fraude"}
-                      </Badge>
-                      <p className="mt-1 text-xs text-muted-foreground">{fraudCase.cause ?? "Causa não informada"}{fraudCase.financialPending ? " · pendência financeira" : ""}</p>
-                    </TableCell>
-                    <TableCell className={fraudCase.responseDueAt && new Date(fraudCase.responseDueAt) <= new Date() ? "text-destructive" : ""}>
-                      {fraudCase.responseDueAt ? dateTime(fraudCase.responseDueAt) : "Sem prazo"}
-                    </TableCell>
-                    <TableCell>{fraudCase.responsible === "expert" ? "Expert" : "Equipe Automatize"}</TableCell>
-                    <TableCell className="text-right font-semibold tabular-nums">
-                      {fraudCase.recoveredAmountCentavos === null ? "Não informado" : money(fraudCase.recoveredAmountCentavos)}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      <p>{fraudCase.events.length} evento(s)</p>
-                      {fraudCase.events[0] ? <p>{fraudCase.events[0].eventType} · {dateTime(fraudCase.events[0].occurredAt)}</p> : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </TabsContent>
 
       <TabsContent value="reconciliation" className="pt-4">
         <Card className="mb-4">
@@ -2664,106 +2459,8 @@ export function ProductsAdminWorkspace({
             </Table>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Fila de conciliação</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              A fila preserva a conta original, evidência, responsável e próxima revisão. A ação de conciliação consulta o provedor pela credencial histórica e nunca emite uma nova cobrança.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table className="min-w-[1160px]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Produto / pedido</TableHead>
-                  <TableHead>Estado / responsável</TableHead>
-                  <TableHead>Conta original</TableHead>
-                  <TableHead>Valor efetivo</TableHead>
-                  <TableHead>Evidência</TableHead>
-                  <TableHead>Próxima revisão</TableHead>
-                  <TableHead className="text-right">Ação</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {reconciliationCases.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhuma exceção de conciliação pendente.</TableCell></TableRow>
-                ) : reconciliationCases.map((reconciliationCase) => (
-                  <TableRow key={reconciliationCase.id}>
-                    <TableCell><p className="font-medium">{reconciliationCase.productTitle}</p><p className="font-mono text-xs text-muted-foreground">{reconciliationCase.kind} · {reconciliationCase.orderId}</p></TableCell>
-                    <TableCell><Badge variant={reconciliationCase.status === "open" ? "destructive" : "outline"}>{reconciliationCase.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{reconciliationCase.responsible} · atribuição {reconciliationCase.attributionProven ? "comprovada" : "pendente"}</p></TableCell>
-                    <TableCell className="font-mono text-xs">{reconciliationCase.provider} · {reconciliationCase.providerAccountId ?? "não informada"}</TableCell>
-                    <TableCell className="tabular-nums">{reconciliationCase.effectiveAmountCentavos === null ? "Não informado" : money(reconciliationCase.effectiveAmountCentavos)}</TableCell>
-                    <TableCell className="max-w-[250px] text-xs text-muted-foreground"><p>{Object.keys(reconciliationCase.evidence).length} campo(s)</p><p className="truncate">{Object.entries(reconciliationCase.evidence).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")}</p></TableCell>
-                    <TableCell>{dateTime(reconciliationCase.nextReviewAt)}</TableCell>
-                    <TableCell className="text-right"><Button size="sm" variant="outline" onClick={() => { void reconcileProductCase(reconciliationCase.orderId).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível conciliar.")); }}>Conciliar agora</Button></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
       </TabsContent>
 
-      <TabsContent value="post-sale-costs" className="pt-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Custos pós-venda e acertos</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Só fatos confirmados de reembolso integral ou chargeback integral perdido geram cálculo liquidável. Parcial e MED permanecem exceções acompanhadas; confirmar aqui apenas uma transferência manual já executada e comprovada.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table className="min-w-[1320px]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead>Produto / caso</TableHead>
-                  <TableHead>Estado / responsável</TableHead>
-                  <TableHead>Movimentos</TableHead>
-                  <TableHead>Apuração</TableHead>
-                  <TableHead>Evidência</TableHead>
-                  <TableHead>Comprovante</TableHead>
-                  <TableHead className="text-right">Ação</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {postSaleCostCases.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Nenhum custo pós-venda registrado.</TableCell></TableRow>
-                ) : postSaleCostCases.map((costCase) => (
-                  <TableRow key={costCase.id}>
-                    <TableCell>
-                      <p className="font-medium">{costCase.productTitle}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{costCase.reversal} · {costCase.providerCaseId ?? costCase.paymentId}</p>
-                      <p className="text-xs text-muted-foreground">conta: {costCase.providerAccountId ?? "não informada"}</p>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={costCase.status === "exception" ? "destructive" : costCase.status === "settled" ? "secondary" : "outline"}>{costCase.status}</Badge>
-                      <p className="mt-1 text-xs text-muted-foreground">Responsável: {costCase.responsible === "expert" ? "Expert" : "Automatize"}</p>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <p>{costCase.movements.length} fato(s)</p>
-                      {costCase.movements.map((movement) => <p key={movement.providerMovementId} className="text-muted-foreground">{movement.kind} {money(movement.amountCentavos)} · {movement.supportedBy}</p>)}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {costCase.calculation.kind === "exception" ? <Badge variant="destructive">Exceção: {costCase.calculation.reason}</Badge> : costCase.calculation.transfer ? <><p>Transferir {costCase.calculation.transfer.amountCentavos > 0 ? money(costCase.calculation.transfer.amountCentavos) : "R$ 0,00"}</p><p className="text-muted-foreground">{costCase.calculation.transfer.debtor} → {costCase.calculation.transfer.creditor}</p></> : <p>Saldo correto · sem transferência</p>}
-                      {costCase.calculation.kind === "ready" ? <p className="mt-1 text-muted-foreground">{costCase.calculation.items.length} item(ns), cálculo acumulado</p> : null}
-                    </TableCell>
-                    <TableCell className="max-w-[190px] text-xs text-muted-foreground">
-                      <p>{Object.keys(costCase.evidence).length} campo(s) preservado(s)</p>
-                      <p className="truncate">{Object.keys(costCase.evidence).join(", ") || "Sem evidência"}</p>
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      {costCase.settlement ? <><a className="text-primary underline" href={costCase.settlement.proofUrl} target="_blank" rel="noreferrer">Abrir comprovante</a><p className="text-muted-foreground">{costCase.settlement.operatorEmail ?? "Operador registrado"}</p></> : "Não confirmado"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {costCase.status === "open" && costCase.calculation.kind === "ready" && costCase.calculation.transfer ? <Button size="sm" onClick={() => { void settlePostSaleCost(costCase.id).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível confirmar o acerto.")); }}>Confirmar acerto</Button> : <span className="text-xs text-muted-foreground">Sem ação</span>}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </TabsContent>
 
       <TabsContent value="payouts" className="pt-4">
           <Card>

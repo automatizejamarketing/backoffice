@@ -13,18 +13,6 @@ import {
   productOrder,
   productPayment,
   productPaymentAttempt,
-  productCardDispute,
-  productPixFraudCase,
-  productPixFraudEvent,
-  productEvidenceConsultation,
-  productDisputeDefence,
-  productDisputeDefenceFile,
-  productPostSaleCostCase,
-  productReconciliationCase,
-  productRefundBalanceCase,
-  productRefundOperation,
-  productRefundRequest,
-  productPurchaseEvidence,
   user,
   type ProductContentType,
 } from "./schema";
@@ -33,34 +21,10 @@ import {
   getProductRefundBumpOrderIds,
   getProductRefundRootOrderId,
 } from "@/lib/products/refund-scope";
-import { calculateProductPostSaleCostCase } from "@/lib/products/post-sale-costs";
 
 /** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
  * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
  * transferência que conserte o Split Inicial ou complete um parcial. */
-export async function listProductReconciliationCases() {
-  return db
-    .select({
-      id: productReconciliationCase.id,
-      orderId: productReconciliationCase.orderId,
-      productTitle: productOrder.productTitleSnapshot,
-      provider: productReconciliationCase.provider,
-      providerAccountId: productReconciliationCase.providerAccountId,
-      kind: productReconciliationCase.kind,
-      responsible: productReconciliationCase.responsible,
-      status: productReconciliationCase.status,
-      attributionProven: productReconciliationCase.attributionProven,
-      effectiveAmountCentavos: productReconciliationCase.effectiveAmountCentavos,
-      evidence: productReconciliationCase.evidence,
-      nextReviewAt: productReconciliationCase.nextReviewAt,
-      createdAt: productReconciliationCase.createdAt,
-    })
-    .from(productReconciliationCase)
-    .innerJoin(productOrder, eq(productOrder.id, productReconciliationCase.orderId))
-    .where(inArray(productReconciliationCase.status, ["open", "monitoring"]))
-    .orderBy(asc(productReconciliationCase.nextReviewAt));
-}
-
 /** Attempts without a terminal provider fact must remain visible separately
  * from reconciliation cases: they can be explicitly resolved only after an
  * operator records the provider's no-payment fact. */
@@ -89,158 +53,6 @@ export async function listProductPaymentAttempts() {
 
 /** A read-only operational queue. Submission is intentionally a separate,
  * explicit command so opening this screen can never contact Mercado Pago. */
-export async function listProductDisputeDefences() {
-  const missingCases = await db
-    .select({
-      disputeId: productCardDispute.id,
-      deadlineAt: productCardDispute.responseDueAt,
-      originalProviderAccountId: productCardDispute.providerAccountId,
-    })
-    .from(productCardDispute)
-    .leftJoin(productDisputeDefence, eq(productDisputeDefence.disputeId, productCardDispute.id))
-    .where(isNull(productDisputeDefence.id));
-  if (missingCases.length > 0) {
-    await db
-      .insert(productDisputeDefence)
-      .values(missingCases)
-      .onConflictDoNothing({ target: productDisputeDefence.disputeId });
-  }
-  const rows = await db
-    .select({
-      disputeId: productCardDispute.id,
-      provider: productCardDispute.provider,
-      providerDisputeId: productCardDispute.providerDisputeId,
-      caseStatus: productCardDispute.status,
-      openedAt: productCardDispute.openedAt,
-      defenceId: productDisputeDefence.id,
-      deadlineAt: productDisputeDefence.deadlineAt,
-      originalProviderAccountId: productDisputeDefence.originalProviderAccountId,
-      submissionState: productDisputeDefence.status,
-      reviewedAt: productDisputeDefence.reviewedAt,
-      reviewedByEmail: productDisputeDefence.reviewedByEmail,
-      submittedAt: productDisputeDefence.submittedAt,
-      providerResult: productDisputeDefence.providerResult,
-      expertNote: productDisputeDefence.expertNote,
-      operatorNote: productDisputeDefence.operatorNote,
-      lastProviderCheckedAt: productDisputeDefence.lastProviderCheckedAt,
-      lastProviderError: productDisputeDefence.lastProviderError,
-      productTitle: productOrder.productTitleSnapshot,
-    })
-    .from(productCardDispute)
-    .innerJoin(productOrder, eq(productOrder.id, productCardDispute.orderId))
-    .leftJoin(productDisputeDefence, eq(productDisputeDefence.disputeId, productCardDispute.id))
-    .orderBy(desc(productCardDispute.openedAt));
-  const defenceIds = rows.flatMap((row) => row.defenceId ? [row.defenceId] : []);
-  const files = defenceIds.length === 0 ? [] : await db
-    .select({ defenceId: productDisputeDefenceFile.defenceId, source: productDisputeDefenceFile.source, fileName: productDisputeDefenceFile.fileName, contentType: productDisputeDefenceFile.contentType, sizeBytes: productDisputeDefenceFile.sizeBytes })
-    .from(productDisputeDefenceFile)
-    .where(inArray(productDisputeDefenceFile.defenceId, defenceIds));
-  return rows.map((row) => ({ ...row, files: files.filter((file) => file.defenceId === row.defenceId) }));
-}
-
-/** Operational read model for post-sale obligations and their receipts. */
-export async function listProductPostSaleCostCases() {
-  const rows = await db
-    .select({
-      id: productPostSaleCostCase.id,
-      productTitle: productOrder.productTitleSnapshot,
-      paymentId: productPostSaleCostCase.paymentId,
-      provider: productPostSaleCostCase.provider,
-      providerAccountId: productPostSaleCostCase.providerAccountId,
-      providerCaseId: productPostSaleCostCase.providerCaseId,
-      reversal: productPostSaleCostCase.reversal,
-      status: productPostSaleCostCase.status,
-      responsible: productPostSaleCostCase.responsible,
-      evidence: productPostSaleCostCase.evidence,
-      createdAt: productPostSaleCostCase.createdAt,
-      updatedAt: productPostSaleCostCase.updatedAt,
-    })
-    .from(productPostSaleCostCase)
-    .innerJoin(productPayment, eq(productPayment.id, productPostSaleCostCase.paymentId))
-    .innerJoin(productOrder, eq(productOrder.id, productPayment.orderId))
-    .orderBy(desc(productPostSaleCostCase.updatedAt));
-  return Promise.all(rows.map(async (row) => ({
-    ...row,
-    ...(await calculateProductPostSaleCostCase(row.id)),
-  })));
-}
-
-/** Read-only queue for provider-confirmed Pix fraud/MED facts. The queue does
- * not infer fraud from payment status and has no refund or payment action. */
-export async function listProductPixFraudCases() {
-  const rows = await db
-    .select({
-      id: productPixFraudCase.id,
-      orderId: productPixFraudCase.orderId,
-      productTitle: productOrder.productTitleSnapshot,
-      buyerEmail: productOrder.buyerEmail,
-      provider: productPixFraudCase.provider,
-      providerCaseId: productPixFraudCase.providerCaseId,
-      providerPaymentId: productPixFraudCase.providerPaymentId,
-      providerAccountId: productPixFraudCase.providerAccountId,
-      status: productPixFraudCase.status,
-      cause: productPixFraudCase.cause,
-      responsible: productPixFraudCase.responsible,
-      recoveredAmountCentavos: productPixFraudCase.recoveredAmountCentavos,
-      financialPending: productPixFraudCase.financialPending,
-      observedAt: productPixFraudCase.observedAt,
-      resolvedAt: productPixFraudCase.resolvedAt,
-      responseDueAt: productPixFraudCase.responseDueAt,
-    })
-    .from(productPixFraudCase)
-    .innerJoin(productOrder, eq(productOrder.id, productPixFraudCase.orderId))
-    .orderBy(desc(productPixFraudCase.observedAt));
-  const caseIds = rows.map((row) => row.id);
-  const events = caseIds.length
-    ? await db
-        .select({
-          caseId: productPixFraudEvent.caseId,
-          providerEventId: productPixFraudEvent.providerEventId,
-          eventType: productPixFraudEvent.eventType,
-          occurredAt: productPixFraudEvent.occurredAt,
-        })
-        .from(productPixFraudEvent)
-        .where(inArray(productPixFraudEvent.caseId, caseIds))
-        .orderBy(desc(productPixFraudEvent.occurredAt))
-    : [];
-  return rows.map((row) => ({
-    ...row,
-    events: events.filter((event) => event.caseId === row.id),
-  }));
-}
-
-/** Explicitly authorized evidence read for operations/defence work. The
- * consultation itself is recorded in the shared audit table. */
-export async function listProductPurchaseEvidenceForOperator(input: {
-  orderId: string;
-  operatorEmail: string;
-}) {
-  const [order] = await db
-    .select({ id: productOrder.id })
-    .from(productOrder)
-    .where(eq(productOrder.id, input.orderId))
-    .limit(1);
-  if (!order) return [];
-  await db.insert(productEvidenceConsultation).values({
-    orderId: input.orderId,
-    viewerKind: "operator",
-    viewerEmail: input.operatorEmail,
-    purpose: "backoffice_dispute_defence",
-  });
-  return db
-    .select({
-      orderId: productPurchaseEvidence.orderId,
-      productId: productPurchaseEvidence.productId,
-      contentItemId: productPurchaseEvidence.contentItemId,
-      eventType: productPurchaseEvidence.eventType,
-      accessSource: productPurchaseEvidence.accessSource,
-      context: productPurchaseEvidence.context,
-      occurredAt: productPurchaseEvidence.occurredAt,
-    })
-    .from(productPurchaseEvidence)
-    .where(eq(productPurchaseEvidence.orderId, input.orderId))
-    .orderBy(asc(productPurchaseEvidence.occurredAt));
-}
 import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
 import { parseExpertAdminInput } from "@/lib/products/expert-input";
@@ -264,65 +76,6 @@ export async function getProductFinancialSettings() {
 }
 
 /** Operational queue only. Executing a refund remains an explicit, audited action. */
-export async function listProductRefundRequests() {
-  const requests = await db
-    .select({
-      id: productRefundRequest.id,
-      protocol: productRefundRequest.protocol,
-      status: productRefundRequest.status,
-      requestedAt: productRefundRequest.requestedAt,
-      orderId: productOrder.id,
-      buyerUserId: productRefundRequest.buyerUserId,
-      buyerEmail: productOrder.buyerEmail,
-      buyerName: productOrder.buyerName,
-      productTitle: productOrder.productTitleSnapshot,
-      amountCentavos: productOrder.priceCentavos,
-      attribution: productOrder.attribution,
-    })
-    .from(productRefundRequest)
-    .innerJoin(productOrder, eq(productOrder.id, productRefundRequest.orderId))
-    .orderBy(desc(productRefundRequest.requestedAt));
-
-  const orderIds = requests.flatMap((request) => [
-    request.orderId,
-    ...getProductRefundBumpOrderIds(request.attribution),
-  ]);
-  const orders = orderIds.length
-    ? await db
-        .select({
-          id: productOrder.id,
-          productTitle: productOrder.productTitleSnapshot,
-          priceCentavos: productOrder.priceCentavos,
-        })
-        .from(productOrder)
-        .where(inArray(productOrder.id, [...new Set(orderIds)]))
-    : [];
-  const ordersById = new Map(orders.map((order) => [order.id, order]));
-  return requests.map((request) => {
-    const ids = [
-      request.orderId,
-      ...getProductRefundBumpOrderIds(request.attribution),
-    ];
-    const checkoutOrders = ids
-      .map((id) => ordersById.get(id))
-      .filter((order): order is (typeof orders)[number] => Boolean(order));
-    const totalCentavos = checkoutOrders.reduce(
-      (total, order) => total + order.priceCentavos,
-      0,
-    );
-    return {
-      ...request,
-      amountCentavos: totalCentavos || request.amountCentavos,
-      totalCentavos: totalCentavos || request.amountCentavos,
-      items: checkoutOrders.map((order) => ({
-        orderId: order.id,
-        title: order.productTitle,
-        amountCentavos: order.priceCentavos,
-      })),
-    };
-  });
-}
-
 export async function updateProductFinancialSettings(input: unknown) {
   const values = parseProductFinancialSettingsInput(input);
   const [settings] = await db
@@ -589,23 +342,6 @@ export async function listProductOrders() {
       platformFeeBasisPoints: productOrder.platformFeeBasisPoints,
       platformFeeFixedCentavos: productOrder.platformFeeFixedCentavos,
       paymentStatus: productPayment.status,
-      refundOperationId: productRefundOperation.id,
-      refundOperationStatus: productRefundOperation.status,
-      refundOperationAmountCentavos: productRefundOperation.refundedAmountCentavos,
-      refundOperationReason: productRefundOperation.reason,
-      refundOperationOperatorEmail: productRefundOperation.operatorEmail,
-      refundOperationUpdatedAt: productRefundOperation.updatedAt,
-      refundBalanceCaseId: productRefundBalanceCase.id,
-      refundBalanceStatus: productRefundBalanceCase.status,
-      refundBalanceResponsible: productRefundBalanceCase.responsible,
-      refundBalanceFirstFailedAt: productRefundBalanceCase.firstFailedAt,
-      refundBalanceLastFailedAt: productRefundBalanceCase.lastFailedAt,
-      refundBalanceDueAt: productRefundBalanceCase.regularizationDueAt,
-      refundBalanceAttemptCount: productRefundBalanceCase.attemptCount,
-      refundBalanceNextRetryAt: productRefundBalanceCase.nextRetryAt,
-      refundBalanceNoticeSentAt: productRefundBalanceCase.noticeSentAt,
-      refundBalanceLastFailureCode: productRefundBalanceCase.lastFailureCode,
-      refundBalanceLastFailureMessage: productRefundBalanceCase.lastFailureMessage,
       grossAmountCentavos: productPayment.grossAmountCentavos,
       netAmountCentavos: productPayment.netAmountCentavos,
       feeAmountCentavos: productPayment.feeAmountCentavos,
@@ -641,8 +377,6 @@ export async function listProductOrders() {
     .from(productOrder)
     .innerJoin(product, eq(productOrder.productId, product.id))
     .leftJoin(productPayment, eq(productPayment.orderId, productOrder.id))
-    .leftJoin(productRefundOperation, eq(productRefundOperation.paymentId, productPayment.id))
-    .leftJoin(productRefundBalanceCase, eq(productRefundBalanceCase.paymentId, productPayment.id))
     .orderBy(desc(productOrder.createdAt));
 
   const rowsById = new Map(rows.map((row) => [row.id, row]));
@@ -860,33 +594,6 @@ export async function applyFullProductCheckoutRefund(input: {
       }
     }
 
-    if (input.operationId) {
-      await tx
-        .update(productRefundOperation)
-        .set({
-          status: "confirmed",
-          refundedAmountCentavos: input.refundedAmountCentavos,
-          confirmedAt: now,
-          updatedAt: now,
-        })
-        .where(eq(productRefundOperation.id, input.operationId));
-    }
-    await tx
-      .update(productRefundBalanceCase)
-      .set({ nextRetryAt: null, lastFailureMessage: null, updatedAt: now })
-      .where(and(
-        eq(productRefundBalanceCase.paymentId, input.paymentId),
-        eq(productRefundBalanceCase.status, "pending"),
-      ));
-    await tx
-      .update(productRefundRequest)
-      .set({ status: "completed", updatedAt: now })
-      .where(
-        and(
-          eq(productRefundRequest.orderId, input.rootOrderId),
-          inArray(productRefundRequest.status, ["requested", "in_review"]),
-        ),
-      );
     return { orders, payment, refundedAmountCentavos: input.refundedAmountCentavos };
   });
 }

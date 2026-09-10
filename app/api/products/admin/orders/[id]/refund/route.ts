@@ -9,7 +9,6 @@ import { db } from "@/lib/db";
 import { backofficeAuditLog } from "@/lib/db/schema";
 import { createStripeConnectRefundClient } from "@/lib/stripe/connect/client";
 import { refundProductOrder } from "@/lib/products/refund-product-order";
-import { executeProductIntegralRefund } from "@/lib/products/mercadopago-refund-service";
 
 const REFUND_REASON_COPY = {
   not_approved: "Pedido não está aprovado",
@@ -43,35 +42,17 @@ export async function POST(
     return NextResponse.json({ error: "Pedido não encontrado" }, { status: 404 });
   }
 
+  // Cobrança de Mercado Pago é devolvida no painel do provedor. O fluxo
+  // automatizado saiu junto com a solicitação do comprador; o webhook continua
+  // reagindo ao evento e revogando o Acesso quando o dinheiro volta inteiro.
   if ((order.checkoutProvider ?? order.provider) === "mercadopago") {
-    try {
-      const result = await executeProductIntegralRefund({
-        orderId: id,
-        operatorEmail: authz.actor.email,
-        reason,
-      });
-      if (order.buyerUserId) {
-        await db.insert(backofficeAuditLog).values({
-          adminEmail: authz.actor.email,
-          targetUserId: order.buyerUserId,
-          action: "refund_product_checkout",
-          fieldName: "product_checkout_refund",
-          oldValue: order.status,
-          newValue: result.status,
-          note: `Cobrança ${result.rootOrderId} · itens ${result.orderIds.join(",")} · ${result.amountCentavos} centavos · motivo: ${reason}`,
-        });
-      }
-      return NextResponse.json(
-        result,
-        { status: result.status === "processing" || result.status === "balance_pending" ? 202 : result.status === "external_partial" ? 409 : 200 },
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "refund_failed";
-      return NextResponse.json(
-        { error: REFUND_REASON_COPY[message as keyof typeof REFUND_REASON_COPY] ?? message },
-        { status: message === "product_order_not_found" ? 404 : 422 },
-      );
-    }
+    return NextResponse.json(
+      {
+        error:
+          "Reembolso de Mercado Pago é feito no painel do provedor. O Acesso é revogado sozinho quando a devolução integral for confirmada.",
+      },
+      { status: 422 },
+    );
   }
 
   const result = await refundProductOrder({
