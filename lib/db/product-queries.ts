@@ -12,6 +12,7 @@ import {
   productFinancialSetting,
   productOrder,
   productPayment,
+  productPaymentAttempt,
   productCardDispute,
   productPixFraudCase,
   productPixFraudEvent,
@@ -58,6 +59,32 @@ export async function listProductReconciliationCases() {
     .innerJoin(productOrder, eq(productOrder.id, productReconciliationCase.orderId))
     .where(inArray(productReconciliationCase.status, ["open", "monitoring"]))
     .orderBy(asc(productReconciliationCase.nextReviewAt));
+}
+
+/** Attempts without a terminal provider fact must remain visible separately
+ * from reconciliation cases: they can be explicitly resolved only after an
+ * operator records the provider's no-payment fact. */
+export async function listProductPaymentAttempts() {
+  return db
+    .select({
+      id: productPaymentAttempt.id,
+      orderId: productPaymentAttempt.orderId,
+      productTitle: productOrder.productTitleSnapshot,
+      attemptKey: productPaymentAttempt.attemptKey,
+      paymentMethod: productPaymentAttempt.paymentMethod,
+      amountCentavos: productPaymentAttempt.amountCentavos,
+      providerPaymentId: productPaymentAttempt.providerPaymentId,
+      collectorId: productPaymentAttempt.mercadoPagoCollectorId,
+      status: productPaymentAttempt.status,
+      failureCode: productPaymentAttempt.failureCode,
+      createdAt: productPaymentAttempt.createdAt,
+      updatedAt: productPaymentAttempt.updatedAt,
+      lastCheckedAt: productPaymentAttempt.lastCheckedAt,
+    })
+    .from(productPaymentAttempt)
+    .innerJoin(productOrder, eq(productOrder.id, productPaymentAttempt.orderId))
+    .where(inArray(productPaymentAttempt.status, ["prepared", "issuing", "pending", "unknown"]))
+    .orderBy(asc(productPaymentAttempt.updatedAt));
 }
 
 /** A read-only operational queue. Submission is intentionally a separate,

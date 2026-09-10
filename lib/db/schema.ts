@@ -37,6 +37,7 @@ import {
   PRODUCT_ORDER_STATUS_VALUES,
   PRODUCT_PAYMENT_STATUS_VALUES,
   PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES,
   PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
   PRODUCT_POST_SALE_COST_STATUS_VALUES,
   PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
@@ -55,6 +56,7 @@ import {
   type ProductOrderStatus,
   type ProductPaymentStatus,
   type ProductPaymentAttemptStatus,
+  type ProductPaymentAttemptResolution,
   type ProductPixFraudCaseStatus,
   type ProductPostSaleCostStatus,
   type ProductPostSaleMovementAttribution,
@@ -75,6 +77,7 @@ export {
   PRODUCT_ORDER_STATUS_VALUES,
   PRODUCT_PAYMENT_STATUS_VALUES,
   PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES,
+  PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES,
   PRODUCT_PIX_FRAUD_CASE_STATUS_VALUES,
   PRODUCT_POST_SALE_COST_STATUS_VALUES,
   PRODUCT_POST_SALE_MOVEMENT_ATTRIBUTION_VALUES,
@@ -95,6 +98,7 @@ export type {
   ProductOrderStatus,
   ProductPaymentStatus,
   ProductPaymentAttemptStatus,
+  ProductPaymentAttemptResolution,
   ProductPixFraudCaseStatus,
   ProductPostSaleCostStatus,
   ProductPostSaleMovementAttribution,
@@ -930,6 +934,46 @@ export const productPaymentAttempt = pgTable(
 );
 
 export type ProductPaymentAttempt = InferSelectModel<typeof productPaymentAttempt>;
+
+/** Immutable operator evidence for deliberately closing an attempt after the
+ * provider confirmed that no payment exists. */
+export const productPaymentAttemptResolution = pgTable(
+  "product_payment_attempt_resolutions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => productPaymentAttempt.id),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => productOrder.id),
+    attemptKey: varchar("attempt_key", { length: 80 }).notNull(),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    outcome: varchar("outcome", {
+      enum: [...PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES],
+    })
+      .$type<ProductPaymentAttemptResolution>()
+      .notNull(),
+    operatorEmail: varchar("operator_email", { length: 255 }).notNull(),
+    reason: text("reason").notNull(),
+    providerFact: jsonb("provider_fact")
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    attemptUnique: unique(
+      "product_payment_attempt_resolutions_attempt_unique",
+    ).on(table.attemptId),
+    orderCreatedIdx: index(
+      "product_payment_attempt_resolutions_order_created_idx",
+    ).on(table.orderId, table.createdAt),
+  }),
+);
+
+export type ProductPaymentAttemptResolutionRow = InferSelectModel<
+  typeof productPaymentAttemptResolution
+>;
 
 export const productPayment = pgTable(
   "product_payments",

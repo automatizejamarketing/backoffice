@@ -339,6 +339,22 @@ type ReconciliationCase = {
   createdAt: string;
 };
 
+type ProductPaymentAttempt = {
+  id: string;
+  orderId: string;
+  productTitle: string;
+  attemptKey: string;
+  paymentMethod: "pix" | "card";
+  amountCentavos: number;
+  providerPaymentId: string | null;
+  collectorId: string | null;
+  status: "prepared" | "issuing" | "pending" | "unknown";
+  failureCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastCheckedAt: string | null;
+};
+
 type PostSaleCostCase = {
   id: string;
   productTitle: string;
@@ -881,6 +897,7 @@ export function ProductsAdminWorkspace({
   const [defences, setDefences] = useState<Defence[]>([]);
   const [pixFraudCases, setPixFraudCases] = useState<PixFraudCase[]>([]);
   const [reconciliationCases, setReconciliationCases] = useState<ReconciliationCase[]>([]);
+  const [paymentAttempts, setPaymentAttempts] = useState<ProductPaymentAttempt[]>([]);
   const [postSaleCostCases, setPostSaleCostCases] = useState<PostSaleCostCase[]>([]);
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -1002,6 +1019,7 @@ export function ProductsAdminWorkspace({
       setDefences(nextDefences.defences ?? []);
       setPixFraudCases(nextPixFraud.cases ?? []);
       setReconciliationCases(nextReconciliation.cases ?? []);
+      setPaymentAttempts(nextReconciliation.attempts ?? []);
       setPostSaleCostCases(nextPostSaleCosts.cases ?? []);
       setSelectedProductId(
         (current) => current || nextProducts[0]?.product.id || "",
@@ -1052,6 +1070,26 @@ export function ProductsAdminWorkspace({
     const response = await fetch(`/api/products/admin/reconciliation-cases/${orderId}/reconcile`, { method: "POST" });
     if (!response.ok) throw new Error(await readError(response));
     toast.success("Conciliação manual executada pela conta original.");
+    await loadAll();
+  }
+
+  async function resolvePaymentAttempt(attemptId: string) {
+    const reason = window.prompt("Motivo do encerramento sem cobrança")?.trim();
+    if (!reason) return;
+    const providerFact = window.prompt(
+      "Fato confirmado pelo Mercado Pago (ex.: busca pela referência sem resultado)",
+    )?.trim();
+    if (!providerFact) return;
+    const response = await fetch(`/api/products/admin/payment-attempts/${attemptId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reason,
+        providerFact: { summary: providerFact, source: "operator_input" },
+      }),
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    toast.success("Tentativa encerrada com auditoria.");
     await loadAll();
   }
 
@@ -1906,7 +1944,7 @@ export function ProductsAdminWorkspace({
         <TabsTrigger value="payouts">Repasses</TabsTrigger>
         <TabsTrigger value="defences">Defesas ({defences.length})</TabsTrigger>
         <TabsTrigger value="pix-fraud">Fraude Pix ({pixFraudCases.filter((item) => item.status === "under_review").length})</TabsTrigger>
-        <TabsTrigger value="reconciliation">Conciliação ({reconciliationCases.length})</TabsTrigger>
+        <TabsTrigger value="reconciliation">Conciliação ({reconciliationCases.length + paymentAttempts.length})</TabsTrigger>
         <TabsTrigger value="post-sale-costs">Custos pós-venda ({postSaleCostCases.filter((item) => item.status === "open").length})</TabsTrigger>
         </TabsList>
 
@@ -2582,6 +2620,48 @@ export function ProductsAdminWorkspace({
       </TabsContent>
 
       <TabsContent value="reconciliation" className="pt-4">
+        <Card className="mb-4">
+          <CardHeader>
+            <CardTitle>Tentativas de cobrança inconclusivas</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Tentativas sem fato terminal ficam bloqueadas contra uma nova cobrança. Com ID do provedor, concilie; sem ID, encerre somente após registrar o fato confirmado pelo Mercado Pago.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table className="min-w-[1050px]">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Produto / pedido</TableHead>
+                  <TableHead>Método / estado</TableHead>
+                  <TableHead>Valor</TableHead>
+                  <TableHead>Provedor</TableHead>
+                  <TableHead>Atualizada</TableHead>
+                  <TableHead className="text-right">Ação explícita</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {paymentAttempts.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nenhuma tentativa inconclusiva.</TableCell></TableRow>
+                ) : paymentAttempts.map((attempt) => (
+                  <TableRow key={attempt.id}>
+                    <TableCell><p className="font-medium">{attempt.productTitle}</p><p className="font-mono text-xs text-muted-foreground">{attempt.orderId}</p><p className="font-mono text-[10px] text-muted-foreground">{attempt.attemptKey}</p></TableCell>
+                    <TableCell><Badge variant={attempt.status === "unknown" ? "destructive" : "outline"}>{attempt.paymentMethod} · {attempt.status}</Badge><p className="mt-1 text-xs text-muted-foreground">{attempt.failureCode ?? "sem erro terminal"}</p></TableCell>
+                    <TableCell className="tabular-nums">{money(attempt.amountCentavos)}</TableCell>
+                    <TableCell className="font-mono text-xs">{attempt.providerPaymentId ?? "sem ID"}{attempt.collectorId ? <p>conta {attempt.collectorId}</p> : null}</TableCell>
+                    <TableCell>{dateTime(attempt.updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      {attempt.providerPaymentId ? (
+                        <Button size="sm" variant="outline" onClick={() => { void reconcileProductCase(attempt.orderId).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível conciliar.")); }}>Conciliar agora</Button>
+                      ) : (
+                        <Button size="sm" variant="destructive" onClick={() => { void resolvePaymentAttempt(attempt.id).catch((error) => toast.error(error instanceof Error ? error.message : "Não foi possível encerrar.")); }}>Encerrar sem cobrança</Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Fila de conciliação</CardTitle>

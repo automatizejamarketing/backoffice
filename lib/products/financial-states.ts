@@ -31,6 +31,12 @@ export const PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES = [
 export type ProductPaymentAttemptStatus =
   (typeof PRODUCT_PAYMENT_ATTEMPT_STATUS_VALUES)[number];
 
+export const PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES = [
+  "abandoned",
+] as const;
+export type ProductPaymentAttemptResolution =
+  (typeof PRODUCT_PAYMENT_ATTEMPT_RESOLUTION_VALUES)[number];
+
 export const PRODUCT_REFUND_REQUEST_STATUS_VALUES = [
   "requested",
   "in_review",
