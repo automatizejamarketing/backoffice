@@ -414,8 +414,8 @@
       "when": 1795600000000,
       "tag": "0071_mercadopago_receiver_switches",
       "breakpoints": true
-    }
-    ,{
+    },
+    {
       "idx": 72,
       "version": "7",
       "when": 1795700000001,
@@ -595,6 +595,13 @@
       "version": "7",
       "when": 1798400000000,
       "tag": "0097_product_payment_attempt_environment",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1798500000000,
+      "tag": "0098_product_gateway_gross_v1",
       "breakpoints": true
     }
   ]

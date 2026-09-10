@@ -41,8 +41,7 @@ export type ProductEligibilityReason =
   | "participation_missing"
   | "participation_invalid"
   | "expert_connection_required"
-  | "expert_connection_not_eligible"
-  | "expert_card_contract_required";
+  | "expert_connection_not_eligible";
 
 export type ProductCommercialEligibility = {
   eligible: boolean;
