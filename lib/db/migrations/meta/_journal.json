@@ -680,6 +680,13 @@
       "when": 1800100000000,
       "tag": "0113_whatsapp_support_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795100000000,
+      "tag": "0108_client_reports",
+      "breakpoints": true
     }
   ]
 }

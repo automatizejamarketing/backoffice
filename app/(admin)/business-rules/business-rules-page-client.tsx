@@ -16,6 +16,7 @@ import {
   type ProactivityAlertClient,
   type ProactivityAlertLogClient,
 } from "./proactivity-alerts-section";
+import { ClientReportsSection } from "./client-reports-section";
 
 type RulesState = BusinessOperatingRules & {
   id: string;
@@ -295,6 +296,10 @@ export function BusinessRulesPageClient({
           initialAlerts={initialProactivityAlerts}
           initialLogs={initialProactivityLogs}
         />
+      </div>
+
+      <div className="border-t pt-8">
+        <ClientReportsSection />
       </div>
     </div>
   );
