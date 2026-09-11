@@ -74,3 +74,38 @@ export function getDatePresets(today = new Date()): DatePreset[] {
     },
   ];
 }
+/** Filtro de data no estilo Notion: um operador e uma ou duas datas de calendário (YYYY-MM-DD). */
+export const DATE_OPERATORS = ["between", "before", "after", "on"] as const;
+export type DateOperator = (typeof DATE_OPERATORS)[number];
+export type DateCondition =
+  | { op: "between"; from: string; to: string }
+  | { op: Exclude<DateOperator, "between">; date: string };
+export const DATE_OPERATOR_LABELS: Record<DateOperator, string> = {
+  between: "Entre",
+  before: "Antes de",
+  after: "Depois de",
+  on: "Em",
+};
+export function isDateOperator(value: unknown): value is DateOperator {
+  return DATE_OPERATORS.includes(value as DateOperator);
+}
+/** Só aceita condição completa e válida; "entre" invertido é corrigido. */
+export function parseDateCondition(value: unknown): DateCondition | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  if (!isDateOperator(record.op)) return undefined;
+  if (record.op === "between") {
+    const from = typeof record.from === "string" && parseDate(record.from) ? record.from : undefined;
+    const to = typeof record.to === "string" && parseDate(record.to) ? record.to : undefined;
+    if (!from || !to) return undefined;
+    return from <= to ? { op: "between", from, to } : { op: "between", from: to, to: from };
+  }
+  const date = typeof record.date === "string" && parseDate(record.date) ? record.date : undefined;
+  return date ? { op: record.op, date } : undefined;
+}
+export function formatDateCondition(condition: DateCondition): string {
+  if (condition.op === "between") {
+    return `${formatDate(parseDate(condition.from))} – ${formatDate(parseDate(condition.to))}`;
+  }
+  return `${DATE_OPERATOR_LABELS[condition.op]} ${formatDate(parseDate(condition.date))}`;
+}

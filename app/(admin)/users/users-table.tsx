@@ -2,7 +2,6 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { UserWithUsage } from "@/lib/db/admin-queries";
-import type { ContactStatusFilter } from "@/lib/backoffice/users-filters";
 import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +13,6 @@ import {
 import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 import { WhatsAppIcon } from "@/components/whatsapp-icon";
 import { canManageUserActivation } from "@/lib/backoffice/user-activation-policy";
-import { resolveContactedUserIds } from "@/lib/backoffice/user-contact-marks-client";
 import {
   USERS_TABLE_COLUMNS,
   USERS_TABLE_COLUMNS_STORAGE_KEY,
@@ -28,12 +26,13 @@ import {
 import { UsersTableColumnsMenu } from "./users-table-columns-menu";
 import { UsersTableShell } from "./users-table-shell";
 import { UserActivationActions } from "./user-activation-actions";
+import { CommercialStatusBadge } from "../crm/crm-badges";
 
 const COLUMN_HEADER_CLASS: Record<UsersTableColumnId, string> = {
   user: "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground",
   actions:
     "w-14 px-3 py-3 text-right text-xs font-medium uppercase tracking-wider text-muted-foreground",
-  contact:
+  crmStatus:
     "whitespace-nowrap px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground",
   company:
     "w-[320px] px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground",
@@ -104,28 +103,19 @@ type UsersTableProps = {
   users: UserWithUsage[];
   search: string;
   canManageBilling: boolean;
-  contactedUserIds: string[];
-  contactStatus: ContactStatusFilter;
 };
 
 export function UsersTable({
   users,
   search,
   canManageBilling,
-  contactedUserIds,
-  contactStatus,
 }: UsersTableProps) {
   const [rows, setRows] = useState(users);
-  const [contactedIds, setContactedIds] = useState(contactedUserIds);
   const [columnPrefs, setColumnPrefs] = useState(defaultUsersTableColumnPrefs);
 
   useEffect(() => {
     setRows(users);
   }, [users]);
-
-  useEffect(() => {
-    setContactedIds(resolveContactedUserIds(contactedUserIds));
-  }, [contactedUserIds]);
 
   useEffect(() => {
     try {
@@ -200,7 +190,6 @@ export function UsersTable({
                 const providerLabel = sub?.provider
                   ? (PROVIDER_LABELS[sub.provider] ?? sub.provider)
                   : null;
-                const contacted = contactedIds.includes(user.id);
 
                 return (
                   <tr
@@ -214,23 +203,12 @@ export function UsersTable({
                         key={columnId}
                         columnId={columnId}
                         user={user}
-                        contacted={contacted}
                         badge={badge}
                         phoneFormatted={phoneFormatted}
                         whatsappUrl={whatsappUrl}
                         expirationHint={expirationHint}
                         providerLabel={providerLabel}
                         canManageBilling={canManageBilling}
-                        contactStatus={contactStatus}
-                        onContactedChange={(nextContacted) => {
-                          setContactedIds((current) =>
-                            nextContacted
-                              ? current.includes(user.id)
-                                ? current
-                                : [...current, user.id]
-                              : current.filter((id) => id !== user.id),
-                          );
-                        }}
                         onActivated={(emailVerified) => {
                           setRows((current) =>
                             current.map((row) =>
@@ -271,29 +249,23 @@ export function UsersTable({
 function OptionalColumnCell({
   columnId,
   user,
-  contacted,
   badge,
   phoneFormatted,
   whatsappUrl,
   expirationHint,
   providerLabel,
   canManageBilling,
-  contactStatus,
-  onContactedChange,
   onActivated,
   onSubscriptionUpdated,
 }: {
   columnId: UsersTableColumnId;
   user: UserWithUsage;
-  contacted: boolean;
   badge: ReturnType<typeof getAccountStatusBadge>;
   phoneFormatted: string | null;
   whatsappUrl: string | null;
   expirationHint: string | null;
   providerLabel: string | null;
   canManageBilling: boolean;
-  contactStatus: ContactStatusFilter;
-  onContactedChange: (contacted: boolean) => void;
   onActivated: (emailVerified: string) => void;
   onSubscriptionUpdated: (
     subscription: NonNullable<UserWithUsage["activeSubscription"]>,
@@ -344,24 +316,13 @@ function OptionalColumnCell({
           activationAvailable={canManageUserActivation(user)}
           activeSubscription={user.activeSubscription}
           canManageBilling={canManageBilling}
-          initiallyContacted={contacted}
-          contactStatus={contactStatus}
-          onContactedChange={onContactedChange}
           onActivated={onActivated}
           onSubscriptionUpdated={onSubscriptionUpdated}
         />
       );
       break;
-    case "contact":
-      content = contacted ? (
-        <Badge variant="secondary" className="w-fit text-xs">
-          Contatado
-        </Badge>
-      ) : (
-        <Badge variant="outline" className="w-fit text-xs text-muted-foreground">
-          Sem contato
-        </Badge>
-      );
+    case "crmStatus":
+      content = <CommercialStatusBadge status={user.crmStatus} />;
       break;
     case "company":
       className = "w-[320px] px-4 py-3";

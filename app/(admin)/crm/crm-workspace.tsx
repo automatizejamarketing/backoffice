@@ -2,29 +2,29 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { KanbanSquare, List } from "lucide-react";
-import { useDeferredValue, useState } from "react";
-import {
-  DateRangePicker,
-  type DateRange,
-} from "@/components/ui/date-range-picker";
-import { FilterBar, FilterSelect } from "@/components/ui/filter";
+import { useDeferredValue, useEffect, useState } from "react";
+import { FilterBar, FilterDate, FilterSelect } from "@/components/ui/filter";
 import { SearchField } from "@/components/ui/search-field";
-import { dateKey } from "@/lib/dates";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   CRM_ACCOUNT_STAGE_META,
   CRM_ACCOUNT_STAGE_VALUES,
   CRM_COMMERCIAL_STATUS_VALUES,
   CRM_STATUS_META,
+  crmDateConditionToBounds,
   type CrmAccountStage,
   type CrmCommercialStatus,
-  type CrmDateRange,
+  type CrmDateCondition,
 } from "@/lib/backoffice/crm";
+import {
+  CRM_FILTERS_STORAGE_KEY,
+  parseCrmStoredFilters,
+  serializeCrmStoredFilters,
+  type CrmView,
+} from "@/lib/backoffice/crm-filters-storage";
 import { CrmKanban } from "./crm-kanban";
 import { CrmLeadSheet } from "./crm-lead-sheet";
 import { CrmList } from "./crm-list";
-
-type View = "kanban" | "list";
 
 const ACCOUNT_STAGE_OPTIONS = CRM_ACCOUNT_STAGE_VALUES.map((value) => ({
   value,
@@ -36,25 +36,57 @@ const COMMERCIAL_STATUS_OPTIONS = CRM_COMMERCIAL_STATUS_VALUES.map((value) => ({
   label: CRM_STATUS_META[value].label,
 }));
 
-function toCalendarRange(range: DateRange | undefined): CrmDateRange | undefined {
-  return range ? { from: dateKey(range.from), to: dateKey(range.to) } : undefined;
-}
-
 export function CrmWorkspace() {
   const queryClient = useQueryClient();
-  const [view, setView] = useState<View>("kanban");
+  const [view, setView] = useState<CrmView>("kanban");
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput.trim());
   const [accountStage, setAccountStage] = useState<CrmAccountStage | undefined>();
   const [commercialStatus, setCommercialStatus] = useState<
     CrmCommercialStatus | undefined
   >();
-  const [signupRange, setSignupRange] = useState<DateRange | undefined>();
-  const [expiresRange, setExpiresRange] = useState<DateRange | undefined>();
+  const [signup, setSignup] = useState<CrmDateCondition | undefined>();
+  const [expires, setExpires] = useState<CrmDateCondition | undefined>();
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  // Os filtros ficam no localStorage; até ler, nada é buscado nem gravado.
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
 
-  const signup = toCalendarRange(signupRange);
-  const expires = toCalendarRange(expiresRange);
+  const signupBounds = signup && crmDateConditionToBounds(signup);
+  const expiresBounds = expires && crmDateConditionToBounds(expires);
+
+  useEffect(() => {
+    try {
+      const stored = parseCrmStoredFilters(
+        localStorage.getItem(CRM_FILTERS_STORAGE_KEY),
+      );
+      setView(stored.view);
+      setAccountStage(stored.accountStage);
+      setCommercialStatus(stored.commercialStatus);
+      setSignup(stored.signup);
+      setExpires(stored.expires);
+    } catch {
+      // Sem storage (modo privado, bloqueio): segue com os padrões.
+    } finally {
+      setFiltersLoaded(true);
+    }
+  }, []);
+
+  const storedFilters = serializeCrmStoredFilters({
+    view,
+    accountStage,
+    commercialStatus,
+    signup,
+    expires,
+  });
+  useEffect(() => {
+    if (!filtersLoaded) return;
+    try {
+      localStorage.setItem(CRM_FILTERS_STORAGE_KEY, storedFilters);
+    } catch {
+      // Gravar é conveniência; a tela segue funcionando sem storage.
+    }
+  }, [filtersLoaded, storedFilters]);
+
   const activeFilters =
     Number(Boolean(accountStage)) +
     Number(Boolean(commercialStatus) && view === "list") +
@@ -73,8 +105,8 @@ export function CrmWorkspace() {
           onClear={() => {
             setAccountStage(undefined);
             setCommercialStatus(undefined);
-            setSignupRange(undefined);
-            setExpiresRange(undefined);
+            setSignup(undefined);
+            setExpires(undefined);
           }}
         >
           <SearchField
@@ -91,18 +123,18 @@ export function CrmWorkspace() {
             options={ACCOUNT_STAGE_OPTIONS}
             allLabel="Todas"
           />
-          <DateRangePicker
+          <FilterDate
             label="Cadastro"
-            value={signupRange}
-            onChange={setSignupRange}
+            value={signup}
+            onChange={setSignup}
             maxDate={new Date()}
-            className="w-full sm:w-56"
+            className="w-full sm:w-auto"
           />
-          <DateRangePicker
+          <FilterDate
             label="Acesso até"
-            value={expiresRange}
-            onChange={setExpiresRange}
-            className="w-full sm:w-56"
+            value={expires}
+            onChange={setExpires}
+            className="w-full sm:w-auto"
           />
           {view === "list" ? (
             <FilterSelect
@@ -123,7 +155,7 @@ export function CrmWorkspace() {
           aria-label="Visualização"
           value={view}
           onValueChange={(value) => {
-            if (value) setView(value as View);
+            if (value) setView(value as CrmView);
           }}
         >
           <ToggleGroupItem value="kanban" aria-label="Kanban">
@@ -137,12 +169,12 @@ export function CrmWorkspace() {
         </ToggleGroup>
       </div>
 
-      {view === "kanban" ? (
+      {!filtersLoaded ? null : view === "kanban" ? (
         <CrmKanban
           search={search}
           accountStage={accountStage}
-          signup={signup}
-          expires={expires}
+          signup={signupBounds}
+          expires={expiresBounds}
           onOpenLead={setSelectedUserId}
         />
       ) : (
@@ -150,8 +182,8 @@ export function CrmWorkspace() {
           search={search}
           accountStage={accountStage}
           commercialStatus={commercialStatus}
-          signup={signup}
-          expires={expires}
+          signup={signupBounds}
+          expires={expiresBounds}
           onOpenLead={setSelectedUserId}
         />
       )}

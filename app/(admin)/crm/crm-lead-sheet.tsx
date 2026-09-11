@@ -1,10 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, ExternalLink } from "lucide-react";
+import { ArrowRight, Copy, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { WhatsAppIcon } from "@/components/whatsapp-icon";
+import { formatBrazilianPhone, getWhatsAppUrl } from "@/lib/phone";
 import {
   Select,
   SelectContent,
@@ -121,12 +124,12 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
           <span>
             {lead.companyName && lead.name ? `${lead.companyName} · ` : ""}
             {lead.email}
-            {lead.phone ? ` · ${lead.phone}` : ""}
           </span>
           {lead.createdAt ? (
             <span>Conta criada em {formatDateTime(lead.createdAt)}</span>
           ) : null}
         </SheetDescription>
+        <LeadPhone phone={lead.phone} />
       </SheetHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-6">
@@ -235,6 +238,57 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
         </section>
       </div>
     </>
+  );
+}
+
+/** Celular do lead: abre o WhatsApp num clique e copia no outro. */
+function LeadPhone({ phone }: { phone: string | null }) {
+  const formatted = formatBrazilianPhone(phone);
+  const whatsappUrl = getWhatsAppUrl(phone);
+
+  if (!formatted) {
+    return <p className="text-sm text-muted-foreground">Sem celular cadastrado</p>;
+  }
+
+  async function copyPhone() {
+    try {
+      await navigator.clipboard.writeText(formatted as string);
+      toast.success("Celular copiado");
+    } catch {
+      toast.error("Não foi possível copiar. Selecione o número manualmente.");
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {whatsappUrl ? (
+        <a
+          href={whatsappUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-[#25D366] hover:underline"
+          aria-label={`Abrir conversa no WhatsApp com ${formatted}`}
+        >
+          <WhatsAppIcon />
+          {formatted}
+        </a>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+          <WhatsAppIcon muted />
+          {formatted}
+        </span>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Copiar celular"
+        title="Copiar celular"
+        onClick={() => void copyPhone()}
+      >
+        <Copy />
+      </Button>
+    </div>
   );
 }
 

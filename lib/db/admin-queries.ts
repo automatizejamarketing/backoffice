@@ -12,7 +12,6 @@ import {
   isNull,
   like,
   lt,
-  not,
   or,
   sql,
 } from "drizzle-orm";
@@ -30,6 +29,7 @@ import {
   company,
   companyLocation,
   creditTransaction,
+  crmLead,
   generatedImage,
   generatedImageVersion,
   genericGeneratePost,
@@ -63,6 +63,7 @@ import {
   type SubscriptionEvent,
   type User,
   type BillingProvider,
+  type CrmCommercialStatus,
   type PaymentSettlementMethod,
 } from "./schema";
 import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
@@ -156,6 +157,7 @@ export type UserWithUsage = User & {
   requestCount: number;
   companyName: string | null;
   onboardingCompleted: boolean;
+  crmStatus: CrmCommercialStatus;
   activeSubscription: ActiveSubscriptionSummary;
   hasMetaBusinessAccount: boolean;
   metaAccountName: string | null;
@@ -183,7 +185,7 @@ export type GetAllUsersWithUsageParams = {
       | "planPeriod"
       | "metaStatus"
       | "activationStatus"
-      | "contactStatus"
+      | "crmStatus"
       | "campaignStatus"
       | "performanceStatus"
       | "accessExpiration"
@@ -196,7 +198,6 @@ export type GetAllUsersWithUsageParams = {
       | "signupTo"
     >
   >;
-  contactedUserIds?: string[];
 };
 
 export type GetAllUsersWithUsageResult = {
@@ -394,6 +395,12 @@ const hasPerformanceSnapshotSql = sql`EXISTS (
 // count + users page + usage/company/subscription/meta/consultant/campaign/
 // performance aggregates, plus operating rules for renewal alerts. Active
 // subscription is still picked in memory via `pickActiveSubscription`.
+/** Status comercial do CRM; sem linha em crm_leads o usuário é "novo lead". */
+const crmCommercialStatusSql = sql<CrmCommercialStatus>`coalesce(
+  (select cl.commercial_status from crm_leads cl where cl.user_id = ${user.id}),
+  'novo_lead'
+)`;
+
 export async function getAllUsersWithUsage(
   params: GetAllUsersWithUsageParams = {},
 ): Promise<GetAllUsersWithUsageResult> {
@@ -572,18 +579,9 @@ export async function getAllUsersWithUsage(
     conditions.push(lt(user.createdAt, signupRange.lt));
   }
 
-  const contactedUserIds = params.contactedUserIds ?? [];
-  if (params.filters?.contactStatus === "contacted") {
-    conditions.push(
-      contactedUserIds.length > 0
-        ? inArray(user.id, contactedUserIds)
-        : sql`false`,
-    );
-  } else if (
-    params.filters?.contactStatus === "not_contacted" &&
-    contactedUserIds.length > 0
-  ) {
-    conditions.push(not(inArray(user.id, contactedUserIds)));
+  const crmStatus = params.filters?.crmStatus ?? "all";
+  if (crmStatus !== "all") {
+    conditions.push(sql`${crmCommercialStatusSql} = ${crmStatus}`);
   }
   const signupFilterActive = Boolean(signupRange.gte || signupRange.lt);
   const sort = params.filters?.sort ?? "default";
@@ -636,6 +634,7 @@ export async function getAllUsersWithUsage(
     postCounts,
     usageRows,
     companyRows,
+    crmRows,
     subRows,
     metaRows,
     consultantRows,
@@ -671,6 +670,13 @@ export async function getAllUsersWithUsage(
       .from(userCompany)
       .leftJoin(company, eq(userCompany.companyId, company.id))
       .where(inArray(userCompany.userId, userIds)),
+    db
+      .select({
+        userId: crmLead.userId,
+        commercialStatus: crmLead.commercialStatus,
+      })
+      .from(crmLead)
+      .where(inArray(crmLead.userId, userIds)),
     db
       .select({
         userId: subscription.userId,
@@ -811,6 +817,10 @@ export async function getAllUsersWithUsage(
       onboardingCompleted: row.onboardingCompleted ?? false,
     });
   }
+
+  const crmStatusByUser = new Map<string, CrmCommercialStatus>(
+    crmRows.map((row) => [row.userId, row.commercialStatus]),
+  );
 
   type SubRow = (typeof subRows)[number];
   const subsByUser = new Map<string, SubRow[]>();
@@ -988,6 +998,7 @@ export async function getAllUsersWithUsage(
       requestCount: usage?.requestCount ?? 0,
       companyName: companyInfo?.companyName ?? null,
       onboardingCompleted: companyInfo?.onboardingCompleted ?? false,
+      crmStatus: crmStatusByUser.get(u.id) ?? "novo_lead",
       activeSubscription,
       hasMetaBusinessAccount: Boolean(metaInfo),
       metaAccountName: metaInfo?.metaAccountName ?? null,

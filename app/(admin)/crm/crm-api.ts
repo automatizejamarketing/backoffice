@@ -1,7 +1,7 @@
 import type {
   CrmAccountStage,
   CrmCommercialStatus,
-  CrmDateRange,
+  CrmDateBounds,
   CrmKanbanColumn,
   CrmLeadEventView,
   CrmLeadSummary,
@@ -32,19 +32,15 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export type CrmDateFilters = {
-  signup?: CrmDateRange;
-  expires?: CrmDateRange;
+  signup?: CrmDateBounds;
+  expires?: CrmDateBounds;
 };
 
 function applyDateFilters(query: URLSearchParams, params: CrmDateFilters) {
-  if (params.signup) {
-    query.set("signupFrom", params.signup.from);
-    query.set("signupTo", params.signup.to);
-  }
-  if (params.expires) {
-    query.set("expiresFrom", params.expires.from);
-    query.set("expiresTo", params.expires.to);
-  }
+  if (params.signup?.from) query.set("signupFrom", params.signup.from);
+  if (params.signup?.to) query.set("signupTo", params.signup.to);
+  if (params.expires?.from) query.set("expiresFrom", params.expires.from);
+  if (params.expires?.to) query.set("expiresTo", params.expires.to);
 }
 
 export function fetchCrmKanban(params: CrmDateFilters & {

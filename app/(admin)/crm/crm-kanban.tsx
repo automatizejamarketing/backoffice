@@ -11,6 +11,10 @@ import {
   type CrmKanbanColumn,
   type CrmLeadSummary,
 } from "@/lib/backoffice/crm";
+import {
+  statusToneClassName,
+  statusToneSurfaceClassName,
+} from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import {
   fetchCrmKanban,
@@ -147,12 +151,15 @@ export function CrmKanban({
             }}
             onDrop={(event) => handleDrop(event, column.status)}
             className={cn(
-              "flex w-72 shrink-0 flex-col rounded-xl border bg-muted/40 transition-colors",
+              "flex w-72 shrink-0 flex-col rounded-xl border transition-colors",
+              statusToneSurfaceClassName(meta.tone),
               isOver && "border-primary bg-primary/5",
             )}
           >
             <header className="flex items-center justify-between gap-2 px-3 py-2.5">
-              <h2 className="text-sm font-semibold">{meta.label}</h2>
+              <h2 className={cn("text-sm font-semibold", statusToneClassName(meta.tone))}>
+                {meta.label}
+              </h2>
               <span className="rounded-full bg-background px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
                 {column.total}
               </span>

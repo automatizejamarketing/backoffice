@@ -28,7 +28,7 @@ describe("normalizeUsersFilterParams", () => {
         planPeriod: "annual",
         metaStatus: "connected",
         activationStatus: "pending",
-        contactStatus: "all",
+        crmStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
@@ -68,7 +68,7 @@ describe("normalizeUsersFilterParams", () => {
         planPeriod: "all",
         metaStatus: "all",
         activationStatus: "all",
-        contactStatus: "all",
+        crmStatus: "all",
         campaignStatus: "all",
         performanceStatus: "all",
         accessExpiration: "all",
@@ -105,12 +105,15 @@ describe("normalizeUsersFilterParams", () => {
     expect(filters.activationStatus).toBe("pending");
   });
 
-  test("keeps the local contact-status filter", () => {
+  test("keeps the CRM status filter and drops unknown values", () => {
     const filters = normalizeUsersFilterParams({
-      contactStatus: "not_contacted",
+      crmStatus: "em_qualificacao",
     });
 
-    expect(filters.contactStatus).toBe("not_contacted");
+    expect(filters.crmStatus).toBe("em_qualificacao");
+    expect(normalizeUsersFilterParams({ crmStatus: "contacted" }).crmStatus).toBe(
+      "all",
+    );
   });
 
   test("maps legacy renewal links to the equivalent access window", () => {

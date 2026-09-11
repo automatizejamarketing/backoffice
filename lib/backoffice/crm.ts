@@ -1,4 +1,16 @@
+import {
+  CalendarCheck,
+  CalendarClock,
+  MessageCircle,
+  RefreshCw,
+  Rocket,
+  Sparkles,
+  UserX,
+  type LucideIcon,
+} from "lucide-react";
 import type { StatusTone } from "@/components/ui/status-badge";
+import { shiftCalendarDate } from "@/lib/backoffice/dashboard-date-range";
+import { parseDateCondition, type DateCondition } from "@/lib/dates";
 import {
   CRM_COMMERCIAL_STATUS_VALUES,
   type CrmCommercialStatus,
@@ -6,45 +18,52 @@ import {
 
 export { CRM_COMMERCIAL_STATUS_VALUES, type CrmCommercialStatus };
 
-/** Funil comercial, na ordem das colunas do kanban. */
+/** Funil comercial, na ordem das colunas do kanban. Cada status tem cor própria. */
 export const CRM_STATUS_META: Record<
   CrmCommercialStatus,
-  { label: string; description: string; tone: StatusTone }
+  { label: string; description: string; tone: StatusTone; icon: LucideIcon }
 > = {
   novo_lead: {
     label: "Novo lead",
     description: "Acabou de criar a conta e ninguém falou com ele ainda.",
     tone: "neutral",
+    icon: Sparkles,
   },
   em_qualificacao: {
     label: "Em qualificação",
     description: "Alguém do comercial está em contato.",
-    tone: "warning",
+    tone: "info",
+    icon: MessageCircle,
   },
   reuniao_agendada: {
     label: "Reunião agendada",
     description: "Tem dia e hora marcados.",
     tone: "warning",
+    icon: CalendarClock,
   },
   reuniao_realizada: {
     label: "Reunião realizada",
     description: "A reunião aconteceu.",
-    tone: "success",
+    tone: "violet",
+    icon: CalendarCheck,
   },
   trial_feito: {
     label: "Trial feito",
     description: "Ativou o trial depois do contato.",
     tone: "success",
+    icon: Rocket,
   },
   no_show: {
     label: "No show",
     description: "Marcou e não apareceu.",
     tone: "danger",
+    icon: UserX,
   },
   follow_up: {
     label: "Follow up",
     description: "Combinado retomar o contato mais tarde.",
-    tone: "warning",
+    tone: "orange",
+    icon: RefreshCw,
   },
 };
 
@@ -162,8 +181,31 @@ export function displayLeadName(lead: Pick<CrmLeadSummary, "name" | "companyName
   return lead.name?.trim() || lead.companyName?.trim() || lead.email;
 }
 
-/** Intervalo de datas de calendário (YYYY-MM-DD), inclusivo nas duas pontas. */
-export type CrmDateRange = { from: string; to: string };
+/**
+ * Limites de datas de calendário (YYYY-MM-DD), inclusivos, com qualquer ponta
+ * aberta: só `from` é "a partir de", só `to` é "até".
+ */
+export type CrmDateBounds = { from?: string; to?: string };
+
+export type CrmDateCondition = DateCondition;
+export { parseDateCondition as parseCrmDateCondition };
+
+/**
+ * Traduz o operador do filtro (estilo Notion) em limites inclusivos. "Antes de"
+ * e "Depois de" não incluem o próprio dia, como no Notion.
+ */
+export function crmDateConditionToBounds(condition: CrmDateCondition): CrmDateBounds {
+  switch (condition.op) {
+    case "between":
+      return { from: condition.from, to: condition.to };
+    case "on":
+      return { from: condition.date, to: condition.date };
+    case "before":
+      return { to: shiftCalendarDate(condition.date, -1) };
+    case "after":
+      return { from: shiftCalendarDate(condition.date, 1) };
+  }
+}
 
 function isCalendarDate(value: unknown): value is string {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -176,11 +218,16 @@ function isCalendarDate(value: unknown): value is string {
   );
 }
 
-/** Só aceita as duas datas válidas; invertidas são corrigidas. */
-export function parseCrmDateRange(
+/** Aceita uma ponta só; com as duas invertidas, corrige a ordem. Lixo vira undefined. */
+export function parseCrmDateBounds(
   from: unknown,
   to: unknown,
-): CrmDateRange | undefined {
-  if (!isCalendarDate(from) || !isCalendarDate(to)) return undefined;
-  return from <= to ? { from, to } : { from: to, to: from };
+): CrmDateBounds | undefined {
+  const validFrom = isCalendarDate(from) ? from : undefined;
+  const validTo = isCalendarDate(to) ? to : undefined;
+  if (!validFrom && !validTo) return undefined;
+  if (validFrom && validTo && validFrom > validTo) {
+    return { from: validTo, to: validFrom };
+  }
+  return { from: validFrom, to: validTo };
 }

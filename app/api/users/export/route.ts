@@ -7,7 +7,6 @@ import {
   buildUsersCsv,
   buildUsersExportFilename,
 } from "@/lib/backoffice/users-csv";
-import { getContactedUserIds } from "@/lib/backoffice/user-contact-marks-server";
 import { normalizeUsersFilterParams } from "@/lib/backoffice/users-filters";
 
 export const dynamic = "force-dynamic";
@@ -34,12 +33,10 @@ export async function GET(request: Request) {
     Object.fromEntries(searchParams.entries()),
   );
   const { search } = filters;
-  const contactedUserIds = await getContactedUserIds();
 
   const { users, total } = await getAllUsersWithUsage({
     search,
     filters,
-    contactedUserIds,
     exportAll: true,
   });
 

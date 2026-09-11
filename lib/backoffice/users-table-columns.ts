@@ -3,7 +3,7 @@ export const USERS_TABLE_COLUMNS_STORAGE_KEY =
 
 export const USERS_TABLE_COLUMNS = [
   { id: "user", label: "Usuário", hideable: false },
-  { id: "contact", label: "Contato", hideable: true },
+  { id: "crmStatus", label: "Status CRM", hideable: true },
   { id: "company", label: "Empresa", hideable: true },
   { id: "phone", label: "Telefone", hideable: true },
   { id: "plan", label: "Plano", hideable: true },
@@ -31,7 +31,7 @@ const COLUMN_IDS = USERS_TABLE_COLUMNS.map((column) => column.id);
 const HIDEABLE_COLUMN_IDS = USERS_TABLE_COLUMNS.filter(
   (column) => column.hideable,
 ).map((column) => column.id);
-const LEGACY_OPTIONAL_IDS = HIDEABLE_COLUMN_IDS.filter((id) => id !== "contact");
+const LEGACY_OPTIONAL_IDS = HIDEABLE_COLUMN_IDS.filter((id) => id !== "crmStatus");
 
 export function isUsersTableColumnHideable(id: UsersTableColumnId): boolean {
   return USERS_TABLE_COLUMNS.some((column) => column.id === id && column.hideable);

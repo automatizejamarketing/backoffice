@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { DEFAULT_PAGE_SIZE } from "./constants";
 import { UsersTableToolbar } from "./users-table-toolbar";
 import { UsersTable } from "./users-table";
-import { getContactedUserIds } from "@/lib/backoffice/user-contact-marks-server";
 import { normalizeUsersFilterParams } from "@/lib/backoffice/users-filters";
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { hasBackofficePermission } from "@/lib/auth/rbac-core";
@@ -33,7 +32,7 @@ export default async function UsersPage({
     planPeriod?: string;
     metaStatus?: string;
     activationStatus?: string;
-    contactStatus?: string;
+    crmStatus?: string;
     campaignStatus?: string;
     performanceStatus?: string;
     accessExpiration?: string;
@@ -56,7 +55,6 @@ export default async function UsersPage({
   const filters = normalizeUsersFilterParams(sp);
   const { page, pageSize, search } = filters;
 
-  const contactedUserIds = await getContactedUserIds();
   const [
     { users, total, pageSize: appliedPageSize },
     consultants,
@@ -68,7 +66,6 @@ export default async function UsersPage({
         pageSize,
         search,
         filters,
-        contactedUserIds,
       }),
       listConsultantsForFilter(),
       getUserExpirationDayCounts(),
@@ -101,8 +98,8 @@ export default async function UsersPage({
     if (filters.activationStatus !== "all") {
       params.set("activationStatus", filters.activationStatus);
     }
-    if (filters.contactStatus !== "all") {
-      params.set("contactStatus", filters.contactStatus);
+    if (filters.crmStatus !== "all") {
+      params.set("crmStatus", filters.crmStatus);
     }
     if (filters.campaignStatus !== "all") {
       params.set("campaignStatus", filters.campaignStatus);
@@ -166,7 +163,7 @@ export default async function UsersPage({
             planPeriod: filters.planPeriod,
             metaStatus: filters.metaStatus,
             activationStatus: filters.activationStatus,
-            contactStatus: filters.contactStatus,
+            crmStatus: filters.crmStatus,
             campaignStatus: filters.campaignStatus,
             performanceStatus: filters.performanceStatus,
             accessExpiration: filters.accessExpiration,
@@ -186,8 +183,6 @@ export default async function UsersPage({
           users={users}
           search={search}
           canManageBilling={canManageBilling}
-          contactedUserIds={contactedUserIds}
-          contactStatus={filters.contactStatus}
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

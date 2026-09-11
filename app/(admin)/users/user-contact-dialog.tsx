@@ -7,7 +7,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -28,16 +27,12 @@ export function UserContactDialog({
   userName,
   userEmail,
   userPhone,
-  contacted,
-  onToggleContacted,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userName: string | null;
   userEmail: string;
   userPhone: string | null | undefined;
-  contacted: boolean;
-  onToggleContacted: (contacted: boolean) => void;
 }) {
   const displayName = userName?.trim() || userEmail;
   const phoneFormatted = formatBrazilianPhone(userPhone);
@@ -49,8 +44,7 @@ export function UserContactDialog({
         <DialogHeader>
           <DialogTitle>Dados do contato</DialogTitle>
           <DialogDescription>
-            Copie os dados do cliente e marque quando a conversa já tiver
-            acontecido. Esse registro fica só neste navegador.
+            Copie os dados do cliente. O andamento do contato fica no CRM.
           </DialogDescription>
         </DialogHeader>
 
@@ -96,19 +90,6 @@ export function UserContactDialog({
             </Button>
           </div>
         </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant={contacted ? "outline" : "default"}
-            onClick={() => {
-              onToggleContacted(!contacted);
-              onOpenChange(false);
-            }}
-          >
-            {contacted ? "Não entrei em contato" : "Marcar que entrei em contato"}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

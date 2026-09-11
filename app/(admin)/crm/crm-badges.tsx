@@ -11,7 +11,11 @@ import {
 
 export function CommercialStatusBadge({ status }: { status: CrmCommercialStatus }) {
   const meta = CRM_STATUS_META[status];
-  return <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
+  return (
+    <StatusBadge tone={meta.tone} icon={meta.icon}>
+      {meta.label}
+    </StatusBadge>
+  );
 }
 
 export function AccountStageBadge({ stage }: { stage: CrmAccountStage }) {
