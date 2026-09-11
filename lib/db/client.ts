@@ -9,6 +9,8 @@ const shared = globalThis as typeof globalThis & {
 // postgres.js supports max_pipeline but omits it from its public Options type.
 // Zero means no additional in-flight query on a connection. Even 1 pipelines
 // a second query and can hang Supavisor transaction-mode responses indefinitely.
+// The pinned postgres patch keeps BEGIN reservation independent of this limit;
+// without it max_pipeline: 0 breaks every transaction (postgres issue #1189).
 const options = {
   max: 3,
   max_pipeline: 0,

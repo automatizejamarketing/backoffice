@@ -1,0 +1,48 @@
+diff --git a/cjs/src/connection.js b/cjs/src/connection.js
+index 07f6716702ac888215c86ad6e0071aaf55ae519c..11c3655362f64b4b85ad43b5879f10fdb4274efe 100644
+--- a/cjs/src/connection.js
++++ b/cjs/src/connection.js
+@@ -170,11 +170,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+         : (query = q, query.active = true)
+ 
+       build(q)
+-      return write(toBuffer(q))
++      const written = write(toBuffer(q))
++      // BEGIN must reserve its connection once written, even with backpressure
++      // or max_pipeline: 0. Never offer a reserved connection to the pool.
++      if (q.options.onexecute) {
++        q.options.onexecute(connection)
++        return false
++      }
++      return written
+         && !q.describeFirst
+         && !q.cursorFn
+         && sent.length < max_pipeline
+-        && (!q.options.onexecute || q.options.onexecute(connection))
+     } catch (error) {
+       sent.length === 0 && write(Sync)
+       errored(error)
+diff --git a/src/connection.js b/src/connection.js
+index 1b1cccde43b4570d5d071d6ffaab2669b3c2065a..fa5465eaada5795cec6b1279a043b40c65a862de 100644
+--- a/src/connection.js
++++ b/src/connection.js
+@@ -170,11 +170,17 @@ function Connection(options, queues = {}, { onopen = noop, onend = noop, onclose
+         : (query = q, query.active = true)
+ 
+       build(q)
+-      return write(toBuffer(q))
++      const written = write(toBuffer(q))
++      // BEGIN must reserve its connection once written, even with backpressure
++      // or max_pipeline: 0. Never offer a reserved connection to the pool.
++      if (q.options.onexecute) {
++        q.options.onexecute(connection)
++        return false
++      }
++      return written
+         && !q.describeFirst
+         && !q.cursorFn
+         && sent.length < max_pipeline
+-        && (!q.options.onexecute || q.options.onexecute(connection))
+     } catch (error) {
+       sent.length === 0 && write(Sync)
+       errored(error)
