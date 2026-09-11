@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type DragEvent } from "react";
+import { type DragEvent, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   CRM_STATUS_META,
@@ -201,26 +201,40 @@ function LeadCard({
   lead: CrmLeadSummary;
   onOpen: () => void;
 }) {
+  // Como no Notion: o cartão inteiro abre no clique e arrasta no drag. O
+  // navegador não dispara click depois de um arrasto, mas o ref garante isso
+  // também quando o drop é cancelado.
+  const dragged = useRef(false);
   return (
     <article
+      role="button"
+      tabIndex={0}
       draggable
+      aria-label={`Abrir ${displayLeadName(lead)}`}
       onDragStart={(event) => {
+        dragged.current = true;
         event.dataTransfer.setData(DRAG_MIME, lead.id);
         event.dataTransfer.effectAllowed = "move";
       }}
-      className="cursor-grab rounded-lg border bg-card p-3 shadow-xs active:cursor-grabbing"
+      onDragEnd={() => {
+        dragged.current = false;
+      }}
+      onClick={() => {
+        if (!dragged.current) onOpen();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+      className="cursor-pointer rounded-lg border bg-card p-3 shadow-xs outline-none transition-colors hover:border-foreground/25 hover:bg-accent/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 active:cursor-grabbing"
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block w-full text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 rounded-sm"
-      >
-        <p className="truncate text-sm font-medium">{displayLeadName(lead)}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {lead.companyName && lead.name ? `${lead.companyName} · ` : ""}
-          {lead.email}
-        </p>
-      </button>
+      <p className="truncate text-sm font-medium">{displayLeadName(lead)}</p>
+      <p className="truncate text-xs text-muted-foreground">
+        {lead.companyName && lead.name ? `${lead.companyName} · ` : ""}
+        {lead.email}
+      </p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <AccountStageBadge stage={lead.accountStage} />
         <ProductTags titles={lead.productTitles} max={1} />
