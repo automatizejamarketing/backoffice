@@ -30,6 +30,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { formatNumericDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
+import {
+  expirationCalendarDate,
+  expirationCalendarInput,
+} from "@/lib/backoffice/expiration-date";
 
 interface ExpirationDateControlProps {
   userId: string;
@@ -42,14 +46,6 @@ function normalizeDate(date: Date | string | null): Date | null {
   if (!date) return null;
   if (date instanceof Date) return date;
   return new Date(date);
-}
-
-/** Calendar day in local time as YYYY-MM-DD (avoids UTC date shift from toISOString). */
-function formatLocalYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 export function ExpirationDateControl({
@@ -67,6 +63,7 @@ export function ExpirationDateControl({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingNewDate, setPendingNewDate] = useState<Date | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     setExpirationDate(normalizeDate(initialExpirationDate));
@@ -78,7 +75,7 @@ export function ExpirationDateControl({
   };
 
   const persistDate = async (newDate: Date): Promise<boolean> => {
-    const dateString = formatLocalYmd(new Date(newDate));
+    const dateString = expirationCalendarInput(newDate);
 
     const response = await fetch(`/api/users/${userId}/expiration`, {
       method: "PATCH",
@@ -96,33 +93,44 @@ export function ExpirationDateControl({
       onSaved?.();
       return true;
     }
-    console.error("Failed to update expiration date");
+    setSaveError(
+      response.status === 401
+        ? "Sua sessão expirou. Entre novamente para alterar a data."
+        : response.status === 403
+          ? "Você não tem permissão para alterar a data de expiração."
+          : "Não foi possível salvar a data de expiração. Tente novamente.",
+    );
     return false;
   };
 
   const openConfirmation = (newDate: Date) => {
+    setSaveError(null);
     setPendingNewDate(newDate);
     setConfirmOpen(true);
     setPickerOpen(false);
   };
 
   const handleConfirmChange = async () => {
-    if (!pendingNewDate) return;
+    if (!pendingNewDate || isSaving) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       const ok = await persistDate(pendingNewDate);
       if (ok) {
         setConfirmOpen(false);
         setPendingNewDate(null);
       }
+    } catch {
+      setSaveError(
+        "Não foi possível confirmar a alteração. Verifique sua conexão e tente novamente.",
+      );
     } finally {
       setIsSaving(false);
     }
   };
 
   const requestAdjustDate = (days: number) => {
-    const baseDate = expirationDate ? new Date(expirationDate) : new Date();
-    baseDate.setHours(0, 0, 0, 0);
+    const baseDate = expirationCalendarDate(expirationDate ?? new Date());
     const newDate = new Date(baseDate);
     newDate.setDate(newDate.getDate() + days);
     openConfirmation(newDate);
@@ -134,6 +142,9 @@ export function ExpirationDateControl({
   };
 
   const busy = isSaving || isPending;
+  const calendarDate = expirationDate
+    ? expirationCalendarDate(expirationDate)
+    : undefined;
   const adjustSteps = [
     { days: -30, label: "−30" },
     { days: -7, label: "−7" },
@@ -149,6 +160,7 @@ export function ExpirationDateControl({
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger asChild>
             <Button
+              type="button"
               variant="outline"
               className={cn(
                 "h-11 min-w-[12rem] justify-start px-3 text-left font-medium tabular-nums",
@@ -163,7 +175,8 @@ export function ExpirationDateControl({
           <PopoverContent className="w-auto p-0" align="start">
             <Calendar
               mode="single"
-              selected={expirationDate ?? undefined}
+              selected={calendarDate}
+              defaultMonth={calendarDate}
               onSelect={(d) => handleCalendarSelect(d)}
               initialFocus
             />
@@ -184,6 +197,7 @@ export function ExpirationDateControl({
           {adjustSteps.map((step, index) => (
             <Button
               key={step.days}
+              type="button"
               variant="ghost"
               size="sm"
               className={cn(
@@ -226,6 +240,7 @@ export function ExpirationDateControl({
       <AlertDialog
         open={confirmOpen}
         onOpenChange={(open) => {
+          if (isSaving) return;
           setConfirmOpen(open);
           if (!open) {
             setPendingNewDate(null);
@@ -247,9 +262,16 @@ export function ExpirationDateControl({
             </span>
             <span className="text-muted-foreground"> para </span>
             <span className="font-medium text-foreground">
-              {pendingNewDate ? formatDate(pendingNewDate) : "—"}
+              {pendingNewDate
+                ? formatNumericDateInSaoPaulo(expirationCalendarInput(pendingNewDate))
+                : "—"}
             </span>
           </div>
+          {saveError && (
+            <p role="alert" className="text-sm text-destructive">
+              {saveError}
+            </p>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isSaving || isPending}>
               Cancelar
