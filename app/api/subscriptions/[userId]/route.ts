@@ -267,6 +267,9 @@ export async function PATCH(
 
     revalidatePath(`/users/${userId}`);
     revalidatePath(`/subscriptions/${userId}`);
+    revalidatePath("/users");
+    revalidatePath("/subscriptions");
+    revalidatePath("/crm");
 
     return NextResponse.json({
       success: true,
