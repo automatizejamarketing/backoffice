@@ -1780,6 +1780,10 @@ export const metaBusinessAccount = pgTable(
       .default("active"),
     lastValidatedAt: timestamp("last_validated_at"),
     lastValidationError: text("last_validation_error"),
+    /** Last Automatize BM partner-access check: missing | partial | pending_admin_approval | complete | unsupported */
+    partnerAccessStatus: varchar("partner_access_status", { length: 32 }),
+    partnerAccessDiagnosis: jsonb("partner_access_diagnosis").$type<Record<string, unknown>>(),
+    partnerAccessCheckedAt: timestamp("partner_access_checked_at"),
     /** Encrypted (or legacy plaintext) access token. */
     accessToken: text("access_token").notNull(),
     /** NULL for non-expiring BISU configurations. */
@@ -1804,6 +1808,35 @@ export const metaBusinessAccount = pgTable(
 );
 
 export type MetaBusinessAccount = InferSelectModel<typeof metaBusinessAccount>;
+
+export const metaAdminOauthAttempt = pgTable(
+  "meta_admin_oauth_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    targetUserId: uuid("target_user_id")
+      .notNull()
+      .references(() => user.id),
+    actorAdminId: text("actor_admin_id").notNull(),
+    actorAdminEmail: text("actor_admin_email").notNull(),
+    stateHash: text("state_hash").notNull().unique(),
+    authMode: varchar("auth_mode", { length: 16 }).notNull().default("user"),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    result: varchar("result", { length: 32 }),
+    audit: jsonb("audit").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    targetIdx: index("meta_admin_oauth_attempts_target_user_id_idx").on(
+      table.targetUserId,
+    ),
+    expiresIdx: index("meta_admin_oauth_attempts_expires_at_idx").on(
+      table.expiresAt,
+    ),
+  }),
+);
+
+export type MetaAdminOauthAttempt = InferSelectModel<typeof metaAdminOauthAttempt>;
 
 // AdSet targeting type for audit logs (subset + index for Meta targeting JSON)
 export type AdSetTargetingData = {

@@ -22,6 +22,10 @@ type MarketingUser = {
   image_url: string | null;
   metaAccountName: string | null;
   metaUpdatedAt: string;
+  partnerAccessStatus: string | null;
+  clientBusinessId: string | null;
+  tokenKind: string | null;
+  connectionStatus: string | null;
 };
 
 type ApiResponse = {
@@ -51,13 +55,18 @@ export function MarketingUsersPicker({
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [email, setEmail] = useState("");
+  const [partnerPendingOnly, setPartnerPendingOnly] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(false);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const fetchUsers = useCallback(async (p: number, emailFilter: string) => {
+  const fetchUsers = useCallback(async (
+    p: number,
+    emailFilter: string,
+    pendingOnly: boolean,
+  ) => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
@@ -66,6 +75,9 @@ export function MarketingUsersPicker({
       });
       if (emailFilter.trim()) {
         params.set("email", emailFilter.trim());
+      }
+      if (pendingOnly) {
+        params.set("partnerPending", "1");
       }
       const res = await fetch(`/api/marketing/users?${params.toString()}`);
       if (res.ok) {
@@ -87,7 +99,7 @@ export function MarketingUsersPicker({
   useEffect(() => {
     if (!isMountedRef.current) {
       isMountedRef.current = true;
-      fetchUsers(1, "");
+      fetchUsers(1, "", partnerPendingOnly);
       return;
     }
 
@@ -104,7 +116,7 @@ export function MarketingUsersPicker({
     }
     debounceRef.current = setTimeout(() => {
       setPage(1);
-      fetchUsers(1, trimmed);
+      fetchUsers(1, trimmed, partnerPendingOnly);
     }, 300);
 
     return () => {
@@ -112,11 +124,11 @@ export function MarketingUsersPicker({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [email, fetchUsers]);
+  }, [email, fetchUsers, partnerPendingOnly]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
-    fetchUsers(newPage, email.trim());
+    fetchUsers(newPage, email.trim(), partnerPendingOnly);
   };
 
   const trimmedEmail = email.trim();
@@ -144,6 +156,17 @@ export function MarketingUsersPicker({
             Digite pelo menos {MIN_SEARCH_LENGTH} caracteres para filtrar
           </p>
         )}
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            checked={partnerPendingOnly}
+            onChange={(event) => {
+              setPage(1);
+              setPartnerPendingOnly(event.target.checked);
+            }}
+            type="checkbox"
+          />
+          Somente acesso de parceiro pendente
+        </label>
       </div>
 
       <div className="overflow-x-auto rounded-md border">
@@ -152,6 +175,7 @@ export function MarketingUsersPicker({
             <TableRow>
               <TableHead>Usuário</TableHead>
               <TableHead>Conta Meta</TableHead>
+              <TableHead>Parceiro</TableHead>
               <TableHead>Conectado em</TableHead>
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
@@ -160,7 +184,7 @@ export function MarketingUsersPicker({
             {users.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={4}
+                  colSpan={5}
                   className="py-8 text-center text-sm text-muted-foreground"
                 >
                   {isLoading
@@ -194,6 +218,12 @@ export function MarketingUsersPicker({
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {u.metaAccountName ?? "—"}
+                    {u.connectionStatus === "needs_reconnect" ? (
+                      <span className="ml-2 text-destructive">reconectar</span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {u.partnerAccessStatus ?? "não verificado"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatDate(u.metaUpdatedAt)}

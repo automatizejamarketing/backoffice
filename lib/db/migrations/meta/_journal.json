@@ -645,6 +645,13 @@
       "when": 1799300000000,
       "tag": "0106_entitlement_legacy_column_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1799400000000,
+      "tag": "0107_meta_partner_access",
+      "breakpoints": true
     }
   ]
 }

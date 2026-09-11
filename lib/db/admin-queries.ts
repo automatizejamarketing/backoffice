@@ -2299,6 +2299,10 @@ export type UserWithMetaBusinessAccount = {
   image_url: string | null;
   metaAccountName: string | null;
   metaUpdatedAt: string;
+  partnerAccessStatus: string | null;
+  clientBusinessId: string | null;
+  tokenKind: string | null;
+  connectionStatus: string | null;
 };
 
 export type GetUsersWithMetaBusinessAccountResult = {
@@ -2316,6 +2320,7 @@ export async function getUsersWithMetaBusinessAccount(options?: {
   page?: number;
   limit?: number;
   userIds?: string[];
+  partnerPending?: boolean;
 }): Promise<GetUsersWithMetaBusinessAccountResult> {
   const page = Math.max(1, Math.trunc(options?.page ?? 1));
   const limit = Math.max(1, Math.trunc(options?.limit ?? 20));
@@ -2332,6 +2337,18 @@ export async function getUsersWithMetaBusinessAccount(options?: {
   if (options?.userIds) {
     conditions.push(inArray(user.id, options.userIds));
   }
+  if (options?.partnerPending) {
+    conditions.push(
+      sql`(
+        ${metaBusinessAccount.partnerAccessStatus} IS NULL
+        OR ${metaBusinessAccount.partnerAccessStatus} IN (
+          'missing',
+          'partial',
+          'pending_admin_approval'
+        )
+      )`,
+    );
+  }
 
   const rows = await db
     .select({
@@ -2341,6 +2358,18 @@ export async function getUsersWithMetaBusinessAccount(options?: {
       metaAccountName: sql<
         string | null
       >`(array_agg(${metaBusinessAccount.name} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+      partnerAccessStatus: sql<
+        string | null
+      >`(array_agg(${metaBusinessAccount.partnerAccessStatus} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+      clientBusinessId: sql<
+        string | null
+      >`(array_agg(${metaBusinessAccount.clientBusinessId} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+      tokenKind: sql<
+        string | null
+      >`(array_agg(${metaBusinessAccount.tokenKind} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
+      connectionStatus: sql<
+        string | null
+      >`(array_agg(${metaBusinessAccount.connectionStatus} ORDER BY ${metaBusinessAccount.updatedAt} DESC))[1]`,
       metaUpdatedAt: sql<Date | string>`MAX(${metaBusinessAccount.updatedAt})`,
     })
     .from(user)
@@ -2363,6 +2392,10 @@ export async function getUsersWithMetaBusinessAccount(options?: {
       email: row.email,
       image_url: row.image_url,
       metaAccountName: row.metaAccountName,
+      partnerAccessStatus: row.partnerAccessStatus,
+      clientBusinessId: row.clientBusinessId,
+      tokenKind: row.tokenKind,
+      connectionStatus: row.connectionStatus,
       metaUpdatedAt:
         row.metaUpdatedAt instanceof Date
           ? row.metaUpdatedAt.toISOString()

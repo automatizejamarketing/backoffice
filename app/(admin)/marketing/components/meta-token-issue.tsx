@@ -114,7 +114,7 @@ export function MetaTokenIssue({
         </div>
       )}
 
-      <div>
+      <div className="flex flex-wrap gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -122,6 +122,33 @@ export function MetaTokenIssue({
           disabled={isRefreshing}
         >
           {isRefreshing ? "Renovando..." : "Tentar renovar token"}
+        </Button>
+        <Button
+          size="sm"
+          onClick={async () => {
+            const confirmed = window.confirm(
+              "Reconectar com o SEU Facebook de consultor. Não use a senha do cliente.",
+            );
+            if (!confirmed) return;
+            const res = await fetch(
+              `/api/users/${userId}/meta-account/admin-reconnect`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirm: true }),
+              },
+            );
+            const body = (await res.json().catch(() => null)) as {
+              authUrl?: string;
+            } | null;
+            if (res.ok && body?.authUrl) {
+              window.location.href = body.authUrl;
+              return;
+            }
+            toast.error("Não foi possível iniciar a reconexão administrativa.");
+          }}
+        >
+          Reconectar como consultor
         </Button>
       </div>
     </div>
