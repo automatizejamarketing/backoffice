@@ -8219,6 +8219,203 @@ export type CustomerFileTemporaryMaterialRecord = InferSelectModel<
 
 // ===== END customer_file_* =====
 
+// ===== client_report_* =====
+
+export const CLIENT_REPORT_PERIOD_TYPES = ["weekly", "monthly", "cycle"] as const;
+export type ClientReportPeriodType = (typeof CLIENT_REPORT_PERIOD_TYPES)[number];
+
+export const CLIENT_REPORT_SNAPSHOT_STATUSES = [
+  "built",
+  "delivered",
+  "failed",
+] as const;
+export type ClientReportSnapshotStatus =
+  (typeof CLIENT_REPORT_SNAPSHOT_STATUSES)[number];
+
+export const CLIENT_REPORT_HEADLINE_STATES = [
+  "good",
+  "neutral",
+  "bad",
+] as const;
+export type ClientReportHeadlineState =
+  (typeof CLIENT_REPORT_HEADLINE_STATES)[number];
+
+export const CLIENT_REPORT_DIGEST_FREQUENCIES = [
+  "weekly",
+  "monthly",
+  "off",
+] as const;
+export type ClientReportDigestFrequency =
+  (typeof CLIENT_REPORT_DIGEST_FREQUENCIES)[number];
+
+export const CLIENT_REPORT_MISSION_STATUSES = [
+  "suggested",
+  "started",
+  "done",
+  "skipped",
+] as const;
+export type ClientReportMissionStatus =
+  (typeof CLIENT_REPORT_MISSION_STATUSES)[number];
+
+export const clientReportSnapshot = pgTable(
+  "client_report_snapshots",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    periodType: varchar("period_type", { length: 16 })
+      .$type<ClientReportPeriodType>()
+      .notNull(),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    status: varchar("status", { length: 16 })
+      .$type<ClientReportSnapshotStatus>()
+      .notNull()
+      .default("built"),
+    headlineState: varchar("headline_state", { length: 16 })
+      .$type<ClientReportHeadlineState>()
+      .notNull(),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    monthsPaidBack: numeric("months_paid_back"),
+    isPersonalBest: boolean("is_personal_best").notNull().default(false),
+    builtAt: timestamp("built_at").notNull().defaultNow(),
+    deliveredAt: timestamp("delivered_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userPeriodUnique: uniqueIndex(
+      "client_report_snapshots_user_period_unique",
+    ).on(table.userId, table.periodType, table.periodStart),
+    userBuiltIdx: index("client_report_snapshots_user_built_idx").on(
+      table.userId,
+      table.builtAt,
+    ),
+    statusIdx: index("client_report_snapshots_status_idx").on(
+      table.status,
+      table.periodType,
+    ),
+  }),
+);
+
+export type ClientReportSnapshot = InferSelectModel<typeof clientReportSnapshot>;
+
+export const clientReportMilestone = pgTable(
+  "client_report_milestones",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    milestoneKey: varchar("milestone_key", { length: 80 }).notNull(),
+    value: numeric("value"),
+    snapshotId: uuid("snapshot_id").references(() => clientReportSnapshot.id),
+    reachedAt: timestamp("reached_at").notNull().defaultNow(),
+    deliveredAt: timestamp("delivered_at"),
+  },
+  (table) => ({
+    userKeyUnique: uniqueIndex("client_report_milestones_user_key_unique").on(
+      table.userId,
+      table.milestoneKey,
+    ),
+    undeliveredIdx: index("client_report_milestones_undelivered_idx").on(
+      table.userId,
+      table.deliveredAt,
+    ),
+  }),
+);
+
+export type ClientReportMilestone = InferSelectModel<
+  typeof clientReportMilestone
+>;
+
+export const clientReportPreference = pgTable("client_report_preferences", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id),
+  digestFrequency: varchar("digest_frequency", { length: 16 })
+    .$type<ClientReportDigestFrequency>()
+    .notNull()
+    .default("weekly"),
+  dayOfWeek: integer("day_of_week").notNull().default(1),
+  hour: integer("hour").notNull().default(9),
+  timezone: varchar("timezone", { length: 64 })
+    .notNull()
+    .default("America/Sao_Paulo"),
+  whatsappEnabled: boolean("whatsapp_enabled").notNull().default(true),
+  milestonesEnabled: boolean("milestones_enabled").notNull().default(true),
+  renewalRecapEnabled: boolean("renewal_recap_enabled").notNull().default(true),
+  pauseRequestedAt: timestamp("pause_requested_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type ClientReportPreference = InferSelectModel<
+  typeof clientReportPreference
+>;
+
+export const clientReportBenchmark = pgTable(
+  "client_report_benchmarks",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    spendBucket: varchar("spend_bucket", { length: 32 }).notNull(),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    sampleSize: integer("sample_size").notNull(),
+    roasP25: numeric("roas_p25"),
+    roasP50: numeric("roas_p50"),
+    roasP75: numeric("roas_p75"),
+    cpaP25: numeric("cpa_p25"),
+    cpaP50: numeric("cpa_p50"),
+    cpaP75: numeric("cpa_p75"),
+    computedAt: timestamp("computed_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    bucketPeriodUnique: uniqueIndex(
+      "client_report_benchmarks_bucket_period_unique",
+    ).on(table.spendBucket, table.periodStart),
+  }),
+);
+
+export type ClientReportBenchmark = InferSelectModel<
+  typeof clientReportBenchmark
+>;
+
+export const clientReportMission = pgTable(
+  "client_report_missions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    snapshotId: uuid("snapshot_id").references(() => clientReportSnapshot.id),
+    title: text("title").notNull(),
+    message: text("message"),
+    actionPrompt: text("action_prompt"),
+    deepLink: text("deep_link"),
+    status: varchar("status", { length: 16 })
+      .$type<ClientReportMissionStatus>()
+      .notNull()
+      .default("suggested"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userStatusIdx: index("client_report_missions_user_status_idx").on(
+      table.userId,
+      table.status,
+    ),
+  }),
+);
+
+export type ClientReportMission = InferSelectModel<typeof clientReportMission>;
+
+// ===== END client_report_* =====
+
 // ===== CRM interno (time comercial) =====
 // Status comercial é independente do status da conta (acesso/trial/pagamento):
 // é o funil de vendas que o time comercial controla à mão. Usuário sem linha

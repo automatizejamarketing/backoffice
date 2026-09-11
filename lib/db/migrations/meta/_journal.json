@@ -652,6 +652,13 @@
       "when": 1799400000000,
       "tag": "0107_meta_partner_access",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795100000000,
+      "tag": "0108_client_reports",
+      "breakpoints": true
     }
   ]
 }

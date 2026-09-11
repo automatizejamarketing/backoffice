@@ -38,6 +38,7 @@ import { MarketingUsersPicker } from "./marketing-users-picker";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
+import { ClientReportPanel } from "./client-report-panel";
 import { PerformanceReportSection } from "./performance-report/performance-report-section";
 import { useMetricColumnPreferences } from "../hooks/use-metric-column-preferences";
 import type { CampaignReportFact } from "@/lib/performance-report/types";
@@ -415,6 +416,8 @@ export function MarketingWorkspace({
                 userId={selectedUser.id}
                 accountId={selectedAccountId}
               />
+
+              <ClientReportPanel userId={selectedUser.id} />
 
               {metaAccount && (
                 <div className="space-y-2">

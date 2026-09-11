@@ -27,6 +27,14 @@
     {
       "path": "/api/cron-job/customer-file/discard-expired",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron-job/business/client-reports/weekly",
+      "schedule": "30 10 * * 1"
+    },
+    {
+      "path": "/api/cron-job/business/client-reports/milestones",
+      "schedule": "45 10 * * *"
     }
   ]
 }
