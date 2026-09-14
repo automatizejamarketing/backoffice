@@ -255,6 +255,7 @@ export type CrmGoalLeadRow = {
   id: string;
   name: string | null;
   email: string;
+  phone: string | null;
   companyName: string | null;
   commercialStatus: CrmCommercialStatus;
   createdAt: string | null;
@@ -356,7 +357,12 @@ function sortLeads(a: CrmGoalLeadRow, b: CrmGoalLeadRow): number {
 async function leadProfiles(
   ids: string[],
 ): Promise<
-  Array<Pick<CrmGoalLeadRow, "id" | "name" | "email" | "companyName" | "commercialStatus" | "createdAt">>
+  Array<
+    Pick<
+      CrmGoalLeadRow,
+      "id" | "name" | "email" | "phone" | "companyName" | "commercialStatus" | "createdAt"
+    >
+  >
 > {
   if (ids.length === 0) return [];
   const rows = await db
@@ -364,6 +370,7 @@ async function leadProfiles(
       id: user.id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       createdAt: user.createdAt,
       commercialStatus: sql<CrmCommercialStatus>`coalesce(${crmLead.commercialStatus}, 'novo_lead')`,
       companyName: sql<string | null>`(

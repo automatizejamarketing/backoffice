@@ -1,5 +1,7 @@
 import type { StatusTone } from "@/components/ui/status-badge";
 import type { SalesRole } from "@/lib/auth/rbac-core";
+import { CRM_STATUS_META, type CrmCommercialStatus } from "@/lib/backoffice/crm";
+import { escapeCsvCell } from "@/lib/backoffice/users-csv";
 
 /**
  * Metas do time comercial. Vocabulário em CONTEXT.md, seção "CRM comercial".
@@ -252,3 +254,68 @@ export const SCHEDULED_OR_LATER_STATUSES = [
 
 /** Entrar em qualquer um destes é "reunião realizada". */
 export const MEETING_DONE_STATUSES = ["reuniao_realizada", "trial_feito"] as const;
+
+// ---------- Exportação dos leads de uma métrica ----------
+
+export type CrmGoalLeadCsvRow = {
+  name: string | null;
+  companyName: string | null;
+  email: string;
+  phone: string | null;
+  commercialStatus: CrmCommercialStatus;
+  createdAt: string | null;
+  eventAt: string | null;
+  inDenominator: boolean;
+  inNumerator: boolean;
+};
+
+function csvDate(iso: string | null): string {
+  if (!iso) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "America/Sao_Paulo",
+  })
+    .format(new Date(iso))
+    // "05/09/2026, 10:00" → sem a vírgula, para não precisar de aspas na célula.
+    .replace(", ", " ");
+}
+
+/** CSV (UTF-8 com BOM, CRLF) dos leads por trás de uma métrica, para o Excel. */
+export function buildCrmGoalLeadsCsv(metric: CrmMetric, rows: CrmGoalLeadCsvRow[]): string {
+  const meta = CRM_METRIC_META[metric];
+  const eventLabel = metric === "agendamento" ? "Agendou em" : "Reunião em";
+  const countedLabel =
+    metric === "agendamento" ? "Agendou" : metric === "conversao_trial" ? "Virou trial" : "Virou cliente";
+  const header = [
+    "Nome",
+    "Empresa",
+    "E-mail",
+    "Telefone",
+    "Status comercial",
+    "Cadastro",
+    eventLabel,
+    countedLabel,
+    `Na base (${meta.denominatorLabel})`,
+  ];
+  const lines = rows.map((row) =>
+    [
+      row.name,
+      row.companyName,
+      row.email,
+      row.phone,
+      CRM_STATUS_META[row.commercialStatus].label,
+      csvDate(row.createdAt),
+      csvDate(row.eventAt),
+      row.inNumerator ? "Sim" : "Não",
+      row.inDenominator ? "Sim" : "Não",
+    ]
+      .map(escapeCsvCell)
+      .join(","),
+  );
+  return `\uFEFF${[header.map(escapeCsvCell).join(","), ...lines].join("\r\n")}`;
+}
+
+export function crmGoalLeadsCsvFilename(metric: CrmMetric, month: string): string {
+  return `metas-${metric}-${month}.csv`;
+}

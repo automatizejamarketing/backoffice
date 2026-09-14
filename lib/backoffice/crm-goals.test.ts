@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   baseEmail,
+  buildCrmGoalLeadsCsv,
+  crmGoalLeadsCsvFilename,
   canEditCrmGoalMonth,
   crmGoalStatus,
   crmMonthCalendarBounds,
@@ -118,5 +120,28 @@ describe("contas da equipe", () => {
     expect(isInternalLeadEmail("joaopedrocorrea14+sim1@gmail.com", team)).toBe(true);
     expect(isInternalLeadEmail("daniele+t1@exemplo.com", team)).toBe(true);
     expect(isInternalLeadEmail("cliente@exemplo.com", team)).toBe(false);
+  });
+});
+
+describe("exportação CSV dos leads", () => {
+  test("cabeçalho por métrica, BOM, CRLF e escape de vírgula", () => {
+    const csv = buildCrmGoalLeadsCsv("agendamento", [
+      {
+        name: "Ana, Silva",
+        companyName: null,
+        email: "ana@ex.com",
+        phone: "+5511999990001",
+        commercialStatus: "reuniao_agendada",
+        createdAt: "2026-09-05T13:00:00.000Z",
+        eventAt: "2026-09-06T15:00:00.000Z",
+        inDenominator: true,
+        inNumerator: true,
+      },
+    ]);
+    const [header, row] = csv.split("\r\n");
+    expect(header.startsWith("\uFEFFNome,Empresa,E-mail,Telefone,Status comercial,Cadastro,Agendou em,Agendou,Na base")).toBe(true);
+    expect(row).toBe('"Ana, Silva",,ana@ex.com,+5511999990001,Reunião agendada,05/09/2026 10:00,06/09/2026 12:00,Sim,Sim');
+    expect(buildCrmGoalLeadsCsv("conversao_real", []).split("\r\n")[0]).toContain("Reunião em,Virou cliente");
+    expect(crmGoalLeadsCsvFilename("conversao_trial", "2026-09")).toBe("metas-conversao_trial-2026-09.csv");
   });
 });

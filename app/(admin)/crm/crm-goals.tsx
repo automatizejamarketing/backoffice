@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, ChevronRight, Minus, Pencil } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Download, Minus, Pencil } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +29,9 @@ import {
   statusToneSurfaceClassName,
 } from "@/components/ui/status-badge";
 import {
+  buildCrmGoalLeadsCsv,
   CRM_GOAL_STATUS_META,
+  crmGoalLeadsCsvFilename,
   crmMonthOf,
   formatCrmMonth,
   SALES_ROLE_LABELS,
@@ -351,6 +353,22 @@ function GoalLeadsDialog({
               : null}
           </DialogDescription>
         </DialogHeader>
+        {query.data && metric && query.data.leads.length > 0 ? (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => downloadCsv(
+                crmGoalLeadsCsvFilename(metric.metric, month),
+                buildCrmGoalLeadsCsv(metric.metric, query.data!.leads),
+              )}
+            >
+              <Download />
+              Exportar CSV
+            </Button>
+          </div>
+        ) : null}
         <div className="min-h-0 flex-1 overflow-auto rounded-lg border">
           {query.isError ? (
             <p className="p-4 text-sm">
@@ -422,6 +440,16 @@ function GoalLeadsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function downloadCsv(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 function draftFrom(data: CrmGoalsResponse): Record<CrmMetric, string> {
