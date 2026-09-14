@@ -1265,6 +1265,11 @@ export type MetaAudienceCommand = InferSelectModel<typeof metaAudienceCommand>;
 export const META_ASSET_KIND_VALUES = ["ad_account", "identity"] as const;
 export type MetaAssetKind = (typeof META_ASSET_KIND_VALUES)[number];
 
+export type MetaUnavailableAssetRef = {
+  kind: MetaAssetKind;
+  id: string;
+};
+
 export const META_ASSET_SELECTION_STATUS_VALUES = ["pending", "fixed"] as const;
 export type MetaAssetSelectionStatus =
   (typeof META_ASSET_SELECTION_STATUS_VALUES)[number];
@@ -1324,6 +1329,7 @@ export const metaAssetPolicy = pgTable("meta_asset_policies", {
     enum: META_ASSET_SELECTION_MODE_VALUES,
   }).$type<MetaAssetSelectionMode>(),
   unavailableAssetIds: jsonb("unavailable_asset_ids")
+    .$type<MetaUnavailableAssetRef[]>()
     .notNull()
     .default(sql`'[]'::jsonb`),
   availabilityCheckedAt: timestamp("availability_checked_at", {
