@@ -25,7 +25,7 @@ function sanitizeFilename(input: string): string {
 }
 
 export async function GET(request: Request) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("users:read");
   if (!authz.ok) return authz.response;
 
   const { searchParams } = new URL(request.url);

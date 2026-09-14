@@ -48,8 +48,9 @@ export default async function UsersPage({
     signupTo?: string;
   }>;
 }) {
-  const actor = await requirePagePermission("users:manage");
+  const actor = await requirePagePermission("users:read");
   const canManageBilling = hasBackofficePermission(actor, "billing:manage");
+  const canManageUsers = hasBackofficePermission(actor, "users:manage");
 
   const sp = await searchParams;
   const filters = normalizeUsersFilterParams(sp);
@@ -183,6 +184,7 @@ export default async function UsersPage({
           users={users}
           search={search}
           canManageBilling={canManageBilling}
+          canManageUsers={canManageUsers}
         />
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

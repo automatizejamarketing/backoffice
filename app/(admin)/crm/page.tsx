@@ -6,7 +6,7 @@ import { CrmWorkspace } from "./crm-workspace";
 export const dynamic = "force-dynamic";
 
 export default async function CrmPage() {
-  await requirePagePermission("users:manage");
+  await requirePagePermission("crm:manage");
 
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">

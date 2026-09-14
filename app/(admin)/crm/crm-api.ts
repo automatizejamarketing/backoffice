@@ -1,3 +1,5 @@
+import type { CrmGoalLeads, CrmGoalsDashboard } from "@/lib/db/crm-goals-queries";
+import type { CrmMetric } from "@/lib/backoffice/crm-goals";
 import type {
   CrmAccountStage,
   CrmCommercialStatus,
@@ -97,6 +99,32 @@ export function createCrmLeadNote(userId: string, body: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ body }),
   }).then((r) => readJson<{ event: CrmLeadEventView }>(r));
+}
+
+export type CrmGoalsResponse = CrmGoalsDashboard & { canEdit: boolean };
+
+export function fetchCrmGoals(month: string) {
+  return fetch(`/api/crm/goals?month=${encodeURIComponent(month)}`, { cache: "no-store" }).then(
+    (r) => readJson<CrmGoalsResponse>(r),
+  );
+}
+
+export function fetchCrmGoalLeads(month: string, metric: CrmMetric) {
+  const query = new URLSearchParams({ month, metric });
+  return fetch(`/api/crm/goals/leads?${query}`, { cache: "no-store" }).then((r) =>
+    readJson<CrmGoalLeads>(r),
+  );
+}
+
+export function saveCrmGoals(
+  month: string,
+  targets: Partial<Record<CrmMetric, number | null>>,
+) {
+  return fetch("/api/crm/goals", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ month, targets }),
+  }).then((r) => readJson<CrmGoalsResponse>(r));
 }
 
 export function formatRelativeDays(iso: string | null, now = new Date()) {

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ userId: string }> };
 
 export async function GET(_request: Request, { params }: Context) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
   const { userId } = await params;
   const detail = await getCrmLead(userId);
@@ -19,7 +19,7 @@ export async function GET(_request: Request, { params }: Context) {
 }
 
 export async function PATCH(request: Request, { params }: Context) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
   const { userId } = await params;
   const body = (await request.json().catch(() => null)) as

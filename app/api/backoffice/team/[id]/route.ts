@@ -5,7 +5,11 @@ import {
   updateBackofficeUser,
 } from "@/lib/db/backoffice-rbac-queries";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { BACKOFFICE_ROLE_VALUES, type BackofficeRole } from "@/lib/auth/rbac-core";
+import {
+  BACKOFFICE_ROLE_VALUES,
+  isSalesRole,
+  type BackofficeRole,
+} from "@/lib/auth/rbac-core";
 
 function isBackofficeRole(value: unknown): value is BackofficeRole {
   return (
@@ -26,6 +30,7 @@ export async function PATCH(
     email?: unknown;
     name?: unknown;
     role?: unknown;
+    salesRole?: unknown;
     active?: unknown;
   };
 
@@ -57,6 +62,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
     data.role = body.role;
+  }
+  if (body.salesRole !== undefined) {
+    if (body.salesRole !== null && !isSalesRole(body.salesRole)) {
+      return NextResponse.json({ error: "Invalid salesRole" }, { status: 400 });
+    }
+    data.salesRole = body.salesRole;
   }
   if (body.active !== undefined) {
     if (typeof body.active !== "boolean") {
