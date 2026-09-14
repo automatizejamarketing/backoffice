@@ -1262,6 +1262,150 @@ export const metaAudienceCommand = pgTable("meta_audience_commands", {
 
 export type MetaAudienceCommand = InferSelectModel<typeof metaAudienceCommand>;
 
+export const META_ASSET_KIND_VALUES = ["ad_account", "identity"] as const;
+export type MetaAssetKind = (typeof META_ASSET_KIND_VALUES)[number];
+
+export const META_ASSET_SELECTION_STATUS_VALUES = ["pending", "fixed"] as const;
+export type MetaAssetSelectionStatus =
+  (typeof META_ASSET_SELECTION_STATUS_VALUES)[number];
+
+export const META_ASSET_PENDING_REASON_VALUES = [
+  "initial",
+  "limit_changed",
+  "support_requested",
+] as const;
+export type MetaAssetPendingReason =
+  (typeof META_ASSET_PENDING_REASON_VALUES)[number];
+
+export const META_ASSET_SELECTION_MODE_VALUES = [
+  "explicit",
+  "implicit",
+] as const;
+export type MetaAssetSelectionMode =
+  (typeof META_ASSET_SELECTION_MODE_VALUES)[number];
+
+export const META_ASSET_EVENT_TYPE_VALUES = [
+  "limits_updated",
+  "selection_requested",
+  "selection_submitted",
+  "selection_set_by_admin",
+  "selection_implicit",
+  "selection_invalidated",
+] as const;
+export type MetaAssetEventType = (typeof META_ASSET_EVENT_TYPE_VALUES)[number];
+
+/**
+ * One row per user: asset limits and the current selection state.
+ * Absence of a row means limits 1/1 and no selection yet.
+ */
+export const metaAssetPolicy = pgTable("meta_asset_policies", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  adAccountLimit: integer("ad_account_limit").notNull().default(1),
+  identityLimit: integer("identity_limit").notNull().default(1),
+  selectionStatus: varchar("selection_status", {
+    length: 16,
+    enum: META_ASSET_SELECTION_STATUS_VALUES,
+  })
+    .$type<MetaAssetSelectionStatus>()
+    .notNull(),
+  pendingReason: varchar("pending_reason", {
+    length: 32,
+    enum: META_ASSET_PENDING_REASON_VALUES,
+  }).$type<MetaAssetPendingReason>(),
+  pendingRequestedBy: varchar("pending_requested_by", { length: 100 }),
+  pendingRequestedAt: timestamp("pending_requested_at", { withTimezone: true }),
+  selectedAt: timestamp("selected_at", { withTimezone: true }),
+  selectedBy: varchar("selected_by", { length: 100 }),
+  selectionMode: varchar("selection_mode", {
+    length: 16,
+    enum: META_ASSET_SELECTION_MODE_VALUES,
+  }).$type<MetaAssetSelectionMode>(),
+  unavailableAssetIds: jsonb("unavailable_asset_ids")
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  availabilityCheckedAt: timestamp("availability_checked_at", {
+    withTimezone: true,
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type MetaAssetPolicy = InferSelectModel<typeof metaAssetPolicy>;
+
+/** One enabled Meta asset per user/kind/id. At most one primary per kind. */
+export const metaEnabledAsset = pgTable(
+  "meta_enabled_assets",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    assetKind: varchar("asset_kind", {
+      length: 16,
+      enum: META_ASSET_KIND_VALUES,
+    })
+      .$type<MetaAssetKind>()
+      .notNull(),
+    assetId: text("asset_id").notNull(),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    displayName: text("display_name"),
+    instagramBusinessAccountId: text("instagram_business_account_id"),
+    instagramUsername: text("instagram_username"),
+  },
+  (table) => ({
+    userKindIdUnique: unique("meta_enabled_assets_user_kind_id_unique").on(
+      table.userId,
+      table.assetKind,
+      table.assetId,
+    ),
+    onePrimaryPerKind: uniqueIndex(
+      "meta_enabled_assets_one_primary_per_kind",
+    )
+      .on(table.userId, table.assetKind)
+      .where(sql`${table.isPrimary}`),
+    userIdx: index("meta_enabled_assets_user_idx").on(table.userId),
+  }),
+);
+
+export type MetaEnabledAsset = InferSelectModel<typeof metaEnabledAsset>;
+
+/** Append-only audit of asset-limit and selection changes. */
+export const metaAssetEvent = pgTable(
+  "meta_asset_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    eventType: varchar("event_type", {
+      length: 32,
+      enum: META_ASSET_EVENT_TYPE_VALUES,
+    })
+      .$type<MetaAssetEventType>()
+      .notNull(),
+    actor: varchar("actor", { length: 100 }).notNull(),
+    payload: jsonb("payload").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("meta_asset_events_user_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type MetaAssetEvent = InferSelectModel<typeof metaAssetEvent>;
+
 export const businessOperatingRules = pgTable("business_operating_rules", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   name: varchar("name", { length: 64 }).notNull().default("default"),
