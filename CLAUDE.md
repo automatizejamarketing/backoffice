@@ -178,10 +178,11 @@ app/
 
 ### Mirrored Meta sources — the frontend is authoritative
 
-`lib/meta-business/duplicate.ts` is a **byte-identical mirror** of the frontend's copy. The admin
-panel duplicates the same live campaigns the user dashboard does, so both must behave identically —
-the two `duplicate.ts` files are compared byte-for-byte by
-`../automatize-frontend/tests/meta-duplicate-parity.test.ts`.
+`lib/meta-business/duplicate.ts` and `lib/meta-business/meta-asset-policy.ts` are
+**byte-identical mirrors** of the frontend's copies. The admin panel duplicates the
+same live campaigns the user dashboard does, and "Definir seleção" must apply the
+same asset-selection rules as the user modal — the two pairs are compared
+byte-for-byte by `../automatize-frontend/tests/meta-duplicate-parity.test.ts`.
 
 Never edit this project's copy directly. Change the frontend's, then:
 
@@ -246,7 +247,7 @@ Do not paste secrets from `.env*` files into commits or external docs.
 - Do NOT replace `bun run db:migrate` with `drizzle-kit migrate`. The baselining step is required.
 - Do NOT run `bun run db:push` against staging/production or any shared DB. It skips the migrations journal and breaks the baseline contract.
 - Do NOT change `lib/db/schema.ts` without mirroring the edit in `../automatize-frontend/lib/db/schema.ts` and generating migrations in the owning project.
-- Do NOT edit `lib/meta-business/duplicate.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — this one is a byte-identical mirror.
+- Do NOT edit `lib/meta-business/duplicate.ts` or `lib/meta-business/meta-asset-policy.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — these are byte-identical mirrors.
 - Do NOT edit the other mirrored Meta sources here either (`marketing/{creation,update}/*`, `marketing/create-adset-in-existing-campaign.ts`, `marketing/normalize-meta-error.ts`, `get-instagram-connected-page.ts`). Same rule: edit the frontend's copy, run `bun run sync:meta` there, commit both projects together.
 - Do NOT use `npm`, `yarn`, or `pnpm`. Bun only.
 - Do NOT add an email to `ADMIN_EMAILS` without the user explicitly approving it — it is an access-control list.
