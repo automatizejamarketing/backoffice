@@ -153,14 +153,14 @@ export function TrialActivationUsersDialog({
           </p>
         ) : (
           <ScrollArea className="max-h-[min(60vh,520px)] rounded-md border">
-            <Table>
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
                   <TableHead>Usuário</TableHead>
-                  <TableHead>Cadastro</TableHead>
-                  <TableHead>Ativou o trial</TableHead>
-                  <TableHead>Hoje</TableHead>
-                  <TableHead className="w-[96px]">Ações</TableHead>
+                  <TableHead className="w-[150px]">Cadastro</TableHead>
+                  <TableHead className="w-[200px]">Ativou o trial</TableHead>
+                  <TableHead className="w-[120px]">Hoje</TableHead>
+                  <TableHead className="w-[88px]">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
