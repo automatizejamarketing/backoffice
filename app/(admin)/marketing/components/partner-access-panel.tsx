@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { navigateToFacebookOAuth } from "@/lib/meta-business/navigate-facebook-oauth";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
 
 type PartnerAccessResponse = {
@@ -91,7 +92,7 @@ export function PartnerAccessPanel({
         toast.error("Não foi possível iniciar a reconexão administrativa.");
         return;
       }
-      window.location.href = body.authUrl;
+      navigateToFacebookOAuth(body.authUrl);
     } catch {
       toast.error("Erro ao iniciar a reconexão administrativa.");
     } finally {
