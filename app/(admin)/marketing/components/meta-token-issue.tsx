@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { AdAccountsErrorResponse } from "@/app/api/users/[id]/ad-accounts/route";
+import { navigateToFacebookOAuth } from "@/lib/meta-business/navigate-facebook-oauth";
 import type { ReconnectInfo } from "@/lib/meta-business/reconnect-link";
 
 type RefreshResponse = {
@@ -142,7 +143,7 @@ export function MetaTokenIssue({
               authUrl?: string;
             } | null;
             if (res.ok && body?.authUrl) {
-              window.location.href = body.authUrl;
+              navigateToFacebookOAuth(body.authUrl);
               return;
             }
             toast.error("Não foi possível iniciar a reconexão administrativa.");
