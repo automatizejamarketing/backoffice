@@ -109,6 +109,8 @@ const TAB_CONFIG: Array<{
 const FIELD_LABELS: Record<string, string> = {
   expiration_date: "Data de expiração",
   credits: "Créditos",
+  meta_asset_limits: "Limites de Ativos Meta",
+  meta_asset_selection: "Seleção de Ativos Meta",
 };
 
 function isUserHubTab(value: string | undefined): value is UserHubTab {
@@ -841,6 +843,11 @@ export async function UserHubPage({
                               formatDate,
                             )}
                           </span>
+                          {log.note ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {log.note}
+                            </p>
+                          ) : null}
                         </td>
                       </tr>
                     ))}

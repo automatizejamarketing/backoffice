@@ -28,6 +28,7 @@ import {
 } from "@/lib/meta-business/campaign-sort";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 import { AdAccountSelector } from "./ad-account-selector";
+import { MetaAssetsCard } from "./meta-assets-card";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
@@ -280,6 +281,8 @@ export function MarketingWorkspace({
           </CardContent>
         </Card>
       )}
+
+      {selectedUser ? <MetaAssetsCard userId={selectedUser.id} /> : null}
 
       {selectedUser && (
         <Card>
