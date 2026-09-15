@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  metaAssetSelectionErrorCopy,
   planMetaAssetLimitsUpdate,
   planMetaAssetSelectionRequest,
+  planMetaAssetSelectionSet,
 } from "./meta-asset-mutation-plan";
 
 const NOW = new Date("2026-09-14T18:00:00.000Z");
@@ -352,5 +354,192 @@ describe("planMetaAssetSelectionRequest", () => {
       reason: "support_requested",
       note: null,
     });
+  });
+});
+
+describe("planMetaAssetSelectionSet", () => {
+  test("over_limit is refused with readable copy and the dialog stays on the helper", () => {
+    const result = planMetaAssetSelectionSet({
+      userId: USER_ID,
+      current: {
+        adAccountLimit: 1,
+        identityLimit: 1,
+        selectionStatus: "pending",
+        pendingReason: "initial",
+        pendingRequestedBy: null,
+        pendingRequestedAt: NOW,
+        selectedAt: null,
+        selectedBy: null,
+        selectionMode: null,
+      },
+      granted: {
+        adAccountIds: ["111", "222"],
+        identityIds: ["page-a"],
+      },
+      proposal: {
+        adAccounts: { chosenIds: ["111", "222"], primaryIds: ["111"] },
+        identities: { chosenIds: ["page-a"], primaryIds: ["page-a"] },
+      },
+      adminEmail: ADMIN,
+      at: NOW,
+    });
+
+    expect(result).toEqual({ ok: false, error: "over_limit" });
+    expect(metaAssetSelectionErrorCopy("over_limit")).toEqual({
+      message: "A escolha ultrapassa o limite de ativos deste tipo.",
+      solution:
+        "Desmarque itens até caber no limite ou peça ao suporte para aumentá-lo.",
+    });
+  });
+
+  test("not_granted is refused with readable copy", () => {
+    const result = planMetaAssetSelectionSet({
+      userId: USER_ID,
+      current: null,
+      granted: {
+        adAccountIds: ["111"],
+        identityIds: ["page-a"],
+      },
+      proposal: {
+        adAccounts: { chosenIds: ["999"], primaryIds: ["999"] },
+        identities: { chosenIds: ["page-a"], primaryIds: ["page-a"] },
+      },
+      adminEmail: ADMIN,
+      at: NOW,
+    });
+
+    expect(result).toEqual({ ok: false, error: "not_granted" });
+    expect(metaAssetSelectionErrorCopy("not_granted")).toEqual({
+      message:
+        "Um dos ativos escolhidos não foi concedido pela conexão Meta atual.",
+      solution:
+        "Escolha apenas contas e identidades que aparecem na lista concedida.",
+    });
+  });
+
+  test("missing_primary is refused with readable copy", () => {
+    const result = planMetaAssetSelectionSet({
+      userId: USER_ID,
+      current: {
+        adAccountLimit: 2,
+        identityLimit: 1,
+        selectionStatus: "pending",
+        pendingReason: "limit_changed",
+        pendingRequestedBy: ADMIN,
+        pendingRequestedAt: NOW,
+        selectedAt: null,
+        selectedBy: null,
+        selectionMode: null,
+      },
+      granted: {
+        adAccountIds: ["111", "222"],
+        identityIds: ["page-a"],
+      },
+      proposal: {
+        adAccounts: { chosenIds: ["111", "222"], primaryIds: [] },
+        identities: { chosenIds: ["page-a"], primaryIds: ["page-a"] },
+      },
+      adminEmail: ADMIN,
+      at: NOW,
+    });
+
+    expect(result).toEqual({ ok: false, error: "missing_primary" });
+    expect(metaAssetSelectionErrorCopy("missing_primary")).toEqual({
+      message: "Falta marcar o ativo principal deste tipo.",
+      solution: "Indique qual conta ou identidade é a principal.",
+    });
+  });
+
+  test("a valid proposal fixes the policy as explicit, with one primary per type, audit summary and admin event", () => {
+    const result = planMetaAssetSelectionSet({
+      userId: USER_ID,
+      current: {
+        adAccountLimit: 2,
+        identityLimit: 1,
+        selectionStatus: "fixed",
+        pendingReason: null,
+        pendingRequestedBy: null,
+        pendingRequestedAt: null,
+        selectedAt: new Date("2026-08-01T12:00:00.000Z"),
+        selectedBy: "user",
+        selectionMode: "implicit",
+      },
+      granted: {
+        adAccountIds: ["111", "222"],
+        identityIds: ["page-a"],
+      },
+      proposal: {
+        adAccounts: { chosenIds: ["111", "222"], primaryIds: ["222"] },
+        identities: { chosenIds: ["page-a"], primaryIds: [] },
+      },
+      previouslyEnabled: [
+        { kind: "ad_account", id: "111", isPrimary: true },
+      ],
+      adminEmail: ADMIN,
+      at: NOW,
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      policy: {
+        userId: USER_ID,
+        adAccountLimit: 2,
+        identityLimit: 1,
+        selectionStatus: "fixed",
+        pendingReason: null,
+        pendingRequestedBy: null,
+        pendingRequestedAt: null,
+        selectedAt: NOW,
+        selectedBy: ADMIN,
+        selectionMode: "explicit",
+      },
+      audit: {
+        action: "set_meta_asset_selection",
+        fieldName: "meta_asset_selection",
+        oldValue: "contas 111 (principal) · identidades —",
+        newValue: "contas 111, 222 (principal) · identidades page-a (principal)",
+        note: null,
+      },
+      event: {
+        eventType: "selection_set_by_admin",
+        actor: ADMIN,
+        payload: {
+          adAccounts: { chosenIds: ["111", "222"], primaryIds: ["222"] },
+          identities: { chosenIds: ["page-a"], primaryIds: ["page-a"] },
+          selectionMode: "explicit",
+        },
+      },
+      assets: [
+        { kind: "ad_account", id: "111", isPrimary: false },
+        { kind: "ad_account", id: "222", isPrimary: true },
+        { kind: "identity", id: "page-a", isPrimary: true },
+      ],
+    });
+  });
+
+  test("a kind with no granted assets stays empty and still fixes", () => {
+    const result = planMetaAssetSelectionSet({
+      userId: USER_ID,
+      current: null,
+      granted: {
+        adAccountIds: ["111"],
+        identityIds: [],
+      },
+      proposal: {
+        adAccounts: { chosenIds: ["111"], primaryIds: [] },
+        identities: { chosenIds: [], primaryIds: [] },
+      },
+      adminEmail: ADMIN,
+      at: NOW,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.assets).toEqual([
+      { kind: "ad_account", id: "111", isPrimary: true },
+    ]);
+    expect(result.audit.newValue).toBe(
+      "contas 111 (principal) · identidades —",
+    );
   });
 });

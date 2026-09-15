@@ -16,6 +16,7 @@ import { MetaAssetsLimitsForm } from "./meta-assets-limits-form";
 import { MetaAssetsLists } from "./meta-assets-lists";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { RequestMetaAssetSelectionDialog } from "./request-meta-asset-selection-dialog";
+import { SetMetaAssetSelectionDialog } from "./set-meta-asset-selection-dialog";
 
 const REASON_LABEL = {
   initial: "inicial",
@@ -30,6 +31,7 @@ type MetaAssetsCardProps = {
 export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
   const query = useMetaAssets(userId);
   const [requestOpen, setRequestOpen] = useState(false);
+  const [defineOpen, setDefineOpen] = useState(false);
 
   if (query.isLoading) {
     return (
@@ -65,9 +67,29 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
           <CardDescription>{selectionCopy(data)}</CardDescription>
         </div>
         {data.canEdit ? (
-          <Button type="button" variant="outline" onClick={() => setRequestOpen(true)}>
-            Pedir nova seleção
-          </Button>
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                disabled={!canDefineSelection(data)}
+                onClick={() => setDefineOpen(true)}
+              >
+                Definir seleção
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRequestOpen(true)}
+              >
+                Pedir nova seleção
+              </Button>
+            </div>
+            {data.connection.status === "reconnect_required" ? (
+              <p className="text-xs text-muted-foreground">
+                Peça a reconexão da Meta antes de definir a seleção.
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </CardHeader>
       <CardContent className="space-y-6">
@@ -107,8 +129,22 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
           onOpenChange={setRequestOpen}
         />
       ) : null}
+      {data.canEdit && data.granted && data.enabled ? (
+        <SetMetaAssetSelectionDialog
+          userId={userId}
+          open={defineOpen}
+          onOpenChange={setDefineOpen}
+          limits={data.limits}
+          granted={data.granted}
+          enabled={data.enabled}
+        />
+      ) : null}
     </Card>
   );
+}
+
+function canDefineSelection(data: MetaAssetsResponse): boolean {
+  return data.connection.status === "active" && data.granted !== null;
 }
 
 function selectionCopy(data: MetaAssetsResponse): string {

@@ -1,19 +1,27 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
+import { getPagesWithInstagram } from "@/lib/meta-business/marketing/build-ad-from-media";
 import {
   backofficeAuditLog,
   metaAssetEvent,
   metaAssetPolicy,
+  metaEnabledAsset,
   user,
 } from "@/lib/db/schema";
 import {
   META_ASSET_DEFAULT_LIMIT,
+  parseSelectionProposal,
   planMetaAssetLimitsUpdate,
   planMetaAssetSelectionRequest,
+  planMetaAssetSelectionSet,
   type MetaAssetAuditWrite,
   type MetaAssetEventWrite,
   type PolicyWrite,
+  type SelectionSetEnabledAsset,
   type StoredPolicySnapshot,
 } from "./meta-asset-mutation-plan";
 
@@ -91,6 +99,50 @@ export async function requestUserMetaAssetSelectionWithAudit(input: {
   return { ok: true as const };
 }
 
+export async function setUserMetaAssetSelectionWithAudit(input: {
+  userId: string;
+  body: unknown;
+  adminEmail: string;
+}) {
+  const existing = await findUserId(input.userId);
+  if (!existing) {
+    return { ok: false as const, error: "User not found" as const };
+  }
+
+  const proposal = parseSelectionProposal(input.body);
+  if (!proposal) {
+    return { ok: false as const, error: "invalid_body" as const };
+  }
+
+  const live = await loadLiveGranted(input.userId);
+  if (!live.ok) {
+    return live;
+  }
+
+  const current = await loadPolicySnapshot(input.userId);
+  const previouslyEnabled = await loadEnabledAssets(input.userId);
+  const at = new Date();
+  const plan = planMetaAssetSelectionSet({
+    userId: input.userId,
+    current,
+    granted: live.granted,
+    proposal,
+    previouslyEnabled,
+    adminEmail: input.adminEmail,
+    at,
+  });
+
+  if (!plan.ok) {
+    return { ok: false as const, error: plan.error };
+  }
+
+  await persistMutation(input.userId, input.adminEmail, plan, at, {
+    enabled: decorateEnabled(plan.assets, live.catalog),
+    clearUnavailable: true,
+  });
+  return { ok: true as const };
+}
+
 export async function loadPolicySnapshot(
   userId: string,
 ): Promise<StoredPolicySnapshot | null> {
@@ -126,6 +178,125 @@ async function findUserId(userId: string): Promise<string | null> {
   return row?.id ?? null;
 }
 
+async function loadEnabledAssets(
+  userId: string,
+): Promise<SelectionSetEnabledAsset[]> {
+  const rows = await db
+    .select({
+      kind: metaEnabledAsset.assetKind,
+      id: metaEnabledAsset.assetId,
+      isPrimary: metaEnabledAsset.isPrimary,
+    })
+    .from(metaEnabledAsset)
+    .where(eq(metaEnabledAsset.userId, userId));
+  return rows;
+}
+
+type LiveCatalog = {
+  adAccounts: Map<string, { name: string }>;
+  identities: Map<
+    string,
+    {
+      pageName: string;
+      instagramBusinessAccountId: string;
+      instagramUsername: string | null;
+    }
+  >;
+};
+
+async function loadLiveGranted(userId: string): Promise<
+  | {
+      ok: false;
+      error: "never_connected" | "reconnect_required" | "lists_unavailable";
+    }
+  | {
+      ok: true;
+      granted: { adAccountIds: string[]; identityIds: string[] };
+      catalog: LiveCatalog;
+    }
+> {
+  const metaAccount = await getUserMetaBusinessAccount(userId);
+  if (!metaAccount) {
+    return { ok: false, error: "never_connected" };
+  }
+
+  const token = await getUserAccessTokenByUserId(userId);
+  if (!token.success) {
+    return { ok: false, error: "reconnect_required" };
+  }
+
+  try {
+    const [userWithAccounts, identities] = await Promise.all([
+      getUserWithAdAccounts(token.accessToken, {
+        tokenKind: token.connection.tokenKind,
+        bisuAppScopedId: token.connection.bisuAppScopedId,
+        clientBusinessId: token.connection.clientBusinessId,
+        connectionName: token.connection.name,
+      }),
+      getPagesWithInstagram(token.accessToken),
+    ]);
+
+    const adAccounts = userWithAccounts.adaccounts?.data ?? [];
+    const catalog: LiveCatalog = {
+      adAccounts: new Map(
+        adAccounts.map((account) => [
+          account.account_id,
+          { name: account.name ?? `Conta ${account.account_id}` },
+        ]),
+      ),
+      identities: new Map(
+        identities.map((page) => [
+          page.pageId,
+          {
+            pageName: page.pageName ?? page.pageId,
+            instagramBusinessAccountId: page.instagramBusinessAccountId,
+            instagramUsername: page.instagramUsername ?? null,
+          },
+        ]),
+      ),
+    };
+
+    return {
+      ok: true,
+      granted: {
+        adAccountIds: [...catalog.adAccounts.keys()],
+        identityIds: [...catalog.identities.keys()],
+      },
+      catalog,
+    };
+  } catch (error) {
+    if (error instanceof GraphApiError && error.errorReturn.data?.code === 190) {
+      return { ok: false, error: "reconnect_required" };
+    }
+    return { ok: false, error: "lists_unavailable" };
+  }
+}
+
+function decorateEnabled(
+  assets: readonly SelectionSetEnabledAsset[],
+  catalog: LiveCatalog,
+) {
+  return assets.map((asset) => {
+    if (asset.kind === "ad_account") {
+      const live = catalog.adAccounts.get(asset.id);
+      return {
+        ...asset,
+        displayName: live?.name ?? asset.id,
+        instagramBusinessAccountId: null as string | null,
+        instagramUsername: null as string | null,
+      };
+    }
+
+    const live = catalog.identities.get(asset.id);
+    return {
+      ...asset,
+      displayName: live?.pageName ?? asset.id,
+      instagramBusinessAccountId: live?.instagramBusinessAccountId ?? null,
+      instagramUsername: live?.instagramUsername ?? null,
+    };
+  });
+}
+
 async function persistMutation(
   userId: string,
   adminEmail: string,
@@ -135,6 +306,17 @@ async function persistMutation(
     event: MetaAssetEventWrite;
   },
   at: Date,
+  options?: {
+    enabled?: Array<{
+      kind: SelectionSetEnabledAsset["kind"];
+      id: string;
+      isPrimary: boolean;
+      displayName: string | null;
+      instagramBusinessAccountId: string | null;
+      instagramUsername: string | null;
+    }>;
+    clearUnavailable?: boolean;
+  },
 ) {
   await db.transaction(async (tx) => {
     await tx
@@ -166,9 +348,30 @@ async function persistMutation(
           selectedAt: plan.policy.selectedAt,
           selectedBy: plan.policy.selectedBy,
           selectionMode: plan.policy.selectionMode,
+          ...(options?.clearUnavailable ? { unavailableAssetIds: [] } : {}),
           updatedAt: at,
         },
       });
+
+    if (options?.enabled) {
+      await tx
+        .delete(metaEnabledAsset)
+        .where(eq(metaEnabledAsset.userId, userId));
+
+      if (options.enabled.length > 0) {
+        await tx.insert(metaEnabledAsset).values(
+          options.enabled.map((asset) => ({
+            userId,
+            assetKind: asset.kind,
+            assetId: asset.id,
+            isPrimary: asset.isPrimary,
+            displayName: asset.displayName,
+            instagramBusinessAccountId: asset.instagramBusinessAccountId,
+            instagramUsername: asset.instagramUsername,
+          })),
+        );
+      }
+    }
 
     await tx.insert(backofficeAuditLog).values({
       adminEmail,

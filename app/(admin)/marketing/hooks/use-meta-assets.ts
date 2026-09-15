@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { MetaAssetsResponse } from "@/lib/backoffice/meta-assets-types";
+import type { SelectionSubmitBody } from "@/lib/backoffice/meta-asset-mutation-plan";
 
 export const metaAssetsQueryKey = (userId: string) =>
   ["meta-assets", userId] as const;
@@ -65,6 +65,50 @@ export function useRequestMetaAssetSelection(userId: string) {
       );
       if (!response.ok) {
         throw new Error(await readError(response));
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: metaAssetsQueryKey(userId) });
+    },
+  });
+}
+
+export class MetaAssetSelectionSetError extends Error {
+  readonly code: string;
+  readonly solution?: string;
+
+  constructor(code: string, message: string, solution?: string) {
+    super(message);
+    this.name = "MetaAssetSelectionSetError";
+    this.code = code;
+    this.solution = solution;
+  }
+}
+
+export function useSetMetaAssetSelection(userId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (body: SelectionSubmitBody) => {
+      const response = await fetch(
+        `/api/users/${userId}/meta-assets/selection`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: string;
+          message?: string;
+          solution?: string;
+        } | null;
+        throw new MetaAssetSelectionSetError(
+          payload?.error ?? "request_failed",
+          payload?.message ?? "Não foi possível definir a seleção",
+          payload?.solution,
+        );
       }
     },
     onSuccess: () => {
