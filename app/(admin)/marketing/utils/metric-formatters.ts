@@ -59,6 +59,12 @@ const METRIC_LABELS: Record<string, string> = {
   checkout: "Finalização de compra",
   cartAbandonment: "Abandono de carrinho",
   costPerResult: "Custo por resultado",
+  messagingConversations: "Conversas iniciadas",
+  costPerMessagingConversation: "Custo por conversa iniciada",
+  messagingNewContacts: "Novos contatos por mensagem",
+  costPerMessagingNewContact: "Custo por novo contato",
+  messagingBlocked: "Conversas bloqueadas",
+  messagingSubscriptions: "Inscrições por mensagem",
 };
 
 export function getMetricLabel(labelKey: string): string {

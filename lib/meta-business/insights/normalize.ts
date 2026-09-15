@@ -195,6 +195,16 @@ export function normalizeInsightRow(
 ): NormalizedInsight {
   const extras: Record<string, number | null> = {};
   for (const spec of options.extraSpecs ?? []) {
+    if (spec.actionStat) {
+      // Not a field on the row: one action type inside a family already read.
+      extras[spec.field] = round2(
+        valueForActionType(
+          raw[spec.actionStat.family] as ActionArray,
+          spec.actionStat.actionType,
+        ),
+      );
+      continue;
+    }
     const value = raw[spec.field];
     extras[spec.field] = spec.isActionArray
       ? sumActionArray(value as ActionArray)

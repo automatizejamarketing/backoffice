@@ -2,11 +2,15 @@
 
 import { useState } from "react";
 import {
+  BellRing,
   CircleHelp,
   DollarSign,
   Eye,
+  MessageCircle,
+  MessageCircleOff,
   MousePointerClick,
   TrendingUp,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -80,6 +84,8 @@ type InsightsCardsProps = {
   insights?: InsightsMetrics;
   isLoading?: boolean;
   objective?: CampaignObjective;
+  /** Show the conversation set regardless of objective (see `getCampaignMetricBucket`). */
+  isMessaging?: boolean;
 };
 
 const METRIC_ICON_MAP: Record<CampaignMetricId, typeof DollarSign> = {
@@ -102,6 +108,12 @@ const METRIC_ICON_MAP: Record<CampaignMetricId, typeof DollarSign> = {
   initiateCheckoutCount: MousePointerClick,
   cartAbandonmentCount: MousePointerClick,
   costPerResult: DollarSign,
+  messagingConversationCount: MessageCircle,
+  messagingConversationCost: DollarSign,
+  messagingNewContactCount: UserPlus,
+  messagingNewContactCost: DollarSign,
+  messagingBlockedCount: MessageCircleOff,
+  messagingSubscriptionCount: BellRing,
 };
 
 const METRIC_COLOR_MAP: Record<CampaignMetricId, string> = {
@@ -124,18 +136,29 @@ const METRIC_COLOR_MAP: Record<CampaignMetricId, string> = {
   initiateCheckoutCount: "text-blue-500",
   cartAbandonmentCount: "text-rose-500",
   costPerResult: "text-cyan-500",
+  messagingConversationCount: "text-emerald-500",
+  messagingConversationCost: "text-cyan-500",
+  messagingNewContactCount: "text-violet-500",
+  messagingNewContactCost: "text-amber-500",
+  messagingBlockedCount: "text-rose-500",
+  messagingSubscriptionCount: "text-indigo-500",
 };
 
 export function InsightsCards({
   insights,
   isLoading = false,
   objective,
+  isMessaging,
 }: InsightsCardsProps) {
   if (isLoading) {
     return <InsightsCardsSkeleton />;
   }
 
-  const metrics = getCampaignMetricsForObjective(objective, "detailCards").map(
+  const metrics = getCampaignMetricsForObjective(
+    objective,
+    "detailCards",
+    isMessaging,
+  ).map(
     (metric) => ({
       label: getMetricLabel(metric.labelKey),
       value: formatMetricValue(metric, insights),

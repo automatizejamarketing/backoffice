@@ -105,6 +105,7 @@ function buildAdSetFields(options?: {
     "optimization_goal",
     "billing_event",
     "bid_amount",
+    "destination_type",
     "is_dynamic_creative",
     "targeting",
     "issues_info{error_code,error_message,error_summary,error_type,level,mid}",

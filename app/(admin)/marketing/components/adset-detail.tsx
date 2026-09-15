@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { ArrowLeft, X, Info, Pencil, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,7 +63,11 @@ import { formatTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { interestTargetingFromMetaTargeting } from "@/lib/meta-business/interest-targeting-types";
 import type { AdSetConversionDetails } from "@/lib/meta-business/marketing/adset-conversion-details";
 import { useAdSetDetail, useAdSetInsights } from "../hooks/marketing-queries";
-import type { CampaignMetricId } from "../utils/campaign-metrics";
+import {
+  getCampaignMetricsForObjective,
+  type CampaignMetricId,
+} from "../utils/campaign-metrics";
+import { getMetricLabel } from "../utils/metric-formatters";
 import type { SortOrder } from "@/lib/meta-business/campaign-sort";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 
@@ -77,6 +81,8 @@ type AdSetDetailProps = {
    * (campaign / adset / ad) renders the same objective-aware metrics.
    */
   objective?: CampaignObjective;
+  /** The parent campaign's messaging flag; the ad set's own wins when present. */
+  isMessaging?: boolean;
   selectedMetricIds?: CampaignMetricId[] | null;
   isOpen: boolean;
   onClose: () => void;
@@ -94,6 +100,7 @@ export function AdSetDetail({
   accountId,
   userId,
   objective,
+  isMessaging: campaignIsMessaging,
   selectedMetricIds,
   isOpen,
   onClose,
@@ -118,18 +125,33 @@ export function AdSetDetail({
     setAdSet(adSetProp);
   }, [adSetProp]);
 
-  const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
-  const [selectedMetric, setSelectedMetric] = useState<
-    "spend" | "impressions" | "clicks" | "cpc" | "cpm"
-  >("spend");
+  // The ad set decides for itself (a WhatsApp ad set under a website campaign
+  // still gets conversation metrics); the campaign's flag is the fallback.
+  const isMessaging = adSet.isMessaging ?? campaignIsMessaging;
 
-  const metricOptions = [
-    { value: "spend" as const, label: "Gasto" },
-    { value: "impressions" as const, label: "Impressões" },
-    { value: "clicks" as const, label: "Cliques" },
-    { value: "cpc" as const, label: "CPC" },
-    { value: "cpm" as const, label: "CPM" },
-  ] as const;
+  // The same objective-aware set the campaign sheet charts, so a conversation
+  // ad set charts conversations.
+  const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
+  const chartMetrics = useMemo(
+    () => getCampaignMetricsForObjective(objective, "chart", isMessaging),
+    [objective, isMessaging],
+  );
+  const [selectedMetric, setSelectedMetric] = useState<CampaignMetricId>(
+    chartMetrics[0]?.id ?? "spend",
+  );
+
+  const metricOptions = useMemo(
+    () =>
+      chartMetrics.map((metric) => ({
+        value: metric.id,
+        label: getMetricLabel(metric.labelKey),
+      })),
+    [chartMetrics],
+  );
+
+  useEffect(() => {
+    setSelectedMetric(chartMetrics[0]?.id ?? "spend");
+  }, [chartMetrics]);
 
   const [datePreset, setDatePreset] = useState<DatePreset | null>(
     DatePreset.LAST_30D,
@@ -418,6 +440,7 @@ export function AdSetDetail({
                 insights={totalInsights}
                 isLoading={isLoadingInsights}
                 objective={objective}
+                isMessaging={isMessaging}
               />
             </section>
 
@@ -488,6 +511,7 @@ export function AdSetDetail({
                 adSetId={adSet.id}
                 adSetIsDynamic={adSet.isDynamicCreative === true}
                 objective={objective}
+                isMessaging={isMessaging}
                 datePreset={datePreset}
                 customRange={customRange}
                 selectedMetricIds={selectedMetricIds}

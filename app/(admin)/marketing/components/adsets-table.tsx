@@ -50,6 +50,13 @@ type AdSetsTableProps = {
    * sales campaign shows ROAS/CPA/etc. instead of generic spend/clicks.
    */
   objective?: CampaignObjective;
+  /**
+   * The parent campaign's messaging flag — the fallback for an ad set row whose
+   * own `isMessaging` did not come back (older cache). Each row still decides
+   * for itself, so a campaign mixing a WhatsApp ad set with a website one shows
+   * conversation columns on the first and purchase columns on the second.
+   */
+  isMessaging?: boolean;
   datePreset?: DatePreset | null;
   customRange?: { since: string; until: string } | null;
   selectedMetricIds?: CampaignMetricId[] | null;
@@ -64,6 +71,7 @@ export function AdSetsTable({
   userId,
   campaignId,
   objective,
+  isMessaging,
   datePreset,
   customRange,
   selectedMetricIds,
@@ -75,17 +83,26 @@ export function AdSetsTable({
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [togglingAdSetId, setTogglingAdSetId] = useState<string | null>(null);
 
-  const mobileMetrics = resolveCampaignTableMetrics(
-    objective,
-    "mobileList",
-    selectedMetricIds,
-  );
-  const desktopMetrics = resolveCampaignTableMetrics(
-    objective,
-    "desktopList",
-    selectedMetricIds,
-  );
-  const desktopMetricCount = desktopMetrics.length;
+  const getMobileMetrics = (adSet: AdSet) =>
+    resolveCampaignTableMetrics(
+      objective,
+      "mobileList",
+      selectedMetricIds,
+      adSet.isMessaging ?? isMessaging,
+    );
+  const getDesktopMetrics = (adSet: AdSet) =>
+    resolveCampaignTableMetrics(
+      objective,
+      "desktopList",
+      selectedMetricIds,
+      adSet.isMessaging ?? isMessaging,
+    );
+  // Every default set has five desktop metrics, so the grid is stable across
+  // rows even when they resolve to different buckets.
+  const desktopMetricCount =
+    selectedMetricIds && selectedMetricIds.length > 0
+      ? selectedMetricIds.length
+      : 5;
   const desktopMetricsGridStyle = {
     gridTemplateColumns: `repeat(${desktopMetricCount}, minmax(0, 1fr))`,
   };
@@ -292,7 +309,7 @@ export function AdSetsTable({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-              {mobileMetrics.map((metric) => (
+              {getMobileMetrics(adSet).map((metric) => (
                 <div key={metric.id}>
                   <span className="block text-xs font-semibold tabular-nums">
                     {formatMetricValue(metric, adSet.insights)}
@@ -412,7 +429,7 @@ export function AdSetsTable({
                       </TableCell>
                       <TableCell>
                         <div className="grid gap-3" style={desktopMetricsGridStyle}>
-                          {desktopMetrics.map((metric) => (
+                          {getDesktopMetrics(adSet).map((metric) => (
                             <div key={metric.id} className="min-w-0">
                               <div className="tabular-nums text-sm font-medium">
                                 {formatMetricValue(metric, adSet.insights)}

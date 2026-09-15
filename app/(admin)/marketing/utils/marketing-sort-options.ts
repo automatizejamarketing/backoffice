@@ -64,6 +64,30 @@ export const MARKETING_QUICK_SORT_PRESETS: MarketingSortPreset[] = [
     metric: "spend",
     order: "asc",
   },
+  {
+    id: "messaging-conversations-desc",
+    label: "Conversas iniciadas do maior pro menor",
+    metric: "messagingConversationCount",
+    order: "desc",
+  },
+  {
+    id: "messaging-conversations-asc",
+    label: "Conversas iniciadas do menor pro maior",
+    metric: "messagingConversationCount",
+    order: "asc",
+  },
+  {
+    id: "messaging-conversation-cost-asc",
+    label: "Custo por conversa do menor pro maior",
+    metric: "messagingConversationCost",
+    order: "asc",
+  },
+  {
+    id: "messaging-conversation-cost-desc",
+    label: "Custo por conversa do maior pro menor",
+    metric: "messagingConversationCost",
+    order: "desc",
+  },
 ];
 
 export function findActiveSortPreset(
