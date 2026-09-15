@@ -166,6 +166,14 @@ app/
     posts/            # admin post queries
 ```
 
+Ativos Meta (seleção fixa): schema gêmeo `0107_meta_asset_selection` (`when=1799600000000`, mesmas tabelas que o frontend `0115`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
+
+- `GET /api/meta-business/marketing/assets`
+- `POST /api/meta-business/marketing/assets/selection`
+- `GET /api/meta-business/marketing/me` (`assetSelection`; `GET /pages` restringe identidades com a flag ligada)
+
+O card do hub, as mutações admin (`update_meta_asset_limits`, `request_meta_asset_selection`, `set_meta_asset_selection`) e os filtros `selection_pending` / `asset_unavailable` da lista são os tickets 12 (card), 13 (definir seleção) e 14 (lista/inspeção).
+
 ### Server-side patterns
 
 - Admin pages are predominantly server components that call helpers from `lib/db/admin-queries.ts` (aggregate SQL via Drizzle) and pass serialized props to `"use client"` children. See `app/(admin)/posts/page.tsx` for the typical shape: `Promise.all` of queries, then `<Client initial... />`.
@@ -236,6 +244,7 @@ Noteworthy variables:
 - `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_AFFILIATE_COUPON_ID` — Stripe credentials.
 - `BACKOFFICE_EMAIL_FROM`, `RESEND_API_KEY` — transactional email via Resend.
 - Meta/Instagram vars — same values as the frontend; redirect URIs point at `automatizemarketing.com` (frontend-hosted callbacks).
+- `META_ASSET_SELECTION_ENABLED` — **frontend only** (server-only). Do not set it here expecting the customer modal to appear. When the hub card exists (tickets 12–14), it reads and writes policy regardless of that flag; the flag only changes customer-facing enforcement after migrate + limits. Runbook: `../automatize-frontend/META_ASSET_SELECTION_RUNBOOK.md`.
 - `GOOGLE_PLACES_API_KEY` — geo targeting search proxy.
 - `MAT_PERFORMANCE_REPORT_SECRET` — shared bearer for `POST /api/internal/mat-performance-report` (Mat Interno). Must match the support-agent env. Do not reuse `CRON_SECRET`.
 
