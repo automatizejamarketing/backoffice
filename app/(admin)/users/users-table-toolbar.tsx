@@ -45,6 +45,10 @@ import type {
   UsersFilterParams,
 } from "@/lib/backoffice/users-filters";
 import { ACCOUNT_STATUS_FILTER_DESCRIPTIONS, ACCOUNT_STATUS_FILTER_LABELS } from "@/lib/backoffice/account-status-filter";
+import {
+  CRM_COMMERCIAL_STATUS_VALUES,
+  CRM_STATUS_META,
+} from "@/lib/backoffice/crm";
 import type { AccountStatusFilter } from "@/lib/backoffice/account-status-filter";
 import type { UserExpirationDayCounts } from "@/lib/db/admin-queries";
 import { cn } from "@/lib/utils";
@@ -62,7 +66,7 @@ type UsersTableToolbarProps = {
     | "planPeriod"
     | "metaStatus"
     | "activationStatus"
-    | "contactStatus"
+    | "crmStatus"
     | "campaignStatus"
     | "performanceStatus"
     | "accessExpiration"
@@ -119,7 +123,7 @@ type FilterSection = {
     | "campaignStatus"
     | "metaStatus"
     | "activationStatus"
-    | "contactStatus"
+    | "crmStatus"
     | "subscriptionStatus"
     | "planPeriod"
     | "signupWithin"
@@ -406,12 +410,14 @@ export function UsersTableToolbar({
         ],
       },
       {
-        key: "contactStatus",
-        label: "Contato",
+        key: "crmStatus",
+        label: "Status CRM",
         options: [
           { value: "all", label: "Qualquer" },
-          { value: "not_contacted", label: "Ainda não entrei em contato" },
-          { value: "contacted", label: "Já entrei em contato" },
+          ...CRM_COMMERCIAL_STATUS_VALUES.map((value) => ({
+            value,
+            label: CRM_STATUS_META[value].label,
+          })),
         ],
       },
       {
@@ -607,7 +613,7 @@ export function UsersTableToolbar({
         campaignStatus: null,
         metaStatus: null,
         activationStatus: null,
-        contactStatus: null,
+        crmStatus: null,
         subscriptionStatus: null,
         planPeriod: null,
         consultantId: null,

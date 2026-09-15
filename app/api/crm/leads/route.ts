@@ -3,22 +3,22 @@ import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   isCrmAccountStage,
   isCrmCommercialStatus,
-  parseCrmDateRange,
+  parseCrmDateBounds,
 } from "@/lib/backoffice/crm";
 import { listCrmKanban, listCrmLeads } from "@/lib/db/crm-queries";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
 
   const params = new URL(request.url).searchParams;
   const search = params.get("q") ?? undefined;
   const stageParam = params.get("accountStage");
   const accountStage = isCrmAccountStage(stageParam) ? stageParam : undefined;
-  const signup = parseCrmDateRange(params.get("signupFrom"), params.get("signupTo"));
-  const expires = parseCrmDateRange(params.get("expiresFrom"), params.get("expiresTo"));
+  const signup = parseCrmDateBounds(params.get("signupFrom"), params.get("signupTo"));
+  const expires = parseCrmDateBounds(params.get("expiresFrom"), params.get("expiresTo"));
 
   if (params.get("view") === "kanban") {
     const columns = await listCrmKanban({ search, accountStage, signup, expires });

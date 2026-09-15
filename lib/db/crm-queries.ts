@@ -17,7 +17,7 @@ import {
 import {
   deriveAccountStage,
   type CrmAccountStage,
-  type CrmDateRange,
+  type CrmDateBounds,
   type CrmKanbanColumn,
   type CrmLeadEventView,
   type CrmLeadSummary,
@@ -171,16 +171,19 @@ type CrmLeadFilters = {
   search?: string;
   commercialStatus?: CrmCommercialStatus;
   accountStage?: CrmAccountStage;
-  /** Data do cadastro, dias de calendário BRT, inclusivo. */
-  signup?: CrmDateRange;
-  /** Data de expiração do acesso, dias de calendário BRT, inclusivo. */
-  expires?: CrmDateRange;
+  /** Data do cadastro, dias de calendário BRT, inclusivo; qualquer ponta pode faltar. */
+  signup?: CrmDateBounds;
+  /** Data de expiração do acesso, dias de calendário BRT, inclusivo; qualquer ponta pode faltar. */
+  expires?: CrmDateBounds;
 };
 
-function dateRangeCondition(column: AnyPgColumn, range: CrmDateRange): SQL {
-  const from = brtStartOfCalendarDate(range.from);
-  const to = brtStartOfCalendarDate(shiftCalendarDate(range.to, 1));
-  return and(gte(column, from), lt(column, to))!;
+function dateBoundsCondition(column: AnyPgColumn, bounds: CrmDateBounds): SQL | undefined {
+  const parts: SQL[] = [];
+  if (bounds.from) parts.push(gte(column, brtStartOfCalendarDate(bounds.from)));
+  if (bounds.to) {
+    parts.push(lt(column, brtStartOfCalendarDate(shiftCalendarDate(bounds.to, 1))));
+  }
+  return parts.length > 0 ? and(...parts) : undefined;
 }
 
 function buildConditions(input: CrmLeadFilters): SQL | undefined {
@@ -196,12 +199,10 @@ function buildConditions(input: CrmLeadFilters): SQL | undefined {
   if (input.accountStage) {
     conditions.push(accountStageCondition(input.accountStage));
   }
-  if (input.signup) {
-    conditions.push(dateRangeCondition(user.createdAt, input.signup));
-  }
-  if (input.expires) {
-    conditions.push(dateRangeCondition(user.expirationDate, input.expires));
-  }
+  const signup = input.signup && dateBoundsCondition(user.createdAt, input.signup);
+  if (signup) conditions.push(signup);
+  const expires = input.expires && dateBoundsCondition(user.expirationDate, input.expires);
+  if (expires) conditions.push(expires);
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 

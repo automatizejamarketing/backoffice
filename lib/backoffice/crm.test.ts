@@ -6,7 +6,8 @@ import {
   displayLeadName,
   isCrmCommercialStatus,
   normalizeCrmNote,
-  parseCrmDateRange,
+  crmDateConditionToBounds,
+  parseCrmDateBounds,
 } from "./crm";
 
 const NOW = new Date("2026-09-10T18:00:00.000Z");
@@ -70,11 +71,34 @@ describe("displayLeadName", () => {
   });
 });
 
-describe("parseCrmDateRange", () => {
+describe("parseCrmDateBounds", () => {
   test("aceita datas válidas, corrige ordem invertida e rejeita lixo", () => {
-    expect(parseCrmDateRange("2026-09-01", "2026-09-10")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
-    expect(parseCrmDateRange("2026-09-10", "2026-09-01")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
-    expect(parseCrmDateRange("2026-02-30", "2026-09-10")).toBeUndefined();
-    expect(parseCrmDateRange(null, "2026-09-10")).toBeUndefined();
+    expect(parseCrmDateBounds("2026-09-01", "2026-09-10")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
+    expect(parseCrmDateBounds("2026-09-10", "2026-09-01")).toEqual({ from: "2026-09-01", to: "2026-09-10" });
+    expect(parseCrmDateBounds("2026-02-30", "2026-02-31")).toBeUndefined();
+    expect(parseCrmDateBounds(null, null)).toBeUndefined();
+  });
+
+  test("aceita uma ponta só e descarta a ponta inválida", () => {
+    expect(parseCrmDateBounds(null, "2026-09-10")).toEqual({ from: undefined, to: "2026-09-10" });
+    expect(parseCrmDateBounds("2026-09-01", "lixo")).toEqual({ from: "2026-09-01", to: undefined });
+  });
+});
+
+describe("crmDateConditionToBounds", () => {
+  test("entre e em viram limites fechados", () => {
+    expect(crmDateConditionToBounds({ op: "between", from: "2026-09-01", to: "2026-09-10" })).toEqual({
+      from: "2026-09-01",
+      to: "2026-09-10",
+    });
+    expect(crmDateConditionToBounds({ op: "on", date: "2026-09-10" })).toEqual({
+      from: "2026-09-10",
+      to: "2026-09-10",
+    });
+  });
+
+  test("antes e depois não incluem o próprio dia, como no Notion", () => {
+    expect(crmDateConditionToBounds({ op: "before", date: "2026-09-10" })).toEqual({ to: "2026-09-09" });
+    expect(crmDateConditionToBounds({ op: "after", date: "2026-09-30" })).toEqual({ from: "2026-10-01" });
   });
 });

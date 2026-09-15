@@ -21,6 +21,11 @@ import {
   adsManagerCtr,
   costPerResultValue,
 } from "./insights-fields";
+import {
+  isMessagingAdSet,
+  isMessagingCampaign,
+  messagingInsightMetrics,
+} from "./messaging";
 
 const PURCHASE_ACTION_TYPES = [
   "purchase",
@@ -151,6 +156,7 @@ export function transformInsightsData(data: GraphApiInsights): InsightsMetrics {
     initiateCheckoutCount,
     cartAbandonmentCount,
     costPerResult,
+    ...messagingInsightMetrics(data),
     dateStart: data.date_start,
     dateStop: data.date_stop,
   };
@@ -250,6 +256,10 @@ export function transformCampaign(campaign: GraphApiCampaign): Campaign {
     budgetRemaining: campaign.budget_remaining,
     budgetMode: usesCampaignBudget ? "CBO" : "ABO",
     usesCampaignBudget,
+    isMessaging: isMessagingCampaign({
+      objective: campaign.objective,
+      adSets: campaign.adsets?.data,
+    }),
     isAdsetBudgetSharingEnabled: transformMetaBoolean(
       campaign.is_adset_budget_sharing_enabled,
     ),
@@ -299,6 +309,7 @@ export function transformAdSet(adSet: GraphApiAdSet): AdSet {
     destinationType: adSet.destination_type,
     promotedObject: adSet.promoted_object,
     isDynamicCreative: adSet.is_dynamic_creative === true,
+    isMessaging: isMessagingAdSet(adSet),
     targeting: adSet.targeting,
     targetingSentenceLines: adSet.targetingsentencelines?.data,
     pacingType: adSet.pacing_type,
@@ -306,6 +317,13 @@ export function transformAdSet(adSet: GraphApiAdSet): AdSet {
     campaign: adSet.campaign
       ? {
           ...transformCampaign(adSet.campaign),
+          // The embed carries no ad set list of its own, so the classification
+          // is read off THIS ad set: a WhatsApp ad set's campaign is a
+          // messaging campaign.
+          isMessaging: isMessagingCampaign({
+            objective: adSet.campaign.objective,
+            adSets: [adSet],
+          }),
           isAdsetBudgetSharingEnabled: transformMetaBoolean(
             adSet.campaign.is_adset_budget_sharing_enabled,
           ),

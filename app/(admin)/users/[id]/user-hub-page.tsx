@@ -186,9 +186,10 @@ export async function UserHubPage({
     if (!canAccessUserHubTab(actor, id, requestedTab)) {
       redirect(`${userBasePath}?tab=business`);
     }
-  } else if (!hasBackofficePermission(actor, "users:manage")) {
+  } else if (!hasBackofficePermission(actor, "users:read")) {
     redirect("/portfolio");
   }
+  const canManageUsers = hasBackofficePermission(actor, "users:manage");
 
   const activeTab: UserHubTab = requestedTab;
 
@@ -453,12 +454,16 @@ export async function UserHubPage({
                   />
                 </CardContent>
               </Card>
-              <CreditsControl userId={id} credits={detailedUser.credits} />
-              <MarketingConsultantControl
-                userId={id}
-                consultants={consultants}
-                assignedConsultantId={assignedConsultant?.consultantId ?? null}
-              />
+              {canManageUsers ? (
+                <>
+                  <CreditsControl userId={id} credits={detailedUser.credits} />
+                  <MarketingConsultantControl
+                    userId={id}
+                    consultants={consultants}
+                    assignedConsultantId={assignedConsultant?.consultantId ?? null}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
 

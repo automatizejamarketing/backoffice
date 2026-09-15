@@ -243,3 +243,37 @@ de leitura e escrita limitada ao bucket; o frontend usa outra credencial,
 somente de leitura. Ambos precisam de `CLOUDFLARE_R2_ACCOUNT_ID`,
 `PRODUCT_ASSETS_R2_BUCKET`, `PRODUCT_ASSETS_R2_ACCESS_KEY_ID` e
 `PRODUCT_ASSETS_R2_SECRET_ACCESS_KEY`.
+
+# CRM comercial
+
+Funil do time comercial sobre as contas do Automatize. O status comercial é
+controlado à mão pelo time; o estado da conta (acesso, trial, pagamento) vem do
+produto e não é editável aqui.
+
+- **Lead**: toda conta criada no produto. O funil lista todas, sem filtro.
+- **Lead qualificável**: lead com telefone de contato preenchido e que não é
+  da equipe. Só ele entra na base da taxa de agendamento.
+- **Conta da equipe**: conta cujo email, ignorando o `+alias`, pertence a
+  alguém da equipe interna ou a um domínio da empresa. Não é lead.
+- **Status comercial**: etapa do funil (Novo lead, Em qualificação, Reunião
+  agendada, Reunião realizada, Trial feito, No show, Follow up). Cada troca
+  fica registrada com autor e data.
+- **Agendamento**: primeira entrada do lead, no mês, em Reunião agendada ou em
+  estágio posterior. Reagendar o mesmo lead não é novo agendamento.
+- **Reunião realizada**: primeira entrada do lead, no mês, em Reunião
+  realizada ou Trial feito.
+- **Virou trial**: a conta iniciou acesso depois da reunião realizada. Vem do
+  produto, não do status Trial feito.
+- **Virou cliente**: a conta teve o primeiro pagamento de assinatura aprovado
+  depois da reunião realizada. Compra de infoproduto não é cliente aqui.
+- **Meta comercial**: percentual alvo de uma métrica em um mês calendário.
+  Vale do mês em que foi definida em diante, até ser redefinida. Mês fechado
+  não muda de meta.
+- **Métricas**: Taxa de agendamento (agendamentos sobre leads qualificáveis
+  criados no mês, do SDR); Conversão em trial (reuniões realizadas que viraram
+  trial, do consultor comercial); Conversão real (reuniões realizadas que
+  viraram cliente, do consultor comercial).
+- **Cargo comercial**: gestor comercial, SDR ou consultor comercial. Diz de
+  quem é cada meta; é independente do papel de acesso ao backoffice.
+- **Papel comercial** (acesso): enxerga o painel, o CRM e os usuários em
+  leitura, ativa contas; não mexe em dinheiro, acesso, créditos ou equipe.

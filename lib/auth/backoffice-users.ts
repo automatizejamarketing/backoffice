@@ -1,3 +1,4 @@
+import { isSalesRole } from "@/lib/auth/rbac-core";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "@/lib/config";
 import { canAccessFinance } from "@/lib/auth/finance-access";
@@ -99,6 +100,7 @@ export async function getBackofficeActorByEmail(
       email: dbUser.email,
       name: dbUser.name,
       role,
+      salesRole: isSalesRole(dbUser.salesRole) ? dbUser.salesRole : null,
       source: "database",
       assignedUserIds:
         role === "marketing_consultant"

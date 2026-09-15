@@ -9,7 +9,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ userId: string }> },
 ) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
   const { userId } = await params;
   const payload = (await request.json().catch(() => null)) as

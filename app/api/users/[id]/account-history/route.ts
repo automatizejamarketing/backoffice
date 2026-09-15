@@ -8,7 +8,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("users:read");
   if (!authz.ok) return authz.response;
 
   const { id: userId } = await params;

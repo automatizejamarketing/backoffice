@@ -19,7 +19,7 @@ describe("users table columns", () => {
     expect(prefs.order.at(-1)).toBe("actions");
     expect(visibleUsersTableColumns(prefs)).toEqual([
       "user",
-      "contact",
+      "crmStatus",
       "company",
       "phone",
       "plan",
@@ -30,40 +30,40 @@ describe("users table columns", () => {
   test("reorders a column and persists the new order", () => {
     const moved = moveUsersTableColumn(
       defaultUsersTableColumnPrefs(),
-      "contact",
+      "crmStatus",
       1,
     );
 
     expect(moved.order.slice(0, 4)).toEqual([
       "user",
       "company",
-      "contact",
+      "crmStatus",
       "phone",
     ]);
     expect(
       parseUsersTableColumnPrefs(
         serializeUsersTableColumnPrefs(moved),
       ).order.slice(0, 4),
-    ).toEqual(["user", "company", "contact", "phone"]);
+    ).toEqual(["user", "company", "crmStatus", "phone"]);
     expect(
       moveUsersTableColumnToIndex(
         defaultUsersTableColumnPrefs(),
         "actions",
         1,
       ).order.slice(0, 3),
-    ).toEqual(["user", "actions", "contact"]);
+    ).toEqual(["user", "actions", "crmStatus"]);
   });
 
   test("can hide optional columns but never user or actions", () => {
     const hidden = setUsersTableColumnVisible(
       defaultUsersTableColumnPrefs(),
-      "contact",
+      "crmStatus",
       false,
     );
-    expect(visibleUsersTableColumns(hidden).includes("contact")).toBe(false);
+    expect(visibleUsersTableColumns(hidden).includes("crmStatus")).toBe(false);
 
-    const shown = setUsersTableColumnVisible(hidden, "contact", true);
-    expect(visibleUsersTableColumns(shown)[1]).toBe("contact");
+    const shown = setUsersTableColumnVisible(hidden, "crmStatus", true);
+    expect(visibleUsersTableColumns(shown)[1]).toBe("crmStatus");
 
     expect(
       visibleUsersTableColumns(
@@ -80,13 +80,13 @@ describe("users table columns", () => {
   test("inserts user and actions into a stored optional-only order", () => {
     const prefs = parseUsersTableColumnPrefs(
       JSON.stringify({
-        order: ["contact", "company"],
+        order: ["crmStatus", "company"],
         hidden: [],
       }),
     );
 
     expect(prefs.order[0]).toBe("user");
     expect(prefs.order.at(-1)).toBe("actions");
-    expect(prefs.order.slice(1, 3)).toEqual(["contact", "company"]);
+    expect(prefs.order.slice(1, 3)).toEqual(["crmStatus", "company"]);
   });
 });

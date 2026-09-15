@@ -256,6 +256,23 @@ export type InsightsMetrics = {
   initiateCheckoutCount?: string;
   cartAbandonmentCount?: string;
   costPerResult?: string;
+  /**
+   * Messaging metrics (WhatsApp / Messenger / Instagram Direct), read by
+   * `messagingInsightMetrics` from the action types the v25.0 Ads Action Stats
+   * reference documents. See `./messaging.ts`.
+   */
+  /** Conversas iniciadas — `onsite_conversion.messaging_conversation_started_7d`. */
+  messagingConversationCount?: string;
+  /** Custo por conversa iniciada (`cost_per_action_type` of the same action). */
+  messagingConversationCost?: string;
+  /** Novos contatos por mensagem — `onsite_conversion.messaging_first_reply`. */
+  messagingNewContactCount?: string;
+  /** Custo por novo contato (`cost_per_action_type` of the same action). */
+  messagingNewContactCost?: string;
+  /** Conversas bloqueadas — `onsite_conversion.messaging_block`. */
+  messagingBlockedCount?: string;
+  /** Inscrições por mensagem — `onsite_conversion.messaging_user_subscribed`. */
+  messagingSubscriptionCount?: string;
   dateStart?: string;
   dateStop?: string;
 };
@@ -366,6 +383,13 @@ export type Campaign = {
   budgetRemaining?: string;
   budgetMode: CampaignBudgetMode;
   usesCampaignBudget: boolean;
+  /**
+   * Derived: the campaign produces conversations (WhatsApp / Messenger /
+   * Instagram Direct) — legacy `MESSAGES` objective, an ad set configured with
+   * conversation optimization and a messaging destination. Drives which metrics
+   * the UI shows by default; see `isMessagingCampaign` in `./messaging.ts`.
+   */
+  isMessaging?: boolean;
   isAdsetBudgetSharingEnabled?: boolean;
   startTime?: string;
   stopTime?: string;
@@ -553,6 +577,11 @@ export type AdSet = {
    * during the dynamic-creative flow keep it `true` forever.
    */
   isDynamicCreative?: boolean;
+  /**
+   * Derived: the ad set combines conversation `optimization_goal` with a
+   * messaging `destination_type`. See `isMessagingAdSet` in `./messaging.ts`.
+   */
+  isMessaging?: boolean;
   targeting?: AdSetTargeting;
   targetingSentenceLines?: TargetingSentenceLine[];
   pacingType?: string[] | string;

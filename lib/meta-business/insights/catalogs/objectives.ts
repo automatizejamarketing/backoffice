@@ -205,6 +205,9 @@ export const DEFAULT_OBJECTIVE_RESULT: ObjectiveResult = {
  */
 export const ACTION_TYPE_LABELS: Record<string, string> = {
   "onsite_conversion.messaging_conversation_started_7d": "Conversas iniciadas",
+  "onsite_conversion.messaging_first_reply": "Novos contatos por mensagem",
+  "onsite_conversion.messaging_block": "Conversas bloqueadas",
+  "onsite_conversion.messaging_user_subscribed": "Inscrições por mensagem",
   "onsite_conversion.total_messaging_connection": "Conexões por mensagem",
   "onsite_conversion.messaging_conversation_replied_7d": "Conversas respondidas",
   post_engagement: "Engajamento da publicação",

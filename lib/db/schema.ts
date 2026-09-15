@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
-import type { BackofficeRole } from "@/lib/auth/rbac-core";
+import type { BackofficeRole, SalesRole } from "@/lib/auth/rbac-core";
 import {
   COMPANY_CAPABILITIES,
   COMPANY_OFFER_CODES,
@@ -298,11 +298,17 @@ export const backofficeUser = pgTable("backoffice_users", {
   email: varchar("email", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 100 }),
   role: varchar("role", {
-    enum: ["admin", "dev", "marketing_consultant", "finance_viewer"],
+    enum: ["admin", "dev", "marketing_consultant", "finance_viewer", "comercial"],
   })
     .$type<BackofficeRole>()
     .notNull()
     .default("marketing_consultant"),
+  // Cargo comercial (gestor, SDR, consultor): rótulo de quem responde por
+  // cada meta do CRM. Independe do papel de acesso.
+  salesRole: varchar("sales_role", {
+    length: 32,
+    enum: ["gestor_comercial", "sdr", "consultor_comercial"],
+  }).$type<SalesRole>(),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -8492,3 +8498,45 @@ export const crmLeadEvent = pgTable(
 );
 
 export type CrmLeadEvent = InferSelectModel<typeof crmLeadEvent>;
+
+export const CRM_METRIC_VALUES = [
+  "agendamento",
+  "conversao_trial",
+  "conversao_real",
+] as const;
+
+export type CrmMetric = (typeof CRM_METRIC_VALUES)[number];
+
+/**
+ * Metas do time comercial, uma linha por (mês, métrica) e só quando o gestor
+ * muda algo: meses sem linha herdam a linha anterior mais recente.
+ * `target` null = a métrica não tem meta a partir daquele mês.
+ */
+export const crmGoal = pgTable(
+  "crm_goals",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    /** Primeiro dia do mês (calendário BRT). */
+    month: date("month").notNull(),
+    metric: varchar("metric", { length: 32, enum: CRM_METRIC_VALUES })
+      .$type<CrmMetric>()
+      .notNull(),
+    /** Percentual inteiro 0–100. */
+    target: integer("target"),
+    updatedBy: varchar("updated_by", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    monthMetricUnique: uniqueIndex("crm_goals_month_metric_unique").on(
+      table.month,
+      table.metric,
+    ),
+  }),
+);
+
+export type CrmGoal = InferSelectModel<typeof crmGoal>;

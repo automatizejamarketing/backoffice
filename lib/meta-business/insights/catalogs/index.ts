@@ -7,7 +7,7 @@ export * from "./metrics";
 export * from "./breakdowns";
 
 import { OBJECTIVE_RESULTS } from "./objectives";
-import { EXTRA_METRICS } from "./metrics";
+import { EXTRA_METRICS, MESSAGING_METRIC_FIELDS } from "./metrics";
 import { SUPPORTED_BREAKDOWNS, BREAKDOWN_LABELS_PT } from "./breakdowns";
 
 /**
@@ -36,5 +36,7 @@ export function buildCatalogSummaryPt(): string {
     `RECORTES (breakdowns) suportados: ${breakdowns}.`,
     `GRUPOS de métricas extras disponíveis: base, ${metricGroups}.`,
     "Peça métricas de vídeo apenas quando o objetivo/criativo for de vídeo.",
+    // Spelled out because they are not Graph field names the model could guess.
+    `MÉTRICAS DE MENSAGENS (WhatsApp / Messenger / Direct), peça em extraMetrics: ${MESSAGING_METRIC_FIELDS.join(", ")}.`,
   ].join("\n");
 }

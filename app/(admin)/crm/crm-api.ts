@@ -1,7 +1,9 @@
+import type { CrmGoalLeads, CrmGoalsDashboard } from "@/lib/db/crm-goals-queries";
+import type { CrmMetric } from "@/lib/backoffice/crm-goals";
 import type {
   CrmAccountStage,
   CrmCommercialStatus,
-  CrmDateRange,
+  CrmDateBounds,
   CrmKanbanColumn,
   CrmLeadEventView,
   CrmLeadSummary,
@@ -32,19 +34,15 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export type CrmDateFilters = {
-  signup?: CrmDateRange;
-  expires?: CrmDateRange;
+  signup?: CrmDateBounds;
+  expires?: CrmDateBounds;
 };
 
 function applyDateFilters(query: URLSearchParams, params: CrmDateFilters) {
-  if (params.signup) {
-    query.set("signupFrom", params.signup.from);
-    query.set("signupTo", params.signup.to);
-  }
-  if (params.expires) {
-    query.set("expiresFrom", params.expires.from);
-    query.set("expiresTo", params.expires.to);
-  }
+  if (params.signup?.from) query.set("signupFrom", params.signup.from);
+  if (params.signup?.to) query.set("signupTo", params.signup.to);
+  if (params.expires?.from) query.set("expiresFrom", params.expires.from);
+  if (params.expires?.to) query.set("expiresTo", params.expires.to);
 }
 
 export function fetchCrmKanban(params: CrmDateFilters & {
@@ -101,6 +99,32 @@ export function createCrmLeadNote(userId: string, body: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ body }),
   }).then((r) => readJson<{ event: CrmLeadEventView }>(r));
+}
+
+export type CrmGoalsResponse = CrmGoalsDashboard & { canEdit: boolean };
+
+export function fetchCrmGoals(month: string) {
+  return fetch(`/api/crm/goals?month=${encodeURIComponent(month)}`, { cache: "no-store" }).then(
+    (r) => readJson<CrmGoalsResponse>(r),
+  );
+}
+
+export function fetchCrmGoalLeads(month: string, metric: CrmMetric) {
+  const query = new URLSearchParams({ month, metric });
+  return fetch(`/api/crm/goals/leads?${query}`, { cache: "no-store" }).then((r) =>
+    readJson<CrmGoalLeads>(r),
+  );
+}
+
+export function saveCrmGoals(
+  month: string,
+  targets: Partial<Record<CrmMetric, number | null>>,
+) {
+  return fetch("/api/crm/goals", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ month, targets }),
+  }).then((r) => readJson<CrmGoalsResponse>(r));
 }
 
 export function formatRelativeDays(iso: string | null, now = new Date()) {
