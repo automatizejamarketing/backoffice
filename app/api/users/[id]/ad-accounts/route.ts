@@ -8,9 +8,18 @@ import {
   buildReconnectInfo,
   type ReconnectInfo,
 } from "@/lib/meta-business/reconnect-link";
+import {
+  flagsForGrantedAsset,
+} from "@/lib/backoffice/meta-asset-selection-flags";
+import { listEnabledAssetFlags } from "@/lib/backoffice/meta-enabled-assets";
+
+export type AdAccountWithSelection = FacebookAdAccountBasicInfo & {
+  enabled: boolean;
+  primary: boolean;
+};
 
 export type AdAccountsResponse = {
-  data: FacebookAdAccountBasicInfo[];
+  data: AdAccountWithSelection[];
 };
 
 export type AdAccountsErrorResponse = {
@@ -65,8 +74,13 @@ export async function GET(
     });
 
     const adAccounts = userWithAdAccounts.adaccounts?.data ?? [];
+    const enabledRows = await listEnabledAssetFlags(userId);
+    const data = adAccounts.map((account) => ({
+      ...account,
+      ...flagsForGrantedAsset(enabledRows, "ad_account", account.account_id),
+    }));
 
-    return NextResponse.json({ data: adAccounts }, { status: 200 });
+    return NextResponse.json({ data }, { status: 200 });
   } catch (error) {
     if (error instanceof GraphApiError) {
       const er = error.errorReturn;

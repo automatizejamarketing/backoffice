@@ -14,8 +14,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FacebookAdAccountBasicInfo } from "@/lib/meta-business/get-user-with-ad-accounts";
-import type { AdAccountsErrorResponse } from "@/app/api/users/[id]/ad-accounts/route";
+import type {
+  AdAccountWithSelection,
+  AdAccountsErrorResponse,
+} from "@/app/api/users/[id]/ad-accounts/route";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
 import { DatePreset, type Campaign } from "@/lib/meta-business/types";
 import {
@@ -73,7 +75,7 @@ export function MarketingWorkspace({
   const [metaAccount, setMetaAccount] =
     useState<SanitizedMetaBusinessAccount | null>(null);
   const [isLoadingMeta, setIsLoadingMeta] = useState(false);
-  const [adAccounts, setAdAccounts] = useState<FacebookAdAccountBasicInfo[]>([]);
+  const [adAccounts, setAdAccounts] = useState<AdAccountWithSelection[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     null,
   );
@@ -189,7 +191,7 @@ export function MarketingWorkspace({
         if (cancelled) return;
 
         if (res.ok) {
-          const accounts = (body?.data ?? []) as FacebookAdAccountBasicInfo[];
+          const accounts = (body?.data ?? []) as AdAccountWithSelection[];
           setAdAccounts(accounts);
           setAdAccountsError(null);
           setIsLoadingAdAccounts(false);
@@ -397,6 +399,8 @@ export function MarketingWorkspace({
                         id: acc.id,
                         name: acc.name ?? `Conta ${acc.account_id}`,
                         accountId: acc.account_id,
+                        enabled: acc.enabled,
+                        primary: acc.primary,
                       }))}
                       selectedAccountId={selectedAccountId}
                       onSelectAccount={(accountId) => {

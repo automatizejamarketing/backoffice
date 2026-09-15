@@ -60,3 +60,25 @@ describe("buildUsersCsv provider labels", () => {
     expect(historical).not.toMatch(/legacy_gateway/i);
   });
 });
+
+describe("buildUsersCsv Meta column", () => {
+  test("exports Seleção pendente and Ativo indisponível from the stored policy", () => {
+    const pending = {
+      ...userWithProvider("stripe"),
+      hasMetaBusinessAccount: true,
+      metaSelectionStatus: "pending",
+      metaPendingReason: "limit_changed",
+      unavailableMetaAssetCount: 0,
+    } as UserWithUsage;
+    const unavailable = {
+      ...userWithProvider("stripe"),
+      hasMetaBusinessAccount: true,
+      metaSelectionStatus: "fixed",
+      metaPendingReason: null,
+      unavailableMetaAssetCount: 1,
+    } as UserWithUsage;
+
+    expect(buildUsersCsv([pending])).toContain("Seleção pendente");
+    expect(buildUsersCsv([unavailable])).toContain("Ativo indisponível");
+  });
+});
