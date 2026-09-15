@@ -109,7 +109,7 @@ describe("planMetaAssetLimitsUpdate", () => {
         selectionStatus: "pending",
         pendingReason: "initial",
         pendingRequestedBy: null,
-        pendingRequestedAt: null,
+        pendingRequestedAt: NOW,
         selectedAt: null,
         selectedBy: null,
         selectionMode: null,

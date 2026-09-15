@@ -11,6 +11,7 @@ import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-acco
 import { getPagesWithInstagram } from "@/lib/meta-business/marketing/build-ad-from-media";
 import { assetAvailability } from "@/lib/meta-business/meta-asset-policy";
 import { buildReconnectInfo } from "@/lib/meta-business/reconnect-link";
+import { META_ASSET_DEFAULT_LIMIT } from "./meta-asset-mutation-plan";
 import { loadPolicySnapshot } from "./meta-asset-mutations";
 import type {
   MetaAssetsEnabledItem,
@@ -44,8 +45,8 @@ export async function loadMetaAssetsCard(input: {
   ]);
 
   const limits = {
-    adAccounts: policy?.adAccountLimit ?? 1,
-    identities: policy?.identityLimit ?? 1,
+    adAccounts: policy?.adAccountLimit ?? META_ASSET_DEFAULT_LIMIT,
+    identities: policy?.identityLimit ?? META_ASSET_DEFAULT_LIMIT,
   };
 
   if (!metaAccount) {

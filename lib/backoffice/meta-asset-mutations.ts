@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
+import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
   backofficeAuditLog,
   metaAssetEvent,
@@ -8,8 +8,11 @@ import {
   user,
 } from "@/lib/db/schema";
 import {
+  META_ASSET_DEFAULT_LIMIT,
   planMetaAssetLimitsUpdate,
   planMetaAssetSelectionRequest,
+  type MetaAssetAuditWrite,
+  type MetaAssetEventWrite,
   type PolicyWrite,
   type StoredPolicySnapshot,
 } from "./meta-asset-mutation-plan";
@@ -26,14 +29,14 @@ export async function updateUserMetaAssetLimitsWithAudit(input: {
   }
 
   const current = await loadPolicySnapshot(input.userId);
-  const metaAccount = await getUserMetaBusinessAccount(input.userId);
+  const token = await getUserAccessTokenByUserId(input.userId);
   const at = new Date();
   const plan = planMetaAssetLimitsUpdate({
     userId: input.userId,
     current,
     adAccountLimit: input.adAccountLimit,
     identityLimit: input.identityLimit,
-    hasActiveConnection: Boolean(metaAccount),
+    hasActiveConnection: token.success,
     adminEmail: input.adminEmail,
     at,
   });
@@ -47,8 +50,8 @@ export async function updateUserMetaAssetLimitsWithAudit(input: {
       ok: true as const,
       changed: false as const,
       limits: {
-        adAccounts: current?.adAccountLimit ?? 1,
-        identities: current?.identityLimit ?? 1,
+        adAccounts: current?.adAccountLimit ?? META_ASSET_DEFAULT_LIMIT,
+        identities: current?.identityLimit ?? META_ASSET_DEFAULT_LIMIT,
       },
     };
   }
@@ -128,18 +131,8 @@ async function persistMutation(
   adminEmail: string,
   plan: {
     policy: PolicyWrite;
-    audit: {
-      action: "update_meta_asset_limits" | "request_meta_asset_selection";
-      fieldName: "meta_asset_limits" | "meta_asset_selection";
-      oldValue: string | null;
-      newValue: string;
-      note: string | null;
-    };
-    event: {
-      eventType: "limits_updated" | "selection_requested";
-      actor: string;
-      payload: Record<string, unknown>;
-    };
+    audit: MetaAssetAuditWrite;
+    event: MetaAssetEventWrite;
   },
   at: Date,
 ) {

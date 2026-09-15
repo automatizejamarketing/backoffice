@@ -115,9 +115,6 @@ function selectionCopy(data: MetaAssetsResponse): string {
   if (data.connection.status === "never_connected") {
     return "Sem conexão Meta";
   }
-  if (data.connection.status === "reconnect_required") {
-    return "Conexão Meta inválida — peça a reconexão antes de listar os ativos.";
-  }
   if (data.selection.status === "pending") {
     const reason = REASON_LABEL[data.selection.reason ?? "initial"];
     const since = data.selection.since
@@ -133,11 +130,12 @@ function selectionCopy(data: MetaAssetsResponse): string {
     const since = data.selection.since
       ? ` desde ${formatShortDateTimeInSaoPaulo(data.selection.since)}`
       : "";
+    const mode = data.selection.mode === "implicit" ? "implícita" : "explícita";
     const who = data.selection.selectedBy ? ` (${data.selection.selectedBy})` : "";
-    if (data.selection.mode === "implicit") {
-      return `Implícita${since}${who}`;
-    }
-    return `Fixa${since}${who}`;
+    return `Fixa${since} — ${mode}${who}`;
+  }
+  if (data.connection.status === "reconnect_required") {
+    return "Conexão Meta inválida — peça a reconexão antes de listar os ativos.";
   }
   return "Sem seleção";
 }

@@ -44,7 +44,7 @@ export type LimitsUpdatePlan =
       event: MetaAssetEventWrite;
     };
 
-const DEFAULT_LIMIT = 1;
+export const META_ASSET_DEFAULT_LIMIT = 1;
 
 export function planMetaAssetLimitsUpdate(input: {
   userId: string;
@@ -59,8 +59,8 @@ export function planMetaAssetLimitsUpdate(input: {
     return { ok: false, error: "invalid_limits" };
   }
 
-  const beforeAd = input.current?.adAccountLimit ?? DEFAULT_LIMIT;
-  const beforeIdentity = input.current?.identityLimit ?? DEFAULT_LIMIT;
+  const beforeAd = input.current?.adAccountLimit ?? META_ASSET_DEFAULT_LIMIT;
+  const beforeIdentity = input.current?.identityLimit ?? META_ASSET_DEFAULT_LIMIT;
   if (
     beforeAd === input.adAccountLimit &&
     beforeIdentity === input.identityLimit
@@ -79,7 +79,9 @@ export function planMetaAssetLimitsUpdate(input: {
         selectionStatus: input.current?.selectionStatus ?? "pending",
         pendingReason: input.current ? input.current.pendingReason : "initial",
         pendingRequestedBy: input.current?.pendingRequestedBy ?? null,
-        pendingRequestedAt: input.current?.pendingRequestedAt ?? null,
+        pendingRequestedAt: input.current
+          ? input.current.pendingRequestedAt
+          : input.at,
       };
 
   return {
@@ -135,8 +137,8 @@ export function planMetaAssetSelectionRequest(input: {
     ok: true,
     policy: {
       userId: input.userId,
-      adAccountLimit: input.current?.adAccountLimit ?? DEFAULT_LIMIT,
-      identityLimit: input.current?.identityLimit ?? DEFAULT_LIMIT,
+      adAccountLimit: input.current?.adAccountLimit ?? META_ASSET_DEFAULT_LIMIT,
+      identityLimit: input.current?.identityLimit ?? META_ASSET_DEFAULT_LIMIT,
       selectionStatus: "pending",
       pendingReason: "support_requested",
       pendingRequestedBy: input.adminEmail,

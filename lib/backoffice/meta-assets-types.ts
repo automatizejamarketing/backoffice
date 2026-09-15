@@ -1,11 +1,21 @@
-import type { AdAccountsErrorResponse } from "@/app/api/users/[id]/ad-accounts/route";
+import type { ReconnectInfo } from "@/lib/meta-business/reconnect-link";
 import type { MetaAssetPendingReason } from "./meta-asset-mutation-plan";
+
+export type MetaAssetsReconnectError = {
+  error: string;
+  message: string;
+  solution?: string;
+  code?: number;
+  errorSubcode?: number;
+  needsReconnect?: boolean;
+  reconnect?: ReconnectInfo;
+};
 
 export type MetaAssetsConnection =
   | { status: "never_connected" }
   | {
       status: "reconnect_required";
-      error: AdAccountsErrorResponse;
+      error: MetaAssetsReconnectError;
     }
   | { status: "active"; listsError?: string };
 
