@@ -8,7 +8,19 @@
  *
  * `isActionArray: true` marks fields that come back as `[{ action_type, value }]`
  * — the normalizer flattens those to a single scalar (sum of values).
+ *
+ * `actionStat` marks the one exception to "every entry is a Graph field": the
+ * messaging metrics are single action types inside `actions` /
+ * `cost_per_action_type`, so they are answered from families every read already
+ * requests and are never sent in `fields=` (see `graphFieldsFor`).
  */
+
+import {
+  MESSAGING_BLOCK_ACTION_TYPE,
+  MESSAGING_CONVERSATION_STARTED_ACTION_TYPE,
+  MESSAGING_FIRST_REPLY_ACTION_TYPE,
+  MESSAGING_SUBSCRIPTION_ACTION_TYPE,
+} from "@/lib/meta-business/messaging";
 
 export type MetricGroup =
   | "base"
@@ -16,15 +28,31 @@ export type MetricGroup =
   | "video"
   | "quality"
   | "conversion"
-  | "recall";
+  | "recall"
+  | "messaging";
+
+/**
+ * Where a metric that is NOT a Graph field comes from: one `action_type` inside
+ * a family every read already requests (`RESULT_FIELDS`). Such a metric never
+ * goes in `fields=` — the normalizer reads it off the family.
+ */
+export type ActionStatSource = {
+  family: "actions" | "cost_per_action_type";
+  actionType: string;
+};
 
 export type MetricSpec = {
-  /** Exact Ads Insights field name passed in `fields=`. */
+  /**
+   * Exact Ads Insights field name passed in `fields=` — or, for an
+   * `actionStat` metric, the name the agent asks for.
+   */
   field: string;
   labelPt: string;
   group: MetricGroup;
   /** Returns an action-typed array → normalizer sums values to a scalar. */
   isActionArray: boolean;
+  /** Set for metrics derived from an action family instead of a Graph field. */
+  actionStat?: ActionStatSource;
 };
 
 /**
@@ -101,7 +129,22 @@ export const EXTRA_METRICS: MetricSpec[] = [
   { field: "estimated_ad_recall_rate", labelPt: "Taxa estimada de recall", group: "recall", isActionArray: false },
   { field: "estimated_ad_recall_rate_lower_bound", labelPt: "Recall estimado (mín.)", group: "recall", isActionArray: false },
   { field: "estimated_ad_recall_rate_upper_bound", labelPt: "Recall estimado (máx.)", group: "recall", isActionArray: false },
+
+  // ---- messaging (WhatsApp / Messenger / Instagram Direct) ----
+  // Not Graph fields: each is one action type the v25.0 Ads Action Stats reference
+  // documents, read off `actions` / `cost_per_action_type` (always requested).
+  { field: "messaging_conversations_started", labelPt: "Conversas iniciadas", group: "messaging", isActionArray: false, actionStat: { family: "actions", actionType: MESSAGING_CONVERSATION_STARTED_ACTION_TYPE } },
+  { field: "cost_per_messaging_conversation_started", labelPt: "Custo por conversa iniciada", group: "messaging", isActionArray: false, actionStat: { family: "cost_per_action_type", actionType: MESSAGING_CONVERSATION_STARTED_ACTION_TYPE } },
+  { field: "messaging_new_contacts", labelPt: "Novos contatos por mensagem", group: "messaging", isActionArray: false, actionStat: { family: "actions", actionType: MESSAGING_FIRST_REPLY_ACTION_TYPE } },
+  { field: "cost_per_messaging_new_contact", labelPt: "Custo por novo contato", group: "messaging", isActionArray: false, actionStat: { family: "cost_per_action_type", actionType: MESSAGING_FIRST_REPLY_ACTION_TYPE } },
+  { field: "messaging_blocked", labelPt: "Conversas bloqueadas", group: "messaging", isActionArray: false, actionStat: { family: "actions", actionType: MESSAGING_BLOCK_ACTION_TYPE } },
+  { field: "messaging_subscriptions", labelPt: "Inscrições por mensagem", group: "messaging", isActionArray: false, actionStat: { family: "actions", actionType: MESSAGING_SUBSCRIPTION_ACTION_TYPE } },
 ];
+
+/** The messaging metric names, spelled out for the agent (they are not guessable Graph fields). */
+export const MESSAGING_METRIC_FIELDS: string[] = EXTRA_METRICS.filter(
+  (m) => m.group === "messaging",
+).map((m) => m.field);
 
 /** Set of allowed extra-metric field names, for O(1) validation. */
 export const EXTRA_METRIC_FIELDS: Set<string> = new Set(
@@ -114,6 +157,15 @@ const EXTRA_METRIC_BY_FIELD: Map<string, MetricSpec> = new Map(
 
 export function getMetricSpec(field: string): MetricSpec | undefined {
   return EXTRA_METRIC_BY_FIELD.get(field);
+}
+
+/**
+ * The subset of validated extra metrics that are real Graph fields — what goes
+ * in `fields=`. An `actionStat` metric is served by a family already requested,
+ * and sending its name would make Graph refuse the whole call.
+ */
+export function graphFieldsFor(fields: string[]): string[] {
+  return fields.filter((field) => !EXTRA_METRIC_BY_FIELD.get(field)?.actionStat);
 }
 
 /**

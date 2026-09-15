@@ -31,6 +31,7 @@ function buildCampaignFields(): string {
     "stop_time",
     "created_time",
     "updated_time",
+    "adsets.limit(200){id,optimization_goal,destination_type}",
   ].join(",");
 }
 

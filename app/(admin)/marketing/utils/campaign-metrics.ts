@@ -25,7 +25,13 @@ export type CampaignMetricId =
   | "addToCartCount"
   | "initiateCheckoutCount"
   | "cartAbandonmentCount"
-  | "costPerResult";
+  | "costPerResult"
+  | "messagingConversationCount"
+  | "messagingConversationCost"
+  | "messagingNewContactCount"
+  | "messagingNewContactCost"
+  | "messagingBlockedCount"
+  | "messagingSubscriptionCount";
 
 export type CampaignMetricFormat =
   | "currency"
@@ -41,7 +47,12 @@ export type CampaignMetricDefinition = {
   labelKey: string;
 };
 
-export type CampaignMetricBucket = "sales" | "traffic" | "leads" | "default";
+export type CampaignMetricBucket =
+  | "sales"
+  | "traffic"
+  | "leads"
+  | "messaging"
+  | "default";
 
 const SALES_OBJECTIVES = new Set<CampaignObjective>([
   CampaignObjective.OUTCOME_SALES,
@@ -114,6 +125,36 @@ export const CAMPAIGN_METRIC_DEFINITIONS: Record<
     format: "currency",
     labelKey: "costPerResult",
   },
+  messagingConversationCount: {
+    id: "messagingConversationCount",
+    format: "number",
+    labelKey: "messagingConversations",
+  },
+  messagingConversationCost: {
+    id: "messagingConversationCost",
+    format: "currency",
+    labelKey: "costPerMessagingConversation",
+  },
+  messagingNewContactCount: {
+    id: "messagingNewContactCount",
+    format: "number",
+    labelKey: "messagingNewContacts",
+  },
+  messagingNewContactCost: {
+    id: "messagingNewContactCost",
+    format: "currency",
+    labelKey: "costPerMessagingNewContact",
+  },
+  messagingBlockedCount: {
+    id: "messagingBlockedCount",
+    format: "number",
+    labelKey: "messagingBlocked",
+  },
+  messagingSubscriptionCount: {
+    id: "messagingSubscriptionCount",
+    format: "number",
+    labelKey: "messagingSubscriptions",
+  },
 };
 
 export const MARKETING_TABLE_METRIC_IDS: CampaignMetricId[] = [
@@ -122,6 +163,8 @@ export const MARKETING_TABLE_METRIC_IDS: CampaignMetricId[] = [
   "costPerResult",
   "purchaseCost",
   "leadCost",
+  "messagingConversationCost",
+  "messagingNewContactCost",
   "cpc",
   "cpm",
   "ctr",
@@ -133,6 +176,10 @@ export const MARKETING_TABLE_METRIC_IDS: CampaignMetricId[] = [
   "linkClicks",
   "landingPageViews",
   "leadCount",
+  "messagingConversationCount",
+  "messagingNewContactCount",
+  "messagingBlockedCount",
+  "messagingSubscriptionCount",
   "impressions",
   "reach",
   "clicks",
@@ -197,6 +244,40 @@ const METRIC_GROUPS: Record<CampaignMetricBucket, Record<CampaignMetricSurface, 
     ],
     chart: ["leadCost", "leadCount", "spend", "ctr"],
   },
+  messaging: {
+    mobileList: [
+      "messagingConversationCount",
+      "messagingConversationCost",
+      "messagingNewContactCount",
+      "spend",
+    ],
+    desktopList: [
+      "messagingConversationCount",
+      "messagingConversationCost",
+      "messagingNewContactCount",
+      "messagingNewContactCost",
+      "spend",
+    ],
+    detailCards: [
+      "messagingConversationCount",
+      "messagingConversationCost",
+      "messagingNewContactCount",
+      "messagingNewContactCost",
+      "messagingBlockedCount",
+      "messagingSubscriptionCount",
+      "spend",
+      "impressions",
+    ],
+    chart: [
+      "messagingConversationCount",
+      "messagingConversationCost",
+      "messagingNewContactCount",
+      "messagingNewContactCost",
+      "messagingBlockedCount",
+      "messagingSubscriptionCount",
+      "spend",
+    ],
+  },
   default: {
     mobileList: ["spend", "impressions", "clicks", "cpc"],
     desktopList: ["spend", "impressions", "clicks", "cpc", "cpm"],
@@ -205,9 +286,20 @@ const METRIC_GROUPS: Record<CampaignMetricBucket, Record<CampaignMetricSurface, 
   },
 };
 
+/**
+ * Which default metric set an object shows.
+ *
+ * `isMessaging` wins over the objective: under ODAX a WhatsApp campaign is
+ * OUTCOME_SALES / OUTCOME_LEADS / OUTCOME_ENGAGEMENT, and reading only the
+ * objective is what used to show purchase columns on a campaign whose result
+ * is a conversation. The flag is derived server-side (`Campaign.isMessaging`,
+ * `AdSet.isMessaging`) from the ad set configuration and Meta's own result.
+ */
 export function getCampaignMetricBucket(
   objective?: CampaignObjective,
+  isMessaging?: boolean,
 ): CampaignMetricBucket {
+  if (isMessaging) return "messaging";
   if (!objective) return "default";
   if (SALES_OBJECTIVES.has(objective)) return "sales";
   if (TRAFFIC_OBJECTIVES.has(objective)) return "traffic";
@@ -218,8 +310,9 @@ export function getCampaignMetricBucket(
 export function getCampaignMetricsForObjective(
   objective: CampaignObjective | undefined,
   surface: CampaignMetricSurface,
+  isMessaging?: boolean,
 ): CampaignMetricDefinition[] {
-  const bucket = getCampaignMetricBucket(objective);
+  const bucket = getCampaignMetricBucket(objective, isMessaging);
   return METRIC_GROUPS[bucket][surface].map(
     (metricId) => CAMPAIGN_METRIC_DEFINITIONS[metricId],
   );
@@ -229,7 +322,11 @@ export function getCampaignMetricsForCampaign(
   campaign: Campaign,
   surface: CampaignMetricSurface,
 ): CampaignMetricDefinition[] {
-  return getCampaignMetricsForObjective(campaign.objective, surface);
+  return getCampaignMetricsForObjective(
+    campaign.objective,
+    surface,
+    campaign.isMessaging,
+  );
 }
 
 export function getMetricDefinitionsFromIds(
@@ -244,15 +341,16 @@ export function resolveCampaignTableMetrics(
   objective: CampaignObjective | undefined,
   surface: CampaignMetricSurface,
   selectedMetricIds?: readonly CampaignMetricId[] | null,
+  isMessaging?: boolean,
 ): CampaignMetricDefinition[] {
   if (!selectedMetricIds || selectedMetricIds.length === 0) {
-    return getCampaignMetricsForObjective(objective, surface);
+    return getCampaignMetricsForObjective(objective, surface, isMessaging);
   }
 
   const customMetrics = getMetricDefinitionsFromIds(selectedMetricIds);
   return customMetrics.length > 0
     ? customMetrics
-    : getCampaignMetricsForObjective(objective, surface);
+    : getCampaignMetricsForObjective(objective, surface, isMessaging);
 }
 
 export function getMetricRawValue(
@@ -300,6 +398,18 @@ export function getMetricRawValue(
       return insights.cartAbandonmentCount;
     case "costPerResult":
       return insights.costPerResult;
+    case "messagingConversationCount":
+      return insights.messagingConversationCount;
+    case "messagingConversationCost":
+      return insights.messagingConversationCost;
+    case "messagingNewContactCount":
+      return insights.messagingNewContactCount;
+    case "messagingNewContactCost":
+      return insights.messagingNewContactCost;
+    case "messagingBlockedCount":
+      return insights.messagingBlockedCount;
+    case "messagingSubscriptionCount":
+      return insights.messagingSubscriptionCount;
     default:
       return undefined;
   }

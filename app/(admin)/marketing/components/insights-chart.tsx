@@ -49,6 +49,12 @@ const metricColors: Record<string, string> = {
   landingPageViews: "#3b82f6",
   leadCost: "#06b6d4",
   leadCount: "#f97316",
+  messagingConversationCount: "#10b981",
+  messagingConversationCost: "#06b6d4",
+  messagingNewContactCount: "#8b5cf6",
+  messagingNewContactCost: "#f59e0b",
+  messagingBlockedCount: "#f43f5e", // rose-500 - matches "text-rose-500"
+  messagingSubscriptionCount: "#6366f1",
 };
 
 function getChartConfig(): ChartConfig {
