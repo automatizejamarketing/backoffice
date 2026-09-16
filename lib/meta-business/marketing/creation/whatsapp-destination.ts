@@ -65,6 +65,9 @@ export type WhatsappWelcomeMessage = {
 /** Meta's default greeting, quoted so the UI can say what happens when nothing is set. */
 export const WHATSAPP_DEFAULT_AUTOFILL = "Hello! Can I get more info on this?";
 
+/** Meta rejects a custom autofill without message.text (Graph #1 / HTTP 500). */
+export const WHATSAPP_DEFAULT_GREETING = "Olá! Como podemos ajudar?";
+
 /** `promoted_object` for a CTWA ad set. Only the Page — see the file header. */
 export function whatsappPromotedObject(pageId: string): { page_id: string } {
   return { page_id: pageId };
@@ -133,7 +136,10 @@ export function buildPageWelcomeMessage(
   const autofill = message?.autofillMessage?.trim();
   if (!autofill) return undefined;
 
-  const greeting = message?.greeting?.trim();
+  // Meta's sample includes `message.text`, and a live validate_only request
+  // returned Graph #1 / HTTP 500 when it was absent. Keep the UI field optional
+  // by filling a neutral greeting rather than sending an incomplete payload.
+  const greeting = message?.greeting?.trim() || WHATSAPP_DEFAULT_GREETING;
   return JSON.stringify({
     type: "VISUAL_EDITOR",
     version: 2,
@@ -143,7 +149,7 @@ export function buildPageWelcomeMessage(
       customer_action_type: "autofill_message",
       message: {
         autofill_message: { content: autofill },
-        ...(greeting ? { text: greeting } : {}),
+        text: greeting,
       },
     },
   });
