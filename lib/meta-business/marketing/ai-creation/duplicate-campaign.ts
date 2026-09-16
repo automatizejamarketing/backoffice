@@ -1117,6 +1117,9 @@ export async function createDuplicatedCampaign(
       dailyBudgetMajor: answers.dailyBudget,
       campaignName: prepared.campaignName,
       ...(promotionUrl ? { fallbackPromotionUrl: promotionUrl } : {}),
+      ...(answers.texts?.link?.trim()
+        ? { overridePromotionUrl: answers.texts.link.trim() }
+        : {}),
       // Sem este campo o criativo copiado herda o do anúncio de origem, e um
       // criativo que nasceu neste produto tem TODAS as features em OPT_OUT —
       // ou seja, a campanha da IA sairia sem adaptação de posicionamento.
