@@ -1611,6 +1611,7 @@ export const company = pgTable("companies", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   websiteUrl: varchar("website_url", { length: 512 }),
+  campaignDestinationUrl: text("campaign_destination_url"),
   instagramHandle: varchar("instagram_handle", { length: 64 }),
   industry: varchar("industry", { length: 128 }),
   niche: varchar("niche", { length: 128 }),

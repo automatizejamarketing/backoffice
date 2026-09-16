@@ -2486,8 +2486,11 @@ async function fetchBoostIneligibleMedia(
  */
 function preemptiveUrlPatch(
   creative: GraphCreativeShape,
-  opts: { isSales: boolean; fallbackPromotionUrl?: string },
+  opts: { isSales: boolean; fallbackPromotionUrl?: string; overridePromotionUrl?: string },
 ): Record<string, unknown> | null {
+  if (opts.overridePromotionUrl && !creative.object_story_spec?.template_data) {
+    return buildPromotionUrlPatch(creative, opts.overridePromotionUrl);
+  }
   if (!opts.isSales) return null;
   if (creative.asset_feed_spec?.link_urls?.length) return null;
   if (creative.object_story_spec?.template_data) return null;
@@ -2541,6 +2544,7 @@ function buildPreemptiveAdPatch(
   opts: {
     isSales: boolean;
     fallbackPromotionUrl?: string;
+    overridePromotionUrl?: string;
     placementAdaptation?: PlacementAdaptation;
   },
 ): { patch: Record<string, unknown>; repairs: CreativeRepairLabel[] } {
@@ -2581,7 +2585,7 @@ function buildPreemptiveAdPatch(
   const urlPatch = preemptiveUrlPatch(urlSource, opts);
   if (urlPatch) {
     Object.assign(patch, urlPatch);
-    repairs.push("promotion-url");
+    if (!opts.overridePromotionUrl) repairs.push("promotion-url");
   }
   return { patch, repairs };
 }
@@ -2639,6 +2643,8 @@ async function copyAdWithRepair(
   accessToken: string,
   opts?: {
     fallbackPromotionUrl?: string;
+    /** AI campaign only: replace the destination in every copied creative. */
+    overridePromotionUrl?: string;
     /** Creative pre-fetched in bulk; enables pre-emption and avoids a re-read. */
     prefetchedCreative?: GraphCreativeShape | null;
     /** Campaign is a SALES objective — gates pre-emptive URL injection. */
@@ -2650,6 +2656,7 @@ async function copyAdWithRepair(
   },
 ): Promise<{ copiedAdId: string | undefined; repairs: CreativeRepairLabel[] }> {
   const fallbackPromotionUrl = opts?.fallbackPromotionUrl;
+  const overridePromotionUrl = opts?.overridePromotionUrl;
   const prefetched = opts?.prefetchedCreative ?? null;
   const statusOption = opts?.statusOption;
 
@@ -2658,6 +2665,7 @@ async function copyAdWithRepair(
     ? buildPreemptiveAdPatch(prefetched, {
         isSales: !!opts?.isSales,
         fallbackPromotionUrl,
+        overridePromotionUrl,
         placementAdaptation: opts?.placementAdaptation,
       })
     : { patch: {} as Record<string, unknown>, repairs: [] as CreativeRepairLabel[] };
@@ -2762,6 +2770,7 @@ async function copyAdsIntoAdset(
   statusOption = STATUS_OPTION,
   placementAdaptation?: PlacementAdaptation,
   deadlineAt?: number,
+  overridePromotionUrl?: string,
 ): Promise<{
   copiedAds: CopiedAd[];
   skippedAds: SkippedItem[];
@@ -2797,6 +2806,7 @@ async function copyAdsIntoAdset(
         const { copiedAdId, repairs } = await limiter(() =>
           copyAdWithRepair(ad.id, targetAdsetId, accessToken, {
             fallbackPromotionUrl,
+            overridePromotionUrl,
             prefetchedCreative: creatives.get(ad.id) ?? null,
             isSales,
             statusOption,
@@ -3388,6 +3398,8 @@ export async function duplicateProvenCampaign(args: {
   /** Conventional campaign name (not the chat's "- Cópia" suffix). */
   campaignName: string;
   fallbackPromotionUrl?: string;
+  /** Replace the destination of kept, copied ads; distinct from URL repair fallback. */
+  overridePromotionUrl?: string;
   /**
    * Adaptação da mídia aos posicionamentos onde ela não cabe. Omitido = o
    * criativo copiado herda exatamente o que o anúncio de origem tinha, que é o
@@ -3404,6 +3416,7 @@ export async function duplicateProvenCampaign(args: {
     dailyBudgetMajor,
     campaignName,
     fallbackPromotionUrl,
+    overridePromotionUrl,
     placementAdaptation,
   } = args;
   const act = formatAccountId(accountId);
@@ -3449,6 +3462,34 @@ export async function duplicateProvenCampaign(args: {
     )
   ) {
     throw promotionUrlRequiredError();
+  }
+
+  if (overridePromotionUrl) {
+    for (const adId of keepSet) {
+      if (!creatives.has(adId)) {
+        throw new DuplicateAtomicError({
+          statusCode: 503,
+          message: "Não foi possível conferir o destino de todos os anúncios selecionados.",
+          solution: "Tente novamente antes de publicar a campanha.",
+          rolledBack: true,
+          isTransient: true,
+        });
+      }
+    }
+    for (const [adId, creative] of creatives) {
+      if (
+        keepSet.has(adId) &&
+        creative.object_story_spec?.template_data &&
+        extractCreativeUrl(creative) !== overridePromotionUrl
+      ) {
+        throw new DuplicateAtomicError({
+          statusCode: 400,
+          message: "O destino deste anúncio de catálogo não pode ser trocado com segurança.",
+          solution: "Desmarque o anúncio de catálogo ou mantenha o link original dele.",
+          rolledBack: true,
+        });
+      }
+    }
   }
 
   const adsetsById = await fetchAdsetsById(
@@ -3555,6 +3596,8 @@ export async function duplicateProvenCampaign(args: {
         fallbackPromotionUrl,
         AI_BUILD_STATUS_OPTION,
         placementAdaptation,
+        undefined,
+        overridePromotionUrl,
       );
       skippedAds.push(...skipped);
       repairedCreatives.push(...repaired);
