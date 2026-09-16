@@ -1824,7 +1824,7 @@ export const metaAdminOauthAttempt = pgTable(
     actorAdminId: text("actor_admin_id").notNull(),
     actorAdminEmail: text("actor_admin_email").notNull(),
     stateHash: text("state_hash").notNull().unique(),
-    authMode: varchar("auth_mode", { length: 16 }).notNull().default("user"),
+    authMode: varchar("auth_mode", { length: 16 }).notNull().default("bisu"),
     expiresAt: timestamp("expires_at").notNull(),
     consumedAt: timestamp("consumed_at"),
     result: varchar("result", { length: 32 }),
