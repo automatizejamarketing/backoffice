@@ -70,6 +70,7 @@ export function UserActivationActions({
   activationAvailable,
   activeSubscription,
   canManageBilling,
+  canManageUsers,
   onActivated,
   onSubscriptionUpdated,
 }: {
@@ -81,6 +82,8 @@ export function UserActivationActions({
   activationAvailable: boolean;
   activeSubscription: ActiveSubscriptionSummary;
   canManageBilling: boolean;
+  /** Alterar acesso é `users:manage`; o comercial só ativa e pega o link. */
+  canManageUsers: boolean;
   onActivated: (emailVerified: string) => void;
   onSubscriptionUpdated?: (
     subscription: NonNullable<ActiveSubscriptionSummary>,
@@ -261,11 +264,15 @@ export function UserActivationActions({
             <ShieldCheck />
             Ativar conta
           </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setAccessOpen(true)}>
-            <CalendarClock />
-            Alterar acesso
-          </DropdownMenuItem>
+          {canManageUsers ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setAccessOpen(true)}>
+                <CalendarClock />
+                Alterar acesso
+              </DropdownMenuItem>
+            </>
+          ) : null}
           {canManageBilling ? (
             <>
               <DropdownMenuItem

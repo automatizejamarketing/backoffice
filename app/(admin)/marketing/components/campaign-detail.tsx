@@ -81,8 +81,13 @@ export function CampaignDetail({
 
   const [timeIncrement, setTimeIncrement] = useState<TimeIncrement>("day");
   const chartMetrics = useMemo(
-    () => getCampaignMetricsForObjective(campaign.objective, "chart"),
-    [campaign.objective],
+    () =>
+      getCampaignMetricsForObjective(
+        campaign.objective,
+        "chart",
+        campaign.isMessaging,
+      ),
+    [campaign.objective, campaign.isMessaging],
   );
   const [selectedMetric, setSelectedMetric] = useState<CampaignMetricId>(
     chartMetrics[0]?.id ?? "spend",
@@ -366,6 +371,7 @@ export function CampaignDetail({
                 insights={totalInsights}
                 isLoading={isLoadingInsights}
                 objective={campaign.objective}
+                isMessaging={campaign.isMessaging}
               />
             </section>
 
@@ -434,6 +440,7 @@ export function CampaignDetail({
                 userId={userId}
                 campaignId={campaign.id}
                 objective={campaign.objective}
+                isMessaging={campaign.isMessaging}
                 datePreset={datePreset}
                 customRange={customRange}
                 selectedMetricIds={selectedMetricIds}
@@ -466,6 +473,7 @@ export function CampaignDetail({
           accountId={accountId}
           userId={userId}
           objective={campaign.objective}
+          isMessaging={campaign.isMessaging}
           selectedMetricIds={selectedMetricIds}
           isOpen={isAdSetDetailOpen}
           onClose={handleCloseAdSetDetail}

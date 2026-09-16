@@ -5,7 +5,11 @@ import {
   listBackofficeUsers,
 } from "@/lib/db/backoffice-rbac-queries";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { BACKOFFICE_ROLE_VALUES, type BackofficeRole } from "@/lib/auth/rbac-core";
+import {
+  BACKOFFICE_ROLE_VALUES,
+  isSalesRole,
+  type BackofficeRole,
+} from "@/lib/auth/rbac-core";
 
 function isBackofficeRole(value: unknown): value is BackofficeRole {
   return (
@@ -40,6 +44,7 @@ export async function POST(request: Request) {
       email?: unknown;
       name?: unknown;
       role?: unknown;
+      salesRole?: unknown;
     };
 
     if (typeof body.email !== "string" || !body.email.includes("@")) {
@@ -47,6 +52,10 @@ export async function POST(request: Request) {
     }
     if (!isBackofficeRole(body.role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
+    const salesRole = body.salesRole == null ? null : body.salesRole;
+    if (salesRole !== null && !isSalesRole(salesRole)) {
+      return NextResponse.json({ error: "Invalid salesRole" }, { status: 400 });
     }
 
     const existingUser = await getBackofficeUserByEmail(body.email);
@@ -61,6 +70,7 @@ export async function POST(request: Request) {
       email: body.email,
       name: typeof body.name === "string" ? body.name : null,
       role: body.role,
+      salesRole,
     });
 
     return NextResponse.json({ user }, { status: 201 });

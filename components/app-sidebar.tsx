@@ -139,14 +139,14 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/users",
         label: "Usuários",
         icon: Users,
-        permission: "users:manage",
+        permission: "users:read",
       },
       {
         kind: "leaf",
         href: "/crm",
         label: "CRM",
         icon: KanbanSquare,
-        permission: "users:manage",
+        permission: "crm:manage",
       },
       {
         kind: "leaf",

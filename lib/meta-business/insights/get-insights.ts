@@ -24,6 +24,7 @@ import {
 import {
   BASE_METRIC_FIELDS,
   RESULT_FIELDS,
+  graphFieldsFor,
   validateExtraMetrics,
 } from "./catalogs/metrics";
 import { validateBreakdowns } from "./catalogs/breakdowns";
@@ -229,7 +230,13 @@ export async function getInsights(
     );
   }
 
-  const fieldList = [...BASE_METRIC_FIELDS, ...RESULT_FIELDS, ...extraFields];
+  // Messaging extras are served by `actions` / `cost_per_action_type` (already in
+  // RESULT_FIELDS); naming them in `fields=` would make Graph refuse the call.
+  const fieldList = [
+    ...BASE_METRIC_FIELDS,
+    ...RESULT_FIELDS,
+    ...graphFieldsFor(extraFields),
+  ];
   const bd = validateBreakdowns(args.breakdowns, fieldList);
   if (bd.rejected.length) {
     warnings.push(`Recortes inválidos (ignorados): ${bd.rejected.join(", ")}.`);

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,6 +33,7 @@ import type { CampaignMetricId } from "../utils/campaign-metrics";
 import { AdAccountSelector } from "./ad-account-selector";
 import { MetaAssetsCard } from "./meta-assets-card";
 import { MetaTokenIssue } from "./meta-token-issue";
+import { PartnerAccessPanel } from "./partner-access-panel";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
@@ -39,6 +41,7 @@ import { MarketingUsersPicker } from "./marketing-users-picker";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
+import { ClientReportPanel } from "./client-report-panel";
 import { PerformanceReportSection } from "./performance-report/performance-report-section";
 import { useMetricColumnPreferences } from "../hooks/use-metric-column-preferences";
 import type { CampaignReportFact } from "@/lib/performance-report/types";
@@ -122,6 +125,26 @@ export function MarketingWorkspace({
   useEffect(() => {
     setSelectedUser(initialUser);
   }, [initialUser]);
+
+  useEffect(() => {
+    const result = searchParams.get("admin_reconnect");
+    if (!result) return;
+    if (result === "success") {
+      toast.success("Reconexão administrativa concluída.");
+    } else if (result === "asset_mismatch") {
+      toast.error(
+        "Os ativos retornados pela Meta não coincidem com os deste cliente.",
+      );
+    } else if (result === "denied") {
+      toast.error("A autorização na Meta foi recusada.");
+    } else {
+      toast.error("A reconexão administrativa não foi concluída.");
+    }
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("admin_reconnect");
+    const query = next.toString();
+    router.replace(query ? `/marketing?${query}` : "/marketing");
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (initialUser || !showUserPicker) return;
@@ -361,6 +384,19 @@ export function MarketingWorkspace({
                         Facebook User ID: {metaAccount.facebookUserId}
                       </p>
                     )}
+                    {metaAccount.clientBusinessId && (
+                      <p className="text-xs text-muted-foreground">
+                        BM do cliente: {metaAccount.clientBusinessId}
+                      </p>
+                    )}
+                    {metaAccount.connectionStatus && (
+                      <p className="text-xs text-muted-foreground">
+                        Conexão: {metaAccount.connectionStatus}
+                        {metaAccount.tokenKind
+                          ? ` · ${metaAccount.tokenKind}`
+                          : ""}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-md border border-border bg-muted/30 p-4">
@@ -371,10 +407,22 @@ export function MarketingWorkspace({
                 )}
               </div>
 
+              {metaAccount ? (
+                <PartnerAccessPanel
+                  userId={selectedUser.id}
+                  metaAccount={metaAccount}
+                  onRetried={() =>
+                    setAdAccountsRefreshKey((key) => key + 1)
+                  }
+                />
+              ) : null}
+
               <PlaybookInsightsPanel
                 userId={selectedUser.id}
                 accountId={selectedAccountId}
               />
+
+              <ClientReportPanel userId={selectedUser.id} />
 
               {metaAccount && (
                 <div className="space-y-2">

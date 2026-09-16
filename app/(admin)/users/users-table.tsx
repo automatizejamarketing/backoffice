@@ -109,12 +109,14 @@ type UsersTableProps = {
   users: UserWithUsage[];
   search: string;
   canManageBilling: boolean;
+  canManageUsers: boolean;
 };
 
 export function UsersTable({
   users,
   search,
   canManageBilling,
+  canManageUsers,
 }: UsersTableProps) {
   const [rows, setRows] = useState(users);
   const [columnPrefs, setColumnPrefs] = useState(defaultUsersTableColumnPrefs);
@@ -215,6 +217,7 @@ export function UsersTable({
                         expirationHint={expirationHint}
                         providerLabel={providerLabel}
                         canManageBilling={canManageBilling}
+                        canManageUsers={canManageUsers}
                         onActivated={(emailVerified) => {
                           setRows((current) =>
                             current.map((row) =>
@@ -261,6 +264,7 @@ function OptionalColumnCell({
   expirationHint,
   providerLabel,
   canManageBilling,
+  canManageUsers,
   onActivated,
   onSubscriptionUpdated,
 }: {
@@ -272,6 +276,7 @@ function OptionalColumnCell({
   expirationHint: string | null;
   providerLabel: string | null;
   canManageBilling: boolean;
+  canManageUsers: boolean;
   onActivated: (emailVerified: string) => void;
   onSubscriptionUpdated: (
     subscription: NonNullable<UserWithUsage["activeSubscription"]>,
@@ -322,6 +327,7 @@ function OptionalColumnCell({
           activationAvailable={canManageUserActivation(user)}
           activeSubscription={user.activeSubscription}
           canManageBilling={canManageBilling}
+          canManageUsers={canManageUsers}
           onActivated={onActivated}
           onSubscriptionUpdated={onSubscriptionUpdated}
         />

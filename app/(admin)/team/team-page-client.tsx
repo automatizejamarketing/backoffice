@@ -44,13 +44,19 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { BackofficeRole } from "@/lib/auth/rbac-core";
+import {
+  SALES_ROLE_VALUES,
+  type BackofficeRole,
+  type SalesRole,
+} from "@/lib/auth/rbac-core";
+import { SALES_ROLE_LABELS } from "@/lib/backoffice/crm-goals";
 
 type TeamUser = {
   id: string;
   email: string;
   name: string | null;
   role: BackofficeRole;
+  salesRole: SalesRole | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -65,13 +71,17 @@ const ROLE_LABEL: Record<BackofficeRole, string> = {
   dev: "Dev",
   marketing_consultant: "Consultor de marketing",
   finance_viewer: "Somente financeiro",
+  comercial: "Comercial",
 };
+
+const NO_SALES_ROLE = "__none__";
 
 export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
   const [users, setUsers] = useState(initialUsers);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<BackofficeRole>("marketing_consultant");
+  const [salesRole, setSalesRole] = useState<SalesRole | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<TeamUser | null>(null);
@@ -80,6 +90,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] =
     useState<BackofficeRole>("marketing_consultant");
+  const [editSalesRole, setEditSalesRole] = useState<SalesRole | null>(null);
 
   async function createUser() {
     setIsCreating(true);
@@ -87,7 +98,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
       const response = await fetch("/api/backoffice/team", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name, role }),
+        body: JSON.stringify({ email, name, role, salesRole }),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -99,6 +110,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
       setEmail("");
       setName("");
       setRole("marketing_consultant");
+      setSalesRole(null);
       toast.success("Usuário de backoffice criado");
     } catch (error) {
       toast.error(
@@ -111,7 +123,9 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
 
   async function updateUser(
     id: string,
-    patch: Partial<Pick<TeamUser, "email" | "name" | "role" | "active">>,
+    patch: Partial<
+      Pick<TeamUser, "email" | "name" | "role" | "salesRole" | "active">
+    >,
   ): Promise<boolean> {
     setUpdatingId(id);
     try {
@@ -146,6 +160,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
     setEditEmail(user.email);
     setEditName(user.name ?? "");
     setEditRole(user.role);
+    setEditSalesRole(user.salesRole);
   }
 
   async function saveEditingUser(event: FormEvent<HTMLFormElement>) {
@@ -156,6 +171,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
       email: editEmail,
       name: editName,
       role: editRole,
+      salesRole: editSalesRole,
     });
     if (didUpdate) setEditingUser(null);
   }
@@ -212,7 +228,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Cargo</Label>
+            <Label>Papel de acesso</Label>
             <Select
               value={role}
               onValueChange={(value) => setRole(value as BackofficeRole)}
@@ -224,8 +240,30 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
                 <SelectItem value="marketing_consultant">
                   Consultor de marketing
                 </SelectItem>
+                <SelectItem value="comercial">Comercial</SelectItem>
                 <SelectItem value="dev">Dev</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cargo comercial</Label>
+            <Select
+              value={salesRole ?? NO_SALES_ROLE}
+              onValueChange={(value) =>
+                setSalesRole(value === NO_SALES_ROLE ? null : (value as SalesRole))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_SALES_ROLE}>Nenhum</SelectItem>
+                {SALES_ROLE_VALUES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {SALES_ROLE_LABELS[value]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -274,7 +312,14 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline">{ROLE_LABEL[user.role]}</Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="outline">{ROLE_LABEL[user.role]}</Badge>
+                      {user.salesRole ? (
+                        <Badge variant="secondary">
+                          {SALES_ROLE_LABELS[user.salesRole]}
+                        </Badge>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={user.active ? "default" : "secondary"}>
@@ -392,7 +437,7 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Cargo</Label>
+              <Label>Papel de acesso</Label>
               <Select
                 value={editRole}
                 onValueChange={(value) => setEditRole(value as BackofficeRole)}
@@ -404,8 +449,30 @@ export function TeamPageClient({ initialUsers }: TeamPageClientProps) {
                   <SelectItem value="marketing_consultant">
                     Consultor de marketing
                   </SelectItem>
+                  <SelectItem value="comercial">Comercial</SelectItem>
                   <SelectItem value="dev">Dev</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cargo comercial</Label>
+              <Select
+                value={editSalesRole ?? NO_SALES_ROLE}
+                onValueChange={(value) =>
+                  setEditSalesRole(value === NO_SALES_ROLE ? null : (value as SalesRole))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_SALES_ROLE}>Nenhum</SelectItem>
+                  {SALES_ROLE_VALUES.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {SALES_ROLE_LABELS[value]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

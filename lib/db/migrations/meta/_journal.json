@@ -649,8 +649,29 @@
     {
       "idx": 107,
       "version": "7",
+      "when": 1799400000000,
+      "tag": "0107_meta_partner_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795100000000,
+      "tag": "0108_client_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
       "when": 1799600000000,
-      "tag": "0107_meta_asset_selection",
+      "tag": "0109_crm_goals_sales_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1799900000000,
+      "tag": "0110_meta_asset_selection",
       "breakpoints": true
     }
   ]

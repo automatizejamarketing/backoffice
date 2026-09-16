@@ -22,6 +22,7 @@ import {
   serializeCrmStoredFilters,
   type CrmView,
 } from "@/lib/backoffice/crm-filters-storage";
+import { CrmGoals } from "./crm-goals";
 import { CrmKanban } from "./crm-kanban";
 import { CrmLeadSheet } from "./crm-lead-sheet";
 import { CrmList } from "./crm-list";
@@ -99,6 +100,7 @@ export function CrmWorkspace() {
 
   return (
     <div className="space-y-4">
+      <CrmGoals onOpenLead={setSelectedUserId} />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterBar
           activeCount={activeFilters}

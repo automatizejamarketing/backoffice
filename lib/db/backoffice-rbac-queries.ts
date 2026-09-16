@@ -9,7 +9,7 @@ import {
   userCompany,
   userMarketingConsultant,
 } from "@/lib/db/schema";
-import type { BackofficeActor, BackofficeRole } from "@/lib/auth/rbac-core";
+import type { BackofficeActor, BackofficeRole, SalesRole } from "@/lib/auth/rbac-core";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -35,6 +35,7 @@ export async function createBackofficeUser(data: {
   email: string;
   name?: string | null;
   role: BackofficeRole;
+  salesRole?: SalesRole | null;
 }) {
   const [created] = await db
     .insert(backofficeUser)
@@ -42,6 +43,7 @@ export async function createBackofficeUser(data: {
       email: normalizeEmail(data.email),
       name: data.name?.trim() || null,
       role: data.role,
+      salesRole: data.salesRole ?? null,
       active: true,
     })
     .returning();
@@ -54,6 +56,7 @@ export async function updateBackofficeUser(
     email: string;
     name: string | null;
     role: BackofficeRole;
+    salesRole: SalesRole | null;
     active: boolean;
   }>,
 ) {

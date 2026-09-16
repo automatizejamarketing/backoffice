@@ -10,7 +10,7 @@ import { listCrmKanban, listCrmLeads } from "@/lib/db/crm-queries";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const authz = await requireBackofficePermissionResponse("users:manage");
+  const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
 
   const params = new URL(request.url).searchParams;

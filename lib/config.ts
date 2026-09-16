@@ -1,4 +1,6 @@
-// Admin email allowlist - only these emails can access the backoffice
+// Admin email allowlist - only these emails can access the backoffice.
+// Quem está aqui é admin mesmo que tenha outro papel em `backoffice_users`;
+// o time comercial (Vinicius, Davi, Bernardo) entra pelo papel `comercial` no banco.
 export const ADMIN_EMAILS = [
   "joaopedrocorrea14@gmail.com",
   "joaopedro@layback.trade",
@@ -10,7 +12,6 @@ export const ADMIN_EMAILS = [
   "lshm7979@gmail.com",
   "lucashaddad@infinitegrowth.com.br",
   "christian.gomesss09@gmail.com",
-  "viniciusferreira@infinitegrowth.com.br",
   "barretonovaes.vilas@gmail.com",
 ] as const;
 

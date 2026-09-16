@@ -18,7 +18,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const authz = await requireBackofficePermissionResponse("users:manage");
+    const authz = await requireBackofficePermissionResponse("users:activate");
     if (!authz.ok) return authz.response;
 
     const { id: userId } = await params;
@@ -45,7 +45,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
-    const authz = await requireBackofficePermissionResponse("users:manage");
+    const authz = await requireBackofficePermissionResponse("users:activate");
     if (!authz.ok) return authz.response;
 
     const { id: userId } = await params;

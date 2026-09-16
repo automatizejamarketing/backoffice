@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SelectionSubmitBody } from "@/lib/backoffice/meta-asset-mutation-plan";
+import type { MetaAssetsResponse } from "@/lib/backoffice/meta-assets-types";
 
 export const metaAssetsQueryKey = (userId: string) =>
   ["meta-assets", userId] as const;

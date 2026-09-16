@@ -61,6 +61,8 @@ type AdsTableProps = {
    * of the generic spend/clicks fallback.
    */
   objective?: CampaignObjective;
+  /** The parent ad set's messaging flag; an ad inherits its destination. */
+  isMessaging?: boolean;
   datePreset?: DatePreset | null;
   customRange?: { since: string; until: string } | null;
   selectedMetricIds?: CampaignMetricId[] | null;
@@ -78,6 +80,7 @@ export function AdsTable({
   adSetId,
   adSetIsDynamic,
   objective,
+  isMessaging,
   datePreset,
   customRange,
   selectedMetricIds,
@@ -94,11 +97,13 @@ export function AdsTable({
     objective,
     "mobileList",
     selectedMetricIds,
+    isMessaging,
   );
   const desktopMetrics = resolveCampaignTableMetrics(
     objective,
     "desktopList",
     selectedMetricIds,
+    isMessaging,
   );
   const desktopMetricCount = desktopMetrics.length;
   const desktopMetricsGridStyle = {

@@ -7,6 +7,6 @@ import { getUserAccountHistory } from "@/lib/db/admin-queries";
 export async function loadUserAccountHistory(
   userId: string,
 ): Promise<SerializedAccountHistoryItem[]> {
-  await requireBackofficePermission("users:manage");
+  await requireBackofficePermission("users:read");
   return getUserAccountHistory(userId);
 }

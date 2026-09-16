@@ -201,6 +201,7 @@ export function CampaignsTable({
       campaign.objective,
       "mobileList",
       selectedMetricIds,
+      campaign.isMessaging,
     );
 
   const getDesktopMetrics = (campaign: Campaign) =>
@@ -208,6 +209,7 @@ export function CampaignsTable({
       campaign.objective,
       "desktopList",
       selectedMetricIds,
+      campaign.isMessaging,
     );
 
   const desktopMetricCount =

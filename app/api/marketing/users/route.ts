@@ -12,12 +12,14 @@ export async function GET(request: NextRequest) {
   const limitParam = Number.parseInt(searchParams.get("limit") ?? "20", 10);
   const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 20;
+  const partnerPending = searchParams.get("partnerPending") === "1";
 
   try {
     const result = await getUsersWithMetaBusinessAccount({
       email,
       page,
       limit,
+      partnerPending: partnerPending || undefined,
       userIds:
         authz.actor.role === "marketing_consultant"
           ? (authz.actor.assignedUserIds ?? [])
