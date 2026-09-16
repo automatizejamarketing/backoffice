@@ -8,11 +8,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MetaAssetSelectionBadges } from "./meta-asset-selection-badges";
 
 type AdAccount = {
   id: string;
   name: string;
   accountId: string;
+  enabled?: boolean;
+  primary?: boolean;
 };
 
 type AccountSelectorProps = {
@@ -48,8 +51,14 @@ export function AdAccountSelector({
     >
       <SelectTrigger className="w-full min-w-[200px] max-w-[400px] py-2 data-[size=default]:h-14 sm:min-w-[280px] [&>span]:line-clamp-none">
         {selectedAccount ? (
-          <span className="truncate text-sm">
-            {selectedAccount.name || selectedAccount.accountId}
+          <span className="flex min-w-0 items-center gap-2 truncate text-sm">
+            <span className="truncate">
+              {selectedAccount.name || selectedAccount.accountId}
+            </span>
+            <MetaAssetSelectionBadges
+              enabled={selectedAccount.enabled}
+              primary={selectedAccount.primary}
+            />
           </span>
         ) : (
           <span className="text-muted-foreground">Selecione uma conta</span>
@@ -72,6 +81,10 @@ export function AdAccountSelector({
                   ID: {account.accountId}
                 </span>
               </div>
+              <MetaAssetSelectionBadges
+                enabled={account.enabled}
+                primary={account.primary}
+              />
             </div>
           </SelectItem>
         ))}

@@ -427,6 +427,8 @@ export function UsersTableToolbar({
           { value: "all", label: "Qualquer" },
           { value: "connected", label: "Conectado" },
           { value: "disconnected", label: "Sem Meta" },
+          { value: "selection_pending", label: "Seleção pendente" },
+          { value: "asset_unavailable", label: "Ativo indisponível" },
         ],
       },
       {

@@ -33,8 +33,11 @@ import {
   generatedImage,
   generatedImageVersion,
   genericGeneratePost,
+  metaAssetPolicy,
   metaBusinessAccount,
   payment,
+  type MetaAssetPendingReason,
+  type MetaAssetSelectionStatus,
   pendingPlanChange,
   performanceInsight,
   performanceSnapshot,
@@ -68,6 +71,7 @@ import {
 } from "./schema";
 import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import { buildAccountStatusFilterSql } from "@/lib/backoffice/account-status-filter";
+import { buildMetaStatusFilterSql } from "@/lib/backoffice/users-list-marketing";
 import {
   resolveAccessExpirationRange,
   resolveOperationalExpirationDates,
@@ -162,6 +166,9 @@ export type UserWithUsage = User & {
   hasMetaBusinessAccount: boolean;
   metaAccountName: string | null;
   metaUpdatedAt: string | null;
+  metaSelectionStatus: MetaAssetSelectionStatus | null;
+  metaPendingReason: MetaAssetPendingReason | null;
+  unavailableMetaAssetCount: number;
   assignedConsultantId: string | null;
   assignedConsultantEmail: string | null;
   assignedConsultantName: string | null;
@@ -448,22 +455,11 @@ export async function getAllUsersWithUsage(
     );
   }
 
-  if (params.filters?.metaStatus === "connected") {
-    conditions.push(sql`EXISTS (
-      SELECT 1
-      FROM meta_business_accounts mba
-      WHERE mba.user_id = ${user.id}
-        AND mba.deleted_at IS NULL
-    )`);
-  }
-
-  if (params.filters?.metaStatus === "disconnected") {
-    conditions.push(sql`NOT EXISTS (
-      SELECT 1
-      FROM meta_business_accounts mba
-      WHERE mba.user_id = ${user.id}
-        AND mba.deleted_at IS NULL
-    )`);
+  const metaStatusSql = buildMetaStatusFilterSql(
+    params.filters?.metaStatus ?? "all",
+  );
+  if (metaStatusSql) {
+    conditions.push(metaStatusSql);
   }
 
   if (params.filters?.activationStatus === "pending") {
@@ -637,6 +633,7 @@ export async function getAllUsersWithUsage(
     crmRows,
     subRows,
     metaRows,
+    metaPolicyRows,
     consultantRows,
     campaignRows,
     performanceRows,
@@ -709,6 +706,15 @@ export async function getAllUsersWithUsage(
         ),
       )
       .groupBy(metaBusinessAccount.userId),
+    db
+      .select({
+        userId: metaAssetPolicy.userId,
+        selectionStatus: metaAssetPolicy.selectionStatus,
+        pendingReason: metaAssetPolicy.pendingReason,
+        unavailableAssetIds: metaAssetPolicy.unavailableAssetIds,
+      })
+      .from(metaAssetPolicy)
+      .where(inArray(metaAssetPolicy.userId, userIds)),
     db
       .select({
         userId: userMarketingConsultant.userId,
@@ -849,6 +855,24 @@ export async function getAllUsersWithUsage(
     });
   }
 
+  const policyByUser = new Map<
+    string,
+    {
+      selectionStatus: MetaAssetSelectionStatus;
+      pendingReason: MetaAssetPendingReason | null;
+      unavailableMetaAssetCount: number;
+    }
+  >();
+  for (const row of metaPolicyRows) {
+    policyByUser.set(row.userId, {
+      selectionStatus: row.selectionStatus,
+      pendingReason: row.pendingReason ?? null,
+      unavailableMetaAssetCount: Array.isArray(row.unavailableAssetIds)
+        ? row.unavailableAssetIds.length
+        : 0,
+    });
+  }
+
   const consultantByUser = new Map<
     string,
     { id: string; email: string; name: string | null }
@@ -941,6 +965,7 @@ export async function getAllUsersWithUsage(
     const userSubs = subsByUser.get(u.id) ?? [];
     const activeSub = pickActiveSubscription(userSubs);
     const metaInfo = metaByUser.get(u.id);
+    const policy = policyByUser.get(u.id);
     const consultant = consultantByUser.get(u.id);
     const campaignInfo = campaignByUser.get(u.id);
     const performanceDrop = performanceByUser.get(u.id) ?? {
@@ -1003,6 +1028,9 @@ export async function getAllUsersWithUsage(
       hasMetaBusinessAccount: Boolean(metaInfo),
       metaAccountName: metaInfo?.metaAccountName ?? null,
       metaUpdatedAt: metaInfo?.metaUpdatedAt ?? null,
+      metaSelectionStatus: policy?.selectionStatus ?? null,
+      metaPendingReason: policy?.pendingReason ?? null,
+      unavailableMetaAssetCount: policy?.unavailableMetaAssetCount ?? 0,
       assignedConsultantId: consultant?.id ?? null,
       assignedConsultantEmail: consultant?.email ?? null,
       assignedConsultantName: consultant?.name ?? null,

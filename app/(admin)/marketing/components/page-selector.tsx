@@ -9,6 +9,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import type { PageIdentity } from "./use-pages";
+import { MetaAssetSelectionBadges } from "./meta-asset-selection-badges";
 
 export type { PageIdentity };
 
@@ -82,6 +83,10 @@ export function PageSelector({
                 @{selectedPage.instagramUsername}
               </span>
             ) : null}
+            <MetaAssetSelectionBadges
+              enabled={selectedPage.enabled}
+              primary={selectedPage.primary}
+            />
           </div>
         ) : (
           <span className="text-muted-foreground">{placeholder}</span>
@@ -110,6 +115,10 @@ export function PageSelector({
                   </span>
                 ) : null}
               </div>
+              <MetaAssetSelectionBadges
+                enabled={page.enabled}
+                primary={page.primary}
+              />
             </div>
           </SelectItem>
         ))}

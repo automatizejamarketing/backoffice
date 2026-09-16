@@ -6,9 +6,16 @@ import {
   getPagesWithInstagram,
   type PageIdentity,
 } from "@/lib/meta-business/marketing/build-ad-from-media";
+import { flagsForGrantedAsset } from "@/lib/backoffice/meta-asset-selection-flags";
+import { listEnabledAssetFlags } from "@/lib/backoffice/meta-enabled-assets";
+
+export type PageIdentityWithSelection = PageIdentity & {
+  enabled: boolean;
+  primary: boolean;
+};
 
 export type GetPagesResponse = {
-  pages: PageIdentity[];
+  pages: PageIdentityWithSelection[];
 };
 
 export type GetPagesErrorResponse = {
@@ -61,8 +68,13 @@ export async function GET(
     }
 
     const pages = await getPagesWithInstagram(tokenResult.accessToken);
+    const enabledRows = await listEnabledAssetFlags(userId);
+    const data = pages.map((page) => ({
+      ...page,
+      ...flagsForGrantedAsset(enabledRows, "identity", page.pageId),
+    }));
 
-    return NextResponse.json({ pages }, { status: 200 });
+    return NextResponse.json({ pages: data }, { status: 200 });
   } catch (error) {
     const errorReturn = errorToGraphErrorReturn(error);
     console.error("[GET pages] Error:", errorReturn);
