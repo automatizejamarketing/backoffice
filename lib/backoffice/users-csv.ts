@@ -6,6 +6,7 @@ import {
 import type { BillingProvider } from "@/lib/db/schema";
 import { formatCalendarDayInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { formatBrazilianPhone } from "@/lib/phone";
+import { resolveUsersListMarketingStateFromUser } from "@/lib/backoffice/users-list-marketing";
 import {
   formatPlanLabel,
   getAccountStatusBadge,
@@ -68,7 +69,7 @@ function formatPerformanceStatus(user: UserWithUsage): string {
 }
 
 function formatMetaStatus(user: UserWithUsage): string {
-  return user.hasMetaBusinessAccount ? "Meta conectado" : "Sem Meta";
+  return resolveUsersListMarketingStateFromUser(user).label;
 }
 
 function formatDate(value: Date | string | null | undefined): string {

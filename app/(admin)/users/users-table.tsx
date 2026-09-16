@@ -27,6 +27,12 @@ import { UsersTableColumnsMenu } from "./users-table-columns-menu";
 import { UsersTableShell } from "./users-table-shell";
 import { UserActivationActions } from "./user-activation-actions";
 import { CommercialStatusBadge } from "../crm/crm-badges";
+import { resolveUsersListMarketingStateFromUser } from "@/lib/backoffice/users-list-marketing";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const COLUMN_HEADER_CLASS: Record<UsersTableColumnId, string> = {
   user: "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground",
@@ -476,24 +482,46 @@ function OptionalColumnCell({
         </Badge>
       );
       break;
-    case "marketing":
-      content = user.hasMetaBusinessAccount ? (
+    case "marketing": {
+      const marketing = resolveUsersListMarketingStateFromUser(user);
+      const badgeClass =
+        marketing.label === "Seleção pendente"
+          ? "w-fit border-amber-200 bg-amber-50 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300"
+          : marketing.label === "Ativo indisponível"
+            ? "w-fit border-red-200 bg-red-50 text-xs text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300"
+            : "w-fit text-xs";
+      const badge = (
+        <Badge
+          variant={
+            marketing.label === "Meta conectado" ? "default" : "outline"
+          }
+          className={badgeClass}
+        >
+          {marketing.label}
+        </Badge>
+      );
+
+      content = (
         <div className="inline-flex flex-col items-start gap-1">
-          <Badge variant="default" className="w-fit text-xs">
-            Meta conectado
-          </Badge>
-          {user.metaAccountName ? (
+          {marketing.tooltip ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="w-fit">{badge}</span>
+              </TooltipTrigger>
+              <TooltipContent>{marketing.tooltip}</TooltipContent>
+            </Tooltip>
+          ) : (
+            badge
+          )}
+          {user.hasMetaBusinessAccount && user.metaAccountName ? (
             <span className="max-w-[180px] truncate text-[11px] text-muted-foreground">
               {user.metaAccountName}
             </span>
           ) : null}
         </div>
-      ) : (
-        <Badge variant="outline" className="w-fit text-xs">
-          Sem Meta
-        </Badge>
       );
       break;
+    }
     case "consultant":
       content = user.assignedConsultantEmail ? (
         <div className="flex max-w-[220px] flex-col">

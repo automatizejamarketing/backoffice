@@ -109,7 +109,7 @@ cabeçalho: produção é `hosjqwtfjjtmphchsuqf`, staging é `wsbsnzgzqiehqnklzc
 8. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
 9. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.
 
-Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit it.
+Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit an applied `when`. Latest twin with the frontend: `0111_meta_asset_selection` (`when=1799900000000`), same SQL as frontend `0117_meta_asset_selection` (`meta_asset_policies`, `meta_enabled_assets`, `meta_asset_events`).
 
 The DB client in `lib/db/index.ts` uses `postgres-js` with `prepare: false` intentionally (prepared-statement reuse was returning stale rows on repeated identical UPDATEs — for example credit bumps). Don't flip it back to `prepare: true`.
 
@@ -166,6 +166,14 @@ app/
     posts/            # admin post queries
 ```
 
+Ativos Meta (seleção fixa): schema gêmeo `0111_meta_asset_selection` (`when=1799900000000`, mesmas tabelas que o frontend `0117`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
+
+- `GET /api/meta-business/marketing/assets`
+- `POST /api/meta-business/marketing/assets/selection`
+- `GET /api/meta-business/marketing/me` (`assetSelection`; `GET /pages` restringe identidades com a flag ligada)
+
+O card do hub, as mutações admin (`update_meta_asset_limits`, `request_meta_asset_selection`, `set_meta_asset_selection`) e os filtros `selection_pending` / `asset_unavailable` da lista são os tickets 12 (card), 13 (definir seleção) e 14 (lista/inspeção).
+
 ### Server-side patterns
 
 - Admin pages are predominantly server components that call helpers from `lib/db/admin-queries.ts` (aggregate SQL via Drizzle) and pass serialized props to `"use client"` children. See `app/(admin)/posts/page.tsx` for the typical shape: `Promise.all` of queries, then `<Client initial... />`.
@@ -178,10 +186,11 @@ app/
 
 ### Mirrored Meta sources — the frontend is authoritative
 
-`lib/meta-business/duplicate.ts` is a **byte-identical mirror** of the frontend's copy. The admin
-panel duplicates the same live campaigns the user dashboard does, so both must behave identically —
-the two `duplicate.ts` files are compared byte-for-byte by
-`../automatize-frontend/tests/meta-duplicate-parity.test.ts`.
+`lib/meta-business/duplicate.ts` and `lib/meta-business/meta-asset-policy.ts` are
+**byte-identical mirrors** of the frontend's copies. The admin panel duplicates the
+same live campaigns the user dashboard does, and "Definir seleção" must apply the
+same asset-selection rules as the user modal — the two pairs are compared
+byte-for-byte by `../automatize-frontend/tests/meta-duplicate-parity.test.ts`.
 
 Never edit this project's copy directly. Change the frontend's, then:
 
@@ -235,6 +244,7 @@ Noteworthy variables:
 - `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_AFFILIATE_COUPON_ID` — Stripe credentials.
 - `BACKOFFICE_EMAIL_FROM`, `RESEND_API_KEY` — transactional email via Resend.
 - Meta/Instagram vars — same values as the frontend; redirect URIs point at `automatizemarketing.com` (frontend-hosted callbacks).
+- `META_ASSET_SELECTION_ENABLED` — **frontend only** (server-only). Do not set it here expecting the customer modal to appear. When the hub card exists (tickets 12–14), it reads and writes policy regardless of that flag; the flag only changes customer-facing enforcement after migrate + limits. Runbook: `../automatize-frontend/META_ASSET_SELECTION_RUNBOOK.md`.
 - `GOOGLE_PLACES_API_KEY` — geo targeting search proxy.
 - `MAT_PERFORMANCE_REPORT_SECRET` — shared bearer for `POST /api/internal/mat-performance-report` (Mat Interno). Must match the support-agent env. Do not reuse `CRON_SECRET`.
 
@@ -246,7 +256,7 @@ Do not paste secrets from `.env*` files into commits or external docs.
 - Do NOT replace `bun run db:migrate` with `drizzle-kit migrate`. The baselining step is required.
 - Do NOT run `bun run db:push` against staging/production or any shared DB. It skips the migrations journal and breaks the baseline contract.
 - Do NOT change `lib/db/schema.ts` without mirroring the edit in `../automatize-frontend/lib/db/schema.ts` and generating migrations in the owning project.
-- Do NOT edit `lib/meta-business/duplicate.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — this one is a byte-identical mirror.
+- Do NOT edit `lib/meta-business/duplicate.ts` or `lib/meta-business/meta-asset-policy.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — these are byte-identical mirrors.
 - Do NOT edit the other mirrored Meta sources here either (`marketing/{creation,update}/*`, `marketing/create-adset-in-existing-campaign.ts`, `marketing/normalize-meta-error.ts`, `get-instagram-connected-page.ts`). Same rule: edit the frontend's copy, run `bun run sync:meta` there, commit both projects together.
 - Do NOT use `npm`, `yarn`, or `pnpm`. Bun only.
 - Do NOT add an email to `ADMIN_EMAILS` without the user explicitly approving it — it is an access-control list.

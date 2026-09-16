@@ -15,6 +15,8 @@ export type PageIdentity = {
   instagramBusinessAccountId: string;
   instagramUsername?: string;
   instagramProfilePictureUrl?: string;
+  enabled?: boolean;
+  primary?: boolean;
 };
 
 const PAGES_STALE_TIME = 60 * 1000;

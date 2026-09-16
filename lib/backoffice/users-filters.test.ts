@@ -181,6 +181,17 @@ describe("normalizeUsersFilterParams", () => {
     expect(filters.accountStatus).toBe("active_plan_pix");
   });
 
+  test("keeps selection_pending and asset_unavailable meta filters", () => {
+    expect(
+      normalizeUsersFilterParams({ metaStatus: "selection_pending" })
+        .metaStatus,
+    ).toBe("selection_pending");
+    expect(
+      normalizeUsersFilterParams({ metaStatus: "asset_unavailable" })
+        .metaStatus,
+    ).toBe("asset_unavailable");
+  });
+
   test("accepts performanceStatus error", () => {
     const filters = normalizeUsersFilterParams({
       performanceStatus: "error",

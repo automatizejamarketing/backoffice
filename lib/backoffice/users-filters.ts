@@ -39,6 +39,8 @@ export const META_STATUS_FILTER_VALUES = [
   "all",
   "connected",
   "disconnected",
+  "selection_pending",
+  "asset_unavailable",
 ] as const;
 
 export const ACCOUNT_ACTIVATION_FILTER_VALUES = [
