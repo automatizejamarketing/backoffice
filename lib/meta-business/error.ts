@@ -55,6 +55,10 @@ export function parseRateLimitHeaders(headers: Headers): RateLimitInfo | undefin
   if (retryAfter) {
     const secs = Number(retryAfter);
     if (Number.isFinite(secs) && secs >= 0) info.retryAfterMs = secs * 1000;
+    else if (!Number.isFinite(secs)) {
+      const date = Date.parse(retryAfter);
+      if (Number.isFinite(date)) info.retryAfterMs = Math.max(0, date - Date.now());
+    }
   }
 
   const buc = headers.get("x-business-use-case-usage");
@@ -297,6 +301,13 @@ const errorMap: Record<string, MappedError> = {
     solution: "Aguarde e tente novamente mais tarde.",
     isTransient: true,
   },
+  "613_4841018": {
+    httpStatusCode: 429,
+    title: "Alteração em processamento",
+    message: "A Meta ainda está processando uma alteração neste item.",
+    solution: "Aguarde cerca de 30 segundos e tente novamente.",
+    isTransient: true,
+  },
   "613": {
     httpStatusCode: 429,
     title: "Limite de taxa excedido",
@@ -449,6 +460,13 @@ export function graphErrorToClientError(errorReturn: GraphErrorReturn): {
   solution: string;
   correlationId?: string;
 } {
+  if (errorReturn.data?.code === 613 && errorReturn.data.errorSubcode === 4841018) {
+    return attachCorrelationId({
+      error: errorReturn.reason.title,
+      message: errorReturn.reason.message,
+      solution: errorReturn.reason.solution,
+    });
+  }
   const title = errorReturn.data?.errorUserTitle ?? errorReturn.reason.title;
   const message =
     errorReturn.data?.errorUserMsg ??

@@ -11,10 +11,11 @@
 
 import { metaApiCall, type MetaApiCallParams } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
+import { objectBusyRetryExhausted } from "./object-busy";
 
 export const MAX_WRITE_RETRY_ATTEMPTS = 5;
 const RETRY_BASE_MS = 800;
-/** Cap a single backoff so one retry can't blow the serverless function budget. */
+/** Cap our exponential backoff; server-advertised waits use the total budget. */
 const RETRY_MAX_WAIT_MS = 20_000;
 
 /**
@@ -28,7 +29,7 @@ export const RETRYABLE_THROTTLE_CODES = new Set<number>([
   17, // user request limit reached
   341, // application limit reached
   368, // temporarily blocked for policy violations
-  613, // calls-per-ad-account / QPS exceeded (incl. subcode 4841018)
+  613, // account/QPS; subcode 4841018 is handled first by the shared API clients
   80000, // BUC ads_management rate limit
   80003,
   80004,
@@ -44,18 +45,18 @@ const defaultSleep: WriteRetrySleep = (ms) =>
 
 /** True only for a genuine Meta throttle. Synthetic local errors return false. */
 export function isRetryableMetaThrottle(err: unknown): boolean {
-  if (!(err instanceof GraphApiError)) return false;
+  if (!(err instanceof GraphApiError) || objectBusyRetryExhausted(err)) return false;
   const code = err.errorReturn.data?.code;
   return code != null && RETRYABLE_THROTTLE_CODES.has(code);
 }
 
-/** Backoff for attempt N, honoring Meta's suggested wait but capped to the budget. */
+/** Cap our exponential backoff, never Meta's minimum wait. */
 export function retryWaitMs(err: unknown, attempt: number): number {
   const rl = err instanceof GraphApiError ? err.errorReturn.rateLimit : undefined;
   const serverWait = Math.max(rl?.retryAfterMs ?? 0, rl?.estimatedRegainMs ?? 0);
   const backoff = RETRY_BASE_MS * 2 ** attempt;
   const jitter = Math.floor(backoff * 0.25 * Math.random());
-  return Math.min(RETRY_MAX_WAIT_MS, Math.max(serverWait, backoff + jitter));
+  return Math.max(serverWait, Math.min(RETRY_MAX_WAIT_MS, backoff + jitter));
 }
 
 /**
@@ -65,17 +66,21 @@ export function retryWaitMs(err: unknown, attempt: number): number {
  */
 export async function withMetaRetry<T>(
   fn: () => Promise<T>,
-  opts: { sleep?: WriteRetrySleep; maxAttempts?: number } = {},
+  opts: { sleep?: WriteRetrySleep; maxAttempts?: number; maxWaitMs?: number } = {},
 ): Promise<T> {
   const sleep = opts.sleep ?? defaultSleep;
   const maxAttempts = opts.maxAttempts ?? MAX_WRITE_RETRY_ATTEMPTS;
   let attempt = 0;
+  let waitedMs = 0;
   for (;;) {
     try {
       return await fn();
     } catch (err) {
       if (!isRetryableMetaThrottle(err) || attempt >= maxAttempts) throw err;
-      await sleep(retryWaitMs(err, attempt));
+      const waitMs = retryWaitMs(err, attempt);
+      if (waitedMs + waitMs > (opts.maxWaitMs ?? 70_000)) throw err;
+      await sleep(waitMs);
+      waitedMs += waitMs;
       attempt += 1;
     }
   }

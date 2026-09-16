@@ -23,6 +23,8 @@ export type RenameErrorResponse = {
   solution?: string;
 };
 
+export const maxDuration = 120;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string; adId: string }> },

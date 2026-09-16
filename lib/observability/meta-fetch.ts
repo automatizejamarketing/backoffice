@@ -1,5 +1,6 @@
 import { logMetaCallResult } from "./meta-logger";
 import type { MetaMutationEntity, MetaMutationOperation } from "./meta-logger";
+import { withObjectBusyResponseRetry } from "@/lib/meta-business/object-busy";
 
 export type MetaFetchOptions = RequestInit & {
   requestParams?: string | URLSearchParams | FormData | Record<string, unknown>;
@@ -20,6 +21,18 @@ export type MetaFetchResult = {
 export async function fetchMetaGraph(
   url: string,
   options: MetaFetchOptions = {},
+): Promise<MetaFetchResult> {
+  const method = (options.method ?? "GET").toUpperCase();
+  const isFacebookWrite = new URL(url).hostname === "graph.facebook.com" &&
+    (method === "POST" || method === "DELETE" || method === "PATCH");
+  return isFacebookWrite
+    ? withObjectBusyResponseRetry(() => fetchMetaGraphOnce(url, options))
+    : fetchMetaGraphOnce(url, options);
+}
+
+async function fetchMetaGraphOnce(
+  url: string,
+  options: MetaFetchOptions,
 ): Promise<MetaFetchResult> {
   const { requestParams, entity, operation, ...init } = options;
   const startedAt = Date.now();
