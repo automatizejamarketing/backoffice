@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ import {
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 import { AdAccountSelector } from "./ad-account-selector";
 import { MetaTokenIssue } from "./meta-token-issue";
+import { PartnerAccessPanel } from "./partner-access-panel";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
@@ -119,6 +121,26 @@ export function MarketingWorkspace({
   useEffect(() => {
     setSelectedUser(initialUser);
   }, [initialUser]);
+
+  useEffect(() => {
+    const result = searchParams.get("admin_reconnect");
+    if (!result) return;
+    if (result === "success") {
+      toast.success("Reconexão administrativa concluída.");
+    } else if (result === "asset_mismatch") {
+      toast.error(
+        "Os ativos retornados pela Meta não coincidem com os deste cliente.",
+      );
+    } else if (result === "denied") {
+      toast.error("A autorização na Meta foi recusada.");
+    } else {
+      toast.error("A reconexão administrativa não foi concluída.");
+    }
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("admin_reconnect");
+    const query = next.toString();
+    router.replace(query ? `/marketing?${query}` : "/marketing");
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (initialUser || !showUserPicker) return;
@@ -365,6 +387,16 @@ export function MarketingWorkspace({
                   </div>
                 )}
               </div>
+
+              {metaAccount ? (
+                <PartnerAccessPanel
+                  userId={selectedUser.id}
+                  metaAccount={metaAccount}
+                  onRetried={() =>
+                    setAdAccountsRefreshKey((key) => key + 1)
+                  }
+                />
+              ) : null}
 
               <PlaybookInsightsPanel
                 userId={selectedUser.id}

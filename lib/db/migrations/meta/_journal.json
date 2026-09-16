@@ -652,6 +652,13 @@
       "when": 1799600000000,
       "tag": "0109_crm_goals_sales_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1799700000000,
+      "tag": "0110_meta_partner_access",
+      "breakpoints": true
     }
   ]
 }
