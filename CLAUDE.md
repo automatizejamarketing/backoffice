@@ -109,7 +109,7 @@ cabeçalho: produção é `hosjqwtfjjtmphchsuqf`, staging é `wsbsnzgzqiehqnklzc
 8. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
 9. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.
 
-Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit an applied `when`. Latest twin with the frontend: `0107_meta_asset_selection` (`when=1799600000000`), same SQL as frontend `0115_meta_asset_selection` (`meta_asset_policies`, `meta_enabled_assets`, `meta_asset_events`).
+Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit an applied `when`. Latest twin with the frontend: `0110_meta_asset_selection` (`when=1799900000000`), same SQL as frontend `0118_meta_asset_selection` (`meta_asset_policies`, `meta_enabled_assets`, `meta_asset_events`).
 
 The DB client in `lib/db/index.ts` uses `postgres-js` with `prepare: false` intentionally (prepared-statement reuse was returning stale rows on repeated identical UPDATEs — for example credit bumps). Don't flip it back to `prepare: true`.
 
@@ -166,7 +166,7 @@ app/
     posts/            # admin post queries
 ```
 
-Ativos Meta (seleção fixa): schema gêmeo `0107_meta_asset_selection` (`when=1799600000000`, mesmas tabelas que o frontend `0115`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
+Ativos Meta (seleção fixa): schema gêmeo `0110_meta_asset_selection` (`when=1799900000000`, mesmas tabelas que o frontend `0118`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
 
 - `GET /api/meta-business/marketing/assets`
 - `POST /api/meta-business/marketing/assets/selection`
