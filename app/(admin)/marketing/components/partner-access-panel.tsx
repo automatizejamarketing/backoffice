@@ -71,7 +71,7 @@ export function PartnerAccessPanel({
 
   const startAdminReconnect = async () => {
     const confirmed = window.confirm(
-      "Você vai autorizar com o SEU Facebook de consultor. Não use a senha do cliente. Os ativos retornados precisam intersectar os ativos conhecidos deste cliente.",
+      "Vai abrir o Login for Business da Meta no SEU Facebook. Autorize de novo o Gerenciador de Negócios deste cliente. Não use a conta do cliente.",
     );
     if (!confirmed) return;
 
