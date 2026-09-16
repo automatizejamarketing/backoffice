@@ -16,6 +16,7 @@ import {
   CRM_METRIC_META,
   CRM_METRIC_VALUES,
   crmGoalStatus,
+  crmMeetingOutcome,
   crmMonthCalendarBounds,
   crmRate,
   isCrmMetric,
@@ -58,8 +59,8 @@ export type CrmGoalsDashboard = {
  * Agendamento: leads que entraram em "Reunião agendada" (ou depois) no mês,
  * uma vez por lead, sobre contas criadas no mês com telefone e fora da
  * equipe. Trial e cliente: reuniões realizadas no mês cuja conta iniciou
- * acesso / pagou depois da reunião. Modo "fluxo do período"; ver
- * docs/crm-metas.md para a alternativa por coorte.
+ * acesso / pagou, em qualquer data (ver `crmMeetingOutcome`). Modo "fluxo do
+ * período"; ver docs/crm-metas.md para a alternativa por coorte.
  */
 export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashboard> {
   const bounds = crmMonthCalendarBounds(month);
@@ -100,7 +101,7 @@ export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashb
   const scheduledLeads = scheduled.filter((row) => isLead(row.email)).length;
   const meetingLeads = meetings.filter((row) => isLead(row.email));
 
-  const outcomes = await meetingOutcomes(meetingLeads);
+  const outcomes = await meetingOutcomes(meetingLeads.map((row) => row.userId));
   const trials = outcomes.filter((row) => row.trial).length;
   const customers = outcomes.filter((row) => row.customer).length;
 
@@ -175,12 +176,15 @@ async function firstStatusEntryInMonth(statuses: string[], from: Date, to: Date)
     .groupBy(crmLeadEvent.userId, user.email);
 }
 
-/** Para cada reunião, se a conta iniciou acesso e se pagou depois dela. */
+/**
+ * Para cada conta com reunião realizada, se iniciou acesso e se pagou. Não
+ * compara com a data do status: o kanban é marcado depois do fato, e exigir
+ * assinatura posterior ao status zerava as duas conversões.
+ */
 async function meetingOutcomes(
-  meetings: Array<{ userId: string; at: Date }>,
+  userIds: string[],
 ): Promise<Array<{ userId: string; trial: boolean; customer: boolean }>> {
-  if (meetings.length === 0) return [];
-  const userIds = meetings.map((row) => row.userId);
+  if (userIds.length === 0) return [];
 
   const [firstSubscriptions, firstPayments] = await Promise.all([
     db
@@ -212,15 +216,13 @@ async function meetingOutcomes(
   const subscriptionAt = new Map(firstSubscriptions.map((row) => [row.userId, row.at]));
   const paymentAt = new Map(firstPayments.map((row) => [row.userId, row.at]));
 
-  return meetings.map((meeting) => {
-    const subscribedAt = subscriptionAt.get(meeting.userId);
-    const paidAt = paymentAt.get(meeting.userId);
-    return {
-      userId: meeting.userId,
-      trial: !!subscribedAt && subscribedAt.getTime() >= meeting.at.getTime(),
-      customer: !!paidAt && paidAt.getTime() >= meeting.at.getTime(),
-    };
-  });
+  return userIds.map((userId) => ({
+    userId,
+    ...crmMeetingOutcome({
+      subscribedAt: subscriptionAt.get(userId) ?? null,
+      paidAt: paymentAt.get(userId) ?? null,
+    }),
+  }));
 }
 
 /** Grava as metas do mês (uma linha por métrica). `null` = sem meta a partir do mês. */
@@ -327,7 +329,7 @@ export async function getCrmGoalMetricLeads(
     (row) => isLead(row.email),
   );
   const outcomes = new Map(
-    (await meetingOutcomes(meetings)).map((row) => [row.userId, row]),
+    (await meetingOutcomes(meetings.map((row) => row.userId))).map((row) => [row.userId, row]),
   );
   const meetingAt = new Map(meetings.map((row) => [row.userId, row.at]));
   const profiles = await leadProfiles(meetings.map((row) => row.userId));
