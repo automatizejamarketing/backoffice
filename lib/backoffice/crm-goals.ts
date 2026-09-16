@@ -63,7 +63,7 @@ export const CRM_METRIC_META: Record<
     numeratorLabel: "viraram trial",
     denominatorLabel: "reuniões realizadas",
     description:
-      "Reuniões realizadas no mês cuja conta iniciou acesso depois da reunião, sobre reuniões realizadas no mês.",
+      "Reuniões realizadas no mês cuja conta iniciou acesso (assinatura ou trial), em qualquer data, sobre reuniões realizadas no mês.",
     defaultTarget: 75,
   },
   conversao_real: {
@@ -72,10 +72,23 @@ export const CRM_METRIC_META: Record<
     numeratorLabel: "viraram clientes",
     denominatorLabel: "reuniões realizadas",
     description:
-      "Reuniões realizadas no mês cuja conta teve o primeiro pagamento de assinatura aprovado depois da reunião. O pagamento vem depois do trial, então a taxa fecha semanas depois.",
+      "Reuniões realizadas no mês cuja conta teve pagamento de assinatura aprovado, em qualquer data. O pagamento vem depois do trial, então a taxa fecha semanas depois.",
     defaultTarget: null,
   },
 };
+
+/**
+ * Reunião realizada que virou trial / cliente. Olha só se a conta tem
+ * assinatura (trial ou paga) e pagamento aprovado, em qualquer data: o
+ * status do kanban é marcado depois do fato, muitas vezes em lote, então
+ * exigir assinatura posterior ao status zerava as duas conversões.
+ */
+export function crmMeetingOutcome(input: {
+  subscribedAt: Date | null;
+  paidAt: Date | null;
+}): { trial: boolean; customer: boolean } {
+  return { trial: input.subscribedAt !== null, customer: input.paidAt !== null };
+}
 
 /** Distância (em pontos percentuais) abaixo da meta que ainda conta como "perto". */
 export const CRM_GOAL_NEAR_POINTS = 10;

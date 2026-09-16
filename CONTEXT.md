@@ -262,10 +262,10 @@ produto e não é editável aqui.
   estágio posterior. Reagendar o mesmo lead não é novo agendamento.
 - **Reunião realizada**: primeira entrada do lead, no mês, em Reunião
   realizada ou Trial feito.
-- **Virou trial**: a conta iniciou acesso depois da reunião realizada. Vem do
-  produto, não do status Trial feito.
-- **Virou cliente**: a conta teve o primeiro pagamento de assinatura aprovado
-  depois da reunião realizada. Compra de infoproduto não é cliente aqui.
+- **Virou trial**: a conta iniciou acesso (assinatura, em trial ou paga), em
+  qualquer data. Vem do produto, não do status Trial feito.
+- **Virou cliente**: a conta teve pagamento de assinatura aprovado, em
+  qualquer data. Compra de infoproduto não é cliente aqui.
 - **Meta comercial**: percentual alvo de uma métrica em um mês calendário.
   Vale do mês em que foi definida em diante, até ser redefinida. Mês fechado
   não muda de meta.
