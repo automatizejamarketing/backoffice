@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Copy, ExternalLink, Loader2, PlayCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { navigateToFacebookOAuth } from "@/lib/meta-business/navigate-facebook-oauth";
 import { DEFAULT_AUTOMATIZE_BUSINESS_ID } from "@/lib/meta-business/partner-access-status";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
+import { PartnerAccessHowtoDialog } from "./partner-access-howto-dialog";
 
 const PARTNERS_FALLBACK = "https://business.facebook.com/latest/settings/partners";
 
@@ -43,6 +44,7 @@ export function PartnerAccessPanel({
   const [info, setInfo] = useState<PartnerAccessResponse | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [howtoOpen, setHowtoOpen] = useState(false);
 
   const refreshAccess = useCallback(async () => {
     setIsChecking(true);
@@ -124,11 +126,26 @@ export function PartnerAccessPanel({
         </h3>
         <Badge variant="outline">{statusLabel(status)}</Badge>
       </div>
-      <p className="text-sm text-muted-foreground">
-        {ready
-          ? "Página, Instagram e conta já estão com a Automatize."
-          : "Reconectar o Facebook não basta. O cliente precisa atribuir Página, Instagram e conta à Automatize."}
-      </p>
+      {ready ? (
+        <p className="text-sm text-muted-foreground">
+          Página, Instagram e conta já estão com a Automatize.
+        </p>
+      ) : (
+        <button
+          className="inline-flex max-w-full items-center gap-2 text-left text-sm font-medium text-foreground hover:underline"
+          onClick={() => setHowtoOpen(true)}
+          type="button"
+        >
+          <PlayCircle className="size-4 shrink-0" />
+          Só falta você adicionar a Automatize como sua Parceira!
+        </button>
+      )}
+      <PartnerAccessHowtoDialog
+        businessId={businessId}
+        onOpenChange={setHowtoOpen}
+        open={howtoOpen}
+        partnersUrl={info?.partnersUrl}
+      />
       <div className="flex flex-wrap items-center gap-2">
         {!ready ? (
           <Button onClick={() => void openPartners()} size="sm" type="button">

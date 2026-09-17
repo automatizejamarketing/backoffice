@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
@@ -65,6 +65,18 @@ type MarketingWorkspaceProps = {
   showUserPicker?: boolean;
 };
 
+function userFromSearchParams(
+  searchParams: { get: (key: string) => string | null },
+): MarketingWorkspaceUser | null {
+  const userId = searchParams.get("userId");
+  if (!userId) return null;
+  return {
+    id: userId,
+    email: searchParams.get("email") ?? "",
+    image_url: null,
+  };
+}
+
 export function MarketingWorkspace({
   initialUser = null,
   showHeader = true,
@@ -74,10 +86,14 @@ export function MarketingWorkspace({
   const searchParams = useSearchParams();
   const deepLink = parseMarketingDeepLink(searchParams);
   const [selectedUser, setSelectedUser] =
-    useState<MarketingWorkspaceUser | null>(initialUser);
+    useState<MarketingWorkspaceUser | null>(
+      () => initialUser ?? userFromSearchParams(searchParams),
+    );
   const [metaAccount, setMetaAccount] =
     useState<SanitizedMetaBusinessAccount | null>(null);
-  const [isLoadingMeta, setIsLoadingMeta] = useState(false);
+  const [isLoadingMeta, setIsLoadingMeta] = useState(
+    () => Boolean(initialUser ?? userFromSearchParams(searchParams)),
+  );
   const [adAccounts, setAdAccounts] = useState<AdAccountWithSelection[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     null,
@@ -121,30 +137,38 @@ export function MarketingWorkspace({
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const { selectedMetricIds, setSelectedMetricIds } =
     useMetricColumnPreferences();
+  const reconnectToastKey = useRef<string | null>(null);
+  const lastMetaUserId = useRef<string | null>(null);
+  const selectedUserId = selectedUser?.id ?? null;
 
   useEffect(() => {
-    setSelectedUser(initialUser);
+    if (initialUser) setSelectedUser(initialUser);
   }, [initialUser]);
 
   useEffect(() => {
     const result = searchParams.get("admin_reconnect");
     if (!result) return;
-    if (result === "success") {
-      toast.success("Reconexão administrativa concluída.");
-    } else if (result === "asset_mismatch") {
-      toast.error(
-        "Os ativos retornados pela Meta não coincidem com os deste cliente.",
-      );
-    } else if (result === "denied") {
-      toast.error("A autorização na Meta foi recusada.");
-    } else {
-      toast.error("A reconexão administrativa não foi concluída.");
+    const toastKey = `${result}:${searchParams.get("userId") ?? ""}`;
+    if (reconnectToastKey.current !== toastKey) {
+      reconnectToastKey.current = toastKey;
+      if (result === "success") {
+        toast.success("Reconexão administrativa concluída.");
+      } else if (result === "asset_mismatch") {
+        toast.error(
+          "Os ativos retornados pela Meta não coincidem com os deste cliente.",
+        );
+      } else if (result === "denied") {
+        toast.error("A autorização na Meta foi recusada.");
+      } else {
+        toast.error("A reconexão administrativa não foi concluída.");
+      }
     }
     const next = new URLSearchParams(searchParams.toString());
     next.delete("admin_reconnect");
     const query = next.toString();
-    router.replace(query ? `/marketing?${query}` : "/marketing");
-  }, [router, searchParams]);
+    const nextUrl = query ? `/marketing?${query}` : "/marketing";
+    window.history.replaceState(null, "", nextUrl);
+  }, [searchParams]);
 
   useEffect(() => {
     if (initialUser || !showUserPicker) return;
@@ -159,21 +183,32 @@ export function MarketingWorkspace({
   }, [initialUser, searchParams, showUserPicker]);
 
   useEffect(() => {
-    setMetaAccount(null);
-    setAdAccounts([]);
-    setAdAccountsError(null);
-    setSelectedAccountId(null);
-    setSelectedCampaign(null);
-    setIsCampaignDetailOpen(false);
+    if (!selectedUserId) {
+      lastMetaUserId.current = null;
+      setMetaAccount(null);
+      setAdAccounts([]);
+      setAdAccountsError(null);
+      setSelectedAccountId(null);
+      setSelectedCampaign(null);
+      setIsCampaignDetailOpen(false);
+      setIsLoadingMeta(false);
+      return;
+    }
 
-    if (!selectedUser) return;
+    if (lastMetaUserId.current !== selectedUserId) {
+      lastMetaUserId.current = selectedUserId;
+      setMetaAccount(null);
+      setAdAccounts([]);
+      setAdAccountsError(null);
+      setSelectedAccountId(null);
+      setSelectedCampaign(null);
+      setIsCampaignDetailOpen(false);
+    }
 
     let cancelled = false;
-    const timeoutId = setTimeout(() => {
-      setIsLoadingMeta(true);
-    }, 0);
+    setIsLoadingMeta(true);
 
-    fetch(`/api/users/${selectedUser.id}/meta-account`)
+    fetch(`/api/users/${selectedUserId}/meta-account`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!cancelled) {
@@ -190,9 +225,8 @@ export function MarketingWorkspace({
 
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
     };
-  }, [selectedUser]);
+  }, [selectedUserId]);
 
   useEffect(() => {
     if (!metaAccount || !selectedUser) {

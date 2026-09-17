@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, ExternalLink, PlayCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -9,11 +9,13 @@ import {
   DEFAULT_AUTOMATIZE_BUSINESS_ID,
   looksLikeCertificationRequired,
 } from "@/lib/meta-business/partner-access-status";
+import { PartnerAccessHowtoDialog } from "../components/partner-access-howto-dialog";
 
 const PARTNERS_URL = "https://business.facebook.com/latest/settings/partners";
 
 export function CampaignPublishError({ error }: { error: string }) {
   const [showMeta, setShowMeta] = useState(false);
+  const [howtoOpen, setHowtoOpen] = useState(false);
   const certification = looksLikeCertificationRequired(error);
 
   if (!certification) {
@@ -48,11 +50,24 @@ export function CampaignPublishError({ error }: { error: string }) {
           A Meta exige a certificação da empresa
         </p>
         <p className="text-sm text-destructive/90">
-          Um admin do Gerenciador de Negócios precisa aceitar a política. Peça ao
-          cliente para compartilhar Página, Instagram e conta com a Automatize —
-          publicar de novo agora devolve o mesmo erro.
+          Um admin do Gerenciador de Negócios precisa aceitar a política.
+          Publicar de novo agora devolve o mesmo erro.
         </p>
+        <button
+          className="inline-flex max-w-full items-center gap-2 text-left text-sm font-medium text-destructive hover:underline"
+          onClick={() => setHowtoOpen(true)}
+          type="button"
+        >
+          <PlayCircle className="size-4 shrink-0" />
+          Só falta você adicionar a Automatize como sua Parceira!
+        </button>
       </div>
+      <PartnerAccessHowtoDialog
+        businessId={DEFAULT_AUTOMATIZE_BUSINESS_ID}
+        onOpenChange={setHowtoOpen}
+        open={howtoOpen}
+        partnersUrl={PARTNERS_URL}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => void openPartners()} size="sm" type="button">
           <ExternalLink className="size-4" />
