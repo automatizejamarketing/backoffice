@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { createAdminOauthAttempt } from "@/lib/meta-business/admin-oauth";
-import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
 
 /**
  * POST /api/users/[id]/meta-account/admin-reconnect
  *
- * Starts a short-lived consultant OAuth attempt. The callback lives on the
- * customer frontend (same Meta redirect URI) and persists the token under
- * the target customer — never under the consultant's Automatize login.
+ * Starts the same Facebook Login for Business (BISU) flow the client sees on
+ * Connect. The consultant completes it; the token is stored on the target
+ * customer. The Meta redirect URI is the customer frontend callback (the only
+ * URI registered on the app); that handler sends the consultant back here
+ * without falling through to /login.
  */
 export async function POST(
   request: Request,
@@ -31,11 +32,6 @@ export async function POST(
       { error: "confirmation_required" },
       { status: 400 },
     );
-  }
-
-  const account = await getUserMetaBusinessAccount(id);
-  if (!account) {
-    return NextResponse.json({ error: "not_connected" }, { status: 404 });
   }
 
   try {

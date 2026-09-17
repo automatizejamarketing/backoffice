@@ -6,11 +6,13 @@ import { metaAdminOauthAttempt } from "@/lib/db/schema";
 import { graphApiVersion } from "@/lib/meta-business/constant";
 import { hashOauthState } from "@/lib/meta-business/oauth-state-utils";
 import {
+  ADMIN_OAUTH_STATE_PREFIX,
   defaultAdminReconnectMode,
   type MetaAuthMode,
 } from "@/lib/meta-business/admin-oauth-utils";
 
 export {
+  ADMIN_OAUTH_STATE_PREFIX,
   defaultAdminReconnectMode,
   type MetaAuthMode,
 } from "@/lib/meta-business/admin-oauth-utils";
@@ -66,7 +68,7 @@ export async function createAdminOauthAttempt(args: {
   actorAdminEmail: string;
   authMode?: MetaAuthMode;
 }): Promise<{ state: string; attemptId: string; authMode: MetaAuthMode; authUrl: string }> {
-  const state = randomBytes(32).toString("base64url");
+  const state = `${ADMIN_OAUTH_STATE_PREFIX}${randomBytes(32).toString("base64url")}`;
   const authMode = args.authMode ?? defaultAdminReconnectMode();
   const [row] = await db
     .insert(metaAdminOauthAttempt)
@@ -87,7 +89,6 @@ export async function createAdminOauthAttempt(args: {
     authUrl: generateMarketingAuthUrl({
       state,
       mode: authMode,
-      forceReauth: true,
     }),
   };
 }
