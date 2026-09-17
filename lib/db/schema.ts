@@ -4339,6 +4339,77 @@ export const masterclassMaterial = pgTable(
 export type MasterclassMaterial = InferSelectModel<typeof masterclassMaterial>;
 
 /**
+ * Short-lived, verified support overlay for testing Mat as a customer.
+ * It never changes `whatsapp_links`; the operator proves possession of the
+ * test phone with a one-time code before routing can become active.
+ */
+export type WhatsappSupportEnvironment = "staging" | "prod";
+
+export const whatsappSupportSession = pgTable(
+  "whatsapp_support_sessions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    operatorEmail: varchar("operator_email", { length: 100 }).notNull(),
+    targetUserId: uuid("target_user_id")
+      .notNull()
+      .references(() => user.id),
+    phoneE164: varchar("phone_e164", { length: 20 }).notNull(),
+    environment: varchar("environment", { length: 16 })
+      .$type<WhatsappSupportEnvironment>()
+      .notNull(),
+    reason: text("reason").notNull(),
+    durationMinutes: integer("duration_minutes").notNull(),
+    activationCodeHash: varchar("activation_code_hash", {
+      length: 64,
+    }).notNull(),
+    activationCodeExpiresAt: timestamp("activation_code_expires_at").notNull(),
+    activationAttempts: integer("activation_attempts").notNull().default(0),
+    activatedAt: timestamp("activated_at"),
+    expiresAt: timestamp("expires_at"),
+    endedAt: timestamp("ended_at"),
+    endedByEmail: varchar("ended_by_email", { length: 100 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    phoneEnvironmentIdx: index(
+      "whatsapp_support_sessions_phone_environment_idx",
+    ).on(table.phoneE164, table.environment, table.createdAt),
+    targetUserIdx: index("whatsapp_support_sessions_target_user_idx").on(
+      table.targetUserId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type WhatsappSupportSession = InferSelectModel<
+  typeof whatsappSupportSession
+>;
+
+/** Append-only evidence for support-session messages and tool activity. */
+export const whatsappSupportSessionEvent = pgTable(
+  "whatsapp_support_session_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => whatsappSupportSession.id, { onDelete: "cascade" }),
+    eventType: varchar("event_type", { length: 48 }).notNull(),
+    payload: jsonb("payload").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    sessionCreatedIdx: index(
+      "whatsapp_support_session_events_session_created_idx",
+    ).on(table.sessionId, table.createdAt),
+  }),
+);
+
+export type WhatsappSupportSessionEvent = InferSelectModel<
+  typeof whatsappSupportSessionEvent
+>;
+
+/**
  * Mat conversation history — an append-only log of Eve channel events.
  * See `../automatize-frontend/docs/adr/0018-mat-conversation-history-as-channel-event-log.md`.
  *

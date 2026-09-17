@@ -44,6 +44,9 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(admin, "emails:view")).toBe(true);
     expect(hasBackofficePermission(admin, "whatsapp:view")).toBe(true);
     expect(
+      hasBackofficePermission(admin, "whatsapp:support-session"),
+    ).toBe(true);
+    expect(
       hasBackofficePermission(admin, "creative-analysis:manage"),
     ).toBe(true);
   });
@@ -54,6 +57,9 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(consultant, "users:manage")).toBe(false);
     expect(hasBackofficePermission(consultant, "billing:manage")).toBe(false);
     expect(hasBackofficePermission(consultant, "whatsapp:view")).toBe(false);
+    expect(
+      hasBackofficePermission(consultant, "whatsapp:support-session"),
+    ).toBe(false);
     expect(
       hasBackofficePermission(consultant, "creative-analysis:manage"),
     ).toBe(false);
@@ -81,6 +87,9 @@ describe("hasBackofficePermission", () => {
     expect(hasBackofficePermission(dev, "team:manage")).toBe(false);
     expect(hasBackofficePermission(dev, "business:manage")).toBe(false);
     expect(hasBackofficePermission(dev, "whatsapp:view")).toBe(true);
+    expect(
+      hasBackofficePermission(dev, "whatsapp:support-session"),
+    ).toBe(true);
     expect(hasBackofficePermission(dev, "creative-analysis:manage")).toBe(true);
   });
 });

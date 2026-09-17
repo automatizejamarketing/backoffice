@@ -13,6 +13,7 @@ export type BackofficePermission =
   | "finance:view"
   | "emails:view"
   | "whatsapp:view"
+  | "whatsapp:support-session"
   | "users:manage"
   /** Lista e ficha de usuários em leitura (sem créditos, acesso ou consultor). */
   | "users:read"
@@ -98,6 +99,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "finance:view",
     "emails:view",
     "whatsapp:view",
+    "whatsapp:support-session",
     "users:manage",
     "users:read",
     "users:activate",
@@ -118,6 +120,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "dashboard:view",
     "emails:view",
     "whatsapp:view",
+    "whatsapp:support-session",
     "users:manage",
     "users:read",
     "users:activate",
