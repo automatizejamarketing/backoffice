@@ -30,3 +30,19 @@ export function isPartnerAccessPending(
     status === "pending_admin_approval"
   );
 }
+
+/** Meta's help article for Graph 100/2859024 — present in error_user_msg. */
+export const META_CERTIFICATION_HELP_ID = "338925176776440";
+
+/**
+ * Backoffice AI currently surfaces only `message`, not Graph codes.
+ * Match Meta's own help id / subcode so we do not guess from prose.
+ */
+export function looksLikeCertificationRequired(
+  message: string | null | undefined,
+): boolean {
+  if (!message) return false;
+  return (
+    message.includes(META_CERTIFICATION_HELP_ID) || message.includes("2859024")
+  );
+}

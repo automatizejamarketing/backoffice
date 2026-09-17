@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CampaignPublishError } from "./campaign-publish-error";
 import { MediaSourcePicker, type SelectedMedia } from "../components/media-source-picker";
 import { PageSelector } from "../components/page-selector";
 import { usePages } from "../components/use-pages";
@@ -926,11 +927,7 @@ export function AiCampaignClient() {
         </div>
       </div>
 
-      {error ? (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
+      {error ? <CampaignPublishError error={error} /> : null}
 
       {phase === "objective" && (
         <Card>
