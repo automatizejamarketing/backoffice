@@ -35,6 +35,7 @@ import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
 import { WhatsappClickInfo } from "@/components/whatsapp-click-info";
 import { WhatsappFailureInfo } from "@/components/whatsapp-failure-info";
 import { WhatsappTemplateInfo } from "@/components/whatsapp-template-info";
+import { WhatsappSupportSessionControl } from "@/components/whatsapp-support-session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,6 +112,7 @@ const FIELD_LABELS: Record<string, string> = {
   credits: "Créditos",
   meta_asset_limits: "Limites de Ativos Meta",
   meta_asset_selection: "Seleção de Ativos Meta",
+  whatsapp_support_session: "Sessão temporária do Mat",
 };
 
 function isUserHubTab(value: string | undefined): value is UserHubTab {
@@ -192,6 +194,10 @@ export async function UserHubPage({
     redirect("/portfolio");
   }
   const canManageUsers = hasBackofficePermission(actor, "users:manage");
+  const canStartWhatsappSupportSession = hasBackofficePermission(
+    actor,
+    "whatsapp:support-session",
+  );
 
   const activeTab: UserHubTab = requestedTab;
 
@@ -465,6 +471,9 @@ export async function UserHubPage({
                     assignedConsultantId={assignedConsultant?.consultantId ?? null}
                   />
                 </>
+              ) : null}
+              {canStartWhatsappSupportSession ? (
+                <WhatsappSupportSessionControl userId={id} />
               ) : null}
             </div>
           </div>
