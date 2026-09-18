@@ -20,10 +20,14 @@ export function DashboardDateFilter({
   basePath,
   window,
   extraParams,
+  label = "Período dos dados",
+  className = "w-full sm:w-64",
 }: {
   basePath: string;
   window: DashboardDateWindow;
   extraParams?: Record<string, string>;
+  label?: string;
+  className?: string;
 }) {
   const { navigate } = useDashboardNavigation();
 
@@ -35,8 +39,8 @@ export function DashboardDateFilter({
           to: parseCalendarDate(window.throughDate),
         }}
         maxDate={new Date()}
-        label="Período dos dados"
-        className="w-full sm:w-64"
+        label={label}
+        className={className}
         onChange={(range) => {
           // "Limpar" não tem sentido aqui: a página sempre tem um período.
           if (!range) return;
