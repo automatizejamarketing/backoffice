@@ -153,19 +153,21 @@ export function creativeForMedia(
   const instagramUserId = answers.instagramUserId ?? mold.identity.instagramUserId;
 
   if (media.kind === "instagram_post") {
+    // The post IS the creative, but where its button leads is still the user's call: what they
+    // answered wins, the mold's own destination is only the starting point. A link with no button
+    // anywhere gets the default one — a boost cannot carry a link without a CTA, and dropping the
+    // link the user typed is the one thing this must never do.
+    const link = answers.texts?.link?.trim() || mold.destination.link;
+    const ctaType =
+      answers.texts?.ctaType?.trim() ||
+      mold.destination.ctaType ||
+      (link ? "LEARN_MORE" : undefined);
     return {
       format: "instagram_post",
       instagramMediaId: media.instagramMediaId,
       pageId,
       instagramUserId: instagramUserId ?? "",
-      ...(mold.destination.ctaType
-        ? {
-            cta: {
-              type: mold.destination.ctaType,
-              ...(mold.destination.link ? { link: mold.destination.link } : {}),
-            },
-          }
-        : {}),
+      ...(ctaType ? { cta: { type: ctaType, ...(link ? { link } : {}) } } : {}),
     };
   }
 

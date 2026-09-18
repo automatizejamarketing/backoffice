@@ -91,7 +91,7 @@ type RawAdSet = {
   is_dynamic_creative?: boolean;
 };
 
-type RawStorySpec = {
+export type RawStorySpec = {
   page_id?: string;
   instagram_user_id?: string;
   /** Legacy name for the same thing. */
@@ -109,6 +109,22 @@ type RawAd = {
   conversion_domain?: string;
   creative?: { object_story_spec?: RawStorySpec };
 };
+
+/**
+ * The advertising identity behind a creative — who the ad is signed by. Shared with the scan route,
+ * which reads the mold ad's story ahead of the plan so the identity step can open on it.
+ */
+export function identityFromStory(
+  story: RawStorySpec | undefined,
+): { pageId?: string; instagramUserId?: string } {
+  const spec = story ?? {};
+  return {
+    ...(spec.page_id ? { pageId: spec.page_id } : {}),
+    ...(spec.instagram_user_id || spec.instagram_actor_id
+      ? { instagramUserId: spec.instagram_user_id ?? spec.instagram_actor_id }
+      : {}),
+  };
+}
 
 const toCents = (value?: string): number | undefined => {
   if (value == null) return undefined;
@@ -191,12 +207,7 @@ export async function readMold(ctx: MetaCtx, ref: MoldRef): Promise<CampaignMold
         : {}),
       isDynamicCreative: Boolean(adSet.is_dynamic_creative),
     },
-    identity: {
-      ...(story.page_id ? { pageId: story.page_id } : {}),
-      ...(story.instagram_user_id || story.instagram_actor_id
-        ? { instagramUserId: story.instagram_user_id ?? story.instagram_actor_id }
-        : {}),
-    },
+    identity: identityFromStory(story),
     destination: {
       ...(story.link_data?.link ? { link: story.link_data.link } : {}),
       ...(story.link_data?.call_to_action?.type

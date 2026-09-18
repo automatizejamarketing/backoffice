@@ -73,6 +73,7 @@ import {
   type PlacementsMode,
 } from "./ai-placements-editor";
 import { WhatsappDestinationCard } from "./whatsapp-destination-card";
+import { isValidPromotionLink, promotionLinkPolicy } from "./promotion-link";
 import { usePageWhatsappNumber } from "../hooks/use-page-whatsapp-number";
 import { AiDemographicLimitsEditor } from "./ai-demographic-limits-editor";
 import { AiAudienceLibraryDialog } from "./ai-audience-library-dialog";
@@ -294,6 +295,15 @@ export function AiCampaignClient() {
   );
   const needsTexts = planNeedsTexts(planMedias);
   const needsPixel = objective === "sales" && !hasMold && !pixelId;
+  /**
+   * The destination link is asked whatever the media is: an uploaded image, a video or a boosted
+   * Instagram post all lead somewhere. Where it is asked depends on the media (text step vs. media
+   * step); whether it blocks depends only on the objective.
+   */
+  const linkPolicy = promotionLinkPolicy(objective);
+  const showsLink = linkPolicy !== "hidden";
+  const linkValid = isValidPromotionLink(promotionUrl);
+  const linkBlocks = linkPolicy === "required" && !linkValid;
   const effectiveLocations = resolveEffectiveAiLocations(
     manualLocations,
     savedLocations,
@@ -881,12 +891,21 @@ export function AiCampaignClient() {
       setPhase("text");
       return;
     }
+    // On the boost path the link field lives on this step, so it gates here.
+    if (linkBlocks) {
+      toast.error("Informe o link de destino do anúncio.");
+      return;
+    }
     advanceAfterCreative();
   }
 
   function goNextFromText() {
     if (needsTexts && (!headline.trim() || !message.trim())) {
       toast.error("Preencha título e texto do anúncio.");
+      return;
+    }
+    if (linkBlocks) {
+      toast.error("Informe o link de destino do anúncio.");
       return;
     }
     advanceAfterCreative();
@@ -1072,6 +1091,32 @@ export function AiCampaignClient() {
                 Enviando e processando o vídeo na Meta…
               </p>
             ) : null}
+            {/* A boosted post skips the text step, so the destination is asked right here. */}
+            {!needsTexts && showsLink ? (
+              <div className="space-y-2">
+                <Label>
+                  Link de destino
+                  {linkPolicy === "required" ? (
+                    <span className="text-destructive"> *</span>
+                  ) : null}
+                </Label>
+                <Input
+                  onChange={(event) => setPromotionUrl(event.target.value)}
+                  placeholder="https://"
+                  type="url"
+                  value={promotionUrl}
+                />
+                {promotionUrl && !linkValid ? (
+                  <p className="text-xs text-destructive">
+                    Informe uma URL completa, começando com https://
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Para onde o botão do anúncio leva (site, cardápio, página da oferta).
+                  </p>
+                )}
+              </div>
+            ) : null}
             <Button onClick={goNextFromMedia}>Continuar</Button>
           </CardContent>
         </Card>
@@ -1112,14 +1157,29 @@ export function AiCampaignClient() {
               <Label>Texto</Label>
               <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
             </div>
-            {objective !== "followers" && objective !== "whatsapp" ? (
+            {showsLink ? (
               <div className="space-y-2">
-                <Label>Link de destino</Label>
+                <Label>
+                  Link de destino
+                  {linkPolicy === "required" ? (
+                    <span className="text-destructive"> *</span>
+                  ) : null}
+                </Label>
                 <Input
                   onChange={(event) => setPromotionUrl(event.target.value)}
                   placeholder="https://"
+                  type="url"
                   value={promotionUrl}
                 />
+                {promotionUrl && !linkValid ? (
+                  <p className="text-xs text-destructive">
+                    Informe uma URL completa, começando com https://
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Para onde o botão do anúncio leva (site, cardápio, página da oferta).
+                  </p>
+                )}
               </div>
             ) : null}
             <Button onClick={goNextFromText}>Continuar</Button>
@@ -1280,31 +1340,64 @@ export function AiCampaignClient() {
               </WhatsappDestinationCard>
             ) : null}
 
-            {needsTexts ? (
+            {needsTexts || showsLink ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Título</Label>
-                  <Input onChange={(event) => setHeadline(event.target.value)} value={headline} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Botão (CTA)</Label>
-                  <Select onValueChange={setCtaType} value={ctaType}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CTA_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option.replace(/_/g, " ")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label>Texto</Label>
-                  <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
-                </div>
+                {needsTexts ? (
+                  <div className="space-y-2">
+                    <Label>Título</Label>
+                    <Input onChange={(event) => setHeadline(event.target.value)} value={headline} />
+                  </div>
+                ) : null}
+                {needsTexts || showsLink ? (
+                  <div className="space-y-2">
+                    <Label>Botão (CTA)</Label>
+                    <Select onValueChange={setCtaType} value={ctaType}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CTA_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option.replace(/_/g, " ")}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+                {needsTexts ? (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Texto</Label>
+                    <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
+                  </div>
+                ) : null}
+                {showsLink ? (
+                  <div className="sm:col-span-2">
+                    <div className="space-y-2">
+                      <Label>
+                        Link de destino
+                        {linkPolicy === "required" ? (
+                          <span className="text-destructive"> *</span>
+                        ) : null}
+                      </Label>
+                      <Input
+                        onChange={(event) => setPromotionUrl(event.target.value)}
+                        placeholder="https://"
+                        type="url"
+                        value={promotionUrl}
+                      />
+                      {promotionUrl && !linkValid ? (
+                        <p className="text-xs text-destructive">
+                          Informe uma URL completa, começando com https://
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Para onde o botão do anúncio leva (site, cardápio, página da oferta).
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -1577,6 +1670,7 @@ export function AiCampaignClient() {
                 pendingVideos ||
                 planMedias.length === 0 ||
                 (!hasMold && effectiveLocations.length === 0) ||
+                linkBlocks ||
                 (objective === "whatsapp" && !whatsappAutofillMessage.trim()) ||
                 (objective === "whatsapp" && whatsappPageNotLinked)
               }
