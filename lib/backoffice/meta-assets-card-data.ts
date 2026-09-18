@@ -8,7 +8,7 @@ import {
 import { GraphApiError, graphErrorToClientError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
-import { getPagesWithInstagram } from "@/lib/meta-business/marketing/build-ad-from-media";
+import { getAdvertisingIdentities } from "@/lib/meta-business/get-instagram-connected-page";
 import { assetAvailability } from "@/lib/meta-business/meta-asset-policy";
 import { buildReconnectInfo } from "@/lib/meta-business/reconnect-link";
 import { META_ASSET_DEFAULT_LIMIT } from "./meta-asset-mutation-plan";
@@ -82,18 +82,21 @@ export async function loadMetaAssetsCard(input: {
   }
 
   try {
-    const [userWithAccounts, identities] = await Promise.all([
-      getUserWithAdAccounts(token.accessToken, {
-        tokenKind: token.connection.tokenKind,
-        bisuAppScopedId: token.connection.bisuAppScopedId,
-        clientBusinessId: token.connection.clientBusinessId,
-        connectionName: token.connection.name,
-      }),
-      getPagesWithInstagram(token.accessToken),
-    ]);
-
+    const userWithAccounts = await getUserWithAdAccounts(token.accessToken, {
+      tokenKind: token.connection.tokenKind,
+      bisuAppScopedId: token.connection.bisuAppScopedId,
+      clientBusinessId: token.connection.clientBusinessId,
+      connectionName: token.connection.name,
+    });
     const grantedAccounts = userWithAccounts.adaccounts?.data ?? [];
     const grantedAccountIds = grantedAccounts.map((account) => account.account_id);
+    // Same definition of "granted identity" as the app: promotable under any granted ad
+    // account or assigned to the BISU, not only the pages the user's own account manages.
+    const identities = await getAdvertisingIdentities(token.accessToken, {
+      adAccountIds: grantedAccountIds,
+      tokenKind: token.connection.tokenKind,
+      bisuAppScopedId: token.connection.bisuAppScopedId,
+    });
     const grantedIdentityIds = identities.map((page) => page.pageId);
     const enabledByKind = indexEnabled(enabledRows);
 

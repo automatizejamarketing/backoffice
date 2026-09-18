@@ -3,6 +3,7 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { getPagesWithInstagramAccounts } from "@/lib/meta-business/get-instagram-connected-page";
 
 export type InstagramMediaType =
   | "IMAGE"
@@ -26,20 +27,6 @@ export type InstagramBusinessMediaItem = {
   like_count?: number;
   comments_count?: number;
   boost_eligibility_info?: BoostEligibilityInfo;
-};
-
-type GraphApiPage = {
-  id: string;
-  name?: string;
-  instagram_business_account?: {
-    id: string;
-    username?: string;
-    name?: string;
-  };
-};
-
-type GraphApiPagesResponse = {
-  data: GraphApiPage[];
 };
 
 type GraphApiMediaResponse = {
@@ -157,7 +144,7 @@ export async function GET(
   >
 > {
   try {
-    await params;
+    const { accountId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -203,13 +190,13 @@ export async function GET(
       }
     }
 
-    // Get Facebook Pages with connected Instagram Business Accounts
-    const pagesResponse = await metaApiCall<GraphApiPagesResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: "me/accounts",
-      params: "fields=id,name,instagram_business_account{id,username,name}",
-      accessToken,
+    // The identities the client can advertise with, Ads Manager semantics — the same list the
+    // pages route (and the app) shows. `me/accounts` alone hides a page shared through the
+    // Business Manager, and the old fallback then served ANOTHER profile's posts in silence.
+    const pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
+      adAccountId: accountId,
+      tokenKind: tokenResult.connection.tokenKind,
+      bisuAppScopedId: tokenResult.connection.bisuAppScopedId,
     });
 
     const pagesWithInstagram = pagesResponse.data.filter(
@@ -229,16 +216,26 @@ export async function GET(
       );
     }
 
-    // Use the requested Instagram account when it belongs to one of the user's
-    // pages; otherwise fall back to the first connected account. This lets the
-    // caller switch identity (Facebook Page → Instagram account) and load that
-    // account's media.
+    // The caller names the identity it is boosting for. A name we cannot find is an error: a
+    // post from the wrong profile cannot run under this Page.
     const requestedPage = requestedInstagramAccountId
       ? pagesWithInstagram.find(
           (page) =>
             page.instagram_business_account?.id === requestedInstagramAccountId,
         )
       : undefined;
+    if (requestedInstagramAccountId && !requestedPage) {
+      return NextResponse.json(
+        {
+          error: "Instagram account not available",
+          message:
+            "Esta conta do Instagram não está entre as identidades que o cliente pode anunciar nesta conta de anúncios.",
+          solution:
+            "Escolha outra identidade ou confira a seleção de ativos Meta do cliente.",
+        },
+        { status: 404 },
+      );
+    }
     const igAccount =
       requestedPage?.instagram_business_account ??
       pagesWithInstagram[0].instagram_business_account!;
