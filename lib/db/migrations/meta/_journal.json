@@ -687,6 +687,13 @@
       "when": 1800200000000,
       "tag": "0114_client_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1800300000000,
+      "tag": "0115_playbook_alert_dashboard_indexes",
+      "breakpoints": true
     }
   ]
 }

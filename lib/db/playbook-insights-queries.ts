@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray, like, lt, sql } from "drizzle-orm";
+import { sourceStatusesForPlaybookUpdate } from "@/lib/backoffice/playbook-alert-dashboard";
 import { db } from "@/lib/db";
 import {
   metaBusinessAccount,
@@ -496,7 +497,10 @@ export async function updatePlaybookInsightStatus(args: {
       and(
         eq(performanceInsight.id, args.insightId),
         eq(performanceInsight.userId, args.userId),
-        eq(performanceInsight.status, "open"),
+        inArray(
+          performanceInsight.status,
+          [...sourceStatusesForPlaybookUpdate(args.status)],
+        ),
         like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`),
       ),
     )

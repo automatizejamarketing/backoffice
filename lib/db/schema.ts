@@ -4222,6 +4222,15 @@ export const performanceInsight = pgTable(
       table.userId,
       table.status
     ),
+    playbookRuleCreatedIdx: index(
+      "performance_insights_playbook_rule_created_idx",
+    ).on(table.ruleId, table.createdAt),
+    playbookStatusCreatedIdx: index(
+      "performance_insights_playbook_status_created_idx",
+    ).on(table.status, table.createdAt),
+    playbookStatusReviewedIdx: index(
+      "performance_insights_playbook_status_reviewed_idx",
+    ).on(table.status, table.reviewedAt),
   })
 );
 
