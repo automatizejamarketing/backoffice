@@ -166,20 +166,29 @@ async function loadPlan(userId: string): Promise<{
 
 async function loadCreatives(
   userId: string,
-  start: string,
   end: string,
 ): Promise<ClientReportCreativeCard[]> {
   const rows = await db.execute(sql`
     SELECT
-      ad_id,
-      COALESCE(diagnosis->>'summary', '') AS summary,
-      COALESCE(diagnosis->'craftGaps', '[]'::jsonb) AS craft_gaps,
-      COALESCE(likely_contributor, false) AS likely_contributor
-    FROM creative_diagnoses
-    WHERE user_id = ${userId}
-      AND created_at >= ${start}::date
-      AND created_at < (${end}::date + interval '1 day')
-      AND likely_contributor = true
+      recent.ad_id,
+      recent.summary,
+      recent.craft_gaps,
+      recent.likely_contributor
+    FROM (
+      SELECT DISTINCT ON (ad_id)
+        ad_id,
+        COALESCE(diagnosis->>'summary', '') AS summary,
+        COALESCE(diagnosis->'craftGaps', '[]'::jsonb) AS craft_gaps,
+        COALESCE(likely_contributor, false) AS likely_contributor,
+        created_at
+      FROM creative_diagnoses
+      WHERE user_id = ${userId}
+        AND status = 'ready'
+        AND created_at >= (${end}::date - interval '30 days')
+        AND created_at < (${end}::date + interval '1 day')
+        AND likely_contributor = true
+      ORDER BY ad_id, created_at DESC
+    ) AS recent
     ORDER BY created_at DESC
     LIMIT 5
   `);
@@ -503,7 +512,7 @@ export async function buildReportSnapshot(input: {
 
   const [creatives, actions, workThisWeek, previousSnapshots, benchmark] =
     await Promise.all([
-      loadCreatives(input.userId, input.periodStart, input.periodEnd),
+      loadCreatives(input.userId, input.periodEnd),
       loadActions(input.userId),
       loadWorkThisWeek(input.userId, input.periodStart, input.periodEnd),
       db
