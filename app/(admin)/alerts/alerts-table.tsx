@@ -51,13 +51,11 @@ export function AlertsTable({
   filters,
   rows,
   total,
-  showConsultant,
   canComplete,
 }: {
   filters: PlaybookAlertFilters;
   rows: PlaybookAlertDashboardRow[];
   total: number;
-  showConsultant: boolean;
   canComplete: boolean;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
@@ -65,7 +63,8 @@ export function AlertsTable({
   const hasNext = filters.page < totalPages;
   const from = total === 0 ? 0 : (filters.page - 1) * filters.pageSize + 1;
   const to = (filters.page - 1) * filters.pageSize + rows.length;
-  const colSpan = 8 + (showConsultant ? 1 : 0) + (canComplete ? 1 : 0);
+  const showCompletedAt = filters.tab === "completed";
+  const colSpan = 6 + (showCompletedAt ? 1 : 0);
 
   return (
     <div className="space-y-4">
@@ -77,10 +76,8 @@ export function AlertsTable({
               <TableHead>Tipo</TableHead>
               <TableHead>Cliente</TableHead>
               <TableHead>Campanha</TableHead>
-              {showConsultant ? <TableHead>Consultor</TableHead> : null}
               <TableHead>Criado</TableHead>
-              <TableHead>Finalizado</TableHead>
-              <TableHead>Responsável</TableHead>
+              {showCompletedAt ? <TableHead>Finalizado</TableHead> : null}
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -134,22 +131,16 @@ export function AlertsTable({
                       {row.entityName ?? "Conta"}
                     </p>
                   </TableCell>
-                  {showConsultant ? (
-                    <TableCell className="text-sm text-muted-foreground">
-                      {row.consultantName ?? row.consultantEmail ?? "Sem consultor"}
-                    </TableCell>
-                  ) : null}
                   <TableCell className="whitespace-nowrap text-sm tabular-nums">
                     {formatShortDateTimeInSaoPaulo(row.createdAt)}
                   </TableCell>
-                  <TableCell className="whitespace-nowrap text-sm tabular-nums">
-                    {row.completedAt
-                      ? formatShortDateTimeInSaoPaulo(row.completedAt)
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="max-w-40 truncate text-sm text-muted-foreground">
-                    {row.reviewedByEmail ?? "—"}
-                  </TableCell>
+                  {showCompletedAt ? (
+                    <TableCell className="whitespace-nowrap text-sm tabular-nums">
+                      {row.completedAt
+                        ? formatShortDateTimeInSaoPaulo(row.completedAt)
+                        : "—"}
+                    </TableCell>
+                  ) : null}
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       {canComplete && isPlaybookPendingStatus(row.status) ? (

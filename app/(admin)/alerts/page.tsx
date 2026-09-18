@@ -32,7 +32,6 @@ export default async function AlertsDashboardPage({
     searchParams,
   ]);
   const filters = normalizePlaybookAlertFilters(sp);
-  const showConsultant = actor.role === "admin" || actor.role === "dev";
   const dashboard = await getPlaybookAlertDashboard(actor, filters);
 
   return (
@@ -117,7 +116,6 @@ export default async function AlertsDashboardPage({
             filters={filters}
             rows={dashboard.table.rows}
             total={dashboard.table.total}
-            showConsultant={showConsultant}
             canComplete={
               filters.tab === "pending" &&
               hasBackofficePermission(actor, "marketing:write")
