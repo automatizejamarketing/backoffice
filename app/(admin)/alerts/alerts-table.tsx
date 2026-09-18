@@ -22,34 +22,14 @@ import {
 } from "@/lib/backoffice/playbook-alert-dashboard";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { PlaybookAlertDashboardRow } from "@/lib/db/playbook-alert-dashboard-queries";
+import { cn } from "@/lib/utils";
+import {
+  playbookSeverityBadgeClass,
+  playbookSeverityRowClass,
+  playbookStatusBadgeClass,
+} from "./alerts-appearance";
 import { AlertDetailSheet } from "./alert-detail-sheet";
 import { CompleteAlertButton } from "./complete-alert-button";
-
-function severityBadgeClass(severity: string) {
-  if (severity === "critical") {
-    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300";
-  }
-  if (severity === "warning") {
-    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300";
-  }
-  return "";
-}
-
-function statusBadgeClass(status: string) {
-  if (status === "done") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300";
-  }
-  if (status === "dismissed") {
-    return "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-300";
-  }
-  if (status === "resolved") {
-    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-300";
-  }
-  if (status === "acknowledged") {
-    return "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/70 dark:bg-indigo-950/40 dark:text-indigo-300";
-  }
-  return "";
-}
 
 export function AlertsTable({
   filters,
@@ -104,7 +84,7 @@ export function AlertsTable({
                 <TableRow
                   key={row.id}
                   tabIndex={0}
-                  className="cursor-pointer"
+                  className={cn("cursor-pointer", playbookSeverityRowClass(row.severity))}
                   data-state={row.id === selectedId ? "selected" : undefined}
                   onClick={() => setSelectedId(row.id)}
                   onKeyDown={(event) => {
@@ -117,14 +97,14 @@ export function AlertsTable({
                   <TableCell>
                     <div className="flex flex-wrap gap-1.5">
                       <Badge
-                        variant="outline"
-                        className={statusBadgeClass(row.status)}
+                        variant="secondary"
+                        className={playbookStatusBadgeClass(row.status)}
                       >
                         {playbookAlertStatusLabel(row.status)}
                       </Badge>
                       <Badge
-                        variant="outline"
-                        className={severityBadgeClass(row.severity)}
+                        variant="secondary"
+                        className={playbookSeverityBadgeClass(row.severity)}
                       >
                         {playbookAlertSeverityLabel(row.severity)}
                       </Badge>

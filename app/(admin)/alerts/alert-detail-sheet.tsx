@@ -30,36 +30,16 @@ import {
 } from "@/lib/backoffice/playbook-alert-dashboard";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { PlaybookAlertDashboardRow } from "@/lib/db/playbook-alert-dashboard-queries";
+import { cn } from "@/lib/utils";
 import {
   listPlaybookApplyActions,
   type PlaybookApplyActionDef,
 } from "@/lib/playbook-insights/actions";
-
-function severityBadgeClass(severity: string) {
-  if (severity === "critical") {
-    return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-300";
-  }
-  if (severity === "warning") {
-    return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-300";
-  }
-  return "";
-}
-
-function statusBadgeClass(status: string) {
-  if (status === "done") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300";
-  }
-  if (status === "dismissed") {
-    return "border-zinc-200 bg-zinc-50 text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950/40 dark:text-zinc-300";
-  }
-  if (status === "resolved") {
-    return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-300";
-  }
-  if (status === "acknowledged") {
-    return "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900/70 dark:bg-indigo-950/40 dark:text-indigo-300";
-  }
-  return "";
-}
+import {
+  playbookSeverityBadgeClass,
+  playbookSeveritySheetClass,
+  playbookStatusBadgeClass,
+} from "./alerts-appearance";
 
 const METRIC_LABELS: Array<{ key: string; label: string }> = [
   { key: "purchaseRoas", label: "ROAS" },
@@ -203,12 +183,23 @@ function AlertDetail({
 
   return (
     <>
-      <SheetHeader className="border-b border-border/60 px-4 py-4 sm:px-6">
+      <SheetHeader
+        className={cn(
+          "border-b px-4 py-4 sm:px-6",
+          playbookSeveritySheetClass(row.severity),
+        )}
+      >
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant="outline" className={statusBadgeClass(row.status)}>
+          <Badge
+            variant="secondary"
+            className={playbookStatusBadgeClass(row.status)}
+          >
             {playbookAlertStatusLabel(row.status)}
           </Badge>
-          <Badge variant="outline" className={severityBadgeClass(row.severity)}>
+          <Badge
+            variant="secondary"
+            className={playbookSeverityBadgeClass(row.severity)}
+          >
             {playbookAlertSeverityLabel(row.severity)}
           </Badge>
         </div>
@@ -232,25 +223,30 @@ function AlertDetail({
           </p>
         </div>
 
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">Evidência</p>
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3">
+          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+            Evidência
+          </p>
           <p className="mt-1 text-sm leading-relaxed">{row.evidence}</p>
         </div>
 
-        <div>
-          <p className="text-xs font-medium text-muted-foreground">
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">
+          <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
             Recomendação
           </p>
-          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            {row.recommendation}
-          </p>
+          <p className="mt-1 text-sm leading-relaxed">{row.recommendation}</p>
         </div>
 
         {metrics.length > 0 ? (
           <dl className="grid grid-cols-2 gap-3">
             {metrics.map((metric) => (
-              <div key={metric.key}>
-                <dt className="text-xs text-muted-foreground">{metric.label}</dt>
+              <div
+                key={metric.key}
+                className="rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2"
+              >
+                <dt className="text-xs text-sky-800 dark:text-sky-300">
+                  {metric.label}
+                </dt>
                 <dd className="mt-0.5 text-sm font-medium tabular-nums">
                   {metric.value}
                 </dd>
