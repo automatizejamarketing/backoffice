@@ -45,13 +45,11 @@ describe("normalizePlaybookAlertFilters", () => {
     expect(filters.ruleId).toBe("all");
     expect(filters.severity).toBe("all");
     expect(filters.status).toBe("all");
-    expect(filters.consultantId).toBe("all");
     expect(filters.page).toBe(1);
     expect(filters.pageSize).toBe(25);
   });
 
   test("accepts known values and ignores invalid ones", () => {
-    const validUuid = "550e8400-e29b-41d4-a716-446655440000";
     const filters = normalizePlaybookAlertFilters(
       {
         tab: "completed",
@@ -59,7 +57,6 @@ describe("normalizePlaybookAlertFilters", () => {
         ruleId: "playbook.roas_trigger",
         severity: "critical",
         status: "done",
-        consultantId: validUuid,
         page: "3",
         pageSize: "50",
       },
@@ -71,7 +68,6 @@ describe("normalizePlaybookAlertFilters", () => {
     expect(filters.ruleId).toBe("playbook.roas_trigger");
     expect(filters.severity).toBe("critical");
     expect(filters.status).toBe("done");
-    expect(filters.consultantId).toBe(validUuid);
     expect(filters.page).toBe(3);
     expect(filters.pageSize).toBe(50);
   });
@@ -85,7 +81,6 @@ describe("normalizePlaybookAlertFilters", () => {
         status: "sent",
         page: "0",
         pageSize: "7",
-        consultantId: "not-a-uuid",
       },
       now,
     );
@@ -96,7 +91,6 @@ describe("normalizePlaybookAlertFilters", () => {
     expect(filters.status).toBe("all");
     expect(filters.page).toBe(1);
     expect(filters.pageSize).toBe(25);
-    expect(filters.consultantId).toBe("all");
   });
 });
 
@@ -194,33 +188,14 @@ describe("playbook alert metrics", () => {
 
 describe("resolvePlaybookAlertAccessScope", () => {
   test("locks consultants to their own portfolio", () => {
-    expect(
-      resolvePlaybookAlertAccessScope(consultant, "all"),
-    ).toEqual({ kind: "consultant", consultantId: "consultant-1" });
-    expect(
-      resolvePlaybookAlertAccessScope(
-        consultant,
-        "550e8400-e29b-41d4-a716-446655440000",
-      ),
-    ).toEqual({ kind: "consultant", consultantId: "consultant-1" });
+    expect(resolvePlaybookAlertAccessScope(consultant)).toEqual({
+      kind: "consultant",
+      consultantId: "consultant-1",
+    });
   });
 
-  test("lets admins filter by consultant or unassigned accounts", () => {
-    expect(resolvePlaybookAlertAccessScope(admin, "all")).toEqual({
-      kind: "all",
-    });
-    expect(resolvePlaybookAlertAccessScope(admin, "unassigned")).toEqual({
-      kind: "unassigned",
-    });
-    expect(
-      resolvePlaybookAlertAccessScope(
-        admin,
-        "550e8400-e29b-41d4-a716-446655440000",
-      ),
-    ).toEqual({
-      kind: "consultant_filter",
-      consultantId: "550e8400-e29b-41d4-a716-446655440000",
-    });
+  test("lets admins and other roles see every playbook alert", () => {
+    expect(resolvePlaybookAlertAccessScope(admin)).toEqual({ kind: "all" });
   });
 });
 

@@ -5,7 +5,6 @@ import {
   gte,
   ilike,
   inArray,
-  isNull,
   like,
   lt,
   or,
@@ -57,16 +56,10 @@ function playbookRuleCondition() {
   return like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`);
 }
 
-function accessConditions(
-  actor: BackofficeActor,
-  filters: Pick<PlaybookAlertFilters, "consultantId">,
-): SQL[] {
-  const scope = resolvePlaybookAlertAccessScope(actor, filters.consultantId);
-  if (scope.kind === "consultant" || scope.kind === "consultant_filter") {
+function accessConditions(actor: BackofficeActor): SQL[] {
+  const scope = resolvePlaybookAlertAccessScope(actor);
+  if (scope.kind === "consultant") {
     return [eq(userMarketingConsultant.consultantId, scope.consultantId)];
-  }
-  if (scope.kind === "unassigned") {
-    return [isNull(userMarketingConsultant.consultantId)];
   }
   return [];
 }
@@ -99,11 +92,11 @@ function attributeConditions(
 
 function whereDashboard(
   actor: BackofficeActor,
-  filters: Pick<PlaybookAlertFilters, "consultantId" | "search" | "ruleId" | "severity">,
+  filters: Pick<PlaybookAlertFilters, "search" | "ruleId" | "severity">,
   extra: SQL[] = [],
 ) {
   const conditions = [
-    ...accessConditions(actor, filters),
+    ...accessConditions(actor),
     ...attributeConditions(filters),
     ...extra,
   ];

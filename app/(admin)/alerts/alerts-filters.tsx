@@ -25,12 +25,6 @@ import {
 import { useDashboardNavigation } from "../dashboard-navigation-feedback";
 import { DashboardDateFilter } from "../dashboard-date-filter";
 
-type ConsultantOption = {
-  id: string;
-  email: string;
-  name: string | null;
-};
-
 function extraDateParams(filters: PlaybookAlertFilters) {
   const params: Record<string, string> = {};
   if (filters.tab !== "pending") params.tab = filters.tab;
@@ -38,19 +32,14 @@ function extraDateParams(filters: PlaybookAlertFilters) {
   if (filters.ruleId !== "all") params.ruleId = filters.ruleId;
   if (filters.severity !== "all") params.severity = filters.severity;
   if (filters.status !== "all") params.status = filters.status;
-  if (filters.consultantId !== "all") params.consultantId = filters.consultantId;
   if (filters.pageSize !== 25) params.pageSize = String(filters.pageSize);
   return params;
 }
 
 export function AlertsFilters({
   filters,
-  consultants,
-  showConsultantFilter,
 }: {
   filters: PlaybookAlertFilters;
-  consultants: ConsultantOption[];
-  showConsultantFilter: boolean;
 }) {
   const { navigate } = useDashboardNavigation();
   const statusOptions =
@@ -62,7 +51,6 @@ export function AlertsFilters({
     filters.ruleId !== "all" ||
     filters.severity !== "all" ||
     filters.status !== "all" ||
-    (showConsultantFilter && filters.consultantId !== "all") ||
     filters.window.preset !== "last_30_days";
 
   function applyPatch(
@@ -91,7 +79,7 @@ export function AlertsFilters({
         applyPatch({ search: String(form.get("q") ?? "").trim() });
       }}
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <label className="space-y-1.5 text-sm xl:col-span-2">
           <span className="text-muted-foreground">Buscar</span>
           <Input
@@ -176,42 +164,10 @@ export function AlertsFilters({
             </SelectContent>
           </Select>
         </label>
-        {showConsultantFilter ? (
-          <label className="space-y-1.5 text-sm">
-            <span className="text-muted-foreground">Consultor</span>
-            <Select
-              value={filters.consultantId}
-              onValueChange={(value) =>
-                applyPatch({
-                  consultantId: value as PlaybookAlertFilters["consultantId"],
-                })
-              }
-            >
-              <SelectTrigger className="w-full" aria-label="Consultor">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="all">Todos os consultores</SelectItem>
-                  <SelectItem value="unassigned">Sem consultor</SelectItem>
-                  {consultants.map((consultant) => (
-                    <SelectItem key={consultant.id} value={consultant.id}>
-                      {consultant.name
-                        ? `${consultant.name} (${consultant.email})`
-                        : consultant.email}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </label>
-        ) : (
-          dateFilter
-        )}
+        {dateFilter}
       </div>
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        {showConsultantFilter ? dateFilter : <span />}
+      <div className="flex flex-wrap items-end justify-end gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" size="sm">
             Buscar

@@ -3,11 +3,7 @@ import {
   shiftCalendarDate,
   type DashboardDateWindow,
 } from "@/lib/backoffice/dashboard-date-range";
-import {
-  firstSearchParam,
-  normalizeConsultantFilterId,
-  type ConsultantFilterId,
-} from "@/lib/backoffice/filter-params";
+import { firstSearchParam } from "@/lib/backoffice/filter-params";
 import type { BackofficeActor } from "@/lib/auth/rbac-core";
 import { PROACTIVITY_ALERT_DEFINITIONS } from "@/lib/proactivity/catalog";
 import {
@@ -73,7 +69,6 @@ export type PlaybookAlertSearchParams = {
   ruleId?: string | string[];
   severity?: string | string[];
   status?: string | string[];
-  consultantId?: string | string[];
   page?: string | string[];
   pageSize?: string | string[];
 };
@@ -85,7 +80,6 @@ export type PlaybookAlertFilters = {
   ruleId: PlaybookAlertRuleId | "all";
   severity: PlaybookAlertSeverity | "all";
   status: PlaybookAlertStatus | "all";
-  consultantId: ConsultantFilterId;
   page: number;
   pageSize: number;
 };
@@ -105,8 +99,6 @@ export type PlaybookAlertComparison = {
 
 export type PlaybookAlertAccessScope =
   | { kind: "consultant"; consultantId: string }
-  | { kind: "unassigned" }
-  | { kind: "consultant_filter"; consultantId: string }
   | { kind: "all" };
 
 const RULE_TITLE_BY_ID = new Map(
@@ -232,16 +224,9 @@ export function emptyPlaybookAlertKpis(): PlaybookAlertKpis {
 
 export function resolvePlaybookAlertAccessScope(
   actor: BackofficeActor,
-  consultantId: ConsultantFilterId,
 ): PlaybookAlertAccessScope {
   if (actor.role === "marketing_consultant") {
     return { kind: "consultant", consultantId: actor.id };
-  }
-  if (consultantId === "unassigned") {
-    return { kind: "unassigned" };
-  }
-  if (consultantId !== "all") {
-    return { kind: "consultant_filter", consultantId };
   }
   return { kind: "all" };
 }
@@ -310,7 +295,6 @@ export function normalizePlaybookAlertFilters(
     ruleId: isPlaybookAlertRuleId(ruleRaw) ? ruleRaw : "all",
     severity: isPlaybookAlertSeverity(severityRaw) ? severityRaw : "all",
     status: isPlaybookAlertStatus(statusRaw) ? statusRaw : "all",
-    consultantId: normalizeConsultantFilterId(input.consultantId),
     page,
     pageSize,
   };
@@ -326,9 +310,6 @@ export function buildPlaybookAlertHref(filters: PlaybookAlertFilters): string {
   if (filters.ruleId !== "all") params.set("ruleId", filters.ruleId);
   if (filters.severity !== "all") params.set("severity", filters.severity);
   if (filters.status !== "all") params.set("status", filters.status);
-  if (filters.consultantId !== "all") {
-    params.set("consultantId", filters.consultantId);
-  }
   if (filters.page > 1) params.set("page", String(filters.page));
   if (filters.pageSize !== PLAYBOOK_ALERT_DEFAULT_PAGE_SIZE) {
     params.set("pageSize", String(filters.pageSize));
@@ -346,7 +327,6 @@ export function playbookAlertHrefWith(
     ruleId: PlaybookAlertFilters["ruleId"];
     severity: PlaybookAlertFilters["severity"];
     status: PlaybookAlertFilters["status"];
-    consultantId: ConsultantFilterId;
   }>,
 ): string {
   return buildPlaybookAlertHref({

@@ -137,13 +137,6 @@ const NAV_SECTIONS: NavSection[] = [
       },
       {
         kind: "leaf",
-        href: "/alerts",
-        label: "Alertas",
-        icon: Bell,
-        permission: "marketing:read",
-      },
-      {
-        kind: "leaf",
         href: "/users",
         label: "Usuários",
         icon: Users,
@@ -155,6 +148,13 @@ const NAV_SECTIONS: NavSection[] = [
         label: "CRM",
         icon: KanbanSquare,
         permission: "crm:manage",
+      },
+      {
+        kind: "leaf",
+        href: "/alerts",
+        label: "Alertas",
+        icon: Bell,
+        permission: "marketing:read",
       },
       {
         kind: "leaf",

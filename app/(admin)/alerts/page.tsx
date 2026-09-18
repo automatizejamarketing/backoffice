@@ -8,7 +8,6 @@ import {
   normalizePlaybookAlertFilters,
   type PlaybookAlertSearchParams,
 } from "@/lib/backoffice/playbook-alert-dashboard";
-import { listConsultantsForFilter } from "@/lib/db/backoffice-rbac-queries";
 import { getPlaybookAlertDashboard } from "@/lib/db/playbook-alert-dashboard-queries";
 import {
   DashboardFetchingIndicator,
@@ -33,13 +32,8 @@ export default async function AlertsDashboardPage({
     searchParams,
   ]);
   const filters = normalizePlaybookAlertFilters(sp);
-  const showConsultantFilter =
-    actor.role === "admin" || actor.role === "dev";
-
-  const [dashboard, consultants] = await Promise.all([
-    getPlaybookAlertDashboard(actor, filters),
-    showConsultantFilter ? listConsultantsForFilter() : Promise.resolve([]),
-  ]);
+  const showConsultant = actor.role === "admin" || actor.role === "dev";
+  const dashboard = await getPlaybookAlertDashboard(actor, filters);
 
   return (
     <DashboardNavigationProvider>
@@ -64,11 +58,7 @@ export default async function AlertsDashboardPage({
             </p>
           </div>
 
-          <AlertsFilters
-            filters={filters}
-            consultants={consultants}
-            showConsultantFilter={showConsultantFilter}
-          />
+          <AlertsFilters filters={filters} />
 
           <AlertsTabsNav
             filters={filters}
@@ -127,7 +117,7 @@ export default async function AlertsDashboardPage({
             filters={filters}
             rows={dashboard.table.rows}
             total={dashboard.table.total}
-            showConsultant={showConsultantFilter}
+            showConsultant={showConsultant}
             canComplete={
               filters.tab === "pending" &&
               hasBackofficePermission(actor, "marketing:write")
