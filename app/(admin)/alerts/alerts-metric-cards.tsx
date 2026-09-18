@@ -1,6 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import type { PlaybookAlertComparison } from "@/lib/backoffice/playbook-alert-dashboard";
-import { playbookAlertRuleTitle } from "@/lib/backoffice/playbook-alert-dashboard";
 import { cn } from "@/lib/utils";
 
 const numberFormatter = new Intl.NumberFormat("pt-BR");
@@ -61,16 +60,14 @@ export function AlertsMetricCards({
   completed,
   pendingNow,
   treatmentRate,
-  mostCommon,
 }: {
   created: PlaybookAlertComparison;
   completed: PlaybookAlertComparison;
   pendingNow: number;
   treatmentRate: number;
-  mostCommon: { ruleId: string; count: number } | null;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <MetricCard
         label="Novos no período"
         value={numberFormatter.format(created.current)}
@@ -93,19 +90,6 @@ export function AlertsMetricCards({
         label="Taxa de tratamento"
         value={`${numberFormatter.format(treatmentRate)}%`}
         hint="Da coorte criada no período"
-      />
-      <MetricCard
-        label="Tipo mais comum"
-        value={
-          mostCommon
-            ? playbookAlertRuleTitle(mostCommon.ruleId)
-            : "—"
-        }
-        hint={
-          mostCommon
-            ? `${numberFormatter.format(mostCommon.count)} novos`
-            : "Nenhum alerta no período"
-        }
       />
     </div>
   );

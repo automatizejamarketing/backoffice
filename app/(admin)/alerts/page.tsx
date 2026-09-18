@@ -71,7 +71,6 @@ export default async function AlertsDashboardPage({
           completed={dashboard.kpis.completed}
           pendingNow={dashboard.kpis.pendingNow}
           treatmentRate={dashboard.kpis.treatmentRate}
-          mostCommon={dashboard.kpis.mostCommon}
         />
 
         <section className="grid gap-6 xl:grid-cols-2">
