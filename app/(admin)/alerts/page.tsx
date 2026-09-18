@@ -57,13 +57,13 @@ export default async function AlertsDashboardPage({
             </p>
           </div>
 
-          <AlertsFilters filters={filters} />
-
           <AlertsTabsNav
             filters={filters}
             pendingCount={dashboard.kpis.pendingNow}
             completedCount={dashboard.kpis.completed.current}
           />
+
+          <AlertsFilters filters={filters} />
         </header>
 
         <AlertsMetricCards

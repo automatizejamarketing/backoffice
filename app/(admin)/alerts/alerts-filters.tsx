@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -59,132 +60,118 @@ export function AlertsFilters({
     navigate(playbookAlertHrefWith(filters, { ...patch, page: 1 }));
   }
 
-  const dateFilter = (
-    <div className="space-y-1.5 text-sm">
-      <span className="text-muted-foreground">Período</span>
-      <DashboardDateFilter
-        basePath="/alerts"
-        window={filters.window}
-        extraParams={extraDateParams(filters)}
-      />
-    </div>
-  );
-
   return (
     <form
-      className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs"
+      className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center"
       onSubmit={(event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         applyPatch({ search: String(form.get("q") ?? "").trim() });
       }}
     >
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <label className="space-y-1.5 text-sm xl:col-span-2">
-          <span className="text-muted-foreground">Buscar</span>
-          <Input
-            name="q"
-            defaultValue={filters.search}
-            placeholder="Cliente, empresa, campanha ou alerta"
-            className="h-9"
-          />
-        </label>
-        <label className="space-y-1.5 text-sm">
-          <span className="text-muted-foreground">Tipo</span>
-          <Select
-            value={filters.ruleId}
-            onValueChange={(value) =>
-              applyPatch({
-                ruleId: value as PlaybookAlertFilters["ruleId"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full" aria-label="Tipo do alerta">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="all">Todos os tipos</SelectItem>
-                {PLAYBOOK_ALERT_RULE_IDS.map((ruleId) => (
-                  <SelectItem key={ruleId} value={ruleId}>
-                    {playbookAlertRuleTitle(ruleId)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1.5 text-sm">
-          <span className="text-muted-foreground">Severidade</span>
-          <Select
-            value={filters.severity}
-            onValueChange={(value) =>
-              applyPatch({
-                severity: value as PlaybookAlertFilters["severity"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full" aria-label="Severidade">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="all">Todas</SelectItem>
-                {PLAYBOOK_ALERT_SEVERITIES.map((severity) => (
-                  <SelectItem key={severity} value={severity}>
-                    {playbookAlertSeverityLabel(severity)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1.5 text-sm">
-          <span className="text-muted-foreground">Status</span>
-          <Select
-            value={filters.status}
-            onValueChange={(value) =>
-              applyPatch({
-                status: value as PlaybookAlertFilters["status"],
-              })
-            }
-          >
-            <SelectTrigger className="w-full" aria-label="Status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="all">Todos desta aba</SelectItem>
-                {statusOptions.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {playbookAlertStatusLabel(status)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </label>
-        {dateFilter}
+      <div className="relative min-w-0 flex-1 sm:min-w-64 sm:max-w-md">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          key={filters.search}
+          name="q"
+          defaultValue={filters.search}
+          placeholder="Buscar cliente, empresa ou campanha"
+          aria-label="Buscar alertas"
+          className="h-9 pl-8"
+        />
       </div>
 
-      <div className="flex flex-wrap items-end justify-end gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="submit" size="sm">
-            Buscar
-          </Button>
-          {hasActiveFilters ? (
-            <Button asChild type="button" variant="ghost" size="sm">
-              <Link
-                href={
-                  filters.tab === "pending" ? "/alerts" : "/alerts?tab=completed"
-                }
-              >
-                Limpar filtros
-              </Link>
-            </Button>
-          ) : null}
-        </div>
-      </div>
+      <Select
+        value={filters.ruleId}
+        onValueChange={(value) =>
+          applyPatch({
+            ruleId: value as PlaybookAlertFilters["ruleId"],
+          })
+        }
+      >
+        <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Tipo do alerta">
+          <SelectValue placeholder="Tipo" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="all">Todos os tipos</SelectItem>
+            {PLAYBOOK_ALERT_RULE_IDS.map((ruleId) => (
+              <SelectItem key={ruleId} value={ruleId}>
+                {playbookAlertRuleTitle(ruleId)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={filters.severity}
+        onValueChange={(value) =>
+          applyPatch({
+            severity: value as PlaybookAlertFilters["severity"],
+          })
+        }
+      >
+        <SelectTrigger className="h-9 w-full sm:w-36" aria-label="Severidade">
+          <SelectValue placeholder="Severidade" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="all">Todas as severidades</SelectItem>
+            {PLAYBOOK_ALERT_SEVERITIES.map((severity) => (
+              <SelectItem key={severity} value={severity}>
+                {playbookAlertSeverityLabel(severity)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={filters.status}
+        onValueChange={(value) =>
+          applyPatch({
+            status: value as PlaybookAlertFilters["status"],
+          })
+        }
+      >
+        <SelectTrigger className="h-9 w-full sm:w-40" aria-label="Status">
+          <SelectValue placeholder="Status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value="all">Todos os status</SelectItem>
+            {statusOptions.map((status) => (
+              <SelectItem key={status} value={status}>
+                {playbookAlertStatusLabel(status)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+
+      <DashboardDateFilter
+        basePath="/alerts"
+        window={filters.window}
+        extraParams={extraDateParams(filters)}
+        label="Período"
+        className="h-9 w-full sm:w-56"
+      />
+
+      {hasActiveFilters ? (
+        <Button asChild type="button" variant="ghost" size="sm" className="h-9">
+          <Link
+            href={
+              filters.tab === "pending" ? "/alerts" : "/alerts?tab=completed"
+            }
+          >
+            Limpar
+          </Link>
+        </Button>
+      ) : null}
     </form>
   );
 }
