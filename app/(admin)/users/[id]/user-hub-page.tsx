@@ -472,9 +472,6 @@ export async function UserHubPage({
                   />
                 </>
               ) : null}
-              {canStartWhatsappSupportSession ? (
-                <WhatsappSupportSessionControl userId={id} />
-              ) : null}
             </div>
           </div>
 
@@ -533,6 +530,10 @@ export async function UserHubPage({
       )}
 
       {activeTab === "whatsapp" && (
+        <div className="space-y-6">
+          {canStartWhatsappSupportSession ? (
+            <WhatsappSupportSessionControl userId={id} />
+          ) : null}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -616,6 +617,7 @@ export async function UserHubPage({
             )}
           </CardContent>
         </Card>
+        </div>
       )}
 
       {activeTab === "usage" && detailedUser && (
