@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { DEFAULT_AUTOMATIZE_BUSINESS_ID } from "@/lib/meta-business/partner-access-status";
 
-const HOWTO_GIF = "/meta/add-automatize-partner.gif";
+const HOWTO_GIF = "/meta/add-automatize-partner.gif?v=20260918";
 const PARTNERS_FALLBACK = "https://business.facebook.com/latest/settings/partners";
 
 export function PartnerAccessHowtoDialog({
