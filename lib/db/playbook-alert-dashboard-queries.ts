@@ -123,6 +123,11 @@ function asDate(value: Date | string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function asMetrics(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 async function loadPeriodKpis(
   actor: BackofficeActor,
   filters: PlaybookAlertFilters,
@@ -306,7 +311,10 @@ export type PlaybookAlertDashboardRow = {
   title: string;
   evidence: string;
   recommendation: string;
+  entityLevel: string;
+  entityId: string;
   entityName: string | null;
+  metrics: Record<string, unknown> | null;
   createdAt: Date;
   updatedAt: Date;
   reviewedAt: Date | null;
@@ -363,7 +371,10 @@ async function listDashboardRows(
       title: performanceInsight.title,
       evidence: performanceInsight.evidence,
       recommendation: performanceInsight.recommendation,
+      entityLevel: performanceInsight.entityLevel,
+      entityId: performanceInsight.entityId,
       entityName: performanceInsight.entityName,
+      metrics: performanceInsight.metrics,
       createdAt: performanceInsight.createdAt,
       updatedAt: performanceInsight.updatedAt,
       reviewedAt: performanceInsight.reviewedAt,
@@ -394,6 +405,7 @@ async function listDashboardRows(
       consultantEmail: row.consultantEmail ?? null,
       consultantName: row.consultantName ?? null,
       ruleTitle: playbookAlertRuleTitle(row.ruleId),
+      metrics: asMetrics(row.metrics),
       createdAt: asDate(row.createdAt) ?? new Date(0),
       updatedAt: asDate(row.updatedAt) ?? new Date(0),
       reviewedAt: asDate(row.reviewedAt),

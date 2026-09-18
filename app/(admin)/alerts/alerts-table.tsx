@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +22,7 @@ import {
 } from "@/lib/backoffice/playbook-alert-dashboard";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { PlaybookAlertDashboardRow } from "@/lib/db/playbook-alert-dashboard-queries";
+import { AlertDetailSheet } from "./alert-detail-sheet";
 import { CompleteAlertButton } from "./complete-alert-button";
 
 function severityBadgeClass(severity: string) {
@@ -65,6 +69,8 @@ export function AlertsTable({
   const to = (filters.page - 1) * filters.pageSize + rows.length;
   const showCompletedAt = filters.tab === "completed";
   const colSpan = 6 + (showCompletedAt ? 1 : 0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = rows.find((row) => row.id === selectedId) ?? null;
 
   return (
     <div className="space-y-4">
@@ -95,7 +101,19 @@ export function AlertsTable({
               </TableRow>
             ) : (
               rows.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow
+                  key={row.id}
+                  tabIndex={0}
+                  className="cursor-pointer"
+                  data-state={row.id === selectedId ? "selected" : undefined}
+                  onClick={() => setSelectedId(row.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedId(row.id);
+                    }
+                  }}
+                >
                   <TableCell>
                     <div className="flex flex-wrap gap-1.5">
                       <Badge
@@ -141,7 +159,10 @@ export function AlertsTable({
                         : "—"}
                     </TableCell>
                   ) : null}
-                  <TableCell className="text-right">
+                  <TableCell
+                    className="text-right"
+                    onClick={(event) => event.stopPropagation()}
+                  >
                     <div className="flex justify-end gap-2">
                       {canComplete && isPlaybookPendingStatus(row.status) ? (
                         <CompleteAlertButton
@@ -150,10 +171,13 @@ export function AlertsTable({
                           title={row.title}
                         />
                       ) : null}
-                      <Button asChild variant="ghost" size="sm">
-                        <Link href={`/users/${row.userId}?tab=marketing`}>
-                          Abrir
-                        </Link>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedId(row.id)}
+                      >
+                        Abrir
                       </Button>
                     </div>
                   </TableCell>
@@ -212,6 +236,12 @@ export function AlertsTable({
           </div>
         ) : null}
       </div>
+
+      <AlertDetailSheet
+        row={selected}
+        canWrite={canComplete}
+        onClose={() => setSelectedId(null)}
+      />
     </div>
   );
 }
