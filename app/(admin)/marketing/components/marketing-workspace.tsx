@@ -62,6 +62,11 @@ type MarketingWorkspaceProps = {
   initialUser?: MarketingWorkspaceUser | null;
   showHeader?: boolean;
   showUserPicker?: boolean;
+  /**
+   * Rendered inside the client drawer's iframe (`/embed/users/[id]`). Navigations must stay under
+   * `/embed`, or the whole admin shell renders inside the drawer.
+   */
+  embedded?: boolean;
 };
 
 function userFromSearchParams(
@@ -80,6 +85,7 @@ export function MarketingWorkspace({
   initialUser = null,
   showHeader = true,
   showUserPicker = true,
+  embedded = false,
 }: MarketingWorkspaceProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -553,7 +559,7 @@ export function MarketingWorkspace({
               <Button
                 onClick={() =>
                   router.push(
-                    `/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
+                    `${embedded ? "/embed" : ""}/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
                   )
                 }
                 size="sm"

@@ -1,15 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { addDays, format, startOfDay } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { ArrowLeft, CalendarIcon, Loader2, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarIcon,
+  Check,
+  ChevronRight,
+  ClipboardList,
+  Info,
+  Loader2,
+  ShoppingBag,
+  SlidersHorizontal,
+  Sparkles,
+  Users,
+} from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,11 +37,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { WhatsAppIcon } from "@/components/whatsapp-icon";
 import { CampaignPublishError } from "./campaign-publish-error";
 import { MediaSourcePicker, type SelectedMedia } from "../components/media-source-picker";
 import { PageSelector } from "../components/page-selector";
 import { usePages } from "../components/use-pages";
 import { LocationTargetingSection } from "../components/location-targeting-section";
+import { MetaAssetSelectionBadges } from "../components/meta-asset-selection-badges";
 import {
   AdSetDeliveryScheduleEditor,
   type AdSetDeliveryScheduleValue,
@@ -75,22 +89,50 @@ import {
 import { WhatsappDestinationCard } from "./whatsapp-destination-card";
 import { isValidPromotionLink, promotionLinkPolicy } from "./promotion-link";
 import { usePageWhatsappNumber } from "../hooks/use-page-whatsapp-number";
-import { AiDemographicLimitsEditor } from "./ai-demographic-limits-editor";
-import { AiAudienceLibraryDialog } from "./ai-audience-library-dialog";
-import { AiAudienceExclusionsEditor } from "./ai-audience-exclusions-editor";
-import { AiAudienceInclusionsEditor } from "./ai-audience-inclusions-editor";
-
-type Phase =
-  | "objective"
-  | "scanning"
-  | "proven_ads"
-  | "budget"
-  | "media"
-  | "text"
-  | "location"
-  | "pixel"
-  | "review"
-  | "publishing";
+import { AiAdvancedAudienceSheet } from "./ai-advanced-audience-sheet";
+import {
+  ReviewEffectiveAudience,
+  ReviewInlineBlock,
+  ReviewIssues,
+  ReviewMediaStrip,
+  ReviewMoldBanner,
+  ReviewRow,
+} from "./ai-review-card";
+import {
+  FlowHeader,
+  FlowProgress,
+  ReviewEditSheet,
+  SelectionCard,
+  StepActions,
+  StepHeading,
+  flowAccentCardClassName,
+  flowBackButtonClassName,
+  flowBodyClassName,
+  flowBodyMediumClassName,
+  flowCardClassName,
+  flowCardDescriptionClassName,
+  flowCardTitleClassName,
+  flowErrorClassName,
+  flowHintClassName,
+  flowMonoCaptionClassName,
+  flowNextButtonClassName,
+  flowPageShellClassName,
+  flowRowLabelClassName,
+  flowSectionClassName,
+  flowSelectionIdleClassName,
+  flowSelectionItemClassName,
+  flowSelectionSelectedClassName,
+  flowWarningClassName,
+} from "./flow-chrome";
+import {
+  TRAIL_STEP_LABEL,
+  buildInboundTrail,
+  trailStepForPhase,
+  type Phase,
+  type TrailStep,
+} from "./flow-trail";
+import { hasIdentityChoice, preselectIdentity } from "./identity-step";
+import { scheduleSummary } from "./review-summaries";
 
 type Objective = "sales" | "whatsapp" | "followers" | "leads";
 
@@ -106,41 +148,50 @@ type PlanIssue = {
   suggestion?: string;
 };
 
-type AudienceReviewAdSet = NonNullable<ReviewSummary["audience"]["adSets"]>[number];
+type ReviewSheet = "link" | "period" | "schedule" | "location" | "placements" | "cta";
 
-function audienceGeoLabel(geo: AudienceReviewAdSet["geo"]): string {
-  if (geo.locations?.length) {
-    return geo.locations
-      .map((location) =>
-        location.radiusKm != null
-          ? `${location.label} · ${location.radiusKm} km`
-          : location.label,
-      )
-      .join(" · ");
-  }
-  return [
-    geo.customLocations ? `${geo.customLocations} endereço(s)` : "",
-    geo.cities ? `${geo.cities} cidade(s)` : "",
-    geo.regions ? `${geo.regions} região(ões)` : "",
-    geo.countries ? `${geo.countries} país(es)` : "",
-  ]
-    .filter(Boolean)
-    .join(" + ") || "não especificada";
-}
-
-function audienceGenderLabel(genders: number[] | undefined): string {
-  if (genders?.includes(1) && genders.includes(2)) return "homens e mulheres";
-  if (genders?.includes(1)) return "homens";
-  if (genders?.includes(2)) return "mulheres";
-  return "não especificado";
-}
-
-const OBJECTIVE_LABEL: Record<Objective, string> = {
-  sales: "Vendas",
-  whatsapp: "WhatsApp",
-  followers: "Seguidores",
-  leads: "Leads",
+type PeriodDraft = {
+  start: Date;
+  end: Date;
+  startTime: string;
+  endTime: string;
 };
+
+const OBJECTIVE_OPTIONS: Array<{
+  value: Objective;
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = [
+  {
+    value: "sales",
+    title: "Vendas no site",
+    description: "Levar pessoas para comprar direto no site do cliente.",
+    icon: ShoppingBag,
+  },
+  {
+    value: "whatsapp",
+    title: "Vendas no WhatsApp",
+    description: "Levar pessoas para conversar no WhatsApp e fechar por lá.",
+    icon: WhatsAppIcon,
+  },
+  {
+    value: "followers",
+    title: "Alcance e seguidores",
+    description: "Alcance maior e mais seguidores no Instagram.",
+    icon: Users,
+  },
+  {
+    value: "leads",
+    title: "Leads",
+    description: "Coletar cadastros e mensagens de potenciais clientes.",
+    icon: ClipboardList,
+  },
+];
+
+const OBJECTIVE_LABEL: Record<Objective, string> = Object.fromEntries(
+  OBJECTIVE_OPTIONS.map((option) => [option.value, option.title]),
+) as Record<Objective, string>;
 
 const BUDGET_PRESETS = ["20", "30", "50", "100"] as const;
 
@@ -160,6 +211,27 @@ const CTA_OPTIONS = [
   "GET_QUOTE",
   "BOOK_TRAVEL",
 ] as const;
+
+const CTA_LABEL: Record<(typeof CTA_OPTIONS)[number], string> = {
+  LEARN_MORE: "Saiba mais",
+  SHOP_NOW: "Comprar agora",
+  ORDER_NOW: "Pedir agora",
+  SEE_MENU: "Ver cardápio",
+  GET_OFFER: "Ver oferta",
+  SIGN_UP: "Cadastre-se",
+  CONTACT_US: "Fale conosco",
+  WHATSAPP_MESSAGE: "Enviar mensagem no WhatsApp",
+  MESSAGE_PAGE: "Enviar mensagem",
+  SUBSCRIBE: "Inscreva-se",
+  DOWNLOAD: "Baixar",
+  APPLY_NOW: "Inscreva-se agora",
+  GET_QUOTE: "Pedir orçamento",
+  BOOK_TRAVEL: "Reservar",
+};
+
+function ctaLabel(value: string): string {
+  return (CTA_LABEL as Record<string, string>)[value] ?? value.replace(/_/g, " ");
+}
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) =>
   `${hour.toString().padStart(2, "0")}:00`,
@@ -204,15 +276,38 @@ function combineDateTime(date: Date, time: string): string {
   return next.toISOString();
 }
 
+function getInitial(value?: string): string {
+  if (!value || value.trim().length === 0) return "?";
+  return value.trim().charAt(0).toUpperCase();
+}
+
+function money(value: number, currency: string): string {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency }).format(value);
+}
+
+/** "R$" for the account's own currency; the ISO code for anything else. */
+function currencySymbol(currency: string): string {
+  return currency === "BRL" ? "R$" : currency;
+}
+
 export function AiCampaignClient() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const userId = searchParams.get("userId") ?? "";
   const accountId = searchParams.get("accountId") ?? "";
+  /**
+   * Inside the client drawer the flow runs in an iframe under `/embed`; every navigation must stay
+   * there or the whole admin shell (sidebar, header) renders inside the drawer.
+   */
+  const embedded = pathname?.startsWith("/embed") ?? false;
 
   const { pages, isLoading: isLoadingPages } = usePages(accountId, userId, Boolean(accountId && userId));
-  const { data: companyProfile } = useCompanyProfile(userId);
-  const businessUnits = companyProfile?.locations ?? [];
+  const { data: companyProfile, isPending: isLoadingCompanyProfile } = useCompanyProfile(userId);
+  const businessUnits = useMemo(
+    () => companyProfile?.locations ?? [],
+    [companyProfile?.locations],
+  );
   const savedLocations = useMemo(
     () =>
       buildSavedCustomLocations(
@@ -250,6 +345,7 @@ export function AiCampaignClient() {
   const [pageId, setPageId] = useState<string | null>(null);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixels, setPixels] = useState<Array<{ id: string; name?: string }>>([]);
+  const [pixelsLoaded, setPixelsLoaded] = useState(false);
   const [manualLocations, setManualLocations] = useState<SelectedGeoLocation[]>([]);
   const [promotionUrl, setPromotionUrl] = useState("");
   const [whatsappAutofillMessage, setWhatsappAutofillMessage] = useState("");
@@ -263,7 +359,7 @@ export function AiCampaignClient() {
   const [demographics, setDemographics] = useState<DemographicLimits | undefined>(undefined);
   const [excludedCustomAudienceIds, setExcludedCustomAudienceIds] = useState<AudienceExclusionIds | undefined>(undefined);
   const [includedCustomAudienceIds, setIncludedCustomAudienceIds] = useState<AudienceInclusionIds | undefined>(undefined);
-  const [audienceLibraryOpen, setAudienceLibraryOpen] = useState(false);
+  const [advancedAudienceOpen, setAdvancedAudienceOpen] = useState(false);
   const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
   const [periodEnd, setPeriodEnd] = useState(() =>
     addDays(startOfDay(new Date()), DEFAULT_FLIGHT_DAYS - 1),
@@ -278,6 +374,23 @@ export function AiCampaignClient() {
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const startedVideos = useRef(new Set<string>());
+
+  /**
+   * The media picker owns its selection. It is mounted the first time the media step opens and
+   * kept mounted (hidden) from then on, so "Voltar" never drops what the operator already chose
+   * and a device video keeps uploading while the next questions are answered.
+   */
+  const [mediaPickerMounted, setMediaPickerMounted] = useState(false);
+
+  // Review-only editors: each sheet edits a draft; Salvar commits, anything else discards.
+  const [reviewSheet, setReviewSheet] = useState<ReviewSheet | null>(null);
+  const [sheetLink, setSheetLink] = useState("");
+  const [sheetPeriod, setSheetPeriod] = useState<PeriodDraft | null>(null);
+  const [sheetSchedule, setSheetSchedule] = useState<AdSetDeliveryScheduleValue | null>(null);
+  const [sheetLocations, setSheetLocations] = useState<SelectedGeoLocation[]>([]);
+  const [sheetPlacementsMode, setSheetPlacementsMode] = useState<PlacementsMode>("automatic");
+  const [sheetSelectedPlacements, setSheetSelectedPlacements] = useState<PlacementKey[]>([]);
+  const [sheetCtaType, setSheetCtaType] = useState<string>("LEARN_MORE");
 
   const selectedPage = pages.find((page) => page.pageId === pageId) ?? pages[0] ?? null;
   const hasMold = Boolean(mold);
@@ -318,6 +431,12 @@ export function AiCampaignClient() {
       media.mediaType === "video" &&
       videoUploads[media.blobUrl]?.state !== "ready",
   );
+  const identityChoice = hasIdentityChoice(pages);
+  const showProvenAds = hasMold && provenAds.length > 0;
+  const keptProvenAds = provenAds.filter((ad) => keepAdIds.includes(ad.adId));
+  const budgetValue = Number(dailyBudget);
+  const budgetBelowAdvice =
+    Number.isFinite(budgetValue) && budgetValue > 0 && budgetValue < ADVISED_MIN_DAILY_BUDGET;
 
   const localAudienceReview = useMemo<ReviewSummary["audience"]>(() => {
     const geo = {
@@ -404,13 +523,28 @@ export function AiCampaignClient() {
   ]);
   const effectiveAudienceReview = hasMold ? plannedAudience : localAudienceReview;
 
-  const backHref = `/users/${userId}?tab=marketing`;
+  const backHref = `${embedded ? "/embed" : ""}/users/${userId}?tab=marketing`;
 
   useEffect(() => {
     if (pages.length > 0 && !pageId) {
-      setPageId(pages[0].pageId);
+      setPageId(preselectIdentity(pages)?.pageId ?? pages[0].pageId);
     }
   }, [pages, pageId]);
+
+  // With a single page there is nothing to ask: the step skips itself once the list is known.
+  useEffect(() => {
+    if (phase !== "identity" || isLoadingPages) return;
+    if (!hasIdentityChoice(pages)) setPhase("media");
+  }, [phase, isLoadingPages, pages]);
+
+  useEffect(() => {
+    if (phase === "media") setMediaPickerMounted(true);
+  }, [phase]);
+
+  // Every step is a screen of its own: a new one starts at the top, not where the last one ended.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [phase]);
 
   useEffect(() => {
     const website = companyProfile?.company?.websiteUrl?.trim();
@@ -437,7 +571,8 @@ export function AiCampaignClient() {
         setPixels(list);
         if (list[0] && !pixelId) setPixelId(list[0].id);
       })
-      .catch(() => setPixels([]));
+      .catch(() => setPixels([]))
+      .finally(() => setPixelsLoaded(true));
   }, [accountId, userId, pixelId]);
 
   useEffect(() => {
@@ -556,9 +691,11 @@ export function AiCampaignClient() {
         <p className="text-sm text-muted-foreground">
           Selecione um cliente e uma conta de anúncios para criar a campanha.
         </p>
-        <Button className="mt-4" onClick={() => router.push("/portfolio")} variant="outline">
-          Voltar
-        </Button>
+        {!embedded ? (
+          <Button className="mt-4" onClick={() => router.push("/portfolio")} variant="outline">
+            Voltar
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -747,9 +884,13 @@ export function AiCampaignClient() {
     }
   }
 
+  /** The mold path asks Meta for the plan before the review opens; the fallback reviews locally. */
   async function goToReview() {
+    if (hasMold) {
+      setPhase("planning");
+      await refreshPlan();
+    }
     setPhase("review");
-    if (hasMold) void refreshPlan();
   }
 
   async function publish() {
@@ -863,7 +1004,7 @@ export function AiCampaignClient() {
   }
 
   function goNextFromBudget() {
-    setPhase("media");
+    setPhase(identityChoice || isLoadingPages ? "identity" : "media");
   }
 
   function advanceAfterCreative() {
@@ -923,160 +1064,533 @@ export function AiCampaignClient() {
     void goToReview();
   }
 
-  function openLocationStep() {
-    if (manualLocations.length === 0 && savedLocations.length > 0) {
-      setManualLocations(savedLocations);
-    }
-    setPhase("location");
+  function openLocationSheet() {
+    // Pre-filled with the addresses currently in effect so the operator edits, not starts over.
+    const seed =
+      manualLocations.length === 0 && savedLocations.length > 0
+        ? savedLocations
+        : manualLocations;
+    setSheetLocations(structuredClone(seed));
+    setReviewSheet("location");
   }
 
-  const periodLabel = `${format(periodStart, "dd/MM/yy")} – ${format(periodEnd, "dd/MM/yy")}`;
+  function openPeriodSheet() {
+    setSheetPeriod({
+      start: periodStart,
+      end: periodEnd,
+      startTime: periodStartTime,
+      endTime: periodEndTime,
+    });
+    setReviewSheet("period");
+  }
+
+  function openScheduleSheet() {
+    setSheetSchedule(structuredClone(deliverySchedule));
+    setReviewSheet("schedule");
+  }
+
+  function openPlacementsSheet() {
+    setSheetPlacementsMode(placementsMode);
+    setSheetSelectedPlacements(
+      selectedPlacements.length > 0
+        ? selectedPlacements
+        : objective === "followers"
+          ? [...INSTAGRAM_PLACEMENTS]
+          : [...ALL_PLACEMENTS],
+    );
+    setReviewSheet("placements");
+  }
+
+  function openCtaSheet() {
+    setSheetCtaType(ctaType);
+    setReviewSheet("cta");
+  }
+
+  function openLinkSheet() {
+    setSheetLink(promotionUrl);
+    setReviewSheet("link");
+  }
+
+  // ---- Trail -----------------------------------------------------------------------------------
+
+  const inboundTrail = buildInboundTrail({
+    hasIdentityChoice: identityChoice || phase === "identity",
+    showProvenAds,
+    needsTexts,
+    // A step stays on the trail while the operator is on it, even once its answer stops being
+    // needed (a location just picked, a pixel just chosen) — and joins it only once the data that
+    // decides it has loaded, so the count does not jump on a cold page.
+    needsLocationStep: (needsLocation && !isLoadingCompanyProfile) || phase === "location",
+    needsPixelStep: (needsPixel && pixelsLoaded) || phase === "pixel",
+  });
+  const trailStep = trailStepForPhase(phase);
+  const trailIndex = Math.max(0, inboundTrail.indexOf(trailStep));
+  const progressLabel =
+    phase === "scanning"
+      ? "Analisando o histórico da conta…"
+      : phase === "planning"
+        ? "Montando a campanha…"
+        : `Passo ${trailIndex + 1} de ${inboundTrail.length} · ${TRAIL_STEP_LABEL[trailStep]}`;
+
+  /** The inbound step before `step`; the scan is never a destination, so it falls back to the objective. */
+  function stepBefore(step: TrailStep): Phase {
+    const index = inboundTrail.indexOf(step);
+    const previous = inboundTrail[index - 1];
+    if (!previous || previous === "scanning") return "objective";
+    return previous;
+  }
+
+  // ---- Review -----------------------------------------------------------------------------------
+
+  const periodLabel = `${format(periodStart, "dd/MM/yy")} ${periodStartTime} – ${format(periodEnd, "dd/MM/yy")} ${periodEndTime}`;
+  const locationLabel =
+    effectiveLocations.length > 0
+      ? effectiveLocations
+          .map(
+            (location) =>
+              `${location.name}${location.radius != null ? ` · ${location.radius} km` : ""}`,
+          )
+          .join(" · ")
+      : "Nenhuma localização escolhida";
+  const audienceAdjusted =
+    demographics?.age != null ||
+    demographics?.genders != null ||
+    includedCustomAudienceIds !== undefined ||
+    excludedCustomAudienceIds !== undefined;
+  const scheduleEmpty =
+    showDeliverySchedule &&
+    deliverySchedule.deliveryMode === "specific_hours" &&
+    deliverySchedule.scheduleBlocks.length === 0;
+  const placementsEmpty = placementsMode === "manual" && selectedPlacements.length === 0;
+
+  /** Why the button is off — or what it will do. Same slot either way. */
+  const publishBlockedReason =
+    phase === "publishing"
+      ? "Publicando na Meta… isso leva alguns segundos."
+      : planIssues.length > 0
+        ? "Resolva as pendências apontadas pela Meta antes de publicar."
+        : planMedias.length === 0
+          ? "Escolha ao menos uma mídia pronta."
+          : pendingVideos
+            ? "Aguardando a Meta terminar de processar o vídeo."
+            : !hasMold && effectiveLocations.length === 0
+              ? "Selecione ao menos uma localização para segmentação."
+              : linkBlocks
+                ? "Informe o link de destino do anúncio."
+                : objective === "whatsapp" && !whatsappAutofillMessage.trim()
+                  ? "Escreva a primeira mensagem que o cliente verá no WhatsApp."
+                  : objective === "whatsapp" && whatsappPageNotLinked
+                    ? "Esta Página não tem número de WhatsApp vinculado."
+                    : placementsEmpty
+                      ? "Escolha ao menos um posicionamento."
+                      : scheduleEmpty
+                        ? "Escolha ao menos um horário de veiculação, ou use o dia todo."
+                        : null;
+  const publishDisabled = isBusy || publishBlockedReason !== null;
+
+  const sheetLinkValid = isValidPromotionLink(sheetLink);
+  const sheetLinkSaveDisabled =
+    linkPolicy === "required" ? !sheetLinkValid : sheetLink.trim() !== "" && !sheetLinkValid;
+  const sheetPeriodInvalid = sheetPeriod
+    ? new Date(combineDateTime(sheetPeriod.end, sheetPeriod.endTime)) <=
+      new Date(combineDateTime(sheetPeriod.start, sheetPeriod.startTime))
+    : false;
+  const sheetScheduleEmpty =
+    sheetSchedule?.deliveryMode === "specific_hours" && sheetSchedule.scheduleBlocks.length === 0;
+  const sheetPlacementsInvalid =
+    sheetPlacementsMode === "manual" && sheetSelectedPlacements.length === 0;
+
+  const moldBannerVisible =
+    mold !== null &&
+    phase !== "objective" &&
+    phase !== "scanning" &&
+    phase !== "proven_ads" &&
+    phase !== "review" &&
+    phase !== "publishing";
+
+  const linkField = (id: string) => (
+    <div className="space-y-2">
+      <Label htmlFor={id}>
+        Link de destino
+        {linkPolicy === "required" ? <span className="text-destructive"> *</span> : null}
+      </Label>
+      <Input
+        id={id}
+        onChange={(event) => setPromotionUrl(event.target.value)}
+        placeholder="https://"
+        type="url"
+        inputMode="url"
+        value={promotionUrl}
+        aria-invalid={Boolean(promotionUrl) && !linkValid}
+      />
+      {promotionUrl && !linkValid ? (
+        <p className="text-xs text-destructive">
+          Informe uma URL completa, começando com https://
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Para onde o botão do anúncio leva (site, cardápio, página da oferta).
+        </p>
+      )}
+    </div>
+  );
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <Button onClick={() => router.push(backHref)} size="icon" variant="ghost">
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div>
-          <h1 className="text-xl font-semibold">Criar campanha com IA</h1>
-          <p className="text-sm text-muted-foreground">
-            Tudo o que o cliente faz no app, na conta selecionada.
-          </p>
+    <div className={flowPageShellClassName}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="mb-3 h-8 gap-1.5 px-2 text-xs text-muted-foreground"
+        onClick={() => router.push(backHref)}
+      >
+        <ArrowLeft className="size-4" />
+        Voltar para o cliente
+      </Button>
+
+      <FlowHeader
+        title="Criar campanha com IA"
+        subtitle="Tudo o que o cliente faz no app, na conta selecionada. Uma pergunta por vez; você aprova antes de publicar."
+      />
+
+      <FlowProgress
+        currentIndex={trailIndex}
+        total={inboundTrail.length}
+        label={progressLabel}
+      />
+
+      {error ? (
+        <div className="mt-6">
+          <CampaignPublishError error={error} />
         </div>
-      </div>
+      ) : null}
 
-      {error ? <CampaignPublishError error={error} /> : null}
+      {moldBannerVisible && mold ? <ReviewMoldBanner mold={mold} className="mt-6" /> : null}
 
+      {/* Objective — the FIRST question, and the one that decides how the account is scanned. */}
       {phase === "objective" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>O que esta campanha deve gerar?</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-              {(Object.keys(OBJECTIVE_LABEL) as Objective[])
-                .filter(
-                  (value) =>
-                    value !== "whatsapp" || companyNiche === "food_service",
-                )
-                .map((value) => (
-                  <button
-                    key={value}
-                    className={`rounded-xl border p-4 text-left ${
-                      objective === value
-                        ? "border-primary bg-primary/10"
-                        : "border-border hover:bg-muted/40"
-                    }`}
-                    onClick={() => setObjective(value)}
-                    type="button"
-                  >
-                    <div className="font-semibold">{OBJECTIVE_LABEL[value]}</div>
-                  </button>
-                ))}
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="Qual é o objetivo?"
+            description="Selecione o que o cliente quer alcançar com esta campanha."
+          />
+          {isLoadingCompanyProfile ? (
+            // The niche decides which objectives exist (WhatsApp is food-service only).
+            <div className={cn("flex items-center gap-3", flowCardClassName)}>
+              <Loader2 className="size-5 shrink-0 animate-spin text-primary" />
+              <p className={cn("text-muted-foreground", flowBodyClassName)}>
+                Carregando o perfil do cliente…
+              </p>
             </div>
-            <Button disabled={isBusy} onClick={() => void scanAccount()}>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {OBJECTIVE_OPTIONS.filter(
+                (option) => option.value !== "whatsapp" || companyNiche === "food_service",
+              ).map((option) => (
+                <SelectionCard
+                  key={option.value}
+                  icon={option.icon}
+                  title={option.title}
+                  description={option.description}
+                  selected={objective === option.value}
+                  onClick={() => setObjective(option.value)}
+                  disabled={isBusy}
+                />
+              ))}
+            </div>
+          )}
+          <StepActions>
+            <Button
+              className={flowNextButtonClassName}
+              disabled={isBusy || isLoadingCompanyProfile}
+              onClick={() => void scanAccount()}
+            >
               Continuar
             </Button>
-          </CardContent>
-        </Card>
+          </StepActions>
+        </section>
       )}
 
-      {phase === "scanning" && (
-        <Card>
-          <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Analisando o histórico da conta…
-          </CardContent>
-        </Card>
+      {(phase === "scanning" || phase === "planning") && (
+        <div className={cn("mt-8 flex items-center gap-3", flowCardClassName)}>
+          <Loader2 className="size-5 shrink-0 animate-spin text-primary" />
+          <div className="space-y-0.5">
+            <p className={flowCardTitleClassName}>
+              {phase === "planning" ? "Montando a campanha…" : "Analisando o histórico da conta…"}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {phase === "planning"
+                ? "Conferindo com a Meta o que vai ao ar antes de você revisar."
+                : "Procurando anúncios validados para usar como base."}
+            </p>
+          </div>
+        </div>
       )}
 
+      {/* Proven ads picker — only when the scan found a mold. */}
       {phase === "proven_ads" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Anúncios validados para copiar</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {provenAds.map((ad) => (
-              <label key={ad.adId} className="flex items-start gap-3 rounded-lg border p-3">
-                <input
-                  checked={keepAdIds.includes(ad.adId)}
-                  className="mt-1 size-4"
-                  onChange={(event) => {
-                    const checked = event.target.checked;
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="Anúncios validados para copiar"
+            description="A campanha nova parte destes anúncios. Desmarque os que não devem ser copiados."
+          />
+          <div className="space-y-2">
+            {provenAds.map((ad) => {
+              const checked = keepAdIds.includes(ad.adId);
+              return (
+                <button
+                  key={ad.adId}
+                  type="button"
+                  onClick={() =>
                     setKeepAdIds((current) =>
                       checked
-                        ? [...current, ad.adId]
-                        : current.filter((id) => id !== ad.adId),
-                    );
-                  }}
-                  type="checkbox"
-                />
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{ad.adName ?? ad.adId}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Gasto {currency} {ad.spend.toFixed(2)}
-                    {ad.roas != null ? ` · ROAS ${ad.roas.toFixed(2)}` : ""}
-                  </p>
-                </div>
-              </label>
-            ))}
+                        ? current.filter((id) => id !== ad.adId)
+                        : [...current, ad.adId],
+                    )
+                  }
+                  aria-pressed={checked}
+                  className={cn(
+                    flowSelectionItemClassName,
+                    "flex w-full items-center gap-3",
+                    checked ? flowSelectionSelectedClassName : flowSelectionIdleClassName,
+                  )}
+                >
+                  {ad.thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- Meta CDN thumbnail
+                    <img
+                      src={ad.thumbnailUrl}
+                      alt=""
+                      className="size-14 shrink-0 rounded-md border border-border object-cover"
+                    />
+                  ) : (
+                    <div className="flex size-14 shrink-0 items-center justify-center rounded-md border border-border bg-muted text-[10px] text-muted-foreground">
+                      sem prévia
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className={cn("truncate", flowBodyMediumClassName)}>
+                      {ad.adName ?? ad.adId}
+                    </p>
+                    <p className={flowCardDescriptionClassName}>
+                      {ad.kind === "validated" && ad.roas != null
+                        ? `ROAS ${ad.roas.toFixed(1)}`
+                        : ad.costPerResult != null
+                          ? `${money(ad.costPerResult, currency)} / ${ad.resultLabel}`
+                          : ad.resultLabel}
+                      {` · Gasto ${money(ad.spend, currency)}`}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "grid size-5 shrink-0 place-items-center rounded-full border",
+                      checked
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border",
+                    )}
+                  >
+                    {checked && <Check className="size-3" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {keepAdIds.length === 0 && (
+            <p className={flowWarningClassName}>
+              <Info className="mt-0.5 size-3.5 shrink-0" />
+              Mantenha ao menos um anúncio validado para continuar.
+            </p>
+          )}
+          <StepActions
+            back={
+              <Button
+                variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase("objective")}
+              >
+                Voltar
+              </Button>
+            }
+          >
             <Button
+              className={flowNextButtonClassName}
               disabled={keepAdIds.length === 0}
               onClick={() => setPhase("budget")}
             >
               Continuar
             </Button>
-          </CardContent>
-        </Card>
+          </StepActions>
+        </section>
       )}
 
+      {/* Budget — always asked. */}
       {phase === "budget" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Orçamento diário</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Valor por dia ({currency})</Label>
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="Quanto investir por dia?"
+            description="O orçamento diário da campanha. Você pode ajustar depois, na revisão."
+          />
+          <div className={cn("space-y-3", flowCardClassName)}>
+            <Label htmlFor="ai-daily-budget" className="text-muted-foreground">
+              Valor por dia ({currencySymbol(currency)})
+            </Label>
+            <div className="flex items-center gap-3 rounded-md border border-input bg-background px-4 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+              <span className="shrink-0 text-3xl font-semibold leading-none text-muted-foreground">
+                {currencySymbol(currency)}
+              </span>
               <Input
-                min={ADVISED_MIN_DAILY_BUDGET}
-                onChange={(event) => setDailyBudget(event.target.value)}
+                id="ai-daily-budget"
                 type="number"
+                min={1}
+                step={1}
+                inputMode="decimal"
                 value={dailyBudget}
+                onChange={(event) => setDailyBudget(event.target.value)}
+                className="h-16 border-0 bg-transparent px-0 text-3xl font-semibold leading-none tracking-tight shadow-none focus-visible:ring-0 md:text-3xl"
               />
-              <div className="flex flex-wrap gap-2">
-                {BUDGET_PRESETS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setDailyBudget(value)}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                      dailyBudget === value
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:border-primary/40",
-                    )}
-                  >
-                    {currency} {value}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Recomendado a partir de {currency} {ADVISED_MIN_DAILY_BUDGET}.
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {BUDGET_PRESETS.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDailyBudget(value)}
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    dailyBudget === value
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
+                  )}
+                >
+                  {currencySymbol(currency)} {value}
+                </button>
+              ))}
+            </div>
+            {budgetBelowAdvice ? (
+              // An advisory, never a block: the money is the client's.
+              <p className={flowWarningClassName}>
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                Recomendado a partir de {currencySymbol(currency)} {ADVISED_MIN_DAILY_BUDGET} por dia.
+              </p>
+            ) : (
+              <p className={flowHintClassName}>
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                Recomendado a partir de {currencySymbol(currency)} {ADVISED_MIN_DAILY_BUDGET} por dia.
+              </p>
+            )}
+          </div>
+          <StepActions
+            back={
+              <Button
+                variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase(stepBefore("budget"))}
+              >
+                Voltar
+              </Button>
+            }
+          >
+            <Button
+              className={flowNextButtonClassName}
+              disabled={!Number.isFinite(budgetValue) || budgetValue <= 0}
+              onClick={goNextFromBudget}
+            >
+              Continuar
+            </Button>
+          </StepActions>
+        </section>
+      )}
+
+      {/* Identity — asked ONLY when the account really has a choice. */}
+      {phase === "identity" && (
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="Qual identidade assina o anúncio?"
+            description="A Página e o Instagram que aparecem no anúncio. Os posts do Instagram vêm deste perfil."
+          />
+          {isLoadingPages ? (
+            <div className={cn("flex items-center gap-3", flowCardClassName)}>
+              <Loader2 className="size-5 shrink-0 animate-spin text-primary" />
+              <p className={cn("text-muted-foreground", flowBodyClassName)}>
+                Carregando as páginas do cliente…
               </p>
             </div>
-            <Button onClick={goNextFromBudget}>Continuar</Button>
-          </CardContent>
-        </Card>
+          ) : (
+            <div className="space-y-2">
+              {pages.map((page) => {
+                const selected = pageId === page.pageId;
+                return (
+                  <button
+                    key={page.pageId}
+                    type="button"
+                    onClick={() => setPageId(page.pageId)}
+                    aria-pressed={selected}
+                    className={cn(
+                      flowSelectionItemClassName,
+                      "flex w-full items-center gap-3",
+                      selected ? flowSelectionSelectedClassName : flowSelectionIdleClassName,
+                    )}
+                  >
+                    <Avatar className="size-9 shrink-0">
+                      <AvatarImage
+                        src={page.instagramProfilePictureUrl ?? page.pagePictureUrl}
+                        alt={page.pageName ?? page.pageId}
+                      />
+                      <AvatarFallback className="text-xs font-medium">
+                        {getInitial(page.pageName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 flex-1">
+                      <span className={cn("block truncate", flowBodyMediumClassName)}>
+                        {page.pageName ?? page.pageId}
+                      </span>
+                      <span className={cn("mt-0.5 block truncate", flowMonoCaptionClassName)}>
+                        {page.instagramUsername
+                          ? `@${page.instagramUsername}`
+                          : "sem Instagram conectado"}
+                      </span>
+                      <span className="mt-1.5 block">
+                        <MetaAssetSelectionBadges enabled={page.enabled} primary={page.primary} />
+                      </span>
+                    </span>
+                    {selected && <Check className="size-4 shrink-0 text-primary" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <StepActions
+            back={
+              <Button
+                variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase("budget")}
+              >
+                Voltar
+              </Button>
+            }
+          >
+            <Button
+              className={flowNextButtonClassName}
+              disabled={!pageId || isLoadingPages}
+              onClick={() => setPhase("media")}
+            >
+              Continuar
+            </Button>
+          </StepActions>
+        </section>
       )}
 
-      {phase === "media" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Mídia do anúncio</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {/* Media — mounted once reached, hidden afterwards (see `mediaPickerMounted`). */}
+      {mediaPickerMounted && (
+        <section className={cn(flowSectionClassName, phase !== "media" && "hidden")}>
+          <StepHeading
+            title={hasMold ? "Quer testar mídias novas também?" : "Qual mídia vai ao ar?"}
+            description={
+              hasMold
+                ? "Os anúncios validados já entram. Cada mídia nova vira um anúncio no conjunto vencedor."
+                : "Posts do Instagram, mídias do Automatize ou arquivos do computador. Todas as mídias entram no mesmo conjunto."
+            }
+          />
+          <div className={flowCardClassName}>
             <MediaSourcePicker
               accountId={accountId}
               instagramBusinessAccountId={selectedPage?.instagramBusinessAccountId}
@@ -1085,114 +1599,136 @@ export function AiCampaignClient() {
               onChangeMany={setSelectedMedias}
               userId={userId}
             />
-            {pendingVideos ? (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Enviando e processando o vídeo na Meta…
-              </p>
-            ) : null}
-            {/* A boosted post skips the text step, so the destination is asked right here. */}
-            {!needsTexts && showsLink ? (
-              <div className="space-y-2">
-                <Label>
-                  Link de destino
-                  {linkPolicy === "required" ? (
-                    <span className="text-destructive"> *</span>
-                  ) : null}
-                </Label>
-                <Input
-                  onChange={(event) => setPromotionUrl(event.target.value)}
-                  placeholder="https://"
-                  type="url"
-                  value={promotionUrl}
-                />
-                {promotionUrl && !linkValid ? (
-                  <p className="text-xs text-destructive">
-                    Informe uma URL completa, começando com https://
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Para onde o botão do anúncio leva (site, cardápio, página da oferta).
-                  </p>
-                )}
-              </div>
-            ) : null}
-            <Button onClick={goNextFromMedia}>Continuar</Button>
-          </CardContent>
-        </Card>
+          </div>
+          {pendingVideos ? (
+            <p className={flowHintClassName}>
+              <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+              Enviando e processando o vídeo na Meta…
+            </p>
+          ) : null}
+          {/* A boosted post skips the text step, so the destination is asked right here — once
+              there is a post to boost. */}
+          {selectedMedias.length > 0 && !needsTexts && showsLink
+            ? linkField("ai-link-boost")
+            : null}
+          <StepActions
+            back={
+              <Button
+                variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase(stepBefore("media"))}
+              >
+                Voltar
+              </Button>
+            }
+          >
+            <Button
+              className={flowNextButtonClassName}
+              disabled={selectedMedias.length === 0}
+              onClick={goNextFromMedia}
+            >
+              Continuar
+            </Button>
+          </StepActions>
+        </section>
       )}
 
+      {/* Texts — skipped entirely for an Instagram boost: the post IS the creative. */}
       {phase === "text" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Textos do anúncio</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="O que o anúncio diz?"
+            description="Descreva a oferta e deixe a IA escrever. Os campos continuam editáveis."
+          />
+          <div className={cn("space-y-3", flowAccentCardClassName)}>
             <div className="space-y-2">
-              <Label>Oferta (para a IA)</Label>
+              <Label htmlFor="ai-offer" className="flex items-center gap-1.5">
+                <Sparkles className="size-3.5 text-primary" />
+                Oferta (para a IA)
+              </Label>
               <Textarea
+                id="ai-offer"
+                rows={2}
                 onChange={(event) => setOffer(event.target.value)}
                 placeholder="Ex.: rodízio de sushi por R$ 79 de terça a quinta"
                 value={offer}
-              />
-              <Button
                 disabled={isWritingCopy}
-                onClick={() => void writeCopy()}
-                type="button"
+                className="bg-background"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={!offer.trim() || isWritingCopy}
+              onClick={() => void writeCopy()}
+            >
+              {isWritingCopy ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Sparkles className="size-4" />
+              )}
+              {isWritingCopy
+                ? "Escrevendo…"
+                : headline || message
+                  ? "Escrever de novo com IA"
+                  : "Escrever com IA"}
+            </Button>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ai-headline">Título</Label>
+            <Input
+              id="ai-headline"
+              onChange={(event) => setHeadline(event.target.value)}
+              value={headline}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ai-message">Texto</Label>
+            <Textarea
+              id="ai-message"
+              rows={4}
+              onChange={(event) => setMessage(event.target.value)}
+              value={message}
+            />
+          </div>
+          {showsLink ? linkField("ai-link") : null}
+          {pendingVideos ? (
+            <p className={flowHintClassName}>
+              <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+              O vídeo ainda está sendo processado na Meta. Dá para continuar escrevendo.
+            </p>
+          ) : null}
+          <StepActions
+            back={
+              <Button
                 variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase("media")}
               >
-                {isWritingCopy ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Sparkles className="size-4" />
-                )}
-                Escrever com IA
+                Voltar
               </Button>
-            </div>
-            <div className="space-y-2">
-              <Label>Título</Label>
-              <Input onChange={(event) => setHeadline(event.target.value)} value={headline} />
-            </div>
-            <div className="space-y-2">
-              <Label>Texto</Label>
-              <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
-            </div>
-            {showsLink ? (
-              <div className="space-y-2">
-                <Label>
-                  Link de destino
-                  {linkPolicy === "required" ? (
-                    <span className="text-destructive"> *</span>
-                  ) : null}
-                </Label>
-                <Input
-                  onChange={(event) => setPromotionUrl(event.target.value)}
-                  placeholder="https://"
-                  type="url"
-                  value={promotionUrl}
-                />
-                {promotionUrl && !linkValid ? (
-                  <p className="text-xs text-destructive">
-                    Informe uma URL completa, começando com https://
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Para onde o botão do anúncio leva (site, cardápio, página da oferta).
-                  </p>
-                )}
-              </div>
-            ) : null}
-            <Button onClick={goNextFromText}>Continuar</Button>
-          </CardContent>
-        </Card>
+            }
+          >
+            <Button
+              className={flowNextButtonClassName}
+              disabled={needsTexts && (!headline.trim() || !message.trim())}
+              onClick={goNextFromText}
+            >
+              {needsLocation || needsPixel ? "Continuar" : "Revisar"}
+            </Button>
+          </StepActions>
+        </section>
       )}
 
+      {/* Location — asked ONLY when the business profile has no saved address. */}
       {phase === "location" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Onde anunciar</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="Onde anunciar?"
+            description="O cliente não tem endereço salvo. Escolha as localizações que a campanha alcança."
+          />
+          <div className={flowCardClassName}>
             <LocationTargetingSection
               accountId={accountId}
               company={companyProfile?.company ?? null}
@@ -1201,102 +1737,190 @@ export function AiCampaignClient() {
               selectedLocations={manualLocations}
               userId={userId}
             />
-            <Button disabled={manualLocations.length === 0} onClick={goNextFromLocation}>
-              Continuar
+          </div>
+          <StepActions
+            back={
+              <Button
+                variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase(needsTexts ? "text" : "media")}
+              >
+                Voltar
+              </Button>
+            }
+          >
+            {/* No choice, no campaign: we never fall back to targeting the whole country. */}
+            <Button
+              className={flowNextButtonClassName}
+              disabled={manualLocations.length === 0}
+              onClick={goNextFromLocation}
+            >
+              {needsPixel ? "Continuar" : "Revisar"}
             </Button>
-          </CardContent>
-        </Card>
+          </StepActions>
+        </section>
       )}
 
+      {/* Pixel — asked ONLY on a sales campaign without a base and without a pixel picked. */}
       {phase === "pixel" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Pixel de conversão</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {pixels.length > 0 ? (
-              <Select onValueChange={setPixelId} value={pixelId ?? undefined}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o pixel" />
-                </SelectTrigger>
-                <SelectContent>
-                  {pixels.map((pixel) => (
-                    <SelectItem key={pixel.id} value={pixel.id}>
-                      {pixel.name || pixel.id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Nenhum pixel encontrado nesta conta. A campanha de vendas precisa de um pixel.
-              </p>
-            )}
-            <Button disabled={needsPixel && !pixelId} onClick={() => void goToReview()}>
-              Continuar
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title={pixels.length === 0 ? "Nenhum pixel na conta" : "Qual pixel mede as vendas?"}
+            description={
+              pixels.length === 0
+                ? "A campanha de vendas precisa de um pixel. Crie um no Gerenciador de Eventos do cliente e volte aqui."
+                : "O pixel de conversão que registra as compras desta campanha."
+            }
+          />
+          {pixels.length > 0 ? (
+            <Select onValueChange={setPixelId} value={pixelId ?? undefined}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione o pixel" />
+              </SelectTrigger>
+              <SelectContent>
+                {pixels.map((pixel) => (
+                  <SelectItem key={pixel.id} value={pixel.id}>
+                    {pixel.name || pixel.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <StepActions
+            back={
+              <Button
+                variant="outline"
+                className={flowBackButtonClassName}
+                onClick={() => setPhase(stepBefore("pixel"))}
+              >
+                Voltar
+              </Button>
+            }
+          >
+            <Button
+              className={flowNextButtonClassName}
+              disabled={needsPixel && !pixelId}
+              onClick={() => void goToReview()}
+            >
+              Revisar
             </Button>
-          </CardContent>
-        </Card>
+          </StepActions>
+        </section>
       )}
 
-      {phase === "review" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Revisar e publicar</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <p className="text-sm text-muted-foreground">
-              Objetivo: {OBJECTIVE_LABEL[objective]} · Orçamento: {currency} {dailyBudget}/dia
-              {hasMold ? " · A partir do histórico validado" : " · Campanha nova"}
-              {` · ${selectedMedias.length} mídia(s)`}
-            </p>
+      {/* The review — everything that will go live, plus Meta's objections. THIS is the gate. */}
+      {(phase === "review" || phase === "publishing") && (
+        <section className={flowSectionClassName}>
+          <StepHeading
+            title="Revisar e publicar"
+            description="Confira o que vai ao ar. A campanha sobe ativa na Meta assim que você aprovar."
+          />
 
-            {planIssues.length > 0 ? (
-              <div className="space-y-2 rounded-md border border-amber-300/60 bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
-                <p className="font-medium">A Meta pode recusar esta campanha</p>
-                {planIssues.map((issue, index) => (
-                  <p key={`${issue.reason ?? issue.message}-${index}`} className="text-muted-foreground">
-                    {issue.reason ?? issue.message}
-                    {issue.suggestion ? ` ${issue.suggestion}` : ""}
-                  </p>
-                ))}
+          {mold ? <ReviewMoldBanner mold={mold} /> : null}
+
+          <ReviewIssues issues={planIssues} />
+
+          <div className={cn("space-y-4", flowCardClassName)}>
+            <div>
+              <p className={flowCardTitleClassName}>Criativos</p>
+              <p className={flowCardDescriptionClassName}>
+                {keptProvenAds.length > 0
+                  ? `${keptProvenAds.length} anúncio(s) validado(s) copiado(s)${selectedMedias.length > 0 ? ` e ${selectedMedias.length} mídia(s) nova(s)` : ""}.`
+                  : `${selectedMedias.length} mídia(s) no mesmo conjunto.`}
+              </p>
+            </div>
+            <ReviewMediaStrip provenAds={keptProvenAds} medias={selectedMedias} />
+
+            <dl className="space-y-2.5">
+              <ReviewRow label="Objetivo" value={OBJECTIVE_LABEL[objective]} />
+              <ReviewRow
+                label="Base"
+                value={hasMold ? "Histórico validado da conta" : "Campanha nova"}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border/60 pb-2.5">
+                <dt className={flowRowLabelClassName}>Orçamento diário</dt>
+                <dd className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">{currencySymbol(currency)}</span>
+                  <Input
+                    aria-label="Orçamento diário"
+                    type="number"
+                    min={1}
+                    step={1}
+                    inputMode="decimal"
+                    className="h-8 w-28 text-right"
+                    value={dailyBudget}
+                    disabled={phase === "publishing"}
+                    onChange={(event) => setDailyBudget(event.target.value)}
+                    // The mold path re-plans against Meta, so on BLUR only — per keystroke would
+                    // burn the account's error-rate budget.
+                    onBlur={() => {
+                      if (mold) void refreshPlan({ dailyBudget });
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">/dia</span>
+                </dd>
               </div>
-            ) : null}
-
-            {selectedMedias.length > 0 ? (
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                  {selectedMedias.map((media, index) => (
-                    <div
-                      key={
-                        media.source === "instagram"
-                          ? media.instagramMediaId
-                          : media.source === "automatize_media"
-                            ? media.generatedImageId
-                            : media.blobUrl
-                      }
-                      className="overflow-hidden rounded-md border"
-                    >
-                      {media.previewUrl ? (
-                        <img
-                          alt={`Mídia ${index + 1}`}
-                          className="aspect-square w-full object-cover"
-                          src={media.previewUrl}
-                        />
-                      ) : (
-                        <div className="flex aspect-square items-center justify-center text-xs text-muted-foreground">
-                          Mídia {index + 1}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
+              {needsTexts || showsLink ? (
+                <ReviewRow
+                  label="Botão (CTA)"
+                  value={ctaLabel(ctaType)}
+                  onEdit={openCtaSheet}
+                  disabled={phase === "publishing"}
+                />
               ) : null}
+              {showsLink ? (
+                <ReviewRow
+                  label="Link de destino"
+                  value={promotionUrl || "Não informado"}
+                  onEdit={openLinkSheet}
+                  disabled={phase === "publishing"}
+                  invalid={linkBlocks || (Boolean(promotionUrl) && !linkValid)}
+                />
+              ) : null}
+              {!hasMold ? (
+                <ReviewRow
+                  label="Período"
+                  value={periodLabel}
+                  onEdit={openPeriodSheet}
+                  disabled={phase === "publishing"}
+                />
+              ) : null}
+              {showDeliverySchedule ? (
+                <ReviewRow
+                  label="Horários"
+                  value={scheduleSummary(deliverySchedule)}
+                  onEdit={openScheduleSheet}
+                  disabled={phase === "publishing"}
+                  invalid={scheduleEmpty}
+                />
+              ) : null}
+              {!hasMold ? (
+                <ReviewRow
+                  label="Localização"
+                  value={locationLabel}
+                  onEdit={openLocationSheet}
+                  disabled={phase === "publishing"}
+                  invalid={effectiveLocations.length === 0}
+                />
+              ) : null}
+              <ReviewRow
+                label="Posicionamentos"
+                value={placementsSummary(placementsMode, selectedPlacements, objective)}
+                onEdit={openPlacementsSheet}
+                disabled={phase === "publishing"}
+                invalid={placementsEmpty}
+              />
+            </dl>
+          </div>
 
-            <div className="space-y-2">
-              <Label>Identidade</Label>
+          <div className={cn("space-y-4", flowCardClassName)}>
+            <ReviewInlineBlock
+              label="Identidade"
+              description="A Página e o Instagram que assinam o anúncio."
+            >
               <PageSelector
                 isLoading={isLoadingPages}
+                disabled={phase === "publishing"}
                 onSelectPage={(nextPageId) => {
                   setPageId(nextPageId);
                   if (mold) void refreshPlan({ pageId: nextPageId });
@@ -1304,392 +1928,475 @@ export function AiCampaignClient() {
                 pages={pages}
                 selectedPageId={pageId}
               />
-            </div>
+            </ReviewInlineBlock>
 
-            {objective === "whatsapp" ? (
-              <WhatsappDestinationCard
-                pageId={selectedPage?.pageId ?? pageId}
-                pageName={selectedPage?.pageName}
-                whatsappNumber={whatsappNumber}
-                title="WhatsApp da campanha"
+            {objective === "sales" ? (
+              <ReviewInlineBlock
+                label="Pixel de conversão"
+                description="O pixel que registra as compras desta campanha."
               >
-                <div className="mt-4 space-y-3">
-                  <div className="space-y-2">
-                    <Label>Primeira mensagem do cliente</Label>
-                    <Textarea
-                      onChange={(event) =>
-                        setWhatsappAutofillMessage(event.target.value)
-                      }
-                      placeholder="Oi! Vi o anúncio e quero saber mais."
-                      rows={2}
-                      value={whatsappAutofillMessage}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      É o que já chega digitado no WhatsApp do cliente.
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Saudação do negócio (opcional)</Label>
-                    <Input
-                      onChange={(event) => setWhatsappGreeting(event.target.value)}
-                      placeholder="Olá! Como podemos te ajudar?"
-                      value={whatsappGreeting}
-                    />
-                  </div>
-                </div>
-              </WhatsappDestinationCard>
-            ) : null}
-
-            {needsTexts || showsLink ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {needsTexts ? (
-                  <div className="space-y-2">
-                    <Label>Título</Label>
-                    <Input onChange={(event) => setHeadline(event.target.value)} value={headline} />
-                  </div>
-                ) : null}
-                {needsTexts || showsLink ? (
-                  <div className="space-y-2">
-                    <Label>Botão (CTA)</Label>
-                    <Select onValueChange={setCtaType} value={ctaType}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CTA_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option.replace(/_/g, " ")}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
-                {needsTexts ? (
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label>Texto</Label>
-                    <Textarea onChange={(event) => setMessage(event.target.value)} value={message} />
-                  </div>
-                ) : null}
-                {showsLink ? (
-                  <div className="sm:col-span-2">
-                    <div className="space-y-2">
-                      <Label>
-                        Link de destino
-                        {linkPolicy === "required" ? (
-                          <span className="text-destructive"> *</span>
-                        ) : null}
-                      </Label>
-                      <Input
-                        onChange={(event) => setPromotionUrl(event.target.value)}
-                        placeholder="https://"
-                        type="url"
-                        value={promotionUrl}
-                      />
-                      {promotionUrl && !linkValid ? (
-                        <p className="text-xs text-destructive">
-                          Informe uma URL completa, começando com https://
-                        </p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">
-                          Para onde o botão do anúncio leva (site, cardápio, página da oferta).
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-
-            {!hasMold ? (
-              <div className="space-y-3">
-                <Label>Período</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button className="justify-start gap-2" type="button" variant="outline">
-                      <CalendarIcon className="size-4" />
-                      {periodLabel}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-auto p-0">
-                    <Calendar
-                      defaultMonth={periodStart}
-                      disabled={{ before: startOfDay(new Date()) }}
-                      locale={ptBR}
-                      mode="range"
-                      onSelect={(range: DateRange | undefined) => {
-                        if (range?.from) setPeriodStart(startOfDay(range.from));
-                        if (range?.to) setPeriodEnd(startOfDay(range.to));
-                      }}
-                      selected={{ from: periodStart, to: periodEnd }}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                      Início
-                    </Label>
-                    <Select onValueChange={setPeriodStartTime} value={periodStartTime}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {HOUR_OPTIONS.map((time) => (
-                          <SelectItem key={`start-${time}`} value={time}>
-                            {time}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                      Término
-                    </Label>
-                    <Select onValueChange={setPeriodEndTime} value={periodEndTime}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {END_TIME_OPTIONS.map((time) => (
-                          <SelectItem key={`end-${time}`} value={time}>
-                            {time}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {!hasMold ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <Label>Geo Localização</Label>
-                  <Button onClick={openLocationStep} size="sm" type="button" variant="ghost">
-                    Alterar
-                  </Button>
-                </div>
-                {effectiveLocations.length > 0 ? (
-                  <ul className="space-y-1 text-sm">
-                    {effectiveLocations.map((location) => (
-                      <li key={location.key} className="text-muted-foreground">
-                        {location.name}
-                        {location.address_string ? ` · ${location.address_string}` : ""}
-                        {location.radius != null ? ` · ${location.radius} km` : ""}
-                      </li>
-                    ))}
-                  </ul>
+                {pixels.length > 0 ? (
+                  <Select
+                    onValueChange={(next) => {
+                      setPixelId(next);
+                      if (mold) void refreshPlan({ pixelId: next });
+                    }}
+                    value={pixelId ?? undefined}
+                    disabled={phase === "publishing"}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecione o pixel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pixels.map((pixel) => (
+                        <SelectItem key={pixel.id} value={pixel.id}>
+                          {pixel.name || pixel.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 ) : (
-                  <p className="text-sm text-destructive">
-                    Selecione ao menos uma localização para segmentação
+                  <p className="text-sm text-muted-foreground">
+                    Nenhum pixel encontrado nesta conta.
                   </p>
                 )}
-              </div>
+              </ReviewInlineBlock>
             ) : null}
 
-            <AiPlacementsEditor
-              mode={placementsMode}
-              objective={objective}
-              onChange={(nextPlacements) => {
-                setSelectedPlacements(nextPlacements);
-                if (mold) {
-                  void refreshPlan({ selectedPlacements: nextPlacements });
-                }
-              }}
-              onModeChange={(mode) => {
-                setPlacementsMode(mode);
-                if (mode === "manual" && selectedPlacements.length === 0) {
-                  const nextPlacements =
-                    objective === "followers"
-                      ? [...INSTAGRAM_PLACEMENTS]
-                      : [...ALL_PLACEMENTS];
-                  setSelectedPlacements(nextPlacements);
-                  if (mold) {
-                    void refreshPlan({
-                      placementsMode: mode,
-                      selectedPlacements: nextPlacements,
-                    });
-                  }
-                  return;
-                }
-                if (mold) {
-                  void refreshPlan({
-                    placementsMode: mode,
-                    selectedPlacements,
-                  });
-                }
-              }}
-              selectedPlacements={selectedPlacements}
-            />
-            <p className="text-xs text-muted-foreground">
-              {placementsSummary(placementsMode, selectedPlacements, objective)}
-            </p>
-
-            <AiDemographicLimitsEditor
-              value={demographics}
-              onChange={(next) => {
-                setDemographics(next);
-                if (mold) void refreshPlan({ demographics: next });
-              }}
-              disabled={isBusy}
-            />
-            <AiAudienceExclusionsEditor
-              accountId={accountId}
-              userId={userId}
-              value={excludedCustomAudienceIds}
-              onChange={(next) => {
-                setExcludedCustomAudienceIds(next);
-                if (mold) void refreshPlan({ excludedCustomAudienceIds: next });
-              }}
-              disabled={isBusy}
-            />
-            <AiAudienceInclusionsEditor
-              accountId={accountId}
-              userId={userId}
-              value={includedCustomAudienceIds}
-              onChange={(next) => {
-                setIncludedCustomAudienceIds(next);
-                if (mold) void refreshPlan({ includedCustomAudienceIds: next });
-              }}
-              disabled={isBusy}
-            />
-            {effectiveAudienceReview?.adSets?.length ? (
-              <div className="space-y-3 rounded-md border p-3" aria-live="polite">
-                <div>
-                  <p className="font-medium">Segmentação efetiva por conjunto</p>
-                  <p className="text-xs text-muted-foreground">
-                    Valores aplicados substituem somente o campo correspondente; os demais permanecem herdados.
-                  </p>
-                </div>
-                {effectiveAudienceReview.adSets.map((adSet) => (
-                  <div key={adSet.index} className="rounded border p-3 text-sm">
-                    <p className="font-medium">Conjunto {adSet.index + 1}</p>
-                    <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
-                      <div>
-                        <dt className="inline font-medium">Localização: </dt>
-                        <dd className="inline">{audienceGeoLabel(adSet.geo)}</dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Expansão: </dt>
-                        <dd className="inline">
-                          {adSet.advantagePlus ? "ativada (Advantage+)" : "desativada"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Públicos personalizados: </dt>
-                        <dd className="inline">
-                          {adSet.overlappingCustomAudiences > 0
-                            ? `${adSet.customAudiences} selecionado(s); ${adSet.effectiveCustomAudiences} efetivo(s) após exclusões`
-                            : adSet.customAudiences} ({adSet.includedCustomAudiencesApplied ? "aplicado" : "herdado"})
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Públicos excluídos: </dt>
-                        <dd className="inline">
-                          {adSet.overlappingCustomAudiences > 0
-                            ? `${adSet.overlappingCustomAudiences} também incluído(s); a exclusão prevalece`
-                            : adSet.excludedCustomAudiences} ({adSet.excludedCustomAudiencesApplied ? "aplicado" : "herdado"})
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Idade: </dt>
-                        <dd className="inline">
-                          {adSet.ageMin != null || adSet.ageMax != null
-                            ? `${adSet.ageMin ?? 18}–${adSet.ageMax ?? 65}`
-                            : "não especificada"}{" "}
-                          ({adSet.ageSource})
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Gênero: </dt>
-                        <dd className="inline">
-                          {audienceGenderLabel(adSet.genders)} ({adSet.genderSource})
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="inline font-medium">Posicionamentos: </dt>
-                        <dd className="inline">
-                          {adSet.placements.automatic ? "automáticos (Advantage+)" : "manuais"}
-                        </dd>
-                      </div>
-                    </dl>
+            {objective === "whatsapp" ? (
+              <ReviewInlineBlock label="WhatsApp da campanha">
+                <WhatsappDestinationCard
+                  pageId={selectedPage?.pageId ?? pageId}
+                  pageName={selectedPage?.pageName}
+                  whatsappNumber={whatsappNumber}
+                >
+                  <div className="mt-4 space-y-3">
+                    <div className="space-y-2">
+                      <Label htmlFor="ai-whatsapp-autofill">Primeira mensagem do cliente</Label>
+                      <Textarea
+                        id="ai-whatsapp-autofill"
+                        onChange={(event) => setWhatsappAutofillMessage(event.target.value)}
+                        placeholder="Oi! Vi o anúncio e quero saber mais."
+                        rows={2}
+                        value={whatsappAutofillMessage}
+                        disabled={phase === "publishing"}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        É o que já chega digitado no WhatsApp do cliente.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="ai-whatsapp-greeting">Saudação do negócio (opcional)</Label>
+                      <Input
+                        id="ai-whatsapp-greeting"
+                        onChange={(event) => setWhatsappGreeting(event.target.value)}
+                        placeholder="Olá! Como podemos te ajudar?"
+                        value={whatsappGreeting}
+                        disabled={phase === "publishing"}
+                      />
+                    </div>
                   </div>
-                ))}
-              </div>
+                </WhatsappDestinationCard>
+              </ReviewInlineBlock>
             ) : null}
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              Configuração efetiva em todos os novos conjuntos: {mold
-                ? plannedIncludedAudienceCount ?? includedCustomAudienceIds?.length ?? 0
-                : includedCustomAudienceIds?.length ?? 0} inclusão(ões) e {mold
-                ? plannedExcludedAudienceCount ?? excludedCustomAudienceIds?.length ?? 0
-                : excludedCustomAudienceIds?.length ?? 0} exclusão(ões) de públicos.
+
+            {needsTexts ? (
+              <ReviewInlineBlock
+                label="Textos do anúncio"
+                description="Editáveis até a publicação."
+              >
+                <div className="grid gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="ai-review-headline">Título</Label>
+                    <Input
+                      id="ai-review-headline"
+                      onChange={(event) => setHeadline(event.target.value)}
+                      value={headline}
+                      disabled={phase === "publishing"}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ai-review-message">Texto</Label>
+                    <Textarea
+                      id="ai-review-message"
+                      rows={4}
+                      onChange={(event) => setMessage(event.target.value)}
+                      value={message}
+                      disabled={phase === "publishing"}
+                    />
+                  </div>
+                </div>
+              </ReviewInlineBlock>
+            ) : null}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            disabled={phase === "publishing"}
+            onClick={() => setAdvancedAudienceOpen(true)}
+            className="h-auto w-full justify-between gap-3 px-4 py-3 text-left"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+                <SlidersHorizontal className="size-4" />
+              </span>
+              <span className="min-w-0 space-y-0.5">
+                <span className="block text-sm font-semibold">
+                  Configurações avançadas de público
+                </span>
+                <span className="block whitespace-normal text-xs font-normal text-muted-foreground">
+                  Idade, gênero, inclusões, exclusões e biblioteca de públicos
+                </span>
+              </span>
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {audienceAdjusted && (
+                <span className="rounded-full bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary">
+                  Ajustado
+                </span>
+              )}
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </span>
+          </Button>
+          <p className={flowHintClassName} aria-live="polite">
+            <Info className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              Configuração efetiva em todos os novos conjuntos:{" "}
+              {mold
+                ? (plannedIncludedAudienceCount ?? includedCustomAudienceIds?.length ?? 0)
+                : (includedCustomAudienceIds?.length ?? 0)}{" "}
+              inclusão(ões) e{" "}
+              {mold
+                ? (plannedExcludedAudienceCount ?? excludedCustomAudienceIds?.length ?? 0)
+                : (excludedCustomAudienceIds?.length ?? 0)}{" "}
+              exclusão(ões) de públicos.{" "}
               {includedCustomAudienceIds === undefined
                 ? "O Advantage+ permanece no estado herdado."
                 : includedCustomAudienceIds.length > 0
                   ? "O Advantage+ e a expansão de públicos estão desativados para respeitar as inclusões."
                   : "A lista de inclusões foi limpa; a expansão volta à composição da base."}
+            </span>
+          </p>
+
+          <ReviewEffectiveAudience audience={effectiveAudienceReview} />
+
+          {pendingVideos ? (
+            <p className={flowHintClassName}>
+              <Loader2 className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+              O vídeo ainda está sendo processado na Meta. O botão libera quando terminar.
             </p>
+          ) : null}
 
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
-              <div>
-                <p className="text-sm font-medium">Públicos da conta</p>
-                <p className="text-sm text-muted-foreground">
-                  Consulte ou gerencie a biblioteca sem alterar as respostas desta campanha.
-                </p>
-              </div>
+          <StepActions
+            back={
               <Button
-                type="button"
                 variant="outline"
-                disabled={isBusy}
-                onClick={() => setAudienceLibraryOpen(true)}
+                className={flowBackButtonClassName}
+                disabled={phase === "publishing"}
+                onClick={() => setPhase(needsTexts ? "text" : "media")}
               >
-                Gerenciar públicos
+                Voltar
               </Button>
-            </div>
-            <AiAudienceLibraryDialog
-              accountId={accountId}
-              userId={userId}
-              open={audienceLibraryOpen}
-              onOpenChange={setAudienceLibraryOpen}
-            />
-
-            {showDeliverySchedule ? (
-              <AdSetDeliveryScheduleEditor
-                businessUnits={businessUnits}
-                onChange={setDeliverySchedule}
-                value={deliverySchedule}
-              />
-            ) : null}
+            }
+          >
             <Button
-              disabled={
-                isBusy ||
-                planIssues.length > 0 ||
-                pendingVideos ||
-                planMedias.length === 0 ||
-                (!hasMold && effectiveLocations.length === 0) ||
-                linkBlocks ||
-                (objective === "whatsapp" && !whatsappAutofillMessage.trim()) ||
-                (objective === "whatsapp" && whatsappPageNotLinked)
-              }
+              className={flowNextButtonClassName}
+              disabled={publishDisabled}
               onClick={() => void publish()}
             >
-              Publicar campanha
+              {phase === "publishing" && <Loader2 className="size-4 animate-spin" />}
+              {phase === "publishing" ? "Publicando…" : "Publicar campanha"}
             </Button>
-          </CardContent>
-        </Card>
+          </StepActions>
+          <p
+            className={cn(
+              "text-balance text-center text-xs leading-relaxed",
+              publishBlockedReason && phase !== "publishing"
+                ? "text-destructive"
+                : "text-muted-foreground",
+            )}
+          >
+            {publishBlockedReason ?? "A campanha sobe ativa na Meta assim que você aprovar."}
+          </p>
+        </section>
       )}
 
-      {phase === "publishing" && (
-        <Card>
-          <CardContent className="flex items-center gap-3 p-6 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Publicando a campanha na Meta…
-          </CardContent>
-        </Card>
-      )}
+      <AiAdvancedAudienceSheet
+        open={advancedAudienceOpen}
+        onOpenChange={setAdvancedAudienceOpen}
+        accountId={accountId}
+        userId={userId}
+        demographics={demographics}
+        onDemographicsChange={(next) => {
+          setDemographics(next);
+          if (mold) void refreshPlan({ demographics: next });
+        }}
+        includedCustomAudienceIds={includedCustomAudienceIds}
+        onInclusionsChange={(next) => {
+          setIncludedCustomAudienceIds(next);
+          if (mold) void refreshPlan({ includedCustomAudienceIds: next });
+        }}
+        excludedCustomAudienceIds={excludedCustomAudienceIds}
+        onExclusionsChange={(next) => {
+          setExcludedCustomAudienceIds(next);
+          if (mold) void refreshPlan({ excludedCustomAudienceIds: next });
+        }}
+        disabled={isBusy}
+      />
+
+      <ReviewEditSheet
+        open={reviewSheet === "link"}
+        title="Link de destino"
+        description="Para onde o botão do anúncio leva. Cancelar descarta a alteração."
+        saveDisabled={sheetLinkSaveDisabled}
+        onOpenChange={(open) => !open && setReviewSheet(null)}
+        onSave={() => {
+          setPromotionUrl(sheetLink.trim());
+          setReviewSheet(null);
+        }}
+      >
+        <div className="space-y-2">
+          <Label htmlFor="ai-review-link">
+            Link de destino
+            {linkPolicy === "required" ? <span className="text-destructive"> *</span> : null}
+          </Label>
+          <Input
+            id="ai-review-link"
+            type="url"
+            inputMode="url"
+            autoComplete="url"
+            placeholder="https://"
+            value={sheetLink}
+            onChange={(event) => setSheetLink(event.target.value)}
+            aria-invalid={Boolean(sheetLink.trim()) && !sheetLinkValid}
+          />
+          {sheetLink.trim() && !sheetLinkValid ? (
+            <p className="text-xs text-destructive">
+              Informe uma URL completa, começando com https://
+            </p>
+          ) : (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Site, cardápio ou página da oferta.
+            </p>
+          )}
+        </div>
+      </ReviewEditSheet>
+
+      <ReviewEditSheet
+        open={reviewSheet === "period"}
+        title="Período da campanha"
+        description="Quando a campanha começa e termina. Cancelar descarta a alteração."
+        saveDisabled={!sheetPeriod || sheetPeriodInvalid}
+        onOpenChange={(open) => !open && setReviewSheet(null)}
+        onSave={() => {
+          if (!sheetPeriod) return;
+          setPeriodStart(sheetPeriod.start);
+          setPeriodEnd(sheetPeriod.end);
+          setPeriodStartTime(sheetPeriod.startTime);
+          setPeriodEndTime(sheetPeriod.endTime);
+          setReviewSheet(null);
+        }}
+      >
+        {sheetPeriod ? (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Datas</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button className="w-full justify-start gap-2" type="button" variant="outline">
+                    <CalendarIcon className="size-4" />
+                    {format(sheetPeriod.start, "dd/MM/yy")} – {format(sheetPeriod.end, "dd/MM/yy")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-auto p-0">
+                  <Calendar
+                    defaultMonth={sheetPeriod.start}
+                    disabled={{ before: startOfDay(new Date()) }}
+                    locale={ptBR}
+                    mode="range"
+                    onSelect={(range: DateRange | undefined) => {
+                      setSheetPeriod((current) =>
+                        current
+                          ? {
+                              ...current,
+                              start: range?.from ? startOfDay(range.from) : current.start,
+                              end: range?.to ? startOfDay(range.to) : current.end,
+                            }
+                          : current,
+                      );
+                    }}
+                    selected={{ from: sheetPeriod.start, to: sheetPeriod.end }}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className={flowRowLabelClassName}>Início</Label>
+                <Select
+                  onValueChange={(startTime) =>
+                    setSheetPeriod((current) => (current ? { ...current, startTime } : current))
+                  }
+                  value={sheetPeriod.startTime}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HOUR_OPTIONS.map((time) => (
+                      <SelectItem key={`start-${time}`} value={time}>
+                        {time}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className={flowRowLabelClassName}>Término</Label>
+                <Select
+                  onValueChange={(endTime) =>
+                    setSheetPeriod((current) => (current ? { ...current, endTime } : current))
+                  }
+                  value={sheetPeriod.endTime}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {END_TIME_OPTIONS.map((time) => (
+                      <SelectItem key={`end-${time}`} value={time}>
+                        {time}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {sheetPeriodInvalid ? (
+              <p className={flowErrorClassName}>
+                <Info className="mt-0.5 size-3.5 shrink-0" />O término precisa vir depois do início.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </ReviewEditSheet>
+
+      <ReviewEditSheet
+        open={reviewSheet === "schedule"}
+        title="Horários de veiculação"
+        description="Em quais dias e horários os anúncios rodam. Cancelar descarta a alteração."
+        saveDisabled={!sheetSchedule || sheetScheduleEmpty}
+        onOpenChange={(open) => !open && setReviewSheet(null)}
+        onSave={() => {
+          if (!sheetSchedule) return;
+          setDeliverySchedule(sheetSchedule);
+          setReviewSheet(null);
+        }}
+      >
+        {sheetSchedule ? (
+          <div className="space-y-3">
+            <AdSetDeliveryScheduleEditor
+              businessUnits={businessUnits}
+              onChange={setSheetSchedule}
+              value={sheetSchedule}
+            />
+            {sheetScheduleEmpty ? (
+              <p className={flowErrorClassName}>
+                <Info className="mt-0.5 size-3.5 shrink-0" />
+                Escolha ao menos um horário, ou use o dia todo.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </ReviewEditSheet>
+
+      <ReviewEditSheet
+        open={reviewSheet === "location"}
+        title="Localização"
+        description="Onde a campanha alcança pessoas. Cancelar descarta a alteração."
+        saveDisabled={sheetLocations.length === 0}
+        onOpenChange={(open) => !open && setReviewSheet(null)}
+        onSave={() => {
+          setManualLocations(sheetLocations);
+          setReviewSheet(null);
+        }}
+      >
+        <LocationTargetingSection
+          accountId={accountId}
+          company={companyProfile?.company ?? null}
+          companyLocations={companyProfile?.locations ?? []}
+          onLocationsChange={setSheetLocations}
+          selectedLocations={sheetLocations}
+          userId={userId}
+        />
+      </ReviewEditSheet>
+
+      <ReviewEditSheet
+        open={reviewSheet === "placements"}
+        title="Posicionamentos"
+        description="Onde os anúncios aparecem. Cancelar descarta a alteração."
+        saveDisabled={sheetPlacementsInvalid}
+        onOpenChange={(open) => !open && setReviewSheet(null)}
+        onSave={() => {
+          setPlacementsMode(sheetPlacementsMode);
+          setSelectedPlacements(sheetSelectedPlacements);
+          setReviewSheet(null);
+          if (mold) {
+            void refreshPlan({
+              placementsMode: sheetPlacementsMode,
+              selectedPlacements: sheetSelectedPlacements,
+            });
+          }
+        }}
+      >
+        <div className="space-y-3">
+          <AiPlacementsEditor
+            mode={sheetPlacementsMode}
+            objective={objective}
+            onChange={setSheetSelectedPlacements}
+            onModeChange={(mode) => {
+              setSheetPlacementsMode(mode);
+              if (mode === "manual" && sheetSelectedPlacements.length === 0) {
+                setSheetSelectedPlacements(
+                  objective === "followers" ? [...INSTAGRAM_PLACEMENTS] : [...ALL_PLACEMENTS],
+                );
+              }
+            }}
+            selectedPlacements={sheetSelectedPlacements}
+          />
+          <p className="text-xs text-muted-foreground">
+            {placementsSummary(sheetPlacementsMode, sheetSelectedPlacements, objective)}
+          </p>
+        </div>
+      </ReviewEditSheet>
+
+      <ReviewEditSheet
+        open={reviewSheet === "cta"}
+        title="Botão do anúncio"
+        description="O texto do botão que leva ao destino. Cancelar descarta a alteração."
+        onOpenChange={(open) => !open && setReviewSheet(null)}
+        onSave={() => {
+          setCtaType(sheetCtaType);
+          setReviewSheet(null);
+        }}
+      >
+        <div className="space-y-2">
+          <Label>Botão (CTA)</Label>
+          <Select onValueChange={setSheetCtaType} value={sheetCtaType}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CTA_OPTIONS.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {ctaLabel(option)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </ReviewEditSheet>
     </div>
   );
 }

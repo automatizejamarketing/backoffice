@@ -499,6 +499,7 @@ export async function UserHubPage({
           }}
           showHeader={false}
           showUserPicker={false}
+          embedded={embedded}
         />
       )}
 

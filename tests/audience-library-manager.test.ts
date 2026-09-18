@@ -10,25 +10,31 @@ function readSource(relativePath: string) {
   return readFileSync(join(repositoryRoot, relativePath), "utf8");
 }
 
-test("standalone library and AI campaign dialog share the operator audience manager", () => {
+test("standalone library and AI campaign sheet share the operator audience manager", () => {
   const standalonePage = readSource("app/(admin)/marketing/audiences/page.tsx");
-  const campaignDialog = readSource("app/(admin)/marketing/ai/ai-audience-library-dialog.tsx");
+  // The campaign's entry point to the library is the "Públicos da conta" tab of the advanced
+  // audience sheet. It manages library objects only: no callback can turn one into a campaign
+  // answer — inclusions and exclusions have their own tabs and their own editors.
+  const campaignSheet = readSource("app/(admin)/marketing/ai/ai-advanced-audience-sheet.tsx");
   const manager = readSource("app/(admin)/marketing/audiences/audience-library-manager.tsx");
 
   assert.match(standalonePage, /import \{ AudienceLibraryManager \} from "\.\/audience-library-manager"/);
   assert.match(standalonePage, /accountUserId/);
   assert.match(standalonePage, /AudienceLibraryManager key=\{\`\$\{userId\}:\$\{selectedAccountId\}\`\} userId=\{userId\} accountId=\{selectedAccountId\}/);
-  assert.match(campaignDialog, /import \{ AudienceLibraryManager \} from "\.\.\/audiences\/audience-library-manager"/);
-  assert.match(campaignDialog, /AudienceLibraryManager key=\{\`\$\{userId\}:\$\{accountId\}\`\} userId=\{userId\} accountId=\{accountId\}/);
+  assert.match(campaignSheet, /import \{ AudienceLibraryManager \} from "\.\.\/audiences\/audience-library-manager"/);
+  assert.match(
+    campaignSheet,
+    /<AudienceLibraryManager\s+key=\{`\$\{userId\}:\$\{accountId\}`\}\s+accountId=\{accountId\}\s+userId=\{userId\}\s*\/>/,
+  );
 
   assert.match(manager, /CustomerListImport/);
   assert.match(manager, /userId: string/);
   assert.match(manager, /aria-label="Gerenciador de públicos"/);
-  assert.match(campaignDialog, /Dialog open=\{open\} onOpenChange=\{onOpenChange\}/);
-  assert.match(campaignDialog, /DialogClose asChild/);
-  assert.match(campaignDialog, /Voltar à campanha/);
-  assert.match(campaignDialog, /\{open \? <AudienceLibraryManager key=\{`\$\{userId\}:\$\{accountId\}`\} userId=\{userId\} accountId=\{accountId\} \/> : null\}/);
+  assert.match(campaignSheet, /Sheet modal=\{false\} open=\{open\} onOpenChange=\{onOpenChange\}/);
+  // The tabs (and the manager with them) mount only while the sheet is open.
+  assert.match(campaignSheet, /\{open \? \(\s*<Tabs/);
+  assert.match(campaignSheet, /Voltar à revisão/);
 
-  assert.doesNotMatch(campaignDialog, /InstagramAudienceEditor|WebsiteAudienceEditor|LookalikeAudienceCreator|CustomerListImport/);
-  assert.doesNotMatch(campaignDialog, /onSelectAudience|onApplyAudience|includedCustomAudienceIds/);
+  assert.doesNotMatch(campaignSheet, /InstagramAudienceEditor|WebsiteAudienceEditor|LookalikeAudienceCreator|CustomerListImport/);
+  assert.doesNotMatch(campaignSheet, /onSelectAudience|onApplyAudience/);
 });
