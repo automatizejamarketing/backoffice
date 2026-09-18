@@ -12,6 +12,7 @@ export async function proxy(request: NextRequest) {
   if (
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/cron-job") ||
+    pathname.startsWith("/api/internal/client-reports/") ||
     pathname === "/api/internal/mat-performance-report"
   ) {
     return NextResponse.next();
@@ -51,6 +52,6 @@ export const config = {
      * - favicon.ico / logo (public branding assets)
      * - common static file extensions under /public
      */
-    "/((?!api/auth|api/cron-job|api/internal/mat-performance-report|login|_next/static|_next/image|favicon.ico|logo/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt)$).*)",
+    "/((?!api/auth|api/cron-job|api/internal/client-reports/|api/internal/mat-performance-report|login|_next/static|_next/image|favicon.ico|logo/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt)$).*)",
   ],
 };

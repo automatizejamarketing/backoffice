@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { buildReportSnapshot } from "./build-snapshot";
 import {
+  CLIENT_REPORTS_THRESHOLDS,
   isClientReportsEnabled,
   isClientReportsUserAllowed,
 } from "./config";
@@ -81,6 +82,93 @@ export async function runClientReportSnapshotBatch(input: {
     periodStart: period.start,
     periodEnd: period.end,
     considered: userIds.length,
+    built,
+    errors,
+    results,
+  };
+}
+
+export async function runClientCampaignReportBatch(input?: {
+  userIds?: string[];
+  maxCampaigns?: number;
+}) {
+  if (!isClientReportsEnabled()) {
+    return { skipped: true as const, reason: "disabled", built: 0, errors: 0 };
+  }
+
+  const period = lastCompleteWeek();
+  const allowedUsers = input?.userIds?.filter((id) =>
+    isClientReportsUserAllowed(id),
+  );
+  const rows = await db.execute(sql`
+    SELECT
+      user_id::text AS user_id,
+      entity_id AS campaign_id,
+      COALESCE(sum(spend::numeric), 0)::numeric AS spend,
+      COALESCE(sum(purchase_value::numeric), 0)::numeric AS purchase_value
+    FROM meta_tracking_daily_metrics
+    WHERE entity_level = 'campaign'
+      AND metric_date >= ${period.start}
+      AND metric_date <= ${period.end}
+      ${
+        allowedUsers?.length
+          ? sql`AND user_id::text IN (${sql.join(
+              allowedUsers.map((id) => sql`${id}`),
+              sql`, `,
+            )})`
+          : sql``
+      }
+    GROUP BY user_id, entity_id
+    HAVING COALESCE(sum(spend::numeric), 0) >= 20
+      AND COALESCE(sum(purchase_value::numeric), 0)
+          / NULLIF(COALESCE(sum(spend::numeric), 0), 0)
+          >= ${CLIENT_REPORTS_THRESHOLDS.goodRoas}
+    ORDER BY purchase_value DESC
+    LIMIT ${input?.maxCampaigns ?? 300}
+  `);
+
+  let built = 0;
+  let errors = 0;
+  const results: Array<{
+    userId: string;
+    campaignId: string;
+    snapshotId?: string;
+    error?: string;
+  }> = [];
+  for (const row of rows as unknown as Array<{
+    user_id: string;
+    campaign_id: string;
+  }>) {
+    if (!isClientReportsUserAllowed(row.user_id)) continue;
+    try {
+      const snapshot = await buildReportSnapshot({
+        userId: row.user_id,
+        periodType: "campaign",
+        periodStart: period.start,
+        periodEnd: period.end,
+        campaignId: row.campaign_id,
+        generatedBy: "automatic",
+      });
+      built += 1;
+      results.push({
+        userId: row.user_id,
+        campaignId: row.campaign_id,
+        snapshotId: snapshot.snapshotId,
+      });
+    } catch (error) {
+      errors += 1;
+      results.push({
+        userId: row.user_id,
+        campaignId: row.campaign_id,
+        error: error instanceof Error ? error.message : "build_failed",
+      });
+    }
+  }
+  return {
+    skipped: false as const,
+    periodStart: period.start,
+    periodEnd: period.end,
+    considered: rows.length,
     built,
     errors,
     results,

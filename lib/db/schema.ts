@@ -8448,8 +8448,20 @@ export type CustomerFileTemporaryMaterialRecord = InferSelectModel<
 
 // ===== client_report_* =====
 
-export const CLIENT_REPORT_PERIOD_TYPES = ["weekly", "monthly", "cycle"] as const;
+export const CLIENT_REPORT_PERIOD_TYPES = [
+  "weekly",
+  "monthly",
+  "custom",
+  "campaign",
+] as const;
 export type ClientReportPeriodType = (typeof CLIENT_REPORT_PERIOD_TYPES)[number];
+
+export const CLIENT_REPORT_SCOPE_TYPES = ["account", "campaign"] as const;
+export type ClientReportScopeType =
+  (typeof CLIENT_REPORT_SCOPE_TYPES)[number];
+
+export const CLIENT_REPORT_GENERATORS = ["automatic", "user"] as const;
+export type ClientReportGenerator = (typeof CLIENT_REPORT_GENERATORS)[number];
 
 export const CLIENT_REPORT_SNAPSHOT_STATUSES = [
   "built",
@@ -8496,6 +8508,15 @@ export const clientReportSnapshot = pgTable(
       .notNull(),
     periodStart: date("period_start").notNull(),
     periodEnd: date("period_end").notNull(),
+    scopeType: varchar("scope_type", { length: 16 })
+      .$type<ClientReportScopeType>()
+      .notNull()
+      .default("account"),
+    campaignId: text("campaign_id"),
+    generatedBy: varchar("generated_by", { length: 16 })
+      .$type<ClientReportGenerator>()
+      .notNull()
+      .default("automatic"),
     status: varchar("status", { length: 16 })
       .$type<ClientReportSnapshotStatus>()
       .notNull()
@@ -8515,9 +8536,21 @@ export const clientReportSnapshot = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    userPeriodUnique: uniqueIndex(
-      "client_report_snapshots_user_period_unique",
-    ).on(table.userId, table.periodType, table.periodStart),
+    accountPeriodUnique: uniqueIndex(
+      "client_report_snapshots_account_period_unique",
+    )
+      .on(table.userId, table.periodType, table.periodStart)
+      .where(sql`${table.campaignId} IS NULL`),
+    campaignPeriodUnique: uniqueIndex(
+      "client_report_snapshots_campaign_period_unique",
+    )
+      .on(table.userId, table.periodType, table.periodStart, table.campaignId)
+      .where(sql`${table.campaignId} IS NOT NULL`),
+    campaignIdx: index("client_report_snapshots_campaign_idx").on(
+      table.userId,
+      table.campaignId,
+      table.periodStart,
+    ),
     userBuiltIdx: index("client_report_snapshots_user_built_idx").on(
       table.userId,
       table.builtAt,

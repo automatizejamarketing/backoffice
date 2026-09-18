@@ -34,6 +34,10 @@
       "schedule": "30 10 * * 1"
     },
     {
+      "path": "/api/cron-job/business/client-reports/monthly",
+      "schedule": "45 10 1 * *"
+    },
+    {
       "path": "/api/cron-job/business/client-reports/milestones",
       "schedule": "45 10 * * *"
     }
