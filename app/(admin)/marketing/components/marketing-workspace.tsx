@@ -164,6 +164,18 @@ export function MarketingWorkspace({
         );
       } else if (result === "denied") {
         toast.error("A autorização na Meta foi recusada.");
+      } else if (result === "expired_state") {
+        toast.error(
+          "A sessão de reconexão expirou. Inicie de novo e conclua o seletor da Meta sem pausar.",
+        );
+      } else if (result === "invalid_state") {
+        toast.error(
+          "Não foi possível validar esta reconexão. Inicie o fluxo de novo.",
+        );
+      } else if (result === "validation_failed") {
+        toast.error(
+          "A Meta não devolveu um token válido. Tente a reconexão de novo.",
+        );
       } else {
         toast.error("A reconexão administrativa não foi concluída.");
       }

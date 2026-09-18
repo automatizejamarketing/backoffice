@@ -17,7 +17,10 @@ export {
   type MetaAuthMode,
 } from "@/lib/meta-business/admin-oauth-utils";
 
-const STATE_TTL_MS = 10 * 60 * 1000;
+// Login for Business can sit in the asset picker for longer than a short
+// OAuth bounce. The Facebook code is issued at the end; this TTL has to
+// cover the whole picker, not just the redirect.
+const STATE_TTL_MS = 30 * 60 * 1000;
 
 function firstEnv(...keys: string[]): string | undefined {
   for (const key of keys) {
