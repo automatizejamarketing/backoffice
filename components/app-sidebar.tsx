@@ -4,6 +4,7 @@ import { WhatsappIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
+  Bell,
   Briefcase,
   ChevronRight,
   ChevronUp,
@@ -132,6 +133,13 @@ const NAV_SECTIONS: NavSection[] = [
         href: "/portfolio",
         label: "Carteira",
         icon: Briefcase,
+        permission: "marketing:read",
+      },
+      {
+        kind: "leaf",
+        href: "/alerts",
+        label: "Alertas",
+        icon: Bell,
         permission: "marketing:read",
       },
       {
