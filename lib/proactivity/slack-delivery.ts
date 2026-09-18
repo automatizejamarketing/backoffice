@@ -2,12 +2,11 @@ import "server-only";
 
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { proactivityAlertDelivery, user } from "@/lib/db/schema";
 import {
-  proactivityAlertDelivery,
-  user,
-  userMarketingConsultant,
-  backofficeUser,
-} from "@/lib/db/schema";
+  buildPlaybookSlackMessage,
+  playbookAlertDashboardUrl,
+} from "@/lib/proactivity/slack-playbook-message";
 import type { NewlyCreatedPlaybookInsight } from "@/lib/db/playbook-insights-queries";
 import { getPlaybookUserAccess } from "@/lib/db/playbook-insights-queries";
 import {
@@ -98,24 +97,6 @@ async function markDelivery(args: {
     );
 }
 
-async function resolveConsultantLabel(userId: string): Promise<string | null> {
-  const [row] = await db
-    .select({
-      email: backofficeUser.email,
-      name: backofficeUser.name,
-    })
-    .from(userMarketingConsultant)
-    .innerJoin(
-      backofficeUser,
-      eq(userMarketingConsultant.consultantId, backofficeUser.id),
-    )
-    .where(eq(userMarketingConsultant.userId, userId))
-    .limit(1);
-
-  if (!row) return null;
-  return row.name?.trim() || row.email;
-}
-
 async function resolveClientLabel(userId: string): Promise<string> {
   const [row] = await db
     .select({ email: user.email, name: user.name })
@@ -191,8 +172,10 @@ export async function deliverPlaybookInsightsToSlack(args: {
     }
   }
   const clientLabel = await resolveClientLabel(args.userId);
-  const consultantLabel = await resolveConsultantLabel(args.userId);
-  const deepLink = `${getBackofficeBaseUrl()}/users/${args.userId}?tab=marketing`;
+  const dashboardUrl = playbookAlertDashboardUrl(
+    getBackofficeBaseUrl(),
+    clientLabel,
+  );
 
   for (const insight of args.createdInsights) {
     const channelConfig = args.deliverSlackByPlaybookRuleId.get(insight.ruleId);
@@ -227,19 +210,12 @@ export async function deliverPlaybookInsightsToSlack(args: {
       continue;
     }
 
-    const consultantLine = consultantLabel
-      ? `Consultor: ${consultantLabel}`
-      : "Consultor: (não atribuído)";
-    const text = [
-      `*Playbook — ${insight.title}*`,
-      `Cliente: ${clientLabel}`,
-      consultantLine,
-      insight.entityName ? `Campanha: ${insight.entityName}` : null,
-      insight.evidence,
-      `<${deepLink}|Abrir no backoffice>`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const text = buildPlaybookSlackMessage({
+      title: insight.title,
+      clientLabel,
+      evidence: insight.evidence,
+      dashboardUrl,
+    });
 
     const result = await postSlackWebhook(text);
     if (!result.ok) {
