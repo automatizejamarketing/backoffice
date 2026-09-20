@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as bunTest from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   BackofficePixRetentionConflictError,
   backofficePixRetentionConflictResponse,
@@ -19,6 +20,7 @@ class MemoryExecutor {
   links: Link[] = [];
   lockOrder: string[] = [];
   postCalls: Array<Record<string, unknown>> = [];
+  linkPredicateSql = "";
   private transactionTail = Promise.resolve();
 
   tableName(table: any) {
@@ -46,11 +48,15 @@ class MemoryExecutor {
   select = () => {
     const query: any = {
       name: "",
+      condition: null as unknown,
       from: (table: any) => {
         query.name = this.tableName(table);
         return query;
       },
-      where: () => query,
+      where: (condition: unknown) => {
+        query.condition = condition;
+        return query;
+      },
       limit: () => query,
       orderBy: () => query,
       for: () => {
@@ -64,7 +70,19 @@ class MemoryExecutor {
           rows = this.benefit ? [this.benefit] : [];
         }
         if (query.name === "subscriptions") rows = [];
-        if (query.name === "mercadopago_payment_links") rows = [...this.links];
+        if (query.name === "mercadopago_payment_links") {
+          const compiled = query.condition
+            ? new PgDialect().sqlToQuery(query.condition)
+            : { sql: "", params: [] };
+          this.linkPredicateSql = compiled.sql;
+          const userId = compiled.params[0];
+          const statuses = compiled.params.slice(1);
+          rows = this.links.filter(
+            (link) =>
+              link.userId === userId &&
+              (statuses.length === 0 || statuses.includes(link.status)),
+          );
+        }
         return Promise.resolve(rows).then(resolve, reject);
       },
     };
@@ -126,7 +144,6 @@ mock.module("date-fns", () => ({
 mock.module("resend", () => ({ Resend: class { emails = { send: async () => ({ error: null }) }; } }));
 mock.module("@/lib/db", () => ({ db: memory }));
 mock.module("@/lib/backoffice/datetime-format", () => ({ formatInSaoPaulo: () => "20/09/2026" }));
-mock.module("@/lib/backoffice/pix-renewal-policy", () => ({ assertPixRenewalAllowed: () => undefined }));
 mock.module("@/lib/mercadopago/pix-payment", () => ({
   getMercadoPagoPixPayment: async () => null,
   cancelMercadoPagoPixPayment: async () => ({ status: "cancelled" }),
@@ -160,6 +177,7 @@ function reset() {
   memory.links = [];
   memory.lockOrder = [];
   memory.postCalls = [];
+  memory.linkPredicateSql = "";
   (process.env as Record<string, string>).NODE_ENV = "development";
   process.env.MERCADOPAGO_PIX_TEST_AMOUNT_CENTAVOS = "120000";
 }
@@ -259,7 +277,7 @@ test("approved and missing identity discounted links require reconciliation", as
   memory.links = [{ id: "missing-cross-plan", userId: "user-1", planType: "monthly_pro", amount: 90000, status: "pending", retentionBenefitId: "benefit-1", mercadopagoPaymentId: null }];
   await assert.rejects(
     createOrReuseBackofficePixLink({ userId: "user-1", planType: "monthly_starter", adminEmail: "a", executor: memory as any, provider: provider({}) }),
-    (error: unknown) => error instanceof BackofficePixRetentionConflictError && error.code === "retention_provider_mismatch",
+    (error: unknown) => error instanceof BackofficePixRetentionConflictError && error.code === "retention_reconciliation_required",
   );
 });
 
@@ -281,10 +299,23 @@ test("consumed benefit allows normal price only when no discounted row is unreso
   assert.equal(result.amount, 120000);
   reset();
   memory.benefit = { ...baseBenefit(), status: "consumed", providerPaymentId: "mp-consumed" };
+  memory.links = [{ id: "historical-terminal", userId: "user-1", planType: "monthly_pro", amount: 90000, status: "expired", retentionBenefitId: "old-benefit", mercadopagoPaymentId: "mp-terminal" }];
+  const terminalResult = await createOrReuseBackofficePixLink({ userId: "user-1", planType: "monthly_starter", adminEmail: "a", executor: memory as any, provider: provider({ get: async () => ({ status: "expired" }) }) });
+  assert.equal(terminalResult.amount, 120000);
+  assert.equal(memory.linkPredicateSql.includes("plan_type"), false);
+  reset();
+  memory.benefit = { ...baseBenefit(), status: "consumed", providerPaymentId: "mp-consumed" };
+  memory.links = [{ id: "historical-payable", userId: "user-1", planType: "monthly_pro", amount: 90000, status: "pending", retentionBenefitId: "old-benefit", mercadopagoPaymentId: "mp-payable" }];
+  await assert.rejects(
+    createOrReuseBackofficePixLink({ userId: "user-1", planType: "monthly_starter", adminEmail: "a", executor: memory as any, provider: provider({ get: async () => ({ status: "pending" }) }) }),
+    (error: unknown) => error instanceof BackofficePixRetentionConflictError && error.code === "retention_provider_mismatch",
+  );
+  reset();
+  memory.benefit = { ...baseBenefit(), status: "consumed", providerPaymentId: "mp-consumed" };
   memory.links = [{ id: "uncertain", userId: "user-1", planType: "monthly_pro", amount: 90000, status: "pending", retentionBenefitId: "benefit-1", mercadopagoPaymentId: null }];
   await assert.rejects(
     createOrReuseBackofficePixLink({ userId: "user-1", planType: "monthly_starter", adminEmail: "a", executor: memory as any, provider: provider({}) }),
-    (error: unknown) => error instanceof BackofficePixRetentionConflictError && error.code === "retention_provider_mismatch",
+    (error: unknown) => error instanceof BackofficePixRetentionConflictError && error.code === "retention_reconciliation_required",
   );
 });
 
@@ -306,6 +337,24 @@ test("concurrent generator calls serialize on the shared transaction lock", asyn
   assert.equal(posts, 1);
   assert.equal(first.id, second.id);
   assert.equal(second.reused, true);
+});
+
+test("a frontend-style user lock participant serializes before backoffice generation", async () => {
+  reset();
+  const frontendContract = memory.transaction(async (tx) => {
+    tx.lockOrder.push("frontend:users");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  });
+  const backofficeContract = createOrReuseBackofficePixLink({
+    userId: "user-1",
+    planType: "monthly_starter",
+    adminEmail: "a",
+    executor: memory as any,
+    provider: provider({}),
+  });
+  await Promise.all([frontendContract, backofficeContract]);
+  assert.equal(memory.lockOrder[0], "frontend:users");
+  assert.equal(memory.postCalls.length, 1);
 });
 
 test("route serialization exposes the actual discounted amount and snapshots", () => {

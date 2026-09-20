@@ -320,13 +320,6 @@ async function createBackofficePixLinkInTransaction({
     const isRetentionLink = Boolean(link.retentionBenefitId);
     const isRequestedPlan = link.planType === planType;
     if (!isRetentionLink && !isRequestedPlan) continue;
-    if (isRetentionLink && link.planType !== planType) {
-      throw new BackofficePixRetentionConflictError(
-        "retention_provider_mismatch",
-        "A discounted Pix exists for a different plan and requires reconciliation",
-        { linkId: link.id, linkPlanType: link.planType, requestedPlanType: planType },
-      );
-    }
     if (!link.mercadopagoPaymentId) {
       throw new BackofficePixRetentionConflictError(
         "retention_reconciliation_required",
@@ -350,6 +343,34 @@ async function createBackofficePixLinkInTransaction({
         "retention_reconciliation_required",
         "Mercado Pago payment could not be found",
         { providerPaymentId: link.mercadopagoPaymentId, linkId: link.id },
+      );
+    }
+    if (isRetentionLink && link.planType !== planType) {
+      if (provider.status === "approved") {
+        throw new BackofficePixRetentionConflictError(
+          "retention_payment_paid",
+          "A discounted Pix for another plan was paid and requires settlement",
+          { linkId: link.id, linkPlanType: link.planType, requestedPlanType: planType },
+        );
+      }
+      if (isPayableMercadoPagoPixStatus(provider.status)) {
+        throw new BackofficePixRetentionConflictError(
+          "retention_provider_mismatch",
+          "A payable discounted Pix exists for a different plan",
+          { linkId: link.id, linkPlanType: link.planType, requestedPlanType: planType },
+        );
+      }
+      if (isTerminalMercadoPagoPixStatus(provider.status)) {
+        await executor
+          .update(mercadopagoPaymentLink)
+          .set({ status: "expired", updatedAt: now })
+          .where(eq(mercadopagoPaymentLink.id, link.id));
+        continue;
+      }
+      throw new BackofficePixRetentionConflictError(
+        "retention_reconciliation_required",
+        "A discounted Pix for another plan has an unknown provider status",
+        { linkId: link.id, linkPlanType: link.planType, providerStatus: provider.status },
       );
     }
     if (provider.status === "approved") {
