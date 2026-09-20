@@ -17,6 +17,7 @@ function payment(overrides: Partial<Parameters<typeof isConfirmedCancellationRen
     status: "succeeded",
     paidAt: new Date("2026-09-11T12:00:00.000Z"),
     retentionBenefitId: null,
+    mercadopagoPaymentId: null,
     stripeInvoiceId: "in_retention_1",
     stripePaymentIntentId: null,
     stripeChargeId: null,
@@ -61,7 +62,7 @@ describe("admin cancellation stats payment correlation", () => {
         benefit,
         payment: payment({
           provider: "mercadopago",
-          retentionBenefitId: "benefit-1",
+          mercadopagoPaymentId: "pi_retention_1",
           stripeInvoiceId: null,
         }),
         asOf,
@@ -75,11 +76,24 @@ describe("admin cancellation stats payment correlation", () => {
         payment: payment({
           provider: "mercadopago",
           retentionBenefitId: "other-benefit",
+          mercadopagoPaymentId: "mp_other",
           stripeInvoiceId: null,
         }),
         asOf,
       }),
     ).toBe(false);
+  });
+
+  test("accepts historical null-purpose billing payments", () => {
+    expect(
+      isConfirmedCancellationRenewalPayment({
+        provider: "stripe",
+        subscriptionId: "sub-1",
+        benefit,
+        payment: payment({ purpose: null }),
+        asOf,
+      }),
+    ).toBe(true);
   });
 
   test("rejects wrong-purpose, refunded, and future payments", () => {

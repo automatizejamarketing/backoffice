@@ -14,6 +14,7 @@ export type CancellationStatsPaymentCorrelation = {
   status: string;
   paidAt: Date | null;
   retentionBenefitId: string | null;
+  mercadopagoPaymentId: string | null;
   stripeInvoiceId: string | null;
   stripePaymentIntentId: string | null;
   stripeChargeId: string | null;
@@ -32,14 +33,21 @@ export function isConfirmedCancellationRenewalPayment(input: {
   const { provider, subscriptionId, benefit, payment, asOf } = input;
   if (payment.provider !== provider) return false;
   if (payment.subscriptionId && payment.subscriptionId !== subscriptionId) return false;
-  if (payment.status !== "succeeded" || !BILLING_PURPOSES.has(payment.purpose ?? "")) {
+  if (
+    payment.status !== "succeeded" ||
+    (payment.purpose !== null && !BILLING_PURPOSES.has(payment.purpose))
+  ) {
     return false;
   }
   if (payment.paidAt == null || payment.paidAt > asOf) return false;
   if (!benefit) return false;
 
   if (provider === "mercadopago") {
-    return payment.retentionBenefitId === benefit.id;
+    return (
+      payment.retentionBenefitId === benefit.id ||
+      (benefit.providerPaymentId !== null &&
+        payment.mercadopagoPaymentId === benefit.providerPaymentId)
+    );
   }
   if (provider === "stripe") {
     return Boolean(
