@@ -20,6 +20,19 @@ export class BackofficePixRetentionConflictError extends Error {
   }
 }
 
+export function backofficePixRetentionConflictResponse(
+  error: BackofficePixRetentionConflictError,
+) {
+  return {
+    status: 409 as const,
+    body: {
+      error: error.message,
+      code: error.code,
+      details: error.details,
+    },
+  };
+}
+
 export function calculateRetentionPixAmounts({
   originalAmountCentavos,
   discountPercent,

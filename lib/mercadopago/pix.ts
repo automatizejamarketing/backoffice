@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { addDays } from "date-fns";
 import { Resend } from "resend";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   mercadopagoPaymentLink,
@@ -25,11 +25,13 @@ import { formatInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import { assertPixRenewalAllowed } from "@/lib/backoffice/pix-renewal-policy";
 import {
   BackofficePixRetentionConflictError,
+  backofficePixRetentionConflictResponse,
   calculateRetentionPixAmounts,
   resolveRetentionPixProviderState,
 } from "./pix-retention-contract";
 export {
   BackofficePixRetentionConflictError,
+  backofficePixRetentionConflictResponse,
   calculateRetentionPixAmounts,
   type BackofficePixRetentionConflictCode,
   isPayableMercadoPagoPixStatus,
@@ -126,7 +128,19 @@ function retentionEmissionId(benefitId: string, generation: number): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-type PixExecutor = typeof db;
+export type PixExecutor = typeof db;
+
+export type BackofficePixProvider = {
+  getPayment: typeof getMercadoPagoPixPayment;
+  cancelPayment: typeof cancelMercadoPagoPixPayment;
+  createPayment: typeof createMercadoPagoPixPayment;
+};
+
+const defaultPixProvider: BackofficePixProvider = {
+  getPayment: getMercadoPagoPixPayment,
+  cancelPayment: cancelMercadoPagoPixPayment,
+  createPayment: createMercadoPagoPixPayment,
+};
 
 function resultFromLink(
   link: MercadoPagoPaymentLink,
@@ -179,14 +193,19 @@ export async function createOrReuseBackofficePixLink({
   userId,
   planType,
   adminEmail,
+  executor = db,
+  provider = defaultPixProvider,
 }: {
   userId: string;
   planType: PlanType;
   adminEmail: string;
+  executor?: PixExecutor;
+  provider?: BackofficePixProvider;
 }): Promise<BackofficePixLinkResult> {
-  return db.transaction((tx) =>
+  return executor.transaction((tx) =>
     createBackofficePixLinkInTransaction({
       executor: tx as unknown as PixExecutor,
+      pixProvider: provider,
       userId,
       planType,
       adminEmail,
@@ -196,11 +215,13 @@ export async function createOrReuseBackofficePixLink({
 
 async function createBackofficePixLinkInTransaction({
   executor,
+  pixProvider,
   userId,
   planType,
   adminEmail,
 }: {
   executor: PixExecutor;
+  pixProvider: BackofficePixProvider;
   userId: string;
   planType: PlanType;
   adminEmail: string;
@@ -242,6 +263,17 @@ async function createBackofficePixLinkInTransaction({
       ? benefit
       : null;
 
+  // `applied` means a provider payment was already emitted. A missing
+  // provider identity is therefore an uncertain external side effect and
+  // must never be treated as a fresh opportunity.
+  if (activeBenefit?.status === "applied" && !activeBenefit.providerPaymentId) {
+    throw new BackofficePixRetentionConflictError(
+      "retention_reconciliation_required",
+      "Applied retention benefit has no provider payment identity",
+      { benefitId: activeBenefit.id },
+    );
+  }
+
   if (benefit && benefit.status !== "consumed" && !activeBenefit) {
     throw new BackofficePixRetentionConflictError(
       "retention_reconciliation_required",
@@ -277,9 +309,7 @@ async function createBackofficePixLinkInTransaction({
     .where(
       and(
         eq(mercadopagoPaymentLink.userId, userId),
-        eq(mercadopagoPaymentLink.planType, planType),
         inArray(mercadopagoPaymentLink.status, ["pending", "expired", "canceled"]),
-        isNotNull(mercadopagoPaymentLink.mercadopagoPaymentId),
       ),
     )
     .orderBy(desc(mercadopagoPaymentLink.createdAt))
@@ -287,11 +317,27 @@ async function createBackofficePixLinkInTransaction({
 
   const checkedProviderIds = new Set<string>();
   for (const link of links) {
-    if (!link.mercadopagoPaymentId) continue;
+    const isRetentionLink = Boolean(link.retentionBenefitId);
+    const isRequestedPlan = link.planType === planType;
+    if (!isRetentionLink && !isRequestedPlan) continue;
+    if (isRetentionLink && link.planType !== planType) {
+      throw new BackofficePixRetentionConflictError(
+        "retention_provider_mismatch",
+        "A discounted Pix exists for a different plan and requires reconciliation",
+        { linkId: link.id, linkPlanType: link.planType, requestedPlanType: planType },
+      );
+    }
+    if (!link.mercadopagoPaymentId) {
+      throw new BackofficePixRetentionConflictError(
+        "retention_reconciliation_required",
+        "A relevant Pix link has no Mercado Pago payment identity",
+        { linkId: link.id, retentionBenefitId: link.retentionBenefitId, planType: link.planType },
+      );
+    }
     checkedProviderIds.add(link.mercadopagoPaymentId);
     let provider;
     try {
-      provider = await getMercadoPagoPixPayment(link.mercadopagoPaymentId);
+      provider = await pixProvider.getPayment(link.mercadopagoPaymentId);
     } catch (error) {
       throw new BackofficePixRetentionConflictError(
         "retention_reconciliation_required",
@@ -344,7 +390,7 @@ async function createBackofficePixLinkInTransaction({
           linkAmountCentavos: link.amount,
           expectedAmountCentavos: retentionAmounts.finalAmountCentavos,
           pixCopyPasteCode: link.pixCopyPaste,
-          cancel: () => cancelMercadoPagoPixPayment(link.mercadopagoPaymentId!),
+          cancel: () => pixProvider.cancelPayment(link.mercadopagoPaymentId!),
         });
         if (resolution.kind === "replace") {
           await executor
@@ -398,7 +444,7 @@ async function createBackofficePixLinkInTransaction({
       }
       let cancelled;
       try {
-        cancelled = await cancelMercadoPagoPixPayment(link.mercadopagoPaymentId);
+        cancelled = await pixProvider.cancelPayment(link.mercadopagoPaymentId);
       } catch (error) {
         throw new BackofficePixRetentionConflictError(
           "retention_reconciliation_required",
@@ -436,7 +482,7 @@ async function createBackofficePixLinkInTransaction({
   if (activeBenefit?.providerPaymentId && !checkedProviderIds.has(activeBenefit.providerPaymentId)) {
     let provider;
     try {
-      provider = await getMercadoPagoPixPayment(activeBenefit.providerPaymentId);
+      provider = await pixProvider.getPayment(activeBenefit.providerPaymentId);
     } catch (error) {
       throw new BackofficePixRetentionConflictError(
         "retention_reconciliation_required",
@@ -462,7 +508,7 @@ async function createBackofficePixLinkInTransaction({
     const expiresAt = addDays(now, PIX_LINK_VALIDITY_DAYS);
     let pixDetails;
     try {
-      pixDetails = await createMercadoPagoPixPayment({
+      pixDetails = await pixProvider.createPayment({
         linkId: id,
         userId,
         email: targetUser.email,
@@ -519,7 +565,7 @@ async function createBackofficePixLinkInTransaction({
 
   const id = randomUUID();
   const expiresAt = addDays(now, PIX_LINK_VALIDITY_DAYS);
-  const pixDetails = await createMercadoPagoPixPayment({
+  const pixDetails = await pixProvider.createPayment({
     linkId: id,
     userId,
     email: targetUser.email,

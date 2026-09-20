@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { PLAN_TYPE_VALUES, user, type PlanType } from "@/lib/db/schema";
 import {
   BackofficePixRetentionConflictError,
+  backofficePixRetentionConflictResponse,
   createOrReuseBackofficePixLink,
   serializeBackofficePixLink,
   sendBackofficePixLinkEmail,
@@ -78,14 +79,8 @@ export async function POST(
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     if (error instanceof BackofficePixRetentionConflictError) {
-      return NextResponse.json(
-        {
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        },
-        { status: 409 },
-      );
+      const conflict = backofficePixRetentionConflictResponse(error);
+      return NextResponse.json(conflict.body, { status: conflict.status });
     }
     const message =
       error instanceof Error ? error.message : "Não foi possível gerar o Pix";
