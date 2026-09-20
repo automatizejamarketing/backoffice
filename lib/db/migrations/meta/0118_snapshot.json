@@ -28168,6 +28168,1678 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.smart_stock_import_batches": {
+      "name": "smart_stock_import_batches",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending_review'"
+        },
+        "operation": {
+          "name": "operation",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'import'"
+        },
+        "source_object_key": {
+          "name": "source_object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extracted_text": {
+          "name": "extracted_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uncertainty": {
+          "name": "uncertainty",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failure_reason": {
+          "name": "failure_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reviewed_by_id": {
+          "name": "reviewed_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_by_id": {
+          "name": "applied_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discarded_at": {
+          "name": "discarded_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_import_batches_company_location_idx": {
+          "name": "smart_stock_import_batches_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_import_batches_location_operation_idempotency_unique": {
+          "name": "smart_stock_import_batches_location_operation_idempotency_unique",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "operation",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_import_batches_company_id_companies_id_fk": {
+          "name": "smart_stock_import_batches_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_import_batches",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_batches_location_id_company_locations_id_fk": {
+          "name": "smart_stock_import_batches_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_import_batches",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_batches_created_by_id_users_id_fk": {
+          "name": "smart_stock_import_batches_created_by_id_users_id_fk",
+          "tableFrom": "smart_stock_import_batches",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_batches_reviewed_by_id_users_id_fk": {
+          "name": "smart_stock_import_batches_reviewed_by_id_users_id_fk",
+          "tableFrom": "smart_stock_import_batches",
+          "tableTo": "users",
+          "columnsFrom": [
+            "reviewed_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_batches_applied_by_id_users_id_fk": {
+          "name": "smart_stock_import_batches_applied_by_id_users_id_fk",
+          "tableFrom": "smart_stock_import_batches",
+          "tableTo": "users",
+          "columnsFrom": [
+            "applied_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.smart_stock_import_lines": {
+      "name": "smart_stock_import_lines",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "import_batch_id": {
+          "name": "import_batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ingredient_id": {
+          "name": "ingredient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "proposed_name": {
+          "name": "proposed_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "proposed_unit": {
+          "name": "proposed_unit",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_price": {
+          "name": "unit_price",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_price": {
+          "name": "total_price",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "extracted_data": {
+          "name": "extracted_data",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "uncertainty": {
+          "name": "uncertainty",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "create_new_ingredient": {
+          "name": "create_new_ingredient",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by_id": {
+          "name": "updated_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_import_lines_batch_idx": {
+          "name": "smart_stock_import_lines_batch_idx",
+          "columns": [
+            {
+              "expression": "import_batch_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_import_lines_company_location_idx": {
+          "name": "smart_stock_import_lines_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_import_lines_company_id_companies_id_fk": {
+          "name": "smart_stock_import_lines_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_import_lines",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_lines_location_id_company_locations_id_fk": {
+          "name": "smart_stock_import_lines_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_import_lines",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_lines_import_batch_id_smart_stock_import_batches_id_fk": {
+          "name": "smart_stock_import_lines_import_batch_id_smart_stock_import_batches_id_fk",
+          "tableFrom": "smart_stock_import_lines",
+          "tableTo": "smart_stock_import_batches",
+          "columnsFrom": [
+            "import_batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_lines_ingredient_id_smart_stock_ingredients_id_fk": {
+          "name": "smart_stock_import_lines_ingredient_id_smart_stock_ingredients_id_fk",
+          "tableFrom": "smart_stock_import_lines",
+          "tableTo": "smart_stock_ingredients",
+          "columnsFrom": [
+            "ingredient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_lines_created_by_id_users_id_fk": {
+          "name": "smart_stock_import_lines_created_by_id_users_id_fk",
+          "tableFrom": "smart_stock_import_lines",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_import_lines_updated_by_id_users_id_fk": {
+          "name": "smart_stock_import_lines_updated_by_id_users_id_fk",
+          "tableFrom": "smart_stock_import_lines",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updated_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "smart_stock_import_lines_quantity_nonnegative": {
+          "name": "smart_stock_import_lines_quantity_nonnegative",
+          "value": "\"smart_stock_import_lines\".\"quantity\" >= 0"
+        },
+        "smart_stock_import_lines_unit_price_nonnegative": {
+          "name": "smart_stock_import_lines_unit_price_nonnegative",
+          "value": "\"smart_stock_import_lines\".\"unit_price\" IS NULL OR \"smart_stock_import_lines\".\"unit_price\" >= 0"
+        },
+        "smart_stock_import_lines_total_price_nonnegative": {
+          "name": "smart_stock_import_lines_total_price_nonnegative",
+          "value": "\"smart_stock_import_lines\".\"total_price\" IS NULL OR \"smart_stock_import_lines\".\"total_price\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.smart_stock_ingredients": {
+      "name": "smart_stock_ingredients",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unit": {
+          "name": "unit",
+          "type": "varchar(3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "minimum_quantity": {
+          "name": "minimum_quantity",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "average_cost": {
+          "name": "average_cost",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by_id": {
+          "name": "updated_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_ingredients_company_location_idx": {
+          "name": "smart_stock_ingredients_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_ingredients_active_name_unique": {
+          "name": "smart_stock_ingredients_active_name_unique",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(trim(\"name\"))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"smart_stock_ingredients\".\"active\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_ingredients_company_id_companies_id_fk": {
+          "name": "smart_stock_ingredients_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_ingredients",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_ingredients_location_id_company_locations_id_fk": {
+          "name": "smart_stock_ingredients_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_ingredients",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_ingredients_created_by_id_users_id_fk": {
+          "name": "smart_stock_ingredients_created_by_id_users_id_fk",
+          "tableFrom": "smart_stock_ingredients",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_ingredients_updated_by_id_users_id_fk": {
+          "name": "smart_stock_ingredients_updated_by_id_users_id_fk",
+          "tableFrom": "smart_stock_ingredients",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updated_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "smart_stock_ingredients_minimum_quantity_nonnegative": {
+          "name": "smart_stock_ingredients_minimum_quantity_nonnegative",
+          "value": "\"smart_stock_ingredients\".\"minimum_quantity\" >= 0"
+        },
+        "smart_stock_ingredients_quantity_nonnegative": {
+          "name": "smart_stock_ingredients_quantity_nonnegative",
+          "value": "\"smart_stock_ingredients\".\"quantity\" >= 0"
+        },
+        "smart_stock_ingredients_average_cost_nonnegative": {
+          "name": "smart_stock_ingredients_average_cost_nonnegative",
+          "value": "\"smart_stock_ingredients\".\"average_cost\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.smart_stock_ingredient_edit_keys": {
+      "name": "smart_stock_ingredient_edit_keys",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ingredient_id": {
+          "name": "ingredient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload_hash": {
+          "name": "payload_hash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_ingredient_edit_keys_company_location_idx": {
+          "name": "smart_stock_ingredient_edit_keys_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_ingredient_edit_keys_ingredient_idx": {
+          "name": "smart_stock_ingredient_edit_keys_ingredient_idx",
+          "columns": [
+            {
+              "expression": "ingredient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_ingredient_edit_keys_location_idempotency_unique": {
+          "name": "smart_stock_ingredient_edit_keys_location_idempotency_unique",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_ingredient_edit_keys_company_id_companies_id_fk": {
+          "name": "smart_stock_ingredient_edit_keys_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_ingredient_edit_keys",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_ingredient_edit_keys_location_id_company_locations_id_fk": {
+          "name": "smart_stock_ingredient_edit_keys_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_ingredient_edit_keys",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_ingredient_edit_keys_ingredient_id_smart_stock_ingredients_id_fk": {
+          "name": "smart_stock_ingredient_edit_keys_ingredient_id_smart_stock_ingredients_id_fk",
+          "tableFrom": "smart_stock_ingredient_edit_keys",
+          "tableTo": "smart_stock_ingredients",
+          "columnsFrom": [
+            "ingredient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_ingredient_edit_keys_created_by_id_users_id_fk": {
+          "name": "smart_stock_ingredient_edit_keys_created_by_id_users_id_fk",
+          "tableFrom": "smart_stock_ingredient_edit_keys",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.smart_stock_movements": {
+      "name": "smart_stock_movements",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ingredient_id": {
+          "name": "ingredient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation": {
+          "name": "operation",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_cost": {
+          "name": "entry_cost",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "balance_after": {
+          "name": "balance_after",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "average_cost_after": {
+          "name": "average_cost_after",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purchase_list_id": {
+          "name": "purchase_list_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "import_batch_id": {
+          "name": "import_batch_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_movements_company_location_idx": {
+          "name": "smart_stock_movements_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_movements_ingredient_created_idx": {
+          "name": "smart_stock_movements_ingredient_created_idx",
+          "columns": [
+            {
+              "expression": "ingredient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_movements_location_operation_idempotency_unique": {
+          "name": "smart_stock_movements_location_operation_idempotency_unique",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "operation",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_movements_company_id_companies_id_fk": {
+          "name": "smart_stock_movements_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_movements",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_movements_location_id_company_locations_id_fk": {
+          "name": "smart_stock_movements_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_movements",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_movements_ingredient_id_smart_stock_ingredients_id_fk": {
+          "name": "smart_stock_movements_ingredient_id_smart_stock_ingredients_id_fk",
+          "tableFrom": "smart_stock_movements",
+          "tableTo": "smart_stock_ingredients",
+          "columnsFrom": [
+            "ingredient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_movements_purchase_list_id_smart_stock_purchase_lists_id_fk": {
+          "name": "smart_stock_movements_purchase_list_id_smart_stock_purchase_lists_id_fk",
+          "tableFrom": "smart_stock_movements",
+          "tableTo": "smart_stock_purchase_lists",
+          "columnsFrom": [
+            "purchase_list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_movements_import_batch_id_smart_stock_import_batches_id_fk": {
+          "name": "smart_stock_movements_import_batch_id_smart_stock_import_batches_id_fk",
+          "tableFrom": "smart_stock_movements",
+          "tableTo": "smart_stock_import_batches",
+          "columnsFrom": [
+            "import_batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_movements_actor_id_users_id_fk": {
+          "name": "smart_stock_movements_actor_id_users_id_fk",
+          "tableFrom": "smart_stock_movements",
+          "tableTo": "users",
+          "columnsFrom": [
+            "actor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "smart_stock_movements_quantity_positive": {
+          "name": "smart_stock_movements_quantity_positive",
+          "value": "\"smart_stock_movements\".\"quantity\" > 0"
+        },
+        "smart_stock_movements_entry_cost_nonnegative": {
+          "name": "smart_stock_movements_entry_cost_nonnegative",
+          "value": "\"smart_stock_movements\".\"entry_cost\" IS NULL OR \"smart_stock_movements\".\"entry_cost\" >= 0"
+        },
+        "smart_stock_movements_balance_after_nonnegative": {
+          "name": "smart_stock_movements_balance_after_nonnegative",
+          "value": "\"smart_stock_movements\".\"balance_after\" >= 0"
+        },
+        "smart_stock_movements_average_cost_after_nonnegative": {
+          "name": "smart_stock_movements_average_cost_after_nonnegative",
+          "value": "\"smart_stock_movements\".\"average_cost_after\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.smart_stock_purchase_items": {
+      "name": "smart_stock_purchase_items",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "purchase_list_id": {
+          "name": "purchase_list_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ingredient_id": {
+          "name": "ingredient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name_snapshot": {
+          "name": "name_snapshot",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit_snapshot": {
+          "name": "unit_snapshot",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "suggested_quantity": {
+          "name": "suggested_quantity",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "purchased_quantity": {
+          "name": "purchased_quantity",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "estimated_cost": {
+          "name": "estimated_cost",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "paid_price": {
+          "name": "paid_price",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by_id": {
+          "name": "updated_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_purchase_items_list_idx": {
+          "name": "smart_stock_purchase_items_list_idx",
+          "columns": [
+            {
+              "expression": "purchase_list_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_purchase_items_company_location_idx": {
+          "name": "smart_stock_purchase_items_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_purchase_items_company_id_companies_id_fk": {
+          "name": "smart_stock_purchase_items_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_purchase_items",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_items_location_id_company_locations_id_fk": {
+          "name": "smart_stock_purchase_items_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_purchase_items",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_items_purchase_list_id_smart_stock_purchase_lists_id_fk": {
+          "name": "smart_stock_purchase_items_purchase_list_id_smart_stock_purchase_lists_id_fk",
+          "tableFrom": "smart_stock_purchase_items",
+          "tableTo": "smart_stock_purchase_lists",
+          "columnsFrom": [
+            "purchase_list_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_items_ingredient_id_smart_stock_ingredients_id_fk": {
+          "name": "smart_stock_purchase_items_ingredient_id_smart_stock_ingredients_id_fk",
+          "tableFrom": "smart_stock_purchase_items",
+          "tableTo": "smart_stock_ingredients",
+          "columnsFrom": [
+            "ingredient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_items_created_by_id_users_id_fk": {
+          "name": "smart_stock_purchase_items_created_by_id_users_id_fk",
+          "tableFrom": "smart_stock_purchase_items",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_items_updated_by_id_users_id_fk": {
+          "name": "smart_stock_purchase_items_updated_by_id_users_id_fk",
+          "tableFrom": "smart_stock_purchase_items",
+          "tableTo": "users",
+          "columnsFrom": [
+            "updated_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "smart_stock_purchase_items_suggested_quantity_nonnegative": {
+          "name": "smart_stock_purchase_items_suggested_quantity_nonnegative",
+          "value": "\"smart_stock_purchase_items\".\"suggested_quantity\" >= 0"
+        },
+        "smart_stock_purchase_items_purchased_quantity_nonnegative": {
+          "name": "smart_stock_purchase_items_purchased_quantity_nonnegative",
+          "value": "\"smart_stock_purchase_items\".\"purchased_quantity\" >= 0"
+        },
+        "smart_stock_purchase_items_estimated_cost_nonnegative": {
+          "name": "smart_stock_purchase_items_estimated_cost_nonnegative",
+          "value": "\"smart_stock_purchase_items\".\"estimated_cost\" >= 0"
+        },
+        "smart_stock_purchase_items_paid_price_nonnegative": {
+          "name": "smart_stock_purchase_items_paid_price_nonnegative",
+          "value": "\"smart_stock_purchase_items\".\"paid_price\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.smart_stock_purchase_lists": {
+      "name": "smart_stock_purchase_lists",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_id": {
+          "name": "location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "operation": {
+          "name": "operation",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'create'"
+        },
+        "estimated_total": {
+          "name": "estimated_total",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "total_paid": {
+          "name": "total_paid",
+          "type": "numeric(18, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_id": {
+          "name": "created_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_by_id": {
+          "name": "confirmed_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discarded_by_id": {
+          "name": "discarded_by_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discarded_at": {
+          "name": "discarded_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "discard_reason": {
+          "name": "discard_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "smart_stock_purchase_lists_company_location_idx": {
+          "name": "smart_stock_purchase_lists_company_location_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_purchase_lists_one_active_per_location": {
+          "name": "smart_stock_purchase_lists_one_active_per_location",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"smart_stock_purchase_lists\".\"status\" = 'draft'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "smart_stock_purchase_lists_location_operation_idempotency_unique": {
+          "name": "smart_stock_purchase_lists_location_operation_idempotency_unique",
+          "columns": [
+            {
+              "expression": "location_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "operation",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "idempotency_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "smart_stock_purchase_lists_company_id_companies_id_fk": {
+          "name": "smart_stock_purchase_lists_company_id_companies_id_fk",
+          "tableFrom": "smart_stock_purchase_lists",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_lists_location_id_company_locations_id_fk": {
+          "name": "smart_stock_purchase_lists_location_id_company_locations_id_fk",
+          "tableFrom": "smart_stock_purchase_lists",
+          "tableTo": "company_locations",
+          "columnsFrom": [
+            "location_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_lists_created_by_id_users_id_fk": {
+          "name": "smart_stock_purchase_lists_created_by_id_users_id_fk",
+          "tableFrom": "smart_stock_purchase_lists",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_lists_confirmed_by_id_users_id_fk": {
+          "name": "smart_stock_purchase_lists_confirmed_by_id_users_id_fk",
+          "tableFrom": "smart_stock_purchase_lists",
+          "tableTo": "users",
+          "columnsFrom": [
+            "confirmed_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "smart_stock_purchase_lists_discarded_by_id_users_id_fk": {
+          "name": "smart_stock_purchase_lists_discarded_by_id_users_id_fk",
+          "tableFrom": "smart_stock_purchase_lists",
+          "tableTo": "users",
+          "columnsFrom": [
+            "discarded_by_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "smart_stock_purchase_lists_estimated_total_nonnegative": {
+          "name": "smart_stock_purchase_lists_estimated_total_nonnegative",
+          "value": "\"smart_stock_purchase_lists\".\"estimated_total\" >= 0"
+        },
+        "smart_stock_purchase_lists_total_paid_nonnegative": {
+          "name": "smart_stock_purchase_lists_total_paid_nonnegative",
+          "value": "\"smart_stock_purchase_lists\".\"total_paid\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.subscriptions": {
       "name": "subscriptions",
       "schema": "",

@@ -1,38 +1,27 @@
-# Precificação — runbook de migração compartilhada
+# Consolidação das migrações de retenção, precificação e estoque
 
-Este recurso usa o journal PostgreSQL compartilhado por `automatize-frontend` e `backoffice`. As migrations são aditivas e devem ser aplicadas nesta ordem, primeiro a retenção e depois a precificação. Este documento registra a sequência de deploy; nenhuma migration de staging ou produção foi executada nesta tarefa.
+O frontend e o backoffice compartilham o mesmo PostgreSQL e a tabela `drizzle.__drizzle_migrations`. A aplicação das três features em 20/09/2026 usou somente os SQL aditivos abaixo, em uma transação por ambiente. Os arquivos de retenção e precificação são idênticos entre os dois repositórios após normalizar CRLF para LF; foram executados uma única vez por banco. O estoque tem SQL somente no frontend e schema espelhado no backoffice.
 
-## Ordem e identidade
+| Ordem | Frontend | Backoffice | `when` staging | `when` main/produção |
+| --- | --- | --- | ---: | ---: |
+| 1 | `0122_cancellation_retention.sql` | `0117_cancellation_retention.sql` | 1800110000000 | 1800500000000 |
+| 2 | `0123_pricing.sql` | `0118_pricing.sql` | 1800120000000 | 1800600000000 |
+| 3 | `0124_smart_stock.sql` | schema espelhado | 1800130000000 | 1800700000000 |
+| 4 | `0125_smart_stock_ingredient_edit_keys.sql` | schema espelhado | 1800140000000 | 1800800000000 |
 
-1. **Retenção**
-   - frontend: `lib/db/migrations/0122_cancellation_retention.sql`
-   - backoffice: `lib/db/migrations/0117_cancellation_retention.sql`
-   - `when`: `1800500000000`
-   - SHA-256 canônico (SQL normalizado para LF): `17924FFE28792FAAF3854CCFB0E376CA9C49DB68A0ECC48B52112C50EB0419E2`
+SHA-256 canônico, com finais de linha LF, na mesma ordem: `17924ffe28792faaf3854ccfb0e376ca9c49db68a0ecc48b52112c50eb0419e2`, `1ad422ecb99ca2f72f538ca05c74878d8e58ff7de699c2e2c1f7fdd7db129cf0`, `c661efd060c031667797f341df1038c228ed38d8d4ab9c29f41b8b43d69aefb7`, `81c40694c08223694c6081e646b958946277ac0344944402ba82565c132e3d53`. O journal registra o hash dos bytes do checkout que executou a migração; a auditoria aceita LF e CRLF.
 
-2. **Precificação**
-   - frontend: `lib/db/migrations/0123_pricing.sql`
-   - backoffice: `lib/db/migrations/0118_pricing.sql`
-   - `when`: `1800600000000`
-   - SHA-256 canônico (SQL normalizado para LF): `1AD422ECB99CA2F72F538CA05C74878D8E58FF7DE699C2E2C1F7FDD7DB129CF0`
-   - SHA-256 dos bytes físicos CRLF no checkout Windows: `468B6B3726904FBAE0928F8B1F11317961C5483A877CD17855AF416FB936077D`
+## Execução e conferência
 
-As cópias frontend/backoffice devem permanecer byte idênticas depois de normalizar os finais de linha. Em checkouts Windows, as migrations podem aparecer com CRLF e gerar hashes físicos diferentes dos hashes canônicos LF: retenção gera `96E5D4581941ABAC46E5F43AEE7CA7635B5B4294FBC335FE483B1410D34A9945` e precificação gera `468B6B3726904FBAE0928F8B1F11317961C5483A877CD17855AF416FB936077D`. Os hashes canônicos LF acima são os valores usados para comparar o SQL do journal.
+Os dois bancos não tinham objetos dessas features antes da aplicação. O processo conferiu o projeto Supabase, a marca d'água do journal, a ausência dos novos objetos e a identidade dos SQL de frontend/backoffice. Cada transação executou apenas `CREATE TABLE`, `CREATE INDEX` ou `ALTER TABLE ... ADD COLUMN/CONSTRAINT`, inseriu os hashes no journal e comparou o catálogo completo de colunas e a contagem de linhas de `users`, `payments` e `mercadopago_payment_links` antes do commit. Não houve `DROP`, `DELETE`, `TRUNCATE` ou `UPDATE`.
 
-## Comandos de deploy
+| Banco | Projeto Supabase | Marca inicial | Marca final | Colunas antigas preservadas | Linhas antes/depois (`users`, `payments`, `mercadopago_payment_links`) |
+| --- | --- | ---: | ---: | ---: | --- |
+| Staging | `wsbsnzgzqiehqnklzchm` | 1800000000000 | 1800140000000 | 2721 | 135, 16, 8 |
+| Produção | `hosjqwtfjjtmphchsuqf` | 1800300000000 | 1800800000000 | 2605 | 1002, 340, 176 |
 
-Com o banco compartilhado apontado por `POSTGRES_URL`, execute em cada repositório, nesta ordem:
+Em cada banco foram criadas 15 tabelas e seis colunas. Uma leitura independente após o commit confirmou os hashes, as colunas de retenção e as tabelas de retenção e precificação. Em staging, os três índices da migração histórica `backoffice/0112_playbook_alert_dashboard_indexes.sql` já existiam com a definição esperada; o hash dessa migração foi registrado em `when=1800100000000` antes das quatro migrações novas.
 
-```powershell
-# automatize-frontend
-bun run db:migrate
-bun run db:migrate:status
+Não execute `db:push` nem o `db:migrate` genérico para repetir esta entrega. Os dois repositórios compartilham uma marca d'água única e têm sequências diferentes; o migrador genérico pode pular entradas antigas silenciosamente. Para qualquer ambiente adicional, confira os objetos físicos e aplique somente os SQL pendentes, em ordem e em transação, registrando seus hashes após a execução.
 
-# backoffice
-bun run db:migrate
-bun run db:migrate:status
-```
-
-Depois, confirme no journal que a retenção (`1800500000000`) aparece antes da precificação (`1800600000000`), que os tags são `0122_cancellation_retention`/`0123_pricing` no frontend e `0117_cancellation_retention`/`0118_pricing` no backoffice, e que os hashes correspondem aos valores acima. O backoffice mantém seu executor `scripts/drizzle-migrate-with-baseline.ts` por trás de `bun run db:migrate`; não use `db:push`.
-
-Em desenvolvimento local, valide as migrations no banco QA descartável antes de qualquer deploy. Não execute esses comandos apontando para staging ou produção durante esta tarefa.
+O `drizzle-kit check` continua encontrando colisões entre snapshots históricos (`0016`/`0020` no frontend e `0017`/`0024` no backoffice), anteriores a esta integração. Os snapshots finais destas features foram gerados do schema completo de cada branch; os do frontend incluem as sete tabelas de estoque.
