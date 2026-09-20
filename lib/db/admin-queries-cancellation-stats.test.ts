@@ -54,7 +54,7 @@ describe("admin cancellation stats payment correlation", () => {
     ).toBe(true);
   });
 
-  test("accepts a succeeded PIX payment only when it names the retention benefit", () => {
+  test("accepts a succeeded PIX payment by benefit ID or exact provider payment ID", () => {
     expect(
       isConfirmedCancellationRenewalPayment({
         provider: "mercadopago",

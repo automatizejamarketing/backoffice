@@ -143,7 +143,6 @@ mock.module("date-fns", () => ({
 }));
 mock.module("resend", () => ({ Resend: class { emails = { send: async () => ({ error: null }) }; } }));
 mock.module("@/lib/db", () => ({ db: memory }));
-mock.module("@/lib/backoffice/datetime-format", () => ({ formatInSaoPaulo: () => "20/09/2026" }));
 mock.module("@/lib/mercadopago/pix-payment", () => ({
   getMercadoPagoPixPayment: async () => null,
   cancelMercadoPagoPixPayment: async () => ({ status: "cancelled" }),
