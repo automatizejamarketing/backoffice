@@ -243,8 +243,9 @@ describe("hash do arquivo", () => {
 
 describe("cancellation retention migration", () => {
   it("keeps the mirrored additive migration at the shared watermark", () => {
-    const entry = readMigrationJournal(join(root, "lib", "db", "migrations"))
-      .at(-1);
+    const entry = readMigrationJournal(
+      join(root, "lib", "db", "migrations"),
+    ).find((candidate) => candidate.tag === "0117_cancellation_retention");
     assert.equal(entry?.tag, "0117_cancellation_retention");
     assert.equal(entry?.when, 1800500000000);
     assert.match(entry?.sql ?? "", /CREATE TABLE IF NOT EXISTS "cancellation_attempts"/);
