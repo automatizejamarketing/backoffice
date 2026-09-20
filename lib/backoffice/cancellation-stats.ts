@@ -57,6 +57,8 @@ export type CancellationStatsEvent = {
     | string;
   occurredAt: Date | string;
   offerType?: CancellationStatsOfferKind | null;
+  reason?: RetentionReasonKey | null;
+  offerRevision?: string | null;
 };
 
 export type CancellationStatsPayment = {
@@ -86,6 +88,7 @@ export type CancellationStatsAttempt = {
   renewalPayment?: CancellationStatsPayment | null;
   /** A provider-confirmed payment can be supplied when the query has already correlated it. */
   renewalPaymentConfirmed?: boolean;
+  offerRevision?: string | null;
   /** No meeting-confirmation event exists yet, but this allows a future provider to supply one. */
   meetingConfirmed?: boolean;
 };
@@ -134,6 +137,18 @@ function eventOfferType(
   return attempt.offerType === "discount" || attempt.offerType === "specialist"
     ? attempt.offerType
     : null;
+}
+
+function eventMatchesCurrentOffer(
+  event: CancellationStatsEvent,
+  attempt: CancellationStatsAttempt,
+  kind: CancellationStatsOfferKind,
+) {
+  if (eventOfferType(event, attempt) !== kind) return false;
+  if (event.offerRevision && attempt.offerRevision && event.offerRevision !== attempt.offerRevision) return false;
+  // New events carry the reason that produced the offer. This excludes an old
+  // offer after the customer changed reasons while preserving legacy rows.
+  return !event.reason || !attempt.reason || event.reason === attempt.reason;
 }
 
 function isWithin(value: Date | string, window: CancellationStatsWindow) {
@@ -207,12 +222,12 @@ export function summarizeCancellationStats(input: {
     const shownAttempts = scoped.filter((attempt) => {
       if (attempt.offerType !== kind) return false;
       return (eventByAttempt.get(attempt.id) ?? []).some(
-        (event) => event.eventType === "offer_shown" && eventOfferType(event, attempt) === kind,
+        (event) => event.eventType === "offer_shown" && eventMatchesCurrentOffer(event, attempt, kind),
       );
     });
     const acceptedAttempts = shownAttempts.filter((attempt) =>
       (eventByAttempt.get(attempt.id) ?? []).some(
-        (event) => event.eventType === "offer_accepted" && eventOfferType(event, attempt) === kind,
+        (event) => event.eventType === "offer_accepted" && eventMatchesCurrentOffer(event, attempt, kind),
       ),
     );
     return {
@@ -243,7 +258,8 @@ export function summarizeCancellationStats(input: {
       .filter(
         (event) =>
           event.eventType === "offer_accepted" &&
-          eventOfferType(event, attempt) === attempt.offerType,
+          eventOfferType(event, attempt) === attempt.offerType &&
+          (!event.reason || !attempt.reason || event.reason === attempt.reason),
       )
       .map((event) => ({ event, occurredAt: toDate(event.occurredAt) }))
       .filter((item): item is { event: CancellationStatsEvent; occurredAt: Date } => item.occurredAt !== null)

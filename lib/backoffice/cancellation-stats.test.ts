@@ -4,6 +4,7 @@ import {
   summarizeCancellationStats,
   type CancellationStatsAttempt,
   type CancellationStatsEvent,
+  type RetentionReasonKey,
 } from "./cancellation-stats";
 
 const asOf = new Date("2026-09-20T12:00:00.000Z");
@@ -36,12 +37,14 @@ function event(
   eventType: CancellationStatsEvent["eventType"],
   occurredAt = "2026-08-11T12:00:00.000Z",
   offerType?: "discount" | "specialist",
+  reason?: RetentionReasonKey,
 ): CancellationStatsEvent {
   return {
     attemptId,
     eventType,
     occurredAt: new Date(occurredAt),
     offerType,
+    reason,
   };
 }
 
@@ -188,6 +191,38 @@ describe("cancellation stats aggregation", () => {
       { kind: "specialist", shown: 1, accepted: { numerator: 0, denominator: 1, percent: 0 } },
     ]);
     expect(summary.effectiveRetention30d).toEqual({ numerator: 0, denominator: 0, percent: 0 });
+  });
+
+  test("counts the current offer revision after a reason change", () => {
+    const summary = summarizeCancellationStats({
+      attempts: [attempt("revised", { reason: "setup_difficulty", offerType: "specialist" })],
+      events: [
+        event("revised", "offer_shown", "2026-08-01T12:00:00.000Z", "discount", "price_too_high"),
+        event("revised", "offer_shown", "2026-08-02T12:00:00.000Z", "specialist", "setup_difficulty"),
+        event("revised", "offer_accepted", "2026-08-02T12:01:00.000Z", "specialist", "setup_difficulty"),
+      ],
+      window,
+      asOf,
+    });
+    expect(summary.offers).toEqual([
+      { kind: "discount", shown: 0, accepted: { numerator: 0, denominator: 0, percent: 0 } },
+      { kind: "specialist", shown: 1, accepted: { numerator: 1, denominator: 1, percent: 100 } },
+    ]);
+  });
+
+  test("ignores an older A revision after A to B to A", () => {
+    const summary = summarizeCancellationStats({
+      attempts: [attempt("cycled", { reason: "price_too_high", offerType: "discount", offerRevision: "rev-a-2" })],
+      events: [
+        { ...event("cycled", "offer_shown", "2026-08-01T12:00:00.000Z", "discount", "price_too_high"), offerRevision: "rev-a-1" },
+        { ...event("cycled", "offer_shown", "2026-08-02T12:00:00.000Z", "specialist", "setup_difficulty"), offerRevision: "rev-b" },
+        { ...event("cycled", "offer_shown", "2026-08-03T12:00:00.000Z", "discount", "price_too_high"), offerRevision: "rev-a-2" },
+        { ...event("cycled", "offer_accepted", "2026-08-03T12:01:00.000Z", "discount", "price_too_high"), offerRevision: "rev-a-2" },
+      ],
+      window,
+      asOf,
+    });
+    expect(summary.offers[0]).toEqual({ kind: "discount", shown: 1, accepted: { numerator: 1, denominator: 1, percent: 100 } });
   });
 
   test("uses a reserved discount benefit only as a legacy acceptance anchor", () => {
