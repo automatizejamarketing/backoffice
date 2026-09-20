@@ -3,10 +3,16 @@ import "server-only";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import type { MercadoPagoPaymentLink, PlanType } from "@/lib/db/schema";
 import { extractPixCopyPasteCode } from "@/lib/mercadopago/pix-payment-utils";
+import {
+  isPayableMercadoPagoPixStatus,
+  isTerminalMercadoPagoPixStatus,
+} from "./pix-retention-contract";
+export { isPayableMercadoPagoPixStatus, isTerminalMercadoPagoPixStatus } from "./pix-retention-contract";
 
 type MercadoPagoPixPaymentResponse = {
   id?: number | string;
   status?: string;
+  transaction_amount?: number | string;
   point_of_interaction?: {
     transaction_data?: {
       qr_code?: string;
@@ -14,6 +20,8 @@ type MercadoPagoPixPaymentResponse = {
     };
   };
 };
+
+export type MercadoPagoPixPayment = MercadoPagoPixPaymentResponse;
 
 export type PixCopyPasteDetails = {
   paymentId: string;
@@ -43,11 +51,7 @@ function toBRLUnitAmount(amountCentavos: number): number {
   return Number((amountCentavos / 100).toFixed(2));
 }
 
-function isPendingPixPayment(status: string | undefined): boolean {
-  return status === "pending" || status === "in_process";
-}
-
-async function fetchMercadoPagoPixPayment(
+export async function getMercadoPagoPixPayment(
   paymentId: string,
 ): Promise<MercadoPagoPixPaymentResponse | null> {
   for (const token of collectPixPaymentAccessTokens()) {
@@ -79,6 +83,31 @@ async function fetchMercadoPagoPixPayment(
   return null;
 }
 
+/** Cancel a still-payable PIX and return the provider's authoritative state. */
+export async function cancelMercadoPagoPixPayment(
+  paymentId: string,
+): Promise<MercadoPagoPixPaymentResponse> {
+  const token = getPixPaymentAccessToken();
+  const response = await fetch(
+    `https://api.mercadopago.com/v1/payments/${encodeURIComponent(paymentId)}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ status: "cancelled" }),
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `Mercado Pago cancellation failed (HTTP ${response.status}).`);
+  }
+
+  return (await response.json()) as MercadoPagoPixPaymentResponse;
+}
+
 export async function createMercadoPagoPixPayment({
   linkId,
   userId,
@@ -88,6 +117,10 @@ export async function createMercadoPagoPixPayment({
   expiresAt,
   notificationUrl,
   idempotencySuffix,
+  providerIdempotencyKey,
+  retentionBenefitId,
+  originalAmountCentavos,
+  discountAmountCentavos,
 }: {
   linkId: string;
   userId: string;
@@ -97,15 +130,19 @@ export async function createMercadoPagoPixPayment({
   expiresAt: Date;
   notificationUrl: string;
   idempotencySuffix?: string;
+  providerIdempotencyKey?: string;
+  retentionBenefitId?: string;
+  originalAmountCentavos?: number;
+  discountAmountCentavos?: number;
 }): Promise<PixCopyPasteDetails> {
   const response = await fetch("https://api.mercadopago.com/v1/payments", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${getPixPaymentAccessToken()}`,
       "Content-Type": "application/json",
-      "X-Idempotency-Key": idempotencySuffix
+      "X-Idempotency-Key": providerIdempotencyKey ?? (idempotencySuffix
         ? `pix-link:${linkId}:${idempotencySuffix}`
-        : `pix-link:${linkId}`,
+        : `pix-link:${linkId}`),
     },
     body: JSON.stringify({
       transaction_amount: toBRLUnitAmount(amountCentavos),
@@ -124,6 +161,14 @@ export async function createMercadoPagoPixPayment({
         plan_type: planType,
         amount_centavos: amountCentavos,
         source: "backoffice",
+        ...(retentionBenefitId
+          ? {
+              retention_benefit_id: retentionBenefitId,
+              original_amount_centavos: originalAmountCentavos ?? amountCentavos,
+              discount_amount_centavos: discountAmountCentavos ?? 0,
+              final_amount_centavos: amountCentavos,
+            }
+          : {}),
       },
     }),
   });
@@ -159,7 +204,7 @@ export async function ensurePixCopyPasteCode({
   notificationUrl: string;
 }): Promise<PixCopyPasteDetails> {
   if (link.mercadopagoPaymentId) {
-    const existingPayment = await fetchMercadoPagoPixPayment(
+    const existingPayment = await getMercadoPagoPixPayment(
       link.mercadopagoPaymentId,
     );
     const pixCopyPasteCode = existingPayment
@@ -169,7 +214,7 @@ export async function ensurePixCopyPasteCode({
     if (
       existingPayment &&
       pixCopyPasteCode &&
-      isPendingPixPayment(existingPayment.status)
+      isPayableMercadoPagoPixStatus(existingPayment.status)
     ) {
       return {
         paymentId: link.mercadopagoPaymentId,

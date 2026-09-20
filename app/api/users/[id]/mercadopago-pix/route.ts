@@ -6,7 +6,9 @@ import { BackofficePixStripeBlockError } from "@/lib/backoffice/pix-renewal-poli
 import { db } from "@/lib/db";
 import { PLAN_TYPE_VALUES, user, type PlanType } from "@/lib/db/schema";
 import {
+  BackofficePixRetentionConflictError,
   createOrReuseBackofficePixLink,
+  serializeBackofficePixLink,
   sendBackofficePixLinkEmail,
 } from "@/lib/mercadopago/pix";
 import { formatMercadoPagoPixError } from "@/lib/mercadopago/pix-errors";
@@ -66,19 +68,7 @@ export async function POST(
 
     return NextResponse.json({
       link: {
-        id: link.id,
-        planType: link.planType,
-        amount: link.amount,
-        currency: link.currency,
-        preferenceId: link.preferenceId,
-        initPoint: link.initPoint,
-        pixCopyPasteCode: link.pixCopyPasteCode,
-        mercadopagoPaymentId: link.mercadopagoPaymentId,
-        status: link.status,
-        source: link.source,
-        adminEmail: link.adminEmail,
-        expiresAt: link.expiresAt.toISOString(),
-        createdAt: link.createdAt.toISOString(),
+        ...serializeBackofficePixLink(link),
       },
       reused: link.reused,
       emailed: body.sendEmail === true,
@@ -86,6 +76,16 @@ export async function POST(
   } catch (error) {
     if (error instanceof BackofficePixStripeBlockError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error instanceof BackofficePixRetentionConflictError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        },
+        { status: 409 },
+      );
     }
     const message =
       error instanceof Error ? error.message : "Não foi possível gerar o Pix";
