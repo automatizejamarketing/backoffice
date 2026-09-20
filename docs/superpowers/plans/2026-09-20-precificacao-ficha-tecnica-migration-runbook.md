@@ -14,9 +14,10 @@ Este recurso usa o journal PostgreSQL compartilhado por `automatize-frontend` e 
    - frontend: `lib/db/migrations/0123_pricing.sql`
    - backoffice: `lib/db/migrations/0118_pricing.sql`
    - `when`: `1800600000000`
-   - SHA-256: `468B6B3726904FBAE0928F8B1F11317961C5483A877CD17855AF416FB936077D`
+   - SHA-256 canônico (SQL normalizado para LF): `1AD422ECB99CA2F72F538CA05C74878D8E58FF7DE699C2E2C1F7FDD7DB129CF0`
+   - SHA-256 dos bytes físicos CRLF no checkout Windows: `468B6B3726904FBAE0928F8B1F11317961C5483A877CD17855AF416FB936077D`
 
-As cópias frontend/backoffice devem permanecer byte idênticas depois de normalizar os finais de linha. Em checkouts Windows, a migration de retenção pode aparecer com CRLF e gerar `96E5D4581941ABAC46E5F43AEE7CA7635B5B4294FBC335FE483B1410D34A9945` quando o hash for calculado sobre os bytes físicos; o hash canônico acima é o valor usado para comparar o SQL do journal.
+As cópias frontend/backoffice devem permanecer byte idênticas depois de normalizar os finais de linha. Em checkouts Windows, as migrations podem aparecer com CRLF e gerar hashes físicos diferentes dos hashes canônicos LF: retenção gera `96E5D4581941ABAC46E5F43AEE7CA7635B5B4294FBC335FE483B1410D34A9945` e precificação gera `468B6B3726904FBAE0928F8B1F11317961C5483A877CD17855AF416FB936077D`. Os hashes canônicos LF acima são os valores usados para comparar o SQL do journal.
 
 ## Comandos de deploy
 
