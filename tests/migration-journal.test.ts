@@ -241,6 +241,24 @@ describe("hash do arquivo", () => {
   });
 });
 
+describe("cancellation retention migration", () => {
+  it("keeps the mirrored additive migration at the shared watermark", () => {
+    const entry = readMigrationJournal(join(root, "lib", "db", "migrations"))
+      .at(-1);
+    assert.equal(entry?.tag, "0117_cancellation_retention");
+    assert.equal(entry?.when, 1800500000000);
+    assert.match(entry?.sql ?? "", /CREATE TABLE IF NOT EXISTS "cancellation_attempts"/);
+    assert.match(
+      entry?.sql ?? "",
+      /CREATE UNIQUE INDEX IF NOT EXISTS "retention_financial_benefits_user_id_unique"[\s\S]*?ON "retention_financial_benefits" \("user_id"\)/,
+    );
+    assert.doesNotMatch(
+      entry?.sql ?? "",
+      /retention_financial_benefits_user_id_unique[^;]+\("user_id"[^)]*,/,
+    );
+  });
+});
+
 describe("auditoria", () => {
   const foundation = fakeFile(
     "0044_foundation",
