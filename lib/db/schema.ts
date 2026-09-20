@@ -143,6 +143,7 @@ export const user = pgTable(
     // NULL (their real signup date is unknown); new signups get now() via the DB
     // default. Added for the trackable-link "users per link" view.
     createdAt: timestamp("created_at").defaultNow(),
+    pixRenewalOptOutAt: timestamp("pix_renewal_opt_out_at"),
   },
   () => ({}),
 );
@@ -1668,6 +1669,408 @@ export const companyLocation = pgTable(
 
 export type CompanyLocation = InferSelectModel<typeof companyLocation>;
 
+/**
+ * Dedicated schema for Estoque Inteligente. These tables intentionally do not
+ * share the legacy food-service tables; the feature owns its inventory ledger,
+ * purchase workflow, and assisted-import review state.
+ */
+export const smartStockIngredient = pgTable(
+  "smart_stock_ingredients",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    category: varchar("category", { length: 128 }),
+    unit: varchar("unit", {
+      length: 3,
+      enum: ["kg", "g", "L", "ml", "un", "cx", "pct"],
+    }).notNull(),
+    minimumQuantity: numeric("minimum_quantity", { precision: 18, scale: 6 })
+      .notNull()
+      .default("0"),
+    quantity: numeric("quantity", { precision: 18, scale: 6 })
+      .notNull()
+      .default("0"),
+    averageCost: numeric("average_cost", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    active: boolean("active").notNull().default(true),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    updatedById: uuid("updated_by_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyLocationIdx: index("smart_stock_ingredients_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    activeNameUnique: uniqueIndex("smart_stock_ingredients_active_name_unique")
+      .on(table.locationId, sql`lower(trim(${table.name}))`)
+      .where(sql`${table.active}`),
+    minimumQuantityCheck: check(
+      "smart_stock_ingredients_minimum_quantity_nonnegative",
+      sql`${table.minimumQuantity} >= 0`,
+    ),
+    quantityCheck: check(
+      "smart_stock_ingredients_quantity_nonnegative",
+      sql`${table.quantity} >= 0`,
+    ),
+    averageCostCheck: check(
+      "smart_stock_ingredients_average_cost_nonnegative",
+      sql`${table.averageCost} >= 0`,
+    ),
+  }),
+);
+
+export type SmartStockIngredient = InferSelectModel<typeof smartStockIngredient>;
+
+/** Durable caller-key journal for stock-affecting ingredient edits. */
+export const smartStockIngredientEditKey = pgTable(
+  "smart_stock_ingredient_edit_keys",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => smartStockIngredient.id),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyLocationIdx: index("smart_stock_ingredient_edit_keys_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    ingredientIdx: index("smart_stock_ingredient_edit_keys_ingredient_idx").on(
+      table.ingredientId,
+    ),
+    idempotencyUnique: uniqueIndex(
+      "smart_stock_ingredient_edit_keys_location_idempotency_unique",
+    ).on(table.locationId, table.idempotencyKey),
+  }),
+);
+
+export type SmartStockIngredientEditKey = InferSelectModel<typeof smartStockIngredientEditKey>;
+
+export const smartStockPurchaseList = pgTable(
+  "smart_stock_purchase_lists",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    status: varchar("status", {
+      length: 16,
+      enum: ["draft", "confirmed", "discarded"],
+    })
+      .notNull()
+      .default("draft"),
+    operation: varchar("operation", { length: 32 }).notNull().default("create"),
+    estimatedTotal: numeric("estimated_total", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    totalPaid: numeric("total_paid", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    confirmedById: uuid("confirmed_by_id").references(() => user.id),
+    confirmedAt: timestamp("confirmed_at"),
+    discardedById: uuid("discarded_by_id").references(() => user.id),
+    discardedAt: timestamp("discarded_at"),
+    discardReason: text("discard_reason"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyLocationIdx: index("smart_stock_purchase_lists_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    activePerLocationUnique: uniqueIndex(
+      "smart_stock_purchase_lists_one_active_per_location",
+    )
+      .on(table.locationId)
+      .where(sql`${table.status} = 'draft'`),
+    idempotencyUnique: uniqueIndex(
+      "smart_stock_purchase_lists_location_operation_idempotency_unique",
+    ).on(table.locationId, table.operation, table.idempotencyKey),
+    estimatedTotalCheck: check(
+      "smart_stock_purchase_lists_estimated_total_nonnegative",
+      sql`${table.estimatedTotal} >= 0`,
+    ),
+    totalPaidCheck: check(
+      "smart_stock_purchase_lists_total_paid_nonnegative",
+      sql`${table.totalPaid} >= 0`,
+    ),
+  }),
+);
+
+export type SmartStockPurchaseList = InferSelectModel<typeof smartStockPurchaseList>;
+
+export const smartStockPurchaseItem = pgTable(
+  "smart_stock_purchase_items",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    purchaseListId: uuid("purchase_list_id")
+      .notNull()
+      .references(() => smartStockPurchaseList.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => smartStockIngredient.id),
+    nameSnapshot: varchar("name_snapshot", { length: 255 }).notNull(),
+    unitSnapshot: varchar("unit_snapshot", { length: 8 }).notNull(),
+    suggestedQuantity: numeric("suggested_quantity", { precision: 18, scale: 6 })
+      .notNull()
+      .default("0"),
+    purchasedQuantity: numeric("purchased_quantity", { precision: 18, scale: 6 })
+      .notNull()
+      .default("0"),
+    estimatedCost: numeric("estimated_cost", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    paidPrice: numeric("paid_price", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    updatedById: uuid("updated_by_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    listIdx: index("smart_stock_purchase_items_list_idx").on(table.purchaseListId),
+    companyLocationIdx: index("smart_stock_purchase_items_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    suggestedQuantityCheck: check(
+      "smart_stock_purchase_items_suggested_quantity_nonnegative",
+      sql`${table.suggestedQuantity} >= 0`,
+    ),
+    purchasedQuantityCheck: check(
+      "smart_stock_purchase_items_purchased_quantity_nonnegative",
+      sql`${table.purchasedQuantity} >= 0`,
+    ),
+    estimatedCostCheck: check(
+      "smart_stock_purchase_items_estimated_cost_nonnegative",
+      sql`${table.estimatedCost} >= 0`,
+    ),
+    paidPriceCheck: check(
+      "smart_stock_purchase_items_paid_price_nonnegative",
+      sql`${table.paidPrice} >= 0`,
+    ),
+  }),
+);
+
+export type SmartStockPurchaseItem = InferSelectModel<typeof smartStockPurchaseItem>;
+
+export const smartStockImportBatch = pgTable(
+  "smart_stock_import_batches",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    origin: varchar("origin", {
+      length: 16,
+      enum: ["invoice_xml", "invoice_pdf", "invoice_image", "audio"],
+    }).notNull(),
+    status: varchar("status", {
+      length: 16,
+      enum: ["pending_review", "applied", "discarded", "failed"],
+    })
+      .notNull()
+      .default("pending_review"),
+    operation: varchar("operation", { length: 32 }).notNull().default("import"),
+    sourceObjectKey: text("source_object_key"),
+    extractedText: text("extracted_text"),
+    uncertainty: jsonb("uncertainty"),
+    failureReason: text("failure_reason"),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    expiresAt: timestamp("expires_at"),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    reviewedById: uuid("reviewed_by_id").references(() => user.id),
+    appliedById: uuid("applied_by_id").references(() => user.id),
+    appliedAt: timestamp("applied_at"),
+    discardedAt: timestamp("discarded_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyLocationIdx: index("smart_stock_import_batches_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    idempotencyUnique: uniqueIndex(
+      "smart_stock_import_batches_location_operation_idempotency_unique",
+    ).on(table.locationId, table.operation, table.idempotencyKey),
+  }),
+);
+
+export type SmartStockImportBatch = InferSelectModel<typeof smartStockImportBatch>;
+
+export const smartStockImportLine = pgTable(
+  "smart_stock_import_lines",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    importBatchId: uuid("import_batch_id")
+      .notNull()
+      .references(() => smartStockImportBatch.id),
+    ingredientId: uuid("ingredient_id").references(() => smartStockIngredient.id),
+    proposedName: varchar("proposed_name", { length: 255 }).notNull(),
+    proposedUnit: varchar("proposed_unit", { length: 8 }).notNull(),
+    quantity: numeric("quantity", { precision: 18, scale: 6 }).notNull(),
+    unitPrice: numeric("unit_price", { precision: 18, scale: 4 }),
+    totalPrice: numeric("total_price", { precision: 18, scale: 4 }),
+    extractedData: jsonb("extracted_data"),
+    uncertainty: jsonb("uncertainty"),
+    createNewIngredient: boolean("create_new_ingredient").notNull().default(false),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    updatedById: uuid("updated_by_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    batchIdx: index("smart_stock_import_lines_batch_idx").on(table.importBatchId),
+    companyLocationIdx: index("smart_stock_import_lines_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    quantityCheck: check(
+      "smart_stock_import_lines_quantity_nonnegative",
+      sql`${table.quantity} >= 0`,
+    ),
+    unitPriceCheck: check(
+      "smart_stock_import_lines_unit_price_nonnegative",
+      sql`${table.unitPrice} IS NULL OR ${table.unitPrice} >= 0`,
+    ),
+    totalPriceCheck: check(
+      "smart_stock_import_lines_total_price_nonnegative",
+      sql`${table.totalPrice} IS NULL OR ${table.totalPrice} >= 0`,
+    ),
+  }),
+);
+
+export type SmartStockImportLine = InferSelectModel<typeof smartStockImportLine>;
+
+export const smartStockMovement = pgTable(
+  "smart_stock_movements",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => smartStockIngredient.id),
+    type: varchar("type", {
+      length: 16,
+      enum: ["entry", "exit", "adjustment"],
+    }).notNull(),
+    operation: varchar("operation", { length: 32 }).notNull(),
+    quantity: numeric("quantity", { precision: 18, scale: 6 }).notNull(),
+    entryCost: numeric("entry_cost", { precision: 18, scale: 4 }),
+    balanceAfter: numeric("balance_after", { precision: 18, scale: 6 }).notNull(),
+    averageCostAfter: numeric("average_cost_after", { precision: 18, scale: 4 }).notNull(),
+    origin: varchar("origin", {
+      length: 16,
+      enum: ["manual", "purchase", "invoice", "audio", "adjustment"],
+    }).notNull(),
+    note: text("note"),
+    purchaseListId: uuid("purchase_list_id").references(() => smartStockPurchaseList.id),
+    importBatchId: uuid("import_batch_id").references(() => smartStockImportBatch.id),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    actorId: uuid("actor_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyLocationIdx: index("smart_stock_movements_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    ingredientCreatedIdx: index("smart_stock_movements_ingredient_created_idx").on(
+      table.ingredientId,
+      table.createdAt,
+    ),
+    idempotencyUnique: uniqueIndex(
+      "smart_stock_movements_location_operation_idempotency_unique",
+    ).on(table.locationId, table.operation, table.idempotencyKey),
+    quantityCheck: check(
+      "smart_stock_movements_quantity_positive",
+      sql`${table.quantity} > 0`,
+    ),
+    entryCostCheck: check(
+      "smart_stock_movements_entry_cost_nonnegative",
+      sql`${table.entryCost} IS NULL OR ${table.entryCost} >= 0`,
+    ),
+    balanceAfterCheck: check(
+      "smart_stock_movements_balance_after_nonnegative",
+      sql`${table.balanceAfter} >= 0`,
+    ),
+    averageCostAfterCheck: check(
+      "smart_stock_movements_average_cost_after_nonnegative",
+      sql`${table.averageCostAfter} >= 0`,
+    ),
+  }),
+);
+
+export type SmartStockMovement = InferSelectModel<typeof smartStockMovement>;
+
 // User-Company relationship (multi-tenant support)
 export const userCompany = pgTable(
   "user_companies",
@@ -2957,6 +3360,159 @@ export const pendingPlanChange = pgTable("pending_plan_changes", {
 
 export type PendingPlanChange = InferSelectModel<typeof pendingPlanChange>;
 
+export type CancellationAttemptStatus =
+  | "started"
+  | "reason_submitted"
+  | "offer_shown"
+  | "decision_pending"
+  | "completed"
+  | "abandoned"
+  | "failed";
+export type CancellationAttemptDecision = "retain" | "cancel";
+export type CancellationAttemptOutcome =
+  | "retained"
+  | "canceled"
+  | "scheduled"
+  | "abandoned"
+  | "failed";
+
+export const cancellationAttempt = pgTable(
+  "cancellation_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    subscriptionId: uuid("subscription_id").references(() => subscription.id),
+    provider: varchar("provider", { enum: [...BILLING_PROVIDER_VALUES] })
+      .$type<BillingProvider>()
+      .notNull(),
+    planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] })
+      .$type<PlanType>()
+      .notNull(),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    status: varchar("status", {
+      enum: [
+        "started",
+        "reason_submitted",
+        "offer_shown",
+        "decision_pending",
+        "completed",
+        "abandoned",
+        "failed",
+      ],
+    })
+      .$type<CancellationAttemptStatus>()
+      .notNull()
+      .default("started"),
+    reason: varchar("reason", { length: 64 }),
+    reasonDetails: text("reason_details"),
+    offerType: varchar("offer_type", { length: 64 }),
+    offerVersion: varchar("offer_version", { length: 64 }),
+    offerPercent: integer("offer_percent"),
+    decision: varchar("decision", { enum: ["retain", "cancel"] }).$type<
+      CancellationAttemptDecision
+    >(),
+    decisionAt: timestamp("decision_at"),
+    outcome: varchar("outcome", {
+      enum: ["retained", "canceled", "scheduled", "abandoned", "failed"],
+    }).$type<CancellationAttemptOutcome>(),
+    outcomeAt: timestamp("outcome_at"),
+  },
+  (table) => ({
+    startedProviderPlanIdx: index("cancellation_attempts_started_idx").on(
+      table.startedAt,
+      table.provider,
+      table.planType,
+    ),
+  }),
+);
+
+export type CancellationAttempt = InferSelectModel<typeof cancellationAttempt>;
+
+export const cancellationAttemptEvent = pgTable(
+  "cancellation_attempt_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => cancellationAttempt.id),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    operationKey: varchar("operation_key", { length: 255 }),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+  },
+  (table) => ({
+    operationKeyUnique: uniqueIndex(
+      "cancellation_attempt_events_operation_unique",
+    )
+      .on(table.operationKey)
+      .where(sql`${table.operationKey} IS NOT NULL`),
+  }),
+);
+
+export type CancellationAttemptEvent = InferSelectModel<
+  typeof cancellationAttemptEvent
+>;
+
+export type RetentionFinancialBenefitStatus =
+  | "reserved"
+  | "applying"
+  | "reconciliation_required"
+  | "applied"
+  | "consumed";
+
+export const retentionFinancialBenefit = pgTable(
+  "retention_financial_benefits",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => cancellationAttempt.id),
+    status: varchar("status", {
+      enum: [
+        "reserved",
+        "applying",
+        "reconciliation_required",
+        "applied",
+        "consumed",
+      ],
+    })
+      .$type<RetentionFinancialBenefitStatus>()
+      .notNull()
+      .default("reserved"),
+    benefitType: varchar("benefit_type", { length: 64 }).notNull(),
+    campaignId: varchar("campaign_id", { length: 128 }).notNull(),
+    campaignVersion: varchar("campaign_version", { length: 64 }).notNull(),
+    provider: varchar("provider", { enum: [...BILLING_PROVIDER_VALUES] })
+      .$type<BillingProvider>()
+      .notNull(),
+    planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] })
+      .$type<PlanType>()
+      .notNull(),
+    subscriptionId: uuid("subscription_id").references(() => subscription.id),
+    originalAmount: integer("original_amount").notNull(),
+    discountPercent: integer("discount_percent").notNull(),
+    discountAmount: integer("discount_amount").notNull(),
+    providerCouponId: varchar("provider_coupon_id", { length: 255 }),
+    providerPaymentId: varchar("provider_payment_id", { length: 255 }),
+    providerInvoiceId: varchar("provider_invoice_id", { length: 255 }),
+    reservedAt: timestamp("reserved_at").notNull().defaultNow(),
+    appliedAt: timestamp("applied_at"),
+    consumedAt: timestamp("consumed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userLifetimeUnique: uniqueIndex(
+      "retention_financial_benefits_user_id_unique",
+    ).on(table.userId),
+  }),
+);
+
+export type RetentionFinancialBenefit = InferSelectModel<
+  typeof retentionFinancialBenefit
+>;
+
 // Payments table - payment history records
 export type PaymentStatus = "succeeded" | "failed" | "pending" | "refunded";
 
@@ -3031,6 +3587,9 @@ export const payment = pgTable(
     // business policy is that a refund is always total.
     refundedAmount: integer("refunded_amount"),
     refundedAt: timestamp("refunded_at"),
+    retentionBenefitId: uuid("retention_benefit_id").references(
+      () => retentionFinancialBenefit.id,
+    ),
     reversalKind: varchar("reversal_kind", {
       enum: ["refund", "chargeback"],
     }).$type<PaymentReversalKind>(),
@@ -3172,6 +3731,12 @@ export const mercadopagoPaymentLink = pgTable(
     expiresAt: timestamp("expires_at").notNull(),
     paidAt: timestamp("paid_at"),
     mercadopagoPaymentId: varchar("mercadopago_payment_id", { length: 255 }),
+    retentionBenefitId: uuid("retention_benefit_id").references(
+      () => retentionFinancialBenefit.id,
+    ),
+    originalAmount: integer("original_amount"),
+    discountPercent: integer("discount_percent"),
+    discountAmount: integer("discount_amount"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -8770,3 +9335,225 @@ export const crmGoal = pgTable(
 );
 
 export type CrmGoal = InferSelectModel<typeof crmGoal>;
+
+// ===== BEGIN pricing_* — bloco espelhado byte a byte no projeto irmão =====
+export const pricingIngredients = pgTable(
+  "pricing_ingredients",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    category: varchar("category", { length: 128 }),
+    priceCents: integer("price_cents"),
+    priceUnit: varchar("price_unit", { length: 8 }).$type<
+      "kg" | "g" | "L" | "ml" | "un"
+    >(),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantUnique: unique("pricing_ingredients_id_company_id_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    companyIdx: index("pricing_ingredients_company_id_idx").on(
+      table.companyId,
+    ),
+    priceNonnegative: check(
+      "pricing_ingredients_price_cents_nonnegative",
+      sql`${table.priceCents} IS NULL OR ${table.priceCents} >= 0`,
+    ),
+  }),
+);
+
+export type PricingIngredient = InferSelectModel<typeof pricingIngredients>;
+
+export const pricingRecipes = pgTable(
+  "pricing_recipes",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    category: varchar("category", { length: 128 }),
+    yieldDescription: varchar("yield_description", { length: 255 }),
+    preparationMinutes: integer("preparation_minutes"),
+    salePriceCents: integer("sale_price_cents").notNull(),
+    estimatedCostCents: integer("estimated_cost_cents").notNull(),
+    packagingCents: integer("packaging_cents"),
+    deletedAt: timestamp("deleted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantUnique: unique("pricing_recipes_id_company_id_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    companyIdx: index("pricing_recipes_company_id_idx").on(table.companyId),
+    salePricePositive: check(
+      "pricing_recipes_sale_price_cents_positive",
+      sql`${table.salePriceCents} > 0`,
+    ),
+    estimatedCostPositive: check(
+      "pricing_recipes_estimated_cost_cents_positive",
+      sql`${table.estimatedCostCents} > 0`,
+    ),
+    packagingNonnegative: check(
+      "pricing_recipes_packaging_cents_nonnegative",
+      sql`${table.packagingCents} IS NULL OR ${table.packagingCents} >= 0`,
+    ),
+    preparationNonnegative: check(
+      "pricing_recipes_preparation_minutes_nonnegative",
+      sql`${table.preparationMinutes} IS NULL OR ${table.preparationMinutes} >= 0`,
+    ),
+  }),
+);
+
+export type PricingRecipe = InferSelectModel<typeof pricingRecipes>;
+
+export const pricingRecipeLines = pgTable(
+  "pricing_recipe_lines",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => pricingRecipes.id),
+    ingredientId: uuid("ingredient_id").references(() => pricingIngredients.id),
+    nameSnapshot: varchar("name_snapshot", { length: 255 }).notNull(),
+    categorySnapshot: varchar("category_snapshot", { length: 128 }),
+    quantity: numeric("quantity", { precision: 18, scale: 6 }).notNull(),
+    usageUnit: varchar("usage_unit", { length: 8 }).$type<
+      "kg" | "g" | "L" | "ml" | "un"
+    >().notNull(),
+    priceCentsSnapshot: integer("price_cents_snapshot"),
+    priceUnitSnapshot: varchar("price_unit_snapshot", { length: 8 }).$type<
+      "kg" | "g" | "L" | "ml" | "un"
+    >(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    recipeCompanyFk: foreignKey({
+      columns: [table.recipeId, table.companyId],
+      foreignColumns: [pricingRecipes.id, pricingRecipes.companyId],
+      name: "pricing_recipe_lines_recipe_company_fk",
+    }),
+    ingredientCompanyFk: foreignKey({
+      columns: [table.ingredientId, table.companyId],
+      foreignColumns: [pricingIngredients.id, pricingIngredients.companyId],
+      name: "pricing_recipe_lines_ingredient_company_fk",
+    }),
+    companyIdx: index("pricing_recipe_lines_company_id_idx").on(
+      table.companyId,
+    ),
+    recipeIdx: index("pricing_recipe_lines_recipe_id_idx").on(table.recipeId),
+    positionNonnegative: check(
+      "pricing_recipe_lines_position_nonnegative",
+      sql`${table.position} >= 0`,
+    ),
+    quantityPositive: check(
+      "pricing_recipe_lines_quantity_positive",
+      sql`${table.quantity} > 0`,
+    ),
+    priceNonnegative: check(
+      "pricing_recipe_lines_price_cents_snapshot_nonnegative",
+      sql`${table.priceCentsSnapshot} IS NULL OR ${table.priceCentsSnapshot} >= 0`,
+    ),
+  }),
+);
+
+export type PricingRecipeLine = InferSelectModel<typeof pricingRecipeLines>;
+
+export const pricingRecipeSteps = pgTable(
+  "pricing_recipe_steps",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => pricingRecipes.id),
+    position: integer("position").notNull().default(0),
+    body: text("body").notNull(),
+    durationMinutes: integer("duration_minutes"),
+    tip: text("tip"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    recipeCompanyFk: foreignKey({
+      columns: [table.recipeId, table.companyId],
+      foreignColumns: [pricingRecipes.id, pricingRecipes.companyId],
+      name: "pricing_recipe_steps_recipe_company_fk",
+    }),
+    companyIdx: index("pricing_recipe_steps_company_id_idx").on(
+      table.companyId,
+    ),
+    recipeIdx: index("pricing_recipe_steps_recipe_id_idx").on(table.recipeId),
+    positionNonnegative: check(
+      "pricing_recipe_steps_position_nonnegative",
+      sql`${table.position} >= 0`,
+    ),
+    durationNonnegative: check(
+      "pricing_recipe_steps_duration_minutes_nonnegative",
+      sql`${table.durationMinutes} IS NULL OR ${table.durationMinutes} >= 0`,
+    ),
+  }),
+);
+
+export type PricingRecipeStep = InferSelectModel<typeof pricingRecipeSteps>;
+
+export const pricingCostSettings = pgTable(
+  "pricing_cost_settings",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    gasCents: integer("gas_cents"),
+    energyCents: integer("energy_cents"),
+    waterCents: integer("water_cents"),
+    rentCents: integer("rent_cents"),
+    laborCents: integer("labor_cents"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyUnique: uniqueIndex("pricing_cost_settings_company_id_unique").on(
+      table.companyId,
+    ),
+    costsNonnegative: check(
+      "pricing_cost_settings_gas_cents_nonnegative",
+      sql`${table.gasCents} IS NULL OR ${table.gasCents} >= 0`,
+    ),
+    energyNonnegative: check(
+      "pricing_cost_settings_energy_cents_nonnegative",
+      sql`${table.energyCents} IS NULL OR ${table.energyCents} >= 0`,
+    ),
+    waterNonnegative: check(
+      "pricing_cost_settings_water_cents_nonnegative",
+      sql`${table.waterCents} IS NULL OR ${table.waterCents} >= 0`,
+    ),
+    rentNonnegative: check(
+      "pricing_cost_settings_rent_cents_nonnegative",
+      sql`${table.rentCents} IS NULL OR ${table.rentCents} >= 0`,
+    ),
+    laborNonnegative: check(
+      "pricing_cost_settings_labor_cents_nonnegative",
+      sql`${table.laborCents} IS NULL OR ${table.laborCents} >= 0`,
+    ),
+  }),
+);
+
+export type PricingCostSetting = InferSelectModel<typeof pricingCostSettings>;
+// ===== END pricing_* =====

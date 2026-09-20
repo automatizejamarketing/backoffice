@@ -39,6 +39,9 @@ function siblingFrontendMigrations(backofficeRoot: string): string | null {
     ? dirName.slice("backoffice".length)
     : "";
   const candidates = [
+    ...(process.env.FRONTEND_ROOT
+      ? [join(process.env.FRONTEND_ROOT, "lib", "db", "migrations")]
+      : []),
     join(backofficeRoot, "..", `automatize-frontend${suffix}`, "lib", "db", "migrations"),
     join(backofficeRoot, "..", "automatize-frontend", "lib", "db", "migrations"),
   ];
@@ -238,6 +241,25 @@ describe("hash do arquivo", () => {
     // vieram de checkouts LF. Sem essa equivalência a auditoria acusaria dezenas
     // de migrations aplicadas como se nunca tivessem rodado.
     assert.equal(shared.length, 2);
+  });
+});
+
+describe("cancellation retention migration", () => {
+  it("keeps the mirrored additive migration at the shared watermark", () => {
+    const entry = readMigrationJournal(
+      join(root, "lib", "db", "migrations"),
+    ).find((candidate) => candidate.tag === "0117_cancellation_retention");
+    assert.equal(entry?.tag, "0117_cancellation_retention");
+    assert.equal(entry?.when, 1800110000000);
+    assert.match(entry?.sql ?? "", /CREATE TABLE IF NOT EXISTS "cancellation_attempts"/);
+    assert.match(
+      entry?.sql ?? "",
+      /CREATE UNIQUE INDEX IF NOT EXISTS "retention_financial_benefits_user_id_unique"[\s\S]*?ON "retention_financial_benefits" \("user_id"\)/,
+    );
+    assert.doesNotMatch(
+      entry?.sql ?? "",
+      /retention_financial_benefits_user_id_unique[^;]+\("user_id"[^)]*,/,
+    );
   });
 });
 
