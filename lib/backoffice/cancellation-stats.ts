@@ -109,6 +109,55 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+type ReasonRevisionEventRow = {
+  attemptId: string;
+  occurredAt: Date;
+  details?: unknown;
+  id?: string;
+};
+
+function revisionSequence(details: unknown): number | null {
+  if (!details || typeof details !== "object") return null;
+  const value = (details as { revisionSequence?: unknown }).revisionSequence;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/** Resolves the current reason by lock order, with timestamp ordering for legacy events. */
+export function latestReasonRevisionByAttempt(
+  rows: ReasonRevisionEventRow[],
+): Map<string, { revision: string; revisionSequence: number | null }> {
+  const current = new Map<string, ReasonRevisionEventRow & { revision: string }>();
+  for (const row of rows) {
+    const revision = row.details && typeof row.details === "object" &&
+      typeof (row.details as { revisionId?: unknown }).revisionId === "string"
+      ? (row.details as { revisionId: string }).revisionId
+      : null;
+    if (!revision) continue;
+    const previous = current.get(row.attemptId);
+    if (!previous) {
+      current.set(row.attemptId, { ...row, revision });
+      continue;
+    }
+    const previousSequence = revisionSequence(previous.details);
+    const candidateSequence = revisionSequence(row.details);
+    let candidateWins = false;
+    if (candidateSequence !== null || previousSequence !== null) {
+      candidateWins = candidateSequence !== null &&
+        (previousSequence === null || candidateSequence > previousSequence);
+    } else {
+      const occurredDelta = row.occurredAt.getTime() - previous.occurredAt.getTime();
+      candidateWins = occurredDelta > 0 || (occurredDelta === 0 && (row.id ?? "") > (previous.id ?? ""));
+    }
+    if (candidateWins) current.set(row.attemptId, { ...row, revision });
+  }
+  return new Map(
+    [...current.entries()].map(([attemptId, row]) => [attemptId, {
+      revision: row.revision,
+      revisionSequence: revisionSequence(row.details),
+    }]),
+  );
+}
+
 function rate(numerator: number, denominator: number): CancellationStatsRate {
   return {
     numerator,

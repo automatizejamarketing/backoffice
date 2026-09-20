@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   RETENTION_REASON_KEYS,
+  latestReasonRevisionByAttempt,
   summarizeCancellationStats,
   type CancellationStatsAttempt,
   type CancellationStatsEvent,
@@ -49,6 +50,38 @@ function event(
 }
 
 describe("cancellation stats aggregation", () => {
+  test("uses the committed reason sequence when transaction timestamps are inverted", () => {
+    const revisions = latestReasonRevisionByAttempt([
+      {
+        attemptId: "attempt-1",
+        occurredAt: new Date("2026-09-20T10:35:00.656Z"),
+        details: { revisionId: "rev-older", revisionSequence: 2 },
+      },
+      {
+        attemptId: "attempt-1",
+        occurredAt: new Date("2026-09-20T10:35:00.994Z"),
+        details: { revisionId: "rev-newer", revisionSequence: 1 },
+      },
+    ]);
+    expect(revisions.get("attempt-1")?.revision).toBe("rev-older");
+  });
+
+  test("keeps a sequenced revision ahead of a later legacy timestamp", () => {
+    const revisions = latestReasonRevisionByAttempt([
+      {
+        attemptId: "attempt-1",
+        occurredAt: new Date("2026-09-20T10:35:00.656Z"),
+        details: { revisionId: "rev-sequenced", revisionSequence: 1 },
+      },
+      {
+        attemptId: "attempt-1",
+        occurredAt: new Date("2026-09-20T10:35:00.994Z"),
+        details: { revisionId: "rev-legacy" },
+      },
+    ]);
+    expect(revisions.get("attempt-1")?.revision).toBe("rev-sequenced");
+  });
+
   test("counts canonical reasons from distinct attempts and keeps raw details out", () => {
     const attempts = [
       attempt("a1"),

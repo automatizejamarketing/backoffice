@@ -111,6 +111,7 @@ import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
 import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
 import {
   RETENTION_REASON_KEYS,
+  latestReasonRevisionByAttempt,
   summarizeCancellationStats,
   type CancellationStatsAttempt,
   type CancellationStatsEvent,
@@ -2151,6 +2152,7 @@ export async function getCancellationStats(
     await Promise.all([
       db
         .select({
+          id: cancellationAttemptEvent.id,
           attemptId: cancellationAttemptEvent.attemptId,
           eventType: cancellationAttemptEvent.eventType,
           occurredAt: cancellationAttemptEvent.occurredAt,
@@ -2216,15 +2218,16 @@ export async function getCancellationStats(
   const benefitsByAttempt = new Map<string, (typeof benefitRows)[number]>();
   for (const benefit of benefitRows) benefitsByAttempt.set(benefit.attemptId, benefit);
 
-  const currentRevisionByAttempt = new Map<string, { revision: string; occurredAt: number }>();
-  for (const row of eventRows) {
-    if (row.eventType !== "reason_submitted" || !row.details || typeof row.details.revisionId !== "string") continue;
-    const current = currentRevisionByAttempt.get(row.attemptId);
-    const occurredAt = row.occurredAt.getTime();
-    if (!current || occurredAt >= current.occurredAt) {
-      currentRevisionByAttempt.set(row.attemptId, { revision: row.details.revisionId, occurredAt });
-    }
-  }
+  const currentRevisionByAttempt = latestReasonRevisionByAttempt(
+    eventRows
+      .filter((row) => row.eventType === "reason_submitted")
+      .map((row) => ({
+        attemptId: row.attemptId,
+        id: row.id,
+        occurredAt: row.occurredAt,
+        details: row.details,
+      })),
+  );
 
   const events: CancellationStatsEvent[] = eventRows.map((row) => {
     const details = row.details;
