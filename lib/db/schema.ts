@@ -1734,6 +1734,43 @@ export const smartStockIngredient = pgTable(
 
 export type SmartStockIngredient = InferSelectModel<typeof smartStockIngredient>;
 
+/** Durable caller-key journal for stock-affecting ingredient edits. */
+export const smartStockIngredientEditKey = pgTable(
+  "smart_stock_ingredient_edit_keys",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    locationId: uuid("location_id")
+      .notNull()
+      .references(() => companyLocation.id),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => smartStockIngredient.id),
+    idempotencyKey: uuid("idempotency_key").notNull(),
+    payloadHash: varchar("payload_hash", { length: 64 }).notNull(),
+    createdById: uuid("created_by_id")
+      .notNull()
+      .references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyLocationIdx: index("smart_stock_ingredient_edit_keys_company_location_idx").on(
+      table.companyId,
+      table.locationId,
+    ),
+    ingredientIdx: index("smart_stock_ingredient_edit_keys_ingredient_idx").on(
+      table.ingredientId,
+    ),
+    idempotencyUnique: uniqueIndex(
+      "smart_stock_ingredient_edit_keys_location_idempotency_unique",
+    ).on(table.locationId, table.idempotencyKey),
+  }),
+);
+
+export type SmartStockIngredientEditKey = InferSelectModel<typeof smartStockIngredientEditKey>;
+
 export const smartStockPurchaseList = pgTable(
   "smart_stock_purchase_lists",
   {
