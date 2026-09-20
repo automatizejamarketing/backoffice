@@ -25,26 +25,8 @@ CREATE TABLE "pricing_ingredients" (
 	"archived_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "pricing_ingredients_id_company_id_unique" UNIQUE("id","company_id"),
 	CONSTRAINT "pricing_ingredients_price_cents_nonnegative" CHECK ("pricing_ingredients"."price_cents" IS NULL OR "pricing_ingredients"."price_cents" >= 0)
-);
---> statement-breakpoint
-CREATE TABLE "pricing_recipes" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"company_id" uuid NOT NULL,
-	"name" varchar(255) NOT NULL,
-	"category" varchar(128),
-	"yield_description" varchar(255),
-	"preparation_minutes" integer,
-	"sale_price_cents" integer NOT NULL,
-	"estimated_cost_cents" integer NOT NULL,
-	"packaging_cents" integer,
-	"deleted_at" timestamp,
-	"created_at" timestamp DEFAULT now() NOT NULL,
-	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "pricing_recipes_sale_price_cents_positive" CHECK ("pricing_recipes"."sale_price_cents" > 0),
-	CONSTRAINT "pricing_recipes_estimated_cost_cents_positive" CHECK ("pricing_recipes"."estimated_cost_cents" > 0),
-	CONSTRAINT "pricing_recipes_packaging_cents_nonnegative" CHECK ("pricing_recipes"."packaging_cents" IS NULL OR "pricing_recipes"."packaging_cents" >= 0),
-	CONSTRAINT "pricing_recipes_preparation_minutes_nonnegative" CHECK ("pricing_recipes"."preparation_minutes" IS NULL OR "pricing_recipes"."preparation_minutes" >= 0)
 );
 --> statement-breakpoint
 CREATE TABLE "pricing_recipe_lines" (
@@ -80,33 +62,41 @@ CREATE TABLE "pricing_recipe_steps" (
 	CONSTRAINT "pricing_recipe_steps_duration_minutes_nonnegative" CHECK ("pricing_recipe_steps"."duration_minutes" IS NULL OR "pricing_recipe_steps"."duration_minutes" >= 0)
 );
 --> statement-breakpoint
-ALTER TABLE "pricing_cost_settings" ADD CONSTRAINT "pricing_cost_settings_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;
+CREATE TABLE "pricing_recipes" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"company_id" uuid NOT NULL,
+	"name" varchar(255) NOT NULL,
+	"category" varchar(128),
+	"yield_description" varchar(255),
+	"preparation_minutes" integer,
+	"sale_price_cents" integer NOT NULL,
+	"estimated_cost_cents" integer NOT NULL,
+	"packaging_cents" integer,
+	"deleted_at" timestamp,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	"updated_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "pricing_recipes_id_company_id_unique" UNIQUE("id","company_id"),
+	CONSTRAINT "pricing_recipes_sale_price_cents_positive" CHECK ("pricing_recipes"."sale_price_cents" > 0),
+	CONSTRAINT "pricing_recipes_estimated_cost_cents_positive" CHECK ("pricing_recipes"."estimated_cost_cents" > 0),
+	CONSTRAINT "pricing_recipes_packaging_cents_nonnegative" CHECK ("pricing_recipes"."packaging_cents" IS NULL OR "pricing_recipes"."packaging_cents" >= 0),
+	CONSTRAINT "pricing_recipes_preparation_minutes_nonnegative" CHECK ("pricing_recipes"."preparation_minutes" IS NULL OR "pricing_recipes"."preparation_minutes" >= 0)
+);
 --> statement-breakpoint
-ALTER TABLE "pricing_ingredients" ADD CONSTRAINT "pricing_ingredients_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "pricing_recipes" ADD CONSTRAINT "pricing_recipes_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_recipe_id_pricing_recipes_id_fk" FOREIGN KEY ("recipe_id") REFERENCES "public"."pricing_recipes"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_ingredient_id_pricing_ingredients_id_fk" FOREIGN KEY ("ingredient_id") REFERENCES "public"."pricing_ingredients"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "pricing_recipe_steps" ADD CONSTRAINT "pricing_recipe_steps_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-ALTER TABLE "pricing_recipe_steps" ADD CONSTRAINT "pricing_recipe_steps_recipe_id_pricing_recipes_id_fk" FOREIGN KEY ("recipe_id") REFERENCES "public"."pricing_recipes"("id") ON DELETE no action ON UPDATE no action;
---> statement-breakpoint
-CREATE UNIQUE INDEX "pricing_cost_settings_company_id_unique" ON "pricing_cost_settings" USING btree ("company_id");
---> statement-breakpoint
-CREATE INDEX "pricing_ingredients_company_id_idx" ON "pricing_ingredients" USING btree ("company_id");
---> statement-breakpoint
+ALTER TABLE "pricing_cost_settings" ADD CONSTRAINT "pricing_cost_settings_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_ingredients" ADD CONSTRAINT "pricing_ingredients_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_recipe_id_pricing_recipes_id_fk" FOREIGN KEY ("recipe_id") REFERENCES "public"."pricing_recipes"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_ingredient_id_pricing_ingredients_id_fk" FOREIGN KEY ("ingredient_id") REFERENCES "public"."pricing_ingredients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_recipe_company_fk" FOREIGN KEY ("recipe_id","company_id") REFERENCES "public"."pricing_recipes"("id","company_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_lines" ADD CONSTRAINT "pricing_recipe_lines_ingredient_company_fk" FOREIGN KEY ("ingredient_id","company_id") REFERENCES "public"."pricing_ingredients"("id","company_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_steps" ADD CONSTRAINT "pricing_recipe_steps_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_steps" ADD CONSTRAINT "pricing_recipe_steps_recipe_id_pricing_recipes_id_fk" FOREIGN KEY ("recipe_id") REFERENCES "public"."pricing_recipes"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipe_steps" ADD CONSTRAINT "pricing_recipe_steps_recipe_company_fk" FOREIGN KEY ("recipe_id","company_id") REFERENCES "public"."pricing_recipes"("id","company_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "pricing_recipes" ADD CONSTRAINT "pricing_recipes_company_id_companies_id_fk" FOREIGN KEY ("company_id") REFERENCES "public"."companies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "pricing_cost_settings_company_id_unique" ON "pricing_cost_settings" USING btree ("company_id");--> statement-breakpoint
+CREATE INDEX "pricing_ingredients_company_id_idx" ON "pricing_ingredients" USING btree ("company_id");--> statement-breakpoint
+CREATE INDEX "pricing_recipe_lines_company_id_idx" ON "pricing_recipe_lines" USING btree ("company_id");--> statement-breakpoint
+CREATE INDEX "pricing_recipe_lines_recipe_id_idx" ON "pricing_recipe_lines" USING btree ("recipe_id");--> statement-breakpoint
+CREATE INDEX "pricing_recipe_steps_company_id_idx" ON "pricing_recipe_steps" USING btree ("company_id");--> statement-breakpoint
+CREATE INDEX "pricing_recipe_steps_recipe_id_idx" ON "pricing_recipe_steps" USING btree ("recipe_id");--> statement-breakpoint
 CREATE INDEX "pricing_recipes_company_id_idx" ON "pricing_recipes" USING btree ("company_id");
---> statement-breakpoint
-CREATE INDEX "pricing_recipe_lines_company_id_idx" ON "pricing_recipe_lines" USING btree ("company_id");
---> statement-breakpoint
-CREATE INDEX "pricing_recipe_lines_recipe_id_idx" ON "pricing_recipe_lines" USING btree ("recipe_id");
---> statement-breakpoint
-CREATE INDEX "pricing_recipe_steps_company_id_idx" ON "pricing_recipe_steps" USING btree ("company_id");
---> statement-breakpoint
-CREATE INDEX "pricing_recipe_steps_recipe_id_idx" ON "pricing_recipe_steps" USING btree ("recipe_id");
---> statement-breakpoint

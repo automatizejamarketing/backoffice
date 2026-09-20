@@ -8986,6 +8986,10 @@ export const pricingIngredients = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    tenantUnique: unique("pricing_ingredients_id_company_id_unique").on(
+      table.id,
+      table.companyId,
+    ),
     companyIdx: index("pricing_ingredients_company_id_idx").on(
       table.companyId,
     ),
@@ -9017,6 +9021,10 @@ export const pricingRecipes = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    tenantUnique: unique("pricing_recipes_id_company_id_unique").on(
+      table.id,
+      table.companyId,
+    ),
     companyIdx: index("pricing_recipes_company_id_idx").on(table.companyId),
     salePricePositive: check(
       "pricing_recipes_sale_price_cents_positive",
@@ -9065,6 +9073,16 @@ export const pricingRecipeLines = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    recipeCompanyFk: foreignKey({
+      columns: [table.recipeId, table.companyId],
+      foreignColumns: [pricingRecipes.id, pricingRecipes.companyId],
+      name: "pricing_recipe_lines_recipe_company_fk",
+    }),
+    ingredientCompanyFk: foreignKey({
+      columns: [table.ingredientId, table.companyId],
+      foreignColumns: [pricingIngredients.id, pricingIngredients.companyId],
+      name: "pricing_recipe_lines_ingredient_company_fk",
+    }),
     companyIdx: index("pricing_recipe_lines_company_id_idx").on(
       table.companyId,
     ),
@@ -9104,6 +9122,11 @@ export const pricingRecipeSteps = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
+    recipeCompanyFk: foreignKey({
+      columns: [table.recipeId, table.companyId],
+      foreignColumns: [pricingRecipes.id, pricingRecipes.companyId],
+      name: "pricing_recipe_steps_recipe_company_fk",
+    }),
     companyIdx: index("pricing_recipe_steps_company_id_idx").on(
       table.companyId,
     ),

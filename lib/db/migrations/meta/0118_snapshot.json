@@ -1,5 +1,5 @@
 {
-  "id": "417a61ee-7b72-4f6f-9f5e-20301b350db9",
+  "id": "34d7627d-2e85-433c-bda2-7c9c13a560b9",
   "prevId": "1d0f074e-78f3-44d1-9725-91857afd869d",
   "version": "7",
   "dialect": "postgresql",
@@ -22720,147 +22720,21 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "pricing_ingredients_id_company_id_unique": {
+          "name": "pricing_ingredients_id_company_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "company_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "pricing_ingredients_price_cents_nonnegative": {
           "name": "pricing_ingredients_price_cents_nonnegative",
           "value": "\"pricing_ingredients\".\"price_cents\" IS NULL OR \"pricing_ingredients\".\"price_cents\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.pricing_recipes": {
-      "name": "pricing_recipes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "company_id": {
-          "name": "company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "yield_description": {
-          "name": "yield_description",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "preparation_minutes": {
-          "name": "preparation_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sale_price_cents": {
-          "name": "sale_price_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "estimated_cost_cents": {
-          "name": "estimated_cost_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "packaging_cents": {
-          "name": "packaging_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "pricing_recipes_company_id_idx": {
-          "name": "pricing_recipes_company_id_idx",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "pricing_recipes_company_id_companies_id_fk": {
-          "name": "pricing_recipes_company_id_companies_id_fk",
-          "tableFrom": "pricing_recipes",
-          "tableTo": "companies",
-          "columnsFrom": [
-            "company_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "pricing_recipes_sale_price_cents_positive": {
-          "name": "pricing_recipes_sale_price_cents_positive",
-          "value": "\"pricing_recipes\".\"sale_price_cents\" > 0"
-        },
-        "pricing_recipes_estimated_cost_cents_positive": {
-          "name": "pricing_recipes_estimated_cost_cents_positive",
-          "value": "\"pricing_recipes\".\"estimated_cost_cents\" > 0"
-        },
-        "pricing_recipes_packaging_cents_nonnegative": {
-          "name": "pricing_recipes_packaging_cents_nonnegative",
-          "value": "\"pricing_recipes\".\"packaging_cents\" IS NULL OR \"pricing_recipes\".\"packaging_cents\" >= 0"
-        },
-        "pricing_recipes_preparation_minutes_nonnegative": {
-          "name": "pricing_recipes_preparation_minutes_nonnegative",
-          "value": "\"pricing_recipes\".\"preparation_minutes\" IS NULL OR \"pricing_recipes\".\"preparation_minutes\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -23023,6 +22897,36 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "pricing_recipe_lines_recipe_company_fk": {
+          "name": "pricing_recipe_lines_recipe_company_fk",
+          "tableFrom": "pricing_recipe_lines",
+          "tableTo": "pricing_recipes",
+          "columnsFrom": [
+            "recipe_id",
+            "company_id"
+          ],
+          "columnsTo": [
+            "id",
+            "company_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "pricing_recipe_lines_ingredient_company_fk": {
+          "name": "pricing_recipe_lines_ingredient_company_fk",
+          "tableFrom": "pricing_recipe_lines",
+          "tableTo": "pricing_ingredients",
+          "columnsFrom": [
+            "ingredient_id",
+            "company_id"
+          ],
+          "columnsTo": [
+            "id",
+            "company_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -23165,6 +23069,21 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "pricing_recipe_steps_recipe_company_fk": {
+          "name": "pricing_recipe_steps_recipe_company_fk",
+          "tableFrom": "pricing_recipe_steps",
+          "tableTo": "pricing_recipes",
+          "columnsFrom": [
+            "recipe_id",
+            "company_id"
+          ],
+          "columnsTo": [
+            "id",
+            "company_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -23178,6 +23097,150 @@
         "pricing_recipe_steps_duration_minutes_nonnegative": {
           "name": "pricing_recipe_steps_duration_minutes_nonnegative",
           "value": "\"pricing_recipe_steps\".\"duration_minutes\" IS NULL OR \"pricing_recipe_steps\".\"duration_minutes\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.pricing_recipes": {
+      "name": "pricing_recipes",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "yield_description": {
+          "name": "yield_description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "preparation_minutes": {
+          "name": "preparation_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sale_price_cents": {
+          "name": "sale_price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "estimated_cost_cents": {
+          "name": "estimated_cost_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "packaging_cents": {
+          "name": "packaging_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "pricing_recipes_company_id_idx": {
+          "name": "pricing_recipes_company_id_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "pricing_recipes_company_id_companies_id_fk": {
+          "name": "pricing_recipes_company_id_companies_id_fk",
+          "tableFrom": "pricing_recipes",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "pricing_recipes_id_company_id_unique": {
+          "name": "pricing_recipes_id_company_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "company_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "pricing_recipes_sale_price_cents_positive": {
+          "name": "pricing_recipes_sale_price_cents_positive",
+          "value": "\"pricing_recipes\".\"sale_price_cents\" > 0"
+        },
+        "pricing_recipes_estimated_cost_cents_positive": {
+          "name": "pricing_recipes_estimated_cost_cents_positive",
+          "value": "\"pricing_recipes\".\"estimated_cost_cents\" > 0"
+        },
+        "pricing_recipes_packaging_cents_nonnegative": {
+          "name": "pricing_recipes_packaging_cents_nonnegative",
+          "value": "\"pricing_recipes\".\"packaging_cents\" IS NULL OR \"pricing_recipes\".\"packaging_cents\" >= 0"
+        },
+        "pricing_recipes_preparation_minutes_nonnegative": {
+          "name": "pricing_recipes_preparation_minutes_nonnegative",
+          "value": "\"pricing_recipes\".\"preparation_minutes\" IS NULL OR \"pricing_recipes\".\"preparation_minutes\" >= 0"
         }
       },
       "isRLSEnabled": false
