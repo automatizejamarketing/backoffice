@@ -3,10 +3,12 @@ import type {
   DashboardDateWindow,
 } from "./dashboard-date-range";
 import {
-  VALID_CANCELLATION_STATS_PLANS,
-  VALID_CANCELLATION_STATS_PROVIDERS,
   type CancellationStatsFilters,
 } from "./cancellation-stats";
+import {
+  VALID_CANCELLATION_STATS_PLANS,
+  VALID_CANCELLATION_STATS_PROVIDERS,
+} from "./cancellation-stats-constants";
 
 export const DASHBOARD_TAB_VALUES = ["visao", "retencao", "trials", "produtos"] as const;
 export type DashboardTab = (typeof DASHBOARD_TAB_VALUES)[number];

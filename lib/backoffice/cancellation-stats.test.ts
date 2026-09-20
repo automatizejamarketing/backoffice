@@ -76,7 +76,6 @@ describe("cancellation stats aggregation", () => {
       asOf,
     });
 
-    expect(summary.totalAttempts).toBe(1);
     expect(summary.completed).toEqual({ numerator: 0, denominator: 1, percent: 0 });
     expect(summary.offers.every((row) => row.accepted.percent === 0)).toBe(true);
     const empty = summarizeCancellationStats({
@@ -86,7 +85,6 @@ describe("cancellation stats aggregation", () => {
       filters: { provider: "manual" },
       asOf,
     });
-    expect(empty.totalAttempts).toBe(0);
     expect(empty.completed).toEqual({ numerator: 0, denominator: 0, percent: 0 });
   });
 
@@ -208,5 +206,27 @@ describe("cancellation stats aggregation", () => {
 
     expect(summary.effectiveRetention30d).toEqual({ numerator: 0, denominator: 1, percent: 0 });
     expect(summary.immatureAcceptedAttempts).toBe(0);
+  });
+
+  test("matures at exactly 30 days and not one millisecond before", () => {
+    const acceptedAt = new Date("2026-08-01T12:00:00.000Z");
+    const base = {
+      attempts: [attempt("boundary")],
+      events: [event("boundary", "offer_accepted", acceptedAt.toISOString(), "discount")],
+      window,
+    };
+    const before = summarizeCancellationStats({
+      ...base,
+      asOf: new Date("2026-08-31T11:59:59.999Z"),
+    });
+    const exact = summarizeCancellationStats({
+      ...base,
+      asOf: new Date("2026-08-31T12:00:00.000Z"),
+    });
+
+    expect(before.effectiveRetention30d.denominator).toBe(0);
+    expect(before.immatureAcceptedAttempts).toBe(1);
+    expect(exact.effectiveRetention30d.denominator).toBe(1);
+    expect(exact.immatureAcceptedAttempts).toBe(0);
   });
 });

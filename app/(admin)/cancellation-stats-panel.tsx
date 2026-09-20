@@ -16,11 +16,13 @@ import {
 } from "@/components/ui/select";
 import {
   RETENTION_REASON_LABELS,
-  VALID_CANCELLATION_STATS_PLANS,
-  VALID_CANCELLATION_STATS_PROVIDERS,
   type CancellationStatsFilters,
   type CancellationStatsSummary,
 } from "@/lib/backoffice/cancellation-stats";
+import {
+  VALID_CANCELLATION_STATS_PLANS,
+  VALID_CANCELLATION_STATS_PROVIDERS,
+} from "@/lib/backoffice/cancellation-stats-constants";
 import type { DashboardDateWindow } from "@/lib/backoffice/dashboard-date-range";
 import { useDashboardNavigation } from "./dashboard-navigation-feedback";
 import { DashboardDateFilter } from "./dashboard-date-filter";
@@ -240,7 +242,19 @@ export function CancellationStatsPanel({
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border bg-card shadow-xs">
+      <div className="space-y-2 sm:hidden" aria-label="Distribuição de motivos">
+        {summary.reasons.map((row) => (
+          <div key={row.reason} className="flex items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3 shadow-xs">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{row.label}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{rateLabel(row.share)} da base com motivo</p>
+            </div>
+            <p className="shrink-0 font-mono text-sm tabular-nums">{number(row.attempts)}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-xl border bg-card shadow-xs sm:block">
         <table className="w-full min-w-[34rem] text-sm">
           <caption className="sr-only">Distribuição de motivos por tentativa</caption>
           <thead className="border-b bg-muted/30 text-left text-xs text-muted-foreground">

@@ -1,9 +1,4 @@
-import {
-  BILLING_PROVIDER_VALUES,
-  PLAN_TYPE_VALUES,
-  type BillingProvider,
-  type PlanType,
-} from "@/lib/db/schema";
+import type { BillingProvider, PlanType } from "@/lib/db/schema";
 
 export const RETENTION_REASON_KEYS = [
   "price_too_high",
@@ -31,7 +26,6 @@ export type CancellationStatsRate = {
 };
 
 export type CancellationStatsSummary = {
-  totalAttempts: number;
   reasons: Array<{
     reason: RetentionReasonKey;
     label: string;
@@ -281,7 +275,6 @@ export function summarizeCancellationStats(input: {
   }).length;
 
   return {
-    totalAttempts: scoped.length,
     reasons,
     offers,
     completed: rate(completed, scoped.length),
@@ -291,5 +284,7 @@ export function summarizeCancellationStats(input: {
   };
 }
 
-export const VALID_CANCELLATION_STATS_PROVIDERS = BILLING_PROVIDER_VALUES;
-export const VALID_CANCELLATION_STATS_PLANS = PLAN_TYPE_VALUES;
+export {
+  VALID_CANCELLATION_STATS_PLANS,
+  VALID_CANCELLATION_STATS_PROVIDERS,
+} from "./cancellation-stats-constants";

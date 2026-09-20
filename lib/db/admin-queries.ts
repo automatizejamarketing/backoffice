@@ -115,6 +115,7 @@ import {
   type CancellationStatsEvent,
   type CancellationStatsFilters,
 } from "@/lib/backoffice/cancellation-stats";
+import { isConfirmedCancellationRenewalPayment } from "@/lib/backoffice/cancellation-stats-correlation";
 import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
 import {
   listCustomerBaseStatusUsers,
@@ -2250,27 +2251,14 @@ export async function getCancellationStats(
             currentSubscription.currentPeriodEnd > asOf));
     const benefit = benefitsByAttempt.get(attempt.id);
     const renewalPaymentConfirmed = (paymentsByUser.get(attempt.userId) ?? []).some(
-      (paymentRow) => {
-        if (paymentRow.paidAt == null || paymentRow.paidAt > asOf) return false;
-        if (paymentRow.subscriptionId && paymentRow.subscriptionId !== attempt.subscriptionId) return false;
-        if (paymentRow.provider !== attempt.provider) return false;
-        if (attempt.provider === "mercadopago") {
-          return benefit?.id != null && paymentRow.retentionBenefitId === benefit.id;
-        }
-        if (attempt.provider === "stripe") {
-          return (
-            benefit?.providerInvoiceId != null &&
-              paymentRow.stripeInvoiceId === benefit.providerInvoiceId ||
-            benefit?.providerPaymentId != null &&
-              [
-                paymentRow.externalId,
-                paymentRow.stripePaymentIntentId,
-                paymentRow.stripeChargeId,
-              ].includes(benefit.providerPaymentId)
-          );
-        }
-        return benefit?.id != null && paymentRow.retentionBenefitId === benefit.id;
-      },
+      (paymentRow) =>
+        isConfirmedCancellationRenewalPayment({
+          provider: attempt.provider,
+          subscriptionId: attempt.subscriptionId,
+          benefit,
+          payment: paymentRow,
+          asOf,
+        }),
     );
     return {
       id: attempt.id,
