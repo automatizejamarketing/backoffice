@@ -2014,8 +2014,8 @@ export const smartStockMovement = pgTable(
       "smart_stock_movements_location_operation_idempotency_unique",
     ).on(table.locationId, table.operation, table.idempotencyKey),
     quantityCheck: check(
-      "smart_stock_movements_quantity_nonnegative",
-      sql`${table.quantity} >= 0`,
+      "smart_stock_movements_quantity_positive",
+      sql`${table.quantity} > 0`,
     ),
     entryCostCheck: check(
       "smart_stock_movements_entry_cost_nonnegative",
