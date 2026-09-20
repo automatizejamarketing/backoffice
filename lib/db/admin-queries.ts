@@ -26,6 +26,8 @@ import {
   backofficeGeneratedPost,
   businessManagedCampaignCache,
   campaignEditLog,
+  cancellationAttempt,
+  cancellationAttemptEvent,
   company,
   companyLocation,
   creditTransaction,
@@ -46,6 +48,7 @@ import {
   referenceImage,
   subscription,
   subscriptionEvent,
+  retentionFinancialBenefit,
   mercadopagoPaymentLink,
   user,
   userCompany,
@@ -106,6 +109,15 @@ import {
 } from "@/lib/backoffice/user-activity-dashboard";
 import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
 import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
+import {
+  RETENTION_REASON_KEYS,
+  latestReasonRevisionByAttempt,
+  summarizeCancellationStats,
+  type CancellationStatsAttempt,
+  type CancellationStatsEvent,
+  type CancellationStatsFilters,
+} from "@/lib/backoffice/cancellation-stats";
+import { isConfirmedCancellationRenewalPayment } from "@/lib/backoffice/cancellation-stats-correlation";
 import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
 import {
   listCustomerBaseStatusUsers,
@@ -2083,6 +2095,241 @@ export async function getPayerRetentionDashboard() {
       retainedPayers: Number(row.retained_payers),
     })),
   );
+}
+
+/**
+ * Returns only aggregate cancellation metrics. Event details and customer
+ * identity stay in the query layer and are never included in this result.
+ */
+export async function getCancellationStats(
+  window: DashboardDateWindow,
+  filters: CancellationStatsFilters = {},
+  asOf = new Date(),
+) {
+  const attemptWhere = [
+    gte(cancellationAttempt.startedAt, window.gte),
+    lt(cancellationAttempt.startedAt, window.lt),
+  ];
+  if (filters.provider) attemptWhere.push(eq(cancellationAttempt.provider, filters.provider));
+  if (filters.planType) attemptWhere.push(eq(cancellationAttempt.planType, filters.planType));
+
+  const attempts = await db
+    .select({
+      id: cancellationAttempt.id,
+      userId: cancellationAttempt.userId,
+      subscriptionId: cancellationAttempt.subscriptionId,
+      startedAt: cancellationAttempt.startedAt,
+      provider: cancellationAttempt.provider,
+      planType: cancellationAttempt.planType,
+      reason: cancellationAttempt.reason,
+      offerType: cancellationAttempt.offerType,
+      decisionAt: cancellationAttempt.decisionAt,
+      outcome: cancellationAttempt.outcome,
+      outcomeAt: cancellationAttempt.outcomeAt,
+    })
+    .from(cancellationAttempt)
+    .where(and(...attemptWhere));
+
+  if (attempts.length === 0) {
+    return summarizeCancellationStats({
+      attempts: [],
+      events: [],
+      window,
+      filters,
+      asOf,
+    });
+  }
+
+  const attemptIds = attempts.map((attempt) => attempt.id);
+  const userIds = [...new Set(attempts.map((attempt) => attempt.userId))];
+  const subscriptionIds = [...new Set(
+    attempts
+      .map((attempt) => attempt.subscriptionId)
+      .filter((id): id is string => id !== null),
+  )];
+
+  const [eventRows, userRows, subscriptionRows, benefitRows, paymentRows] =
+    await Promise.all([
+      db
+        .select({
+          id: cancellationAttemptEvent.id,
+          attemptId: cancellationAttemptEvent.attemptId,
+          eventType: cancellationAttemptEvent.eventType,
+          occurredAt: cancellationAttemptEvent.occurredAt,
+          details: cancellationAttemptEvent.details,
+        })
+        .from(cancellationAttemptEvent)
+        .where(inArray(cancellationAttemptEvent.attemptId, attemptIds)),
+      db
+        .select({ id: user.id, expirationDate: user.expirationDate })
+        .from(user)
+        .where(inArray(user.id, userIds)),
+      subscriptionIds.length > 0
+        ? db
+            .select({
+              id: subscription.id,
+              userId: subscription.userId,
+              provider: subscription.provider,
+              status: subscription.status,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+            })
+            .from(subscription)
+            .where(inArray(subscription.id, subscriptionIds))
+        : Promise.resolve([]),
+      db
+        .select({
+          id: retentionFinancialBenefit.id,
+          attemptId: retentionFinancialBenefit.attemptId,
+          provider: retentionFinancialBenefit.provider,
+          providerInvoiceId: retentionFinancialBenefit.providerInvoiceId,
+          providerPaymentId: retentionFinancialBenefit.providerPaymentId,
+          reservedAt: retentionFinancialBenefit.reservedAt,
+        })
+        .from(retentionFinancialBenefit)
+        .where(inArray(retentionFinancialBenefit.attemptId, attemptIds)),
+      db
+        .select({
+          id: payment.id,
+          userId: payment.userId,
+          subscriptionId: payment.subscriptionId,
+          provider: payment.provider,
+          purpose: payment.purpose,
+          status: payment.status,
+          paidAt: payment.paidAt,
+          retentionBenefitId: payment.retentionBenefitId,
+          stripeInvoiceId: payment.stripeInvoiceId,
+          stripePaymentIntentId: payment.stripePaymentIntentId,
+          stripeChargeId: payment.stripeChargeId,
+          mercadopagoPaymentId: payment.mercadopagoPaymentId,
+          externalId: payment.externalId,
+        })
+        .from(payment)
+        .where(
+          and(
+            inArray(payment.userId, userIds),
+            eq(payment.status, "succeeded"),
+            billingPaymentPurposeSql(payment.purpose),
+          ),
+        ),
+    ]);
+
+  const usersById = new Map(userRows.map((row) => [row.id, row]));
+  const subscriptionsById = new Map(subscriptionRows.map((row) => [row.id, row]));
+  const benefitsByAttempt = new Map<string, (typeof benefitRows)[number]>();
+  for (const benefit of benefitRows) benefitsByAttempt.set(benefit.attemptId, benefit);
+
+  const currentRevisionByAttempt = latestReasonRevisionByAttempt(
+    eventRows
+      .filter((row) => row.eventType === "reason_submitted")
+      .map((row) => ({
+        attemptId: row.attemptId,
+        id: row.id,
+        occurredAt: row.occurredAt,
+        details: row.details,
+      })),
+  );
+
+  const events: CancellationStatsEvent[] = eventRows.map((row) => {
+    const details = row.details;
+    const offerType =
+      details && (details.offerType === "discount" || details.offerType === "specialist")
+        ? details.offerType
+        : null;
+    return {
+      attemptId: row.attemptId,
+      eventType: row.eventType,
+      occurredAt: row.occurredAt,
+      offerType,
+      reason:
+        details && typeof details.reason === "string" &&
+        (RETENTION_REASON_KEYS as readonly string[]).includes(details.reason)
+          ? details.reason as (typeof RETENTION_REASON_KEYS)[number]
+          : null,
+      offerRevision:
+        details && typeof details.revisionId === "string" ? details.revisionId : null,
+    };
+  });
+
+  const paymentsByUser = new Map<string, (typeof paymentRows)[number][]>();
+  for (const paymentRow of paymentRows) {
+    const rows = paymentsByUser.get(paymentRow.userId) ?? [];
+    rows.push(paymentRow);
+    paymentsByUser.set(paymentRow.userId, rows);
+  }
+
+  const mappedAttempts: CancellationStatsAttempt[] = attempts.map((attempt) => {
+    const currentUser = usersById.get(attempt.userId);
+    const currentSubscription = attempt.subscriptionId
+      ? subscriptionsById.get(attempt.subscriptionId)
+      : undefined;
+    const accessValidAt =
+      currentUser?.expirationDate != null &&
+      currentUser.expirationDate > asOf &&
+      (attempt.provider !== "stripe" ||
+        (currentSubscription?.status === "active" ||
+          currentSubscription?.status === "trialing") &&
+          (currentSubscription.currentPeriodEnd == null ||
+            currentSubscription.currentPeriodEnd > asOf));
+    const benefit = benefitsByAttempt.get(attempt.id);
+    const renewalPaymentConfirmed = (paymentsByUser.get(attempt.userId) ?? []).some(
+      (paymentRow) =>
+        isConfirmedCancellationRenewalPayment({
+          provider: attempt.provider,
+          subscriptionId: attempt.subscriptionId,
+          benefit,
+          payment: paymentRow,
+          asOf,
+        }),
+    );
+    return {
+      id: attempt.id,
+      userId: attempt.userId,
+      subscriptionId: attempt.subscriptionId,
+      startedAt: attempt.startedAt,
+      provider: attempt.provider,
+      planType: attempt.planType,
+      reason: attempt.reason,
+      offerType: attempt.offerType,
+      decisionAt: attempt.decisionAt,
+      acceptedAt:
+        attempt.offerType === "discount" ? benefit?.reservedAt ?? null : null,
+      outcome: attempt.outcome,
+      outcomeAt: attempt.outcomeAt,
+      accessValidAt,
+      accessValidUntil: currentUser?.expirationDate,
+      renewalDueAt: currentSubscription?.currentPeriodEnd ?? null,
+      renewalPaymentConfirmed,
+      offerRevision: currentRevisionByAttempt.get(attempt.id)?.revision ?? null,
+    };
+  });
+
+  return summarizeCancellationStats({
+    attempts: mappedAttempts,
+    events,
+    window,
+    filters,
+    asOf,
+  });
+}
+
+/**
+ * Free text is available only from an individual, permission-gated customer
+ * detail endpoint. It is intentionally separate from getCancellationStats.
+ */
+export async function getUserCancellationAttemptDetails(userId: string) {
+  return db
+    .select({
+      id: cancellationAttempt.id,
+      startedAt: cancellationAttempt.startedAt,
+      reason: cancellationAttempt.reason,
+      reasonDetails: cancellationAttempt.reasonDetails,
+      offerType: cancellationAttempt.offerType,
+      outcome: cancellationAttempt.outcome,
+      status: cancellationAttempt.status,
+    })
+    .from(cancellationAttempt)
+    .where(eq(cancellationAttempt.userId, userId))
+    .orderBy(desc(cancellationAttempt.startedAt));
 }
 
 export async function getPayerRetentionCohortUsers(weekStart: string) {

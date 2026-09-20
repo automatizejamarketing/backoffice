@@ -23,6 +23,7 @@ import {
 import {
   getConversionDashboard,
   getCustomerBaseStatus,
+  getCancellationStats,
   getDashboardStats,
   getPayerRetentionDashboard,
   getTrialActivationDashboard,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/backoffice/dashboard-date-range";
 import {
   resolveConversionView,
+  resolveCancellationStatsFilters,
   resolveDashboardTab,
   type DashboardSearchParams,
 } from "@/lib/backoffice/dashboard-search-params";
@@ -53,6 +55,7 @@ import { CustomerBaseStatusPanel } from "./customer-base-status";
 import { ProductSalesPanel } from "@/components/product-sales/product-sales-panel";
 import { DashboardTabsNav } from "./dashboard-tabs-nav";
 import { PayerRetentionChart } from "./payer-retention-chart";
+import { CancellationStatsPanel } from "./cancellation-stats-panel";
 import { TrialActivationPanel } from "./trial-activation-panel";
 import {
   formatInSaoPaulo,
@@ -302,11 +305,13 @@ export default async function DashboardPage({
   const activeTab = resolveDashboardTab(sp);
   const conversionView = resolveConversionView(sp);
   const selectedWindow = resolveDashboardDateWindow(sp);
+  const cancellationFilters = resolveCancellationStatsFilters(sp);
   const [
     conversion,
     stats,
     customerBaseStatus,
     payerRetention,
+    cancellationStats,
     userActivity,
     trialActivation,
   ] =
@@ -316,6 +321,9 @@ export default async function DashboardPage({
       getCustomerBaseStatus(),
       activeTab === "retencao"
         ? getPayerRetentionDashboard()
+        : Promise.resolve(null),
+      activeTab === "retencao"
+        ? getCancellationStats(selectedWindow, cancellationFilters)
         : Promise.resolve(null),
       activeTab === "visao"
         ? getUserActivityDashboard(selectedWindow).catch((error) => {
@@ -378,7 +386,11 @@ export default async function DashboardPage({
             </p>
           </div>
 
-          <DashboardTabsNav activeTab={activeTab} window={window} />
+          <DashboardTabsNav
+            activeTab={activeTab}
+            window={window}
+            filters={cancellationFilters}
+          />
 
           {activeTab === "visao" ? (
             <CustomerBaseStatusPanel status={customerBaseStatus} />
@@ -387,6 +399,13 @@ export default async function DashboardPage({
 
       {activeTab === "retencao" && payerRetention ? (
         <section aria-labelledby="payer-retention-title" className="space-y-5">
+          {cancellationStats ? (
+            <CancellationStatsPanel
+              summary={cancellationStats}
+              window={selectedWindow}
+              filters={cancellationFilters}
+            />
+          ) : null}
           <div>
             <h2 id="payer-retention-title" className="text-base font-semibold">
               Retenção por coorte semanal

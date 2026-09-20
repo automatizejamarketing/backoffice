@@ -143,6 +143,7 @@ export const user = pgTable(
     // NULL (their real signup date is unknown); new signups get now() via the DB
     // default. Added for the trackable-link "users per link" view.
     createdAt: timestamp("created_at").defaultNow(),
+    pixRenewalOptOutAt: timestamp("pix_renewal_opt_out_at"),
   },
   () => ({}),
 );
@@ -2957,6 +2958,159 @@ export const pendingPlanChange = pgTable("pending_plan_changes", {
 
 export type PendingPlanChange = InferSelectModel<typeof pendingPlanChange>;
 
+export type CancellationAttemptStatus =
+  | "started"
+  | "reason_submitted"
+  | "offer_shown"
+  | "decision_pending"
+  | "completed"
+  | "abandoned"
+  | "failed";
+export type CancellationAttemptDecision = "retain" | "cancel";
+export type CancellationAttemptOutcome =
+  | "retained"
+  | "canceled"
+  | "scheduled"
+  | "abandoned"
+  | "failed";
+
+export const cancellationAttempt = pgTable(
+  "cancellation_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    subscriptionId: uuid("subscription_id").references(() => subscription.id),
+    provider: varchar("provider", { enum: [...BILLING_PROVIDER_VALUES] })
+      .$type<BillingProvider>()
+      .notNull(),
+    planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] })
+      .$type<PlanType>()
+      .notNull(),
+    startedAt: timestamp("started_at").notNull().defaultNow(),
+    status: varchar("status", {
+      enum: [
+        "started",
+        "reason_submitted",
+        "offer_shown",
+        "decision_pending",
+        "completed",
+        "abandoned",
+        "failed",
+      ],
+    })
+      .$type<CancellationAttemptStatus>()
+      .notNull()
+      .default("started"),
+    reason: varchar("reason", { length: 64 }),
+    reasonDetails: text("reason_details"),
+    offerType: varchar("offer_type", { length: 64 }),
+    offerVersion: varchar("offer_version", { length: 64 }),
+    offerPercent: integer("offer_percent"),
+    decision: varchar("decision", { enum: ["retain", "cancel"] }).$type<
+      CancellationAttemptDecision
+    >(),
+    decisionAt: timestamp("decision_at"),
+    outcome: varchar("outcome", {
+      enum: ["retained", "canceled", "scheduled", "abandoned", "failed"],
+    }).$type<CancellationAttemptOutcome>(),
+    outcomeAt: timestamp("outcome_at"),
+  },
+  (table) => ({
+    startedProviderPlanIdx: index("cancellation_attempts_started_idx").on(
+      table.startedAt,
+      table.provider,
+      table.planType,
+    ),
+  }),
+);
+
+export type CancellationAttempt = InferSelectModel<typeof cancellationAttempt>;
+
+export const cancellationAttemptEvent = pgTable(
+  "cancellation_attempt_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => cancellationAttempt.id),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    occurredAt: timestamp("occurred_at").notNull().defaultNow(),
+    operationKey: varchar("operation_key", { length: 255 }),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+  },
+  (table) => ({
+    operationKeyUnique: uniqueIndex(
+      "cancellation_attempt_events_operation_unique",
+    )
+      .on(table.operationKey)
+      .where(sql`${table.operationKey} IS NOT NULL`),
+  }),
+);
+
+export type CancellationAttemptEvent = InferSelectModel<
+  typeof cancellationAttemptEvent
+>;
+
+export type RetentionFinancialBenefitStatus =
+  | "reserved"
+  | "applying"
+  | "reconciliation_required"
+  | "applied"
+  | "consumed";
+
+export const retentionFinancialBenefit = pgTable(
+  "retention_financial_benefits",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    attemptId: uuid("attempt_id")
+      .notNull()
+      .references(() => cancellationAttempt.id),
+    status: varchar("status", {
+      enum: [
+        "reserved",
+        "applying",
+        "reconciliation_required",
+        "applied",
+        "consumed",
+      ],
+    })
+      .$type<RetentionFinancialBenefitStatus>()
+      .notNull()
+      .default("reserved"),
+    benefitType: varchar("benefit_type", { length: 64 }).notNull(),
+    campaignId: varchar("campaign_id", { length: 128 }).notNull(),
+    campaignVersion: varchar("campaign_version", { length: 64 }).notNull(),
+    provider: varchar("provider", { enum: [...BILLING_PROVIDER_VALUES] })
+      .$type<BillingProvider>()
+      .notNull(),
+    planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] })
+      .$type<PlanType>()
+      .notNull(),
+    subscriptionId: uuid("subscription_id").references(() => subscription.id),
+    originalAmount: integer("original_amount").notNull(),
+    discountPercent: integer("discount_percent").notNull(),
+    discountAmount: integer("discount_amount").notNull(),
+    providerCouponId: varchar("provider_coupon_id", { length: 255 }),
+    providerPaymentId: varchar("provider_payment_id", { length: 255 }),
+    providerInvoiceId: varchar("provider_invoice_id", { length: 255 }),
+    reservedAt: timestamp("reserved_at").notNull().defaultNow(),
+    appliedAt: timestamp("applied_at"),
+    consumedAt: timestamp("consumed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userLifetimeUnique: uniqueIndex(
+      "retention_financial_benefits_user_id_unique",
+    ).on(table.userId),
+  }),
+);
+
+export type RetentionFinancialBenefit = InferSelectModel<
+  typeof retentionFinancialBenefit
+>;
+
 // Payments table - payment history records
 export type PaymentStatus = "succeeded" | "failed" | "pending" | "refunded";
 
@@ -3031,6 +3185,9 @@ export const payment = pgTable(
     // business policy is that a refund is always total.
     refundedAmount: integer("refunded_amount"),
     refundedAt: timestamp("refunded_at"),
+    retentionBenefitId: uuid("retention_benefit_id").references(
+      () => retentionFinancialBenefit.id,
+    ),
     reversalKind: varchar("reversal_kind", {
       enum: ["refund", "chargeback"],
     }).$type<PaymentReversalKind>(),
@@ -3172,6 +3329,12 @@ export const mercadopagoPaymentLink = pgTable(
     expiresAt: timestamp("expires_at").notNull(),
     paidAt: timestamp("paid_at"),
     mercadopagoPaymentId: varchar("mercadopago_payment_id", { length: 255 }),
+    retentionBenefitId: uuid("retention_benefit_id").references(
+      () => retentionFinancialBenefit.id,
+    ),
+    originalAmount: integer("original_amount"),
+    discountPercent: integer("discount_percent"),
+    discountAmount: integer("discount_amount"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

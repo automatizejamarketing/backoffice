@@ -701,6 +701,13 @@
       "when": 1800400000000,
       "tag": "0116_client_report_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1800500000000,
+      "tag": "0117_cancellation_retention",
+      "breakpoints": true
     }
   ]
 }
