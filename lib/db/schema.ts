@@ -8966,3 +8966,225 @@ export const crmGoal = pgTable(
 );
 
 export type CrmGoal = InferSelectModel<typeof crmGoal>;
+
+// ===== BEGIN pricing_* — bloco espelhado byte a byte no projeto irmão =====
+export const pricingIngredients = pgTable(
+  "pricing_ingredients",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    category: varchar("category", { length: 128 }),
+    priceCents: integer("price_cents"),
+    priceUnit: varchar("price_unit", { length: 8 }).$type<
+      "kg" | "g" | "L" | "ml" | "un"
+    >(),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantUnique: unique("pricing_ingredients_id_company_id_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    companyIdx: index("pricing_ingredients_company_id_idx").on(
+      table.companyId,
+    ),
+    priceNonnegative: check(
+      "pricing_ingredients_price_cents_nonnegative",
+      sql`${table.priceCents} IS NULL OR ${table.priceCents} >= 0`,
+    ),
+  }),
+);
+
+export type PricingIngredient = InferSelectModel<typeof pricingIngredients>;
+
+export const pricingRecipes = pgTable(
+  "pricing_recipes",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    name: varchar("name", { length: 255 }).notNull(),
+    category: varchar("category", { length: 128 }),
+    yieldDescription: varchar("yield_description", { length: 255 }),
+    preparationMinutes: integer("preparation_minutes"),
+    salePriceCents: integer("sale_price_cents").notNull(),
+    estimatedCostCents: integer("estimated_cost_cents").notNull(),
+    packagingCents: integer("packaging_cents"),
+    deletedAt: timestamp("deleted_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    tenantUnique: unique("pricing_recipes_id_company_id_unique").on(
+      table.id,
+      table.companyId,
+    ),
+    companyIdx: index("pricing_recipes_company_id_idx").on(table.companyId),
+    salePricePositive: check(
+      "pricing_recipes_sale_price_cents_positive",
+      sql`${table.salePriceCents} > 0`,
+    ),
+    estimatedCostPositive: check(
+      "pricing_recipes_estimated_cost_cents_positive",
+      sql`${table.estimatedCostCents} > 0`,
+    ),
+    packagingNonnegative: check(
+      "pricing_recipes_packaging_cents_nonnegative",
+      sql`${table.packagingCents} IS NULL OR ${table.packagingCents} >= 0`,
+    ),
+    preparationNonnegative: check(
+      "pricing_recipes_preparation_minutes_nonnegative",
+      sql`${table.preparationMinutes} IS NULL OR ${table.preparationMinutes} >= 0`,
+    ),
+  }),
+);
+
+export type PricingRecipe = InferSelectModel<typeof pricingRecipes>;
+
+export const pricingRecipeLines = pgTable(
+  "pricing_recipe_lines",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => pricingRecipes.id),
+    ingredientId: uuid("ingredient_id").references(() => pricingIngredients.id),
+    nameSnapshot: varchar("name_snapshot", { length: 255 }).notNull(),
+    categorySnapshot: varchar("category_snapshot", { length: 128 }),
+    quantity: numeric("quantity", { precision: 18, scale: 6 }).notNull(),
+    usageUnit: varchar("usage_unit", { length: 8 }).$type<
+      "kg" | "g" | "L" | "ml" | "un"
+    >().notNull(),
+    priceCentsSnapshot: integer("price_cents_snapshot"),
+    priceUnitSnapshot: varchar("price_unit_snapshot", { length: 8 }).$type<
+      "kg" | "g" | "L" | "ml" | "un"
+    >(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    recipeCompanyFk: foreignKey({
+      columns: [table.recipeId, table.companyId],
+      foreignColumns: [pricingRecipes.id, pricingRecipes.companyId],
+      name: "pricing_recipe_lines_recipe_company_fk",
+    }),
+    ingredientCompanyFk: foreignKey({
+      columns: [table.ingredientId, table.companyId],
+      foreignColumns: [pricingIngredients.id, pricingIngredients.companyId],
+      name: "pricing_recipe_lines_ingredient_company_fk",
+    }),
+    companyIdx: index("pricing_recipe_lines_company_id_idx").on(
+      table.companyId,
+    ),
+    recipeIdx: index("pricing_recipe_lines_recipe_id_idx").on(table.recipeId),
+    positionNonnegative: check(
+      "pricing_recipe_lines_position_nonnegative",
+      sql`${table.position} >= 0`,
+    ),
+    quantityPositive: check(
+      "pricing_recipe_lines_quantity_positive",
+      sql`${table.quantity} > 0`,
+    ),
+    priceNonnegative: check(
+      "pricing_recipe_lines_price_cents_snapshot_nonnegative",
+      sql`${table.priceCentsSnapshot} IS NULL OR ${table.priceCentsSnapshot} >= 0`,
+    ),
+  }),
+);
+
+export type PricingRecipeLine = InferSelectModel<typeof pricingRecipeLines>;
+
+export const pricingRecipeSteps = pgTable(
+  "pricing_recipe_steps",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    recipeId: uuid("recipe_id")
+      .notNull()
+      .references(() => pricingRecipes.id),
+    position: integer("position").notNull().default(0),
+    body: text("body").notNull(),
+    durationMinutes: integer("duration_minutes"),
+    tip: text("tip"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    recipeCompanyFk: foreignKey({
+      columns: [table.recipeId, table.companyId],
+      foreignColumns: [pricingRecipes.id, pricingRecipes.companyId],
+      name: "pricing_recipe_steps_recipe_company_fk",
+    }),
+    companyIdx: index("pricing_recipe_steps_company_id_idx").on(
+      table.companyId,
+    ),
+    recipeIdx: index("pricing_recipe_steps_recipe_id_idx").on(table.recipeId),
+    positionNonnegative: check(
+      "pricing_recipe_steps_position_nonnegative",
+      sql`${table.position} >= 0`,
+    ),
+    durationNonnegative: check(
+      "pricing_recipe_steps_duration_minutes_nonnegative",
+      sql`${table.durationMinutes} IS NULL OR ${table.durationMinutes} >= 0`,
+    ),
+  }),
+);
+
+export type PricingRecipeStep = InferSelectModel<typeof pricingRecipeSteps>;
+
+export const pricingCostSettings = pgTable(
+  "pricing_cost_settings",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id),
+    gasCents: integer("gas_cents"),
+    energyCents: integer("energy_cents"),
+    waterCents: integer("water_cents"),
+    rentCents: integer("rent_cents"),
+    laborCents: integer("labor_cents"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    companyUnique: uniqueIndex("pricing_cost_settings_company_id_unique").on(
+      table.companyId,
+    ),
+    costsNonnegative: check(
+      "pricing_cost_settings_gas_cents_nonnegative",
+      sql`${table.gasCents} IS NULL OR ${table.gasCents} >= 0`,
+    ),
+    energyNonnegative: check(
+      "pricing_cost_settings_energy_cents_nonnegative",
+      sql`${table.energyCents} IS NULL OR ${table.energyCents} >= 0`,
+    ),
+    waterNonnegative: check(
+      "pricing_cost_settings_water_cents_nonnegative",
+      sql`${table.waterCents} IS NULL OR ${table.waterCents} >= 0`,
+    ),
+    rentNonnegative: check(
+      "pricing_cost_settings_rent_cents_nonnegative",
+      sql`${table.rentCents} IS NULL OR ${table.rentCents} >= 0`,
+    ),
+    laborNonnegative: check(
+      "pricing_cost_settings_labor_cents_nonnegative",
+      sql`${table.laborCents} IS NULL OR ${table.laborCents} >= 0`,
+    ),
+  }),
+);
+
+export type PricingCostSetting = InferSelectModel<typeof pricingCostSettings>;
+// ===== END pricing_* =====
