@@ -6,7 +6,9 @@ import {
   runClientReportSnapshotBatch,
 } from "@/lib/client-reports/run-batch";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
+
+const SOFT_DEADLINE_MS = 740_000;
 
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[client-reports-weekly]");
@@ -14,12 +16,15 @@ export async function GET(request: NextRequest) {
 
   const userId = request.nextUrl.searchParams.get("userId")?.trim() || null;
   try {
+    const softDeadlineAt = Date.now() + SOFT_DEADLINE_MS;
     const weekly = await runClientReportSnapshotBatch({
       periodType: "weekly",
       userIds: userId ? [userId] : undefined,
+      softDeadlineAt,
     });
     const campaigns = await runClientCampaignReportBatch({
       userIds: userId ? [userId] : undefined,
+      softDeadlineAt,
     });
     const benchmarks = await refreshWeeklyBenchmarks();
 

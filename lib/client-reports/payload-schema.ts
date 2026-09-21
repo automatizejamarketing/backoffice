@@ -212,14 +212,9 @@ export function headlineForState(input: {
         ? "A semana"
         : "O período";
   if (input.state === "good") {
-    const months = input.monthsPaidBack;
-    const subtitle =
-      months !== null && months >= 1
-        ? `Esse retorno já cobriu ${formatPaidBackDuration(months)} de Automatize.`
-        : `Vendas atribuídas aos anúncios: ${sales}.`;
     return {
       title: `${subject} teve retorno positivo`,
-      subtitle,
+      subtitle: "Os anúncios renderam mais do que o investimento em mídia.",
     };
   }
   if (input.state === "bad") {

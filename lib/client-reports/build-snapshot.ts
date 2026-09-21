@@ -463,7 +463,7 @@ async function loadActions(
     actionPrompt: localizeCreativeText(
       `Sobre ${row.entityName ?? "a conta"}: ${row.recommendation}`,
     ),
-    deepLink: "/app/mat",
+    deepLink: "/app/marketing",
     estimatedWeeklyRevenue: null,
   }));
 
