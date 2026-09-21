@@ -715,6 +715,13 @@
       "when": 1800600000000,
       "tag": "0118_pricing",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1800900000000,
+      "tag": "0119_actionable_client_alerts",
+      "breakpoints": true
     }
   ]
 }
