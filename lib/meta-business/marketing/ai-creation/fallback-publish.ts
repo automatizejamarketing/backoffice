@@ -183,19 +183,14 @@ export function resolveFallbackConfig(
   }
 
   if (objective === "whatsapp") {
-    if (normalizedNiche !== "food_service") {
-      return {
-        error: `Campanhas de WhatsApp não estão disponíveis para o nicho ${niche}.`,
-      };
-    }
     return {
       metaObjective: WHATSAPP_CAMPAIGN_OBJECTIVE,
       optimizationGoal: WHATSAPP_OPTIMIZATION_GOAL,
       requiresPixel: false,
       requiresPromotionUrl: false,
       requiresInstagram: false,
-      // Inherited from food-service sales on purpose: an ad that says "chama no zap" outside
-      // opening hours buys conversations nobody is there to answer.
+      // An ad that says "chama no zap" outside opening hours buys conversations
+      // nobody is there to answer. Every niche gets that same dayparting preset.
       acceptsDeliverySchedule: true,
       usesInclusiveMinusOneDefault: true,
       isWhatsapp: true,
