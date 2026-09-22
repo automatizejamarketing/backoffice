@@ -144,6 +144,13 @@ const NAV_SECTIONS: NavSection[] = [
       },
       {
         kind: "leaf",
+        href: "/ambassadors",
+        label: "Embaixadores",
+        icon: Handshake,
+        permission: "ambassadors:manage",
+      },
+      {
+        kind: "leaf",
         href: "/crm",
         label: "CRM",
         icon: KanbanSquare,

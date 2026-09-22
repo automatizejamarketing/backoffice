@@ -31,7 +31,7 @@ import {
   company,
   companyLocation,
   creditTransaction,
-  crmLead,
+  crmContact as crmLead,
   generatedImage,
   generatedImageVersion,
   genericGeneratePost,
@@ -414,9 +414,9 @@ const hasPerformanceSnapshotSql = sql`EXISTS (
 // count + users page + usage/company/subscription/meta/consultant/campaign/
 // performance aggregates, plus operating rules for renewal alerts. Active
 // subscription is still picked in memory via `pickActiveSubscription`.
-/** Status comercial do CRM; sem linha em crm_leads o usuário é "novo lead". */
+/** Status comercial do CRM; sem contato vinculado o usuário é "novo lead". */
 const crmCommercialStatusSql = sql<CrmCommercialStatus>`coalesce(
-  (select cl.commercial_status from crm_leads cl where cl.user_id = ${user.id}),
+  (select cl.commercial_status from crm_contacts cl where cl.user_id = ${user.id}),
   'novo_lead'
 )`;
 
@@ -837,7 +837,7 @@ export async function getAllUsersWithUsage(
   }
 
   const crmStatusByUser = new Map<string, CrmCommercialStatus>(
-    crmRows.map((row) => [row.userId, row.commercialStatus]),
+    crmRows.map((row) => [row.userId!, row.commercialStatus]),
   );
 
   type SubRow = (typeof subRows)[number];

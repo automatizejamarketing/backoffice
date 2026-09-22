@@ -9590,3 +9590,170 @@ export const pricingCostSettings = pgTable(
 
 export type PricingCostSetting = InferSelectModel<typeof pricingCostSettings>;
 // ===== END pricing_* =====
+
+// CRM contacts are commercial identities, independent from authentication accounts.
+export const crmContact = pgTable(
+  "crm_contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .unique()
+      .references(() => user.id, { onDelete: "set null" }),
+    email: varchar("email", { length: 100 }).notNull().unique(),
+    name: text("name"),
+    phone: text("phone"),
+    captureSource: text("capture_source"),
+    captureProfile: text("capture_profile"),
+    revenueRange: text("revenue_range"),
+    objective: text("objective"),
+    commercialStatus: varchar("commercial_status", { length: 32 })
+      .$type<CrmCommercialStatus>()
+      .notNull()
+      .default("novo_lead"),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    statusChangedBy: text("status_changed_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusIdx: index("crm_contacts_status_idx").on(
+      t.commercialStatus,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const crmContactEvent = pgTable(
+  "crm_contact_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => crmContact.id),
+    kind: text("kind").$type<"note" | "status" | "capture">().notNull(),
+    body: text("body"),
+    statusFrom: text("status_from"),
+    statusTo: text("status_to"),
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    authorEmail: text("author_email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    contactIdx: index("crm_contact_events_contact_idx").on(
+      t.contactId,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const ambassadorMember = pgTable("ambassador_members", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => backofficeUser.id),
+  canGrantStarter: boolean("can_grant_starter").notNull().default(false),
+});
+
+export const ambassador = pgTable("ambassadors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  affiliateId: uuid("affiliate_id")
+    .notNull()
+    .unique()
+    .references(() => referralAffiliate.id),
+  category: text("category").$type<"ambassador" | "coproducer">().notNull(),
+  publicityOwnerId: uuid("publicity_owner_id")
+    .notNull()
+    .references(() => backofficeUser.id),
+  coproductionOwnerId: uuid("coproduction_owner_id").references(
+    () => backofficeUser.id,
+  ),
+  active: boolean("active").notNull().default(true),
+  workflow: jsonb("workflow")
+    .$type<import("../ambassadors/workflow").AmbassadorWorkflow>()
+    .notNull(),
+  version: integer("version").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+});
+
+export const ambassadorEvent = pgTable(
+  "ambassador_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ambassadorId: uuid("ambassador_id")
+      .notNull()
+      .references(() => ambassador.id),
+    authorEmail: text("author_email").notNull(),
+    action: text("action").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    ambassadorIdx: index("ambassador_events_ambassador_idx").on(
+      t.ambassadorId,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const ambassadorBenefit = pgTable("ambassador_benefits", {
+  ambassadorId: uuid("ambassador_id")
+    .primaryKey()
+    .references(() => ambassador.id),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id),
+  anchorOn: date("anchor_on").notNull(),
+  expiresOn: date("expires_on").notNull(),
+  nextCreditOn: date("next_credit_on").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const ambassadorCreditGrant = pgTable(
+  "ambassador_credit_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ambassadorId: uuid("ambassador_id")
+      .notNull()
+      .references(() => ambassador.id),
+    cycleOn: date("cycle_on").notNull(),
+    credits: integer("credits").notNull().default(250),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    cycleUnique: uniqueIndex("ambassador_credit_grants_cycle_unique").on(
+      t.ambassadorId,
+      t.cycleOn,
+    ),
+  }),
+);
+
+/** Display overrides; stable keys preserve capture attribution and filters. */
+export const crmTagSetting = pgTable("crm_tag_settings", {
+  key: varchar("key", { length: 40 }).primaryKey(),
+  name: varchar("name", { length: 60 }).notNull(),
+  color: varchar("color", { length: 7 }).notNull(),
+  updatedBy: varchar("updated_by", { length: 255 }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  validKey: check("crm_tag_settings_key_check", sql`${t.key} in ('source:isaac', 'profile:dono', 'profile:gestor')`),
+  validName: check("crm_tag_settings_name_check", sql`length(trim(${t.name})) > 0`),
+  validColor: check("crm_tag_settings_color_check", sql`${t.color} ~ '^#[0-9a-fA-F]{6}$'`),
+}));

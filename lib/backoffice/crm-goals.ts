@@ -54,7 +54,7 @@ export const CRM_METRIC_META: Record<
     numeratorLabel: "agendamentos",
     denominatorLabel: "leads qualificáveis criados",
     description:
-      "Leads que entraram em Reunião agendada (ou estágio posterior) no mês, sobre contas criadas no mês com telefone e fora da equipe.",
+      "Leads que entraram em Reunião agendada (ou estágio posterior) no mês, sobre contatos que entraram no CRM no mês com telefone e fora da equipe.",
     defaultTarget: 60,
   },
   conversao_trial: {

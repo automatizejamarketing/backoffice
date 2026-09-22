@@ -19,12 +19,23 @@ import {
   type CrmCommercialStatus,
 } from "@/lib/backoffice/crm";
 import { cn } from "@/lib/utils";
-import { fetchCrmList, formatRelativeDays, type CrmDateFilters } from "./crm-api";
-import { AccountStageBadge, CommercialStatusBadge, ProductTags } from "./crm-badges";
+import {
+  fetchCrmList,
+  formatRelativeDays,
+  type CrmDateFilters,
+} from "./crm-api";
+import {
+  CaptureTags,
+  AccountStageBadge,
+  CommercialStatusBadge,
+  ProductTags,
+} from "./crm-badges";
 
 const PAGE_SIZE = 25;
 
 export function CrmList({
+  captureSource,
+  captureProfile,
   search,
   accountStage,
   commercialStatus,
@@ -38,7 +49,7 @@ export function CrmList({
   onOpenLead: (userId: string) => void;
 }) {
   const [page, setPage] = useState(1);
-  const filtersKey = `${search}|${accountStage ?? ""}|${commercialStatus ?? ""}|${signup?.from ?? ""}-${signup?.to ?? ""}|${expires?.from ?? ""}-${expires?.to ?? ""}`;
+  const filtersKey = `${captureSource ?? ""}|${captureProfile ?? ""}|${search}|${accountStage ?? ""}|${commercialStatus ?? ""}|${signup?.from ?? ""}-${signup?.to ?? ""}|${expires?.from ?? ""}-${expires?.to ?? ""}`;
   const [lastFiltersKey, setLastFiltersKey] = useState(filtersKey);
   if (filtersKey !== lastFiltersKey) {
     setLastFiltersKey(filtersKey);
@@ -46,22 +57,52 @@ export function CrmList({
   }
 
   const query = useQuery({
-    queryKey: ["crm", "list", search, accountStage ?? "", commercialStatus ?? "", signup ?? null, expires ?? null, page],
+    queryKey: [
+      "crm",
+      "list",
+      search,
+      captureSource ?? "",
+      captureProfile ?? "",
+      accountStage ?? "",
+      commercialStatus ?? "",
+      signup ?? null,
+      expires ?? null,
+      page,
+    ],
     queryFn: () =>
-      fetchCrmList({ search, accountStage, commercialStatus, signup, expires, page, pageSize: PAGE_SIZE }),
+      fetchCrmList({
+        search,
+        captureSource,
+        captureProfile,
+        accountStage,
+        commercialStatus,
+        signup,
+        expires,
+        page,
+        pageSize: PAGE_SIZE,
+      }),
     placeholderData: (previous) => previous,
   });
 
   const data = query.data;
-  const pageCount = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
+  const pageCount = data
+    ? Math.max(1, Math.ceil(data.total / data.pageSize))
+    : 1;
   // O servidor devolve a página já limitada ao total; os botões partem dela.
   const currentPage = data?.page ?? page;
 
   if (query.isError) {
     return (
-      <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+      <div
+        role="alert"
+        className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm"
+      >
         Não deu para carregar a lista.{" "}
-        <button type="button" className="font-medium underline underline-offset-2" onClick={() => void query.refetch()}>
+        <button
+          type="button"
+          className="font-medium underline underline-offset-2"
+          onClick={() => void query.refetch()}
+        >
           Tentar de novo
         </button>
       </div>
@@ -71,7 +112,10 @@ export function CrmList({
   return (
     <div
       aria-busy={query.isFetching}
-      className={cn("rounded-xl border bg-card shadow-xs transition-opacity", query.isPlaceholderData && "opacity-60")}
+      className={cn(
+        "rounded-xl border bg-card shadow-xs transition-opacity",
+        query.isPlaceholderData && "opacity-60",
+      )}
     >
       <div className="overflow-x-auto">
         <Table className="min-w-[1100px]">
@@ -97,7 +141,10 @@ export function CrmList({
               ))
             ) : data.leads.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-28 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={7}
+                  className="h-28 text-center text-muted-foreground"
+                >
                   Nenhum lead com esses filtros.
                 </TableCell>
               </TableRow>
@@ -109,9 +156,13 @@ export function CrmList({
                   onClick={() => onOpenLead(lead.id)}
                 >
                   <TableCell className="max-w-64">
-                    <div className="truncate text-sm font-medium">{displayLeadName(lead)}</div>
+                    <div className="truncate text-sm font-medium">
+                      {displayLeadName(lead)}
+                    </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {lead.companyName && lead.name ? `${lead.companyName} · ` : ""}
+                      {lead.companyName && lead.name
+                        ? `${lead.companyName} · `
+                        : ""}
                       {lead.email}
                     </div>
                   </TableCell>
@@ -120,6 +171,7 @@ export function CrmList({
                   </TableCell>
                   <TableCell>
                     <AccountStageBadge stage={lead.accountStage} />
+                    <CaptureTags lead={lead} />
                   </TableCell>
                   <TableCell className="max-w-56">
                     {lead.productTitles.length > 0 ? (
@@ -130,7 +182,10 @@ export function CrmList({
                   </TableCell>
                   <TableCell className="max-w-64">
                     {lead.lastNote ? (
-                      <p className="line-clamp-2 text-xs text-muted-foreground" title={lead.lastNote.body}>
+                      <p
+                        className="line-clamp-2 text-xs text-muted-foreground"
+                        title={lead.lastNote.body}
+                      >
                         {lead.lastNote.body}
                       </p>
                     ) : (
@@ -154,7 +209,9 @@ export function CrmList({
         className="flex items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground"
       >
         <span>
-          {data ? `${data.total} ${data.total === 1 ? "lead" : "leads"} · página ${data.page} de ${pageCount}` : " "}
+          {data
+            ? `${data.total} ${data.total === 1 ? "lead" : "leads"} · página ${data.page} de ${pageCount}`
+            : " "}
         </span>
         <div className="flex gap-2">
           <Button

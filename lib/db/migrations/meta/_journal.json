@@ -722,6 +722,20 @@
       "when": 1800900000000,
       "tag": "0119_actionable_client_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1800900001000,
+      "tag": "0120_capture_ambassadors",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1800900002000,
+      "tag": "0121_crm_tag_settings",
+      "breakpoints": true
     }
   ]
 }

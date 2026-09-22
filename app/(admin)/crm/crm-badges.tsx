@@ -1,5 +1,6 @@
 "use client";
 
+import { CrmTagBadge, useCrmTags } from "./crm-tag-settings";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -9,7 +10,11 @@ import {
   type CrmCommercialStatus,
 } from "@/lib/backoffice/crm";
 
-export function CommercialStatusBadge({ status }: { status: CrmCommercialStatus }) {
+export function CommercialStatusBadge({
+  status,
+}: {
+  status: CrmCommercialStatus;
+}) {
   const meta = CRM_STATUS_META[status];
   return (
     <StatusBadge tone={meta.tone} icon={meta.icon}>
@@ -36,7 +41,12 @@ export function ProductTags({
   return (
     <div className="flex flex-wrap gap-1">
       {visible.map((title) => (
-        <Badge key={title} variant="secondary" className="max-w-40 truncate" title={title}>
+        <Badge
+          key={title}
+          variant="secondary"
+          className="max-w-40 truncate"
+          title={title}
+        >
           {title}
         </Badge>
       ))}
@@ -46,5 +56,26 @@ export function ProductTags({
         </Badge>
       ) : null}
     </div>
+  );
+}
+
+export function CaptureTags({
+  lead,
+}: {
+  lead: { captureSource?: string | null; captureProfile?: string | null };
+}) {
+  const { tags } = useCrmTags();
+  const visible = tags.filter(
+    (tag) =>
+      tag.key === `source:${lead.captureSource}` ||
+      tag.key === `profile:${lead.captureProfile}`,
+  );
+  if (!visible.length) return null;
+  return (
+    <span className="inline-flex min-w-0 flex-wrap gap-1">
+      {visible.map((tag) => (
+        <CrmTagBadge key={tag.key} tag={tag} />
+      ))}
+    </span>
   );
 }
