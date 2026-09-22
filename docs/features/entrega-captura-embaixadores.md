@@ -40,7 +40,7 @@ Testes de lógica: `bun test lib/ambassadors/workflow.test.ts lib/ambassadors/pe
 
 Testes de banco são opt-in (`RUN_AMBASSADOR_DB_TESTS=1` no backoffice e `RUN_CAPTURE_DB_TESTS=1` no frontend) e exigem exatamente o banco local indicado nos testes, previamente preparado com o schema. Não apontar para ambientes compartilhados.
 
-Não houve migração em staging/produção, commit, push ou deploy nesta entrega. Frontend (3415), backoffice (3416) e PostgreSQL local (55439) foram reabertos a pedido do usuário e permanecem disponíveis para teste.
+A validação original foi local. O estado da publicação posterior está registrado abaixo. Frontend (3415), backoffice (3416) e PostgreSQL local (55439) foram reabertos a pedido do usuário e permanecem disponíveis para teste.
 
 
 ## Configuração das tags do CRM
@@ -49,8 +49,17 @@ No CRM, **Configurar tags** permite a administradores e gestores comerciais alte
 
 A configuração é global para a equipe e persistida em `crm_tag_settings`, com autor e data da última edição. Kanban, lista, detalhes e filtros usam os mesmos nomes. As chaves de atribuição `source:isaac`, `profile:dono` e `profile:gestor` permanecem estáveis; renomear uma tag não altera a origem dos contatos ou os filtros salvos. A cor do texto se ajusta para manter contraste com a cor escolhida.
 
-Migrations adicionais espelhadas: backoffice `0121_crm_tag_settings.sql` e frontend `0128_crm_tag_settings.sql`, mesmo SQL e timestamp. Aplicadas somente no PostgreSQL local. Devem ser incluídas na migração anterior ao deploy. A geração isolada preserva os snapshots históricos com colisão.
+Migrations adicionais espelhadas: backoffice `0121_crm_tag_settings.sql` e frontend `0128_crm_tag_settings.sql`, mesmo SQL e timestamp. Aplicadas no banco local durante desenvolvimento e em produção na publicação registrada abaixo. A geração isolada preserva os snapshots históricos com colisão.
 
 Seis testes cobrem permissões, nomes/cores válidos, chaves estáveis, contraste, espelhamento e persistência sem alteração dos contatos. O teste de banco exige `RUN_CRM_TAG_DB_TESTS=1` e o banco local descartável. A nova checagem completa de tipos foi interrompida por pressão de memória; não houve build.
 
 Verificação adicional da API local: leitura/edição de admin, leitura de comercial com `canEdit=false`, edição não autorizada 403, anônimo redirecionado ao login e entrada inválida 400. No navegador, nome e cor foram salvos pelo modal, persistiram após recarregamento e apareceram no filtro da campanha e no Kanban. Os rótulos e cores padrão foram restaurados após a verificação.
+
+
+## Publicação de produção — 22/09/2026
+
+Origin atualizado e incorporado sem conflitos nos dois repositórios: frontend `ff50a2a3` e backoffice `f4aacca`. Foram executados 69 testes selecionados de captura, CRM, permissões, embaixadores e banco local, todos aprovados. A checagem completa de tipos do backoffice retornou exatamente os mesmos diagnósticos preexistentes; a do frontend atingiu o limite de memória nesta tentativa. Nenhum build local foi executado.
+
+Banco de produção confirmado: projeto Supabase `hosjqwtfjjtmphchsuqf`. Os comandos normais de migration foram executados nos dois aplicativos. A auditoria deixou zero pendências e nenhum objeto ausente. A cópia inicial preservou 1.020 contas, 268 registros legados de CRM e 350 eventos: todas as contas possuem contato correspondente, todos os eventos foram copiados e os estágios coincidem. Os três triggers de compatibilidade estão ativos. Nenhum embaixador, benefício Starter ou pagamento foi criado pela migração.
+
+A aplicação dessas migrations precede a publicação de código. Os schemas, SQL e journals estão versionados nos dois repositórios. Permissões reais de embaixadores seguem a gestão explícita em **Acessos da equipe**, sem inferência de identidade pelo nome.
