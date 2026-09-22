@@ -1,15 +1,14 @@
-import { and, count, desc, eq, gte, lt, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import {
   CRM_COMMERCIAL_STATUS_VALUES,
-  crmLead,
-  crmLeadEvent,
-  user,
+  crmContactEvent as crmLeadEvent,
+  crmContact as contact,
+  user as account,
   type CrmCommercialStatus,
 } from "@/lib/db/schema";
 import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
-import { buildUserListSearchCondition } from "@/lib/backoffice/user-search";
 import {
   brtStartOfCalendarDate,
   shiftCalendarDate,
@@ -23,14 +22,16 @@ import {
   type CrmLeadSummary,
 } from "@/lib/backoffice/crm";
 
-const commercialStatusSql = sql<CrmCommercialStatus>`coalesce(${crmLead.commercialStatus}, 'novo_lead')`;
+const accountExpirationSql = sql<Date | null>`(select expiration_date from users where id = ${contact.userId})`;
+
+const commercialStatusSql = sql<CrmCommercialStatus>`coalesce(${contact.commercialStatus}, 'novo_lead')`;
 
 /** Ordem do funil: quem mudou de status por último aparece primeiro. */
-const recencySql = sql`coalesce(${crmLead.statusChangedAt}, ${user.createdAt})`;
+const recencySql = sql`coalesce(${contact.statusChangedAt}, ${contact.createdAt})`;
 
 const hasApprovedPaymentSql = sql<boolean>`exists (
   select 1 from payments p
-  where p.user_id = ${user.id}
+  where p.user_id = ${contact.userId}
     and p.status = 'succeeded'
     and ${billingPaymentPurposeSql()}
 )`;
@@ -38,60 +39,76 @@ const hasApprovedPaymentSql = sql<boolean>`exists (
 /** Status da última assinatura registrada para o usuário (null se nunca teve). */
 const lastSubscriptionStatusSql = sql<string | null>`(
   select s.status from subscriptions s
-  where s.user_id = ${user.id}
+  where s.user_id = ${contact.userId}
   order by s.created_at desc limit 1
 )`;
 
+const ambassadorAccessSql = sql<boolean>`exists(select 1 from ambassador_benefits b where b.user_id = ${contact.userId} and b.expires_on >= (now() at time zone 'America/Sao_Paulo')::date) and not exists(select 1 from subscriptions s where s.user_id = ${contact.userId} and s.status in ('active','past_due','trialing'))`;
+const ambassadorOnlySql = sql<boolean>`exists(select 1 from ambassador_benefits b where b.user_id = ${contact.userId}) and not exists(select 1 from subscriptions s where s.user_id = ${contact.userId}) and not ${hasApprovedPaymentSql}`;
 const leadColumns = {
-  id: user.id,
-  email: user.email,
-  name: user.name,
-  phone: user.phone,
-  createdAt: user.createdAt,
-  expirationDate: user.expirationDate,
+  ambassadorAccess: ambassadorAccessSql,
+  ambassadorOnly: ambassadorOnlySql,
+  id: contact.id,
+  userId: contact.userId,
+  captureSource: contact.captureSource,
+  captureProfile: contact.captureProfile,
+  revenueRange: contact.revenueRange,
+  objective: contact.objective,
+  email: contact.email,
+  name: contact.name,
+  phone: contact.phone,
+  createdAt: contact.createdAt,
+  expirationDate: accountExpirationSql,
   companyName: sql<string | null>`(
     select c.name from user_companies uc
     join companies c on c.id = uc.company_id
-    where uc.user_id = ${user.id}
+    where uc.user_id = ${contact.userId}
     order by (uc.role = 'owner') desc
     limit 1
   )`,
   consultantName: sql<string | null>`(
     select coalesce(bu.name, bu.email) from user_marketing_consultants umc
     join backoffice_users bu on bu.id = umc.consultant_id
-    where umc.user_id = ${user.id}
+    where umc.user_id = ${contact.userId}
   )`,
   hasApprovedPayment: hasApprovedPaymentSql,
   subscriptionStatus: lastSubscriptionStatusSql,
   commercialStatus: commercialStatusSql,
-  statusChangedAt: crmLead.statusChangedAt,
-  statusChangedBy: crmLead.statusChangedBy,
+  statusChangedAt: contact.statusChangedAt,
+  statusChangedBy: contact.statusChangedBy,
   // json_agg em vez de array_agg: o driver devolve json já como array JS.
   productTitles: sql<string[]>`(
     select coalesce(json_agg(distinct po.product_title_snapshot), '[]'::json)
     from product_orders po
     where po.status = 'approved'
-      and (po.user_id = ${user.id} or po.buyer_email = ${user.email})
+      and (po.user_id = ${contact.userId} or po.buyer_email = ${contact.email})
   )`,
   lastNoteBody: sql<string | null>`(
-    select e.body from crm_lead_events e
-    where e.user_id = ${user.id} and e.kind = 'note'
+    select e.body from crm_contact_events e
+    where e.contact_id = ${contact.id} and e.kind = 'note'
     order by e.created_at desc limit 1
   )`,
   lastNoteAt: sql<string | null>`(
-    select e.created_at::text from crm_lead_events e
-    where e.user_id = ${user.id} and e.kind = 'note'
+    select e.created_at::text from crm_contact_events e
+    where e.contact_id = ${contact.id} and e.kind = 'note'
     order by e.created_at desc limit 1
   )`,
   lastNoteAuthor: sql<string | null>`(
-    select e.author_email from crm_lead_events e
-    where e.user_id = ${user.id} and e.kind = 'note'
+    select e.author_email from crm_contact_events e
+    where e.contact_id = ${contact.id} and e.kind = 'note'
     order by e.created_at desc limit 1
   )`,
 };
 
 type LeadRow = {
+  ambassadorAccess: boolean;
+  ambassadorOnly: boolean;
   id: string;
+  userId: string | null;
+  captureSource: string | null;
+  captureProfile: string | null;
+  revenueRange: string | null;
+  objective: string | null;
   email: string;
   name: string | null;
   phone: string | null;
@@ -119,6 +136,11 @@ function toIso(value: Date | string | null | undefined): string | null {
 function toSummary(row: LeadRow, now: Date): CrmLeadSummary {
   return {
     id: row.id,
+    userId: row.userId,
+    captureSource: row.captureSource,
+    captureProfile: row.captureProfile,
+    revenueRange: row.revenueRange,
+    objective: row.objective,
     email: row.email,
     name: row.name,
     phone: row.phone,
@@ -127,7 +149,7 @@ function toSummary(row: LeadRow, now: Date): CrmLeadSummary {
     createdAt: toIso(row.createdAt),
     expirationDate: toIso(row.expirationDate),
     hasApprovedPayment: row.hasApprovedPayment,
-    accountStage: deriveAccountStage(row, now),
+    accountStage: row.userId ? deriveAccountStage(row, now) : "sem_conta",
     commercialStatus: row.commercialStatus,
     statusChangedAt: toIso(row.statusChangedAt) ?? toIso(row.createdAt),
     statusChangedBy: row.statusChangedBy,
@@ -145,29 +167,34 @@ function toSummary(row: LeadRow, now: Date): CrmLeadSummary {
 
 /** Espelho SQL de deriveAccountStage; os dois precisam mudar juntos. */
 function accountStageCondition(stage: CrmAccountStage): SQL {
-  const hasAccessDate = sql`${user.expirationDate} is not null`;
-  const active = sql`${user.expirationDate} > now()`;
-  const expired = sql`${user.expirationDate} <= now()`;
+  if (stage === "cortesia") return ambassadorAccessSql;
+  const hasAccessDate = sql`${accountExpirationSql} is not null`;
+  const active = sql`${accountExpirationSql} > now()`;
+  const expired = sql`${accountExpirationSql} <= now()`;
   const canceled = sql`${lastSubscriptionStatusSql} = 'canceled'`;
   const notCanceled = sql`coalesce(${lastSubscriptionStatusSql}, '') <> 'canceled'`;
   const passedTrial = sql`coalesce(${lastSubscriptionStatusSql}, 'trialing') <> 'trialing'`;
   switch (stage) {
+    case "sem_conta":
+      return sql`${contact.userId} is null`;
     case "sem_trial":
-      return sql`${user.expirationDate} is null`;
+      return sql`${contact.userId} is not null and ${accountExpirationSql} is null`;
     case "cancelado":
-      return sql`${hasAccessDate} and ${canceled}`;
+      return sql`not (${ambassadorAccessSql}) and ${hasAccessDate} and ${canceled}`;
     case "trial_ativo":
-      return sql`${active} and ${notCanceled} and not ${hasApprovedPaymentSql}`;
+      return sql`not (${ambassadorAccessSql}) and not (${ambassadorOnlySql}) and ${active} and ${notCanceled} and not ${hasApprovedPaymentSql}`;
     case "assinante_ativo":
-      return sql`${active} and ${notCanceled} and ${hasApprovedPaymentSql}`;
+      return sql`not (${ambassadorAccessSql}) and ${active} and ${notCanceled} and ${hasApprovedPaymentSql}`;
     case "expirado":
-      return sql`${expired} and ${notCanceled} and (${hasApprovedPaymentSql} or ${passedTrial})`;
+      return sql`not (${ambassadorAccessSql}) and ((${ambassadorOnlySql}) or (${expired} and ${notCanceled} and (${hasApprovedPaymentSql} or ${passedTrial})))`;
     case "trial_vencido":
-      return sql`${expired} and ${notCanceled} and not ${hasApprovedPaymentSql} and not ${passedTrial}`;
+      return sql`not (${ambassadorAccessSql}) and not (${ambassadorOnlySql}) and ${expired} and ${notCanceled} and not ${hasApprovedPaymentSql} and not ${passedTrial}`;
   }
 }
 
 type CrmLeadFilters = {
+  captureSource?: string;
+  captureProfile?: string;
   search?: string;
   commercialStatus?: CrmCommercialStatus;
   accountStage?: CrmAccountStage;
@@ -177,21 +204,40 @@ type CrmLeadFilters = {
   expires?: CrmDateBounds;
 };
 
-function dateBoundsCondition(column: AnyPgColumn, bounds: CrmDateBounds): SQL | undefined {
+function dateBoundsCondition(
+  column: AnyPgColumn | SQL,
+  bounds: CrmDateBounds,
+): SQL | undefined {
   const parts: SQL[] = [];
-  if (bounds.from) parts.push(gte(column, brtStartOfCalendarDate(bounds.from)));
+  if (bounds.from)
+    parts.push(
+      sql`${column} >= ${brtStartOfCalendarDate(bounds.from).toISOString()}`,
+    );
   if (bounds.to) {
-    parts.push(lt(column, brtStartOfCalendarDate(shiftCalendarDate(bounds.to, 1))));
+    parts.push(
+      sql`${column} < ${brtStartOfCalendarDate(shiftCalendarDate(bounds.to, 1)).toISOString()}`,
+    );
   }
   return parts.length > 0 ? and(...parts) : undefined;
 }
 
 function buildConditions(input: CrmLeadFilters): SQL | undefined {
   const conditions: SQL[] = [];
+  if (input.captureSource)
+    conditions.push(eq(contact.captureSource, input.captureSource));
+  if (input.captureProfile)
+    conditions.push(eq(contact.captureProfile, input.captureProfile));
   const search = input.search?.trim() ?? "";
   if (search.length >= 3) {
-    const condition = buildUserListSearchCondition(search);
-    if (condition) conditions.push(condition);
+    const pattern = `%${search}%`;
+    conditions.push(
+      or(
+        ilike(contact.name, pattern),
+        ilike(contact.email, pattern),
+        ilike(contact.phone, pattern),
+        sql`exists(select 1 from user_companies uc join companies c on c.id = uc.company_id where uc.user_id = ${contact.userId} and c.name ilike ${pattern})`,
+      )!,
+    );
   }
   if (input.commercialStatus) {
     conditions.push(sql`${commercialStatusSql} = ${input.commercialStatus}`);
@@ -199,25 +245,33 @@ function buildConditions(input: CrmLeadFilters): SQL | undefined {
   if (input.accountStage) {
     conditions.push(accountStageCondition(input.accountStage));
   }
-  const signup = input.signup && dateBoundsCondition(user.createdAt, input.signup);
+  const signup =
+    input.signup && dateBoundsCondition(contact.createdAt, input.signup);
   if (signup) conditions.push(signup);
-  const expires = input.expires && dateBoundsCondition(user.expirationDate, input.expires);
+  const expires =
+    input.expires && dateBoundsCondition(accountExpirationSql, input.expires);
   if (expires) conditions.push(expires);
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
-export async function listCrmLeads(input: CrmLeadFilters & {
+export async function listCrmLeads(
+  input: CrmLeadFilters & {
+    page: number;
+    pageSize: number;
+  },
+): Promise<{
+  leads: CrmLeadSummary[];
+  total: number;
   page: number;
   pageSize: number;
-}): Promise<{ leads: CrmLeadSummary[]; total: number; page: number; pageSize: number }> {
+}> {
   const where = buildConditions(input);
   const pageSize = Math.min(100, Math.max(1, input.pageSize));
   const now = new Date();
 
   const [{ total: rawTotal }] = await db
     .select({ total: count() })
-    .from(user)
-    .leftJoin(crmLead, eq(crmLead.userId, user.id))
+    .from(contact)
     .where(where);
   const total = Number(rawTotal);
   // Página pedida além do fim (filtro mudou, lead saiu) cai na última.
@@ -226,10 +280,10 @@ export async function listCrmLeads(input: CrmLeadFilters & {
 
   const rows = await db
     .select(leadColumns)
-    .from(user)
-    .leftJoin(crmLead, eq(crmLead.userId, user.id))
+    .from(contact)
+    .leftJoin(account, eq(account.id, contact.userId))
     .where(where)
-    .orderBy(desc(recencySql), desc(user.id))
+    .orderBy(desc(recencySql), desc(contact.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
 
@@ -241,9 +295,11 @@ export async function listCrmLeads(input: CrmLeadFilters & {
   };
 }
 
-export async function listCrmKanban(input: Omit<CrmLeadFilters, "commercialStatus"> & {
-  perColumn?: number;
-}): Promise<CrmKanbanColumn[]> {
+export async function listCrmKanban(
+  input: Omit<CrmLeadFilters, "commercialStatus"> & {
+    perColumn?: number;
+  },
+): Promise<CrmKanbanColumn[]> {
   const where = buildConditions(input);
   const perColumn = Math.min(100, Math.max(1, input.perColumn ?? 40));
   const now = new Date();
@@ -251,17 +307,16 @@ export async function listCrmKanban(input: Omit<CrmLeadFilters, "commercialStatu
   const [counts, ...columns] = await Promise.all([
     db
       .select({ status: commercialStatusSql, total: count() })
-      .from(user)
-      .leftJoin(crmLead, eq(crmLead.userId, user.id))
+      .from(contact)
       .where(where)
       .groupBy(commercialStatusSql),
     ...CRM_COMMERCIAL_STATUS_VALUES.map((status) =>
       db
         .select(leadColumns)
-        .from(user)
-        .leftJoin(crmLead, eq(crmLead.userId, user.id))
+        .from(contact)
+        .leftJoin(account, eq(account.id, contact.userId))
         .where(and(where, sql`${commercialStatusSql} = ${status}`))
-        .orderBy(desc(recencySql), desc(user.id))
+        .orderBy(desc(recencySql), desc(contact.id))
         .limit(perColumn),
     ),
   ]);
@@ -280,17 +335,24 @@ export async function getCrmLead(userId: string): Promise<{
   lead: CrmLeadSummary;
   events: CrmLeadEventView[];
 } | null> {
+  const [resolved] = await db
+    .select({ id: contact.id })
+    .from(contact)
+    .where(or(eq(contact.id, userId), eq(contact.userId, userId)))
+    .limit(1);
+  if (!resolved) return null;
+  userId = resolved.id;
   const [rows, events] = await Promise.all([
     db
       .select(leadColumns)
-      .from(user)
-      .leftJoin(crmLead, eq(crmLead.userId, user.id))
-      .where(eq(user.id, userId))
+      .from(contact)
+      .leftJoin(account, eq(account.id, contact.userId))
+      .where(eq(contact.id, userId))
       .limit(1),
     db
       .select()
       .from(crmLeadEvent)
-      .where(eq(crmLeadEvent.userId, userId))
+      .where(eq(crmLeadEvent.contactId, userId))
       .orderBy(desc(crmLeadEvent.createdAt))
       .limit(200),
   ]);
@@ -316,38 +378,31 @@ export async function setCrmLeadStatus(input: {
   status: CrmCommercialStatus;
   authorEmail: string;
 }): Promise<{ changed: boolean; from: CrmCommercialStatus }> {
+  const contactId = await resolveContactId(input.userId);
+  input = { ...input, userId: contactId };
   return db.transaction(async (tx) => {
     const [current] = await tx
       .select({ status: commercialStatusSql })
-      .from(user)
-      .leftJoin(crmLead, eq(crmLead.userId, user.id))
-      .where(eq(user.id, input.userId))
-      .limit(1);
-    if (!current) throw new Error("Usuário não encontrado");
+      .from(contact)
+      .where(eq(contact.id, input.userId))
+      .limit(1)
+      .for("update");
+    if (!current) throw new Error("Contato não encontrado");
     if (current.status === input.status) {
       return { changed: false, from: current.status };
     }
     const now = new Date();
     await tx
-      .insert(crmLead)
-      .values({
-        userId: input.userId,
+      .update(contact)
+      .set({
         commercialStatus: input.status,
         statusChangedAt: now,
         statusChangedBy: input.authorEmail,
         updatedAt: now,
       })
-      .onConflictDoUpdate({
-        target: crmLead.userId,
-        set: {
-          commercialStatus: input.status,
-          statusChangedAt: now,
-          statusChangedBy: input.authorEmail,
-          updatedAt: now,
-        },
-      });
+      .where(eq(contact.id, input.userId));
     await tx.insert(crmLeadEvent).values({
-      userId: input.userId,
+      contactId: input.userId,
       kind: "status",
       statusFrom: current.status,
       statusTo: input.status,
@@ -363,10 +418,11 @@ export async function addCrmLeadNote(input: {
   body: string;
   authorEmail: string;
 }): Promise<CrmLeadEventView> {
+  input = { ...input, userId: await resolveContactId(input.userId) };
   const [event] = await db
     .insert(crmLeadEvent)
     .values({
-      userId: input.userId,
+      contactId: input.userId,
       kind: "note",
       body: input.body,
       authorEmail: input.authorEmail,
@@ -381,4 +437,14 @@ export async function addCrmLeadNote(input: {
     authorEmail: event.authorEmail,
     createdAt: event.createdAt.toISOString(),
   };
+}
+
+async function resolveContactId(id: string) {
+  const [resolved] = await db
+    .select({ id: contact.id })
+    .from(contact)
+    .where(or(eq(contact.id, id), eq(contact.userId, id)))
+    .limit(1);
+  if (!resolved) throw new Error("Contato não encontrado");
+  return resolved.id;
 }

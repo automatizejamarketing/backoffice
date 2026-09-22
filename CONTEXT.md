@@ -246,11 +246,46 @@ somente de leitura. Ambos precisam de `CLOUDFLARE_R2_ACCOUNT_ID`,
 
 # CRM comercial
 
-Funil do time comercial sobre as contas do Automatize. O status comercial é
-controlado à mão pelo time; o estado da conta (acesso, trial, pagamento) vem do
-produto e não é editável aqui.
+## Embaixadores
 
-- **Lead**: toda conta criada no produto. O funil lista todas, sem filtro.
+**Embaixador**: afiliado especial do Automatize com uma parceria de divulgação
+acompanhada pela equipe. A parceria pode incluir coprodução de infoprodutos.
+
+**Embaixador Coprodutor**: categoria de embaixador cuja parceria inclui também
+o desenvolvimento e lançamento de infoprodutos com o Automatize. Este nome
+designa a categoria da parceria, distinta do termo financeiro Coprodutor.
+
+A categoria Embaixador Coprodutor não equivale ao perfil de Expert; um parceiro
+pode estar em acompanhamento de coprodução antes de ter esse perfil cadastrado.
+
+**Start**: marco de lançamento do projeto de coprodução e início das vendas.
+
+**Trilha de publicidade**: acompanhamento da preparação e das publicações do
+embaixador. É independente da trilha de coprodução após a formalização.
+
+**Trilha de coprodução**: acompanhamento do desenvolvimento e lançamento de
+infoprodutos com um Embaixador Coprodutor.
+
+**Ciclo de publicação**: conjunto de compromissos de publicação de um mês,
+com data da publi, briefing e registro da publicação realizada. Cada ciclo
+preserva seu próprio histórico e suas pendências.
+
+**Gratuidade Starter do embaixador**: benefício de acesso Starter com vencimento
+escolhido na liberação e créditos mensais durante sua vigência.
+
+**Ciclo de créditos da gratuidade**: período mensal contado a partir da liberação
+do benefício, independente do mês calendário dos compromissos de publicação.
+
+## Funil e métricas
+
+Funil do time comercial sobre os contatos comerciais do Automatize, que podem
+ter ou não uma conta no produto. O status comercial é controlado à mão pelo
+time; quando há uma conta, seu estado (acesso, trial, pagamento) vem do produto.
+
+- **Contato comercial (Lead)**: pessoa registrada para acompanhamento pelo
+  time comercial, com ou sem conta de acesso ao Automatize.
+- **Conta de acesso**: cadastro que permite autenticação no Automatize,
+  distinto do contato comercial. O preenchimento de `/captura` não cria uma conta.
 - **Lead qualificável**: lead com telefone de contato preenchido e que não é
   da equipe. Só ele entra na base da taxa de agendamento.
 - **Conta da equipe**: conta cujo email, ignorando o `+alias`, pertence a

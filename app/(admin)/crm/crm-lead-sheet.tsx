@@ -39,7 +39,7 @@ import {
   updateCrmLeadStatus,
   type CrmLeadDetailResponse,
 } from "./crm-api";
-import { AccountStageBadge, ProductTags } from "./crm-badges";
+import { CaptureTags, AccountStageBadge, ProductTags } from "./crm-badges";
 
 export function CrmLeadSheet({
   userId,
@@ -59,14 +59,21 @@ export function CrmLeadSheet({
   );
 }
 
-function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => void }) {
+function LeadDetail({
+  userId,
+  onChanged,
+}: {
+  userId: string;
+  onChanged: () => void;
+}) {
   const queryClient = useQueryClient();
   const queryKey = ["crm", "lead", userId] as const;
   const query = useQuery({ queryKey, queryFn: () => fetchCrmLead(userId) });
   const [draft, setDraft] = useState("");
 
   const changeStatus = useMutation({
-    mutationFn: (status: CrmCommercialStatus) => updateCrmLeadStatus(userId, status),
+    mutationFn: (status: CrmCommercialStatus) =>
+      updateCrmLeadStatus(userId, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey });
       onChanged();
@@ -91,7 +98,11 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
           <SheetTitle className="sr-only">Lead</SheetTitle>
         </SheetHeader>
         Não deu para carregar o lead.{" "}
-        <button type="button" className="font-medium underline" onClick={() => void query.refetch()}>
+        <button
+          type="button"
+          className="font-medium underline"
+          onClick={() => void query.refetch()}
+        >
           Tentar de novo
         </button>
       </div>
@@ -126,20 +137,25 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
             {lead.email}
           </span>
           {lead.createdAt ? (
-            <span>Conta criada em {formatDateTime(lead.createdAt)}</span>
+            <span>Entrada no CRM em {formatDateTime(lead.createdAt)}</span>
           ) : null}
         </SheetDescription>
         <LeadPhone phone={lead.phone} />
+        <CaptureTags lead={lead} />
       </SheetHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-6">
         <dl className="grid gap-4 sm:grid-cols-2">
           <div>
-            <dt className="text-xs font-medium text-muted-foreground">Status comercial</dt>
+            <dt className="text-xs font-medium text-muted-foreground">
+              Status comercial
+            </dt>
             <dd className="mt-1.5">
               <Select
                 value={lead.commercialStatus}
-                onValueChange={(value) => changeStatus.mutate(value as CrmCommercialStatus)}
+                onValueChange={(value) =>
+                  changeStatus.mutate(value as CrmCommercialStatus)
+                }
                 disabled={changeStatus.isPending}
               >
                 <SelectTrigger aria-label="Status comercial" className="w-full">
@@ -176,7 +192,9 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
           </div>
           {lead.productTitles.length > 0 ? (
             <div className="sm:col-span-2">
-              <dt className="text-xs font-medium text-muted-foreground">Produtos comprados</dt>
+              <dt className="text-xs font-medium text-muted-foreground">
+                Produtos comprados
+              </dt>
               <dd className="mt-1.5">
                 <ProductTags titles={lead.productTitles} max={10} />
               </dd>
@@ -184,12 +202,20 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
           ) : null}
         </dl>
 
-        <Button asChild variant="outline" size="sm" className="mt-4">
-          <Link href={`/users/${lead.id}`}>
-            <ExternalLink />
-            Abrir ficha completa
-          </Link>
-        </Button>
+        {lead.captureSource && (
+          <div className="mt-4 space-y-1 text-sm text-muted-foreground">
+            <p>Faturamento: {lead.revenueRange || "Não informado"}</p>
+            <p>Objetivo: {lead.objective || "Não informado"}</p>
+          </div>
+        )}
+        {lead.userId && (
+          <Button asChild variant="outline" size="sm" className="mt-4">
+            <Link href={`/users/${lead.userId}`}>
+              <ExternalLink />
+              Abrir ficha completa
+            </Link>
+          </Button>
+        )}
 
         <form
           className="mt-6 space-y-2"
@@ -199,7 +225,10 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
             if (body && !noteTooLong) addNote.mutate(body);
           }}
         >
-          <label htmlFor="crm-note" className="text-xs font-medium text-muted-foreground">
+          <label
+            htmlFor="crm-note"
+            className="text-xs font-medium text-muted-foreground"
+          >
             Nova anotação
           </label>
           <Textarea
@@ -218,16 +247,24 @@ function LeadDetail({ userId, onChanged }: { userId: string; onChanged: () => vo
                   ? addNote.error.message
                   : "Fica registrado com seu e-mail e a hora."}
             </span>
-            <Button type="submit" size="sm" disabled={!draft.trim() || noteTooLong || addNote.isPending}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!draft.trim() || noteTooLong || addNote.isPending}
+            >
               Salvar anotação
             </Button>
           </div>
         </form>
 
         <section aria-label="Histórico" className="mt-6">
-          <h3 className="text-xs font-medium text-muted-foreground">Histórico</h3>
+          <h3 className="text-xs font-medium text-muted-foreground">
+            Histórico
+          </h3>
           {events.length === 0 ? (
-            <p className="mt-2 text-sm text-muted-foreground">Nenhum contato registrado ainda.</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Nenhum contato registrado ainda.
+            </p>
           ) : (
             <ol className="mt-2 space-y-3">
               {events.map((event) => (
@@ -247,7 +284,9 @@ function LeadPhone({ phone }: { phone: string | null }) {
   const whatsappUrl = getWhatsAppUrl(phone);
 
   if (!formatted) {
-    return <p className="text-sm text-muted-foreground">Sem celular cadastrado</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Sem celular cadastrado</p>
+    );
   }
 
   async function copyPhone() {
@@ -297,9 +336,16 @@ function EventItem({ event }: { event: CrmLeadEventView }) {
     <li className="rounded-lg border bg-background px-3 py-2">
       {event.kind === "status" && event.statusFrom && event.statusTo ? (
         <p className="flex flex-wrap items-center gap-1.5 text-sm">
-          <span className="text-muted-foreground">{CRM_STATUS_META[event.statusFrom].label}</span>
-          <ArrowRight className="size-3.5 text-muted-foreground" aria-hidden="true" />
-          <span className="font-medium">{CRM_STATUS_META[event.statusTo].label}</span>
+          <span className="text-muted-foreground">
+            {CRM_STATUS_META[event.statusFrom].label}
+          </span>
+          <ArrowRight
+            className="size-3.5 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span className="font-medium">
+            {CRM_STATUS_META[event.statusTo].label}
+          </span>
         </p>
       ) : (
         <p className="whitespace-pre-wrap text-sm">{event.body}</p>

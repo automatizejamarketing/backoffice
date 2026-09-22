@@ -3,11 +3,11 @@ import { db } from "@/lib/db";
 import {
   backofficeUser,
   crmGoal,
-  crmLead,
-  crmLeadEvent,
+  crmContactEvent as crmLeadEvent,
   payment,
   subscription,
-  user,
+  crmContact as contact,
+  user as account,
   type CrmCommercialStatus,
 } from "@/lib/db/schema";
 import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
@@ -62,7 +62,9 @@ export type CrmGoalsDashboard = {
  * acesso / pagou, em qualquer data (ver `crmMeetingOutcome`). Modo "fluxo do
  * período"; ver docs/crm-metas.md para a alternativa por coorte.
  */
-export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashboard> {
+export async function getCrmGoalsDashboard(
+  month: string,
+): Promise<CrmGoalsDashboard> {
   const bounds = crmMonthCalendarBounds(month);
   const from = brtStartOfCalendarDate(bounds.from);
   const to = brtStartOfCalendarDate(bounds.toExclusive);
@@ -77,19 +79,23 @@ export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashb
       })
       .from(backofficeUser),
     db
-      .select({ email: user.email })
-      .from(user)
+      .select({ email: contact.email })
+      .from(contact)
       .where(
         and(
-          gte(user.createdAt, from),
-          lt(user.createdAt, to),
-          sql`coalesce(${user.phone}, '') <> ''`,
+          gte(contact.createdAt, from),
+          lt(contact.createdAt, to),
+          sql`coalesce(${contact.phone}, '') <> ''`,
         ),
       ),
     firstStatusEntryInMonth([...SCHEDULED_OR_LATER_STATUSES], from, to),
     firstStatusEntryInMonth([...MEETING_DONE_STATUSES], from, to),
     db
-      .select({ month: crmGoal.month, metric: crmGoal.metric, target: crmGoal.target })
+      .select({
+        month: crmGoal.month,
+        metric: crmGoal.metric,
+        target: crmGoal.target,
+      })
       .from(crmGoal)
       .where(lte(crmGoal.month, bounds.from)),
   ]);
@@ -108,7 +114,9 @@ export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashb
   const goals = resolveCrmGoals(
     month,
     goalRows
-      .filter((row): row is typeof row & { metric: CrmMetric } => isCrmMetric(row.metric))
+      .filter((row): row is typeof row & { metric: CrmMetric } =>
+        isCrmMetric(row.metric),
+      )
       .map(
         (row): CrmGoalRow => ({
           month: String(row.month).slice(0, 7),
@@ -119,13 +127,18 @@ export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashb
   );
 
   const ownerName = (role: SalesRole) =>
-    team.find((member) => member.active && member.salesRole === role)?.name ?? null;
+    team.find((member) => member.active && member.salesRole === role)?.name ??
+    null;
 
-  const counts: Record<CrmMetric, { numerator: number; denominator: number }> = {
-    agendamento: { numerator: scheduledLeads, denominator: qualifiedSignups },
-    conversao_trial: { numerator: trials, denominator: meetingLeads.length },
-    conversao_real: { numerator: customers, denominator: meetingLeads.length },
-  };
+  const counts: Record<CrmMetric, { numerator: number; denominator: number }> =
+    {
+      agendamento: { numerator: scheduledLeads, denominator: qualifiedSignups },
+      conversao_trial: { numerator: trials, denominator: meetingLeads.length },
+      conversao_real: {
+        numerator: customers,
+        denominator: meetingLeads.length,
+      },
+    };
 
   return {
     month,
@@ -156,15 +169,21 @@ export async function getCrmGoalsDashboard(month: string): Promise<CrmGoalsDashb
 }
 
 /** Primeira entrada de cada lead em um dos status, dentro do mês. */
-async function firstStatusEntryInMonth(statuses: string[], from: Date, to: Date) {
+async function firstStatusEntryInMonth(
+  statuses: string[],
+  from: Date,
+  to: Date,
+) {
   return db
     .select({
-      userId: crmLeadEvent.userId,
-      email: user.email,
-      at: sql<Date>`min(${crmLeadEvent.createdAt})`.mapWith((value) => new Date(value)),
+      userId: crmLeadEvent.contactId,
+      email: contact.email,
+      at: sql<Date>`min(${crmLeadEvent.createdAt})`.mapWith(
+        (value) => new Date(value),
+      ),
     })
     .from(crmLeadEvent)
-    .innerJoin(user, eq(user.id, crmLeadEvent.userId))
+    .innerJoin(contact, eq(contact.id, crmLeadEvent.contactId))
     .where(
       and(
         eq(crmLeadEvent.kind, "status"),
@@ -173,7 +192,7 @@ async function firstStatusEntryInMonth(statuses: string[], from: Date, to: Date)
         lt(crmLeadEvent.createdAt, to),
       ),
     )
-    .groupBy(crmLeadEvent.userId, user.email);
+    .groupBy(crmLeadEvent.contactId, contact.email);
 }
 
 /**
@@ -189,31 +208,37 @@ async function meetingOutcomes(
   const [firstSubscriptions, firstPayments] = await Promise.all([
     db
       .select({
-        userId: subscription.userId,
+        userId: contact.id,
         // Coluna naive (UTC): mapWith(coluna) parseia como UTC, não no fuso do processo.
-        at: sql<Date>`min(${subscription.createdAt})`.mapWith(subscription.createdAt),
+        at: sql<Date>`min(${subscription.createdAt})`.mapWith(
+          subscription.createdAt,
+        ),
       })
       .from(subscription)
-      .where(inArray(subscription.userId, userIds))
-      .groupBy(subscription.userId),
+      .innerJoin(contact, eq(contact.userId, subscription.userId))
+      .where(inArray(contact.id, userIds))
+      .groupBy(contact.id),
     db
       .select({
-        userId: payment.userId,
+        userId: contact.id,
         // Coluna naive (UTC): mapWith(coluna) parseia como UTC, não no fuso do processo.
         at: sql<Date>`min(${payment.createdAt})`.mapWith(payment.createdAt),
       })
       .from(payment)
+      .innerJoin(contact, eq(contact.userId, payment.userId))
       .where(
         and(
-          inArray(payment.userId, userIds),
+          inArray(contact.id, userIds),
           eq(payment.status, "succeeded"),
           billingPaymentPurposeSql(payment.purpose),
         ),
       )
-      .groupBy(payment.userId),
+      .groupBy(contact.id),
   ]);
 
-  const subscriptionAt = new Map(firstSubscriptions.map((row) => [row.userId, row.at]));
+  const subscriptionAt = new Map(
+    firstSubscriptions.map((row) => [row.userId, row.at]),
+  );
   const paymentAt = new Map(firstPayments.map((row) => [row.userId, row.at]));
 
   return userIds.map((userId) => ({
@@ -232,7 +257,9 @@ export async function saveCrmGoals(input: {
   updatedBy: string;
 }): Promise<void> {
   const monthDate = `${input.month}-01`;
-  const entries = Object.entries(input.targets).filter(([metric]) => isCrmMetric(metric));
+  const entries = Object.entries(input.targets).filter(([metric]) =>
+    isCrmMetric(metric),
+  );
   if (entries.length === 0) return;
 
   await db.transaction(async (tx) => {
@@ -247,7 +274,11 @@ export async function saveCrmGoals(input: {
         })
         .onConflictDoUpdate({
           target: [crmGoal.month, crmGoal.metric],
-          set: { target: target ?? null, updatedBy: input.updatedBy, updatedAt: new Date() },
+          set: {
+            target: target ?? null,
+            updatedBy: input.updatedBy,
+            updatedAt: new Date(),
+          },
         });
     }
   });
@@ -287,27 +318,33 @@ export async function getCrmGoalMetricLeads(
   const bounds = crmMonthCalendarBounds(month);
   const from = brtStartOfCalendarDate(bounds.from);
   const to = brtStartOfCalendarDate(bounds.toExclusive);
-  const team = await db.select({ email: backofficeUser.email }).from(backofficeUser);
+  const team = await db
+    .select({ email: backofficeUser.email })
+    .from(backofficeUser);
   const teamEmails = team.map((member) => member.email);
   const isLead = (email: string) => !isInternalLeadEmail(email, teamEmails);
 
   if (metric === "agendamento") {
     const [signups, scheduled] = await Promise.all([
       db
-        .select({ id: user.id, email: user.email })
-        .from(user)
+        .select({ id: contact.id, email: contact.email })
+        .from(contact)
         .where(
           and(
-            gte(user.createdAt, from),
-            lt(user.createdAt, to),
-            sql`coalesce(${user.phone}, '') <> ''`,
+            gte(contact.createdAt, from),
+            lt(contact.createdAt, to),
+            sql`coalesce(${contact.phone}, '') <> ''`,
           ),
         ),
       firstStatusEntryInMonth([...SCHEDULED_OR_LATER_STATUSES], from, to),
     ]);
-    const denominator = new Set(signups.filter((row) => isLead(row.email)).map((row) => row.id));
+    const denominator = new Set(
+      signups.filter((row) => isLead(row.email)).map((row) => row.id),
+    );
     const scheduledAt = new Map(
-      scheduled.filter((row) => isLead(row.email)).map((row) => [row.userId, row.at]),
+      scheduled
+        .filter((row) => isLead(row.email))
+        .map((row) => [row.userId, row.at]),
     );
     const ids = [...new Set([...denominator, ...scheduledAt.keys()])];
     const profiles = await leadProfiles(ids);
@@ -325,11 +362,14 @@ export async function getCrmGoalMetricLeads(
     };
   }
 
-  const meetings = (await firstStatusEntryInMonth([...MEETING_DONE_STATUSES], from, to)).filter(
-    (row) => isLead(row.email),
-  );
+  const meetings = (
+    await firstStatusEntryInMonth([...MEETING_DONE_STATUSES], from, to)
+  ).filter((row) => isLead(row.email));
   const outcomes = new Map(
-    (await meetingOutcomes(meetings.map((row) => row.userId))).map((row) => [row.userId, row]),
+    (await meetingOutcomes(meetings.map((row) => row.userId))).map((row) => [
+      row.userId,
+      row,
+    ]),
   );
   const meetingAt = new Map(meetings.map((row) => [row.userId, row.at]));
   const profiles = await leadProfiles(meetings.map((row) => row.userId));
@@ -344,7 +384,9 @@ export async function getCrmGoalMetricLeads(
           eventAt: meetingAt.get(profile.id)?.toISOString() ?? null,
           inDenominator: true,
           inNumerator:
-            metric === "conversao_trial" ? !!outcome?.trial : !!outcome?.customer,
+            metric === "conversao_trial"
+              ? !!outcome?.trial
+              : !!outcome?.customer,
         };
       })
       .sort(sortLeads),
@@ -353,7 +395,9 @@ export async function getCrmGoalMetricLeads(
 
 function sortLeads(a: CrmGoalLeadRow, b: CrmGoalLeadRow): number {
   if (a.inNumerator !== b.inNumerator) return a.inNumerator ? -1 : 1;
-  return (b.eventAt ?? b.createdAt ?? "").localeCompare(a.eventAt ?? a.createdAt ?? "");
+  return (b.eventAt ?? b.createdAt ?? "").localeCompare(
+    a.eventAt ?? a.createdAt ?? "",
+  );
 }
 
 async function leadProfiles(
@@ -362,30 +406,36 @@ async function leadProfiles(
   Array<
     Pick<
       CrmGoalLeadRow,
-      "id" | "name" | "email" | "phone" | "companyName" | "commercialStatus" | "createdAt"
+      | "id"
+      | "name"
+      | "email"
+      | "phone"
+      | "companyName"
+      | "commercialStatus"
+      | "createdAt"
     >
   >
 > {
   if (ids.length === 0) return [];
   const rows = await db
     .select({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      createdAt: user.createdAt,
-      commercialStatus: sql<CrmCommercialStatus>`coalesce(${crmLead.commercialStatus}, 'novo_lead')`,
+      id: contact.id,
+      name: contact.name,
+      email: contact.email,
+      phone: contact.phone,
+      createdAt: contact.createdAt,
+      commercialStatus: sql<CrmCommercialStatus>`coalesce(${contact.commercialStatus}, 'novo_lead')`,
       companyName: sql<string | null>`(
         select c.name from user_companies uc
         join companies c on c.id = uc.company_id
-        where uc.user_id = ${user.id}
+        where uc.user_id = ${contact.userId}
         order by (uc.role = 'owner') desc
         limit 1
       )`,
     })
-    .from(user)
-    .leftJoin(crmLead, eq(crmLead.userId, user.id))
-    .where(inArray(user.id, ids));
+    .from(contact)
+    .leftJoin(account, eq(account.id, contact.userId))
+    .where(inArray(contact.id, ids));
   return rows.map((row) => ({
     ...row,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,

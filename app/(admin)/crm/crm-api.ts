@@ -1,4 +1,7 @@
-import type { CrmGoalLeads, CrmGoalsDashboard } from "@/lib/db/crm-goals-queries";
+import type {
+  CrmGoalLeads,
+  CrmGoalsDashboard,
+} from "@/lib/db/crm-goals-queries";
 import type { CrmMetric } from "@/lib/backoffice/crm-goals";
 import type {
   CrmAccountStage,
@@ -25,30 +28,38 @@ export type CrmLeadDetailResponse = {
 
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as
-      | { error?: string }
-      | null;
-    throw new Error(payload?.error ?? `Falha na requisição (${response.status})`);
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    throw new Error(
+      payload?.error ?? `Falha na requisição (${response.status})`,
+    );
   }
   return (await response.json()) as T;
 }
 
 export type CrmDateFilters = {
+  captureSource?: string;
+  captureProfile?: string;
   signup?: CrmDateBounds;
   expires?: CrmDateBounds;
 };
 
 function applyDateFilters(query: URLSearchParams, params: CrmDateFilters) {
+  if (params.captureSource) query.set("captureSource", params.captureSource);
+  if (params.captureProfile) query.set("captureProfile", params.captureProfile);
   if (params.signup?.from) query.set("signupFrom", params.signup.from);
   if (params.signup?.to) query.set("signupTo", params.signup.to);
   if (params.expires?.from) query.set("expiresFrom", params.expires.from);
   if (params.expires?.to) query.set("expiresTo", params.expires.to);
 }
 
-export function fetchCrmKanban(params: CrmDateFilters & {
-  search: string;
-  accountStage?: CrmAccountStage;
-}) {
+export function fetchCrmKanban(
+  params: CrmDateFilters & {
+    search: string;
+    accountStage?: CrmAccountStage;
+  },
+) {
   const query = new URLSearchParams({ view: "kanban" });
   if (params.search) query.set("q", params.search);
   if (params.accountStage) query.set("accountStage", params.accountStage);
@@ -58,13 +69,15 @@ export function fetchCrmKanban(params: CrmDateFilters & {
   );
 }
 
-export function fetchCrmList(params: CrmDateFilters & {
-  search: string;
-  accountStage?: CrmAccountStage;
-  commercialStatus?: CrmCommercialStatus;
-  page: number;
-  pageSize: number;
-}) {
+export function fetchCrmList(
+  params: CrmDateFilters & {
+    search: string;
+    accountStage?: CrmAccountStage;
+    commercialStatus?: CrmCommercialStatus;
+    page: number;
+    pageSize: number;
+  },
+) {
   const query = new URLSearchParams({
     view: "list",
     page: String(params.page),
@@ -72,7 +85,8 @@ export function fetchCrmList(params: CrmDateFilters & {
   });
   if (params.search) query.set("q", params.search);
   if (params.accountStage) query.set("accountStage", params.accountStage);
-  if (params.commercialStatus) query.set("commercialStatus", params.commercialStatus);
+  if (params.commercialStatus)
+    query.set("commercialStatus", params.commercialStatus);
   applyDateFilters(query, params);
   return fetch(`/api/crm/leads?${query}`, { cache: "no-store" }).then((r) =>
     readJson<CrmListResponse>(r),
@@ -85,7 +99,10 @@ export function fetchCrmLead(userId: string) {
   );
 }
 
-export function updateCrmLeadStatus(userId: string, status: CrmCommercialStatus) {
+export function updateCrmLeadStatus(
+  userId: string,
+  status: CrmCommercialStatus,
+) {
   return fetch(`/api/crm/leads/${userId}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
@@ -104,15 +121,15 @@ export function createCrmLeadNote(userId: string, body: string) {
 export type CrmGoalsResponse = CrmGoalsDashboard & { canEdit: boolean };
 
 export function fetchCrmGoals(month: string) {
-  return fetch(`/api/crm/goals?month=${encodeURIComponent(month)}`, { cache: "no-store" }).then(
-    (r) => readJson<CrmGoalsResponse>(r),
-  );
+  return fetch(`/api/crm/goals?month=${encodeURIComponent(month)}`, {
+    cache: "no-store",
+  }).then((r) => readJson<CrmGoalsResponse>(r));
 }
 
 export function fetchCrmGoalLeads(month: string, metric: CrmMetric) {
   const query = new URLSearchParams({ month, metric });
-  return fetch(`/api/crm/goals/leads?${query}`, { cache: "no-store" }).then((r) =>
-    readJson<CrmGoalLeads>(r),
+  return fetch(`/api/crm/goals/leads?${query}`, { cache: "no-store" }).then(
+    (r) => readJson<CrmGoalLeads>(r),
   );
 }
 
@@ -129,7 +146,9 @@ export function saveCrmGoals(
 
 export function formatRelativeDays(iso: string | null, now = new Date()) {
   if (!iso) return "";
-  const days = Math.floor((now.getTime() - new Date(iso).getTime()) / 86_400_000);
+  const days = Math.floor(
+    (now.getTime() - new Date(iso).getTime()) / 86_400_000,
+  );
   if (days <= 0) return "hoje";
   if (days === 1) return "há 1 dia";
   return `há ${days} dias`;

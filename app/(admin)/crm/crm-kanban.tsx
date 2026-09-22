@@ -23,7 +23,7 @@ import {
   type CrmDateFilters,
   type CrmKanbanResponse,
 } from "./crm-api";
-import { AccountStageBadge, ProductTags } from "./crm-badges";
+import { CaptureTags, AccountStageBadge, ProductTags } from "./crm-badges";
 
 const DRAG_MIME = "application/x-crm-lead";
 
@@ -51,12 +51,18 @@ function moveLead(
   };
   return without.map((column) =>
     column.status === to
-      ? { ...column, total: column.total + 1, leads: [updated, ...column.leads] }
+      ? {
+          ...column,
+          total: column.total + 1,
+          leads: [updated, ...column.leads],
+        }
       : column,
   );
 }
 
 export function CrmKanban({
+  captureSource,
+  captureProfile,
   search,
   accountStage,
   signup,
@@ -68,10 +74,27 @@ export function CrmKanban({
   onOpenLead: (userId: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const queryKey = ["crm", "kanban", search, accountStage ?? "", signup ?? null, expires ?? null] as const;
+  const queryKey = [
+    "crm",
+    "kanban",
+    search,
+    captureSource ?? "",
+    captureProfile ?? "",
+    accountStage ?? "",
+    signup ?? null,
+    expires ?? null,
+  ] as const;
   const query = useQuery({
     queryKey,
-    queryFn: () => fetchCrmKanban({ search, accountStage, signup, expires }),
+    queryFn: () =>
+      fetchCrmKanban({
+        search,
+        captureSource,
+        captureProfile,
+        accountStage,
+        signup,
+        expires,
+      }),
     placeholderData: (previous) => previous,
   });
   const [dragOver, setDragOver] = useState<CrmCommercialStatus | null>(null);
@@ -90,7 +113,8 @@ export function CrmKanban({
       return { previous };
     },
     onError: (_error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
+      if (context?.previous)
+        queryClient.setQueryData(queryKey, context.previous);
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["crm"] });
@@ -111,9 +135,16 @@ export function CrmKanban({
 
   if (query.isError) {
     return (
-      <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+      <div
+        role="alert"
+        className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm"
+      >
         Não deu para carregar o funil.{" "}
-        <button type="button" className="font-medium underline underline-offset-2" onClick={() => void query.refetch()}>
+        <button
+          type="button"
+          className="font-medium underline underline-offset-2"
+          onClick={() => void query.refetch()}
+        >
           Tentar de novo
         </button>
       </div>
@@ -157,7 +188,12 @@ export function CrmKanban({
             )}
           >
             <header className="flex items-center justify-between gap-2 px-3 py-2.5">
-              <h2 className={cn("text-sm font-semibold", statusToneClassName(meta.tone))}>
+              <h2
+                className={cn(
+                  "text-sm font-semibold",
+                  statusToneClassName(meta.tone),
+                )}
+              >
                 {meta.label}
               </h2>
               <span className="rounded-full bg-background px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
@@ -178,7 +214,8 @@ export function CrmKanban({
                 </p>
               ) : column.total > column.leads.length ? (
                 <p className="px-2 py-1 text-center text-xs text-muted-foreground">
-                  Mostrando {column.leads.length} de {column.total}. Use a busca ou a lista para ver o resto.
+                  Mostrando {column.leads.length} de {column.total}. Use a busca
+                  ou a lista para ver o resto.
                 </p>
               ) : null}
             </div>
@@ -237,10 +274,14 @@ function LeadCard({
       </p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <AccountStageBadge stage={lead.accountStage} />
+        <CaptureTags lead={lead} />
         <ProductTags titles={lead.productTitles} max={1} />
       </div>
       {lead.lastNote ? (
-        <p className="mt-2 line-clamp-2 text-xs text-muted-foreground" title={lead.lastNote.body}>
+        <p
+          className="mt-2 line-clamp-2 text-xs text-muted-foreground"
+          title={lead.lastNote.body}
+        >
           {lead.lastNote.body}
         </p>
       ) : null}

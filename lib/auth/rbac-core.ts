@@ -31,6 +31,8 @@ export type BackofficePermission =
   | "masterclass:manage"
   | "products:manage"
   | "creative-analysis:manage"
+  | "ambassadors:manage"
+  | "ambassadors:grant"
   | "team:manage";
 
 export type BackofficeActorSource =
@@ -47,6 +49,8 @@ export type BackofficeActor = {
   salesRole?: SalesRole | null;
   source: BackofficeActorSource;
   assignedUserIds?: string[];
+  ambassadorAccess?: boolean;
+  ambassadorGrant?: boolean;
 };
 
 export const SALES_ROLE_VALUES = [
@@ -150,6 +154,13 @@ export function hasBackofficePermission(
   actor: BackofficeActor,
   permission: BackofficePermission,
 ): boolean {
+  if (permission === "ambassadors:manage")
+    return actor.role === "admin" || actor.ambassadorAccess === true;
+  if (permission === "ambassadors:grant")
+    return (
+      actor.role === "admin" ||
+      (actor.ambassadorAccess === true && actor.ambassadorGrant === true)
+    );
   return ROLE_PERMISSIONS[actor.role].includes(permission);
 }
 

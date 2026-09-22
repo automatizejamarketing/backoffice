@@ -14,6 +14,8 @@ export type CrmView = "kanban" | "list";
 /** Filtros do CRM que sobrevivem a recarregar a página (a busca não entra). */
 export type CrmStoredFilters = {
   view: CrmView;
+  captureSource?: string;
+  captureProfile?: string;
   accountStage?: CrmAccountStage;
   commercialStatus?: CrmCommercialStatus;
   signup?: CrmDateCondition;
@@ -25,7 +27,6 @@ export const DEFAULT_CRM_FILTERS: CrmStoredFilters = { view: "kanban" };
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
 
 /** Qualquer campo inválido volta ao padrão; JSON quebrado volta tudo. */
 export function parseCrmStoredFilters(
@@ -43,6 +44,10 @@ export function parseCrmStoredFilters(
       commercialStatus: isCrmCommercialStatus(parsed.commercialStatus)
         ? parsed.commercialStatus
         : undefined,
+      captureSource: parsed.captureSource === "isaac" ? "isaac" : undefined,
+      captureProfile: ["dono", "gestor"].includes(String(parsed.captureProfile))
+        ? String(parsed.captureProfile)
+        : undefined,
       signup: parseCrmDateCondition(parsed.signup),
       expires: parseCrmDateCondition(parsed.expires),
     };
@@ -54,6 +59,8 @@ export function parseCrmStoredFilters(
 export function serializeCrmStoredFilters(filters: CrmStoredFilters): string {
   return JSON.stringify({
     view: filters.view,
+    captureSource: filters.captureSource,
+    captureProfile: filters.captureProfile,
     accountStage: filters.accountStage,
     commercialStatus: filters.commercialStatus,
     signup: filters.signup,
