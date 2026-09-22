@@ -239,9 +239,9 @@ const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) =>
 const END_TIME_OPTIONS = [...HOUR_OPTIONS, "23:59"];
 
 function fallbackAcceptsSchedule(niche: string, objective: Objective): boolean {
-  const normalized = niche === "service" ? "insurance_broker" : niche;
-  if (objective === "whatsapp") return normalized === "food_service";
+  if (objective === "whatsapp") return true;
   if (objective !== "sales") return false;
+  const normalized = niche === "service" ? "insurance_broker" : niche;
   return normalized === "food_service" || normalized === "outros";
 }
 
@@ -1274,7 +1274,8 @@ export function AiCampaignClient() {
             description="Selecione o que o cliente quer alcançar com esta campanha."
           />
           {isLoadingCompanyProfile ? (
-            // The niche decides which objectives exist (WhatsApp is food-service only).
+            // The publish payload needs the customer's niche. A missing profile
+            // would otherwise be sent as "outros".
             <div className={cn("flex items-center gap-3", flowCardClassName)}>
               <Loader2 className="size-5 shrink-0 animate-spin text-primary" />
               <p className={cn("text-muted-foreground", flowBodyClassName)}>
@@ -1283,9 +1284,7 @@ export function AiCampaignClient() {
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
-              {OBJECTIVE_OPTIONS.filter(
-                (option) => option.value !== "whatsapp" || companyNiche === "food_service",
-              ).map((option) => (
+              {OBJECTIVE_OPTIONS.map((option) => (
                 <SelectionCard
                   key={option.value}
                   icon={option.icon}
