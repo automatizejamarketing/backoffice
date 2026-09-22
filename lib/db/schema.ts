@@ -9757,3 +9757,46 @@ export const crmTagSetting = pgTable("crm_tag_settings", {
   validName: check("crm_tag_settings_name_check", sql`length(trim(${t.name})) > 0`),
   validColor: check("crm_tag_settings_color_check", sql`${t.color} ~ '^#[0-9a-fA-F]{6}$'`),
 }));
+
+export type SignupCouponRedemptionStatus = "pending" | "consumed" | "released";
+export type SignupCouponProvider = "stripe" | "mercadopago";
+
+export const signupCouponRedemption = pgTable(
+  "signup_coupon_redemptions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    code: varchar("code", { length: 32 }).notNull(),
+    status: varchar("status", { enum: ["pending", "consumed", "released"] })
+      .$type<SignupCouponRedemptionStatus>()
+      .notNull(),
+    provider: varchar("provider", { enum: ["stripe", "mercadopago"] })
+      .$type<SignupCouponProvider>()
+      .notNull(),
+    planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] })
+      .$type<PlanType>()
+      .notNull(),
+    originalAmount: integer("original_amount").notNull(),
+    discountPercent: integer("discount_percent").notNull(),
+    discountAmount: integer("discount_amount").notNull(),
+    finalAmount: integer("final_amount").notNull(),
+    stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+    stripeInvoiceId: varchar("stripe_invoice_id", { length: 255 }),
+    mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id"),
+    reservedAt: timestamp("reserved_at").notNull().defaultNow(),
+    consumedAt: timestamp("consumed_at"),
+    releasedAt: timestamp("released_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pendingUserCode: uniqueIndex("signup_coupon_redemptions_pending_user_code")
+      .on(table.userId, table.code)
+      .where(sql`${table.status} = 'pending'`),
+    consumedUserCode: uniqueIndex("signup_coupon_redemptions_consumed_user_code")
+      .on(table.userId, table.code)
+      .where(sql`${table.status} = 'consumed'`),
+  }),
+);
+
+export type SignupCouponRedemption = InferSelectModel<typeof signupCouponRedemption>;

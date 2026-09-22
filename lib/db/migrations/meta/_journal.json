@@ -736,6 +736,13 @@
       "when": 1800900002000,
       "tag": "0121_crm_tag_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1801000000000,
+      "tag": "0122_signup_coupon_dudu20",
+      "breakpoints": true
     }
   ]
 }
