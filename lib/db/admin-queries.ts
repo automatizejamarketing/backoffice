@@ -3477,6 +3477,35 @@ export async function createDuplicationLog(data: CreateDuplicationLogData) {
   return log;
 }
 
+export type CreatePixelLogData = {
+  backofficeUserEmail: string;
+  targetUserId: string;
+  adAccountId: string;
+  pixelId: string;
+  pixelName: string;
+};
+
+/**
+ * Audit record for a Meta pixel an operator created on the client's ad account (AI campaign
+ * flow). Pixels cannot be deleted on Meta, so this row is the trail of who created it.
+ */
+export async function createPixelLog(data: CreatePixelLogData) {
+  const [log] = await db
+    .insert(backofficeAuditLog)
+    .values({
+      adminEmail: data.backofficeUserEmail,
+      targetUserId: data.targetUserId,
+      action: "create_pixel",
+      fieldName: "pixel",
+      oldValue: null,
+      newValue: data.pixelId,
+      note: `Pixel "${data.pixelName}" criado na conta act_${data.adAccountId} pelo fluxo de IA`,
+    })
+    .returning();
+
+  return log;
+}
+
 export type CreateRenameLogData = {
   backofficeUserEmail: string;
   targetUserId: string;
