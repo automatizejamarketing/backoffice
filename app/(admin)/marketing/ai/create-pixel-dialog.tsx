@@ -79,7 +79,7 @@ export function CreatePixelDialog({
         onOpenChange(false);
         return;
       }
-      setError(data.message ?? CREATE_FAILED);
+      setError(data.message || CREATE_FAILED);
     } catch {
       setError(CREATE_FAILED);
     } finally {

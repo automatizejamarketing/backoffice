@@ -8,7 +8,14 @@ import {
   suggestPixelName,
 } from "./pixel-step";
 
-const base = { loaded: true, error: null, pixels: [], selectedPixelId: null, createdPixelId: null };
+const base = {
+  loaded: true,
+  error: null,
+  pixels: [],
+  selectedPixelId: null,
+  createdPixelId: null,
+  conflict: false,
+};
 
 describe("pixelStepState", () => {
   test("antes da leitura terminar, carregando", () => {
@@ -35,6 +42,29 @@ describe("pixelStepState", () => {
     expect(
       pixelStepState({ ...base, pixels, selectedPixelId: "PX1", createdPixelId: "PX1" }),
     ).toEqual({ kind: "list", justCreated: true });
+  });
+
+  test("409 e a releitura segue vazia: conflito, nunca oferece criar de novo", () => {
+    expect(pixelStepState({ ...base, conflict: true })).toEqual({ kind: "conflict" });
+  });
+
+  test("409 e a releitura acha o pixel: a lista vence", () => {
+    expect(
+      pixelStepState({ ...base, conflict: true, pixels: [{ id: "PX1" }], selectedPixelId: "PX1" }),
+    ).toEqual({ kind: "list", justCreated: false });
+  });
+
+  test("conflito durante a releitura: carregando", () => {
+    expect(pixelStepState({ ...base, conflict: true, loaded: false })).toEqual({
+      kind: "loading",
+    });
+  });
+
+  test("erro de leitura vence o conflito", () => {
+    expect(pixelStepState({ ...base, conflict: true, error: "Falhou." })).toEqual({
+      kind: "error",
+      message: "Falhou.",
+    });
   });
 });
 

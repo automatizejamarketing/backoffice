@@ -359,6 +359,7 @@ export function AiCampaignClient() {
   const [adAccountName, setAdAccountName] = useState<string | null>(null);
   const [createdPixelId, setCreatedPixelId] = useState<string | null>(null);
   const [createPixelOpen, setCreatePixelOpen] = useState(false);
+  const [pixelConflict, setPixelConflict] = useState(false);
   const [manualLocations, setManualLocations] = useState<SelectedGeoLocation[]>([]);
   const [promotionUrl, setPromotionUrl] = useState("");
   const [whatsappAutofillMessage, setWhatsappAutofillMessage] = useState("");
@@ -620,6 +621,7 @@ export function AiCampaignClient() {
     pixels,
     selectedPixelId: pixelId,
     createdPixelId,
+    conflict: pixelConflict,
   });
 
   useEffect(() => {
@@ -1814,18 +1816,22 @@ export function AiCampaignClient() {
             title={
               pixelStep.kind === "error"
                 ? "Não conseguimos ler os pixels desta conta"
-                : pixelStep.kind === "empty"
-                  ? "Nenhum pixel na conta"
-                  : "Qual pixel mede as vendas?"
+                : pixelStep.kind === "conflict"
+                  ? "A Meta diz que esta conta já tem um pixel"
+                  : pixelStep.kind === "empty"
+                    ? "Nenhum pixel na conta"
+                    : "Qual pixel mede as vendas?"
             }
             description={
               pixelStep.kind === "loading"
                 ? "Buscando os pixels da conta…"
                 : pixelStep.kind === "error"
                   ? "Não dá para saber se a conta já tem um pixel — e criar outro por cima duplicaria. Tente de novo."
-                  : pixelStep.kind === "empty"
-                    ? "A campanha de vendas precisa de um pixel. Dá para criar um agora, na conta de anúncios do cliente."
-                    : "O pixel de conversão que registra as compras desta campanha."
+                  : pixelStep.kind === "conflict"
+                    ? "Mas ele não aparece para a conexão do cliente com o Facebook, então não dá para selecioná-lo aqui. Confira no Gerenciador de Eventos do cliente se o pixel está atribuído a esta conta de anúncios e tente de novo."
+                    : pixelStep.kind === "empty"
+                      ? "A campanha de vendas precisa de um pixel. Dá para criar um agora, na conta de anúncios do cliente."
+                      : "O pixel de conversão que registra as compras desta campanha."
             }
           />
           {pixelStep.kind === "loading" ? (
@@ -1838,6 +1844,11 @@ export function AiCampaignClient() {
                 Tentar de novo
               </Button>
             </div>
+          ) : null}
+          {pixelStep.kind === "conflict" ? (
+            <Button variant="outline" onClick={() => setPixelsReload((n) => n + 1)}>
+              Tentar de novo
+            </Button>
           ) : null}
           {pixelStep.kind === "empty" ? (
             <Button variant="outline" onClick={() => setCreatePixelOpen(true)}>
@@ -1893,7 +1904,8 @@ export function AiCampaignClient() {
               toast.success("Pixel criado na conta do cliente.");
             }}
             onAlreadyExists={() => {
-              toast.info("A conta já tinha um pixel. Relemos a lista e selecionamos ele.");
+              toast.info("A Meta informou que esta conta já tem um pixel. Relendo a lista…");
+              setPixelConflict(true);
               setPixelsReload((n) => n + 1);
             }}
           />

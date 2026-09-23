@@ -4,6 +4,7 @@ export type PixelOption = { id: string; name?: string };
 export type PixelStepState =
   | { kind: "loading" }
   | { kind: "error"; message: string }
+  | { kind: "conflict" }
   | { kind: "empty" }
   | { kind: "list"; justCreated: boolean };
 
@@ -20,9 +21,16 @@ export function pixelStepState(input: {
   pixels: readonly PixelOption[];
   selectedPixelId: string | null;
   createdPixelId: string | null;
+  /**
+   * Meta answered 409 (the account already has a pixel) to a create made from an empty list.
+   * While the re-read stays empty, that pixel is one this connection cannot list, so offering
+   * to create again would only loop into another 409.
+   */
+  conflict: boolean;
 }): PixelStepState {
   if (!input.loaded) return { kind: "loading" };
   if (input.error) return { kind: "error", message: input.error };
+  if (input.conflict && input.pixels.length === 0) return { kind: "conflict" };
   if (input.pixels.length === 0) return { kind: "empty" };
   return {
     kind: "list",
