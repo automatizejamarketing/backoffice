@@ -39,6 +39,14 @@ import {
 } from "@/components/ui/select";
 import { WhatsAppIcon } from "@/components/whatsapp-icon";
 import { CampaignPublishError } from "./campaign-publish-error";
+import { CreatePixelDialog } from "./create-pixel-dialog";
+import { PixelInstallCard } from "./pixel-install-card";
+import {
+  isJustCreatedPixel,
+  pixelStepState,
+  suggestPixelName,
+  type PixelOption,
+} from "./pixel-step";
 import { MediaSourcePicker, type SelectedMedia } from "../components/media-source-picker";
 import { PageSelector } from "../components/page-selector";
 import { usePages } from "../components/use-pages";
@@ -344,8 +352,13 @@ export function AiCampaignClient() {
   const [isWritingCopy, setIsWritingCopy] = useState(false);
   const [pageId, setPageId] = useState<string | null>(null);
   const [pixelId, setPixelId] = useState<string | null>(null);
-  const [pixels, setPixels] = useState<Array<{ id: string; name?: string }>>([]);
+  const [pixels, setPixels] = useState<PixelOption[]>([]);
   const [pixelsLoaded, setPixelsLoaded] = useState(false);
+  const [pixelsError, setPixelsError] = useState<string | null>(null);
+  const [pixelsReload, setPixelsReload] = useState(0);
+  const [adAccountName, setAdAccountName] = useState<string | null>(null);
+  const [createdPixelId, setCreatedPixelId] = useState<string | null>(null);
+  const [createPixelOpen, setCreatePixelOpen] = useState(false);
   const [manualLocations, setManualLocations] = useState<SelectedGeoLocation[]>([]);
   const [promotionUrl, setPromotionUrl] = useState("");
   const [whatsappAutofillMessage, setWhatsappAutofillMessage] = useState("");
@@ -564,16 +577,50 @@ export function AiCampaignClient() {
 
   useEffect(() => {
     if (!accountId || !userId) return;
+    let cancelled = false;
+    setPixelsLoaded(false);
+    setPixelsError(null);
     fetch(`/api/meta-marketing/${accountId}/pixels?userId=${userId}`)
-      .then((res) => (res.ok ? res.json() : { pixels: [] }))
-      .then((data) => {
-        const list = (data.pixels ?? data.data ?? []) as Array<{ id: string; name?: string }>;
-        setPixels(list);
-        if (list[0] && !pixelId) setPixelId(list[0].id);
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          // Never an empty string: pixelStepState reads the error by truthiness.
+          throw new Error(
+            typeof data?.message === "string" && data.message
+              ? data.message
+              : "Falha ao ler os pixels.",
+          );
+        }
+        return data as { data?: PixelOption[]; accountName?: string | null };
       })
-      .catch(() => setPixels([]))
-      .finally(() => setPixelsLoaded(true));
-  }, [accountId, userId, pixelId]);
+      .then((data) => {
+        if (cancelled) return;
+        const list = data.data ?? [];
+        setPixels(list);
+        setAdAccountName(data.accountName ?? null);
+        // Functional update: re-reading the list must not undo a pixel already picked.
+        setPixelId((current) => current ?? list[0]?.id ?? null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setPixels([]);
+        setPixelsError((error instanceof Error && error.message) || "Falha ao ler os pixels.");
+      })
+      .finally(() => {
+        if (!cancelled) setPixelsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, userId, pixelsReload]);
+
+  const pixelStep = pixelStepState({
+    loaded: pixelsLoaded,
+    error: pixelsError,
+    pixels,
+    selectedPixelId: pixelId,
+    createdPixelId,
+  });
 
   useEffect(() => {
     if (objective === "whatsapp") {
@@ -1764,14 +1811,40 @@ export function AiCampaignClient() {
       {phase === "pixel" && (
         <section className={flowSectionClassName}>
           <StepHeading
-            title={pixels.length === 0 ? "Nenhum pixel na conta" : "Qual pixel mede as vendas?"}
+            title={
+              pixelStep.kind === "error"
+                ? "Não conseguimos ler os pixels desta conta"
+                : pixelStep.kind === "empty"
+                  ? "Nenhum pixel na conta"
+                  : "Qual pixel mede as vendas?"
+            }
             description={
-              pixels.length === 0
-                ? "A campanha de vendas precisa de um pixel. Crie um no Gerenciador de Eventos do cliente e volte aqui."
-                : "O pixel de conversão que registra as compras desta campanha."
+              pixelStep.kind === "loading"
+                ? "Buscando os pixels da conta…"
+                : pixelStep.kind === "error"
+                  ? "Não dá para saber se a conta já tem um pixel — e criar outro por cima duplicaria. Tente de novo."
+                  : pixelStep.kind === "empty"
+                    ? "A campanha de vendas precisa de um pixel. Dá para criar um agora, na conta de anúncios do cliente."
+                    : "O pixel de conversão que registra as compras desta campanha."
             }
           />
-          {pixels.length > 0 ? (
+          {pixelStep.kind === "loading" ? (
+            <Loader2 className="size-5 animate-spin text-muted-foreground" aria-hidden />
+          ) : null}
+          {pixelStep.kind === "error" ? (
+            <div className="space-y-3">
+              <p className={flowErrorClassName}>{pixelStep.message}</p>
+              <Button variant="outline" onClick={() => setPixelsReload((n) => n + 1)}>
+                Tentar de novo
+              </Button>
+            </div>
+          ) : null}
+          {pixelStep.kind === "empty" ? (
+            <Button variant="outline" onClick={() => setCreatePixelOpen(true)}>
+              Criar pixel na conta do cliente
+            </Button>
+          ) : null}
+          {pixelStep.kind === "list" ? (
             <Select onValueChange={setPixelId} value={pixelId ?? undefined}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Selecione o pixel" />
@@ -1784,6 +1857,9 @@ export function AiCampaignClient() {
                 ))}
               </SelectContent>
             </Select>
+          ) : null}
+          {pixelStep.kind === "list" && pixelStep.justCreated && pixelId ? (
+            <PixelInstallCard pixelId={pixelId} />
           ) : null}
           <StepActions
             back={
@@ -1804,6 +1880,23 @@ export function AiCampaignClient() {
               Revisar
             </Button>
           </StepActions>
+          <CreatePixelDialog
+            open={createPixelOpen}
+            onOpenChange={setCreatePixelOpen}
+            accountId={accountId}
+            userId={userId}
+            defaultName={suggestPixelName(adAccountName, accountId)}
+            onCreated={(pixel) => {
+              setPixels((current) => [...current.filter((p) => p.id !== pixel.id), pixel]);
+              setCreatedPixelId(pixel.id);
+              setPixelId(pixel.id);
+              toast.success("Pixel criado na conta do cliente.");
+            }}
+            onAlreadyExists={() => {
+              toast.info("A conta já tinha um pixel. Relemos a lista e selecionamos ele.");
+              setPixelsReload((n) => n + 1);
+            }}
+          />
         </section>
       )}
 
@@ -1935,25 +2028,30 @@ export function AiCampaignClient() {
                 description="O pixel que registra as compras desta campanha."
               >
                 {pixels.length > 0 ? (
-                  <Select
-                    onValueChange={(next) => {
-                      setPixelId(next);
-                      if (mold) void refreshPlan({ pixelId: next });
-                    }}
-                    value={pixelId ?? undefined}
-                    disabled={phase === "publishing"}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione o pixel" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {pixels.map((pixel) => (
-                        <SelectItem key={pixel.id} value={pixel.id}>
-                          {pixel.name || pixel.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-3">
+                    <Select
+                      onValueChange={(next) => {
+                        setPixelId(next);
+                        if (mold) void refreshPlan({ pixelId: next });
+                      }}
+                      value={pixelId ?? undefined}
+                      disabled={phase === "publishing"}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione o pixel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pixels.map((pixel) => (
+                          <SelectItem key={pixel.id} value={pixel.id}>
+                            {pixel.name || pixel.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {pixelId && isJustCreatedPixel(pixelId, createdPixelId) ? (
+                      <PixelInstallCard pixelId={pixelId} />
+                    ) : null}
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Nenhum pixel encontrado nesta conta.
