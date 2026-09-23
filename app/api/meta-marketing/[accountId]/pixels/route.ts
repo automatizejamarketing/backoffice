@@ -14,9 +14,13 @@ import { logMetaMutationError } from "@/lib/observability/meta-logger";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
-  getAdAccountPixels,
-  type FacebookAdsPixelsResponse,
+  getAdAccountPixelsWithName,
+  type AdAccountPixelsWithName,
 } from "@/lib/meta-business/get-ad-account-pixels";
+import {
+  errorToGraphErrorReturn,
+  graphErrorToClientError,
+} from "@/lib/meta-business/error";
 
 export type GetPixelsErrorResponse = {
   error: string;
@@ -27,7 +31,7 @@ export type GetPixelsErrorResponse = {
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
-): Promise<NextResponse<FacebookAdsPixelsResponse | GetPixelsErrorResponse>> {
+): Promise<NextResponse<AdAccountPixelsWithName | GetPixelsErrorResponse>> {
   try {
     const { accountId } = await params;
     const { searchParams } = new URL(request.url);
@@ -77,25 +81,26 @@ export async function GET(
       ? accountId
       : `act_${accountId}`;
 
-    const pixelsResponse = await getAdAccountPixels(
+    const pixelsResponse = await getAdAccountPixelsWithName(
       formattedAccountId,
       tokenResult.accessToken,
     );
 
     return NextResponse.json(pixelsResponse, { status: 200 });
   } catch (error) {
-    console.error("Error fetching ads pixels:", error);
+    // Status from Meta's own error, never a blanket 500: the AI flow tells "could not read"
+    // apart from "no pixel", and a dead token must read as a reconnect, not as an empty list.
+    const errorReturn = errorToGraphErrorReturn(error);
+    const clientError = graphErrorToClientError(errorReturn);
+    console.error("Error fetching ads pixels:", errorReturn);
 
     return NextResponse.json(
       {
-        error: "Internal server error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "An unexpected error occurred",
-        solution: "Please try again later",
+        error: clientError.error,
+        message: clientError.message,
+        solution: clientError.solution,
       },
-      { status: 500 },
+      { status: errorReturn.statusCode },
     );
   }
 }

@@ -116,6 +116,35 @@ export async function getAdAccountPixels(
   });
 }
 
+export type AdAccountPixelsWithName = {
+  accountName: string | null;
+  data: FacebookAdsPixel[];
+};
+
+/**
+ * The account's pixels plus its name in ONE Graph call (field expansion on the ad account).
+ * The AI flow needs the name to suggest "Pixel – <conta>" when the account has no pixel.
+ * Meta omits `adspixels` entirely when the account has none.
+ */
+export async function getAdAccountPixelsWithName(
+  adAccountId: string,
+  accessToken: string,
+): Promise<AdAccountPixelsWithName> {
+  const response = await metaApiCall<{
+    name?: string;
+    adspixels?: { data?: FacebookAdsPixel[] };
+  }>({
+    method: "GET",
+    path: adAccountId,
+    params: `fields=name,adspixels.limit(100){${PIXEL_FIELDS.join(",")}}`,
+    accessToken,
+  });
+  return {
+    accountName: response.name ?? null,
+    data: response.adspixels?.data ?? [],
+  };
+}
+
 /**
  * Get the first available pixel for an ad account
  *
