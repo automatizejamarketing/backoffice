@@ -10,6 +10,7 @@
  * Endpoints: POST /act_{id}/adcreatives then POST /act_{id}/ads.
  */
 
+import { GraphApiError } from "@/lib/meta-business/error";
 import { metaWrite } from "@/lib/meta-business/write-retry";
 import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
@@ -28,6 +29,7 @@ import { issuesFromError } from "./normalize";
 import { collect, subcodeSuggestion, validateCarouselCards } from "./validation";
 import { deleteMetaObject } from "./delete";
 import {
+  GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
   type PlacementAdaptation,
   buildDegreesOfFreedomSpec,
 } from "@/lib/meta-business/creative-features";
@@ -454,8 +456,47 @@ export async function createCreative(
     return { issues: issuesFromError(error, "create", "creative", subcodeSuggestion) };
   }
 
-  const fields = buildAdCreativeFields({ ...input, creative: resolved });
-  if (!fields) return { issues: [] }; // creative_id path — unreachable here
+  const ready: CreateAdInput = { ...input, creative: resolved };
+  let attempt = await postCreative(account, accessToken, ready, skipRemoteValidation);
+
+  // Conta sem acesso à IA generativa (3858023): o mesmo criativo sem a expansão
+  // passa. Uma tentativa só, e só quando o pedido era de fato generativo.
+  const adaptation = input.placementAdaptation;
+  if (
+    attempt &&
+    "error" in attempt &&
+    adaptation?.enabled !== false &&
+    adaptation?.generativeExpansion === true &&
+    metaSubcodeOf(attempt.error) === GENERATIVE_FEATURES_INELIGIBLE_SUBCODE
+  ) {
+    attempt = await postCreative(
+      account,
+      accessToken,
+      { ...ready, placementAdaptation: { ...adaptation, generativeExpansion: false } },
+      skipRemoteValidation,
+    );
+  }
+
+  if (!attempt) return { issues: [] }; // creative_id path — unreachable here
+  if ("error" in attempt) {
+    return { issues: issuesFromError(attempt.error, attempt.stage, "creative", subcodeSuggestion) };
+  }
+  return { id: attempt.id };
+}
+
+type CreativeAttempt =
+  | { id: string }
+  | { error: unknown; stage: "validate_only" | "create" };
+
+/** validate_only (unless skipped) → real create of one creative; null for `creative_id`. */
+async function postCreative(
+  account: string,
+  accessToken: string,
+  input: CreateAdInput,
+  skipRemoteValidation: boolean,
+): Promise<CreativeAttempt | null> {
+  const fields = buildAdCreativeFields(input);
+  if (!fields) return null;
 
   if (!skipRemoteValidation) {
     try {
@@ -467,7 +508,7 @@ export async function createCreative(
         accessToken,
       });
     } catch (error) {
-      return { issues: issuesFromError(error, "validate_only", "creative", subcodeSuggestion) };
+      return { error, stage: "validate_only" };
     }
   }
 
@@ -481,8 +522,12 @@ export async function createCreative(
     });
     return { id: res.id };
   } catch (error) {
-    return { issues: issuesFromError(error, "create", "creative", subcodeSuggestion) };
+    return { error, stage: "create" };
   }
+}
+
+function metaSubcodeOf(error: unknown): number | undefined {
+  return error instanceof GraphApiError ? error.errorReturn.data?.errorSubcode : undefined;
 }
 
 function buildAdPayload(input: CreateAdInput, creativeId: string): URLSearchParams {

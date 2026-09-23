@@ -1,8 +1,10 @@
 import { metaApiCall } from "@/lib/meta-business/api";
 import { GraphApiError } from "@/lib/meta-business/error";
 import {
+  GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
   type PlacementAdaptation,
   withPlacementAdaptation,
+  withoutGenerativeFeatures,
 } from "@/lib/meta-business/creative-features";
 import { withMetaRetry } from "@/lib/meta-business/write-retry";
 
@@ -140,6 +142,8 @@ const REPAIRABLE_AD_SUBCODES = new Set<number>([
   WEBSITE_URL_REQUIRED,
   STANDARD_ENHANCEMENTS_DEPRECATED,
   DEPRECATED_IMAGE_CROP,
+  // The AI path turns generative expansion on; an ineligible account refuses it.
+  GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
 ]);
 
 /**
@@ -2196,6 +2200,26 @@ function buildStripStandardEnhancementsPatch(
   return { degrees_of_freedom_spec: { ...dof, creative_features_spec: stripped } };
 }
 
+/**
+ * Patch that drops generative expansion (`image_uncrop` / `video_uncrop`) from the
+ * creative's feature spec — the repair for 3858023, an account Meta won't let use
+ * generative AI. Keeps the reframing the caller asked for. Returns null when no
+ * generative feature is on (the rejection has another cause).
+ */
+function buildStripGenerativeFeaturesPatch(
+  creative: GraphCreativeShape,
+  placementAdaptation?: PlacementAdaptation,
+): Record<string, unknown> | null {
+  const dof = creative.degrees_of_freedom_spec;
+  const features = withoutGenerativeFeatures(
+    dof?.creative_features_spec,
+    placementAdaptation,
+  );
+  return features
+    ? { degrees_of_freedom_spec: { ...dof, creative_features_spec: features } }
+    : null;
+}
+
 /** True if a crop map contains any crop key Meta has deprecated. */
 function hasDeprecatedCropKey(crops: Record<string, unknown>): boolean {
   for (const key of Object.keys(crops)) {
@@ -2328,9 +2352,13 @@ function buildAdRepairPatch(
   subcode: number,
   creative: GraphCreativeShape,
   fallbackPromotionUrl?: string,
+  placementAdaptation?: PlacementAdaptation,
 ): Record<string, unknown> | null {
   if (subcode === STANDARD_ENHANCEMENTS_DEPRECATED) {
     return buildStripStandardEnhancementsPatch(creative);
+  }
+  if (subcode === GENERATIVE_FEATURES_INELIGIBLE_SUBCODE) {
+    return buildStripGenerativeFeaturesPatch(creative, placementAdaptation);
   }
   if (subcode === DEPRECATED_IMAGE_CROP) {
     return buildStripDeprecatedCropPatch(creative);
@@ -2705,6 +2733,7 @@ async function copyAdWithRepair(
         sub,
         { ...creative, ...patch },
         fallbackPromotionUrl,
+        opts?.placementAdaptation,
       );
       if (!repairPatch) throw lastErr;
       Object.assign(patch, repairPatch);

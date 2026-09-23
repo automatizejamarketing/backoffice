@@ -65,6 +65,20 @@ export const REFRAMING_FEATURES = [
  */
 export const GENERATIVE_FEATURES = ["image_uncrop", "video_uncrop"] as const;
 
+/**
+ * Subcode 3858023 — "A conta de anúncios não está qualificada para o Criativo
+ * Advantage+". Nem toda conta pode usar IA generativa em anúncio: a política da
+ * Meta exclui Saúde, Farma, Serviços financeiros e as categorias especiais.
+ *
+ * Sondagem com `validate_only` numa conta de dentista (act_2909378449435362,
+ * 2026-09-23): só `image_uncrop` dispara a recusa — até em criativo de vídeo —
+ * e a conta trazia a capability `ELIGIBLE_FOR_IMAGE_GEN` mesmo assim, então não
+ * há como prever pela conta. O conserto é reativo: refazer o criativo sem as
+ * {@link GENERATIVE_FEATURES}. `video_uncrop` passou nessa conta, mas sai junto:
+ * é generativo e nada garante que a Meta o aplique onde recusa o de imagem.
+ */
+export const GENERATIVE_FEATURES_INELIGIBLE_SUBCODE = 3858023;
+
 export type CreativeFeatureKey =
   | (typeof REFRAMING_FEATURES)[number]
   | (typeof GENERATIVE_FEATURES)[number];
@@ -181,4 +195,34 @@ export function withPlacementAdaptation(
   const merged: Record<string, unknown> = { ...(existing ?? {}) };
   delete merged.standard_enhancements;
   return Object.assign(merged, ours);
+}
+
+function isOptIn(feature: unknown): boolean {
+  return (feature as { enroll_status?: unknown } | undefined)?.enroll_status === "OPT_IN";
+}
+
+/**
+ * O `creative_features_spec` sem a expansão generativa — o conserto do
+ * {@link GENERATIVE_FEATURES_INELIGIBLE_SUBCODE} no caminho de duplicação, onde
+ * o spec já vem montado (chaves da origem + as nossas por cima).
+ *
+ * Remove as {@link GENERATIVE_FEATURES} e, quando o chamador pediu adaptação,
+ * reaplica o reenquadramento com `generativeExpansion: false` — o que devolve o
+ * `video_auto_crop` que a expansão tinha tirado. Retorna `null` quando nada
+ * generativo está ligado: aí a recusa não é essa e não há o que consertar.
+ */
+export function withoutGenerativeFeatures(
+  existing: Record<string, unknown> | undefined,
+  adaptation?: PlacementAdaptation,
+): Record<string, unknown> | null {
+  if (!existing || !GENERATIVE_FEATURES.some((key) => isOptIn(existing[key]))) {
+    return null;
+  }
+  const stripped: Record<string, unknown> = { ...existing };
+  for (const key of GENERATIVE_FEATURES) delete stripped[key];
+  if (!adaptation) return stripped;
+  return (
+    withPlacementAdaptation(stripped, { ...adaptation, generativeExpansion: false }) ??
+    stripped
+  );
 }
