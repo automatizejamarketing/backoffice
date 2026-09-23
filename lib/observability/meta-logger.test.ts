@@ -86,6 +86,15 @@ describe("meta logger", () => {
     ).toEqual({ entity: "campaign", operation: "list" });
   });
 
+  test("classifica pixel como pixel, não como anúncio", () => {
+    expect(
+      classifyMetaCall("POST", "https://graph.facebook.com/v25.0/act_123/adspixels", "name=Pixel"),
+    ).toEqual({ entity: "pixel", operation: "create" });
+    expect(
+      classifyMetaCall("GET", "https://graph.facebook.com/v25.0/act_123/adspixels", "fields=id,name"),
+    ).toEqual({ entity: "pixel", operation: "list" });
+  });
+
   test("amostra sucessos do coletor e nunca amostra erros", () => {
     const infoLines: string[] = [];
     const errorLines: string[] = [];
