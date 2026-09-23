@@ -145,7 +145,10 @@ export async function POST(
       {
         success: false,
         error: "Internal server error",
+        code: "UNEXPECTED",
         message: "Não foi possível criar o pixel agora. Tente de novo em instantes.",
+        solution:
+          "Tente de novo em instantes; se persistir, verifique a conexão do cliente com o Facebook.",
       },
       { status: 500 },
     );
