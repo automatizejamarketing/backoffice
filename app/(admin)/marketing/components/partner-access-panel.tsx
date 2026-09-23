@@ -7,17 +7,21 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { navigateToFacebookOAuth } from "@/lib/meta-business/navigate-facebook-oauth";
-import { DEFAULT_AUTOMATIZE_BUSINESS_ID } from "@/lib/meta-business/partner-access-status";
+import {
+  AUTOMATIZE_PEOPLE_EMAIL,
+  META_BUSINESS_PEOPLE_URL,
+} from "@/lib/meta-business/partner-access-status";
 import type { SanitizedMetaBusinessAccount } from "@/lib/meta-business/sanitize";
 import { PartnerAccessHowtoDialog } from "./partner-access-howto-dialog";
 
-const PARTNERS_FALLBACK = "https://business.facebook.com/latest/settings/partners";
+const PEOPLE_FALLBACK = META_BUSINESS_PEOPLE_URL;
 
 type PartnerAccessResponse = {
   status?: string | null;
   clientBusinessId?: string | null;
   automatizeBusinessId?: string;
   partnersUrl?: string | null;
+  peopleUrl?: string | null;
   instructions?: string[];
 };
 
@@ -63,23 +67,21 @@ export function PartnerAccessPanel({
     void refreshAccess();
   }, [refreshAccess, metaAccount.id]);
 
-  const businessId = info?.automatizeBusinessId ?? DEFAULT_AUTOMATIZE_BUSINESS_ID;
-
-  const copyBusinessId = async (announce = true) => {
+  const copyEmail = async (announce = true) => {
     try {
-      await navigator.clipboard.writeText(businessId);
-      if (announce) toast.success("ID copiado");
+      await navigator.clipboard.writeText(AUTOMATIZE_PEOPLE_EMAIL);
+      if (announce) toast.success("E-mail copiado");
       return true;
     } catch {
-      if (announce) toast.error("Não foi possível copiar o ID");
+      if (announce) toast.error("Não foi possível copiar o e-mail");
       return false;
     }
   };
 
-  const openPartners = async () => {
-    const copied = await copyBusinessId(false);
-    if (copied) toast.success("ID copiado. Cole no Facebook.");
-    window.open(info?.partnersUrl ?? PARTNERS_FALLBACK, "_blank", "noopener,noreferrer");
+  const openPeople = async () => {
+    const copied = await copyEmail(false);
+    if (copied) toast.success("E-mail copiado. Cole no Facebook.");
+    window.open(info?.peopleUrl ?? PEOPLE_FALLBACK, "_blank", "noopener,noreferrer");
   };
 
   const startAdminReconnect = async () => {
@@ -137,20 +139,19 @@ export function PartnerAccessPanel({
           type="button"
         >
           <PlayCircle className="size-4 shrink-0" />
-          Só falta você adicionar a Automatize como sua Parceira!
+          Só falta você adicionar a Automatize em Pessoas!
         </button>
       )}
       <PartnerAccessHowtoDialog
-        businessId={businessId}
         onOpenChange={setHowtoOpen}
         open={howtoOpen}
-        partnersUrl={info?.partnersUrl}
+        settingsUrl={info?.peopleUrl}
       />
       <div className="flex flex-wrap items-center gap-2">
         {!ready ? (
-          <Button onClick={() => void openPartners()} size="sm" type="button">
+          <Button onClick={() => void openPeople()} size="sm" type="button">
             <ExternalLink className="size-4" />
-            Abrir Parceiros
+            Abrir Pessoas
           </Button>
         ) : null}
         <Button
@@ -177,11 +178,11 @@ export function PartnerAccessPanel({
       </div>
       <button
         className="inline-flex max-w-full items-center gap-2 rounded-md border border-border/80 bg-background px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted/60"
-        onClick={() => void copyBusinessId()}
+        onClick={() => void copyEmail()}
         type="button"
       >
-        <span>ID</span>
-        <span className="truncate font-mono">{businessId}</span>
+        <span>E-mail</span>
+        <span className="truncate font-mono">{AUTOMATIZE_PEOPLE_EMAIL}</span>
         <Copy className="size-3.5 shrink-0" />
       </button>
     </div>

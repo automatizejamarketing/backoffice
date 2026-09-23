@@ -6,12 +6,13 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
-  DEFAULT_AUTOMATIZE_BUSINESS_ID,
+  AUTOMATIZE_PEOPLE_EMAIL,
   looksLikeCertificationRequired,
+  META_BUSINESS_PEOPLE_URL,
 } from "@/lib/meta-business/partner-access-status";
 import { PartnerAccessHowtoDialog } from "../components/partner-access-howto-dialog";
 
-const PARTNERS_URL = "https://business.facebook.com/latest/settings/partners";
+const PEOPLE_URL = META_BUSINESS_PEOPLE_URL;
 
 export function CampaignPublishError({ error }: { error: string }) {
   const [showMeta, setShowMeta] = useState(false);
@@ -26,21 +27,21 @@ export function CampaignPublishError({ error }: { error: string }) {
     );
   }
 
-  const copyId = async (announce: boolean) => {
+  const copyEmail = async (announce: boolean) => {
     try {
-      await navigator.clipboard.writeText(DEFAULT_AUTOMATIZE_BUSINESS_ID);
-      if (announce) toast.success("ID copiado");
+      await navigator.clipboard.writeText(AUTOMATIZE_PEOPLE_EMAIL);
+      if (announce) toast.success("E-mail copiado");
       return true;
     } catch {
-      if (announce) toast.error("Não foi possível copiar o ID");
+      if (announce) toast.error("Não foi possível copiar o e-mail");
       return false;
     }
   };
 
-  const openPartners = async () => {
-    const copied = await copyId(false);
-    if (copied) toast.success("ID copiado. Cole no Facebook.");
-    window.open(PARTNERS_URL, "_blank", "noopener,noreferrer");
+  const openPeople = async () => {
+    const copied = await copyEmail(false);
+    if (copied) toast.success("E-mail copiado. Cole no Facebook.");
+    window.open(PEOPLE_URL, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -59,28 +60,27 @@ export function CampaignPublishError({ error }: { error: string }) {
           type="button"
         >
           <PlayCircle className="size-4 shrink-0" />
-          Só falta você adicionar a Automatize como sua Parceira!
+          Só falta você adicionar a Automatize em Pessoas!
         </button>
       </div>
       <PartnerAccessHowtoDialog
-        businessId={DEFAULT_AUTOMATIZE_BUSINESS_ID}
         onOpenChange={setHowtoOpen}
         open={howtoOpen}
-        partnersUrl={PARTNERS_URL}
+        settingsUrl={PEOPLE_URL}
       />
       <div className="flex flex-wrap items-center gap-2">
-        <Button onClick={() => void openPartners()} size="sm" type="button">
+        <Button onClick={() => void openPeople()} size="sm" type="button">
           <ExternalLink className="size-4" />
-          Abrir Parceiros
+          Abrir Pessoas
         </Button>
         <Button
-          onClick={() => void copyId(true)}
+          onClick={() => void copyEmail(true)}
           size="sm"
           type="button"
           variant="outline"
         >
           <Copy className="size-4" />
-          Copiar ID
+          Copiar e-mail
         </Button>
       </div>
       <button
