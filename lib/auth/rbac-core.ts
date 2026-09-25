@@ -11,7 +11,7 @@ export type BackofficeRole = (typeof BACKOFFICE_ROLE_VALUES)[number];
 
 /**
  * Consultor de marketing, comum ou premium: tem carteira própria (clientes
- * atribuídos). O premium também lê todos os usuários, como admin na aba Usuários.
+ * atribuídos). O premium também mexe em qualquer cliente, como admin.
  */
 export function isMarketingConsultantRole(role: BackofficeRole): boolean {
   return role === "marketing_consultant" || role === "marketing_consultant_premium";
@@ -147,7 +147,18 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "creative-analysis:manage",
   ],
   marketing_consultant: ["marketing:read", "marketing:write"],
-  marketing_consultant_premium: ["marketing:read", "marketing:write", "users:read"],
+  // Consultor com carteira que, como admin, mexe em tudo do cliente: ficha,
+  // acesso, créditos, cobrança, campanhas e WhatsApp. Sem áreas internas.
+  marketing_consultant_premium: [
+    "users:manage",
+    "users:read",
+    "users:activate",
+    "billing:manage",
+    "marketing:read",
+    "marketing:write",
+    "whatsapp:view",
+    "whatsapp:support-session",
+  ],
   finance_viewer: ["finance:view"],
   // Time comercial: CRM, painel, usuários em leitura, ativação e contato.
   // Sem dinheiro (billing), sem alterar acesso/créditos, sem equipe.

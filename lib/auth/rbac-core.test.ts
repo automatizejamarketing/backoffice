@@ -162,12 +162,17 @@ describe("marketing_consultant_premium", () => {
     expect(isMarketingConsultantRole("comercial")).toBe(false);
   });
 
-  test("reads every user without admin-only powers", () => {
+  test("manages every customer like an admin, without internal areas", () => {
     expect(hasBackofficePermission(premiumConsultant, "users:read")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "users:manage")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "users:activate")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "billing:manage")).toBe(true);
     expect(hasBackofficePermission(premiumConsultant, "marketing:read")).toBe(true);
     expect(hasBackofficePermission(premiumConsultant, "marketing:write")).toBe(true);
-    expect(hasBackofficePermission(premiumConsultant, "users:manage")).toBe(false);
-    expect(hasBackofficePermission(premiumConsultant, "billing:manage")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "whatsapp:view")).toBe(true);
+    expect(
+      hasBackofficePermission(premiumConsultant, "whatsapp:support-session"),
+    ).toBe(true);
     expect(hasBackofficePermission(premiumConsultant, "team:manage")).toBe(false);
     expect(hasBackofficePermission(premiumConsultant, "finance:view")).toBe(false);
     expect(hasBackofficePermission(premiumConsultant, "dashboard:view")).toBe(false);
