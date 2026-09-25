@@ -299,7 +299,14 @@ export const backofficeUser = pgTable("backoffice_users", {
   email: varchar("email", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 100 }),
   role: varchar("role", {
-    enum: ["admin", "dev", "marketing_consultant", "finance_viewer", "comercial"],
+    enum: [
+      "admin",
+      "dev",
+      "marketing_consultant",
+      "marketing_consultant_premium",
+      "finance_viewer",
+      "comercial",
+    ],
   })
     .$type<BackofficeRole>()
     .notNull()

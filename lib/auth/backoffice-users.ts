@@ -1,4 +1,4 @@
-import { isSalesRole } from "@/lib/auth/rbac-core";
+import { isMarketingConsultantRole, isSalesRole } from "@/lib/auth/rbac-core";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "@/lib/config";
 import { canAccessFinance } from "@/lib/auth/finance-access";
@@ -109,10 +109,9 @@ export async function getBackofficeActorByEmail(
       role,
       salesRole: isSalesRole(dbUser.salesRole) ? dbUser.salesRole : null,
       source: "database",
-      assignedUserIds:
-        role === "marketing_consultant"
-          ? await getAssignedUserIds(dbUser.id)
-          : undefined,
+      assignedUserIds: isMarketingConsultantRole(role)
+        ? await getAssignedUserIds(dbUser.id)
+        : undefined,
     };
   } catch (error) {
     if (isFallbackAdmin && isRecoverableDatabaseLookupError(error)) {

@@ -194,6 +194,16 @@ describe("resolvePlaybookAlertAccessScope", () => {
     });
   });
 
+  test("keeps premium consultants on their own portfolio", () => {
+    expect(
+      resolvePlaybookAlertAccessScope({
+        ...consultant,
+        id: "premium-1",
+        role: "marketing_consultant_premium",
+      }),
+    ).toEqual({ kind: "consultant", consultantId: "premium-1" });
+  });
+
   test("lets admins and other roles see every playbook alert", () => {
     expect(resolvePlaybookAlertAccessScope(admin)).toEqual({ kind: "all" });
   });

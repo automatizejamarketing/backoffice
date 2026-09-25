@@ -27,7 +27,10 @@ import {
   type BusinessOperatingRule,
   type Subscription,
 } from "@/lib/db/schema";
-import type { BackofficeActor } from "@/lib/auth/rbac-core";
+import {
+  type BackofficeActor,
+  isMarketingConsultantRole,
+} from "@/lib/auth/rbac-core";
 import {
   DEFAULT_BUSINESS_OPERATING_RULES,
   evaluateBusinessHealth,
@@ -418,7 +421,7 @@ function portfolioBaseQuery() {
 }
 
 function buildPortfolioAccessConditions(actor: BackofficeActor): SQL[] {
-  if (actor.role === "marketing_consultant") {
+  if (isMarketingConsultantRole(actor.role)) {
     return [eq(userMarketingConsultant.consultantId, actor.id)];
   }
   return [];
