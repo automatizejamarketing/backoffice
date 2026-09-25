@@ -53,6 +53,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   hasBackofficePermission,
+  isMarketingConsultantRole,
   type BackofficeActor,
   type BackofficePermission,
   type BackofficeRole,
@@ -600,7 +601,7 @@ export function AppSidebar({
               aria-label="AutomatizeJá Backoffice"
               className="flex items-center gap-1.5 overflow-hidden rounded-md p-2 transition-colors hover:bg-muted group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-1"
               href={
-                actor.role === "marketing_consultant"
+                isMarketingConsultantRole(actor.role)
                   ? "/portfolio"
                   : actor.role === "finance_viewer"
                     ? "/finance"

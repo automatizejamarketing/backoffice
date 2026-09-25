@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db";
 import {
@@ -9,7 +9,12 @@ import {
   userCompany,
   userMarketingConsultant,
 } from "@/lib/db/schema";
-import type { BackofficeActor, BackofficeRole, SalesRole } from "@/lib/auth/rbac-core";
+import {
+  type BackofficeActor,
+  type BackofficeRole,
+  isMarketingConsultantRole,
+  type SalesRole,
+} from "@/lib/auth/rbac-core";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -96,7 +101,10 @@ export async function listActiveMarketingConsultants() {
     .from(backofficeUser)
     .where(
       and(
-        eq(backofficeUser.role, "marketing_consultant"),
+        inArray(backofficeUser.role, [
+          "marketing_consultant",
+          "marketing_consultant_premium",
+        ]),
         eq(backofficeUser.active, true),
       ),
     )
@@ -178,7 +186,11 @@ export async function setMarketingConsultantAssignment(data: {
     .where(eq(backofficeUser.id, data.consultantId))
     .limit(1);
 
-  if (!consultant || consultant.role !== "marketing_consultant" || !consultant.active) {
+  if (
+    !consultant ||
+    !isMarketingConsultantRole(consultant.role) ||
+    !consultant.active
+  ) {
     throw new Error("invalid_consultant");
   }
 
@@ -229,7 +241,7 @@ export async function getMarketingConsultantPortfolio(
       eq(userMarketingConsultant.consultantId, backofficeUser.id),
     )
     .where(
-      actor.role === "marketing_consultant"
+      isMarketingConsultantRole(actor.role)
         ? eq(userMarketingConsultant.consultantId, actor.id)
         : undefined,
     )

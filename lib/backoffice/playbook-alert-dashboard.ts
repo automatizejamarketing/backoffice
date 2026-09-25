@@ -4,7 +4,10 @@ import {
   type DashboardDateWindow,
 } from "@/lib/backoffice/dashboard-date-range";
 import { firstSearchParam } from "@/lib/backoffice/filter-params";
-import type { BackofficeActor } from "@/lib/auth/rbac-core";
+import {
+  type BackofficeActor,
+  isMarketingConsultantRole,
+} from "@/lib/auth/rbac-core";
 import { PROACTIVITY_ALERT_DEFINITIONS } from "@/lib/proactivity/catalog";
 import {
   PLAYBOOK_INSIGHTS_RULE_PREFIX,
@@ -225,7 +228,7 @@ export function emptyPlaybookAlertKpis(): PlaybookAlertKpis {
 export function resolvePlaybookAlertAccessScope(
   actor: BackofficeActor,
 ): PlaybookAlertAccessScope {
-  if (actor.role === "marketing_consultant") {
+  if (isMarketingConsultantRole(actor.role)) {
     return { kind: "consultant", consultantId: actor.id };
   }
   return { kind: "all" };

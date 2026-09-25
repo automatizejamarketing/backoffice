@@ -3,6 +3,7 @@ import {
   canAccessMarketingUser,
   canAccessUserHubTab,
   hasBackofficePermission,
+  isMarketingConsultantRole,
   type BackofficeActor,
 } from "./rbac-core";
 
@@ -19,6 +20,14 @@ const consultant: BackofficeActor = {
   role: "marketing_consultant",
   source: "database",
   assignedUserIds: ["user-1", "user-2"],
+};
+
+const premiumConsultant: BackofficeActor = {
+  id: "premium-1",
+  email: "premium@example.com",
+  role: "marketing_consultant_premium",
+  source: "database",
+  assignedUserIds: ["user-1"],
 };
 
 const financeViewer: BackofficeActor = {
@@ -142,5 +151,37 @@ describe("canAccessUserHubTab", () => {
     expect(canAccessUserHubTab(dev, "any-user", "subscription")).toBe(true);
     expect(canAccessUserHubTab(dev, "any-user", "audit")).toBe(true);
     expect(canAccessUserHubTab(dev, "any-user", "whatsapp")).toBe(true);
+  });
+});
+
+describe("marketing_consultant_premium", () => {
+  test("stays a marketing consultant with a portfolio", () => {
+    expect(isMarketingConsultantRole("marketing_consultant")).toBe(true);
+    expect(isMarketingConsultantRole("marketing_consultant_premium")).toBe(true);
+    expect(isMarketingConsultantRole("admin")).toBe(false);
+    expect(isMarketingConsultantRole("comercial")).toBe(false);
+  });
+
+  test("reads every user without admin-only powers", () => {
+    expect(hasBackofficePermission(premiumConsultant, "users:read")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "marketing:read")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "marketing:write")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "users:manage")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "billing:manage")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "team:manage")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "finance:view")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "dashboard:view")).toBe(false);
+  });
+
+  test("opens every user and every hub tab, assigned or not", () => {
+    expect(canAccessMarketingUser(premiumConsultant, "user-1")).toBe(true);
+    expect(canAccessMarketingUser(premiumConsultant, "user-3")).toBe(true);
+    expect(canAccessUserHubTab(premiumConsultant, "user-3", "summary")).toBe(true);
+    expect(canAccessUserHubTab(premiumConsultant, "user-3", "subscription")).toBe(
+      true,
+    );
+    expect(canAccessUserHubTab(premiumConsultant, "user-3", "marketing")).toBe(
+      true,
+    );
   });
 });

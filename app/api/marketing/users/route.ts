@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
+import { isMarketingConsultantRole } from "@/lib/auth/rbac-core";
 import { getUsersWithMetaBusinessAccount } from "@/lib/db/admin-queries";
 
 export async function GET(request: NextRequest) {
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
       page,
       limit,
       userIds:
-        authz.actor.role === "marketing_consultant"
+        isMarketingConsultantRole(authz.actor.role)
           ? (authz.actor.assignedUserIds ?? [])
           : undefined,
     });
