@@ -181,7 +181,8 @@ function gridOnlyFields(requested: RequestedSchedule): ScheduleFields {
   };
 }
 
-const requiresStandardPacing = (bidStrategy?: string | null): boolean =>
+/** `COST_CAP` exige pacing padrão: nunca programação de horário na campanha. */
+export const requiresStandardPacing = (bidStrategy?: string | null): boolean =>
   bidStrategy === "COST_CAP";
 
 /** `pacing_type` de uma campanha NOVA: `["day_parting"]` só para CBO vitalício liberado e sem COST_CAP. */

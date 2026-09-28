@@ -7,7 +7,10 @@ import {
   withPlacementAdaptation,
   withoutGenerativeFeatures,
 } from "@/lib/meta-business/creative-features";
-import { FULL_WEEK_ADSET_SCHEDULE } from "@/lib/meta-business/schedule-shape";
+import {
+  FULL_WEEK_ADSET_SCHEDULE,
+  requiresStandardPacing,
+} from "@/lib/meta-business/schedule-shape";
 import { withMetaRetry } from "@/lib/meta-business/write-retry";
 
 /**
@@ -994,7 +997,7 @@ function shouldConvertCopyToDayParting(args: {
     args.campaignLifetime &&
     !args.campaignDayParting &&
     // Nunca com COST_CAP, que exige pacing padrão.
-    args.bidStrategy !== "COST_CAP"
+    !requiresStandardPacing(args.bidStrategy)
   );
 }
 
