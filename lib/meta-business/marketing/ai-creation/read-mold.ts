@@ -12,6 +12,7 @@
 import { callMeta, type MetaCtx } from "@/lib/meta-business/insights";
 import type { AdSetScheduleInput } from "../creation/create-ad-set";
 import type { MoldRef } from "./pick-mold";
+import { isFullWeekSchedule } from "@/lib/meta-business/schedule-shape";
 
 const CAMPAIGN_FIELDS =
   "objective,daily_budget,lifetime_budget,bid_strategy,special_ad_categories,buying_type";
@@ -132,8 +133,9 @@ const toCents = (value?: string): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-function toSchedule(raw?: RawSchedule[]): AdSetScheduleInput | undefined {
-  if (!raw?.length) return undefined;
+export function moldScheduleFromGraph(raw?: RawSchedule[]): AdSetScheduleInput | undefined {
+  // Campanha programada guarda "o dia todo" como grade de 24h x 7: para o modelo, é sem horário.
+  if (!raw?.length || isFullWeekSchedule(raw)) return undefined;
   return {
     mode: "dayparting",
     blocks: raw.map((block) => ({
@@ -192,8 +194,8 @@ export async function readMold(ctx: MetaCtx, ref: MoldRef): Promise<CampaignMold
       ...(adSet.destination_type ? { destinationType: adSet.destination_type } : {}),
       ...(promotedObject ? { promotedObject } : {}),
       targeting: adSet.targeting ?? {},
-      ...(toSchedule(adSet.adset_schedule)
-        ? { schedule: toSchedule(adSet.adset_schedule) }
+      ...(moldScheduleFromGraph(adSet.adset_schedule)
+        ? { schedule: moldScheduleFromGraph(adSet.adset_schedule) }
         : {}),
       ...(adSet.bid_strategy ? { bidStrategy: adSet.bid_strategy } : {}),
       ...(toCents(adSet.bid_amount) != null

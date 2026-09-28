@@ -61,6 +61,8 @@ export type DuplicateCampaignResponse = {
   /** Dead promoted-object ids replaced on the copy (1885015); the copy is PAUSED for review. */
   repairedCampaign?: RepairedCampaignInfo;
   scheduleApplied?: boolean;
+  /** Old lifetime CBO copy converted to programmed (true) or refused by Meta (false). */
+  scheduleConverted?: boolean;
 };
 
 export type DuplicateErrorResponse = {
@@ -181,6 +183,27 @@ export async function POST(
       ...(schedule.override ? { adSetSchedule: schedule.override } : {}),
     });
 
+    if (result.scheduleConverted === false) {
+      console.warn("[duplicate] CBO_DAYPARTING_CONVERSION_REFUSED", {
+        accountId,
+        campaignId,
+        newCampaignId: result.id,
+        error: result.scheduleConversionError,
+      });
+    }
+
+    const conversionNote =
+      result.scheduleConverted === true
+        ? "cópia nasceu programada"
+        : result.scheduleConverted === false
+          ? "Meta recusou a programação na cópia"
+          : undefined;
+    const scheduleNote = [
+      schedule.override ? describeScheduleOverride(schedule.override) : undefined,
+      conversionNote,
+    ]
+      .filter(Boolean)
+      .join("; ");
 
     let auditLogFailed = false;
     try {
@@ -192,9 +215,7 @@ export async function POST(
         sourceName: result.sourceName,
         newId: result.id,
         newName: result.name,
-        ...(schedule.override
-          ? { scheduleNote: describeScheduleOverride(schedule.override) }
-          : {}),
+        ...(scheduleNote ? { scheduleNote } : {}),
       });
     } catch (dbErr) {
       logMetaMutationError(dbErr);
@@ -227,6 +248,7 @@ export async function POST(
           ? { repairedCampaign: result.repairedCampaign }
           : {}),
         ...(result.scheduleApplied ? { scheduleApplied: true } : {}),
+        scheduleConverted: result.scheduleConverted,
       },
       { status: 201 },
     );

@@ -93,6 +93,8 @@ type DuplicateSuccessPayload = {
   scheduleAdjusted?: boolean;
   /** A native copy's schedule patch failed — it kept its inherited (possibly past) window. */
   scheduleAdjustFailed?: boolean;
+  /** Old lifetime CBO copy converted to programmed (true) or refused by Meta (false). */
+  scheduleConverted?: boolean;
 };
 
 /** Short, human summary of what got skipped, for a success-with-warnings toast. */
@@ -322,7 +324,15 @@ export function DuplicateButton({
       const pauseReminder = deliverySchedule
         ? "Cópia criada com os novos dias e horários. Pause a campanha original para as duas não dividirem o público."
         : null;
-      const infoNote = [scheduleNote, pauseReminder].filter(Boolean).join(" · ");
+      const conversionMessage =
+        data.scheduleConverted === true
+          ? "A cópia já nasce com programação de horário: depois dá para mudar os dias e horários dela."
+          : data.scheduleConverted === false
+            ? "A Meta não aceitou programar a cópia; ela foi criada no formato antigo e o horário continua travado nela."
+            : undefined;
+      const infoNote = [scheduleNote, pauseReminder, conversionMessage]
+        .filter(Boolean)
+        .join(" · ");
       const copyName = data.name ?? entityName ?? "";
       if (notice) {
         toast.warning(`"${copyName}" duplicado com avisos`, {
@@ -332,7 +342,7 @@ export function DuplicateButton({
       } else if (infoNote) {
         toast.success(`"${copyName}" duplicado com sucesso`, {
           description: infoNote,
-          duration: deliverySchedule ? 12000 : undefined,
+          duration: deliverySchedule || conversionMessage ? 12000 : undefined,
         });
       } else {
         toast.success(`"${copyName}" duplicado com sucesso`);
