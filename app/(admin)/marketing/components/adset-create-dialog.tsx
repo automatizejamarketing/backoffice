@@ -60,6 +60,7 @@ import {
   type BudgetType,
 } from "@/lib/meta-business/budget-schedule";
 import { validateCampaignSchedulePayload } from "@/lib/meta-business/campaign-schedule";
+import { pacingIncludesDayParting } from "@/lib/meta-business/schedule-shape";
 import {
   ALL_PLACEMENTS,
   DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE,
@@ -93,6 +94,8 @@ type AdSetCreateDialogProps = {
   usesCampaignBudget?: boolean;
   campaignDailyBudget?: string;
   campaignLifetimeBudget?: string;
+  campaignPacingType?: string[];
+  scheduleReleased?: boolean;
   accountId: string;
   userId: string;
   isOpen: boolean;
@@ -121,6 +124,8 @@ export function AdSetCreateDialog({
   usesCampaignBudget = false,
   campaignDailyBudget,
   campaignLifetimeBudget,
+  campaignPacingType,
+  scheduleReleased,
   accountId,
   userId,
   isOpen,
@@ -187,22 +192,22 @@ export function AdSetCreateDialog({
     ? INSTAGRAM_PLACEMENTS
     : ALL_PLACEMENTS;
 
+  const campaignLifetime =
+    getBudgetType({
+      dailyBudget: campaignDailyBudget,
+      lifetimeBudget: campaignLifetimeBudget,
+    }) === "lifetime";
+  // Etapa 2: em CBO vitalícia liberada, o conjunto novo segue a campanha — sem programação
+  // na campanha, só o dia todo (a Meta não aceita ligar a programação depois de publicar).
+  const scheduleNeedsProgrammedCampaign =
+    usesCampaignBudget &&
+    campaignLifetime &&
+    scheduleReleased === true &&
+    !pacingIncludesDayParting(campaignPacingType);
   const canEditDeliverySchedule = useMemo(() => {
-    if (usesCampaignBudget) {
-      return (
-        getBudgetType({
-          dailyBudget: campaignDailyBudget,
-          lifetimeBudget: campaignLifetimeBudget,
-        }) === "lifetime"
-      );
-    }
+    if (usesCampaignBudget) return campaignLifetime && !scheduleNeedsProgrammedCampaign;
     return budgetType === "lifetime";
-  }, [
-    usesCampaignBudget,
-    campaignDailyBudget,
-    campaignLifetimeBudget,
-    budgetType,
-  ]);
+  }, [usesCampaignBudget, campaignLifetime, scheduleNeedsProgrammedCampaign, budgetType]);
 
   const hasPosts = selectedPosts.length > 0;
 
@@ -625,14 +630,20 @@ export function AdSetCreateDialog({
               )}
             </div>
 
-            {canEditDeliverySchedule && (
+            {canEditDeliverySchedule ? (
               <AdSetDeliveryScheduleEditor
                 value={deliverySchedule}
                 onChange={setDeliverySchedule}
                 disabled={isSubmitting}
                 businessUnits={businessUnits}
               />
-            )}
+            ) : scheduleNeedsProgrammedCampaign ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {
+                  "Esta campanha foi criada sem programação de horário, então o conjunto novo veicula o dia todo. Para ter horário, duplique a campanha com novo horário."
+                }
+              </p>
+            ) : null}
 
             <div className="space-y-2">
               <Label>Posicionamentos</Label>
