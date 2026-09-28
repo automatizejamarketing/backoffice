@@ -13,13 +13,18 @@ const ROUTE = join(
   "app/api/meta-marketing/[accountId]/adsets/[adsetId]/edit/route.ts",
 );
 
-test("rota de edição do backoffice trava horário em CBO antes de montar pacing/adset_schedule", () => {
-  const source = readFileSync(ROUTE, "utf8");
-  const guard = source.indexOf("if (hasDeliveryScheduleChange && usesCBO)");
-  const scheduleWrite = source.indexOf("updateParams.pacing_type");
-  assert.ok(guard > 0, "a checagem da trava existe");
-  assert.ok(scheduleWrite > guard, "a trava roda antes de montar os campos de horário");
-  assert.match(source, /scheduleLockRouteBody\(\)/);
+test("rota de edição do backoffice trava horário em CBO não editável e, na programada, manda só a grade", () => {
+  const route = readFileSync(ROUTE, "utf8");
+  const lock = route.indexOf("if (hasDeliveryScheduleChange && usesCBO && !cboScheduleEdit)");
+  const editable = route.indexOf("if (cboScheduleEdit) {");
+  const legacyPacing = route.indexOf("updateParams.pacing_type");
+  assert.ok(lock > 0, "a trava continua para CBO não editável");
+  assert.ok(editable > lock, "o ramo editável vem depois da trava");
+  assert.ok(legacyPacing > editable, "pacing_type só no ramo antigo (ABO)");
+  const editableBranch = route.slice(editable, route.indexOf("} else {", editable));
+  assert.doesNotMatch(editableBranch, /pacing_type|lifetime_budget|end_time/);
+  assert.match(route, /fields=id,daily_budget,lifetime_budget,pacing_type,bid_strategy/);
+  assert.match(route, /scheduleLockRouteBody\(\)/);
 });
 
 test("o corpo da trava usa o código compartilhado", () => {
