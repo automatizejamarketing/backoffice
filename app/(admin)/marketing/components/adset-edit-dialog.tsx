@@ -54,6 +54,7 @@ import {
 } from "./adset-delivery-schedule-editor";
 import { useCompanyLocations } from "../hooks/use-company-locations";
 import { LocationTargetingSection } from "./location-targeting-section";
+import { DuplicateButton } from "./duplicate-button";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import {
   DEFAULT_BRAZIL_LOCATION,
@@ -255,6 +256,18 @@ function getGenderValue(genders: readonly unknown[] | undefined): string {
   return "all";
 }
 
+const WEEKDAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+function describeCurrentSchedule(value: AdSetDeliveryScheduleValue): string[] {
+  if (value.deliveryMode === "all_day") return ["O dia todo, todos os dias"];
+  const hhmm = (minute: number) =>
+    `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  return value.scheduleBlocks.map(
+    (block) =>
+      `${block.days.map((day) => WEEKDAY_LABELS[day] ?? String(day)).join(", ")}: ${hhmm(block.startMinute)}–${hhmm(block.endMinute)}`,
+  );
+}
+
 function adSetToDeliveryScheduleValue(adSet: AdSet): AdSetDeliveryScheduleValue {
   return {
     deliveryMode: getDeliveryModeFromMetaAdSetSchedule(adSet.adsetSchedule),
@@ -283,7 +296,12 @@ export function AdSetEditDialog({
     : 0;
   const canEditBudget = !hasCampaignBudget;
   const canEditSchedule = effectiveBudgetType === "lifetime";
-  const canEditDeliverySchedule = effectiveBudgetType === "lifetime";
+  // Horário de conjunto sob orçamento de campanha só se define na CRIAÇÃO: a Meta
+  // aceita a edição e o conjunto para de veicular de vez (update/schedule-lock.ts).
+  const isScheduleLockedByCampaignBudget =
+    hasCampaignBudget && effectiveBudgetType === "lifetime";
+  const canEditDeliverySchedule =
+    !hasCampaignBudget && effectiveBudgetType === "lifetime";
   const currentDeliveryMode = getDeliveryModeFromMetaAdSetSchedule(
     adSet.adsetSchedule,
   );
@@ -884,6 +902,38 @@ export function AdSetEditDialog({
                   disabled={isSubmitting}
                   businessUnits={businessUnits}
                 />
+              </div>
+            )}
+
+            {isScheduleLockedByCampaignBudget && (
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="space-y-1">
+                  <Label>Dias e horários travados nesta campanha</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Esta campanha usa orçamento de campanha. Nesse formato, a Meta aceita a troca de horário, mas o conjunto para de veicular de vez. Para veicular em outros dias ou horários, duplique a campanha já com o novo horário.
+                  </p>
+                </div>
+                <ul className="space-y-0.5 text-xs text-muted-foreground">
+                  {describeCurrentSchedule(adSetToDeliveryScheduleValue(adSet)).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                {adSet.campaignId && (
+                  <DuplicateButton
+                    entityType="campaign"
+                    entityId={adSet.campaignId}
+                    entityName={adSet.campaign?.name}
+                    accountId={accountId}
+                    userId={userId}
+                    variant="labeled"
+                    label="Duplicar com novo horário"
+                    withSchedule={{ initial: adSetToDeliveryScheduleValue(adSet) }}
+                    onDuplicated={() => {
+                      onSuccess();
+                      onClose();
+                    }}
+                  />
+                )}
               </div>
             )}
 
