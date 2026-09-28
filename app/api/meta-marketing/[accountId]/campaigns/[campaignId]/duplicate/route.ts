@@ -32,6 +32,13 @@ import {
  */
 export const maxDuration = 60;
 
+/**
+ * Time reserved at the end of the budget for the rollback and the JSON response. The
+ * rollback is a single root delete (Meta cascades), measured at ~2 s; 15 s is that with
+ * a wide margin. Mirrors the frontend's campaign duplicate route.
+ */
+const DUPLICATE_TIME_RESERVE_MS = 15_000;
+
 export type DuplicateCampaignResponse = {
   success: boolean;
   id: string;
@@ -95,6 +102,13 @@ export async function POST(
     operationHint: "duplicate",
     entityHint: "campaign",
   });
+
+  // Started before any work so the engine's deadline covers the whole invocation, not
+  // just the copy loop. Past it the engine stops creating, rolls back and throws
+  // DuplicateTimeBudgetError (a GraphApiError, 503) — the platform must never be the
+  // thing that ends this request.
+  const deadlineAt = Date.now() + maxDuration * 1000 - DUPLICATE_TIME_RESERVE_MS;
+
   try {
     const { accountId, campaignId } = await params;
     const { searchParams } = new URL(request.url);
@@ -162,6 +176,7 @@ export async function POST(
       accountId,
       campaignId,
       accessToken: tokenResult.accessToken,
+      deadlineAt,
       ...(promotionUrl && { fallbackPromotionUrl: promotionUrl }),
       ...(schedule.override ? { adSetSchedule: schedule.override } : {}),
     });

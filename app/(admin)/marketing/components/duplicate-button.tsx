@@ -287,7 +287,11 @@ export function DuplicateButton({
       }
 
       void invalidateMarketing();
-      onDuplicated?.();
+      // The parent's reaction (e.g. the CBO schedule lock closing/remounting the ad-set
+      // edit Dialog) must only run once this AlertDialog is closed: two Radix dialogs
+      // unmounting in the same tick can leave `pointer-events: none` on <body>. So every
+      // success path closes + resets first and calls `onDuplicated` on the next tick.
+      const notifyDuplicated = () => setTimeout(() => onDuplicated?.(), 0);
 
       // 202: the async deep-copy is still finishing on Meta's side. Ask the user to
       // refresh shortly rather than claim success or show an error.
@@ -299,6 +303,7 @@ export function DuplicateButton({
         );
         setOpen(false);
         resetState();
+        notifyDuplicated();
         return;
       }
 
@@ -334,6 +339,7 @@ export function DuplicateButton({
       }
       setOpen(false);
       resetState();
+      notifyDuplicated();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : `Erro ao duplicar ${label}`,
