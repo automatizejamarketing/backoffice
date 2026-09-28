@@ -1,3 +1,4 @@
+import { isFullWeekSchedule } from "@/lib/meta-business/schedule-shape";
 import type { AdSetScheduleOverride } from "@/lib/meta-business/duplicate";
 
 export const META_SCHEDULE_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
@@ -289,9 +290,22 @@ export function fromMetaAdSetScheduleBlocks(
 export function getDeliveryModeFromMetaAdSetSchedule(
   blocks: GraphAdSetScheduleBlock[] | undefined,
 ): CampaignDeliveryMode {
+  // Campanha programada guarda "o dia todo" como grade de 24h x 7 (a Meta exige grade).
+  if (isFullWeekSchedule(blocks)) return "all_day";
   return fromMetaAdSetScheduleBlocks(blocks).length > 0
     ? "specific_hours"
     : "all_day";
+}
+
+/** Valor do editor de horário a partir da grade lida da Meta (24h x 7 = o dia todo, sem blocos). */
+export function deliveryScheduleFromMetaAdSetSchedule(
+  blocks: GraphAdSetScheduleBlock[] | undefined,
+): { deliveryMode: CampaignDeliveryMode; scheduleBlocks: CampaignScheduleBlock[] } {
+  const deliveryMode = getDeliveryModeFromMetaAdSetSchedule(blocks);
+  return {
+    deliveryMode,
+    scheduleBlocks: deliveryMode === "all_day" ? [] : fromMetaAdSetScheduleBlocks(blocks),
+  };
 }
 
 export function areCampaignScheduleBlocksEqual(
