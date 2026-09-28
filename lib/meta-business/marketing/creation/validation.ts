@@ -12,6 +12,8 @@
  * Sources: scratchpad/v25-verified-rules.md (live docs + facebook-python-business-sdk).
  */
 
+import { SCHEDULE_REFUSALS } from "@/lib/meta-business/schedule-shape";
+
 import { type CreateIssue, type CreateLevel, localIssue } from "./types";
 
 /**
@@ -650,10 +652,48 @@ export function validateBid(input: {
   return issues;
 }
 
+/** Programação na CAMPANHA (etapa 2): exige orçamento total na própria campanha e não convive com COST_CAP. */
+export function validateCampaignPacing(input: {
+  pacingType?: string[];
+  usesCampaignBudget: boolean;
+  hasLifetimeBudget: boolean;
+  bidStrategy?: string;
+}): CreateIssue[] {
+  if (!input.pacingType?.includes("day_parting")) return [];
+  const issues: CreateIssue[] = [];
+  if (!input.usesCampaignBudget || !input.hasLifetimeBudget) {
+    issues.push(
+      localIssue(
+        "campaign",
+        "DAYPARTING_REQUIRES_LIFETIME",
+        "Programação de horário na campanha exige orçamento total (vitalício) na própria campanha.",
+        "Use lifetimeBudgetCents na campanha ou não envie pacingType.",
+        ["pacing_type"],
+      ),
+    );
+  }
+  if (input.bidStrategy === "COST_CAP") {
+    issues.push(
+      localIssue(
+        "campaign",
+        "SCHEDULE_NEEDS_STANDARD_PACING_BID",
+        SCHEDULE_REFUSALS.SCHEDULE_NEEDS_STANDARD_PACING_BID.message,
+        SCHEDULE_REFUSALS.SCHEDULE_NEEDS_STANDARD_PACING_BID.solution,
+        ["pacing_type"],
+      ),
+    );
+  }
+  return issues;
+}
+
 export function validateDayparting(input: {
   hasEffectiveLifetimeBudget: boolean;
   mode: "continuous" | "dayparting";
   blocks?: Array<{ days: number[]; startMinute: number; endMinute: number }>;
+  /** Etapa 2: horário em CBO sem programação na campanha é recusado quando a conta está liberada. */
+  parentUsesCampaignBudget?: boolean;
+  parentUsesDayParting?: boolean;
+  cboDaypartingReleased?: boolean;
 }): CreateIssue[] {
   if (input.mode !== "dayparting") return [];
   const issues: CreateIssue[] = [];
@@ -665,6 +705,23 @@ export function validateDayparting(input: {
         "DAYPARTING_REQUIRES_LIFETIME",
         "Agendamento por horários (dayparting) exige orçamento vitalício (no conjunto ABO ou na campanha CBO).",
         "Troque para orçamento total (lifetime) ou use veiculação contínua.",
+        ["adset_schedule"],
+      ),
+    );
+  }
+
+  if (
+    input.cboDaypartingReleased &&
+    input.parentUsesCampaignBudget &&
+    input.hasEffectiveLifetimeBudget &&
+    !input.parentUsesDayParting
+  ) {
+    issues.push(
+      localIssue(
+        "adset",
+        "SCHEDULE_NEEDS_PROGRAMMED_CAMPAIGN",
+        SCHEDULE_REFUSALS.SCHEDULE_NEEDS_PROGRAMMED_CAMPAIGN.message,
+        SCHEDULE_REFUSALS.SCHEDULE_NEEDS_PROGRAMMED_CAMPAIGN.solution,
         ["adset_schedule"],
       ),
     );

@@ -10,6 +10,10 @@
  * Endpoint: POST /act_{ad_account_id}/adsets (objeto "Ad Campaign" na doc).
  */
 
+import {
+  adSetScheduleForCreate,
+  type RequestedSchedule,
+} from "@/lib/meta-business/schedule-shape";
 import { metaWrite } from "@/lib/meta-business/write-retry";
 import {
   type CreateIssue,
@@ -82,6 +86,13 @@ export type CreateAdSetInput = {
   parentUsesCampaignBudget?: boolean;
   /** Whether the parent CBO budget is lifetime (enables dayparting under CBO). */
   parentHasLifetimeBudget?: boolean;
+  /**
+   * A campanha-mãe tem `day_parting` no `pacing_type` (programação na campanha). Com a
+   * liberação, o conjunto leva só a grade — 24h x 7 no contínuo.
+   */
+  parentUsesDayParting?: boolean;
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`), decidido pelo chamador. */
+  cboDaypartingReleased?: boolean;
 
   optimizationGoal: string;
   /** Defaults to IMPRESSIONS (universally accepted). */
@@ -261,6 +272,21 @@ function effectiveLifetime(input: CreateAdSetInput): boolean {
     : (input.lifetimeBudgetCents ?? 0) > 0;
 }
 
+function requestedScheduleOf(input: CreateAdSetInput): RequestedSchedule {
+  if (input.schedule?.mode === "dayparting" && input.schedule.blocks?.length) {
+    return {
+      mode: "specific_hours",
+      blocks: input.schedule.blocks.map((b) => ({
+        days: b.days,
+        start_minute: b.startMinute,
+        end_minute: b.endMinute,
+        timezone_type: input.schedule?.timezoneType ?? "ADVERTISER",
+      })),
+    };
+  }
+  return { mode: "all_day" };
+}
+
 /** Pure local validation (collect-all). No Meta calls. */
 export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
   const billingEvent = input.billingEvent ?? "IMPRESSIONS";
@@ -303,6 +329,9 @@ export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
       hasEffectiveLifetimeBudget: effectiveLifetime(input),
       mode: input.schedule?.mode ?? "continuous",
       blocks: input.schedule?.blocks,
+      parentUsesCampaignBudget: input.parentUsesCampaignBudget,
+      parentUsesDayParting: input.parentUsesDayParting,
+      cboDaypartingReleased: input.cboDaypartingReleased,
     }),
     validatePlacements({
       publisherPlatforms: input.targeting?.publisherPlatforms,
@@ -364,7 +393,21 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
   if (input.startTime) p.set("start_time", input.startTime);
   if (input.endTime) p.set("end_time", input.endTime);
 
-  if (input.schedule?.mode === "dayparting" && input.schedule.blocks?.length) {
+  if (input.parentUsesCampaignBudget && input.cboDaypartingReleased) {
+    // Etapa 2: sob CBO liberada, a programação é da campanha e o conjunto leva só a grade.
+    const decision = adSetScheduleForCreate(
+      {
+        budgetLevel: "campaign",
+        budgetKind: input.parentHasLifetimeBudget ? "lifetime" : "daily",
+        dayParting: Boolean(input.parentUsesDayParting),
+      },
+      requestedScheduleOf(input),
+      true,
+    );
+    if (decision.ok && decision.fields.adset_schedule) {
+      p.set("adset_schedule", JSON.stringify(decision.fields.adset_schedule));
+    }
+  } else if (input.schedule?.mode === "dayparting" && input.schedule.blocks?.length) {
     p.set("pacing_type", JSON.stringify(["day_parting"]));
     p.set(
       "adset_schedule",

@@ -8,6 +8,8 @@
  * deleted in reverse order; ids Meta refuses to delete are returned as orphans.
  */
 
+import { pacingIncludesDayParting } from "@/lib/meta-business/schedule-shape";
+
 import {
   createCampaign,
   previewCampaign,
@@ -41,6 +43,8 @@ export type TreeAdSetSpec = {
     | "objective"
     | "parentUsesCampaignBudget"
     | "parentHasLifetimeBudget"
+    | "parentUsesDayParting"
+    | "cboDaypartingReleased"
   >;
   ads: Array<
     Omit<CreateAdInput, "adAccountId" | "accessToken" | "adSetId" | "optimizationGoal">
@@ -52,6 +56,8 @@ export type CreateCampaignTreeInput = {
   accessToken: string;
   campaign: Omit<CreateCampaignInput, "adAccountId" | "accessToken">;
   adSets: TreeAdSetSpec[];
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`); decidido por quem chama a árvore. */
+  cboDaypartingReleased?: boolean;
 };
 
 export type CampaignTreeSuccess = {
@@ -217,6 +223,8 @@ export function deriveAdSetInput(
     objective: tree.campaign.objective,
     parentUsesCampaignBudget: parentUsesCampaignBudget(tree.campaign),
     parentHasLifetimeBudget: (tree.campaign.lifetimeBudgetCents ?? 0) > 0,
+    parentUsesDayParting: pacingIncludesDayParting(tree.campaign.pacingType),
+    cboDaypartingReleased: Boolean(tree.cboDaypartingReleased),
   };
 }
 
@@ -328,6 +336,8 @@ export type PreviewCampaignTreeInput = {
   accessToken: string;
   campaign: CreateCampaignTreeInput["campaign"];
   adSets: PreviewTreeAdSetSpec[];
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`); decidido por quem chama a árvore. */
+  cboDaypartingReleased?: boolean;
 };
 
 export type CampaignTreePlan = {
@@ -434,6 +444,8 @@ export async function previewCampaignTree(
         objective: tree.campaign.objective,
         parentUsesCampaignBudget: cbo,
         parentHasLifetimeBudget,
+        parentUsesDayParting: pacingIncludesDayParting(tree.campaign.pacingType),
+        cboDaypartingReleased: Boolean(tree.cboDaypartingReleased),
       }),
     );
 

@@ -26,6 +26,7 @@ import {
   subcodeSuggestion,
   validateBid,
   validateCampaignBudget,
+  validateCampaignPacing,
   validateObjective,
   validateSpecialAdCategories,
   validateSpecialCategoryTargeting,
@@ -59,6 +60,12 @@ export type CreateCampaignInput = {
   bidAmountCents?: number;
   /** Human ROAS (e.g. 2.0 = 2×); compiled to bid_constraints.roas_average_floor (×10000). */
   roasFloor?: number;
+  /**
+   * Programação de anúncios na CAMPANHA (etapa 2): `["day_parting"]` liga a escolha de
+   * programar; a grade fica em cada conjunto. Só com orçamento total na campanha e lance
+   * diferente de COST_CAP. Quem decide é o chamador (`campaignPacingForNewCampaign`).
+   */
+  pacingType?: string[];
 
   /**
    * ABO marker. When there is NO campaign budget, Meta (v24.0+) requires
@@ -115,6 +122,12 @@ export function validateCampaignInput(input: CreateCampaignInput): CreateIssue[]
           roasFloor: input.roasFloor,
         })
       : [],
+    validateCampaignPacing({
+      pacingType: input.pacingType,
+      usesCampaignBudget: cbo,
+      hasLifetimeBudget: (input.lifetimeBudgetCents ?? 0) > 0,
+      bidStrategy: input.bidStrategy,
+    }),
   );
 
   // A bid strategy on an ABO campaign is silently ignored by Meta (it belongs on
@@ -173,6 +186,11 @@ export function buildCampaignPayload(input: CreateCampaignInput): URLSearchParam
         JSON.stringify({ roas_average_floor: Math.round(input.roasFloor * 10000) }),
       );
     }
+  }
+
+  // Programação de anúncios na campanha (etapa 2): a escolha é da campanha; a grade, de cada conjunto.
+  if (cbo && input.pacingType?.length) {
+    p.set("pacing_type", JSON.stringify(input.pacingType));
   }
 
   // ABO (no campaign budget): Meta requires the explicit flag (v24.0+).
