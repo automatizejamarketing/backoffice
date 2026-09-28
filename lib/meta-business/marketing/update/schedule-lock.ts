@@ -1,22 +1,20 @@
 /**
- * Dias e horários de um conjunto sob orçamento de campanha (CBO) só se definem na
- * CRIAÇÃO. Mandar `pacing_type`/`adset_schedule` para um conjunto já publicado sob CBO
- * é aceito pela Meta com 200 e a leitura não acusa nada, mas o conjunto nunca mais entra
- * no leilão — 13 de 13 casos avaliáveis em produção (jul–set/2026). A documentação manda
- * o `pacing_type` para a campanha sob Advantage campaign budget e não documenta a edição
- * de horário de CBO publicado (docs/research/2026-09-28-meta-cbo-horario-conjunto.md).
- * Quem precisa de outro horário duplica a campanha já com ele.
+ * Dias e horários de um conjunto sob orçamento de campanha (CBO): a troca só é segura
+ * quando a campanha NASCEU programada (`pacing_type=["day_parting"]` na campanha) e a
+ * conta está liberada — aí a edição manda só a grade (lib/meta-business/schedule-shape.ts).
+ * Nos demais casos, mandar `pacing_type`/`adset_schedule` para um conjunto publicado sob
+ * CBO é aceito pela Meta com 200 e o conjunto nunca mais entra no leilão (17 de 17 casos
+ * medidos, jul–set/2026). Quem precisa de outro horário duplica a campanha já com ele.
  */
+import { SCHEDULE_REFUSALS } from "@/lib/meta-business/schedule-shape";
 import { localIssue } from "../creation/types";
 import type { CreateIssue } from "./types";
 
 export const SCHEDULE_LOCKED_UNDER_CBO = "SCHEDULE_LOCKED_UNDER_CBO";
 
-export const SCHEDULE_LOCK_REASON =
-  "Os dias e horários deste conjunto não podem ser alterados porque a campanha usa orçamento de campanha. A Meta aceita a mudança, mas o conjunto para de veicular de vez.";
+export const SCHEDULE_LOCK_REASON = SCHEDULE_REFUSALS.SCHEDULE_LOCKED_UNDER_CBO.message;
 
-export const SCHEDULE_LOCK_SUGGESTION =
-  "Duplique a campanha já com o novo horário (Duplicar com novo horário) e depois pause a original.";
+export const SCHEDULE_LOCK_SUGGESTION = SCHEDULE_REFUSALS.SCHEDULE_LOCKED_UNDER_CBO.solution;
 
 const SCHEDULE_FIELDS = ["pacing_type", "adset_schedule"] as const;
 
