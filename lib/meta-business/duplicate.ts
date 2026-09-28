@@ -1,4 +1,5 @@
 import { metaApiCall } from "@/lib/meta-business/api";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { GraphApiError } from "@/lib/meta-business/error";
 import {
   GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
@@ -6,6 +7,7 @@ import {
   withPlacementAdaptation,
   withoutGenerativeFeatures,
 } from "@/lib/meta-business/creative-features";
+import { FULL_WEEK_ADSET_SCHEDULE } from "@/lib/meta-business/schedule-shape";
 import { withMetaRetry } from "@/lib/meta-business/write-retry";
 
 /**
@@ -692,6 +694,7 @@ type CampaignTree = {
   lifetime_budget?: string;
   /** Campaign-level pacing. Contains `day_parting` when scheduling lives on the campaign (Ads Manager). */
   pacing_type?: string[] | string;
+  bid_strategy?: string;
   adsets?: {
     data?: Array<{
       id: string;
@@ -853,11 +856,6 @@ export type AdSetScheduleOverride =
       timezoneType?: "USER" | "ADVERTISER";
     };
 
-/** Uma campanha com `day_parting` exige grade em TODO conjunto (Meta 2446063). */
-const FULL_WEEK_ADSET_SCHEDULE = [
-  { days: [0, 1, 2, 3, 4, 5, 6], start_minute: 0, end_minute: 1440 },
-];
-
 function campaignUsesDayParting(pacing: string[] | string | undefined): boolean {
   if (!pacing) return false;
   return (Array.isArray(pacing) ? pacing : [pacing]).includes("day_parting");
@@ -887,6 +885,109 @@ function applyAdSetScheduleOverride(
     body.set("pacing_type", JSON.stringify(["day_parting"]));
     body.set("adset_schedule", JSON.stringify(FULL_WEEK_ADSET_SCHEDULE));
   }
+}
+
+/** Grade de um horário imposto, no formato da Meta (24h x 7 no "o dia todo"). */
+function overrideGrid(override: AdSetScheduleOverride): unknown[] {
+  if (override.mode === "all_day") return FULL_WEEK_ADSET_SCHEDULE;
+  return override.blocks.map((block) => ({
+    days: block.days,
+    start_minute: block.startMinute,
+    end_minute: block.endMinute,
+    ...(override.timezoneType ? { timezone_type: override.timezoneType } : {}),
+  }));
+}
+
+/**
+ * Liga a programação (`pacing_type=["day_parting"]`) na CÓPIA ainda vazia, antes do primeiro
+ * conjunto: a cópia de uma CBO vitalícia antiga nasce programada (etapa 2). Nunca toca a
+ * origem. Recusa da Meta não derruba a duplicação — a cópia segue no formato antigo.
+ */
+async function convertCopyToDayParting(
+  newCampaignId: string,
+  accessToken: string,
+): Promise<{ converted: true } | { converted: false; error: string }> {
+  try {
+    await withMetaRetry(() =>
+      metaApiCall<{ success?: boolean }>({
+        domain: "FACEBOOK",
+        method: "POST",
+        path: newCampaignId,
+        params: "",
+        body: new URLSearchParams({ pacing_type: JSON.stringify(["day_parting"]) }),
+        accessToken,
+      }),
+    );
+    return { converted: true };
+  } catch (err) {
+    return {
+      converted: false,
+      error:
+        err instanceof GraphApiError
+          ? `${err.errorReturn.reason.title}: ${err.errorReturn.reason.message}`
+          : String(err),
+    };
+  }
+}
+
+/**
+ * Etapa 2: a cópia de uma CBO vitalícia antiga (campanha `standard`) nasce programada.
+ * Decidido sobre a árvore lida, antes de criar qualquer objeto.
+ */
+function shouldConvertCopyToDayParting(args: {
+  cboDaypartingReleased: boolean;
+  isCBO: boolean;
+  campaignLifetime: boolean;
+  campaignDayParting: boolean;
+  bidStrategy: string | undefined;
+}): boolean {
+  return (
+    args.cboDaypartingReleased &&
+    args.isCBO &&
+    args.campaignLifetime &&
+    !args.campaignDayParting &&
+    // Nunca com COST_CAP, que exige pacing padrão.
+    args.bidStrategy !== "COST_CAP"
+  );
+}
+
+/**
+ * Formato de horário dos conjuntos da cópia, decidido com a campanha copiada ainda vazia:
+ * converte-a quando `convert` e diz se os conjuntos levam só a grade (`gridOnlySchedule`) e se
+ * têm de ser recriados (`forceRebuild`: a cópia nativa herdaria o `pacing_type` da origem).
+ */
+async function prepareCopySchedule(args: {
+  convert: boolean;
+  newCampaignId: string;
+  accessToken: string;
+  cboDaypartingReleased: boolean;
+  isCBO: boolean;
+  campaignLifetime: boolean;
+  campaignDayParting: boolean;
+}): Promise<{
+  scheduleConverted?: boolean;
+  scheduleConversionError?: string;
+  gridOnlySchedule: boolean;
+  forceRebuild: boolean;
+}> {
+  let scheduleConverted: boolean | undefined;
+  let scheduleConversionError: string | undefined;
+  if (args.convert) {
+    const conversion = await convertCopyToDayParting(args.newCampaignId, args.accessToken);
+    scheduleConverted = conversion.converted;
+    if (!conversion.converted) scheduleConversionError = conversion.error;
+  }
+  const gridOnlySchedule =
+    args.cboDaypartingReleased &&
+    args.isCBO &&
+    args.campaignLifetime &&
+    (args.campaignDayParting || scheduleConverted === true);
+  return {
+    scheduleConverted,
+    scheduleConversionError,
+    gridOnlySchedule,
+    forceRebuild: scheduleConverted === true,
+  };
 }
 
 /**
@@ -985,6 +1086,14 @@ export type DuplicateResult = {
    * catalog of their product set). The repaired copy is created PAUSED for review.
    */
   repairedCampaign?: RepairedCampaignInfo;
+  /**
+   * Etapa 2: a cópia de uma CBO vitalícia antiga recebeu `pacing_type=["day_parting"]` ainda
+   * vazia (true) ou a Meta recusou (false — a cópia seguiu no formato antigo, horário travado).
+   * Ausente quando não houve conversão a fazer.
+   */
+  scheduleConverted?: boolean;
+  /** Motivo da Meta quando `scheduleConverted` é false. */
+  scheduleConversionError?: string;
 };
 
 export type CopiedAdSetMapping = {
@@ -1466,7 +1575,7 @@ async function getCampaignTree(
     method: "GET",
     path: campaignId,
     params:
-      "fields=name,objective,smart_promotion_type,daily_budget,lifetime_budget,pacing_type,adsets.limit(200){id,name,ads.limit(200){id,name}}",
+      "fields=name,objective,smart_promotion_type,daily_budget,lifetime_budget,pacing_type,bid_strategy,adsets.limit(200){id,name,ads.limit(200){id,name}}",
     accessToken,
   });
 }
@@ -1761,6 +1870,7 @@ function buildRebuildAdsetBody(args: {
   effectiveLifetime: boolean;
   adSetSchedule?: AdSetScheduleOverride;
   campaignDayParting?: boolean;
+  gridOnlySchedule?: boolean;
 }): URLSearchParams {
   const { source, targetCampaignId, isCBO, effectiveLifetime } = args;
 
@@ -1807,7 +1917,15 @@ function buildRebuildAdsetBody(args: {
   if (schedule.start_time) body.set("start_time", schedule.start_time);
   if (schedule.end_time) body.set("end_time", schedule.end_time);
 
-  if (args.adSetSchedule) {
+  if (args.gridOnlySchedule) {
+    // Etapa 2: campanha programada — o conjunto leva só a grade; a programação é da campanha.
+    const grid = args.adSetSchedule
+      ? overrideGrid(args.adSetSchedule)
+      : Array.isArray(source.adset_schedule) && source.adset_schedule.length > 0
+        ? source.adset_schedule
+        : FULL_WEEK_ADSET_SCHEDULE;
+    body.set("adset_schedule", JSON.stringify(grid));
+  } else if (args.adSetSchedule) {
     applyAdSetScheduleOverride(body, args.adSetSchedule, args.campaignDayParting ?? false);
   } else if (Array.isArray(source.adset_schedule) && source.adset_schedule.length > 0) {
     body.set("pacing_type", JSON.stringify(["day_parting"]));
@@ -1846,6 +1964,7 @@ async function rebuildAdsetInto(args: {
   originalError?: unknown;
   adSetSchedule?: AdSetScheduleOverride;
   campaignDayParting?: boolean;
+  gridOnlySchedule?: boolean;
 }): Promise<{
   id: string;
   replacedInterests: InterestReplacement[];
@@ -1882,6 +2001,7 @@ async function rebuildAdsetInto(args: {
     effectiveLifetime,
     adSetSchedule: args.adSetSchedule,
     campaignDayParting: args.campaignDayParting,
+    gridOnlySchedule: args.gridOnlySchedule,
   });
 
   for (let attempt = 0; ; attempt += 1) {
@@ -1923,6 +2043,7 @@ async function rebuildAdsetInto(args: {
             effectiveLifetime,
             adSetSchedule: args.adSetSchedule,
             campaignDayParting: args.campaignDayParting,
+            gridOnlySchedule: args.gridOnlySchedule,
           });
           continue;
         }
@@ -2034,6 +2155,10 @@ async function copyOrRebuildAdsetInto(args: {
   /** Impose this schedule: the ad set is RECONSTRUCTED with it, never copied then edited. */
   adSetSchedule?: AdSetScheduleOverride;
   campaignDayParting?: boolean;
+  /** Etapa 2: campanha programada — um conjunto recriado leva só a grade. */
+  gridOnlySchedule?: boolean;
+  /** Etapa 2: recria sempre (a cópia nativa herdaria o `pacing_type` do conjunto de origem). */
+  forceRebuild?: boolean;
 }): Promise<{
   id: string;
   replacedInterests: InterestReplacement[];
@@ -2065,7 +2190,7 @@ async function copyOrRebuildAdsetInto(args: {
       accessToken,
     }));
 
-  if (args.adSetSchedule || adsetNeedsRebuild(source.targeting)) {
+  if (args.adSetSchedule || args.forceRebuild || adsetNeedsRebuild(source.targeting)) {
     // Imposed schedule or known blocker → build it directly; never copy then edit.
     const rebuiltResult = await rebuildAdsetInto({
       accountId,
@@ -2076,6 +2201,7 @@ async function copyOrRebuildAdsetInto(args: {
       source,
       adSetSchedule: args.adSetSchedule,
       campaignDayParting: args.campaignDayParting,
+      gridOnlySchedule: args.gridOnlySchedule,
     });
     return {
       ...rebuiltResult,
@@ -2109,6 +2235,7 @@ async function copyOrRebuildAdsetInto(args: {
       campaignLifetime,
       source,
       originalError: copyErr,
+      gridOnlySchedule: args.gridOnlySchedule,
     });
     return {
       ...rebuiltResult,
@@ -3308,6 +3435,8 @@ export async function duplicateCampaign(args: {
   deadlineAt?: number;
   /** Dias e horários da cópia: cada conjunto é RECRIADO já com eles (ver `AdSetScheduleOverride`). */
   adSetSchedule?: AdSetScheduleOverride;
+  /** Etapa 2 (testes e chamadores que já decidiram). Padrão: `isCboDaypartingReleased(accountId)`. */
+  cboDaypartingReleased?: boolean;
 }): Promise<DuplicateResult> {
   const {
     accountId,
@@ -3335,6 +3464,15 @@ export async function duplicateCampaign(args: {
     hasPositiveMinorUnits(sourceTree.lifetime_budget);
   const campaignLifetime = hasPositiveMinorUnits(sourceTree.lifetime_budget);
   const campaignDayParting = campaignUsesDayParting(sourceTree.pacing_type);
+  const cboDaypartingReleased =
+    args.cboDaypartingReleased ?? isCboDaypartingReleased(accountId);
+  const convertToDayParting = shouldConvertCopyToDayParting({
+    cboDaypartingReleased,
+    isCBO,
+    campaignLifetime,
+    campaignDayParting,
+    bidStrategy: sourceTree.bid_strategy,
+  });
 
   const siblings = await metaApiCall<{ data?: NamedNode[] }>({
     domain: "FACEBOOK",
@@ -3392,6 +3530,7 @@ export async function duplicateCampaign(args: {
   const { count, estimable } = countTreeChildren(sourceTree);
   if (
     !adSetSchedule &&
+    !convertToDayParting &&
     ASYNC_DEEPCOPY_ENABLED &&
     estimable &&
     count > 0 &&
@@ -3429,6 +3568,16 @@ export async function duplicateCampaign(args: {
         adsets: [...adsetsById.values()],
       });
     tracker.track("campaign", newCampaignId);
+    const { scheduleConverted, scheduleConversionError, gridOnlySchedule, forceRebuild } =
+      await prepareCopySchedule({
+        convert: convertToDayParting,
+        newCampaignId,
+        accessToken,
+        cboDaypartingReleased,
+        isCBO,
+        campaignLifetime,
+        campaignDayParting,
+      });
 
     const skippedAds: SkippedItem[] = [];
     const skippedAdsets: SkippedItem[] = [];
@@ -3458,9 +3607,11 @@ export async function duplicateCampaign(args: {
         prefetchedSource: adsetsById.get(sourceAdset.id),
         adSetSchedule,
         campaignDayParting,
+        gridOnlySchedule,
+        forceRebuild,
       });
       tracker.track("adset", copiedAdsetId, newCampaignId);
-      const forcedBySchedule = Boolean(adSetSchedule);
+      const forcedBySchedule = Boolean(adSetSchedule) || forceRebuild;
       if (rebuilt && !forcedBySchedule) {
         rebuiltAdsets.push({
           sourceAdsetId: sourceAdset.id,
@@ -3567,6 +3718,8 @@ export async function duplicateCampaign(args: {
       ...(scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
       ...(repairedCampaign ? { repairedCampaign } : {}),
       ...(adSetSchedule ? { scheduleApplied: true } : {}),
+      ...(scheduleConverted !== undefined ? { scheduleConverted } : {}),
+      ...(scheduleConversionError ? { scheduleConversionError } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);
@@ -3602,6 +3755,8 @@ export async function duplicateProvenCampaign(args: {
   placementAdaptation?: PlacementAdaptation;
   /** Horário da revisão da IA; o conjunto é recriado com ele. */
   adSetSchedule?: AdSetScheduleOverride;
+  /** Etapa 2 (testes e chamadores que já decidiram). Padrão: `isCboDaypartingReleased(accountId)`. */
+  cboDaypartingReleased?: boolean;
 }): Promise<DuplicateProvenCampaignResult> {
   const {
     accountId,
@@ -3641,6 +3796,15 @@ export async function duplicateProvenCampaign(args: {
     hasPositiveMinorUnits(sourceTree.lifetime_budget);
   const campaignLifetime = hasPositiveMinorUnits(sourceTree.lifetime_budget);
   const campaignDayParting = campaignUsesDayParting(sourceTree.pacing_type);
+  const cboDaypartingReleased =
+    args.cboDaypartingReleased ?? isCboDaypartingReleased(accountId);
+  const convertToDayParting = shouldConvertCopyToDayParting({
+    cboDaypartingReleased,
+    isCBO,
+    campaignLifetime,
+    campaignDayParting,
+    bidStrategy: sourceTree.bid_strategy,
+  });
 
   const creatives = await fetchCreativesByAdId(
     sourceAdsets.flatMap((a) => a.ads?.data?.map((ad) => ad.id) ?? []),
@@ -3722,6 +3886,16 @@ export async function duplicateProvenCampaign(args: {
     const newCampaignId = campaignCopy.copied_campaign_id;
     if (!newCampaignId) throw missingCopyIdError("da campanha");
     tracker.track("campaign", newCampaignId);
+    const { scheduleConverted, scheduleConversionError, gridOnlySchedule, forceRebuild } =
+      await prepareCopySchedule({
+        convert: convertToDayParting,
+        newCampaignId,
+        accessToken,
+        cboDaypartingReleased,
+        isCBO,
+        campaignLifetime,
+        campaignDayParting,
+      });
 
     const skippedAds: SkippedItem[] = [];
     const skippedAdsets: SkippedItem[] = [];
@@ -3760,9 +3934,11 @@ export async function duplicateProvenCampaign(args: {
         prefetchedSource: adsetsById.get(sourceAdset.id),
         adSetSchedule,
         campaignDayParting,
+        gridOnlySchedule,
+        forceRebuild,
       });
       tracker.track("adset", copiedAdsetId, newCampaignId);
-      if (rebuilt && !adSetSchedule) {
+      if (rebuilt && !adSetSchedule && !forceRebuild) {
         rebuiltAdsets.push({
           sourceAdsetId: sourceAdset.id,
           sourceAdsetName: sourceAdset.name,
@@ -3925,6 +4101,8 @@ export async function duplicateProvenCampaign(args: {
       ...(scheduleAdjusted ? { scheduleAdjusted: true } : {}),
       ...(scheduleAdjustFailed ? { scheduleAdjustFailed: true } : {}),
       ...(adSetSchedule ? { scheduleApplied: true } : {}),
+      ...(scheduleConverted !== undefined ? { scheduleConverted } : {}),
+      ...(scheduleConversionError ? { scheduleConversionError } : {}),
     };
   } catch (err) {
     return rollbackAndThrow(tracker, accessToken, err);
@@ -3946,6 +4124,8 @@ export async function duplicateAdSet(args: {
   fallbackPromotionUrl?: string;
   /** Epoch ms after which no further ad may be copied — see `duplicateCampaign`. */
   deadlineAt?: number;
+  /** Etapa 2 (testes e chamadores que já decidiram). Padrão: `isCboDaypartingReleased(accountId)`. */
+  cboDaypartingReleased?: boolean;
 }): Promise<DuplicateResult> {
   const { accountId, adsetId, accessToken, fallbackPromotionUrl, deadlineAt } = args;
   const act = formatAccountId(accountId);
@@ -3984,11 +4164,12 @@ export async function duplicateAdSet(args: {
       smart_promotion_type?: string;
       daily_budget?: string;
       lifetime_budget?: string;
+      pacing_type?: string[] | string;
     }>({
       domain: "FACEBOOK",
       method: "GET",
       path: campaignId,
-      params: "fields=objective,smart_promotion_type,daily_budget,lifetime_budget",
+      params: "fields=objective,smart_promotion_type,daily_budget,lifetime_budget,pacing_type",
       accessToken,
     }),
   ]);
@@ -4001,6 +4182,11 @@ export async function duplicateAdSet(args: {
     hasPositiveMinorUnits(campaign.daily_budget) ||
     hasPositiveMinorUnits(campaign.lifetime_budget);
   const campaignLifetime = hasPositiveMinorUnits(campaign.lifetime_budget);
+  const cboDaypartingReleased =
+    args.cboDaypartingReleased ?? isCboDaypartingReleased(accountId);
+  // Sem conversão aqui (mesma campanha); só a reconstrução segue o formato da campanha.
+  const gridOnlySchedule =
+    cboDaypartingReleased && isCBO && campaignLifetime && campaignUsesDayParting(campaign.pacing_type);
   const isSales = campaign.objective === "OUTCOME_SALES";
 
   // Creatives came with the ads read above (one request), so ad copies can pre-empt
@@ -4079,6 +4265,7 @@ export async function duplicateAdSet(args: {
       isCBO,
       campaignLifetime,
       prefetchedSource: source,
+      gridOnlySchedule,
     });
     tracker.track("adset", newAdsetId);
 
