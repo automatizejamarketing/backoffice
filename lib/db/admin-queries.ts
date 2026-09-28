@@ -3453,6 +3453,7 @@ export type CreateDuplicationLogData = {
   sourceName: string;
   newId: string;
   newName: string;
+  scheduleNote?: string;
 };
 
 /**
@@ -3470,7 +3471,9 @@ export async function createDuplicationLog(data: CreateDuplicationLogData) {
       fieldName: data.entity,
       oldValue: data.sourceId,
       newValue: data.newId,
-      note: `Duplicado "${data.sourceName}" (${data.sourceId}) → "${data.newName}" (${data.newId})`,
+      note: `Duplicado "${data.sourceName}" (${data.sourceId}) → "${data.newName}" (${data.newId})${
+        data.scheduleNote ? ` — ${data.scheduleNote}` : ""
+      }`,
     })
     .returning();
 

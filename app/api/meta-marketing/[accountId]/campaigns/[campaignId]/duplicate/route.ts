@@ -19,6 +19,12 @@ import {
   type RepairedCampaignInfo,
 } from "@/lib/meta-business/duplicate";
 import { createDuplicationLog } from "@/lib/db/admin-queries";
+import {
+  type CampaignDeliveryMode,
+  type CampaignScheduleBlock,
+  describeScheduleOverride,
+  scheduleOverrideFromRequest,
+} from "@/lib/meta-business/campaign-schedule";
 
 /**
  * The async deep-copy fast path polls Meta's request set within the request; allow
@@ -47,6 +53,7 @@ export type DuplicateCampaignResponse = {
   scheduleAdjustFailed?: boolean;
   /** Dead promoted-object ids replaced on the copy (1885015); the copy is PAUSED for review. */
   repairedCampaign?: RepairedCampaignInfo;
+  scheduleApplied?: boolean;
 };
 
 export type DuplicateErrorResponse = {
@@ -67,6 +74,9 @@ export type DuplicateInProgressResponse = {
 export type DuplicateCampaignRequestBody = {
   /** Website URL injected into ad copies whose creative lacks one (sales). */
   promotionUrl?: string;
+  /** "Duplicar com novo horário": dias e horários de TODOS os conjuntos da cópia. */
+  deliveryMode?: CampaignDeliveryMode;
+  scheduleBlocks?: CampaignScheduleBlock[];
 };
 
 export async function POST(
@@ -135,12 +145,25 @@ export async function POST(
       .json()
       .catch(() => ({}));
     const promotionUrl = body.promotionUrl?.trim();
+    const schedule = scheduleOverrideFromRequest(body);
+    if (!schedule.ok) {
+      return NextResponse.json(
+        attachCorrelationId({
+          error: "Invalid delivery schedule",
+          message: "Revise os dias e horários da cópia antes de duplicar.",
+          solution:
+            "Use blocos de pelo menos 1 hora, sem sobreposição no mesmo dia.",
+        }),
+        { status: 400 },
+      );
+    }
 
     const result = await duplicateCampaign({
       accountId,
       campaignId,
       accessToken: tokenResult.accessToken,
       ...(promotionUrl && { fallbackPromotionUrl: promotionUrl }),
+      ...(schedule.override ? { adSetSchedule: schedule.override } : {}),
     });
 
 
@@ -154,6 +177,9 @@ export async function POST(
         sourceName: result.sourceName,
         newId: result.id,
         newName: result.name,
+        ...(schedule.override
+          ? { scheduleNote: describeScheduleOverride(schedule.override) }
+          : {}),
       });
     } catch (dbErr) {
       logMetaMutationError(dbErr);
@@ -185,6 +211,7 @@ export async function POST(
         ...(result.repairedCampaign
           ? { repairedCampaign: result.repairedCampaign }
           : {}),
+        ...(result.scheduleApplied ? { scheduleApplied: true } : {}),
       },
       { status: 201 },
     );
