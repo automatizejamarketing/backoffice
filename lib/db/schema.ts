@@ -21,6 +21,7 @@ import {
 import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
 import type { BackofficeRole, SalesRole } from "@/lib/auth/rbac-core";
+import type { TrackingPixel } from "@/lib/products/tracking-pixels";
 import {
   COMPANY_CAPABILITIES,
   COMPANY_OFFER_CODES,
@@ -511,6 +512,12 @@ export const expertProfile = pgTable(
       .notNull()
       .default(false),
     stripeAccountUpdatedAt: timestamp("stripe_account_updated_at"),
+    /** Pixels padrão do produtor, copiados para produtos sem pixel daquele
+     * provedor e para produtos novos. O checkout não lê esta coluna. */
+    defaultTrackingPixels: jsonb("default_tracking_pixels")
+      .$type<TrackingPixel[]>()
+      .notNull()
+      .default([]),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -698,6 +705,12 @@ export const product = pgTable(
       .notNull()
       .default("v1"),
     legacyMasterclassCourseId: text("legacy_masterclass_course_id"),
+    /** Pixels de conversão do checkout. Validados em
+     * `lib/products/tracking-pixels.ts`; nunca o script colado. */
+    trackingPixels: jsonb("tracking_pixels")
+      .$type<TrackingPixel[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -736,6 +749,33 @@ export const product = pgTable(
 );
 
 export type Product = InferSelectModel<typeof product>;
+
+/** Tokens da API de Conversões por dono (expert, ou Automatize quando
+ * `expert_id` é nulo) e pixel. Separado de `products.tracking_pixels` porque
+ * aquele vai para o navegador; o token nunca sai do servidor. */
+export const productPixelCredential = pgTable(
+  "product_pixel_credentials",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").references(() => expertProfile.id, {
+      onDelete: "cascade",
+    }),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    pixelId: varchar("pixel_id", { length: 40 }).notNull(),
+    accessToken: text("access_token").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    ownerPixelUnique: unique("product_pixel_credentials_owner_pixel_unique")
+      .on(table.expertId, table.provider, table.pixelId)
+      .nullsNotDistinct(),
+  }),
+);
+
+export type ProductPixelCredential = InferSelectModel<
+  typeof productPixelCredential
+>;
 
 export const productContentItem = pgTable(
   "product_content_items",

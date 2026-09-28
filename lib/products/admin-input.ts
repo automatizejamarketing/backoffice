@@ -4,6 +4,7 @@ import {
   platformParticipationPercentToBps,
 } from "./commercial-eligibility";
 import { validateCoproducerSelection } from "./coproducer-policy";
+import { parseTrackingPixels } from "./tracking-pixels";
 
 const internalCoverUrl = z.string().refine((value) => {
   if (!value.startsWith("/api/products/assets?")) return false;
@@ -47,6 +48,8 @@ const schema = z.object({
   status: z.enum(["draft", "published", "archived"]).default("draft"),
   salesEnabled: z.boolean().default(true),
   termsVersion: z.string().trim().min(1).max(40).default("v1"),
+  /** Ausente mantém os pixels atuais (publicar/habilitar não os envia). */
+  trackingPixels: z.unknown().optional(),
 });
 
 function slugify(value: string): string {
@@ -152,5 +155,8 @@ export function parseProductAdminInput(input: unknown) {
     status: parsed.status,
     salesEnabled: parsed.salesEnabled,
     termsVersion: parsed.termsVersion,
+    ...(parsed.trackingPixels === undefined
+      ? {}
+      : { trackingPixels: parseTrackingPixels(parsed.trackingPixels) }),
   };
 }
