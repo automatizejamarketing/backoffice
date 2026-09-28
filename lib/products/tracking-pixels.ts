@@ -171,7 +171,8 @@ function sameProviderPixels(
  * Pixels padrão do produtor aplicados a um produto, provedor a provedor:
  * - produto sem pixel daquele provedor recebe o padrão;
  * - produto ainda idêntico ao padrão anterior acompanha a troca (ou remoção);
- * - pixel escolhido no produto nunca é trocado.
+ * - pixel escolhido no produto nunca é trocado;
+ * - padrão que estouraria o limite do produto não entra pela metade.
  */
 export function applyDefaultTrackingPixels(
   current: readonly TrackingPixel[],
@@ -188,12 +189,16 @@ export function applyDefaultTrackingPixels(
       (pixel) => pixel.provider === provider,
     );
     if (own.length > 0 && !sameProviderPixels(own, previous)) continue;
-    next = [
+    const candidate = [
       ...next.filter((pixel) => pixel.provider !== provider),
       ...defaults.filter((pixel) => pixel.provider === provider),
     ];
+    // Herança parcial viraria "pixel próprio" e nunca mais acompanharia o
+    // padrão: se a plataforma não cabe inteira, ela fica de fora.
+    if (candidate.length > MAX_TRACKING_PIXELS) continue;
+    next = candidate;
   }
-  return next.slice(0, MAX_TRACKING_PIXELS);
+  return next;
 }
 
 export function sameTrackingPixels(

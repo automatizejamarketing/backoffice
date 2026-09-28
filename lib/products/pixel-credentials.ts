@@ -32,6 +32,24 @@ export async function applyConversionsApiTokenChanges(
   expertId: string | null,
   changes: ConversionsApiTokenChange[],
 ) {
+  try {
+    await writeTokenChanges(executor, expertId, changes);
+  } catch (error) {
+    // O erro do driver traz os parâmetros do INSERT — inclusive o token — e as
+    // rotas devolvem a mensagem ao cliente. Loga sem ela e responde genérico.
+    console.error(
+      "[pixel-credentials] write failed",
+      error instanceof Error ? error.name : "unknown",
+    );
+    throw new Error("Não foi possível salvar o token da API de Conversões.");
+  }
+}
+
+async function writeTokenChanges(
+  executor: DbExecutor,
+  expertId: string | null,
+  changes: ConversionsApiTokenChange[],
+) {
   for (const change of changes) {
     await executor
       .delete(productPixelCredential)

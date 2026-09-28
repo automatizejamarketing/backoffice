@@ -153,6 +153,15 @@ describe("applyDefaultTrackingPixels", () => {
     assert.deepEqual(applyDefaultTrackingPixels(previous, next, previous), next);
   });
 
+  it("padrão que não cabe inteiro no limite não entra pela metade", () => {
+    const nineGa = Array.from({ length: 9 }, (_, index) =>
+      pixel("google_analytics", `G-TEST${index}AA`),
+    );
+    const twoMeta = [pixel("meta", "1111111111111111"), pixel("meta", "2222222222222222")];
+    assert.deepEqual(applyDefaultTrackingPixels(nineGa, twoMeta), nineGa);
+    assert.deepEqual(applyDefaultTrackingPixels(nineGa, [twoMeta[0]]), [...nineGa, twoMeta[0]]);
+  });
+
   it("produto que ajustou o pixel herdado deixa de acompanhar o padrão", () => {
     const previous = [pixel("meta", "1111111111111111")];
     const customized = [pixel("meta", "1111111111111111", { purchaseOnPixGenerated: true })];

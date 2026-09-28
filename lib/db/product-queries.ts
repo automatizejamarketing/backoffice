@@ -222,7 +222,10 @@ async function propagateExpertDefaultTrackingPixels(
   const products = await tx
     .select({ id: product.id, trackingPixels: product.trackingPixels })
     .from(product)
-    .where(eq(product.expertId, expertId));
+    .where(eq(product.expertId, expertId))
+    // Um save de pixel próprio concorrente espera: nada é sobrescrito com uma
+    // leitura velha.
+    .for("update");
   for (const row of products) {
     const current = readStoredTrackingPixels(row.trackingPixels);
     const next = applyDefaultTrackingPixels(current, defaults, previousDefaults);
@@ -315,23 +318,25 @@ export async function listProductsAdmin() {
 
 export async function createProductAdmin(input: unknown) {
   const values = parseProductAdminInput(input);
-  // Produto novo de expert já nasce com os pixels padrão dele.
-  let trackingPixels = values.trackingPixels ?? [];
-  if (values.expertId) {
-    const [owner] = await db
-      .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
-      .from(expertProfile)
-      .where(eq(expertProfile.id, values.expertId))
-      .limit(1);
-    trackingPixels = applyDefaultTrackingPixels(
-      trackingPixels,
-      readStoredTrackingPixels(owner?.defaultTrackingPixels),
-    );
-  }
   const tokenChanges = parseConversionsApiTokenChanges(
     (input as { trackingPixels?: unknown } | null)?.trackingPixels,
   );
   return db.transaction(async (tx) => {
+    // Produto novo de expert já nasce com os pixels padrão dele. O lock
+    // compartilhado espera uma troca de padrão em andamento terminar.
+    let trackingPixels = values.trackingPixels ?? [];
+    if (values.expertId) {
+      const [owner] = await tx
+        .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+        .from(expertProfile)
+        .where(eq(expertProfile.id, values.expertId))
+        .limit(1)
+        .for("share");
+      trackingPixels = applyDefaultTrackingPixels(
+        trackingPixels,
+        readStoredTrackingPixels(owner?.defaultTrackingPixels),
+      );
+    }
     const [created] = await tx
       .insert(product)
       .values({ ...values, trackingPixels })
