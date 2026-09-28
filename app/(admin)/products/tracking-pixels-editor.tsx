@@ -20,6 +20,7 @@ import {
   type TrackingPixel,
   type TrackingPixelProvider,
 } from "@/lib/products/tracking-pixels";
+import { TrackingPixelLogo } from "./tracking-pixel-logos";
 
 export type TrackingPixelDraft = {
   key: string;
@@ -110,8 +111,8 @@ export function TrackingPixelsEditor({
         const providerLabel = TRACKING_PIXEL_PROVIDER_LABELS[draft.provider];
         return (
           <div key={draft.key} className="space-y-3 rounded-md border p-3">
-            <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)_auto] sm:items-start">
-              <div className="space-y-2">
+            <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:items-start">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor={`${rowId}-provider`}>Plataforma</Label>
                 <Select
                   value={draft.provider}
@@ -128,41 +129,48 @@ export function TrackingPixelsEditor({
                   <SelectContent>
                     {TRACKING_PIXEL_PROVIDERS.map((provider) => (
                       <SelectItem key={provider} value={provider}>
-                        {TRACKING_PIXEL_PROVIDER_LABELS[provider]}
+                        <span className="flex items-center gap-2">
+                          <TrackingPixelLogo provider={provider} />
+                          {TRACKING_PIXEL_PROVIDER_LABELS[provider]}
+                        </span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor={`${rowId}-id`}>
                   {draft.provider === "google_ads" ? "ID da conta" : "ID do pixel"}
                 </Label>
-                <Input
-                  id={`${rowId}-id`}
-                  value={draft.pixelId}
-                  disabled={disabled}
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder={TRACKING_PIXEL_ID_PLACEHOLDERS[draft.provider]}
-                  onChange={(event) =>
-                    update(draft.key, { pixelId: event.target.value })
-                  }
-                />
+                {/* O botão estica até a altura do input: os dois design systems
+                    têm input e botão de ícone de alturas diferentes. */}
+                <div className="flex gap-2">
+                  <Input
+                    id={`${rowId}-id`}
+                    value={draft.pixelId}
+                    disabled={disabled}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={TRACKING_PIXEL_ID_PLACEHOLDERS[draft.provider]}
+                    onChange={(event) =>
+                      update(draft.key, { pixelId: event.target.value })
+                    }
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={disabled}
+                    className="h-auto shrink-0 self-stretch text-muted-foreground hover:text-destructive"
+                    aria-label={`Remover pixel ${providerLabel}`}
+                    onClick={() =>
+                      onChange(value.filter((item) => item.key !== draft.key))
+                    }
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={disabled}
-                className="text-muted-foreground hover:text-destructive sm:self-end"
-                aria-label={`Remover pixel ${providerLabel}`}
-                onClick={() =>
-                  onChange(value.filter((item) => item.key !== draft.key))
-                }
-              >
-                <Trash2 className="size-4" />
-              </Button>
             </div>
             {draft.provider === "google_ads" ? (
               <div className="space-y-2">
