@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   BookOpen,
@@ -120,6 +121,7 @@ import {
   readStoredTrackingPixels,
   type TrackingPixel,
 } from "@/lib/products/tracking-pixels";
+import { ExpertAvatar } from "./expert-avatar";
 import {
   fromTrackingPixelDrafts,
   toTrackingPixelDrafts,
@@ -684,53 +686,6 @@ function paymentMethod(order: Order) {
   return order.paymentMethodId ?? "—";
 }
 
-function ExpertAvatar({
-  name,
-  src,
-  size = "sm",
-}: {
-  name: string;
-  src: string | null;
-  size?: "xs" | "sm" | "lg";
-}) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const sizeClass =
-    size === "lg"
-      ? "size-20 text-xl"
-      : size === "xs"
-        ? "size-8 text-xs"
-        : "size-10 text-sm";
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-  const imageSrc = src && failedSrc !== src ? src : null;
-
-  return (
-    <div
-      className={`${sizeClass} shrink-0 overflow-hidden rounded-full border bg-muted`}
-      aria-label={imageSrc ? undefined : `Sem foto para ${name}`}
-    >
-      {imageSrc ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageSrc}
-          alt={`Foto de ${name}`}
-          className="size-full object-cover"
-          onError={() => setFailedSrc(imageSrc)}
-        />
-      ) : (
-        <span className="flex size-full items-center justify-center font-semibold text-muted-foreground">
-          {initials || "EX"}
-        </span>
-      )}
-    </div>
-  );
-}
-
 function AutomatizeAvatar() {
   return (
     <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white p-1.5">
@@ -949,8 +904,13 @@ async function uploadProductAsset(
 
 export function ProductsAdminWorkspace({
   frontendAppUrl,
+  initialTab = "products",
+  openExpertId = null,
 }: {
   frontendAppUrl: string;
+  initialTab?: string;
+  /** Vindo de "Editar cadastro" na página do expert: abre o dialog dele. */
+  openExpertId?: string | null;
 }) {
   const [products, setProducts] = useState<Array<{
     product: Product;
@@ -1058,6 +1018,17 @@ export function ProductsAdminWorkspace({
         owner.ownerType === "expert" ? current.coproducerSharePercent : "",
     }));
   }
+
+  const openedExpertIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openExpertId || openedExpertIdRef.current === openExpertId) return;
+    const expert = experts.find((row) => row.id === openExpertId);
+    if (!expert) return;
+    openedExpertIdRef.current = openExpertId;
+    editExpert(expert);
+    // `editExpert` é uma função do corpo do componente; abrir uma vez basta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experts, openExpertId]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -1962,7 +1933,7 @@ export function ProductsAdminWorkspace({
         </Button>
       </header>
 
-      <Tabs defaultValue="products">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="grid w-full grid-cols-5 lg:w-fit">
           <TabsTrigger value="dashboard">Painel</TabsTrigger>
           <TabsTrigger value="products">Produtos</TabsTrigger>
@@ -2274,7 +2245,12 @@ export function ProductsAdminWorkspace({
                         <div className="flex items-center gap-3">
                           <ExpertAvatar name={expert.displayName} src={expert.profileImageUrl} />
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{expert.displayName}</p>
+                            <Link
+                              href={`/products/experts/${expert.id}`}
+                              className="block truncate font-medium underline-offset-4 hover:underline"
+                            >
+                              {expert.displayName}
+                            </Link>
                             <p className="truncate text-sm text-muted-foreground">{expert.email}</p>
                           </div>
                         </div>
@@ -2791,7 +2767,7 @@ export function ProductsAdminWorkspace({
           if (!open) closeExpertDialog();
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Editar expert</DialogTitle>
             <DialogDescription>
