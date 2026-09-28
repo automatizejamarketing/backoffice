@@ -7,6 +7,7 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { checkAudienceSelectionAvailability } from "@/lib/meta-business/marketing/audiences/selection-guard";
+import { scheduleLockRouteBody } from "@/lib/meta-business/marketing/update/schedule-lock";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
 import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
 import { buildInternalChangeEvent } from "@/lib/meta-tracking/internal-change-event";
@@ -372,6 +373,13 @@ export async function PATCH(
       hasPositiveMinorUnits(currentCampaign.lifetime_budget) ||
       hasPositiveMinorUnits(previousLifetimeBudget) ||
       hasLifetimeBudgetChange;
+
+    // Horário de conjunto sob orçamento de campanha só se define na CRIAÇÃO: a Meta
+    // aceita a edição com 200 e o conjunto nunca mais entra no leilão
+    // (lib/meta-business/marketing/update/schedule-lock.ts).
+    if (hasDeliveryScheduleChange && usesCBO) {
+      return NextResponse.json(scheduleLockRouteBody(), { status: 400 });
+    }
 
     if (hasDailyBudgetChange && hasLifetimeBudgetChange) {
       return NextResponse.json(
