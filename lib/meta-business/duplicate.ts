@@ -898,35 +898,82 @@ function overrideGrid(override: AdSetScheduleOverride): unknown[] {
   }));
 }
 
+type CopyConversionContext = {
+  accountId: string;
+  sourceCampaignId: string;
+  newCampaignId: string;
+  accessToken: string;
+};
+
+function conversionErrorText(err: unknown): string {
+  return err instanceof GraphApiError
+    ? `${err.errorReturn.reason.title}: ${err.errorReturn.reason.message}`
+    : String(err);
+}
+
+/** Recusa da conversão registrada no motor: vale para as duas rotas e para a IA. */
+function warnConversionRefused(ctx: CopyConversionContext, err: unknown, message: string): void {
+  const data = err instanceof GraphApiError ? err.errorReturn.data : undefined;
+  console.warn("[duplicate] CBO_DAYPARTING_CONVERSION_REFUSED", {
+    accountId: ctx.accountId,
+    sourceCampaignId: ctx.sourceCampaignId,
+    newCampaignId: ctx.newCampaignId,
+    code: data?.code,
+    subcode: data?.errorSubcode,
+    message,
+  });
+}
+
 /**
  * Liga a programação (`pacing_type=["day_parting"]`) na CÓPIA ainda vazia, antes do primeiro
  * conjunto: a cópia de uma CBO vitalícia antiga nasce programada (etapa 2). Nunca toca a
- * origem. Recusa da Meta não derruba a duplicação — a cópia segue no formato antigo.
+ * origem. Só uma rejeição permanente da Meta é recusa (a cópia segue no formato antigo);
+ * qualquer outra falha relê a cópia para saber se a programação pegou. Se nem a releitura
+ * responde, o erro original sobe e a duplicação desfaz a cópia vazia.
  */
 async function convertCopyToDayParting(
-  newCampaignId: string,
-  accessToken: string,
+  ctx: CopyConversionContext,
 ): Promise<{ converted: true } | { converted: false; error: string }> {
   try {
     await withMetaRetry(() =>
       metaApiCall<{ success?: boolean }>({
         domain: "FACEBOOK",
         method: "POST",
-        path: newCampaignId,
+        path: ctx.newCampaignId,
         params: "",
         body: new URLSearchParams({ pacing_type: JSON.stringify(["day_parting"]) }),
-        accessToken,
+        accessToken: ctx.accessToken,
       }),
     );
     return { converted: true };
   } catch (err) {
-    return {
-      converted: false,
-      error:
-        err instanceof GraphApiError
-          ? `${err.errorReturn.reason.title}: ${err.errorReturn.reason.message}`
-          : String(err),
-    };
+    if (!isPermanentGraphFailure(err)) {
+      let pacing: string[] | string | undefined;
+      try {
+        const copy = await metaApiCall<{ pacing_type?: string[] | string }>({
+          domain: "FACEBOOK",
+          method: "GET",
+          path: ctx.newCampaignId,
+          params: "fields=pacing_type",
+          accessToken: ctx.accessToken,
+        });
+        pacing = copy.pacing_type;
+      } catch {
+        throw err;
+      }
+      if (campaignUsesDayParting(pacing)) {
+        console.warn("[duplicate] CBO_DAYPARTING_CONVERSION_POST_FAILED_BUT_PROGRAMMED", {
+          accountId: ctx.accountId,
+          sourceCampaignId: ctx.sourceCampaignId,
+          newCampaignId: ctx.newCampaignId,
+          message: conversionErrorText(err),
+        });
+        return { converted: true };
+      }
+    }
+    const error = conversionErrorText(err);
+    warnConversionRefused(ctx, err, error);
+    return { converted: false, error };
   }
 }
 
@@ -958,6 +1005,8 @@ function shouldConvertCopyToDayParting(args: {
  */
 async function prepareCopySchedule(args: {
   convert: boolean;
+  accountId: string;
+  sourceCampaignId: string;
   newCampaignId: string;
   accessToken: string;
   cboDaypartingReleased: boolean;
@@ -973,7 +1022,12 @@ async function prepareCopySchedule(args: {
   let scheduleConverted: boolean | undefined;
   let scheduleConversionError: string | undefined;
   if (args.convert) {
-    const conversion = await convertCopyToDayParting(args.newCampaignId, args.accessToken);
+    const conversion = await convertCopyToDayParting({
+      accountId: args.accountId,
+      sourceCampaignId: args.sourceCampaignId,
+      newCampaignId: args.newCampaignId,
+      accessToken: args.accessToken,
+    });
     scheduleConverted = conversion.converted;
     if (!conversion.converted) scheduleConversionError = conversion.error;
   }
@@ -3571,6 +3625,8 @@ export async function duplicateCampaign(args: {
     const { scheduleConverted, scheduleConversionError, gridOnlySchedule, forceRebuild } =
       await prepareCopySchedule({
         convert: convertToDayParting,
+        accountId,
+        sourceCampaignId: campaignId,
         newCampaignId,
         accessToken,
         cboDaypartingReleased,
@@ -3889,6 +3945,8 @@ export async function duplicateProvenCampaign(args: {
     const { scheduleConverted, scheduleConversionError, gridOnlySchedule, forceRebuild } =
       await prepareCopySchedule({
         convert: convertToDayParting,
+        accountId,
+        sourceCampaignId: campaignId,
         newCampaignId,
         accessToken,
         cboDaypartingReleased,

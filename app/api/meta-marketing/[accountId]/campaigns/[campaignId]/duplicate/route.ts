@@ -183,15 +183,6 @@ export async function POST(
       ...(schedule.override ? { adSetSchedule: schedule.override } : {}),
     });
 
-    if (result.scheduleConverted === false) {
-      console.warn("[duplicate] CBO_DAYPARTING_CONVERSION_REFUSED", {
-        accountId,
-        campaignId,
-        newCampaignId: result.id,
-        error: result.scheduleConversionError,
-      });
-    }
-
     const conversionNote =
       result.scheduleConverted === true
         ? "cópia nasceu programada"
