@@ -110,7 +110,7 @@ export function TrackingPixelsEditor({
         const providerLabel = TRACKING_PIXEL_PROVIDER_LABELS[draft.provider];
         return (
           <div key={draft.key} className="space-y-3 rounded-md border p-3">
-            <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)_auto] sm:items-end">
+            <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)_auto] sm:items-start">
               <div className="space-y-2">
                 <Label htmlFor={`${rowId}-provider`}>Plataforma</Label>
                 <Select
@@ -122,7 +122,7 @@ export function TrackingPixelsEditor({
                     })
                   }
                 >
-                  <SelectTrigger id={`${rowId}-provider`}>
+                  <SelectTrigger id={`${rowId}-provider`} className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -155,7 +155,7 @@ export function TrackingPixelsEditor({
                 variant="ghost"
                 size="icon"
                 disabled={disabled}
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive sm:self-end"
                 aria-label={`Remover pixel ${providerLabel}`}
                 onClick={() =>
                   onChange(value.filter((item) => item.key !== draft.key))

@@ -38,7 +38,7 @@ export const TRACKING_PIXEL_PROVIDER_LABELS: Record<
   TrackingPixelProvider,
   string
 > = {
-  meta: "Meta (Facebook/Instagram)",
+  meta: "Meta",
   tiktok: "TikTok",
   google_analytics: "Google Analytics 4",
   google_ads: "Google Ads",
