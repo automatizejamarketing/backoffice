@@ -11,6 +11,7 @@ import {
   computeDuplicationBudget,
   type DuplicateProvenCampaignResult,
   type DuplicateProvenCampaignReports,
+  type AdSetScheduleOverride,
 } from "@/lib/meta-business/duplicate";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
@@ -609,49 +610,31 @@ function resolveReviewSchedule(
 }
 
 /**
- * Apply the review's delivery-hours override onto every duplicated ad set before activation.
+ * The review's delivery hours, as an engine override. Horário de conjunto só se define na
+ * CRIAÇÃO (update/schedule-lock.ts): the engine RECONSTRUCTS each copied ad set with it
+ * instead of copying the mold's and editing it afterwards — that edit killed CBO ad sets
+ * before they ever delivered. Absent `deliveryMode` = keep the mold's schedule.
  */
-async function applyDeliveryScheduleOverride(args: {
-  accessToken: string;
-  adSetIds: string[];
-  answers: PlanAnswers;
-}): Promise<void> {
-  const { accessToken, adSetIds, answers } = args;
-  if (answers.deliveryMode == null) return;
-
-  const body = new URLSearchParams();
+export function scheduleOverrideFromAnswers(
+  answers: Pick<PlanAnswers, "deliveryMode" | "scheduleBlocks">,
+): AdSetScheduleOverride | undefined {
+  if (answers.deliveryMode == null) return undefined;
   if (
     answers.deliveryMode === "specific_hours" &&
     answers.scheduleBlocks &&
     answers.scheduleBlocks.length > 0
   ) {
-    body.set("pacing_type", JSON.stringify(["day_parting"]));
-    body.set(
-      "adset_schedule",
-      JSON.stringify(
-        answers.scheduleBlocks.map((block) => ({
-          days: block.days,
-          start_minute: block.startMinute,
-          end_minute: block.endMinute,
-          timezone_type: "ADVERTISER",
-        })),
-      ),
-    );
-  } else {
-    body.set("pacing_type", JSON.stringify(["standard"]));
-    body.set("adset_schedule", JSON.stringify([]));
+    return {
+      mode: "specific_hours",
+      blocks: answers.scheduleBlocks.map((block) => ({
+        days: block.days,
+        startMinute: block.startMinute,
+        endMinute: block.endMinute,
+      })),
+      timezoneType: "ADVERTISER",
+    };
   }
-
-  for (const adSetId of adSetIds) {
-    await metaApiCall<{ success?: boolean }>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: adSetId,
-      params: "",
-      body,
-      accessToken,
-    });
-  }
+  return { mode: "all_day" };
 }
 
 const PLACEMENT_TARGETING_KEYS = [
@@ -1107,6 +1090,8 @@ export async function createDuplicatedCampaign(
       ? [winningSource]
       : undefined;
 
+  const adSetSchedule = scheduleOverrideFromAnswers(answers);
+
   try {
     const result = await duplicateProvenCampaign({
       accountId: ctx.adAccountId,
@@ -1124,6 +1109,7 @@ export async function createDuplicatedCampaign(
       // criativo que nasceu neste produto tem TODAS as features em OPT_OUT —
       // ou seja, a campanha da IA sairia sem adaptação de posicionamento.
       placementAdaptation: answers.placementAdaptation ?? AI_PLACEMENT_ADAPTATION,
+      ...(adSetSchedule ? { adSetSchedule } : {}),
     });
 
     const winningCopiedAdSetId = copiedAdSetForSource(
@@ -1170,11 +1156,6 @@ export async function createDuplicatedCampaign(
     }
 
     try {
-      await applyDeliveryScheduleOverride({
-        accessToken: ctx.accessToken,
-        adSetIds: result.adSetIds,
-        answers,
-      });
       await applyPlacementsOverride({
         accessToken: ctx.accessToken,
         adSetIds: result.adSetIds,
@@ -1198,9 +1179,9 @@ export async function createDuplicatedCampaign(
               localIssue(
                 "adset",
                 "SCHEDULE_OVERRIDE_FAILED",
-                "A campanha foi criada, mas os horários ou posicionamentos não puderam ser aplicados.",
+                "A campanha foi criada, mas os posicionamentos ou o público não puderam ser aplicados.",
                 "Tente novamente ou ajuste depois na campanha.",
-                ["adset_schedule", "targeting"],
+                ["targeting"],
               ),
             ];
       return {
