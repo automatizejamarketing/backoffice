@@ -287,6 +287,26 @@ function requestedScheduleOf(input: CreateAdSetInput): RequestedSchedule {
   return { mode: "all_day" };
 }
 
+/**
+ * Etapa 2 (conta liberada, CBO): a programação é da campanha e a grade vem de `schedule`.
+ * `extraFields` não pode reintroduzir `pacing_type`/`adset_schedule` no conjunto.
+ */
+function scheduleExtraFieldsUnderCboIssues(input: CreateAdSetInput): CreateIssue[] {
+  if (!input.cboDaypartingReleased || !input.parentUsesCampaignBudget) return [];
+  const extra = input.extraFields ?? {};
+  return (["pacing_type", "adset_schedule"] as const)
+    .filter((key) => Object.prototype.hasOwnProperty.call(extra, key))
+    .map((key) =>
+      localIssue(
+        "adset",
+        "SCHEDULE_FIELDS_IN_EXTRA_FIELDS_UNDER_CBO",
+        "Sob orçamento de campanha a programação é da campanha e a grade vem de `schedule`; não passe pacing_type/adset_schedule em extraFields.",
+        "Use `schedule` no conjunto.",
+        ["extraFields", key],
+      ),
+    );
+}
+
 /** Pure local validation (collect-all). No Meta calls. */
 export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
   const billingEvent = input.billingEvent ?? "IMPRESSIONS";
@@ -333,6 +353,7 @@ export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
       parentUsesDayParting: input.parentUsesDayParting,
       cboDaypartingReleased: input.cboDaypartingReleased,
     }),
+    scheduleExtraFieldsUnderCboIssues(input),
     validatePlacements({
       publisherPlatforms: input.targeting?.publisherPlatforms,
       facebookPositions: input.targeting?.facebookPositions,
