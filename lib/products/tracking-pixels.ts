@@ -202,3 +202,43 @@ export function sameTrackingPixels(
 ) {
   return sameProviderPixels(left, right);
 }
+
+/** Token da API de Conversões da Meta: `EAA…`, só letras, dígitos, `_` e `-`. */
+const CONVERSIONS_API_TOKEN_FORMAT = /^[A-Za-z0-9_-]{30,2000}$/;
+
+export type ConversionsApiTokenChange = {
+  pixelId: string;
+  /** `null` remove o token salvo. */
+  accessToken: string | null;
+};
+
+/**
+ * Mudanças de token da API de Conversões vindas do editor de pixels. O token
+ * nunca entra em `tracking_pixels` (que vai para o navegador): cada linha Meta
+ * pode trazer `capiAccessToken` — texto grava, `null` remove, ausente mantém.
+ */
+export function parseConversionsApiTokenChanges(
+  input: unknown,
+): ConversionsApiTokenChange[] {
+  if (!Array.isArray(input)) return [];
+  const changes = new Map<string, string | null>();
+  for (const item of input) {
+    const value = (item ?? {}) as Record<string, unknown>;
+    if (value.provider !== "meta" || !("capiAccessToken" in value)) continue;
+    const raw = value.capiAccessToken;
+    if (raw !== null && typeof raw !== "string") continue;
+    const token = typeof raw === "string" ? raw.trim() : null;
+    if (token === "") continue;
+    const { pixelId } = normalizeTrackingPixel(item);
+    if (token !== null && !CONVERSIONS_API_TOKEN_FORMAT.test(token)) {
+      throw new Error(
+        `O token da API de Conversões do pixel ${pixelId} não parece válido. Copie o token inteiro gerado no Gerenciador de Eventos.`,
+      );
+    }
+    changes.set(pixelId, token);
+  }
+  return [...changes].map(([pixelId, accessToken]) => ({
+    pixelId,
+    accessToken,
+  }));
+}

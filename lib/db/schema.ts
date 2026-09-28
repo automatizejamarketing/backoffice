@@ -750,6 +750,33 @@ export const product = pgTable(
 
 export type Product = InferSelectModel<typeof product>;
 
+/** Tokens da API de Conversões por dono (expert, ou Automatize quando
+ * `expert_id` é nulo) e pixel. Separado de `products.tracking_pixels` porque
+ * aquele vai para o navegador; o token nunca sai do servidor. */
+export const productPixelCredential = pgTable(
+  "product_pixel_credentials",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").references(() => expertProfile.id, {
+      onDelete: "cascade",
+    }),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    pixelId: varchar("pixel_id", { length: 40 }).notNull(),
+    accessToken: text("access_token").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    ownerPixelUnique: unique("product_pixel_credentials_owner_pixel_unique")
+      .on(table.expertId, table.provider, table.pixelId)
+      .nullsNotDistinct(),
+  }),
+);
+
+export type ProductPixelCredential = InferSelectModel<
+  typeof productPixelCredential
+>;
+
 export const productContentItem = pgTable(
   "product_content_items",
   {

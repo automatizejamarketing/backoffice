@@ -163,6 +163,7 @@ type Expert = {
   stripeDetailsSubmitted: boolean;
   stripeAccountUpdatedAt: string | null;
   defaultTrackingPixels: TrackingPixel[];
+  capiPixelIds: string[];
 };
 
 type MercadoPagoExpertPanel = {
@@ -201,6 +202,7 @@ type Product = {
   salesEnabled: boolean;
   termsVersion: string;
   trackingPixels: TrackingPixel[];
+  capiPixelIds: string[];
 };
 
 type Content = {
@@ -966,6 +968,7 @@ export function ProductsAdminWorkspace({
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
   const [productPixels, setProductPixels] = useState<TrackingPixelDraft[]>([]);
+  const [productCapiPixelIds, setProductCapiPixelIds] = useState<string[]>([]);
   const [contentForm, setContentForm] = useState(emptyContent);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productDialogOpen, setProductDialogOpen] = useState(false);
@@ -980,6 +983,7 @@ export function ProductsAdminWorkspace({
   const [releasingBalance, setReleasingBalance] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
   const [expertPixels, setExpertPixels] = useState<TrackingPixelDraft[]>([]);
+  const [expertCapiPixelIds, setExpertCapiPixelIds] = useState<string[]>([]);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
   const [expertImageInputKey, setExpertImageInputKey] = useState(0);
@@ -1215,6 +1219,7 @@ export function ProductsAdminWorkspace({
     setEditingProductId(null);
     setProductForm(emptyProduct);
     setProductPixels([]);
+    setProductCapiPixelIds([]);
     setCoverFile(null);
     if (coverPreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(coverPreviewUrl);
@@ -1229,6 +1234,7 @@ export function ProductsAdminWorkspace({
     setEditingProductId(null);
     setProductForm(emptyProduct);
     setProductPixels([]);
+    setProductCapiPixelIds([]);
     setCoverFile(null);
     if (coverPreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(coverPreviewUrl);
@@ -1278,6 +1284,7 @@ export function ProductsAdminWorkspace({
     setProductPixels(
       toTrackingPixelDrafts(readStoredTrackingPixels(row.trackingPixels)),
     );
+    setProductCapiPixelIds(row.capiPixelIds ?? []);
     setProductDialogOpen(true);
   }
 
@@ -1558,6 +1565,7 @@ export function ProductsAdminWorkspace({
         readStoredTrackingPixels(expert.defaultTrackingPixels),
       ),
     );
+    setExpertCapiPixelIds(expert.capiPixelIds ?? []);
     setMercadoPagoExpertPanel(null);
     setMercadoPagoSwitchReason("");
     void loadMercadoPagoExpertPanel(expert.id);
@@ -2747,6 +2755,7 @@ export function ProductsAdminWorkspace({
               <TrackingPixelsEditor
                 idPrefix="admin-product-pixel"
                 value={productPixels}
+                capiPixelIds={productCapiPixelIds}
                 onChange={setProductPixels}
                 disabled={loading}
               />
@@ -3055,6 +3064,7 @@ export function ProductsAdminWorkspace({
               <TrackingPixelsEditor
                 idPrefix="admin-expert-pixel"
                 value={expertPixels}
+                capiPixelIds={expertCapiPixelIds}
                 onChange={setExpertPixels}
                 disabled={loading}
               />

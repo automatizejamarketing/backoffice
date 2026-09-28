@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   applyDefaultTrackingPixels,
+  parseConversionsApiTokenChanges,
   parseTrackingPixels,
   readStoredTrackingPixels,
   type TrackingPixel,
@@ -158,6 +159,45 @@ describe("applyDefaultTrackingPixels", () => {
     assert.deepEqual(
       applyDefaultTrackingPixels(customized, [pixel("meta", "2222222222222222")], previous),
       customized,
+    );
+  });
+});
+
+describe("parseConversionsApiTokenChanges", () => {
+  const token = `EAA${"x".repeat(40)}`;
+
+  it("grava, remove e ignora linha sem token ou de outra plataforma", () => {
+    assert.deepEqual(
+      parseConversionsApiTokenChanges([
+        { provider: "meta", pixelId: "25666150899674355", capiAccessToken: ` ${token} ` },
+        { provider: "meta", pixelId: "1111111111111111", capiAccessToken: null },
+        { provider: "meta", pixelId: "2222222222222222", capiAccessToken: "" },
+        { provider: "meta", pixelId: "3333333333333333" },
+        { provider: "tiktok", pixelId: "CABCD1234EFGH5678IJ0", capiAccessToken: token },
+      ]),
+      [
+        { pixelId: "25666150899674355", accessToken: token },
+        { pixelId: "1111111111111111", accessToken: null },
+      ],
+    );
+  });
+
+  it("recusa token com espaço ou curto demais", () => {
+    assert.throws(
+      () =>
+        parseConversionsApiTokenChanges([
+          { provider: "meta", pixelId: "25666150899674355", capiAccessToken: "abc def" },
+        ]),
+      /token da API de Conversões/,
+    );
+  });
+
+  it("parseTrackingPixels nunca devolve o token", () => {
+    assert.deepEqual(
+      parseTrackingPixels([
+        { provider: "meta", pixelId: "25666150899674355", capiAccessToken: token },
+      ]),
+      [pixel("meta", "25666150899674355")],
     );
   });
 });
