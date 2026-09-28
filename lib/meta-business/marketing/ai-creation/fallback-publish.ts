@@ -13,8 +13,10 @@
  * igual".
  */
 import { metaApiCall } from "@/lib/meta-business/api";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
 import { getConnectedPageById } from "@/lib/meta-business/get-instagram-connected-page";
+import { campaignPacingForNewCampaign } from "@/lib/meta-business/schedule-shape";
 import {
   buildGeoLocationsPayload,
   type SelectedGeoLocation,
@@ -778,9 +780,19 @@ export async function publishFallbackCampaign(args: {
       ? registrableDomain(promotionUrl)
       : undefined;
 
+  // Etapa 2: com a conta liberada, a CBO vitalícia nasce programada na campanha; o conjunto
+  // (com ou sem grade) herda isso pela árvore e leva só a grade — 24h x 7 no "o dia todo".
+  const cboDaypartingReleased = isCboDaypartingReleased(adAccountId);
+  const campaignPacing = campaignPacingForNewCampaign({
+    budgetLevel: "campaign",
+    budgetKind: "lifetime",
+    bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+    released: cboDaypartingReleased,
+  });
   const tree = await createCampaignTree({
     adAccountId,
     accessToken,
+    cboDaypartingReleased,
     campaign: {
       name: campaignName,
       objective: resolved.metaObjective,
@@ -795,6 +807,7 @@ export async function publishFallbackCampaign(args: {
       // Advantage campaign budget with LOWEST_COST_WITHOUT_CAP; the ad set
       // then carries no bid (parentUsesCampaignBudget).
       bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+      ...(campaignPacing ? { pacingType: campaignPacing } : {}),
     },
     adSets: [
       {
