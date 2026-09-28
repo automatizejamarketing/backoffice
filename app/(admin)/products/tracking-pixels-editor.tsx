@@ -1,0 +1,210 @@
+"use client";
+
+import { Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import {
+  MAX_TRACKING_PIXELS,
+  TRACKING_PIXEL_ID_PLACEHOLDERS,
+  TRACKING_PIXEL_PROVIDER_LABELS,
+  TRACKING_PIXEL_PROVIDERS,
+  type TrackingPixel,
+  type TrackingPixelProvider,
+} from "@/lib/products/tracking-pixels";
+
+export type TrackingPixelDraft = {
+  key: string;
+  provider: TrackingPixelProvider;
+  pixelId: string;
+  conversionLabel: string;
+  purchaseOnPixGenerated: boolean;
+};
+
+let nextDraftKey = 0;
+
+function draftKey() {
+  nextDraftKey += 1;
+  return `pixel-${nextDraftKey}`;
+}
+
+export function toTrackingPixelDrafts(
+  pixels: readonly TrackingPixel[],
+): TrackingPixelDraft[] {
+  return pixels.map((pixel) => ({
+    key: draftKey(),
+    provider: pixel.provider,
+    pixelId: pixel.pixelId,
+    conversionLabel: pixel.conversionLabel ?? "",
+    purchaseOnPixGenerated: pixel.purchaseOnPixGenerated,
+  }));
+}
+
+/** Linhas sem ID são descartadas; o servidor valida o resto. */
+export function fromTrackingPixelDrafts(drafts: readonly TrackingPixelDraft[]) {
+  return drafts
+    .filter((draft) => draft.pixelId.trim().length > 0)
+    .map(({ provider, pixelId, conversionLabel, purchaseOnPixGenerated }) => ({
+      provider,
+      pixelId,
+      conversionLabel: provider === "google_ads" ? conversionLabel : null,
+      purchaseOnPixGenerated,
+    }));
+}
+
+export function TrackingPixelsEditor({
+  idPrefix,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  idPrefix: string;
+  value: TrackingPixelDraft[];
+  onChange: (next: TrackingPixelDraft[]) => void;
+  disabled?: boolean;
+}) {
+  function update(key: string, patch: Partial<TrackingPixelDraft>) {
+    onChange(
+      value.map((draft) => (draft.key === key ? { ...draft, ...patch } : draft)),
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {value.length === 0 ? (
+        <p className="rounded-md border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
+          Nenhum pixel cadastrado.
+        </p>
+      ) : null}
+      {value.map((draft) => {
+        const rowId = `${idPrefix}-${draft.key}`;
+        const providerLabel = TRACKING_PIXEL_PROVIDER_LABELS[draft.provider];
+        return (
+          <div key={draft.key} className="space-y-3 rounded-md border p-3">
+            <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)_auto] sm:items-end">
+              <div className="space-y-2">
+                <Label htmlFor={`${rowId}-provider`}>Plataforma</Label>
+                <Select
+                  value={draft.provider}
+                  disabled={disabled}
+                  onValueChange={(provider) =>
+                    update(draft.key, {
+                      provider: provider as TrackingPixelProvider,
+                    })
+                  }
+                >
+                  <SelectTrigger id={`${rowId}-provider`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TRACKING_PIXEL_PROVIDERS.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {TRACKING_PIXEL_PROVIDER_LABELS[provider]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${rowId}-id`}>
+                  {draft.provider === "google_ads" ? "ID da conta" : "ID do pixel"}
+                </Label>
+                <Input
+                  id={`${rowId}-id`}
+                  value={draft.pixelId}
+                  disabled={disabled}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={TRACKING_PIXEL_ID_PLACEHOLDERS[draft.provider]}
+                  onChange={(event) =>
+                    update(draft.key, { pixelId: event.target.value })
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={disabled}
+                className="text-muted-foreground hover:text-destructive"
+                aria-label={`Remover pixel ${providerLabel}`}
+                onClick={() =>
+                  onChange(value.filter((item) => item.key !== draft.key))
+                }
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+            {draft.provider === "google_ads" ? (
+              <div className="space-y-2">
+                <Label htmlFor={`${rowId}-label`}>
+                  Rótulo da conversão de compra
+                </Label>
+                <Input
+                  id={`${rowId}-label`}
+                  value={draft.conversionLabel}
+                  disabled={disabled}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Ex.: AbC-D_efG"
+                  onChange={(event) =>
+                    update(draft.key, { conversionLabel: event.target.value })
+                  }
+                />
+              </div>
+            ) : null}
+            <div className="flex items-center gap-3">
+              <Switch
+                id={`${rowId}-pix`}
+                checked={draft.purchaseOnPixGenerated}
+                disabled={disabled}
+                onCheckedChange={(checked) =>
+                  update(draft.key, { purchaseOnPixGenerated: checked })
+                }
+              />
+              <Label
+                htmlFor={`${rowId}-pix`}
+                className="text-sm font-light text-muted-foreground"
+              >
+                Disparar a compra ao gerar o Pix, antes da confirmação do pagamento
+              </Label>
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled || value.length >= MAX_TRACKING_PIXELS}
+          onClick={() =>
+            onChange([
+              ...value,
+              {
+                key: draftKey(),
+                provider: "meta",
+                pixelId: "",
+                conversionLabel: "",
+                purchaseOnPixGenerated: false,
+              },
+            ])
+          }
+        >
+          <Plus className="size-4" /> Adicionar pixel
+        </Button>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {value.length}/{MAX_TRACKING_PIXELS}
+        </span>
+      </div>
+    </div>
+  );
+}

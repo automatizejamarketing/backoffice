@@ -116,6 +116,16 @@ import {
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
+import {
+  readStoredTrackingPixels,
+  type TrackingPixel,
+} from "@/lib/products/tracking-pixels";
+import {
+  fromTrackingPixelDrafts,
+  toTrackingPixelDrafts,
+  TrackingPixelsEditor,
+  type TrackingPixelDraft,
+} from "./tracking-pixels-editor";
 import { isProductOfferedForSale } from "@/lib/products/sale-gate";
 import {
   formatGatewayFeeEstimateLabel,
@@ -152,6 +162,7 @@ type Expert = {
   stripePayoutsEnabled: boolean;
   stripeDetailsSubmitted: boolean;
   stripeAccountUpdatedAt: string | null;
+  defaultTrackingPixels: TrackingPixel[];
 };
 
 type MercadoPagoExpertPanel = {
@@ -189,6 +200,7 @@ type Product = {
   status: "draft" | "published" | "archived";
   salesEnabled: boolean;
   termsVersion: string;
+  trackingPixels: TrackingPixel[];
 };
 
 type Content = {
@@ -953,6 +965,7 @@ export function ProductsAdminWorkspace({
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
+  const [productPixels, setProductPixels] = useState<TrackingPixelDraft[]>([]);
   const [contentForm, setContentForm] = useState(emptyContent);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productDialogOpen, setProductDialogOpen] = useState(false);
@@ -966,6 +979,7 @@ export function ProductsAdminWorkspace({
   const [refunding, setRefunding] = useState(false);
   const [releasingBalance, setReleasingBalance] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
+  const [expertPixels, setExpertPixels] = useState<TrackingPixelDraft[]>([]);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
   const [expertImageInputKey, setExpertImageInputKey] = useState(0);
@@ -1171,6 +1185,7 @@ export function ProductsAdminWorkspace({
           productForm.expertParticipationPercent,
         ),
         minimumPlanTier: productForm.minimumPlanTier || null,
+        trackingPixels: fromTrackingPixelDrafts(productPixels),
       };
       const response = await fetch(
         editingProductId
@@ -1199,6 +1214,7 @@ export function ProductsAdminWorkspace({
     setProductDialogOpen(false);
     setEditingProductId(null);
     setProductForm(emptyProduct);
+    setProductPixels([]);
     setCoverFile(null);
     if (coverPreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(coverPreviewUrl);
@@ -1212,6 +1228,7 @@ export function ProductsAdminWorkspace({
   function createProduct() {
     setEditingProductId(null);
     setProductForm(emptyProduct);
+    setProductPixels([]);
     setCoverFile(null);
     if (coverPreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(coverPreviewUrl);
@@ -1258,6 +1275,9 @@ export function ProductsAdminWorkspace({
       salesEnabled: row.salesEnabled,
       termsVersion: row.termsVersion,
     });
+    setProductPixels(
+      toTrackingPixelDrafts(readStoredTrackingPixels(row.trackingPixels)),
+    );
     setProductDialogOpen(true);
   }
 
@@ -1533,6 +1553,11 @@ export function ProductsAdminWorkspace({
       ),
       status: expert.status,
     });
+    setExpertPixels(
+      toTrackingPixelDrafts(
+        readStoredTrackingPixels(expert.defaultTrackingPixels),
+      ),
+    );
     setMercadoPagoExpertPanel(null);
     setMercadoPagoSwitchReason("");
     void loadMercadoPagoExpertPanel(expert.id);
@@ -1543,6 +1568,7 @@ export function ProductsAdminWorkspace({
     setExpertDialogOpen(false);
     setEditingExpertId(null);
     setExpertForm(emptyExpert);
+    setExpertPixels([]);
     setMercadoPagoExpertPanel(null);
     setMercadoPagoSwitchReason("");
     setExpertImageFile(null);
@@ -1685,6 +1711,7 @@ export function ProductsAdminWorkspace({
               expertForm.marketplaceFeePercent,
             ),
             profileImageUrl,
+            defaultTrackingPixels: fromTrackingPixelDrafts(expertPixels),
           }),
         },
       );
@@ -2709,6 +2736,21 @@ export function ProductsAdminWorkspace({
               </>
             ) : null}
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4 md:col-span-2">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Pixels de conversão</p>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Disparados no checkout deste produto. Produto novo de expert
+                  herda os pixels padrão dele nas plataformas sem pixel aqui.
+                </p>
+              </div>
+              <TrackingPixelsEditor
+                idPrefix="admin-product-pixel"
+                value={productPixels}
+                onChange={setProductPixels}
+                disabled={loading}
+              />
+            </div>
             <DialogFooter className="md:col-span-2">
               <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
               <Button type="submit" disabled={loading}>
@@ -3000,6 +3042,22 @@ export function ProductsAdminWorkspace({
                 acontece por dentro do Automatize; vendas pelo link direto do
                 produto pagam só a taxa acima.
               </p>
+            </div>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Pixels padrão</p>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Ao salvar, entram nos produtos do expert sem pixel da
+                  plataforma (ou ainda no padrão anterior) e em todo produto
+                  novo. Pixel próprio do produto não é trocado.
+                </p>
+              </div>
+              <TrackingPixelsEditor
+                idPrefix="admin-expert-pixel"
+                value={expertPixels}
+                onChange={setExpertPixels}
+                disabled={loading}
+              />
             </div>
             <Field label="Status">
               <Select

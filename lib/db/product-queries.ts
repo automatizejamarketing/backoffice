@@ -57,6 +57,12 @@ import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
 import { parseExpertAdminInput } from "@/lib/products/expert-input";
 import {
+  applyDefaultTrackingPixels,
+  readStoredTrackingPixels,
+  sameTrackingPixels,
+  type TrackingPixel,
+} from "@/lib/products/tracking-pixels";
+import {
   canTransitionPayout,
   type ExpertPayoutStatus,
 } from "@/lib/products/payout";
@@ -108,6 +114,7 @@ export async function listExperts() {
       stripePayoutsEnabled: expertProfile.stripePayoutsEnabled,
       stripeDetailsSubmitted: expertProfile.stripeDetailsSubmitted,
       stripeAccountUpdatedAt: expertProfile.stripeAccountUpdatedAt,
+      defaultTrackingPixels: expertProfile.defaultTrackingPixels,
     })
     .from(expertProfile)
     .innerJoin(user, eq(expertProfile.userId, user.id))
@@ -144,12 +151,66 @@ export async function createExpert(input: {
 
 export async function updateExpert(id: string, input: unknown) {
   const values = parseExpertAdminInput(input);
-  const [updated] = await db
-    .update(expertProfile)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(expertProfile.id, id))
-    .returning();
-  return updated ?? null;
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, id))
+      .limit(1)
+      .for("update");
+    if (!current) return null;
+    const now = new Date();
+    const [updated] = await tx
+      .update(expertProfile)
+      .set({ ...values, updatedAt: now })
+      .where(eq(expertProfile.id, id))
+      .returning();
+    if (updated && values.defaultTrackingPixels) {
+      await propagateExpertDefaultTrackingPixels(tx, {
+        expertId: id,
+        previousDefaults: readStoredTrackingPixels(
+          current.defaultTrackingPixels,
+        ),
+        defaults: values.defaultTrackingPixels,
+        now,
+      });
+    }
+    return updated ?? null;
+  });
+}
+
+/**
+ * Mesma regra do atalho do produtor no frontend
+ * (`frontend/lib/products/expert-tracking-pixels.ts`): produtos sem pixel da
+ * plataforma, ou ainda no padrão anterior, recebem o novo padrão.
+ */
+async function propagateExpertDefaultTrackingPixels(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  {
+    expertId,
+    previousDefaults,
+    defaults,
+    now,
+  }: {
+    expertId: string;
+    previousDefaults: TrackingPixel[];
+    defaults: TrackingPixel[];
+    now: Date;
+  },
+) {
+  const products = await tx
+    .select({ id: product.id, trackingPixels: product.trackingPixels })
+    .from(product)
+    .where(eq(product.expertId, expertId));
+  for (const row of products) {
+    const current = readStoredTrackingPixels(row.trackingPixels);
+    const next = applyDefaultTrackingPixels(current, defaults, previousDefaults);
+    if (sameTrackingPixels(current, next)) continue;
+    await tx
+      .update(product)
+      .set({ trackingPixels: next, updatedAt: now })
+      .where(eq(product.id, row.id));
+  }
 }
 
 export async function listProductsAdmin() {
@@ -227,7 +288,23 @@ export async function listProductsAdmin() {
 
 export async function createProductAdmin(input: unknown) {
   const values = parseProductAdminInput(input);
-  const [created] = await db.insert(product).values(values).returning();
+  // Produto novo de expert já nasce com os pixels padrão dele.
+  let trackingPixels = values.trackingPixels ?? [];
+  if (values.expertId) {
+    const [owner] = await db
+      .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, values.expertId))
+      .limit(1);
+    trackingPixels = applyDefaultTrackingPixels(
+      trackingPixels,
+      readStoredTrackingPixels(owner?.defaultTrackingPixels),
+    );
+  }
+  const [created] = await db
+    .insert(product)
+    .values({ ...values, trackingPixels })
+    .returning();
   return created;
 }
 

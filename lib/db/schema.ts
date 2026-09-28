@@ -21,6 +21,7 @@ import {
 import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
 import type { BackofficeRole, SalesRole } from "@/lib/auth/rbac-core";
+import type { TrackingPixel } from "@/lib/products/tracking-pixels";
 import {
   COMPANY_CAPABILITIES,
   COMPANY_OFFER_CODES,
@@ -511,6 +512,12 @@ export const expertProfile = pgTable(
       .notNull()
       .default(false),
     stripeAccountUpdatedAt: timestamp("stripe_account_updated_at"),
+    /** Pixels padrão do produtor, copiados para produtos sem pixel daquele
+     * provedor e para produtos novos. O checkout não lê esta coluna. */
+    defaultTrackingPixels: jsonb("default_tracking_pixels")
+      .$type<TrackingPixel[]>()
+      .notNull()
+      .default([]),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -698,6 +705,12 @@ export const product = pgTable(
       .notNull()
       .default("v1"),
     legacyMasterclassCourseId: text("legacy_masterclass_course_id"),
+    /** Pixels de conversão do checkout. Validados em
+     * `lib/products/tracking-pixels.ts`; nunca o script colado. */
+    trackingPixels: jsonb("tracking_pixels")
+      .$type<TrackingPixel[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

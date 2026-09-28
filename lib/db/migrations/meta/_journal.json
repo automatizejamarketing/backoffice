@@ -743,6 +743,13 @@
       "when": 1801000000000,
       "tag": "0122_signup_coupon_dudu20",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1801200000000,
+      "tag": "0124_product_tracking_pixels",
+      "breakpoints": true
     }
   ]
 }
