@@ -63,6 +63,7 @@ import {
 import {
   applyDefaultTrackingPixels,
   parseConversionsApiTokenChanges,
+  parseTrackingPixels,
   readStoredTrackingPixels,
   sameTrackingPixels,
   type TrackingPixel,
@@ -226,6 +227,7 @@ async function propagateExpertDefaultTrackingPixels(
     // Um save de pixel próprio concorrente espera: nada é sobrescrito com uma
     // leitura velha.
     .for("update");
+  let updatedProducts = 0;
   for (const row of products) {
     const current = readStoredTrackingPixels(row.trackingPixels);
     const next = applyDefaultTrackingPixels(current, defaults, previousDefaults);
@@ -234,7 +236,92 @@ async function propagateExpertDefaultTrackingPixels(
       .update(product)
       .set({ trackingPixels: next, updatedAt: now })
       .where(eq(product.id, row.id));
+    updatedProducts += 1;
   }
+  return updatedProducts;
+}
+
+/**
+ * Só os pixels padrão do expert (página do expert). O PATCH do expert exige o
+ * cadastro inteiro e zera o que não vier, como o telefone.
+ */
+export async function saveExpertDefaultTrackingPixelsAdmin(
+  expertId: string,
+  input: unknown,
+) {
+  const rawPixels = (input as { trackingPixels?: unknown } | null)
+    ?.trackingPixels;
+  const defaults = parseTrackingPixels(rawPixels);
+  const tokenChanges = parseConversionsApiTokenChanges(rawPixels);
+  const saved = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, expertId))
+      .limit(1)
+      .for("update");
+    if (!current) return null;
+    await applyConversionsApiTokenChanges(tx, expertId, tokenChanges);
+    const now = new Date();
+    await tx
+      .update(expertProfile)
+      .set({ defaultTrackingPixels: defaults, updatedAt: now })
+      .where(eq(expertProfile.id, expertId));
+    const updatedProducts = await propagateExpertDefaultTrackingPixels(tx, {
+      expertId,
+      previousDefaults: readStoredTrackingPixels(current.defaultTrackingPixels),
+      defaults,
+      now,
+    });
+    return { defaults, updatedProducts };
+  });
+  if (!saved) return null;
+  // Depois do commit: a lista usa outra conexão e não veria o token novo.
+  const capiByOwner = await listConversionsApiPixelIdsByOwner();
+  return { ...saved, capiPixelIds: capiByOwner.get(expertId) ?? [] };
+}
+
+/** Tudo que a página do expert mostra; nenhuma credencial sai daqui. */
+export async function getExpertAdminDetail(expertId: string) {
+  const expert = (await listExperts()).find((row) => row.id === expertId);
+  if (!expert) return null;
+  const [products, [sales]] = await Promise.all([
+    db
+      .select({
+        id: product.id,
+        slug: product.slug,
+        title: product.title,
+        coverUrl: product.coverUrl,
+        priceCentavos: product.priceCentavos,
+        status: product.status,
+        visibility: product.visibility,
+        salesEnabled: product.salesEnabled,
+        trackingPixels: product.trackingPixels,
+      })
+      .from(product)
+      .where(eq(product.expertId, expertId))
+      .orderBy(desc(product.createdAt)),
+    db
+      .select({
+        count: sql<number>`count(*)::int`,
+        grossCentavos: sql<number>`coalesce(sum(${productOrder.priceCentavos}), 0)::int`,
+      })
+      .from(productOrder)
+      .where(
+        and(
+          eq(productOrder.expertIdSnapshot, expertId),
+          eq(productOrder.status, "approved"),
+        ),
+      ),
+  ]);
+  return {
+    expert,
+    products: products.map((row) => ({
+      ...row,
+      trackingPixels: readStoredTrackingPixels(row.trackingPixels),
+    })),
+    sales: sales ?? { count: 0, grossCentavos: 0 },
+  };
 }
 
 export async function listProductsAdmin() {
