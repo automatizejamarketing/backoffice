@@ -40,6 +40,10 @@ import {
 import { validateInterestTargetingForEdit } from "@/lib/meta-business/parse-interest-targeting-request";
 import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import {
+  scheduleAndDatesChangedTogether,
+  scheduleWithDatesRouteBody,
+} from "@/lib/meta-business/schedule-dates-change";
+import {
   adSetScheduleForEdit,
   campaignScheduleShapeFromGraph,
   cboScheduleEditable,
@@ -395,6 +399,17 @@ export async function PATCH(
       cboScheduleEditable(campaignScheduleShape, isCboDaypartingReleased(accountId));
     if (hasDeliveryScheduleChange && usesCBO && !cboScheduleEdit) {
       return NextResponse.json(scheduleLockRouteBody(), { status: 400 });
+    }
+    if (
+      cboScheduleEdit &&
+      scheduleAndDatesChangedTogether({
+        hasDeliveryScheduleChange,
+        startTime,
+        endTime,
+        current: { startTime: previousStartTime, endTime: previousEndTime },
+      })
+    ) {
+      return NextResponse.json(scheduleWithDatesRouteBody(), { status: 400 });
     }
 
     if (hasDailyBudgetChange && hasLifetimeBudgetChange) {

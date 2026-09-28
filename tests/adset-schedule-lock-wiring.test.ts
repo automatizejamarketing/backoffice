@@ -30,3 +30,15 @@ test("rota de edição do backoffice trava horário em CBO não editável e, na 
 test("o corpo da trava usa o código compartilhado", () => {
   assert.equal(scheduleLockRouteBody().error, SCHEDULE_LOCKED_UNDER_CBO);
 });
+
+test("sob CBO programada, horário + datas na mesma gravação é recusado antes de qualquer escrita", () => {
+  const route = readFileSync(ROUTE, "utf8");
+  const lock = route.indexOf("if (hasDeliveryScheduleChange && usesCBO && !cboScheduleEdit)");
+  const together = route.indexOf("scheduleAndDatesChangedTogether({");
+  const refusal = route.indexOf("scheduleWithDatesRouteBody()");
+  const firstWrite = route.indexOf('method: "POST"');
+  assert.ok(together > lock, "a checagem vem depois da trava");
+  assert.ok(refusal > together, "recusa com o corpo compartilhado");
+  assert.ok(firstWrite > refusal, "antes de qualquer POST");
+  assert.match(route.slice(lock, refusal), /cboScheduleEdit &&/);
+});
