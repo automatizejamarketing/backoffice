@@ -30,6 +30,7 @@ import {
   readAdSet,
 } from "./read-current";
 import { ensureObjectInAccount } from "./ownership";
+import { scheduleLockIssue, touchesAdSetSchedule } from "./schedule-lock";
 import {
   collect,
   endedFlightWarning,
@@ -127,7 +128,8 @@ function needsCurrentState(input: UpdateAdSetInput): boolean {
       input.billingEvent != null ||
       input.destinationType != null ||
       input.promotedObject != null ||
-      input.endTime != null,
+      input.endTime != null ||
+      touchesAdSetSchedule(input),
   );
 }
 
@@ -340,6 +342,7 @@ export function validateUpdateAdSetInput(
     parentCbo && input.bidStrategy
       ? [localIssue("adset", "BID_STRATEGY_UNDER_CBO", "A campanha usa CBO; a estratégia de lance vive na campanha.", "Ajuste bid_strategy na campanha (updateCampaign) ou migre para ABO.", ["bid_strategy"])]
       : [],
+    parentCbo && touchesAdSetSchedule(input) ? [scheduleLockIssue()] : [],
     input.schedule
       ? validateDayparting({
           hasEffectiveLifetimeBudget: effectiveLifetime(input, snap, eff),
