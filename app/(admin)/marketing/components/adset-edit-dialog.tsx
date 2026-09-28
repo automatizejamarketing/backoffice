@@ -30,10 +30,10 @@ import {
 } from "@/lib/meta-business/budget-schedule";
 import {
   areCampaignScheduleBlocksEqual,
-  fromMetaAdSetScheduleBlocks,
-  getDeliveryModeFromMetaAdSetSchedule,
+  deliveryScheduleFromMetaAdSetSchedule,
   validateCampaignSchedulePayload,
 } from "@/lib/meta-business/campaign-schedule";
+import { pacingIncludesDayParting } from "@/lib/meta-business/schedule-shape";
 import {
   ALL_PLACEMENTS,
   FACEBOOK_PLACEMENTS,
@@ -269,9 +269,10 @@ function describeCurrentSchedule(value: AdSetDeliveryScheduleValue): string[] {
 }
 
 function adSetToDeliveryScheduleValue(adSet: AdSet): AdSetDeliveryScheduleValue {
+  const current = deliveryScheduleFromMetaAdSetSchedule(adSet.adsetSchedule);
   return {
-    deliveryMode: getDeliveryModeFromMetaAdSetSchedule(adSet.adsetSchedule),
-    scheduleBlocks: fromMetaAdSetScheduleBlocks(adSet.adsetSchedule),
+    deliveryMode: current.deliveryMode,
+    scheduleBlocks: current.scheduleBlocks,
   };
 }
 
@@ -296,16 +297,20 @@ export function AdSetEditDialog({
     : 0;
   const canEditBudget = !hasCampaignBudget;
   const canEditSchedule = effectiveBudgetType === "lifetime";
-  // Horário de conjunto sob orçamento de campanha só se define na CRIAÇÃO: a Meta
-  // aceita a edição e o conjunto para de veicular de vez (update/schedule-lock.ts).
-  const isScheduleLockedByCampaignBudget =
-    hasCampaignBudget && effectiveBudgetType === "lifetime";
+  const campaignLifetime = hasCampaignBudget && effectiveBudgetType === "lifetime";
+  // Etapa 2: campanha que nasceu programada e conta liberada → a troca manda só a grade.
+  const campaignScheduleEditable =
+    campaignLifetime &&
+    adSet.campaign?.scheduleReleased === true &&
+    pacingIncludesDayParting(adSet.campaign?.pacingType);
+  // Sem programação na campanha, a Meta aceita a troca e o conjunto para de vez.
+  const isScheduleLockedByCampaignBudget = campaignLifetime && !campaignScheduleEditable;
   const canEditDeliverySchedule =
-    !hasCampaignBudget && effectiveBudgetType === "lifetime";
-  const currentDeliveryMode = getDeliveryModeFromMetaAdSetSchedule(
-    adSet.adsetSchedule,
-  );
-  const currentScheduleBlocks = fromMetaAdSetScheduleBlocks(adSet.adsetSchedule);
+    (!hasCampaignBudget && effectiveBudgetType === "lifetime") ||
+    campaignScheduleEditable;
+  const currentDeliverySchedule = deliveryScheduleFromMetaAdSetSchedule(adSet.adsetSchedule);
+  const currentDeliveryMode = currentDeliverySchedule.deliveryMode;
+  const currentScheduleBlocks = currentDeliverySchedule.scheduleBlocks;
   const currentAgeMin = adSet.targeting?.age_min ?? 18;
   const currentAgeMax = adSet.targeting?.age_max ?? 65;
   const currentGendersNormalized = normalizeGenderCodes(
@@ -902,6 +907,11 @@ export function AdSetEditDialog({
                   disabled={isSubmitting}
                   businessUnits={businessUnits}
                 />
+                {campaignScheduleEditable && (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    A mudança de horário pode levar algumas horas para valer, perto do fim do dia pode ficar para o dia seguinte e pode reiniciar o aprendizado da campanha.
+                  </p>
+                )}
               </div>
             )}
 
@@ -910,7 +920,9 @@ export function AdSetEditDialog({
                 <div className="space-y-1">
                   <Label>Dias e horários travados nesta campanha</Label>
                   <p className="text-xs text-muted-foreground">
-                    Esta campanha usa orçamento de campanha. Nesse formato, a Meta aceita a troca de horário, mas o conjunto para de veicular de vez. Para veicular em outros dias ou horários, duplique a campanha já com o novo horário.
+                    {adSet.campaign?.scheduleReleased
+                      ? "Esta campanha usa orçamento de campanha e foi criada sem programação de horário. A Meta só permite mudar dias e horários em campanhas que já nascem programadas. Duplique com novo horário: a cópia já nasce programada e aceita mudar o horário depois."
+                      : "Esta campanha usa orçamento de campanha. Nesse formato, a Meta aceita a troca de horário, mas o conjunto para de veicular de vez. Para veicular em outros dias ou horários, duplique a campanha já com o novo horário."}
                   </p>
                 </div>
                 <ul className="space-y-0.5 text-xs text-muted-foreground">
