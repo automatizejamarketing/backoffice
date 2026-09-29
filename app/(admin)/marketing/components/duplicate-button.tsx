@@ -15,6 +15,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CampaignObjective } from "@/lib/meta-business/types";
+import { validateCampaignScheduleBlocks } from "@/lib/meta-business/campaign-schedule";
+import {
+  AdSetDeliveryScheduleEditor,
+  type AdSetDeliveryScheduleValue,
+} from "./adset-delivery-schedule-editor";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
 
 type DuplicateEntity = "campaign" | "adset" | "ad";
@@ -88,6 +93,8 @@ type DuplicateSuccessPayload = {
   scheduleAdjusted?: boolean;
   /** A native copy's schedule patch failed — it kept its inherited (possibly past) window. */
   scheduleAdjustFailed?: boolean;
+  /** Old lifetime CBO copy converted to programmed (true) or refused by Meta (false). */
+  scheduleConverted?: boolean;
 };
 
 /** Short, human summary of what got skipped, for a success-with-warnings toast. */
@@ -190,6 +197,13 @@ type DuplicateButtonProps = {
   onDuplicated?: () => void;
   /** `icon` for table rows, `labeled` for detail headers. */
   variant?: "icon" | "labeled";
+  /** Trigger text for the `labeled` variant (defaults to "Duplicar"). */
+  label?: string;
+  /**
+   * "Duplicar com novo horário" (campaign only): the dialog edits the copy's days and
+   * hours, and every copied ad set is created with them (horário só na criação).
+   */
+  withSchedule?: { initial: AdSetDeliveryScheduleValue };
 };
 
 export function DuplicateButton({
@@ -200,6 +214,8 @@ export function DuplicateButton({
   userId,
   onDuplicated,
   variant = "icon",
+  label: triggerLabel,
+  withSchedule,
 }: DuplicateButtonProps) {
   const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const [open, setOpen] = useState(false);
@@ -210,6 +226,8 @@ export function DuplicateButton({
   const [promotionUrlError, setPromotionUrlError] = useState<string | null>(
     null,
   );
+  const [deliverySchedule, setDeliverySchedule] =
+    useState<AdSetDeliveryScheduleValue | null>(withSchedule?.initial ?? null);
 
   const label = ENTITY_LABEL[entityType];
 
@@ -218,6 +236,7 @@ export function DuplicateButton({
     setNeedsPromotionUrl(false);
     setPromotionUrl("");
     setPromotionUrlError(null);
+    setDeliverySchedule(withSchedule?.initial ?? null);
   };
 
   const runDuplication = async () => {
@@ -233,9 +252,17 @@ export function DuplicateButton({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            needsPromotionUrl && trimmedUrl ? { promotionUrl: trimmedUrl } : {},
-          ),
+          body: JSON.stringify({
+            ...(needsPromotionUrl && trimmedUrl ? { promotionUrl: trimmedUrl } : {}),
+            ...(deliverySchedule
+              ? {
+                  deliveryMode: deliverySchedule.deliveryMode,
+                  ...(deliverySchedule.deliveryMode === "specific_hours"
+                    ? { scheduleBlocks: deliverySchedule.scheduleBlocks }
+                    : {}),
+                }
+              : {}),
+          }),
         },
       );
 
@@ -262,7 +289,11 @@ export function DuplicateButton({
       }
 
       void invalidateMarketing();
-      onDuplicated?.();
+      // The parent's reaction (e.g. the CBO schedule lock closing/remounting the ad-set
+      // edit Dialog) must only run once this AlertDialog is closed: two Radix dialogs
+      // unmounting in the same tick can leave `pointer-events: none` on <body>. So every
+      // success path closes + resets first and calls `onDuplicated` on the next tick.
+      const notifyDuplicated = () => setTimeout(() => onDuplicated?.(), 0);
 
       // 202: the async deep-copy is still finishing on Meta's side. Ask the user to
       // refresh shortly rather than claim success or show an error.
@@ -274,6 +305,7 @@ export function DuplicateButton({
         );
         setOpen(false);
         resetState();
+        notifyDuplicated();
         return;
       }
 
@@ -289,21 +321,35 @@ export function DuplicateButton({
       // The deliberate schedule shift is shown as info on the success path —
       // never as a warning.
       const scheduleNote = describeScheduleAdjusted(data);
+      const pauseReminder = deliverySchedule
+        ? "Cópia criada com os novos dias e horários. Pause a campanha original para as duas não dividirem o público."
+        : null;
+      const conversionMessage =
+        data.scheduleConverted === true
+          ? "A cópia já nasce com programação de horário: depois dá para mudar os dias e horários dela."
+          : data.scheduleConverted === false
+            ? "A Meta não aceitou programar a cópia; ela foi criada no formato antigo e o horário continua travado nela."
+            : undefined;
+      const infoNote = [scheduleNote, pauseReminder, conversionMessage]
+        .filter(Boolean)
+        .join(" · ");
       const copyName = data.name ?? entityName ?? "";
       if (notice) {
         toast.warning(`"${copyName}" duplicado com avisos`, {
-          description: scheduleNote ? `${notice} · ${scheduleNote}` : notice,
+          description: infoNote ? `${notice} · ${infoNote}` : notice,
           duration: 14000,
         });
-      } else if (scheduleNote) {
+      } else if (infoNote) {
         toast.success(`"${copyName}" duplicado com sucesso`, {
-          description: scheduleNote,
+          description: infoNote,
+          duration: deliverySchedule || conversionMessage ? 12000 : undefined,
         });
       } else {
         toast.success(`"${copyName}" duplicado com sucesso`);
       }
       setOpen(false);
       resetState();
+      notifyDuplicated();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : `Erro ao duplicar ${label}`,
@@ -327,6 +373,20 @@ export function DuplicateButton({
         return;
       }
     }
+    if (deliverySchedule) {
+      const scheduleError = validateCampaignScheduleBlocks(
+        deliverySchedule.deliveryMode,
+        deliverySchedule.deliveryMode === "specific_hours"
+          ? deliverySchedule.scheduleBlocks
+          : undefined,
+      );
+      if (scheduleError) {
+        setError(
+          "Revise os dias e horários: use blocos de pelo menos 1 hora, sem sobreposição no mesmo dia.",
+        );
+        return;
+      }
+    }
     await runDuplication();
   };
 
@@ -345,6 +405,7 @@ export function DuplicateButton({
     <>
       {variant === "icon" ? (
         <Button
+          type="button"
           variant="ghost"
           size="icon"
           className="size-8 text-muted-foreground hover:text-foreground"
@@ -356,13 +417,14 @@ export function DuplicateButton({
         </Button>
       ) : (
         <Button
+          type="button"
           variant="outline"
           size="sm"
           className="shrink-0 h-8 text-xs"
           onClick={openDialog}
         >
           <Copy className="size-3.5 mr-1.5" />
-          Duplicar
+          {triggerLabel ?? "Duplicar"}
         </Button>
       )}
 
@@ -374,19 +436,37 @@ export function DuplicateButton({
           if (!next) resetState();
         }}
       >
-        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+        <AlertDialogContent
+          onClick={(e) => e.stopPropagation()}
+          className={deliverySchedule ? "max-h-[85vh] max-w-2xl overflow-y-auto" : undefined}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {needsPromotionUrl
                 ? "Falta o link do seu site"
-                : `Duplicar ${label}?`}
+                : deliverySchedule
+                  ? "Duplicar com novo horário"
+                  : `Duplicar ${label}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {needsPromotionUrl
                 ? "A Meta exige um link de destino para concluir a cópia deste anúncio de vendas. Informe o link do seu site (ou da oferta) para continuarmos a duplicação."
-                : `${entityName ? `"${entityName}" — ` : ""}${ENTITY_DETAIL[entityType]} A cópia herda o status do original e o nome recebe o sufixo " - Cópia".`}
+                : deliverySchedule
+                  ? "A cópia da campanha nasce com os dias e horários abaixo em todos os conjuntos. A campanha original não é alterada."
+                  : `${entityName ? `"${entityName}" — ` : ""}${ENTITY_DETAIL[entityType]} A cópia herda o status do original e o nome recebe o sufixo " - Cópia".`}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {deliverySchedule && !needsPromotionUrl && (
+            <div className="space-y-2">
+              <Label>Dias e horários da cópia</Label>
+              <AdSetDeliveryScheduleEditor
+                value={deliverySchedule}
+                onChange={setDeliverySchedule}
+                disabled={isSubmitting}
+              />
+            </div>
+          )}
 
           {needsPromotionUrl && (
             <div className="space-y-1.5">

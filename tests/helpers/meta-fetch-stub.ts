@@ -149,5 +149,7 @@ export function rateLimitHeaders(estimatedMinutes = 5): Record<string, string> {
 /** Tests that touch `metaApiCall` need a non-empty app secret for the appsecret_proof step. */
 export function ensureMetaTestEnv(): void {
   process.env.META_GENERAL_APP_SECRET ??= "test-app-secret";
+  // A liberação da etapa 2 é decidida por teste (definida e restaurada por quem precisa).
+  delete process.env.META_CBO_DAYPARTING_ACCOUNT_IDS;
 }
 

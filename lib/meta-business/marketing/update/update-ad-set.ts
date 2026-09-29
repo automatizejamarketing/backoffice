@@ -30,6 +30,13 @@ import {
   readAdSet,
 } from "./read-current";
 import { ensureObjectInAccount } from "./ownership";
+import { scheduleLockIssue, touchesAdSetSchedule } from "./schedule-lock";
+import {
+  adSetScheduleForEdit,
+  campaignScheduleShapeFromGraph,
+  cboScheduleEditable,
+  type RequestedSchedule,
+} from "@/lib/meta-business/schedule-shape";
 import {
   collect,
   endedFlightWarning,
@@ -104,6 +111,8 @@ export type UpdateAdSetInput = {
   /** Full Meta targeting object to send verbatim (overrides the patch merge). */
   targetingRaw?: Record<string, unknown>;
   schedule?: AdSetScheduleInput;
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`), decidido pelo chamador. */
+  cboDaypartingReleased?: boolean;
 
   snapshot?: AdSetSnapshot;
   extraFields?: Record<string, unknown>;
@@ -127,8 +136,40 @@ function needsCurrentState(input: UpdateAdSetInput): boolean {
       input.billingEvent != null ||
       input.destinationType != null ||
       input.promotedObject != null ||
-      input.endTime != null,
+      input.endTime != null ||
+      touchesAdSetSchedule(input),
   );
+}
+
+/**
+ * Etapa 2: sob CBO, só a GRADE muda, e só quando a campanha nasceu programada e a conta
+ * está liberada. `pacing_type` em conjunto sob CBO é exatamente o que a documentação proíbe.
+ */
+function scheduleEditAllowedUnderCbo(input: UpdateAdSetInput, snap: AdSetSnapshot): boolean {
+  if (
+    !cboScheduleEditable(
+      campaignScheduleShapeFromGraph(snap.campaign),
+      Boolean(input.cboDaypartingReleased),
+    )
+  ) {
+    return false;
+  }
+  return !Object.prototype.hasOwnProperty.call(input.extraFields ?? {}, "pacing_type");
+}
+
+function requestedScheduleFromInput(schedule: AdSetScheduleInput): RequestedSchedule {
+  if (schedule.mode === "dayparting" && schedule.blocks?.length) {
+    return {
+      mode: "specific_hours",
+      blocks: schedule.blocks.map((b) => ({
+        days: b.days,
+        start_minute: b.startMinute,
+        end_minute: b.endMinute,
+        timezone_type: schedule.timezoneType ?? "ADVERTISER",
+      })),
+    };
+  }
+  return { mode: "all_day" };
 }
 
 async function resolveSnapshot(input: UpdateAdSetInput): Promise<AdSetSnapshot> {
@@ -340,6 +381,11 @@ export function validateUpdateAdSetInput(
     parentCbo && input.bidStrategy
       ? [localIssue("adset", "BID_STRATEGY_UNDER_CBO", "A campanha usa CBO; a estratégia de lance vive na campanha.", "Ajuste bid_strategy na campanha (updateCampaign) ou migre para ABO.", ["bid_strategy"])]
       : [],
+    parentCbo &&
+    touchesAdSetSchedule(input) &&
+    !scheduleEditAllowedUnderCbo(input, snap)
+      ? [scheduleLockIssue()]
+      : [],
     input.schedule
       ? validateDayparting({
           hasEffectiveLifetimeBudget: effectiveLifetime(input, snap, eff),
@@ -442,7 +488,17 @@ export function buildAdSetUpdatePayload(
   if (targeting) p.set("targeting", JSON.stringify(targeting));
 
   if (input.schedule) {
-    if (input.schedule.mode === "dayparting" && input.schedule.blocks?.length) {
+    if (parentUsesBudget(snap) && scheduleEditAllowedUnderCbo(input, snap)) {
+      // Etapa 2: campanha programada — a troca manda só a grade (24h x 7 no contínuo).
+      const decision = adSetScheduleForEdit(
+        campaignScheduleShapeFromGraph(snap.campaign),
+        requestedScheduleFromInput(input.schedule),
+        true,
+      );
+      if (decision.ok && decision.fields.adset_schedule) {
+        p.set("adset_schedule", JSON.stringify(decision.fields.adset_schedule));
+      }
+    } else if (input.schedule.mode === "dayparting" && input.schedule.blocks?.length) {
       p.set("pacing_type", JSON.stringify(["day_parting"]));
       p.set(
         "adset_schedule",

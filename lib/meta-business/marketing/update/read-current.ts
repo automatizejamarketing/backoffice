@@ -26,6 +26,7 @@ const CAMPAIGN_FIELDS = [
   "lifetime_budget",
   "spend_cap",
   "bid_strategy",
+  "pacing_type",
   "start_time",
   "stop_time",
   "special_ad_categories",
@@ -52,7 +53,7 @@ const ADSET_FIELDS = [
   "targeting",
   "pacing_type",
   "adset_schedule",
-  "campaign{id,objective,daily_budget,lifetime_budget,status}",
+  "campaign{id,objective,daily_budget,lifetime_budget,status,pacing_type,bid_strategy}",
 ].join(",");
 
 const AD_FIELDS = [
@@ -83,6 +84,7 @@ export type CampaignSnapshot = {
   stop_time?: string;
   special_ad_categories?: string[];
   is_adset_budget_sharing_enabled?: boolean | string;
+  pacing_type?: string[] | string;
 };
 
 export type AdSetSnapshot = {
@@ -111,6 +113,8 @@ export type AdSetSnapshot = {
     daily_budget?: string;
     lifetime_budget?: string;
     status?: string;
+    pacing_type?: string[] | string;
+    bid_strategy?: string;
   };
 };
 

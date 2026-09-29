@@ -3,6 +3,7 @@ import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import {
   buildAdSetConversionDetails,
   type AdSetConversionDetails,
@@ -67,7 +68,7 @@ function buildAdSetDetailFields(
     "targetingsentencelines{content}",
     "pacing_type",
     "adset_schedule",
-    "campaign{id,name,status,effective_status,objective,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,is_adset_budget_sharing_enabled,created_time,updated_time}",
+    "campaign{id,name,status,effective_status,objective,daily_budget,lifetime_budget,pacing_type,budget_remaining,start_time,stop_time,is_adset_budget_sharing_enabled,created_time,updated_time}",
     "insights{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,cpp,frequency,actions,cost_per_action_type,cost_per_result,action_values,purchase_roas,website_purchase_roas,date_start,date_stop}",
     `${adsSubquery}{id,name,status,effective_status,adset_id,campaign_id,created_time,updated_time,creative{${creativeFields}},insights{spend,impressions,clicks,inline_link_clicks,reach,cpc,cost_per_inline_link_click,cpm,ctr,inline_link_click_ctr,actions,cost_per_action_type,cost_per_result,date_start,date_stop}}`,
   ].join(",");
@@ -147,7 +148,7 @@ export async function GET(
   { params }: { params: Promise<{ accountId: string; adsetId: string }> },
 ): Promise<NextResponse<GetAdSetResponse | GetAdSetErrorResponse>> {
   try {
-    const { adsetId } = await params;
+    const { accountId, adsetId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -259,9 +260,12 @@ export async function GET(
       });
     }
 
+    const adset = transformAdSet(response);
+    if (adset.campaign) adset.campaign.scheduleReleased = isCboDaypartingReleased(accountId);
+
     return NextResponse.json(
       {
-        adset: transformAdSet(response),
+        adset,
         ads: response.ads?.data?.map(transformAd) ?? [],
         adsPagination: transformPaging(response.ads?.paging),
         ...(conversion && { conversion }),

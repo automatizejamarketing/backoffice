@@ -7,15 +7,19 @@
  */
 import {
   DuplicateAtomicError,
+  DuplicatePreconditionError,
+  DuplicateScheduleRefusedError,
   duplicateProvenCampaign,
   computeDuplicationBudget,
   type DuplicateProvenCampaignResult,
   type DuplicateProvenCampaignReports,
+  type AdSetScheduleOverride,
 } from "@/lib/meta-business/duplicate";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
 import { buildConventionalCampaignName, buildConventionalAdName } from "../campaign-naming";
 import { createAd } from "../creation/create-ad";
+import type { AdSetScheduleInput } from "../creation/create-ad-set";
 import { deleteMetaObject } from "../creation/delete";
 import { localIssue, type CreateIssue } from "../creation/types";
 import {
@@ -608,50 +612,115 @@ function resolveReviewSchedule(
   };
 }
 
+type ScheduleWindow = { days: number[]; startMinute: number; endMinute: number };
+
+/** One `${day}-${start}-${end}` entry per day, sorted: block/day order does not matter. */
+function scheduleWindowKeys(blocks: ScheduleWindow[]): string[] {
+  return blocks
+    .flatMap((block) =>
+      block.days.map((day) => `${day}-${block.startMinute}-${block.endMinute}`),
+    )
+    .sort();
+}
+
 /**
- * Apply the review's delivery-hours override onto every duplicated ad set before activation.
+ * The review's delivery hours, as an engine override. Horário de conjunto só se define na
+ * CRIAÇÃO (update/schedule-lock.ts): the engine RECONSTRUCTS each copied ad set with it
+ * instead of copying the mold's and editing it afterwards — that edit killed CBO ad sets
+ * before they ever delivered.
+ *
+ * Reconstruction only happens when the client picks hours DIFFERENT from the mold's:
+ * absent `deliveryMode`, "all day" over an unscheduled mold, or the mold's own windows
+ * (ignoring timezone) return `undefined` and the native copy keeps the mold's schedule.
  */
-async function applyDeliveryScheduleOverride(args: {
-  accessToken: string;
-  adSetIds: string[];
-  answers: PlanAnswers;
-}): Promise<void> {
-  const { accessToken, adSetIds, answers } = args;
-  if (answers.deliveryMode == null) return;
-
-  const body = new URLSearchParams();
-  if (
+export function scheduleOverrideFromAnswers(
+  answers: Pick<PlanAnswers, "deliveryMode" | "scheduleBlocks">,
+  moldSchedule: AdSetScheduleInput | undefined,
+): AdSetScheduleOverride | undefined {
+  if (answers.deliveryMode == null) return undefined;
+  const moldBlocks =
+    moldSchedule?.mode === "dayparting" ? (moldSchedule.blocks ?? []) : [];
+  const wantsSpecificHours =
     answers.deliveryMode === "specific_hours" &&
-    answers.scheduleBlocks &&
-    answers.scheduleBlocks.length > 0
-  ) {
-    body.set("pacing_type", JSON.stringify(["day_parting"]));
-    body.set(
-      "adset_schedule",
-      JSON.stringify(
-        answers.scheduleBlocks.map((block) => ({
-          days: block.days,
-          start_minute: block.startMinute,
-          end_minute: block.endMinute,
-          timezone_type: "ADVERTISER",
-        })),
-      ),
-    );
-  } else {
-    body.set("pacing_type", JSON.stringify(["standard"]));
-    body.set("adset_schedule", JSON.stringify([]));
+    answers.scheduleBlocks != null &&
+    answers.scheduleBlocks.length > 0;
+
+  if (!wantsSpecificHours) {
+    return moldBlocks.length === 0 ? undefined : { mode: "all_day" };
   }
 
-  for (const adSetId of adSetIds) {
-    await metaApiCall<{ success?: boolean }>({
-      domain: "FACEBOOK",
-      method: "POST",
-      path: adSetId,
-      params: "",
-      body,
-      accessToken,
-    });
+  const blocks = answers.scheduleBlocks!.map((block) => ({
+    days: block.days,
+    startMinute: block.startMinute,
+    endMinute: block.endMinute,
+  }));
+  const desiredKeys = scheduleWindowKeys(blocks);
+  const moldKeys = scheduleWindowKeys(moldBlocks);
+  if (
+    desiredKeys.length === moldKeys.length &&
+    desiredKeys.every((key, index) => key === moldKeys[index])
+  ) {
+    return undefined;
   }
+  return { mode: "specific_hours", blocks, timezoneType: "ADVERTISER" };
+}
+
+/**
+ * Maps a `duplicateProvenCampaign` failure to the publish result, or `undefined` when the
+ * error must be re-thrown. A precondition (e.g. specific hours over a daily budget) is
+ * refused before anything is created, so it carries its own solution and no rollback.
+ */
+export function duplicationErrorToResult(
+  error: unknown,
+): Extract<DuplicationPublishResult, { ok: false }> | undefined {
+  if (error instanceof DuplicateAtomicError) {
+    return {
+      ok: false,
+      issues: [
+        localIssue(
+          "campaign",
+          "DUPLICATION_FAILED",
+          error.message,
+          error.errorReturn.reason.solution ?? "Tente novamente em alguns instantes.",
+          [],
+        ),
+      ],
+      rolledBack: error.rolledBack,
+      ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),
+    };
+  }
+  if (error instanceof DuplicateScheduleRefusedError) {
+    return {
+      ok: false,
+      issues: [
+        localIssue(
+          "adset",
+          error.code,
+          error.errorReturn.reason.message,
+          error.errorReturn.reason.solution,
+          ["adset_schedule"],
+        ),
+      ],
+      rolledBack: false,
+    };
+  }
+  if (error instanceof DuplicatePreconditionError) {
+    return {
+      ok: false,
+      issues: [
+        localIssue(
+          "adset",
+          "DUPLICATION_PRECONDITION",
+          error.message,
+          error.errorReturn.reason.solution ??
+            "Revise a campanha de origem e tente novamente.",
+          ["adset_schedule"],
+        ),
+      ],
+      rolledBack: false,
+    };
+  }
+  return undefined;
 }
 
 const PLACEMENT_TARGETING_KEYS = [
@@ -1107,6 +1176,11 @@ export async function createDuplicatedCampaign(
       ? [winningSource]
       : undefined;
 
+  const adSetSchedule = scheduleOverrideFromAnswers(
+    answers,
+    prepared.mold.adSet.schedule,
+  );
+
   try {
     const result = await duplicateProvenCampaign({
       accountId: ctx.adAccountId,
@@ -1124,6 +1198,7 @@ export async function createDuplicatedCampaign(
       // criativo que nasceu neste produto tem TODAS as features em OPT_OUT —
       // ou seja, a campanha da IA sairia sem adaptação de posicionamento.
       placementAdaptation: answers.placementAdaptation ?? AI_PLACEMENT_ADAPTATION,
+      ...(adSetSchedule ? { adSetSchedule } : {}),
     });
 
     const winningCopiedAdSetId = copiedAdSetForSource(
@@ -1170,11 +1245,6 @@ export async function createDuplicatedCampaign(
     }
 
     try {
-      await applyDeliveryScheduleOverride({
-        accessToken: ctx.accessToken,
-        adSetIds: result.adSetIds,
-        answers,
-      });
       await applyPlacementsOverride({
         accessToken: ctx.accessToken,
         adSetIds: result.adSetIds,
@@ -1198,9 +1268,9 @@ export async function createDuplicatedCampaign(
               localIssue(
                 "adset",
                 "SCHEDULE_OVERRIDE_FAILED",
-                "A campanha foi criada, mas os horários ou posicionamentos não puderam ser aplicados.",
+                "A campanha foi criada, mas os posicionamentos ou o público não puderam ser aplicados.",
                 "Tente novamente ou ajuste depois na campanha.",
-                ["adset_schedule", "targeting"],
+                ["targeting"],
               ),
             ];
       return {
@@ -1314,22 +1384,8 @@ export async function createDuplicatedCampaign(
         : {}),
     };
   } catch (error) {
-    if (error instanceof DuplicateAtomicError) {
-      return {
-        ok: false,
-        issues: [
-          localIssue(
-            "campaign",
-            "DUPLICATION_FAILED",
-            error.message,
-            error.errorReturn.reason.solution ?? "Tente novamente em alguns instantes.",
-            [],
-          ),
-        ],
-        rolledBack: error.rolledBack,
-        ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),
-      };
-    }
+    const mapped = duplicationErrorToResult(error);
+    if (mapped) return mapped;
     if (error instanceof MoldNotFoundError) throw error;
     throw error;
   }

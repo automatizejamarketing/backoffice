@@ -1,3 +1,6 @@
+import { isFullWeekSchedule } from "@/lib/meta-business/schedule-shape";
+import type { AdSetScheduleOverride } from "@/lib/meta-business/duplicate";
+
 export const META_SCHEDULE_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 
 export type MetaScheduleDay = (typeof META_SCHEDULE_DAY_ORDER)[number];
@@ -138,15 +141,23 @@ export function validateCampaignSchedulePayload(
     return "Campaign must run for at least one hour";
   }
 
-  const normalizedBlocks = normalizeCampaignScheduleBlocks(payload.scheduleBlocks);
+  return validateCampaignScheduleBlocks(payload.deliveryMode, payload.scheduleBlocks);
+}
 
-  if (payload.deliveryMode === "all_day") {
+/** Block rules without a flight window — used where the dates come later (duplicate with new schedule). */
+export function validateCampaignScheduleBlocks(
+  deliveryMode: CampaignDeliveryMode,
+  scheduleBlocks: CampaignScheduleBlock[] | undefined,
+): string | null {
+  const normalizedBlocks = normalizeCampaignScheduleBlocks(scheduleBlocks);
+
+  if (deliveryMode === "all_day") {
     return normalizedBlocks.length > 0
       ? "scheduleBlocks can only be provided for specific hours"
       : null;
   }
 
-  if (payload.deliveryMode !== "specific_hours") {
+  if (deliveryMode !== "specific_hours") {
     return "deliveryMode must be all_day or specific_hours";
   }
 
@@ -186,6 +197,46 @@ export function validateCampaignSchedulePayload(
   }
 
   return null;
+}
+
+/**
+ * Duplicate routes: request body → engine override. Absent `deliveryMode` = keep each ad
+ * set's schedule. Blocks are snapped to Meta's whole-hour grid before they leave.
+ */
+export function scheduleOverrideFromRequest(body: {
+  deliveryMode?: unknown;
+  scheduleBlocks?: unknown;
+}): { ok: true; override?: AdSetScheduleOverride } | { ok: false; message: string } {
+  if (body.deliveryMode === undefined) return { ok: true };
+  if (body.deliveryMode !== "all_day" && body.deliveryMode !== "specific_hours") {
+    return { ok: false, message: "deliveryMode must be all_day or specific_hours" };
+  }
+  const blocks = Array.isArray(body.scheduleBlocks)
+    ? (body.scheduleBlocks as CampaignScheduleBlock[])
+    : undefined;
+  const error = validateCampaignScheduleBlocks(
+    body.deliveryMode,
+    body.deliveryMode === "specific_hours" ? blocks : undefined,
+  );
+  if (error) return { ok: false, message: error };
+  if (body.deliveryMode === "all_day") return { ok: true, override: { mode: "all_day" } };
+  return {
+    ok: true,
+    override: {
+      mode: "specific_hours",
+      blocks: normalizeCampaignScheduleBlocksForMeta(blocks),
+    },
+  };
+}
+
+/** Human text for the duplication audit note. */
+export function describeScheduleOverride(override: AdSetScheduleOverride): string {
+  if (override.mode === "all_day") return "novo horário: o dia todo";
+  const hhmm = (minute: number) =>
+    `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+  return `novo horário: ${override.blocks
+    .map((block) => `dias ${block.days.join(",")} ${hhmm(block.startMinute)}–${hhmm(block.endMinute)}`)
+    .join("; ")}`;
 }
 
 export function toMetaAdSetScheduleBlocks(
@@ -239,9 +290,22 @@ export function fromMetaAdSetScheduleBlocks(
 export function getDeliveryModeFromMetaAdSetSchedule(
   blocks: GraphAdSetScheduleBlock[] | undefined,
 ): CampaignDeliveryMode {
+  // Campanha programada guarda "o dia todo" como grade de 24h x 7 (a Meta exige grade).
+  if (isFullWeekSchedule(blocks)) return "all_day";
   return fromMetaAdSetScheduleBlocks(blocks).length > 0
     ? "specific_hours"
     : "all_day";
+}
+
+/** Valor do editor de horário a partir da grade lida da Meta (24h x 7 = o dia todo, sem blocos). */
+export function deliveryScheduleFromMetaAdSetSchedule(
+  blocks: GraphAdSetScheduleBlock[] | undefined,
+): { deliveryMode: CampaignDeliveryMode; scheduleBlocks: CampaignScheduleBlock[] } {
+  const deliveryMode = getDeliveryModeFromMetaAdSetSchedule(blocks);
+  return {
+    deliveryMode,
+    scheduleBlocks: deliveryMode === "all_day" ? [] : fromMetaAdSetScheduleBlocks(blocks),
+  };
 }
 
 export function areCampaignScheduleBlocksEqual(
