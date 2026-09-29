@@ -10,6 +10,8 @@ import {
 import {
   FULL_WEEK_ADSET_SCHEDULE,
   requiresStandardPacing,
+  SCHEDULE_REFUSALS,
+  type ScheduleRefusalCode,
 } from "@/lib/meta-business/schedule-shape";
 import { withMetaRetry } from "@/lib/meta-business/write-retry";
 
@@ -999,6 +1001,55 @@ function shouldConvertCopyToDayParting(args: {
     // Nunca com COST_CAP, que exige pacing padrão.
     !requiresStandardPacing(args.bidStrategy)
   );
+}
+
+/**
+ * Recusa de horário decidida antes de qualquer escrita (etapa 2). Carrega o código da regra
+ * (`schedule-shape.ts`) para as rotas responderem 400 `{ error, message, solution }`.
+ */
+export class DuplicateScheduleRefusedError extends GraphApiError {
+  readonly code: ScheduleRefusalCode;
+
+  constructor(code: ScheduleRefusalCode) {
+    const refusal = SCHEDULE_REFUSALS[code];
+    super({
+      statusCode: 400,
+      reason: {
+        httpStatusCode: 400,
+        title: "Horário não permitido nesta campanha",
+        message: refusal.message,
+        solution: refusal.solution,
+        isTransient: false,
+      },
+    });
+    this.name = "DuplicateScheduleRefusedError";
+    this.code = code;
+  }
+}
+
+/**
+ * Conta liberada + CBO vitalícia antiga (sem programação) com COST_CAP: a cópia não pode
+ * nascer programada (COST_CAP exige pacing padrão), então horários específicos pedidos na
+ * duplicação não têm formato válido. Recusa antes de qualquer escrita.
+ */
+function assertCopyScheduleAllowedForBid(args: {
+  override: AdSetScheduleOverride | undefined;
+  cboDaypartingReleased: boolean;
+  isCBO: boolean;
+  campaignLifetime: boolean;
+  campaignDayParting: boolean;
+  bidStrategy: string | undefined;
+}): void {
+  if (
+    args.cboDaypartingReleased &&
+    args.isCBO &&
+    args.campaignLifetime &&
+    !args.campaignDayParting &&
+    requiresStandardPacing(args.bidStrategy) &&
+    args.override?.mode === "specific_hours"
+  ) {
+    throw new DuplicateScheduleRefusedError("SCHEDULE_NEEDS_STANDARD_PACING_BID");
+  }
 }
 
 /**
@@ -3530,6 +3581,14 @@ export async function duplicateCampaign(args: {
     campaignDayParting,
     bidStrategy: sourceTree.bid_strategy,
   });
+  assertCopyScheduleAllowedForBid({
+    override: adSetSchedule,
+    cboDaypartingReleased,
+    isCBO,
+    campaignLifetime,
+    campaignDayParting,
+    bidStrategy: sourceTree.bid_strategy,
+  });
 
   const siblings = await metaApiCall<{ data?: NamedNode[] }>({
     domain: "FACEBOOK",
@@ -3858,6 +3917,14 @@ export async function duplicateProvenCampaign(args: {
   const cboDaypartingReleased =
     args.cboDaypartingReleased ?? isCboDaypartingReleased(accountId);
   const convertToDayParting = shouldConvertCopyToDayParting({
+    cboDaypartingReleased,
+    isCBO,
+    campaignLifetime,
+    campaignDayParting,
+    bidStrategy: sourceTree.bid_strategy,
+  });
+  assertCopyScheduleAllowedForBid({
+    override: adSetSchedule,
     cboDaypartingReleased,
     isCBO,
     campaignLifetime,

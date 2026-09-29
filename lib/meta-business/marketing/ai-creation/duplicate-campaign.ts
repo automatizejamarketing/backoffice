@@ -8,6 +8,7 @@
 import {
   DuplicateAtomicError,
   DuplicatePreconditionError,
+  DuplicateScheduleRefusedError,
   duplicateProvenCampaign,
   computeDuplicationBudget,
   type DuplicateProvenCampaignResult,
@@ -686,6 +687,21 @@ export function duplicationErrorToResult(
       ],
       rolledBack: error.rolledBack,
       ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),
+    };
+  }
+  if (error instanceof DuplicateScheduleRefusedError) {
+    return {
+      ok: false,
+      issues: [
+        localIssue(
+          "adset",
+          error.code,
+          error.errorReturn.reason.message,
+          error.errorReturn.reason.solution,
+          ["adset_schedule"],
+        ),
+      ],
+      rolledBack: false,
     };
   }
   if (error instanceof DuplicatePreconditionError) {

@@ -11,6 +11,7 @@ import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-
 import {
   duplicateCampaign,
   DuplicateInProgressError,
+  DuplicateScheduleRefusedError,
   duplicateErrorExtras,
   type SkippedItem,
   type ReplacedInterestsItem,
@@ -244,6 +245,17 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof DuplicateScheduleRefusedError) {
+      // Recusa decidida antes de qualquer escrita (etapa 2): nada a desfazer.
+      return NextResponse.json(
+        {
+          error: error.code,
+          message: error.errorReturn.reason.message,
+          solution: error.errorReturn.reason.solution,
+        },
+        { status: 400 },
+      );
+    }
     if (error instanceof DuplicateInProgressError) {
       return NextResponse.json(
         {
