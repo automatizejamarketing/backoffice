@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   canAccessMarketingUser,
   canAccessUserHubTab,
+  consultantSeesOnlyAssignedClients,
   hasBackofficePermission,
   isMarketingConsultantRole,
   type BackofficeActor,
@@ -160,6 +161,14 @@ describe("marketing_consultant_premium", () => {
     expect(isMarketingConsultantRole("marketing_consultant_premium")).toBe(true);
     expect(isMarketingConsultantRole("admin")).toBe(false);
     expect(isMarketingConsultantRole("comercial")).toBe(false);
+  });
+
+  test("sees every client while a regular consultant stays on the assigned portfolio", () => {
+    expect(consultantSeesOnlyAssignedClients("marketing_consultant")).toBe(true);
+    expect(consultantSeesOnlyAssignedClients("marketing_consultant_premium")).toBe(
+      false,
+    );
+    expect(consultantSeesOnlyAssignedClients("admin")).toBe(false);
   });
 
   test("manages every customer like an admin, without internal areas", () => {
