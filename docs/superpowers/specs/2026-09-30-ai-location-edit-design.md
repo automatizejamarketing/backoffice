@@ -59,11 +59,11 @@ do molde, a linha "Localização" aparece só para leitura.
 | Unidade | Mudança |
 |---|---|
 | `app/(admin)/marketing/components/location-selection.ts` (novo) | Funções puras com as operações de lista, extraídas dos handlers do componente **sem mudar comportamento** (`bounds = { min: number; max: number }`): `addSelectedLocation(list, location): SelectedGeoLocation[]`; `removeSelectedLocation(list, key): { locations: SelectedGeoLocation[]; removedIndex: number }`; `expandedIndexAfterRemoval(current: number \| null, removedIndex: number): number \| null`; `setLocationRadius(list, key, rawValue: string, bounds): SelectedGeoLocation[]`; `stepLocationRadius(list, key, delta: number, bounds): SelectedGeoLocation[]`; `moveLocationPin(list, index, latitude, longitude, bounds): SelectedGeoLocation[]`. A checagem "local com raio sem coordenadas → erro" continua no componente, antes de chamar `addSelectedLocation`. |
-| `app/(admin)/marketing/components/location-targeting-section.tsx` | (a) Troca `Popover`/`PopoverTrigger`/`PopoverContent` pelo painel inline do app: o botão de busca alterna `open` com `aria-expanded`/`aria-controls`; logo abaixo, quando `open`, um `<div>` com `Command` + `CommandInput autoFocus` e a mesma lista de resultados de hoje. O `id` do painel vem de `useId()`. (b) Os handlers passam a chamar `location-selection.ts`. Ficam como estão as diferenças próprias do backoffice: `userId` na busca e nos detalhes do Google, prop `required`, hook de i18n `useLocationTargetingT`, mensagem de erro detalhada da busca. |
+| `app/(admin)/marketing/components/location-targeting-section.tsx` | (a) Troca `Popover`/`PopoverTrigger`/`PopoverContent` pelo painel inline do app: o botão de busca alterna `open` com `aria-expanded`/`aria-controls`; logo abaixo, quando `open`, um `<div>` com `Command` + `CommandInput autoFocus` e a mesma lista de resultados de hoje. O `id` do painel vem de `useId()`. (b) Os handlers passam a chamar `location-selection.ts`. (c) Esc dentro do painel fecha só o painel (ver "Esc dentro da busca"). Ficam como estão as diferenças próprias do backoffice: `userId` na busca e nos detalhes do Google, prop `required`, hook de i18n `useLocationTargetingT`, mensagem de erro detalhada da busca. |
 | `app/globals.css` | `[data-radix-popper-content-wrapper] { z-index: 100; }` com o comentário do app ("Radix positions portaled menus with a transformed wrapper… Keep them above review sheets (z-90)"). |
 | `components/ui/popover.tsx` | `PopoverContent`: `z-50` → `z-[100]` e `pointer-events-auto` (nas duas strings de classe onde `z-50` aparece). |
-| `app/(admin)/marketing/ai/review-summaries.ts` | Função pura nova `geoSummaryLine(geo)` para o `geo` de `AudienceReviewAdSet` (ver regra abaixo). |
-| `app/(admin)/marketing/ai/ai-campaign-client.tsx` | A linha "Localização" da revisão passa a aparecer também com molde: `ReviewRow` só leitura (sem `onEdit`), valor `geoSummaryLine(plannedAudience.geo)` — ou "Não especificada" enquanto não houver plano. Sem molde, fica como hoje (`locationLabel` + editar abrindo o sheet). |
+| `app/(admin)/marketing/ai/review-summaries.ts` | Recebe `geoSummaryLine(geo)`: a função privada `audienceGeoLabel` de `ai-review-card.tsx` extraída sem mudar o texto, e aceitando `undefined`. O bloco "Segmentação efetiva por conjunto" (`ReviewEffectiveAudience`) passa a usá-la; a linha nova do molde também. |
+| `app/(admin)/marketing/ai/ai-campaign-client.tsx` | A linha "Localização" da revisão passa a aparecer também com molde: `ReviewRow` só leitura (sem `onEdit`), valor `geoSummaryLine(plannedAudience?.geo)` ("não especificada" enquanto não houver plano). Sem molde, fica como hoje (`locationLabel` + editar abrindo o sheet). |
 
 Consumidores do `LocationTargetingSection` que passam a ter o painel inline (igual ao app):
 o fluxo de IA (`ai-campaign-client.tsx`, passo "Onde anunciar?" e sheet de revisão),
@@ -110,13 +110,21 @@ o fluxo de IA (`ai-campaign-client.tsx`, passo "Onde anunciar?" e sheet de revis
 - **Cancelar** / **X** / fechar → descarta o rascunho.
 
 **Caminho do molde**
-- Linha "Localização" só leitura com `geoSummaryLine(plannedAudience.geo)`; sem botão de editar.
+- Linha "Localização" só leitura com `geoSummaryLine(plannedAudience?.geo)`; sem botão de editar.
 
-**`geoSummaryLine(geo)`**
+**`geoSummaryLine(geo | undefined)`** (texto idêntico ao `audienceGeoLabel` atual)
 - Com `geo.locations` não vazio: `"<label>"` ou `"<label> · <N> km"` por local, unidos por `" · "`.
-- Senão, contagens não nulas unidas por `" + "`, em pt-BR com plural:
-  `N endereço(s) com raio`, `N cidade(s)`, `N estado(s)`, `N país(es)`.
-- Nada disso → `"Não especificada"`.
+- Senão, contagens não nulas unidas por `" + "`: `N endereço(s)`, `N cidade(s)`,
+  `N região(ões)`, `N país(es)`.
+- Nada disso, ou `geo` ausente → `"não especificada"`.
+
+**Esc dentro da busca**
+- Com o painel aberto, Esc com o foco dentro dele fecha só o painel. O sheet de revisão (e os
+  diálogos de conjunto) continuam abertos, com o rascunho intacto. Motivo: o Radix escuta Esc na
+  fase de captura do `document`; com o `Popover` a camada da busca absorvia o Esc, com o painel
+  inline não absorve mais. O componente registra um listener de `keydown` na captura do
+  `window` enquanto o painel está aberto e, para Esc com alvo dentro do painel, interrompe a
+  propagação e fecha o painel.
 
 ## Testes
 
@@ -129,7 +137,10 @@ Unitários com `bun:test` (estilo de `review-summaries.test.ts`):
   - Raio: campo e ± limitados a 1–80; valor inválido/≤ 0 ignorado; cidade e país não aceitam raio.
   - Pino: vira `custom_location` com chave `custom_<lat>_<lng>`, mantém o raio ou usa o padrão.
 - `app/(admin)/marketing/ai/review-summaries.test.ts`: `geoSummaryLine` com locais nomeados e
-  raio, só contagens (plural e singular), e vazio.
+  raio, só contagens, vazio e `undefined`.
+- `tests/review-sheet-stacking.test.ts`: contrato de empilhamento — o z-index de
+  `[data-radix-popper-content-wrapper]` no `globals.css` e o do `PopoverContent` ficam acima do
+  z-index do `ReviewEditSheet`.
 
 Portões: `tsc --noEmit` sem erros novos; `eslint` nos arquivos tocados (o lint do repo já sai 1
 na base); suíte completa `FRONTEND_ROOT=D:/automatize-marketing/automatize-frontend bun test`
@@ -143,8 +154,8 @@ aplicado só em `localhost`. Screenshots em
 
 1. **Antes (base):** reproduzir a busca coberta pelo sheet de Localização.
 2. **Sheet de revisão:** buscar e adicionar endereço; raio por slider, ± e campo; remover até o
-   Brasil voltar; adicionar cidade e ver o Brasil sair; Salvar e ver a linha atualizada; reabrir,
-   mexer, Cancelar e ver a alteração descartada.
+   Brasil voltar; adicionar cidade e ver o Brasil sair; Esc na busca fecha só o painel; Salvar e
+   ver a linha atualizada; reabrir, mexer, Cancelar e ver a alteração descartada.
 3. **Passo "Onde anunciar?"** (cliente sem endereço salvo): busca e Continuar.
 4. **Caminho do molde:** linha "Localização" só leitura.
 5. **Sheets de Período e CTA:** calendário e selects por cima do sheet.
