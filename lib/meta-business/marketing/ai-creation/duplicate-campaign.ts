@@ -674,16 +674,29 @@ export function duplicationErrorToResult(
   error: unknown,
 ): Extract<DuplicationPublishResult, { ok: false }> | undefined {
   if (error instanceof DuplicateAtomicError) {
+    // Meta's code/subcode ride along so `aiCreationFailureResponse` can name the
+    // refusal (402 payment / 403 certification / 403 account authentication)
+    // instead of the generic 500 a code-less issue lands on. A Meta refusal is
+    // a `create`-stage issue, not a local one.
+    const issue = localIssue(
+      "campaign",
+      "DUPLICATION_FAILED",
+      error.message,
+      error.errorReturn.reason.solution ?? "Tente novamente em alguns instantes.",
+      [],
+    );
     return {
       ok: false,
       issues: [
-        localIssue(
-          "campaign",
-          "DUPLICATION_FAILED",
-          error.message,
-          error.errorReturn.reason.solution ?? "Tente novamente em alguns instantes.",
-          [],
-        ),
+        error.metaCode != null
+          ? {
+              ...issue,
+              stage: "create",
+              metaCode: error.metaCode,
+              ...(error.metaSubcode != null ? { metaSubcode: error.metaSubcode } : {}),
+              transient: error.errorReturn.reason.isTransient,
+            }
+          : issue,
       ],
       rolledBack: error.rolledBack,
       ...(error.orphanIds?.length ? { orphanIds: error.orphanIds } : {}),

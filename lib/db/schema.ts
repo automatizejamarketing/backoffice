@@ -2444,6 +2444,84 @@ export const metaAdminOauthAttempt = pgTable(
 
 export type MetaAdminOauthAttempt = InferSelectModel<typeof metaAdminOauthAttempt>;
 
+export const META_PUBLISH_HOLD_STATUSES = [
+  "held",
+  "publishing",
+  "published",
+  "failed",
+  "cancelled",
+] as const;
+export type MetaPublishHoldStatus = (typeof META_PUBLISH_HOLD_STATUSES)[number];
+
+export const META_PUBLISH_HOLD_FLOWS = ["draft", "ai"] as const;
+export type MetaPublishHoldFlow = (typeof META_PUBLISH_HOLD_FLOWS)[number];
+
+/**
+ * Publicações seguradas ("em preparação").
+ *
+ * Quando a Meta recusa o anúncio com 100/2859024 (um administrador do
+ * Gerenciador de Negócios do cliente ainda não aceitou a política de não
+ * discriminação para usuários do sistema), o pedido de publicação inteiro
+ * fica aqui, tal como chegou à rota, para ser refeito no servidor, sem o
+ * navegador, assim que uma conexão capaz de publicar existir: a reconexão do
+ * consultor hoje, a credencial de consultor da fase 2 depois.
+ *
+ * Enquanto a linha estiver `held`, o rascunho do lado da Meta (campanha e
+ * conjunto pausados, mídia já enviada) NÃO é apagado: é ele que a repetição
+ * reaproveita. `request` é o corpo da rota (`flow` diz qual), gravado antes de
+ * qualquer resposta ao cliente.
+ */
+export const metaPublishHold = pgTable(
+  "meta_publish_holds",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    /** `act_…` da conta que recusou. */
+    adAccountId: text("ad_account_id").notNull(),
+    /** Conexão (`meta_business_accounts.id`) que estava ativa na recusa. */
+    metaAccountId: text("meta_account_id"),
+    flow: varchar("flow", { length: 16 }).$type<MetaPublishHoldFlow>().notNull(),
+    /** Corpo do pedido de publicação, exatamente como a rota o recebeu. */
+    request: jsonb("request").$type<Record<string, unknown>>().notNull(),
+    /** Rascunho no lado da Meta que a repetição reaproveita (fluxo `draft`). */
+    draftCampaignId: text("draft_campaign_id"),
+    draftAdSetId: text("draft_ad_set_id"),
+    /** Nome mostrado na lista enquanto a campanha está em preparação. */
+    campaignName: text("campaign_name"),
+    /** Código estável da recusa, ex.: `meta_certification_required`. */
+    reasonCode: varchar("reason_code", { length: 64 }).notNull(),
+    /** Código, subcódigo e fbtrace_id da recusa original. */
+    reason: jsonb("reason").$type<Record<string, unknown>>(),
+    status: varchar("status", { length: 16 })
+      .$type<MetaPublishHoldStatus>()
+      .notNull()
+      .default("held"),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at"),
+    lastError: text("last_error"),
+    publishedCampaignId: text("published_campaign_id"),
+    /** Qual conexão publicou: `owner` (a do cliente) ou `consultant`. */
+    publishedVia: varchar("published_via", { length: 16 }),
+    publishedAt: timestamp("published_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userStatusIdx: index("meta_publish_holds_user_status_idx").on(
+      table.userId,
+      table.status,
+    ),
+    statusCreatedIdx: index("meta_publish_holds_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type MetaPublishHold = InferSelectModel<typeof metaPublishHold>;
+
 // AdSet targeting type for audit logs (subset + index for Meta targeting JSON)
 export type AdSetTargetingData = {
   age_min?: number;
