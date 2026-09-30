@@ -29,7 +29,7 @@ import {
 } from "@/lib/db/schema";
 import {
   type BackofficeActor,
-  isMarketingConsultantRole,
+  consultantSeesOnlyAssignedClients,
 } from "@/lib/auth/rbac-core";
 import {
   DEFAULT_BUSINESS_OPERATING_RULES,
@@ -421,7 +421,7 @@ function portfolioBaseQuery() {
 }
 
 function buildPortfolioAccessConditions(actor: BackofficeActor): SQL[] {
-  if (isMarketingConsultantRole(actor.role)) {
+  if (consultantSeesOnlyAssignedClients(actor.role)) {
     return [eq(userMarketingConsultant.consultantId, actor.id)];
   }
   return [];

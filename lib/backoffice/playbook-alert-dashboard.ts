@@ -6,7 +6,7 @@ import {
 import { firstSearchParam } from "@/lib/backoffice/filter-params";
 import {
   type BackofficeActor,
-  isMarketingConsultantRole,
+  consultantSeesOnlyAssignedClients,
 } from "@/lib/auth/rbac-core";
 import { PROACTIVITY_ALERT_DEFINITIONS } from "@/lib/proactivity/catalog";
 import {
@@ -228,7 +228,7 @@ export function emptyPlaybookAlertKpis(): PlaybookAlertKpis {
 export function resolvePlaybookAlertAccessScope(
   actor: BackofficeActor,
 ): PlaybookAlertAccessScope {
-  if (isMarketingConsultantRole(actor.role)) {
+  if (consultantSeesOnlyAssignedClients(actor.role)) {
     return { kind: "consultant", consultantId: actor.id };
   }
   return { kind: "all" };

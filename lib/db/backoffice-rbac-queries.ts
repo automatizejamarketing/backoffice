@@ -12,6 +12,7 @@ import {
 import {
   type BackofficeActor,
   type BackofficeRole,
+  consultantSeesOnlyAssignedClients,
   isMarketingConsultantRole,
   type SalesRole,
 } from "@/lib/auth/rbac-core";
@@ -241,7 +242,7 @@ export async function getMarketingConsultantPortfolio(
       eq(userMarketingConsultant.consultantId, backofficeUser.id),
     )
     .where(
-      isMarketingConsultantRole(actor.role)
+      consultantSeesOnlyAssignedClients(actor.role)
         ? eq(userMarketingConsultant.consultantId, actor.id)
         : undefined,
     )

@@ -10,11 +10,19 @@ export const BACKOFFICE_ROLE_VALUES = [
 export type BackofficeRole = (typeof BACKOFFICE_ROLE_VALUES)[number];
 
 /**
- * Consultor de marketing, comum ou premium: tem carteira própria (clientes
- * atribuídos). O premium também mexe em qualquer cliente, como admin.
+ * Consultor de marketing, comum ou premium: pode receber clientes atribuídos.
+ * O premium também mexe em qualquer cliente, como admin.
  */
 export function isMarketingConsultantRole(role: BackofficeRole): boolean {
   return role === "marketing_consultant" || role === "marketing_consultant_premium";
+}
+
+/**
+ * Só o consultor comum fica preso à carteira atribuída.
+ * O premium continua atribuível e vê alertas, carteira e marketing de todo mundo.
+ */
+export function consultantSeesOnlyAssignedClients(role: BackofficeRole): boolean {
+  return role === "marketing_consultant";
 }
 
 export type BackofficePermission =
