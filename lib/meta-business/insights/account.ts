@@ -79,6 +79,14 @@ const ACCOUNT_STATUS_PT: Record<number, string> = {
   101: "Fechada",
 };
 
+/**
+ * Rótulo pt-BR do `account_status` da Meta — os mesmos textos de
+ * `messages/pt-BR.json` (`accountStatus`) do app do cliente.
+ */
+export function getAccountStatusLabel(status: number): string {
+  return ACCOUNT_STATUS_PT[status] ?? "Desconhecida";
+}
+
 /** Fetch and normalize the ad account context. Throws on Graph error. */
 export async function fetchAccountContext(args: {
   adAccountId: string;
@@ -141,7 +149,7 @@ async function fetchAccountContextUncached(args: {
     accountStatus: raw.account_status ?? null,
     accountStatusLabel:
       raw.account_status != null
-        ? (ACCOUNT_STATUS_PT[raw.account_status] ?? "Desconhecida")
+        ? getAccountStatusLabel(raw.account_status)
         : "Desconhecida",
     // Budgets are MINOR units on Meta — keep it that way (this one is compared against ad-set
     // budgets, which are also cents). `toNumber` guards the junk: an empty string would otherwise
