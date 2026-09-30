@@ -31,6 +31,7 @@ import {
 } from "@/lib/meta-business/campaign-sort";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 import { AdAccountSelector } from "./ad-account-selector";
+import { AdAccountMoneyPanel } from "./ad-account-money-panel";
 import { MetaAssetsCard } from "./meta-assets-card";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { PartnerAccessPanel } from "./partner-access-panel";
@@ -503,6 +504,12 @@ export function MarketingWorkspace({
                   )}
                 </div>
               )}
+              {metaAccount && selectedAccountId && !adAccountsError ? (
+                <AdAccountMoneyPanel
+                  userId={selectedUser.id}
+                  accountId={selectedAccountId}
+                />
+              ) : null}
             </div>
           </CardContent>
         </Card>
