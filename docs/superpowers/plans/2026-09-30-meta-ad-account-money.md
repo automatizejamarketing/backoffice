@@ -449,7 +449,9 @@ describe("readAdAccountMoney", () => {
         message: req.params.get("fields") === FULL_FIELDS ? "primeira" : "segunda",
       }),
     }));
-    await expect(readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() })).rejects.toThrow("segunda");
+    // GraphApiError.message é o texto MAPEADO (findMappedError); a mensagem crua da Graph fica em errorReturn.data.
+    const error = await readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() }).catch((e) => e);
+    expect(error.errorReturn.data.message).toBe("segunda");
     expect(stub.calls).toHaveLength(2);
   });
 
