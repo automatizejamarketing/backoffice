@@ -96,6 +96,12 @@ export type CachedMetaReadArgs<T> = {
   staleMs?: number;
   /** A leitura real na Meta. Só roda em cache miss. */
   fetcher: () => Promise<T>;
+  /**
+   * Ignora a entrada FRESCA da L1 e vai à Meta (o botão "Atualizar" do card de
+   * saldo). Continua juntando chamadas concorrentes iguais, grava o resultado
+   * novo e, sob rate limit, ainda serve a entrada existente. Default: false.
+   */
+  forceRefresh?: boolean;
 };
 
 /**
@@ -103,12 +109,12 @@ export type CachedMetaReadArgs<T> = {
  * serve-stale sob rate limit. Erros nunca são cacheados.
  */
 export async function cachedMetaRead<T>(args: CachedMetaReadArgs<T>): Promise<T> {
-  const { key, ttlMs, fetcher } = args;
+  const { key, ttlMs, fetcher, forceRefresh = false } = args;
   const staleMs = args.staleMs ?? ttlMs * 6;
   const now = Date.now();
 
   const fromMemory = readMemory<T>(key, now);
-  if (fromMemory && fromMemory.freshUntil > now) {
+  if (!forceRefresh && fromMemory && fromMemory.freshUntil > now) {
     return fromMemory.value;
   }
 
