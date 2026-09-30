@@ -3,6 +3,7 @@ import type {
   AdAccountMoneyRead,
   AdAccountMoneyResponse,
 } from "@/lib/backoffice/ad-account-money-types";
+import { stripActPrefix } from "@/lib/meta-business/account-match";
 import { GraphApiError, graphErrorToClientError } from "@/lib/meta-business/error";
 import type { GetAccessTokenResult } from "@/lib/meta-business/get-user-access-token";
 import type { ReconnectInfo } from "@/lib/meta-business/reconnect-link";
@@ -41,33 +42,35 @@ export async function handleAdAccountMoney(
   params: { userId: string; accountId: string },
   deps: AdAccountMoneyHandlerDeps,
 ): Promise<Response> {
-  const authz = await deps.authorize(params.userId);
-  if (!authz.ok) return authz.response;
-
-  if (!ACCOUNT_ID_PATTERN.test(params.accountId)) {
-    return json({ error: "invalid_account_id", message: "Conta de anúncios inválida." }, 400);
-  }
-
-  const tokenResult = await deps.getAccessToken(params.userId);
-  if (!tokenResult.success) {
-    const { error } = tokenResult;
-    return json(
-      {
-        error: error.error,
-        message: error.message,
-        solution: error.solution,
-        needsReconnect: error.needsReconnect,
-        ...(error.needsReconnect ? { reconnect: deps.reconnectInfo() } : {}),
-      },
-      error.statusCode,
-    );
-  }
-
-  const fresh = new URL(request.url).searchParams.get("fresh") === "1";
-
+  // Tudo dentro do try: o guard RE-LANÇA falha de sessão/banco (rbac.ts), e sem
+  // isso o Next responderia o 500 padrão dele em vez do JSON desta rota.
   try {
+    const authz = await deps.authorize(params.userId);
+    if (!authz.ok) return authz.response;
+
+    if (!ACCOUNT_ID_PATTERN.test(params.accountId)) {
+      return json({ error: "invalid_account_id", message: "Conta de anúncios inválida." }, 400);
+    }
+
+    const tokenResult = await deps.getAccessToken(params.userId);
+    if (!tokenResult.success) {
+      const { error } = tokenResult;
+      return json(
+        {
+          error: error.error,
+          message: error.message,
+          solution: error.solution,
+          needsReconnect: error.needsReconnect,
+          ...(error.needsReconnect ? { reconnect: deps.reconnectInfo() } : {}),
+        },
+        error.statusCode,
+      );
+    }
+
+    const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+
     const read = await deps.readMoney({
-      adAccountId: params.accountId.replace(/^act_/, ""),
+      adAccountId: stripActPrefix(params.accountId),
       accessToken: tokenResult.accessToken,
       fresh,
     });

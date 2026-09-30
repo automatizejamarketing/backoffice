@@ -177,6 +177,41 @@ describe("handleAdAccountMoney", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("Internal server error");
+    expect(body.message).toBe("Não foi possível consultar a Meta agora.");
+    expect(body.solution).toBe("Tente de novo em instantes.");
     expect(JSON.stringify(body)).not.toContain("10.0.0.1");
+  });
+
+  test("autorização que lança → 500 genérico em JSON, sem token nem Meta", async () => {
+    const { deps, reads, tokenCalls } = setup({
+      authorize: async () => {
+        throw new Error("session store down 10.0.0.2");
+      },
+    });
+    const res = await handleAdAccountMoney(req(), { userId: "user-1", accountId: "123" }, deps);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "Internal server error",
+      message: "Não foi possível consultar a Meta agora.",
+      solution: "Tente de novo em instantes.",
+    });
+    expect(tokenCalls).toEqual([]);
+    expect(reads).toEqual([]);
+  });
+
+  test("busca de token que lança → 500 genérico em JSON, sem Meta", async () => {
+    const { deps, reads } = setup({
+      getAccessToken: async () => {
+        throw new Error("db timeout");
+      },
+    });
+    const res = await handleAdAccountMoney(req(), { userId: "user-1", accountId: "123" }, deps);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({
+      error: "Internal server error",
+      message: "Não foi possível consultar a Meta agora.",
+      solution: "Tente de novo em instantes.",
+    });
+    expect(reads).toEqual([]);
   });
 });

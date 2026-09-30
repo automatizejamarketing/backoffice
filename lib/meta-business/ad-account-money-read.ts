@@ -11,7 +11,7 @@ import type {
   AdAccountMoneyRead,
   AdAccountMoneyState,
 } from "@/lib/backoffice/ad-account-money-types";
-import { withActPrefix } from "@/lib/meta-business/account-match";
+import { stripActPrefix, withActPrefix } from "@/lib/meta-business/account-match";
 import { GraphApiError } from "@/lib/meta-business/error";
 import { getAccountStatusLabel } from "@/lib/meta-business/insights/account";
 import { callMeta } from "@/lib/meta-business/insights/client";
@@ -118,7 +118,7 @@ export async function readAdAccountMoney(args: {
   accessToken: string;
   fresh?: boolean;
 }): Promise<AdAccountMoneyRead> {
-  const digits = args.adAccountId.replace(/^act_/, "");
+  const digits = stripActPrefix(args.adAccountId);
   return cachedMetaRead({
     key: `acctmoney:${tokenCacheId(args.accessToken)}:${digits}`,
     ttlMs: AD_ACCOUNT_MONEY_CACHE_TTL_MS,

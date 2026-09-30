@@ -13,7 +13,7 @@ import {
 } from "@/lib/backoffice/describe-ad-account-money";
 import { cn } from "@/lib/utils";
 import {
-  AdAccountMoneyRequestError,
+  describeAdAccountMoneyError,
   useAdAccountMoney,
   useRefreshAdAccountMoney,
 } from "../hooks/use-ad-account-money";
@@ -30,13 +30,6 @@ const TONE_BADGE: Record<
   destructive: { variant: "destructive" },
   outline: { variant: "outline" },
 };
-
-function describeError(error: unknown): { message: string; solution?: string } {
-  if (error instanceof AdAccountMoneyRequestError && error.body?.message) {
-    return { message: error.body.message, solution: error.body.solution };
-  }
-  return { message: "Verifique a conexão e tente de novo." };
-}
 
 function MoneyView({ data }: { data: AdAccountMoneyResponse }) {
   const view = describeAdAccountMoney(data);
@@ -98,12 +91,13 @@ export function AdAccountMoneyPanel({
   const refresh = useRefreshAdAccountMoney(userId);
   const isRefreshingThisAccount = refresh.isPending && refresh.variables === accountId;
   const isReading = query.isFetching || isRefreshingThisAccount;
+  const errorText = query.isError ? describeAdAccountMoneyError(query.error) : null;
 
   function handleRefresh() {
     refresh.mutate(accountId, {
       onError: (error) => {
         toast.error("Não foi possível atualizar o saldo", {
-          description: describeError(error).message,
+          description: describeAdAccountMoneyError(error).message,
         });
       },
     });
@@ -122,13 +116,9 @@ export function AdAccountMoneyPanel({
             <p className="text-sm font-medium text-foreground">
               Não foi possível consultar o saldo
             </p>
-            <p className="break-words text-xs text-muted-foreground">
-              {describeError(query.error).message}
-            </p>
-            {describeError(query.error).solution && (
-              <p className="break-words text-xs text-muted-foreground">
-                {describeError(query.error).solution}
-              </p>
+            <p className="break-words text-xs text-muted-foreground">{errorText?.message}</p>
+            {errorText?.solution && (
+              <p className="break-words text-xs text-muted-foreground">{errorText.solution}</p>
             )}
             <Button
               type="button"

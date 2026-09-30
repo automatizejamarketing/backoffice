@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
-import type { AdAccountMoneyResponse } from "@/lib/backoffice/ad-account-money-types";
+import type {
+  AdAccountMoneyErrorResponse,
+  AdAccountMoneyResponse,
+} from "@/lib/backoffice/ad-account-money-types";
 import {
   AdAccountMoneyRequestError,
   adAccountMoneyQueryKey,
+  describeAdAccountMoneyError,
   fetchAdAccountMoney,
   refreshAdAccountMoney,
 } from "./use-ad-account-money";
@@ -65,5 +69,47 @@ describe("refreshAdAccountMoney", () => {
     expect(queryClient.getQueryData(adAccountMoneyQueryKey("user-1", "act_1"))).toEqual(body);
     expect(queryClient.getQueryData(adAccountMoneyQueryKey("user-1", "act_2"))).toEqual(other);
     expect(f.urls).toEqual(["/api/users/user-1/ad-accounts/act_1/money?fresh=1"]);
+  });
+});
+
+describe("describeAdAccountMoneyError", () => {
+  test("corpo com message → message + solution da rota", () => {
+    const error = new AdAccountMoneyRequestError(
+      { error: "x", message: "Falta acesso", solution: "Conceda acesso" },
+      403,
+    );
+    expect(describeAdAccountMoneyError(error)).toEqual({
+      message: "Falta acesso",
+      solution: "Conceda acesso",
+    });
+  });
+
+  test("corpo só com error (guard 401/403) → o texto do error", () => {
+    const error = new AdAccountMoneyRequestError(
+      { error: "Sem permissão para este cliente" } as unknown as AdAccountMoneyErrorResponse,
+      403,
+    );
+    expect(describeAdAccountMoneyError(error)).toEqual({ message: "Sem permissão para este cliente" });
+  });
+
+  test("HTTP sem corpo legível → cita o status", () => {
+    const error = new AdAccountMoneyRequestError(null, 500);
+    expect(describeAdAccountMoneyError(error)).toEqual({
+      message: "A consulta falhou (HTTP 500). Tente de novo em instantes.",
+    });
+  });
+
+  test("falha de rede → pede para verificar a conexão", () => {
+    expect(describeAdAccountMoneyError(new TypeError("Failed to fetch"))).toEqual({
+      message: "Verifique a conexão e tente de novo.",
+    });
+  });
+
+  test("fetch sem corpo JSON (500 vazio) chega na regra do status", async () => {
+    const impl = (async () => new Response("", { status: 500 })) as unknown as typeof fetch;
+    const error = await fetchAdAccountMoney("user-1", "act_1", false, impl).catch((e) => e);
+    expect(describeAdAccountMoneyError(error)).toEqual({
+      message: "A consulta falhou (HTTP 500). Tente de novo em instantes.",
+    });
   });
 });

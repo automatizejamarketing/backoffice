@@ -94,7 +94,7 @@ export type CachedMetaReadArgs<T> = {
    * Zero desliga o serve-stale. Default: 6× o TTL.
    */
   staleMs?: number;
-  /** A leitura real na Meta. Só roda em cache miss. */
+  /** A leitura real na Meta. Só roda em cache miss ou com `forceRefresh`. */
   fetcher: () => Promise<T>;
   /**
    * Ignora a entrada FRESCA da L1 e vai à Meta (o botão "Atualizar" do card de

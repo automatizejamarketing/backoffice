@@ -27,6 +27,26 @@ export class AdAccountMoneyRequestError extends Error {
   }
 }
 
+/**
+ * Texto do estado de erro do card (e do toast do "Atualizar"). Só cai em
+ * "problema de conexão" quando nem houve resposta HTTP.
+ */
+export function describeAdAccountMoneyError(error: unknown): {
+  message: string;
+  solution?: string;
+} {
+  if (error instanceof AdAccountMoneyRequestError) {
+    if (error.body?.message) {
+      return { message: error.body.message, solution: error.body.solution };
+    }
+    if (error.body?.error) {
+      return { message: error.body.error };
+    }
+    return { message: `A consulta falhou (HTTP ${error.status}). Tente de novo em instantes.` };
+  }
+  return { message: "Verifique a conexão e tente de novo." };
+}
+
 export async function fetchAdAccountMoney(
   userId: string,
   accountId: string,
