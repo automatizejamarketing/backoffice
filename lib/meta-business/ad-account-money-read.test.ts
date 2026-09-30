@@ -101,7 +101,8 @@ describe("readAdAccountMoney", () => {
       status: 400,
       body: graphErrorBody({ code: 190, message: "Error validating access token" }),
     }));
-    await expect(readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() })).rejects.toThrow();
+    const error = await readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() }).catch((e) => e);
+    expect(error.errorReturn.data.code).toBe(190);
     expect(stub.calls).toHaveLength(1);
   });
 
@@ -111,7 +112,9 @@ describe("readAdAccountMoney", () => {
       body: graphErrorBody({ code: 17, message: "User request limit reached" }),
       headers: rateLimitHeaders(10),
     }));
-    await expect(readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() })).rejects.toThrow();
+    const error = await readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() }).catch((e) => e);
+    expect(error.errorReturn.data.code).toBe(17);
+    expect(stub.calls).toHaveLength(1);
     expect(stub.calls.every((c) => c.params.get("fields") === FULL_FIELDS)).toBe(true);
   });
 
