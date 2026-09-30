@@ -39,6 +39,9 @@ export function AdAccountSelector({
   const selectedAccount = accounts.find(
     (acc) => acc.accountId === selectedAccountId,
   );
+  const choosePrompt = (
+    <span className="text-muted-foreground">Selecione uma conta</span>
+  );
 
   return (
     <Select
@@ -49,21 +52,25 @@ export function AdAccountSelector({
         }
       }}
     >
-      <SelectTrigger className="w-full min-w-[200px] max-w-[400px] py-2 data-[size=default]:h-14 sm:min-w-[280px] [&>span]:line-clamp-none">
-        {selectedAccount ? (
-          <span className="flex min-w-0 items-center gap-2 truncate text-sm">
-            <span className="truncate">
-              {selectedAccount.name || selectedAccount.accountId}
+      <SelectTrigger className="w-full min-w-[200px] max-w-[400px] py-2 data-[size=default]:h-14 sm:min-w-[280px] [&>span]:line-clamp-none [&>span]:min-w-0">
+        {/* O conteúdo vai como children do Value: sem children, o Radix espelha aqui o item
+            inteiro do menu (avatar, nome, ID, selos), e o Value ignora `className`, então não
+            dá para escondê-lo com `sr-only` — era o nome duplicado no gatilho. */}
+        <SelectValue placeholder={choosePrompt}>
+          {selectedAccount ? (
+            <span className="flex min-w-0 items-center gap-2 truncate text-sm">
+              <span className="truncate">
+                {selectedAccount.name || selectedAccount.accountId}
+              </span>
+              <MetaAssetSelectionBadges
+                enabled={selectedAccount.enabled}
+                primary={selectedAccount.primary}
+              />
             </span>
-            <MetaAssetSelectionBadges
-              enabled={selectedAccount.enabled}
-              primary={selectedAccount.primary}
-            />
-          </span>
-        ) : (
-          <span className="text-muted-foreground">Selecione uma conta</span>
-        )}
-        <SelectValue className="sr-only" />
+          ) : (
+            choosePrompt
+          )}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {accounts.map((account) => (
