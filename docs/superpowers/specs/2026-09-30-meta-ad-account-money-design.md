@@ -207,7 +207,9 @@ lugares (aba Marketing do perfil `/users/[id]?tab=marketing`, a versão embed
   **Baseline em `94f68eb`: 1428 pass / 8 fail**, falhas pré-existentes e alheias (5 precisam do
   container Postgres `:55432`, desligado; 3 são drift do journal de migrations entre os repos). A
   entrega não pode acrescentar falhas.
-- `bun run lint` e `bun run build`.
+- Lint sem problemas novos: `bun run lint` já sai 1 na base (174 problemas: 58 errors, 116
+  warnings, em arquivos alheios), então o portão é `bunx eslint` nos arquivos da branch — novos
+  com 0 problemas e os alterados sem nada além dos pré-existentes. `bun run build` limpo.
 - Paridade do espelhamento, no checkout principal do frontend:
   `BACKOFFICE_ROOT=D:/automatize-marketing/backoffice-meta-ad-account-money bun run sync:meta:check`
   sem divergência.
@@ -247,6 +249,6 @@ Commits na `feat/backoffice-meta-ad-account-money`, push e PR contra `main`. O m
 | R12 | Card "Saldo / fatura na Meta" abaixo do seletor de conta no `MarketingWorkspace`, só com conexão e conta selecionada; aparece no perfil (`?tab=marketing`) e em `/marketing`. |
 | R13 | Estados de carregando, erro (com "Tentar de novo"), rodapé "Atualizado às HH:mm" e botão "Atualizar" (`?fresh=1`) conforme 2.2. |
 | R14 | Layout sem estouro horizontal em largura de celular. |
-| R15 | Testes de 3.1 existem e passam; suíte inteira sem falhas novas em relação à baseline (1428/8); lint e build limpos; `sync:meta:check` sem divergência. |
+| R15 | Testes de 3.1 existem e passam; suíte inteira sem falhas novas em relação à baseline (1428/8); nenhum problema de lint novo (base: 58 errors/116 warnings pré-existentes) e build limpo; `sync:meta:check` sem divergência. |
 | R16 | Verificação de interface de 3.3 feita, com screenshots salvos. |
 | R17 | Nenhum arquivo do `automatize-frontend` alterado. |
