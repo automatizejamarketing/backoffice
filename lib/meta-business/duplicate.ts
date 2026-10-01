@@ -1267,6 +1267,16 @@ export class DuplicateAtomicError extends GraphApiError {
   readonly promotedObjectUnavailable?: boolean;
   /** Carried over from a {@link DuplicatePreconditionError}: the creative media is gone. */
   readonly unavailableMedia?: boolean;
+  /**
+   * Meta `code` / `error_subcode` of the Graph refusal that triggered the rollback, when
+   * the cause was a Graph error. Without them a refusal the codebase can name (payment
+   * 100/1359188, certification 100/2859024, account authentication 31/3858385) reached
+   * the AI-creation route as a code-less local issue and left as a generic 500 — the
+   * "known gap" of `campaign-error-response.ts`. The message above already carried the
+   * subcode as prose; these are the machine-readable pair.
+   */
+  readonly metaCode?: number;
+  readonly metaSubcode?: number;
 
   constructor(args: {
     message: string;
@@ -1278,6 +1288,8 @@ export class DuplicateAtomicError extends GraphApiError {
     needsPromotionUrl?: boolean;
     promotedObjectUnavailable?: boolean;
     unavailableMedia?: boolean;
+    metaCode?: number;
+    metaSubcode?: number;
   }) {
     super({
       statusCode: args.statusCode ?? 502,
@@ -1294,6 +1306,8 @@ export class DuplicateAtomicError extends GraphApiError {
     this.needsPromotionUrl = args.needsPromotionUrl;
     this.promotedObjectUnavailable = args.promotedObjectUnavailable;
     this.unavailableMedia = args.unavailableMedia;
+    this.metaCode = args.metaCode;
+    this.metaSubcode = args.metaSubcode;
   }
 }
 
@@ -1501,6 +1515,21 @@ async function deleteMetaObject(
   }
 }
 
+/**
+ * Meta `code`/`error_subcode` of a Graph refusal, for {@link DuplicateAtomicError} to carry
+ * through the rollback. Empty for anything that is not a Graph error with a payload —
+ * our own precondition / time-budget errors have a `reason` but no `data`.
+ */
+function graphErrorCodes(err: unknown): { metaCode?: number; metaSubcode?: number } {
+  if (!(err instanceof GraphApiError)) return {};
+  const data = err.errorReturn.data;
+  if (!data) return {};
+  return {
+    metaCode: data.code,
+    ...(data.errorSubcode != null ? { metaSubcode: data.errorSubcode } : {}),
+  };
+}
+
 async function rollbackAndThrow(
   tracker: CreatedObjectsTracker,
   accessToken: string,
@@ -1508,6 +1537,7 @@ async function rollbackAndThrow(
 ): Promise<never> {
   const orphanIds = await tracker.rollback(accessToken);
   const originalMessage = errorMessage(cause);
+  const metaCodes = graphErrorCodes(cause);
 
   if (orphanIds.length > 0) {
     throw new DuplicateAtomicError({
@@ -1516,6 +1546,7 @@ async function rollbackAndThrow(
         "Remova os objetos listados no Gerenciador de Anúncios e tente duplicar novamente.",
       rolledBack: false,
       orphanIds,
+      ...metaCodes,
     });
   }
 
@@ -1554,6 +1585,7 @@ async function rollbackAndThrow(
       ? { promotedObjectUnavailable: true }
       : {}),
     ...(precondition?.unavailableMedia ? { unavailableMedia: true } : {}),
+    ...metaCodes,
   });
 }
 
