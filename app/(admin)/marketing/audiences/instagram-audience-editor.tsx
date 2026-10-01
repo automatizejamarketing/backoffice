@@ -100,13 +100,13 @@ export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }
       return;
     }
     const days = Number(retentionDays);
-    if (!name.trim() || !profileId || !Number.isInteger(days) || days < 1) {
-      setError("Informe nome e perfil; o período só pode ser escolhido quando a evidência do Gerenciador estiver fechada.");
+    if (!name.trim() || !profileId) {
+      setError("Informe nome e perfil.");
       return;
     }
     const keepsCurrentPeriod = isCurrentPeriod && parsed?.retentionDays === days;
-    if (periodReady && instagramPeriodOutOfRange(periodEvidence, days, keepsCurrentPeriod)) {
-      setError(`O período deve ficar entre ${periodEvidence.metaMinimumDays} e ${periodEvidence.metaMaximumDays} dias para esta combinação.`);
+    if (!Number.isInteger(days) || days < 1 || (periodReady && instagramPeriodOutOfRange(periodEvidence, days, keepsCurrentPeriod))) {
+      setError(periodReady ? `O período deve ficar entre ${periodEvidence.metaMinimumDays} e ${periodEvidence.metaMaximumDays} dias para esta combinação.` : "Informe um período inteiro de dias.");
       return;
     }
     if (action !== "instagram-review" && !review) {
@@ -134,7 +134,7 @@ export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }
         throw new Error(body.message ?? body.issues?.[0]?.reason ?? "Não foi possível salvar o público.");
       }
       setReview(null);
-      if (!audience) { setName(""); setRetentionDays(""); }
+      if (!audience) { setName(""); setRetentionDays(periodEvidence.initialDays === null ? "" : String(periodEvidence.initialDays)); }
       onSaved();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Não foi possível salvar o público.");
@@ -149,6 +149,7 @@ export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }
   const selectedProfile = profiles.find((profile) => profile.id === profileId);
   const periodEvidenceReady = periodReady || isCurrentPeriod;
   const periodBlocker = "O Gerenciador da Meta ainda não comprovou esta combinação de origem e critério. O período inicial, a edição, os limites e o preenchimento histórico permanecem desconhecidos; a criação ou a troca para esta combinação está impedida.";
+  const periodKeptOutOfRange = periodReady && isCurrentPeriod && parsed !== null && parsed !== undefined && Number(retentionDays) === parsed.retentionDays && instagramPeriodOutOfRange(periodEvidence, parsed.retentionDays, false);
   return (
     <details className="rounded-lg border bg-card p-4">
       <summary className="cursor-pointer font-medium">{audience ? "Editar regra do Instagram" : "Criar público do Instagram"}</summary>
@@ -156,7 +157,7 @@ export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }
         <label className="text-sm">Nome<input className="mt-1 w-full rounded border bg-background p-2" value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="text-sm">Perfil<select className="mt-1 w-full rounded border bg-background p-2" value={profileId} onChange={(event) => setProfileId(event.target.value)}>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.username ? `@${profile.username}` : profile.name ?? profile.id}</option>)}</select></label>
         <label className="text-sm">Critério<select className="mt-1 w-full rounded border bg-background p-2" value={criterion} onChange={(event) => setCriterion(event.target.value as InstagramAudienceCriterion)}>{criteria.map(([value, label]) => <option key={value} value={value}>{label} ({INSTAGRAM_AUDIENCE_CRITERIA[value]})</option>)}</select></label>
-        {periodReady ? <label className="text-sm">Período de participação (dias)<Input className="mt-1 w-full rounded border bg-background p-2" type="number" inputMode="numeric" min={periodEvidence.metaMinimumDays ?? 1} max={periodEvidence.metaMaximumDays ?? undefined} value={retentionDays} onChange={(event) => setRetentionDays(event.target.value)} /><span className="mt-1 block text-xs text-muted-foreground">Entre {periodEvidence.metaMinimumDays} e {periodEvidence.metaMaximumDays} dias. Quem interagiu com o perfil nesse período entra no público.</span></label> : isCurrentPeriod ? <div className="text-sm"><span className="block">Período real do objeto</span><Input aria-label="Período real do objeto" className="mt-1 block w-full rounded border bg-muted/30 p-2" type="number" value={parsed?.retentionDays ?? ""} readOnly /></div> : <div className="text-sm"><span className="block">Período de participação</span><p className="mt-1 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">Impedido até a evidência do Gerenciador. O formulário não pede um número para descobrir sozinho.</p></div>}
+        {periodReady ? <label className="text-sm">Período de participação (dias)<Input className="mt-1 w-full rounded border bg-background p-2" type="number" inputMode="numeric" min={periodEvidence.metaMinimumDays ?? 1} max={periodEvidence.metaMaximumDays ?? undefined} value={retentionDays} onChange={(event) => setRetentionDays(event.target.value)} /><span className="mt-1 block text-xs text-muted-foreground">{periodKeptOutOfRange ? <>O período atual de {parsed?.retentionDays} dias foi mantido. Para alterar, escolha entre {periodEvidence.metaMinimumDays} e {periodEvidence.metaMaximumDays} dias.</> : <>Entre {periodEvidence.metaMinimumDays} e {periodEvidence.metaMaximumDays} dias. Quem interagiu com o perfil nesse período entra no público.</>}</span></label> : isCurrentPeriod ? <div className="text-sm"><span className="block">Período real do objeto</span><Input aria-label="Período real do objeto" className="mt-1 block w-full rounded border bg-muted/30 p-2" type="number" value={parsed?.retentionDays ?? ""} readOnly /></div> : <div className="text-sm"><span className="block">Período de participação</span><p className="mt-1 rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">Impedido até a evidência do Gerenciador. O formulário não pede um número para descobrir sozinho.</p></div>}
       </div>
       {!periodReady && !isCurrentPeriod ? <p role="alert" className="mt-2 text-sm text-amber-700">{periodBlocker} Evidência registrada em {periodEvidence.observedAt}; origem: {periodEvidence.source}</p> : null}
       {isCurrentPeriod && !periodReady ? <p role="status" className="mt-2 text-sm text-muted-foreground">O período real de {parsed?.retentionDays} dias foi carregado do objeto e será preservado. A alteração de perfil ou critério exige evidência própria e não reutiliza este valor.</p> : null}

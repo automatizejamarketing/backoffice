@@ -10,7 +10,7 @@ test("backoffice audience editors explain the period in plain language instead o
   const website = read("app/(admin)/marketing/audiences/website-audience-editor.tsx");
   const instagram = read("app/(admin)/marketing/audiences/instagram-audience-editor.tsx");
   for (const source of [website, instagram]) {
-    for (const jargon of ["Unidade enviada", "Limite local", "Limites Meta:", "Preenchimento histórico:", "Valor inicial:"]) {
+    for (const jargon of ["Unidade enviada", "Limite local", "Limites Meta:", "Preenchimento histórico:", "Valor inicial:", "Editável:"]) {
       assert.equal(source.includes(jargon), false, `jargão "${jargon}" ainda aparece no editor`);
     }
   }
@@ -23,4 +23,17 @@ test("backoffice website sources guidance no longer claims periods are blocked",
   const route = read("app/api/meta-marketing/[accountId]/audiences/route.ts");
   assert.equal(route.includes("os períodos permanecem impedidos"), false);
   assert.ok(route.includes("Há Pixel com atividade recebida. Em 'Eventos registrados' aparecem só os eventos que este Pixel já recebeu."));
+});
+
+test("period validation messages no longer cite evidence and the preserved period is explained", () => {
+  const website = read("app/(admin)/marketing/audiences/website-audience-editor.tsx");
+  const instagram = read("app/(admin)/marketing/audiences/instagram-audience-editor.tsx");
+  for (const source of [website, instagram]) {
+    assert.equal(source.includes("o período só pode ser escolhido quando a evidência do Gerenciador estiver fechada"), false);
+    assert.ok(source.includes("O período atual de"), "falta a explicação do período mantido");
+    assert.ok(source.includes("O período deve ficar entre"));
+    assert.ok(source.includes("Informe um período inteiro de dias."));
+  }
+  assert.ok(website.includes("Informe nome, fonte e o filtro exigido pelo critério."));
+  assert.ok(instagram.includes("Informe nome e perfil."));
 });
