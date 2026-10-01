@@ -23,6 +23,7 @@ import {
   playbookAlertStatusLabel,
   type PlaybookAlertFilters,
 } from "@/lib/backoffice/playbook-alert-dashboard";
+import { ACCOUNT_ALERT_RULE_IDS } from "@/lib/account-alerts/constants";
 import { useDashboardNavigation } from "../dashboard-navigation-feedback";
 import { DashboardDateFilter } from "../dashboard-date-filter";
 
@@ -34,6 +35,7 @@ function extraDateParams(filters: PlaybookAlertFilters) {
   if (filters.severity !== "all") params.severity = filters.severity;
   if (filters.status !== "all") params.status = filters.status;
   if (filters.pageSize !== 25) params.pageSize = String(filters.pageSize);
+  if (filters.family === "account") params.family = "account";
   return params;
 }
 
@@ -43,6 +45,8 @@ export function AlertsFilters({
   filters: PlaybookAlertFilters;
 }) {
   const { navigate } = useDashboardNavigation();
+  const ruleIds =
+    filters.family === "account" ? ACCOUNT_ALERT_RULE_IDS : PLAYBOOK_ALERT_RULE_IDS;
   const statusOptions =
     filters.tab === "completed"
       ? PLAYBOOK_COMPLETED_STATUSES
@@ -98,7 +102,7 @@ export function AlertsFilters({
         <SelectContent>
           <SelectGroup>
             <SelectItem value="all">Todos os tipos</SelectItem>
-            {PLAYBOOK_ALERT_RULE_IDS.map((ruleId) => (
+            {ruleIds.map((ruleId) => (
               <SelectItem key={ruleId} value={ruleId}>
                 {playbookAlertRuleTitle(ruleId)}
               </SelectItem>
@@ -165,7 +169,13 @@ export function AlertsFilters({
         <Button asChild type="button" variant="ghost" size="sm" className="h-9">
           <Link
             href={
-              filters.tab === "pending" ? "/alerts" : "/alerts?tab=completed"
+              filters.family === "account"
+                ? filters.tab === "pending"
+                  ? "/alerts?family=account"
+                  : "/alerts?family=account&tab=completed"
+                : filters.tab === "pending"
+                  ? "/alerts"
+                  : "/alerts?tab=completed"
             }
           >
             Limpar

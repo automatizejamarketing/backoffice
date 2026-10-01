@@ -34,6 +34,7 @@ import {
   userMarketingConsultant,
 } from "@/lib/db/schema";
 import { PLAYBOOK_INSIGHTS_RULE_PREFIX } from "@/lib/playbook-insights/constants";
+import { ACCOUNT_ALERTS_RULE_PREFIX } from "@/lib/account-alerts/constants";
 
 const completedAtExpr = sql<Date>`
   CASE
@@ -52,8 +53,10 @@ function completedAtInWindow(window: { gte: Date; lt: Date }): SQL {
   )!;
 }
 
-function playbookRuleCondition() {
-  return like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`);
+function insightRuleCondition(family: PlaybookAlertFilters["family"]) {
+  const prefix =
+    family === "account" ? ACCOUNT_ALERTS_RULE_PREFIX : PLAYBOOK_INSIGHTS_RULE_PREFIX;
+  return like(performanceInsight.ruleId, `${prefix}%`);
 }
 
 function accessConditions(actor: BackofficeActor): SQL[] {
@@ -65,9 +68,9 @@ function accessConditions(actor: BackofficeActor): SQL[] {
 }
 
 function attributeConditions(
-  filters: Pick<PlaybookAlertFilters, "search" | "ruleId" | "severity">,
+  filters: Pick<PlaybookAlertFilters, "family" | "search" | "ruleId" | "severity">,
 ): SQL[] {
-  const conditions: SQL[] = [playbookRuleCondition()];
+  const conditions: SQL[] = [insightRuleCondition(filters.family)];
 
   if (filters.ruleId !== "all") {
     conditions.push(eq(performanceInsight.ruleId, filters.ruleId));
@@ -92,7 +95,7 @@ function attributeConditions(
 
 function whereDashboard(
   actor: BackofficeActor,
-  filters: Pick<PlaybookAlertFilters, "search" | "ruleId" | "severity">,
+  filters: Pick<PlaybookAlertFilters, "family" | "search" | "ruleId" | "severity">,
   extra: SQL[] = [],
 ) {
   const conditions = [
