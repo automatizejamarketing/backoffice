@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useLocationTargetingT } from "../utils/location-targeting-messages";
 import {
   Building2,
@@ -29,14 +29,12 @@ import {
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_CITY_RADIUS_KM,
   MAX_RADIUS_KM,
   MIN_RADIUS_KM,
-  applyDefaultBrazilLocationRule,
   hasLocationCoordinates,
   isRadiusGeoLocation,
   normalizeSelectedGeoLocation,
@@ -59,6 +57,15 @@ import {
   useLocationSearch,
 } from "../hooks/use-location-search";
 import { useBrowserGeolocation } from "../hooks/use-browser-geolocation";
+import {
+  addSelectedLocation,
+  expandedIndexAfterRemoval,
+  moveLocationPin,
+  removeSelectedLocation,
+  setLocationRadius,
+  stepLocationRadius,
+  type RadiusBounds,
+} from "./location-selection";
 
 const LocationTargetingMapPreview = dynamic(
   () =>
@@ -273,7 +280,11 @@ export function LocationTargetingSection({
   );
   const [resolvingPlaceId, setResolvingPlaceId] = useState<string | null>(null);
   const [placeDetailsError, setPlaceDetailsError] = useState<string | null>(null);
+  const searchPanelId = useId();
+  const searchPanelRef = useRef<HTMLDivElement>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
 
+  const radiusBounds: RadiusBounds = { min: minRadiusKm, max: maxRadiusKm };
   const clampRadius = (value: number) =>
     Math.min(maxRadiusKm, Math.max(minRadiusKm, value));
 
@@ -359,6 +370,26 @@ export function LocationTargetingSection({
     }
   }, [selectedLocations.length, expandedIndex]);
 
+  // Radix sheets and dialogs listen for Escape in the document's capture phase, before any handler
+  // inside this panel runs. The portaled popover used to absorb that Escape as its own layer; the
+  // inline panel does not, so catch it one step earlier (window capture) and close only the search.
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const panel = searchPanelRef.current;
+      if (!panel || !(event.target instanceof Node) || !panel.contains(event.target)) return;
+      event.stopPropagation();
+      event.preventDefault();
+      setOpen(false);
+      searchTriggerRef.current?.focus();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [open]);
+
   const handleSearchTermChange = (value: string) => {
     setSearchTerm(value);
     setPlaceDetailsError(null);
@@ -384,10 +415,7 @@ export function LocationTargetingSection({
       return;
     }
 
-    const nextLocations = applyDefaultBrazilLocationRule([
-      ...selectedLocations,
-      normalizedLocation,
-    ]);
+    const nextLocations = addSelectedLocation(selectedLocations, normalizedLocation);
     onLocationsChange(nextLocations);
     setExpandedIndex(nextLocations.length - 1);
     setSearchTerm("");
@@ -433,58 +461,23 @@ export function LocationTargetingSection({
   };
 
   const handleRemoveLocation = (locationKey: string) => {
-    const removedIndex = selectedLocations.findIndex(
-      (location) => location.key === locationKey,
+    const { locations, removedIndex } = removeSelectedLocation(
+      selectedLocations,
+      locationKey,
     );
-    onLocationsChange(
-      applyDefaultBrazilLocationRule(
-        selectedLocations.filter((location) => location.key !== locationKey),
-      ),
-    );
-
-    setExpandedIndex((current) => {
-      if (current === null) return null;
-      if (removedIndex === current) return null;
-      if (removedIndex < current) return current - 1;
-      return current;
-    });
+    onLocationsChange(locations);
+    setExpandedIndex((current) => expandedIndexAfterRemoval(current, removedIndex));
   };
 
   const handleRadiusChange = (locationKey: string, value: string) => {
-    const parsed = Number.parseInt(value, 10);
-
     onLocationsChange(
-      selectedLocations.map((location) => {
-        if (location.key !== locationKey || !isRadiusGeoLocation(location)) {
-          return location;
-        }
-
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          return location;
-        }
-
-        return {
-          ...location,
-          radius: clampRadius(parsed),
-          distance_unit: "kilometer",
-        };
-      }),
+      setLocationRadius(selectedLocations, locationKey, value, radiusBounds),
     );
   };
 
   const handleRadiusStep = (locationKey: string, delta: number) => {
     onLocationsChange(
-      selectedLocations.map((location) => {
-        if (location.key !== locationKey || !isRadiusGeoLocation(location)) {
-          return location;
-        }
-
-        return {
-          ...location,
-          radius: clampRadius((location.radius ?? DEFAULT_CITY_RADIUS_KM) + delta),
-          distance_unit: "kilometer",
-        };
-      }),
+      stepLocationRadius(selectedLocations, locationKey, delta, radiusBounds),
     );
   };
 
@@ -493,25 +486,14 @@ export function LocationTargetingSection({
     latitude: number,
     longitude: number,
   ) => {
-    const draggedKey = `custom_${latitude.toFixed(6)}_${longitude.toFixed(6)}`;
-
     onLocationsChange(
-      selectedLocations.map((location, idx) => {
-        if (idx !== locationIndex) {
-          return location;
-        }
-
-        return {
-          ...location,
-          key: draggedKey,
-          type: "custom_location" as const,
-          latitude,
-          longitude,
-          address_string: location.address_string ?? location.name,
-          radius: location.radius ?? clampRadius(DEFAULT_CITY_RADIUS_KM),
-          distance_unit: "kilometer" as const,
-        };
-      }),
+      moveLocationPin(
+        selectedLocations,
+        locationIndex,
+        latitude,
+        longitude,
+        radiusBounds,
+      ),
     );
   };
 
@@ -556,164 +538,171 @@ export function LocationTargetingSection({
         </Button>
       ) : null}
 
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={disabled || !accountId}
-            className={cn(
-              "h-auto w-full justify-between rounded-xl border-border/70 bg-background px-3 py-3 text-left hover:bg-accent/40",
-              !accountId && "text-muted-foreground",
-            )}
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Search className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">
-                  {accountId
-                    ? summarizeLocations(selectedLocations, t)
-                    : t("selectAccountFirst")}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {accountId ? t("searchHint") : t("searchDisabledHint")}
-                </p>
-              </div>
-            </div>
-            <MapPin className="size-4 shrink-0 text-muted-foreground" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="w-[var(--radix-popover-trigger-width)] p-0 shadow-xl"
+      <div className="space-y-2">
+        <Button
+          ref={searchTriggerRef}
+          type="button"
+          variant="outline"
+          disabled={disabled || !accountId}
+          aria-expanded={open}
+          aria-controls={searchPanelId}
+          onClick={() => setOpen((current) => !current)}
+          className={cn(
+            "h-auto w-full justify-between rounded-xl border-border/70 bg-background px-3 py-3 text-left hover:bg-accent/40",
+            open && "border-primary/40 bg-primary/5",
+            !accountId && "text-muted-foreground",
+          )}
         >
-          <Command shouldFilter={false}>
-            <CommandInput
-              value={searchTerm}
-              onValueChange={handleSearchTermChange}
-              placeholder={t("searchPlaceholder")}
-            />
-            <CommandList>
-              {error ? (
-                <div className="px-3 py-8 text-center text-sm text-destructive">
-                  {error instanceof Error ? error.message : t("searchError")}
-                </div>
-              ) : null}
-              {placeDetailsError ? (
-                <div className="px-3 py-3 text-center text-sm text-destructive">
-                  {placeDetailsError}
-                </div>
-              ) : null}
-              {!error && isFetching ? (
-                <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin" />
-                  {t("searching")}
-                </div>
-              ) : null}
-              {!error && !isFetching && searchTerm.trim().length === 0 ? (
-                <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                  {t("searchEmptyState")}
-                </div>
-              ) : null}
-              {!error && !isFetching && searchTerm.trim().length > 0 ? (
-                <>
-                  <CommandEmpty>
-                    <span className="block">{t("noResults")}</span>
-                  </CommandEmpty>
-                  {groupedMetaResults.map(([type, locations]) => (
-                    <CommandGroup
-                      key={type}
-                      heading={getLocationTypeLabel(type, t)}
-                    >
-                      {locations.map((location) => {
-                        const Icon = getLocationTypeIcon(location.type);
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Search className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">
+                {accountId
+                  ? summarizeLocations(selectedLocations, t)
+                  : t("selectAccountFirst")}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {accountId ? t("searchHint") : t("searchDisabledHint")}
+              </p>
+            </div>
+          </div>
+          <MapPin className="size-4 shrink-0 text-muted-foreground" />
+        </Button>
+        {open ? (
+          <div
+            ref={searchPanelRef}
+            id={searchPanelId}
+            className="overflow-hidden rounded-xl border border-border/60 bg-popover shadow-sm"
+          >
+            <Command shouldFilter={false}>
+              <CommandInput
+                autoFocus
+                value={searchTerm}
+                onValueChange={handleSearchTermChange}
+                placeholder={t("searchPlaceholder")}
+              />
+              <CommandList>
+                {error ? (
+                  <div className="px-3 py-8 text-center text-sm text-destructive">
+                    {error instanceof Error ? error.message : t("searchError")}
+                  </div>
+                ) : null}
+                {placeDetailsError ? (
+                  <div className="px-3 py-3 text-center text-sm text-destructive">
+                    {placeDetailsError}
+                  </div>
+                ) : null}
+                {!error && isFetching ? (
+                  <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    {t("searching")}
+                  </div>
+                ) : null}
+                {!error && !isFetching && searchTerm.trim().length === 0 ? (
+                  <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                    {t("searchEmptyState")}
+                  </div>
+                ) : null}
+                {!error && !isFetching && searchTerm.trim().length > 0 ? (
+                  <>
+                    <CommandEmpty>
+                      <span className="block">{t("noResults")}</span>
+                    </CommandEmpty>
+                    {groupedMetaResults.map(([type, locations]) => (
+                      <CommandGroup
+                        key={type}
+                        heading={getLocationTypeLabel(type, t)}
+                      >
+                        {locations.map((location) => {
+                          const Icon = getLocationTypeIcon(location.type);
 
-                        return (
-                          <CommandItem
-                            key={`meta-${location.type}-${location.key}`}
-                            value={`${location.name}-${location.key}`}
-                            disabled={resolvingPlaceId !== null}
-                            onSelect={() => handleSelectLocation(location)}
-                            className="text-foreground data-[selected=true]:text-foreground **:[[cmdk-item-subtitle]]:text-muted-foreground"
-                          >
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <Icon className="size-4" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {location.name}
-                              </p>
-                              <p
-                                cmdk-item-subtitle=""
-                                className="truncate text-xs text-muted-foreground"
-                              >
-                                {getLocationMeta(location, t)}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                          return (
+                            <CommandItem
+                              key={`meta-${location.type}-${location.key}`}
+                              value={`${location.name}-${location.key}`}
+                              disabled={resolvingPlaceId !== null}
+                              onSelect={() => handleSelectLocation(location)}
+                              className="text-foreground data-[selected=true]:text-foreground **:[[cmdk-item-subtitle]]:text-muted-foreground"
                             >
-                              {getLocationTypeLabel(location.type, t)}
-                            </Badge>
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  ))}
-                  {googleResults.length > 0 ? (
-                    <CommandGroup heading={t("googlePlacesGroup")}>
-                      {googleResults.map((location) => {
-                        const isBusiness = location.is_business ?? false;
-                        const Icon = isBusiness
-                          ? Building2
-                          : getLocationTypeIcon(location.type);
-                        const typeLabel = isBusiness
-                          ? t("business")
-                          : getLocationTypeLabel(location.type, t);
-                        const isResolving = resolvingPlaceId === location.place_id;
-
-                        return (
-                          <CommandItem
-                            key={`${location.source}-${location.key}`}
-                            value={`${location.name}-${location.key}`}
-                            disabled={resolvingPlaceId !== null}
-                            onSelect={() => handleSelectLocation(location)}
-                          >
-                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                              {isResolving ? (
-                                <Loader2 className="size-4 animate-spin" />
-                              ) : (
+                              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                                 <Icon className="size-4" />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-sm font-medium">
-                                {location.name}
-                              </p>
-                              <p className="truncate text-xs text-muted-foreground">
-                                {getLocationMeta(location, t)}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">
+                                  {location.name}
+                                </p>
+                                <p
+                                  cmdk-item-subtitle=""
+                                  className="truncate text-xs text-muted-foreground"
+                                >
+                                  {getLocationMeta(location, t)}
+                                </p>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                              >
+                                {getLocationTypeLabel(location.type, t)}
+                              </Badge>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    ))}
+                    {googleResults.length > 0 ? (
+                      <CommandGroup heading={t("googlePlacesGroup")}>
+                        {googleResults.map((location) => {
+                          const isBusiness = location.is_business ?? false;
+                          const Icon = isBusiness
+                            ? Building2
+                            : getLocationTypeIcon(location.type);
+                          const typeLabel = isBusiness
+                            ? t("business")
+                            : getLocationTypeLabel(location.type, t);
+                          const isResolving = resolvingPlaceId === location.place_id;
+
+                          return (
+                            <CommandItem
+                              key={`${location.source}-${location.key}`}
+                              value={`${location.name}-${location.key}`}
+                              disabled={resolvingPlaceId !== null}
+                              onSelect={() => handleSelectLocation(location)}
                             >
-                              {typeLabel}
-                            </Badge>
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  ) : null}
-                </>
-              ) : null}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
+                              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                                {isResolving ? (
+                                  <Loader2 className="size-4 animate-spin" />
+                                ) : (
+                                  <Icon className="size-4" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">
+                                  {location.name}
+                                </p>
+                                <p className="truncate text-xs text-muted-foreground">
+                                  {getLocationMeta(location, t)}
+                                </p>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 border-border/70 bg-background text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
+                              >
+                                {typeLabel}
+                              </Badge>
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    ) : null}
+                  </>
+                ) : null}
+              </CommandList>
+            </Command>
+          </div>
+        ) : null}
+      </div>
 
       <div className="space-y-2">
         {selectedLocations.length === 0 ? (
