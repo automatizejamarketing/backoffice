@@ -1,6 +1,6 @@
 # Backoffice: Pix Automático Efí
 
-Preparação de 01/10/2026, branch `codex/efi-pix-automatico`.
+Preparação de 01/10/2026; integração portada para `codex/efi-pix-automatico-staging`.
 
 - Identificação do provedor Efí no financeiro, clientes e assinaturas.
 - Pix Automático ativo impede emitir uma segunda assinatura por Pix avulso.
@@ -19,17 +19,17 @@ Checkout, consentimento, cancelamento, webhooks, conciliação e instruções me
 pertencem ao frontend. As tarifas Efí são reconciliadas pelo frontend; o botão existente
 de backfill do backoffice mantém essas linhas pendentes se a tarifa não estiver disponível.
 
-Validação: 54 testes de políticas e financeiro passaram. Checagem global de TypeScript
+Validação na base de staging: 50 testes de políticas e financeiro passaram. Checagem global de TypeScript
 comparada à base: nenhum erro novo; erros globais preexistentes continuam presentes.
 Sem build local ou alteração em produção. Migração Efí aplicada pelo frontend no
 banco compartilhado de staging, com três tabelas e 11 índices verificados.
 
-Staging do frontend consultado: o deploy atual ainda não contém a integração Efí.
-Publicação e migração no banco de testes autorizadas pelo titular; checkout segue desligado
-até concluir a configuração. Login, chave Pix e conta recebedora confirmados na Efí.
+Frontend e backoffice publicados em staging, com deployments Preview `READY` verificados.
+Checkout segue desligado até validar o receptor mTLS e os webhooks. Login, chave Pix
+e conta recebedora confirmados na Efí. Nenhum webhook foi cadastrado nesta etapa.
 
-Portado somente este recurso para a base existente de staging; 50 testes de políticas
-e financeiro passaram nessa base. `EFI_PIX_AUTOMATIC_STORAGE_READY=true` configurado
+Portado somente este recurso para a base existente de staging.
+`EFI_PIX_AUTOMATIC_STORAGE_READY=true` configurado
 somente no Preview da branch staging.
 
 Guia principal: `../frontend/EFI_PIX_AUTOMATICO.md` no workspace com os dois repositórios.
