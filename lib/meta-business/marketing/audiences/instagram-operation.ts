@@ -3,7 +3,7 @@ import "server-only";
 import { type CreateIssue, type CreateResult, fail, localIssue, ok } from "../creation/types";
 import { createCustomAudience } from "./create";
 import { getCustomAudienceDetail, listCustomAudiences } from "./read";
-import { INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, type InstagramAudienceSelection, type InstagramSourceEvidence, validateInstagramAudienceSelection } from "./instagram";
+import { INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, instagramPeriodOutOfRange, parseInstagramAudienceRule, resolveInstagramSourceEvidence, type InstagramAudienceSelection, type InstagramSourceEvidence, validateInstagramAudienceSelection } from "./instagram";
 import { previewAudienceMetadataUpdate, updateCustomAudience } from "./update";
 import type { AudienceCommandStore } from "./command-store";
 
@@ -91,6 +91,7 @@ export async function reviewInstagramAudience(input: CommonInput): Promise<Insta
       existingAudienceIds = listed.items.map((audience) => audience.id);
     }
     if (instagramPeriodEvidenceStatus(input.selection.criterion, periodEvidence) !== "ready" && !sameSelection(before, input.selection)) return { ok: false, issues: [issue("INSTAGRAM_PERIOD_EVIDENCE_REQUIRED", "A combinação de critério e período ainda não tem evidência fechada do Gerenciador da Meta.", "Não informe o período às cegas. Registre a observação da interface Meta por critério antes de disponibilizar esta combinação.")] };
+    if (instagramPeriodOutOfRange(periodEvidence, input.selection.retentionDays, sameSelection(before, input.selection))) return { ok: false, issues: [issue("INSTAGRAM_PERIOD_OUT_OF_RANGE", `O período do público do Instagram deve ficar entre ${periodEvidence.metaMinimumDays} e ${periodEvidence.metaMaximumDays} dias.`, "Ajuste o período e revise novamente.")] };
     const tokenInput = { operation: input.audienceId ? "update" as const : "create" as const, ...(input.audienceId ? { audienceId: input.audienceId, beforeDescription: audienceDescription ?? null, beforeRule } : { existingAudienceIds }), adAccountId: input.adAccountId, name: input.name.trim(), ...(input.description !== undefined ? { description: input.description } : {}), before, after: input.selection, source, impact };
     const confirmationToken = JSON.stringify(tokenInput);
     return { ok: true, operation: tokenInput.operation, ...(input.audienceId ? { audienceId: input.audienceId } : {}), adAccountId: input.adAccountId, audienceName, audienceDescription, beforeRule, before, after: input.selection, source, periodEvidence, impact, confirmationToken, commandId: confirmationToken, state: "ready_to_submit", notice: "A confirmação cria ou atualiza somente o público na biblioteca. A identidade e o processamento são retornados pela Meta; nenhum público é aplicado a campanhas." };
