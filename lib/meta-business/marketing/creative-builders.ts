@@ -1,5 +1,6 @@
 import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
 import { graphFacebookBaseUrl, graphApiVersion } from "../constant";
+import { postAdCreativeForm } from "./ad-creative-post";
 import { throwMetaError } from "./meta-error";
 import { uploadImageToAdAccount } from "./upload-ad-image";
 
@@ -12,9 +13,6 @@ const DEFAULT_MESSAGE = "Confira nossa oferta especial!";
 // Disable multi-advertiser ads so Meta does not show other advertisers'
 // ads alongside this one.
 const OPT_OUT_MULTI_ADS = JSON.stringify({ enroll_status: "OPT_OUT" });
-
-const ADCREATIVES_PATH = (adAccountId: string) =>
-  `${graphFacebookBaseUrl}/${graphApiVersion}/${adAccountId}/adcreatives`;
 
 /**
  * Create an ad creative from an existing Instagram post, preserving the
@@ -49,29 +47,22 @@ export async function createAdCreativeFromInstagramPost(params: {
     value: { link: promotionUrl },
   };
 
-  const formData = new FormData();
-  formData.append("name", name);
-  formData.append("source_instagram_media_id", instagramMediaId);
-  formData.append("object_id", pageId);
-  formData.append("instagram_user_id", instagramAccountId);
-  formData.append("call_to_action", JSON.stringify(callToAction));
-  formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
-  formData.append("access_token", accessToken);
-
-  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
-    method: "POST",
-    body: formData,
-    requestParams: formData,
-    entity: "adcreative",
-    operation: "create",
+  return postAdCreativeForm<CreateAdCreativeResponse>({
+    adAccountId,
+    accessToken,
+    fields: {
+      name,
+      source_instagram_media_id: instagramMediaId,
+      object_id: pageId,
+      instagram_user_id: instagramAccountId,
+      call_to_action: JSON.stringify(callToAction),
+      contextual_multi_ads: OPT_OUT_MULTI_ADS,
+    },
+    fail: (data, status) => {
+      console.error("Error creating ad creative from Instagram post:", data);
+      throwMetaError(data, status);
+    },
   });
-
-  if (!response.ok || (data as { error?: unknown }).error) {
-    console.error("Error creating ad creative from Instagram post:", data);
-    throwMetaError(data, response.status);
-  }
-
-  return data as CreateAdCreativeResponse;
 }
 
 /**
@@ -123,28 +114,20 @@ export async function createDynamicAdCreative(params: {
   };
 
 
-  const formData = new FormData();
-  formData.append("name", name);
-  formData.append("object_story_spec", JSON.stringify(objectStorySpec));
-  formData.append("asset_feed_spec", JSON.stringify(assetFeedSpec));
-  formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
-  formData.append("access_token", accessToken);
-
-  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
-    method: "POST",
-    body: formData,
-    requestParams: formData,
-    entity: "adcreative",
-    operation: "create",
+  return postAdCreativeForm<CreateAdCreativeResponse>({
+    adAccountId,
+    accessToken,
+    fields: {
+      name,
+      object_story_spec: JSON.stringify(objectStorySpec),
+      asset_feed_spec: JSON.stringify(assetFeedSpec),
+      contextual_multi_ads: OPT_OUT_MULTI_ADS,
+    },
+    fail: (data, status) => {
+      console.error("Error creating dynamic ad creative:", data);
+      throwMetaError(data, status);
+    },
   });
-
-
-  if (!response.ok || (data as { error?: unknown }).error) {
-    console.error("Error creating dynamic ad creative:", data);
-    throwMetaError(data, response.status);
-  }
-
-  return data as CreateAdCreativeResponse;
 }
 
 /**
@@ -196,26 +179,19 @@ export async function createAdCreative(params: {
     },
   };
 
-  const formData = new FormData();
-  formData.append("name", name);
-  formData.append("object_story_spec", JSON.stringify(objectStorySpec));
-  formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
-  formData.append("access_token", accessToken);
-
-  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
-    method: "POST",
-    body: formData,
-    requestParams: formData,
-    entity: "adcreative",
-    operation: "create",
+  return postAdCreativeForm<CreateAdCreativeResponse>({
+    adAccountId,
+    accessToken,
+    fields: {
+      name,
+      object_story_spec: JSON.stringify(objectStorySpec),
+      contextual_multi_ads: OPT_OUT_MULTI_ADS,
+    },
+    fail: (data, status) => {
+      console.error("Error creating ad creative:", data);
+      throwMetaError(data, status);
+    },
   });
-
-  if (!response.ok || (data as { error?: unknown }).error) {
-    console.error("Error creating ad creative:", data);
-    throwMetaError(data, response.status);
-  }
-
-  return data as CreateAdCreativeResponse;
 }
 
 /**
@@ -263,26 +239,19 @@ export async function createVideoAdCreative(params: {
     },
   };
 
-  const formData = new FormData();
-  formData.append("name", name);
-  formData.append("object_story_spec", JSON.stringify(objectStorySpec));
-  formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
-  formData.append("access_token", accessToken);
-
-  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
-    method: "POST",
-    body: formData,
-    requestParams: formData,
-    entity: "adcreative",
-    operation: "create",
+  return postAdCreativeForm<CreateAdCreativeResponse>({
+    adAccountId,
+    accessToken,
+    fields: {
+      name,
+      object_story_spec: JSON.stringify(objectStorySpec),
+      contextual_multi_ads: OPT_OUT_MULTI_ADS,
+    },
+    fail: (data, status) => {
+      console.error("Error creating video ad creative:", data);
+      throwMetaError(data, status);
+    },
   });
-
-  if (!response.ok || (data as { error?: unknown }).error) {
-    console.error("Error creating video ad creative:", data);
-    throwMetaError(data, response.status);
-  }
-
-  return data as CreateAdCreativeResponse;
 }
 
 /**
@@ -329,27 +298,20 @@ export async function createDynamicVideoAdCreative(params: {
     instagram_user_id: instagramAccountId,
   };
 
-  const formData = new FormData();
-  formData.append("name", name);
-  formData.append("object_story_spec", JSON.stringify(objectStorySpec));
-  formData.append("asset_feed_spec", JSON.stringify(assetFeedSpec));
-  formData.append("contextual_multi_ads", OPT_OUT_MULTI_ADS);
-  formData.append("access_token", accessToken);
-
-  const { response, data } = await fetchMetaGraph(ADCREATIVES_PATH(adAccountId), {
-    method: "POST",
-    body: formData,
-    requestParams: formData,
-    entity: "adcreative",
-    operation: "create",
+  return postAdCreativeForm<CreateAdCreativeResponse>({
+    adAccountId,
+    accessToken,
+    fields: {
+      name,
+      object_story_spec: JSON.stringify(objectStorySpec),
+      asset_feed_spec: JSON.stringify(assetFeedSpec),
+      contextual_multi_ads: OPT_OUT_MULTI_ADS,
+    },
+    fail: (data, status) => {
+      console.error("Error creating dynamic video ad creative:", data);
+      throwMetaError(data, status);
+    },
   });
-
-  if (!response.ok || (data as { error?: unknown }).error) {
-    console.error("Error creating dynamic video ad creative:", data);
-    throwMetaError(data, response.status);
-  }
-
-  return data as CreateAdCreativeResponse;
 }
 
 /**

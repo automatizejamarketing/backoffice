@@ -2,6 +2,8 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { GraphApiError } from "@/lib/meta-business/error";
 import {
+  ADVANTAGE_CREATIVE_UNSUPPORTED_SUBCODE,
+  DEFAULT_PLACEMENT_ADAPTATION,
   GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
   type PlacementAdaptation,
   withPlacementAdaptation,
@@ -149,8 +151,10 @@ const REPAIRABLE_AD_SUBCODES = new Set<number>([
   WEBSITE_URL_REQUIRED,
   STANDARD_ENHANCEMENTS_DEPRECATED,
   DEPRECATED_IMAGE_CROP,
-  // The AI path turns generative expansion on; an ineligible account refuses it.
+  // Toda cópia pede a expansão: a Meta recusa em conta sem IA (3858023) e em
+  // tipo de criativo que não se qualifica, como o dinâmico (3858028).
   GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
+  ADVANTAGE_CREATIVE_UNSUPPORTED_SUBCODE,
 ]);
 
 /**
@@ -2568,20 +2572,16 @@ function buildStripStandardEnhancementsPatch(
 }
 
 /**
- * Patch that drops generative expansion (`image_uncrop` / `video_uncrop`) from the
- * creative's feature spec — the repair for 3858023, an account Meta won't let use
- * generative AI. Keeps the reframing the caller asked for. Returns null when no
- * generative feature is on (the rejection has another cause).
+ * Patch do plano B do 3858023 (conta que a Meta não deixa usar IA generativa):
+ * tira a expansão e deixa adaptação e cortes DESLIGADOS — nunca religa o
+ * reenquadramento, que corta (regra de produto de 30/09/2026). Retorna null
+ * quando nada generativo está ligado (a recusa tem outra causa).
  */
 function buildStripGenerativeFeaturesPatch(
   creative: GraphCreativeShape,
-  placementAdaptation?: PlacementAdaptation,
 ): Record<string, unknown> | null {
   const dof = creative.degrees_of_freedom_spec;
-  const features = withoutGenerativeFeatures(
-    dof?.creative_features_spec,
-    placementAdaptation,
-  );
+  const features = withoutGenerativeFeatures(dof?.creative_features_spec);
   return features
     ? { degrees_of_freedom_spec: { ...dof, creative_features_spec: features } }
     : null;
@@ -2719,13 +2719,15 @@ function buildAdRepairPatch(
   subcode: number,
   creative: GraphCreativeShape,
   fallbackPromotionUrl?: string,
-  placementAdaptation?: PlacementAdaptation,
 ): Record<string, unknown> | null {
   if (subcode === STANDARD_ENHANCEMENTS_DEPRECATED) {
     return buildStripStandardEnhancementsPatch(creative);
   }
-  if (subcode === GENERATIVE_FEATURES_INELIGIBLE_SUBCODE) {
-    return buildStripGenerativeFeaturesPatch(creative, placementAdaptation);
+  if (
+    subcode === GENERATIVE_FEATURES_INELIGIBLE_SUBCODE ||
+    subcode === ADVANTAGE_CREATIVE_UNSUPPORTED_SUBCODE
+  ) {
+    return buildStripGenerativeFeaturesPatch(creative);
   }
   if (subcode === DEPRECATED_IMAGE_CROP) {
     return buildStripDeprecatedCropPatch(creative);
@@ -2945,7 +2947,7 @@ function buildPreemptiveAdPatch(
 ): { patch: Record<string, unknown>; repairs: CreativeRepairLabel[] } {
   const patch: Record<string, unknown> = {};
   const repairs: CreativeRepairLabel[] = [];
-  // Adaptação por posicionamento, quando o chamador pede (hoje: a criação com IA).
+  // Adaptação por posicionamento: copyAdWithRepair sempre passa (padrão = expansão sem corte, regra de 30/09/2026).
   // Supersedes o strip de `standard_enhancements` — `withPlacementAdaptation` já
   // remove o bundle descontinuado ao mesclar, então os dois nunca se sobrepõem.
   if (opts.placementAdaptation) {
@@ -3046,7 +3048,7 @@ async function copyAdWithRepair(
     isSales?: boolean;
     /** Override Meta `status_option` (AI proven path passes PAUSED). */
     statusOption?: string;
-    /** Liga a adaptação por posicionamento no criativo copiado (caminho de IA). */
+    /** Adaptação pedida na cópia. Omitido = o padrão do produto (expansão sem corte). */
     placementAdaptation?: PlacementAdaptation;
   },
 ): Promise<{ copiedAdId: string | undefined; repairs: CreativeRepairLabel[] }> {
@@ -3054,6 +3056,7 @@ async function copyAdWithRepair(
   const overridePromotionUrl = opts?.overridePromotionUrl;
   const prefetched = opts?.prefetchedCreative ?? null;
   const statusOption = opts?.statusOption;
+  const placementAdaptation = opts?.placementAdaptation ?? DEFAULT_PLACEMENT_ADAPTATION;
 
   // Pre-emptive patch from the pre-fetched creative (avoids a doomed first copy).
   const pre = prefetched
@@ -3061,7 +3064,7 @@ async function copyAdWithRepair(
         isSales: !!opts?.isSales,
         fallbackPromotionUrl,
         overridePromotionUrl,
-        placementAdaptation: opts?.placementAdaptation,
+        placementAdaptation,
       })
     : { patch: {} as Record<string, unknown>, repairs: [] as CreativeRepairLabel[] };
   const patch: Record<string, unknown> = pre.patch;
@@ -3100,7 +3103,6 @@ async function copyAdWithRepair(
         sub,
         { ...creative, ...patch },
         fallbackPromotionUrl,
-        opts?.placementAdaptation,
       );
       if (!repairPatch) throw lastErr;
       Object.assign(patch, repairPatch);
@@ -3866,9 +3868,8 @@ export async function duplicateProvenCampaign(args: {
   /** Replace the destination of kept, copied ads; distinct from URL repair fallback. */
   overridePromotionUrl?: string;
   /**
-   * Adaptação da mídia aos posicionamentos onde ela não cabe. Omitido = o
-   * criativo copiado herda exatamente o que o anúncio de origem tinha, que é o
-   * comportamento histórico da duplicação comum.
+   * Adaptação pedida nas cópias. Omitido = o padrão do produto (expansão sem
+   * corte, regra de 30/09/2026).
    */
   placementAdaptation?: PlacementAdaptation;
   /** Horário da revisão da IA; o conjunto é recriado com ele. */

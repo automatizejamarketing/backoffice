@@ -73,6 +73,10 @@ export function installMetaFetchStub(handler: MetaHandler): MetaFetchStub {
     const bodyText =
       typeof init?.body === "string"
         ? init.body
+        : init?.body instanceof FormData
+          ? new URLSearchParams([...init.body.entries()].map(([key, value]) =>
+              [key, typeof value === "string" ? value : "[binary]"] as [string, string],
+            )).toString()
         : init?.body
           ? String(init.body)
           : "";

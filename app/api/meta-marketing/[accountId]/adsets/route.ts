@@ -26,6 +26,7 @@ import { checkAudienceSelectionAvailability } from "@/lib/meta-business/marketin
 import type { PlacementKey } from "@/lib/meta-business/placements";
 import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
 import { validateChangeNote } from "@/lib/meta-tracking/internal-change-event";
+import { withPlacementExpansion } from "@/lib/meta-business/creative-features";
 
 type GraphApiAdSetsResponse = {
   data: GraphApiAdSet[];
@@ -798,15 +799,24 @@ export async function POST(
             );
           }
 
-          const createdCreative =
-            await metaApiCall<CreateAdCreativeApiResponse>({
-              domain: "FACEBOOK",
-              method: "POST",
-              path: `${formattedAccountId}/adcreatives`,
-              params: "",
-              body: creativeParams,
-              accessToken,
-            });
+          // Criativo novo pede a expansão sem corte (regra de 30/09/2026);
+          // conta sem IA (3858023) refaz uma vez sem nenhum recurso.
+          const createdCreative = await withPlacementExpansion(
+            (degreesOfFreedomSpec) => {
+              const attempt = new URLSearchParams(creativeParams);
+              if (degreesOfFreedomSpec) {
+                attempt.set("degrees_of_freedom_spec", degreesOfFreedomSpec);
+              }
+              return metaApiCall<CreateAdCreativeApiResponse>({
+                domain: "FACEBOOK",
+                method: "POST",
+                path: `${formattedAccountId}/adcreatives`,
+                params: "",
+                body: attempt,
+                accessToken,
+              });
+            },
+          );
 
           createdAdCreatives.push({ id: createdCreative.id });
 
