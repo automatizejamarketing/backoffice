@@ -379,7 +379,11 @@ export function LocationTargetingSection({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       const panel = searchPanelRef.current;
-      if (!panel || !(event.target instanceof Node) || !panel.contains(event.target)) return;
+      if (!panel || !(event.target instanceof Node)) return;
+      // Esc on the search trigger (reached with Shift+Tab) also closes only the panel.
+      const insideSearch =
+        panel.contains(event.target) || searchTriggerRef.current?.contains(event.target);
+      if (!insideSearch) return;
       event.stopPropagation();
       event.preventDefault();
       setOpen(false);
@@ -389,6 +393,15 @@ export function LocationTargetingSection({
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [open]);
+
+  // The panel used to be a Popover that flipped above the trigger when there was no room below.
+  // Now it renders inline, so in tall dialogs (e.g. editing an ad set) it has to bring itself into
+  // view whenever it mounts or its content height changes. "nearest" is a no-op when it is already
+  // fully visible, so review sheets and the wizard step do not jump.
+  useEffect(() => {
+    if (!open) return;
+    searchPanelRef.current?.scrollIntoView({ block: "nearest" });
+  }, [open, results.length, isFetching, error, placeDetailsError]);
 
   const handleSearchTermChange = (value: string) => {
     setSearchTerm(value);
@@ -422,6 +435,7 @@ export function LocationTargetingSection({
     setPlacesSessionToken(null);
     setPlaceDetailsError(null);
     setOpen(false);
+    searchTriggerRef.current?.focus();
   };
 
   const handleSelectLocation = async (location: GeoLocationSearchResult) => {

@@ -60,8 +60,8 @@ do molde, a linha "Localização" aparece só para leitura.
 |---|---|
 | `app/(admin)/marketing/components/location-selection.ts` (novo) | Funções puras com as operações de lista, extraídas dos handlers do componente **sem mudar comportamento** (`bounds = { min: number; max: number }`): `addSelectedLocation(list, location): SelectedGeoLocation[]`; `removeSelectedLocation(list, key): { locations: SelectedGeoLocation[]; removedIndex: number }`; `expandedIndexAfterRemoval(current: number \| null, removedIndex: number): number \| null`; `setLocationRadius(list, key, rawValue: string, bounds): SelectedGeoLocation[]`; `stepLocationRadius(list, key, delta: number, bounds): SelectedGeoLocation[]`; `moveLocationPin(list, index, latitude, longitude, bounds): SelectedGeoLocation[]`. A checagem "local com raio sem coordenadas → erro" continua no componente, antes de chamar `addSelectedLocation`. |
 | `app/(admin)/marketing/components/location-targeting-section.tsx` | (a) Troca `Popover`/`PopoverTrigger`/`PopoverContent` pelo painel inline do app: o botão de busca alterna `open` com `aria-expanded`/`aria-controls`; logo abaixo, quando `open`, um `<div>` com `Command` + `CommandInput autoFocus` e a mesma lista de resultados de hoje. O `id` do painel vem de `useId()`. (b) Os handlers passam a chamar `location-selection.ts`. (c) Esc dentro do painel fecha só o painel (ver "Esc dentro da busca"). Ficam como estão as diferenças próprias do backoffice: `userId` na busca e nos detalhes do Google, prop `required`, hook de i18n `useLocationTargetingT`, mensagem de erro detalhada da busca. |
-| `app/globals.css` | `[data-radix-popper-content-wrapper] { z-index: 100; }` com o comentário do app ("Radix positions portaled menus with a transformed wrapper… Keep them above review sheets (z-90)"). |
-| `components/ui/popover.tsx` | `PopoverContent`: `z-50` → `z-[100]` e `pointer-events-auto` (nas duas strings de classe onde `z-50` aparece). |
+| `app/globals.css` | `[data-radix-popper-content-wrapper] { z-index: 200 !important; }`, com o comentário do app adaptado para citar os dois sheets de revisão (z-90 e z-110). `!important` e 200 porque o Radix copia o z-index do conteúdo inline no wrapper, o sheet de público avançado é z-110 e 200 é a mesma camada do app. |
+| `components/ui/popover.tsx` | `PopoverContent`: `z-50` → `z-[200]` (mesma camada do wrapper) e `pointer-events-auto` (nas duas strings de classe onde `z-50` aparece). |
 | `app/(admin)/marketing/ai/review-summaries.ts` | Recebe `geoSummaryLine(geo)`: a função privada `audienceGeoLabel` de `ai-review-card.tsx` extraída sem mudar o texto, e aceitando `undefined`. O bloco "Segmentação efetiva por conjunto" (`ReviewEffectiveAudience`) passa a usá-la; a linha nova do molde também. |
 | `app/(admin)/marketing/ai/ai-campaign-client.tsx` | A linha "Localização" da revisão passa a aparecer também com molde: `ReviewRow` só leitura (sem `onEdit`), valor `geoSummaryLine(plannedAudience?.geo)` ("não especificada" enquanto não houver plano). Sem molde, fica como hoje (`locationLabel` + editar abrindo o sheet). |
 
@@ -139,8 +139,9 @@ Unitários com `bun:test` (estilo de `review-summaries.test.ts`):
 - `app/(admin)/marketing/ai/review-summaries.test.ts`: `geoSummaryLine` com locais nomeados e
   raio, só contagens, vazio e `undefined`.
 - `tests/review-sheet-stacking.test.ts`: contrato de empilhamento — o z-index de
-  `[data-radix-popper-content-wrapper]` no `globals.css` e o do `PopoverContent` ficam acima do
-  z-index do `ReviewEditSheet`.
+  `[data-radix-popper-content-wrapper]` no `globals.css` (exigindo `!important`, 200) e o do
+  `PopoverContent` ficam acima do z-index do `ReviewEditSheet` (90) e do sheet de público avançado
+  (110).
 
 Portões: `tsc --noEmit` sem erros novos; `eslint` nos arquivos tocados (o lint do repo já sai 1
 na base); suíte completa `FRONTEND_ROOT=D:/automatize-marketing/automatize-frontend bun test`
