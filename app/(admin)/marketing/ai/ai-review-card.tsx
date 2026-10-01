@@ -20,6 +20,7 @@ import {
   flowRowLabelClassName,
   flowRowValueClassName,
 } from "./flow-chrome";
+import { geoSummaryLine } from "./review-summaries";
 
 /**
  * Building blocks of the review: the flow composes them, so what is a row, what is inline and
@@ -215,30 +216,6 @@ export function ReviewInlineBlock({
   );
 }
 
-type AudienceReviewAdSet = NonNullable<ReviewSummary["audience"]["adSets"]>[number];
-
-function audienceGeoLabel(geo: AudienceReviewAdSet["geo"]): string {
-  if (geo.locations?.length) {
-    return geo.locations
-      .map((location) =>
-        location.radiusKm != null
-          ? `${location.label} · ${location.radiusKm} km`
-          : location.label,
-      )
-      .join(" · ");
-  }
-  return (
-    [
-      geo.customLocations ? `${geo.customLocations} endereço(s)` : "",
-      geo.cities ? `${geo.cities} cidade(s)` : "",
-      geo.regions ? `${geo.regions} região(ões)` : "",
-      geo.countries ? `${geo.countries} país(es)` : "",
-    ]
-      .filter(Boolean)
-      .join(" + ") || "não especificada"
-  );
-}
-
 function audienceGenderLabel(genders: number[] | undefined): string {
   if (genders?.includes(1) && genders.includes(2)) return "homens e mulheres";
   if (genders?.includes(1)) return "homens";
@@ -268,7 +245,7 @@ export function ReviewEffectiveAudience({
           <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
             <div>
               <dt className="inline font-medium">Localização: </dt>
-              <dd className="inline">{audienceGeoLabel(adSet.geo)}</dd>
+              <dd className="inline">{geoSummaryLine(adSet.geo)}</dd>
             </div>
             <div>
               <dt className="inline font-medium">Expansão: </dt>

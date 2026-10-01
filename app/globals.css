@@ -138,6 +138,16 @@
     @apply bg-background text-foreground;
   }
 
+  /* Radix positions portaled menus with a transformed wrapper, so z-index on
+     the inner content cannot escape. Keep them above both review sheets: the
+     AI review sheet (z-90) and the advanced-audience sheet (z-110). The customer
+     app uses z-[200] for its overlays; this is the same layer.
+     Radix also copies the content's computed z-index into the wrapper's inline
+     style (Select content is z-50), so !important is needed to win. */
+  [data-radix-popper-content-wrapper] {
+    z-index: 200 !important;
+  }
+
   .login-autofill-light {
     color-scheme: light;
   }

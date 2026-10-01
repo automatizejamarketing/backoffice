@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { scheduleSummary } from "./review-summaries";
+import { geoSummaryLine, scheduleSummary } from "./review-summaries";
 
 describe("scheduleSummary", () => {
   test("dia todo não lista faixas", () => {
@@ -51,5 +51,36 @@ describe("scheduleSummary", () => {
         ],
       }),
     ).toBe("Fim de semana 00:00–01:00 · Seg a sáb 18:00–24:00");
+  });
+});
+
+describe("geoSummaryLine", () => {
+  const zero = { customLocations: 0, cities: 0, regions: 0, countries: 0 };
+
+  test("locais nomeados, com e sem raio", () => {
+    expect(
+      geoSummaryLine({
+        ...zero,
+        customLocations: 1,
+        cities: 1,
+        locations: [{ label: "Av. Paulista, 1000", radiusKm: 5 }, { label: "Campinas" }],
+      }),
+    ).toBe("Av. Paulista, 1000 · 5 km · Campinas");
+  });
+
+  test("sem nomes, cai nas contagens", () => {
+    expect(geoSummaryLine({ customLocations: 2, cities: 1, regions: 0, countries: 1 })).toBe(
+      "2 endereço(s) + 1 cidade(s) + 1 país(es)",
+    );
+    expect(geoSummaryLine({ ...zero, regions: 3 })).toBe("3 região(ões)");
+  });
+
+  test("lista de nomes vazia também cai nas contagens", () => {
+    expect(geoSummaryLine({ ...zero, cities: 2, locations: [] })).toBe("2 cidade(s)");
+  });
+
+  test("nada segmentado ou plano ausente", () => {
+    expect(geoSummaryLine(zero)).toBe("não especificada");
+    expect(geoSummaryLine(undefined)).toBe("não especificada");
   });
 });
