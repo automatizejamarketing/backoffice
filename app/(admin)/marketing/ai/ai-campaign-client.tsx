@@ -140,7 +140,7 @@ import {
   type TrailStep,
 } from "./flow-trail";
 import { hasIdentityChoice, preselectIdentity } from "./identity-step";
-import { scheduleSummary } from "./review-summaries";
+import { geoSummaryLine, scheduleSummary } from "./review-summaries";
 
 type Objective = "sales" | "whatsapp" | "followers" | "leads";
 
@@ -1998,7 +1998,10 @@ export function AiCampaignClient() {
                   invalid={scheduleEmpty}
                 />
               ) : null}
-              {!hasMold ? (
+              {hasMold ? (
+                // The mold inherits geo from the base ad (same as the customer app): shown, not edited.
+                <ReviewRow label="Localização" value={geoSummaryLine(plannedAudience?.geo)} />
+              ) : (
                 <ReviewRow
                   label="Localização"
                   value={locationLabel}
@@ -2006,7 +2009,7 @@ export function AiCampaignClient() {
                   disabled={phase === "publishing"}
                   invalid={effectiveLocations.length === 0}
                 />
-              ) : null}
+              )}
               <ReviewRow
                 label="Posicionamentos"
                 value={placementsSummary(placementsMode, selectedPlacements, objective)}
