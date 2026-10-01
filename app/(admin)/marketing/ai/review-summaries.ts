@@ -1,3 +1,4 @@
+import type { ReviewSummary } from "@/lib/meta-business/marketing/ai-creation";
 import {
   META_SCHEDULE_DAY_ORDER,
   type CampaignDeliveryMode,
@@ -62,4 +63,32 @@ export function scheduleSummary(value: {
   return [...byHours.values()]
     .map((entry) => `${daysLabel(entry.days)} ${minuteLabel(entry.start)}–${minuteLabel(entry.end)}`)
     .join(" · ");
+}
+
+/**
+ * One line for where the ads run: the named places (with the radius when there is one), or the
+ * counts when the plan cannot name them. Shared by the effective-audience block and the read-only
+ * location row of the mold path.
+ */
+export function geoSummaryLine(geo: ReviewSummary["audience"]["geo"] | undefined): string {
+  if (!geo) return "não especificada";
+  if (geo.locations?.length) {
+    return geo.locations
+      .map((location) =>
+        location.radiusKm != null
+          ? `${location.label} · ${location.radiusKm} km`
+          : location.label,
+      )
+      .join(" · ");
+  }
+  return (
+    [
+      geo.customLocations ? `${geo.customLocations} endereço(s)` : "",
+      geo.cities ? `${geo.cities} cidade(s)` : "",
+      geo.regions ? `${geo.regions} região(ões)` : "",
+      geo.countries ? `${geo.countries} país(es)` : "",
+    ]
+      .filter(Boolean)
+      .join(" + ") || "não especificada"
+  );
 }

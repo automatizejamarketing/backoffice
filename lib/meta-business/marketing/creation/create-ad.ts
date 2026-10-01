@@ -10,7 +10,6 @@
  * Endpoints: POST /act_{id}/adcreatives then POST /act_{id}/ads.
  */
 
-import { GraphApiError } from "@/lib/meta-business/error";
 import { metaWrite } from "@/lib/meta-business/write-retry";
 import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
@@ -29,9 +28,10 @@ import { issuesFromError } from "./normalize";
 import { collect, subcodeSuggestion, validateCarouselCards } from "./validation";
 import { deleteMetaObject } from "./delete";
 import {
-  GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
+  NO_PLACEMENT_ADAPTATION,
   type PlacementAdaptation,
   buildDegreesOfFreedomSpec,
+  isGenerativeIneligibleError,
 } from "@/lib/meta-business/creative-features";
 
 /** Disable multi-advertiser ads (don't show alongside other advertisers'). */
@@ -120,13 +120,10 @@ export type CreateAdInput = {
   /** Defaults to PAUSED. */
   status?: "ACTIVE" | "PAUSED";
   /**
-   * Como o Meta pode reenquadrar a mídia para os posicionamentos onde ela não
-   * cabe (quadrado → Stories/Reels e vice-versa). Omitido = o padrão do produto
-   * (reenquadra, não expande generativamente).
-   *
-   * Passar `{ enabled: false }` reproduz o comportamento anterior a esta feature:
-   * o criativo sai sem `degrees_of_freedom_spec` e, como o padrão do Meta é TUDO
-   * desligado, sem adaptação nenhuma.
+   * Como o Meta pode adaptar a mídia aos posicionamentos onde ela não cabe.
+   * Omitido = o padrão do produto: expansão sem corte (regra de 30/09/2026,
+   * `DEFAULT_PLACEMENT_ADAPTATION`). `{ enabled: false }` = sem
+   * `degrees_of_freedom_spec` (o padrão do Meta, tudo desligado).
    */
   placementAdaptation?: PlacementAdaptation;
   /** Escape hatch merged into the creative POST. */
@@ -459,20 +456,19 @@ export async function createCreative(
   const ready: CreateAdInput = { ...input, creative: resolved };
   let attempt = await postCreative(account, accessToken, ready, skipRemoteValidation);
 
-  // Conta sem acesso à IA generativa (3858023): o mesmo criativo sem a expansão
-  // passa. Uma tentativa só, e só quando o pedido era de fato generativo.
-  const adaptation = input.placementAdaptation;
+  // Conta sem acesso à IA generativa (3858023): refaz UMA vez sem nenhum
+  // recurso de adaptação — nunca com o reenquadramento, que corta (regra de
+  // produto de 30/09/2026).
   if (
     attempt &&
     "error" in attempt &&
-    adaptation?.enabled !== false &&
-    adaptation?.generativeExpansion === true &&
-    metaSubcodeOf(attempt.error) === GENERATIVE_FEATURES_INELIGIBLE_SUBCODE
+    requestsPlacementFeatures(ready) &&
+    isGenerativeIneligibleError(attempt.error)
   ) {
     attempt = await postCreative(
       account,
       accessToken,
-      { ...ready, placementAdaptation: { ...adaptation, generativeExpansion: false } },
+      withoutPlacementFeatures(ready),
       skipRemoteValidation,
     );
   }
@@ -482,6 +478,42 @@ export async function createCreative(
     return { issues: issuesFromError(attempt.error, attempt.stage, "creative", subcodeSuggestion) };
   }
   return { id: attempt.id };
+}
+
+/** O corpo do criativo leva `degrees_of_freedom_spec` (padrão ou via escape hatch)? */
+function requestsPlacementFeatures(input: CreateAdInput): boolean {
+  return buildAdCreativeFields(input)?.has("degrees_of_freedom_spec") ?? false;
+}
+
+/**
+ * O mesmo criativo sem nenhum `degrees_of_freedom_spec` — nem o do padrão, nem
+ * o que um chamador tenha posto em `creativeExtraFields` (senão o campo voltaria
+ * escondido na nova tentativa).
+ */
+function withoutPlacementFeatures(input: CreateAdInput): CreateAdInput {
+  const extra = { ...(input.creativeExtraFields ?? {}) };
+  delete extra.degrees_of_freedom_spec;
+  return { ...input, placementAdaptation: NO_PLACEMENT_ADAPTATION, creativeExtraFields: extra };
+}
+
+/** validate_only de um corpo de criativo; devolve o erro da Meta ou null. */
+async function validateCreativeFields(
+  account: string,
+  accessToken: string,
+  fields: URLSearchParams,
+): Promise<{ error: unknown } | null> {
+  try {
+    await metaWrite<{ success?: boolean }>({
+      method: "POST",
+      path: `${account}/adcreatives`,
+      params: "",
+      body: withValidateOnly(fields),
+      accessToken,
+    });
+    return null;
+  } catch (error) {
+    return { error };
+  }
 }
 
 type CreativeAttempt =
@@ -524,10 +556,6 @@ async function postCreative(
   } catch (error) {
     return { error, stage: "create" };
   }
-}
-
-function metaSubcodeOf(error: unknown): number | undefined {
-  return error instanceof GraphApiError ? error.errorReturn.data?.errorSubcode : undefined;
 }
 
 function buildAdPayload(input: CreateAdInput, creativeId: string): URLSearchParams {
@@ -575,16 +603,19 @@ export async function previewAd(input: CreateAdInput): Promise<PreviewResult> {
   if (!fields) return { ok: false, issues: localIssues };
   const ready = !specNeedsUpload(input.creative);
   if (ready) {
-    try {
-      await metaWrite<{ success?: boolean }>({
-        method: "POST",
-        path: `${account}/adcreatives`,
-        params: "",
-        body: withValidateOnly(fields),
-        accessToken: input.accessToken,
-      });
-    } catch (error) {
-      return { ok: false, issues: issuesFromError(error, "validate_only", "creative", subcodeSuggestion) };
+    const refused = await validateCreativeFields(account, input.accessToken, fields);
+    if (refused) {
+      // Mesmo plano B da criação real (createCreative): conta sem IA generativa
+      // valida o criativo sem nenhum recurso de adaptação.
+      if (!fields.has("degrees_of_freedom_spec") || !isGenerativeIneligibleError(refused.error)) {
+        return { ok: false, issues: issuesFromError(refused.error, "validate_only", "creative", subcodeSuggestion) };
+      }
+      const fallback = buildAdCreativeFields(withoutPlacementFeatures(input)) ?? fields;
+      const again = await validateCreativeFields(account, input.accessToken, fallback);
+      if (again) {
+        return { ok: false, issues: issuesFromError(again.error, "validate_only", "creative", subcodeSuggestion) };
+      }
+      return { ok: true, payload: Object.fromEntries(fallback) as Record<string, string> };
     }
   }
   return { ok: true, payload: Object.fromEntries(fields) as Record<string, string> };

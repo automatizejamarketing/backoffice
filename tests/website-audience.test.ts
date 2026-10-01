@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildWebsiteAudienceRule, parseWebsiteAudienceRule, resolveWebsiteSourceEvidence, WEBSITE_PERIOD_EVIDENCE, websitePeriodEvidenceBySource, websitePeriodEvidenceStatus, websitePeriodSelectionsEqual, websiteSelectionsEqual, extractObservedWebsiteEvents } from "../lib/meta-business/marketing/audiences/website";
+import { buildWebsiteAudienceRule, parseWebsiteAudienceRule, resolveWebsiteSourceEvidence, WEBSITE_PERIOD_EVIDENCE, websitePeriodEvidenceBySource, websitePeriodEvidenceStatus, websitePeriodOutOfRange, websitePeriodSelectionsEqual, websiteSelectionsEqual, extractObservedWebsiteEvents } from "../lib/meta-business/marketing/audiences/website";
 
 test("builds visitor, URL, and event rules with the pixel source", () => {
   assert.equal(buildWebsiteAudienceRule({ pixelId: "pixel-1", criterion: "visitors", retentionDays: 30 }).inclusions.rules[0].event_sources[0].type, "pixel");
@@ -44,10 +44,21 @@ test("uses only source-scoped observed events and source-scoped period evidence"
   assert.equal(websiteSelectionsEqual({ pixelId: "pixel-1", criterion: "url", retentionDays: 7, url: "/x" }, { pixelId: "pixel-1", criterion: "url", retentionDays: 7, url: "/y" }), false);
 });
 
-test("keeps every website period criterion blocked until its evidence is closed", () => {
+test("records the documented Meta period contract for every website criterion", () => {
   for (const evidence of Object.values(WEBSITE_PERIOD_EVIDENCE)) {
-    assert.equal(websitePeriodEvidenceStatus(evidence.criterion), "blocked");
-    assert.equal(evidence.initialDays, null);
-    assert.equal(evidence.historicalFill, "unknown");
+    assert.equal(websitePeriodEvidenceStatus(evidence.criterion), "ready");
+    assert.equal(evidence.initialDays, 30);
+    assert.equal(evidence.metaMinimumDays, 1);
+    assert.equal(evidence.metaMaximumDays, 180);
+    assert.equal(evidence.localValidationMaximumDays, 180);
+    assert.equal(evidence.editable, "yes");
+    assert.equal(evidence.historicalFill, "available");
+    assert.equal(evidence.observedAt, "2026-09-30");
   }
+  const visitors = WEBSITE_PERIOD_EVIDENCE.visitors;
+  assert.equal(websitePeriodOutOfRange(visitors, 1), false);
+  assert.equal(websitePeriodOutOfRange(visitors, 180), false);
+  assert.equal(websitePeriodOutOfRange(visitors, 0), true);
+  assert.equal(websitePeriodOutOfRange(visitors, 181), true);
+  assert.equal(websitePeriodOutOfRange(visitors, 400, true), false);
 });

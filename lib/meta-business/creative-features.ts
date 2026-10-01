@@ -9,9 +9,7 @@
  * Sondagem ao vivo contra a v25 (2026-08-18, conta act_509408644106984):
  *
  * - Um criativo criado SEM `degrees_of_freedom_spec` volta do Meta com as 82
- *   chaves materializadas e ZERO em `OPT_IN`. O padrão é tudo desligado — ou
- *   seja, todo anúncio que publicamos hoje sai sem adaptação nenhuma, enquanto o
- *   mesmo anúncio feito no Gerenciador sai com ela ligada.
+ *   chaves materializadas e ZERO em `OPT_IN`. O padrão é tudo desligado.
  * - O bundle `standard_enhancements` foi descontinuado na v22 e é REJEITADO na
  *   criação ("Defina recursos individuais"). Daí a lista por chave abaixo.
  * - `image_crop_style` aceita `{AUTO, CROP, EXPAND, NONE, ZOOM}` — enum que não
@@ -19,20 +17,19 @@
  * - Dentro de `customizations`, `aspect_ratio_config.ar_*.adapt` e cada grupo de
  *   `placement_groups` precisam ser OBJETOS (`{ enroll_status }`), não strings.
  *
- * As chaves estão separadas por RISCO DE MARCA, e essa separação é a razão de
- * este módulo existir em vez de um objeto literal solto:
+ * REGRA DO PRODUTO (30/09/2026): todo criativo que o Automatize cria — wizard,
+ * novo anúncio, troca de arte ou de link, Mat, duplicação — pede a EXPANSÃO sem
+ * corte ({@link DEFAULT_PLACEMENT_ADAPTATION}), para uma arte enviada num só
+ * formato valer em Feed, Reels e Stories. Nenhum recurso que corta
+ * ({@link CROPPING_FEATURES}) é pedido. Na conta que a Meta não deixa usar IA
+ * generativa (3858023) o plano B é NENHUM recurso — nunca o reenquadramento,
+ * que corta. Spec: `docs/superpowers/specs/2026-09-30-placement-expansion-everywhere-design.md`
+ * no automatize-frontend.
  *
- * - {@link REFRAMING_FEATURES} reenquadram o que o anunciante já enviou (corte,
- *   zoom, escolha de qual mídia usar em qual posicionamento).
- * - {@link GENERATIVE_FEATURES} EXPANDEM a mídia (`image_uncrop` / `video_uncrop`)
- *   para caber em posicionamentos incompatíveis sem cortar. Ligadas no fluxo
- *   de campanha com IA ({@link AI_PLACEMENT_ADAPTATION}); nos demais caminhos
- *   ficam atrás de opt-in.
- *
- * Espelhado no backoffice via `bun run sync:meta` como cópia BYTE-IDÊNTICA (vive
- * na raiz de `lib/meta-business/`, caminho que existe igual nos dois projetos, para
- * que `duplicate.ts` — que não passa pela reescrita de imports — também possa
- * importá-lo).
+ * Espelhado no backoffice como cópia BYTE-IDÊNTICA (vive na raiz de
+ * `lib/meta-business/`, caminho que existe igual nos dois projetos, para que
+ * `duplicate.ts` — que não passa pela reescrita de imports — também possa
+ * importá-lo). Módulo puro: sem imports, para continuar idêntico.
  */
 
 /** Valores aceitos por `customizations.image_crop_style` (extraídos do validador da v25). */
@@ -42,9 +39,9 @@ export type ImageCropStyle = (typeof IMAGE_CROP_STYLES)[number];
 /**
  * Reenquadramento: o Meta corta/dá zoom/escolhe a mídia, mas nunca inventa pixel.
  *
- * - `adapt_to_placement` — ajusta a imagem ao posicionamento (4:5 e 9:16 ligados por padrão)
+ * - `adapt_to_placement` — ajusta a imagem ao posicionamento (o dial de recorte mora aqui)
  * - `pac_relaxation` — mostra a mídia escolhida para um aspect ratio nos demais posicionamentos
- * - `video_auto_crop` — o equivalente para vídeo
+ * - `video_auto_crop` — o equivalente para vídeo (corta: ver {@link CROPPING_FEATURES})
  */
 export const REFRAMING_FEATURES = [
   "adapt_to_placement",
@@ -57,75 +54,75 @@ export const REFRAMING_FEATURES = [
  *
  * Documentação: Get Started with the Generative AI Features — `image_uncrop`
  * ("Expand image") e `video_uncrop` ("filling the available space instead of
- * cropping or letterboxing"). É o único caminho da API para um único 9:16
- * aparecer no Feed sem o crop 1:1 de `use_flexible_image_aspect_ratio`.
- *
- * `image_touchups` NÃO entra aqui: a doc o descreve como "cropped **and**
- * expanded". Ligá-lo reintroduz o corte que o cliente reclamou.
+ * cropping or letterboxing").
  */
 export const GENERATIVE_FEATURES = ["image_uncrop", "video_uncrop"] as const;
 
 /**
+ * Recursos que CORTAM a mídia — proibidos pela regra do produto. A doc da Meta
+ * descreve os dois como "cropped and expanded". Saem em `OPT_OUT` explícito
+ * sempre que mesclamos com o spec de um criativo existente (duplicação), para a
+ * cópia não herdar o corte da origem.
+ */
+export const CROPPING_FEATURES = ["video_auto_crop", "image_touchups"] as const;
+
+/**
  * Subcode 3858023 — "A conta de anúncios não está qualificada para o Criativo
- * Advantage+". Nem toda conta pode usar IA generativa em anúncio: a política da
- * Meta exclui Saúde, Farma, Serviços financeiros e as categorias especiais.
- *
- * Sondagem com `validate_only` numa conta de dentista (act_2909378449435362,
- * 2026-09-23): só `image_uncrop` dispara a recusa — até em criativo de vídeo —
- * e a conta trazia a capability `ELIGIBLE_FOR_IMAGE_GEN` mesmo assim, então não
- * há como prever pela conta. O conserto é reativo: refazer o criativo sem as
- * {@link GENERATIVE_FEATURES}. `video_uncrop` passou nessa conta, mas sai junto:
- * é generativo e nada garante que a Meta o aplique onde recusa o de imagem.
+ * Advantage+". A política da Meta exclui Saúde, Farma, Serviços financeiros e as
+ * categorias especiais da IA generativa, e não há como prever pela conta
+ * (sondagem de 23/09/2026 numa conta de dentista). O conserto é reativo.
  */
 export const GENERATIVE_FEATURES_INELIGIBLE_SUBCODE = 3858023;
 
+/**
+ * Subcode 3858028 — "O criativo usa um produto do anúncio que não se qualifica
+ * para o Criativo Advantage+" (anúncio dinâmico com `asset_feed_spec`, de
+ * oferta…). Sondagem de 30/09/2026 na conta LEG Educação: só a expansão
+ * dispara a recusa, e o mesmo criativo sem nada passa. Mesmo plano B do 3858023.
+ */
+export const ADVANTAGE_CREATIVE_UNSUPPORTED_SUBCODE = 3858028;
+
+/** Recusas da Meta à expansão cujo conserto é o plano B (nenhum recurso). */
+export const PLACEMENT_EXPANSION_REFUSED_SUBCODES: readonly number[] = [
+  GENERATIVE_FEATURES_INELIGIBLE_SUBCODE,
+  ADVANTAGE_CREATIVE_UNSUPPORTED_SUBCODE,
+];
+
 export type CreativeFeatureKey =
   | (typeof REFRAMING_FEATURES)[number]
-  | (typeof GENERATIVE_FEATURES)[number];
+  | (typeof GENERATIVE_FEATURES)[number]
+  | (typeof CROPPING_FEATURES)[number];
 
 /** Como o anunciante quer que a mídia seja adaptada entre posicionamentos. */
 export type PlacementAdaptation = {
-  /** Desligar tudo (inclusive o reenquadramento). Padrão: ligado. */
+  /** Desligar tudo (o criativo sai sem `degrees_of_freedom_spec`). Padrão: ligado. */
   enabled?: boolean;
-  /**
-   * Permitir que a IA EXPANDA a mídia para além do quadro original
-   * (`image_uncrop` / `video_uncrop`). Sem isso, um 9:16 no Feed é cortado
-   * para 1:1 pelo default oficial de `use_flexible_image_aspect_ratio`.
-   */
+  /** Permitir que a IA EXPANDA a mídia para além do quadro original. Padrão: sim. */
   generativeExpansion?: boolean;
-  /**
-   * Dial de recorte em `adapt_to_placement`. `EXPAND` pede preenchimento do
-   * quadro; `AUTO`/`CROP`/`ZOOM` ainda cortam (o validador da v25 aceita os
-   * cinco; a doc oficial só exemplifica `AUTO`).
-   */
+  /** Dial de recorte em `adapt_to_placement`. Padrão: `EXPAND` (AUTO/CROP/ZOOM cortam). */
   imageCropStyle?: ImageCropStyle;
 };
 
-/**
- * Padrão dos caminhos que não são campanha com IA: reenquadra, não inventa pixel.
- * Campanha com IA usa {@link AI_PLACEMENT_ADAPTATION}.
- */
+/** Padrão do produto em todo criativo: expansão sem corte (regra de 30/09/2026). */
 export const DEFAULT_PLACEMENT_ADAPTATION: Required<PlacementAdaptation> = {
-  enabled: true,
-  generativeExpansion: false,
-  imageCropStyle: "AUTO",
-};
-
-/**
- * Campanha com IA: um criativo (ex. 9:16) precisa servir Feed + Stories + Reels
- * sem o corte agressivo que o cliente viu com `AUTO`.
- *
- * Caminho oficial (Marketing API v25, páginas vigentes também em v26):
- * `adapt_to_placement` + `image_uncrop` / `video_uncrop` + `image_crop_style: EXPAND`.
- */
-export const AI_PLACEMENT_ADAPTATION: Required<PlacementAdaptation> = {
   enabled: true,
   generativeExpansion: true,
   imageCropStyle: "EXPAND",
 };
 
+/** Nome histórico do fluxo de campanha com IA — hoje é o próprio padrão. */
+export const AI_PLACEMENT_ADAPTATION: Required<PlacementAdaptation> =
+  DEFAULT_PLACEMENT_ADAPTATION;
+
+/** Plano B do 3858023 num criativo novo: sai sem `degrees_of_freedom_spec`. */
+export const NO_PLACEMENT_ADAPTATION: PlacementAdaptation = { enabled: false };
+
 type EnrollStatus = { enroll_status: "OPT_IN" | "OPT_OUT" };
 type FeatureDetails = EnrollStatus & { customizations?: Record<string, unknown> };
+
+function optOut(): EnrollStatus {
+  return { enroll_status: "OPT_OUT" };
+}
 
 function resolve(adaptation?: PlacementAdaptation): Required<PlacementAdaptation> {
   return { ...DEFAULT_PLACEMENT_ADAPTATION, ...(adaptation ?? {}) };
@@ -134,12 +131,9 @@ function resolve(adaptation?: PlacementAdaptation): Required<PlacementAdaptation
 /**
  * As chaves que queremos ligadas, já com as `customizations` de cada uma.
  *
- * Só emite chaves em `OPT_IN`: nunca escrevemos `OPT_OUT` explícito, porque o
- * Meta já materializa todas as 82 como `OPT_OUT` por conta própria e listar as
- * outras 79 só engordaria o payload sem mudar nada.
- *
- * Retorna `null` quando não há nada a pedir (adaptação desligada) — assim o
- * chamador simplesmente não manda o campo, em vez de mandar um objeto vazio.
+ * Só emite chaves em `OPT_IN`: o Meta já materializa todas as 82 como `OPT_OUT`
+ * por conta própria. Retorna `null` quando a adaptação está desligada — assim o
+ * chamador simplesmente não manda o campo.
  */
 export function buildCreativeFeaturesSpec(
   adaptation?: PlacementAdaptation,
@@ -150,13 +144,10 @@ export function buildCreativeFeaturesSpec(
   const spec: Record<string, FeatureDetails> = {};
   for (const key of REFRAMING_FEATURES) {
     // video_auto_crop = "cropped and expanded". Com uncrop ligado, mandar os
-    // dois pediria corte e expansão ao mesmo tempo — a doc do video_uncrop é
-    // "instead of cropping or letterboxing".
+    // dois pediria corte e expansão ao mesmo tempo.
     if (generativeExpansion && key === "video_auto_crop") continue;
     spec[key] = { enroll_status: "OPT_IN" };
   }
-  // O dial de recorte só existe em adapt_to_placement. 4:5 e 9:16 já vêm
-  // ligados no default oficial — não reenviamos aspect_ratio_config.
   spec.adapt_to_placement = {
     enroll_status: "OPT_IN",
     customizations: { image_crop_style: imageCropStyle },
@@ -180,11 +171,9 @@ export function buildDegreesOfFreedomSpec(
 
 /**
  * Sobrepõe nossas chaves a um `creative_features_spec` que JÁ existe no criativo
- * (o caminho de duplicação: o anúncio comprovado traz o spec dele, e queremos
- * ligar a adaptação sem apagar o que o anunciante já tinha configurado).
- *
- * `standard_enhancements` é removido de quebra: ele é rejeitado na criação desde
- * a v22, e um criativo antigo que ainda o carrega faria a cópia falhar.
+ * (o caminho de duplicação): mantém o resto da origem, desliga os
+ * {@link CROPPING_FEATURES} que ela tivesse e remove `standard_enhancements`
+ * (rejeitado na criação desde a v22).
  */
 export function withPlacementAdaptation(
   existing: Record<string, unknown> | undefined,
@@ -194,6 +183,9 @@ export function withPlacementAdaptation(
   if (!ours) return null;
   const merged: Record<string, unknown> = { ...(existing ?? {}) };
   delete merged.standard_enhancements;
+  // Antes das nossas chaves de propósito: quem pede reenquadramento explícito
+  // (generativeExpansion: false) ainda recebe o video_auto_crop que pediu.
+  for (const key of CROPPING_FEATURES) merged[key] = optOut();
   return Object.assign(merged, ours);
 }
 
@@ -202,27 +194,75 @@ function isOptIn(feature: unknown): boolean {
 }
 
 /**
- * O `creative_features_spec` sem a expansão generativa — o conserto do
- * {@link GENERATIVE_FEATURES_INELIGIBLE_SUBCODE} no caminho de duplicação, onde
- * o spec já vem montado (chaves da origem + as nossas por cima).
- *
- * Remove as {@link GENERATIVE_FEATURES} e, quando o chamador pediu adaptação,
- * reaplica o reenquadramento com `generativeExpansion: false` — o que devolve o
- * `video_auto_crop` que a expansão tinha tirado. Retorna `null` quando nada
- * generativo está ligado: aí a recusa não é essa e não há o que consertar.
+ * Plano B do {@link GENERATIVE_FEATURES_INELIGIBLE_SUBCODE} na duplicação, onde
+ * o spec já vem montado (origem + nossas chaves): remove a expansão e deixa
+ * adaptação e cortes DESLIGADOS — nunca religa o reenquadramento, que corta.
+ * Mantém o resto. Retorna `null` quando nada generativo está ligado: aí a
+ * recusa não é essa e não há o que consertar.
  */
 export function withoutGenerativeFeatures(
   existing: Record<string, unknown> | undefined,
-  adaptation?: PlacementAdaptation,
 ): Record<string, unknown> | null {
   if (!existing || !GENERATIVE_FEATURES.some((key) => isOptIn(existing[key]))) {
     return null;
   }
   const stripped: Record<string, unknown> = { ...existing };
+  // Removidas (e não OPT_OUT): é o formato que a Meta aceitou na sondagem ao
+  // vivo de 23/09/2026 na conta inelegível.
   for (const key of GENERATIVE_FEATURES) delete stripped[key];
-  if (!adaptation) return stripped;
-  return (
-    withPlacementAdaptation(stripped, { ...adaptation, generativeExpansion: false }) ??
-    stripped
-  );
+  for (const key of [...REFRAMING_FEATURES, ...CROPPING_FEATURES]) stripped[key] = optOut();
+  return stripped;
+}
+
+/**
+ * Subcode da Meta em qualquer um dos formatos de erro que o código usa:
+ * `MetaApiError` (`metaError.error_subcode`), `GraphApiError`
+ * (`errorReturn.data.errorSubcode`) ou o corpo cru da Graph (`error.error_subcode`).
+ * Duck typing de propósito: o módulo não importa nada.
+ */
+function metaErrorSubcode(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const shaped = error as {
+    metaError?: { error_subcode?: unknown };
+    errorReturn?: { data?: { errorSubcode?: unknown } };
+    error?: { error_subcode?: unknown };
+  };
+  for (const candidate of [
+    shaped.metaError?.error_subcode,
+    shaped.errorReturn?.data?.errorSubcode,
+    shaped.error?.error_subcode,
+  ]) {
+    if (typeof candidate === "number") return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * A Meta recusou a expansão — conta sem IA generativa (3858023) ou tipo de
+ * criativo que não se qualifica (3858028)? Nos dois casos o conserto é o plano B.
+ */
+export function isGenerativeIneligibleError(error: unknown): boolean {
+  const subcode = metaErrorSubcode(error);
+  return subcode !== undefined && PLACEMENT_EXPANSION_REFUSED_SUBCODES.includes(subcode);
+}
+
+/**
+ * Para quem monta o POST /adcreatives à mão: chama `send` com o JSON do spec
+ * padrão e, se a Meta recusar a expansão (3858023/3858028), chama `send(null)`
+ * UMA vez — o criativo sai sem nenhum recurso. Qualquer outro erro sobe
+ * intacto, assim como o erro da segunda tentativa.
+ */
+export async function withPlacementExpansion<T>(
+  send: (degreesOfFreedomSpec: string | null) => Promise<T>,
+): Promise<T> {
+  const spec = buildDegreesOfFreedomSpec(DEFAULT_PLACEMENT_ADAPTATION);
+  try {
+    return await send(spec ? JSON.stringify(spec) : null);
+  } catch (error) {
+    if (!spec || !isGenerativeIneligibleError(error)) throw error;
+    console.warn(
+      `[placement-expansion] ${metaErrorSubcode(error)}: retry sem degrees_of_freedom_spec`,
+    );
+    return send(null);
+  }
 }
