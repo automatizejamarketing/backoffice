@@ -22,6 +22,8 @@ import {
 } from "@/lib/backoffice/finance-format";
 
 const REASON_LABELS: Record<FinancePaymentNetGap["reason"], string> = {
+  efi_fees_pending:
+    "Efí ainda não informou a tarifa; aguarde a conciliação do Pix Automático",
   stripe_settlement_unavailable:
     "Stripe ainda não retornou liquidação para esta fatura",
   mercadopago_fees_pending:
@@ -51,6 +53,7 @@ export function FinancePaymentNetGaps({
   const mercadopagoCount = gaps.filter(
     (gap) => gap.provider === "mercadopago",
   ).length;
+  const efiCount = gaps.filter((gap) => gap.provider === "efi").length;
 
   const handleBackfill = async () => {
     setIsSubmitting(true);
@@ -111,6 +114,8 @@ export function FinancePaymentNetGaps({
             {mercadopagoCount > 0
               ? `${mercadopagoCount} PIX (Mercado Pago)`
               : null}
+            {efiCount > 0 && (stripeCount > 0 || mercadopagoCount > 0) ? " · " : null}
+            {efiCount > 0 ? `${efiCount} Pix Automático (Efí)` : null}
             {" — "}
             estes pagamentos entram no bruto, mas ainda não têm líquido
             confirmado pelo gateway.

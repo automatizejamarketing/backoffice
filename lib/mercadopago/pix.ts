@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  efiRecurringAuthorization,
   mercadopagoPaymentLink,
   retentionFinancialBenefit,
   subscription,
@@ -22,7 +23,7 @@ import {
 } from "@/lib/mercadopago/pix-payment";
 import { getCommitmentMonths, PLAN_DEFINITIONS } from "@/lib/stripe/plans";
 import { formatInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import { assertPixRenewalAllowed } from "@/lib/backoffice/pix-renewal-policy";
+import { assertPixRenewalAllowed, BackofficePixStripeBlockError } from "@/lib/backoffice/pix-renewal-policy";
 import {
   BackofficePixRetentionConflictError,
   backofficePixRetentionConflictResponse,
@@ -235,6 +236,11 @@ async function createBackofficePixLinkInTransaction({
     .limit(1)
     .for("update");
   if (!targetUser) throw new Error("Usuário não encontrado.");
+  if (process.env.EFI_PIX_AUTOMATIC_STORAGE_READY === "true") {
+    const [authorization] = await executor.select({ id: efiRecurringAuthorization.id }).from(efiRecurringAuthorization)
+      .where(and(eq(efiRecurringAuthorization.userId, userId), inArray(efiRecurringAuthorization.status, ["creating", "pending", "approved", "review"]))).limit(1);
+    if (authorization) throw new BackofficePixStripeBlockError("Cancele a autorização de Pix Automático antes de gerar outro meio de assinatura.");
+  }
 
   const activeSubscriptions = await executor
     .select()

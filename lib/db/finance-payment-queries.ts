@@ -38,6 +38,7 @@ export async function listFinanceAutomatizePayments(window: DashboardDateWindow)
       currency: payment.currency,
       stripeInvoiceId: payment.stripeInvoiceId,
       mercadopagoPaymentId: payment.mercadopagoPaymentId,
+      externalId: payment.externalId,
       paymentMethod: payment.paymentMethod,
       purpose: payment.purpose,
       description: payment.description,

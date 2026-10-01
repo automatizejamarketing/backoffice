@@ -42,6 +42,7 @@ export type FinanceAutomatizePaymentRow = {
   currency: string;
   stripeInvoiceId: string | null;
   mercadopagoPaymentId: string | null;
+  externalId?: string | null;
   paymentMethod?: PaymentSettlementMethod | null;
   purpose?: PaymentPurpose | null;
   description: string | null;
@@ -186,6 +187,7 @@ export type FinancePaymentsSummary = {
 
 export type FinancePaymentNetGapReason =
   | "stripe_settlement_unavailable"
+  | "efi_fees_pending"
   | "mercadopago_fees_pending"
   | "mercadopago_payment_not_found";
 
@@ -229,6 +231,7 @@ export function listAutomatizePaymentNetGaps(
         grossCentavos: amounts.gross,
         reason: amounts.missingNetReason,
         reference:
+          (row.provider === "efi" ? row.externalId : null) ??
           row.mercadopagoPaymentId ??
           row.stripeInvoiceId ??
           row.description ??
@@ -267,6 +270,8 @@ export function resolveAutomatizePaymentAmounts(
       missingNetReason = "stripe_settlement_unavailable";
     } else if (payment.provider === "mercadopago") {
       missingNetReason = "mercadopago_fees_pending";
+    } else if (payment.provider === "efi") {
+      missingNetReason = "efi_fees_pending";
     }
   }
 
@@ -400,6 +405,13 @@ export function describeProductPaymentProvider(
       referenceLabel: payment.providerPaymentId
         ? `Stripe ${payment.providerPaymentId}`
         : null,
+    };
+  }
+
+  if (payment.provider === "efi") {
+    return {
+      methodLabel: "Pix Automático",
+      referenceLabel: payment.providerPaymentId ? `Efí ${payment.providerPaymentId}` : null,
     };
   }
 

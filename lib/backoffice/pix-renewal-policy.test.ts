@@ -74,3 +74,11 @@ test("subscriptionsBlockPixRenewal matches the UI policy for a live Stripe row",
     false,
   );
 });
+
+test("Pix Automático ativo blocks issuing a separate subscription Pix", () => {
+  assert.equal(subscriptionsBlockPixRenewal([{ provider: "efi", status: "active" }]), true);
+  assert.equal(subscriptionsBlockPixRenewal([{ provider: "efi", status: "canceled" }]), false);
+  assert.match(getPixRenewalDisabledReason({ id: "efi", provider: "efi", status: "active",
+    planType: "monthly_starter", currentPeriodEnd: new Date(), cancelAtPeriodEnd: false,
+    stripeSubscriptionId: null })!, /Pix Automático/);
+});

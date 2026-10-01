@@ -3229,6 +3229,7 @@ export type PlanType = (typeof PLAN_TYPE_VALUES)[number];
 export const BILLING_PROVIDER_VALUES = [
   "stripe",
   "mercadopago",
+  "efi",
   "manual",
 ] as const;
 
@@ -3602,6 +3603,10 @@ export const payment = pgTable(
     uniqueMercadopagoPaymentId: unique(
       "payments_mercadopago_payment_id_unique",
     ).on(table.mercadopagoPaymentId),
+    uniqueEfiExternalId: uniqueIndex("payments_efi_external_id_unique").on(table.externalId)
+      .where(sql`${table.provider} = 'efi'`),
+    efiExternalIdRequired: check("payments_efi_external_id_required",
+      sql`${table.provider} <> 'efi' OR ${table.externalId} IS NOT NULL`),
   }),
 );
 
@@ -9557,3 +9562,101 @@ export const pricingCostSettings = pgTable(
 
 export type PricingCostSetting = InferSelectModel<typeof pricingCostSettings>;
 // ===== END pricing_* =====
+
+// Pix Automático: consent, scheduled charges and received money have separate identities.
+export type EfiEnvironment = "homologacao" | "producao";
+export type EfiAuthorizationStatus = "creating" | "pending" | "approved" | "canceled" | "rejected" | "expired" | "failed" | "review";
+export type EfiCreationPhase = "reserved" | "location_created" | "charge_created" | "rec_creating" | "uncertain" | "ready";
+export const efiRecurringAuthorization = pgTable("efi_recurring_authorizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => user.id),
+  subscriptionId: uuid("subscription_id").references(() => subscription.id),
+  environment: varchar("environment", { length: 16 }).$type<EfiEnvironment>().notNull(),
+  planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] }).$type<PlanType>().notNull(),
+  amount: integer("amount").notNull(),
+  contract: varchar("contract", { length: 64 }).notNull(),
+  idRec: varchar("id_rec", { length: 64 }),
+  locationId: integer("location_id"),
+  journey: varchar("journey", { enum: ["JORNADA_2", "JORNADA_3"] }).notNull(),
+  status: varchar("status", { length: 16 }).$type<EfiAuthorizationStatus>().notNull().default("creating"),
+  remoteStatus: varchar("remote_status", { length: 16 }),
+  creationPhase: varchar("creation_phase", { length: 24 }).$type<EfiCreationPhase>().notNull().default("reserved"),
+  debtorName: varchar("debtor_name", { length: 140 }).notNull(),
+  debtorDocument: varchar("debtor_document", { length: 14 }).notNull(),
+  debtorAddress: jsonb("debtor_address").$type<{ cep: string; cidade: string; logradouro: string; uf: string; email?: string }>(),
+  firstDueDate: date("first_due_date").notNull(),
+  anchorDay: integer("anchor_day").notNull(),
+  nextCycle: integer("next_cycle").notNull(),
+  trial: boolean("trial").notNull().default(false),
+  trialGrantedAt: timestamp("trial_granted_at"),
+  qrCopyPaste: text("qr_copy_paste"),
+  expiresAt: timestamp("expires_at").notNull(),
+  cancelRequestedAt: timestamp("cancel_requested_at"),
+  canceledAt: timestamp("canceled_at"),
+  leaseId: uuid("lease_id"),
+  leaseUntil: timestamp("lease_until"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  nextSyncAt: timestamp("next_sync_at").notNull().defaultNow(),
+  lastError: varchar("last_error", { length: 64 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  contractUnique: uniqueIndex("efi_authorizations_contract_unique").on(table.environment, table.contract),
+  recUnique: uniqueIndex("efi_authorizations_rec_unique").on(table.environment, table.idRec),
+  oneLivePerUser: uniqueIndex("efi_authorizations_live_user_unique").on(table.userId)
+    .where(sql`${table.status} IN ('creating', 'pending', 'approved', 'review')`),
+  syncIdx: index("efi_authorizations_sync_idx").on(table.environment, table.nextSyncAt),
+  amountPositive: check("efi_authorizations_amount_positive", sql`${table.amount} > 0`),
+  anchorValid: check("efi_authorizations_anchor_valid", sql`${table.anchorDay} BETWEEN 1 AND 31`),
+}));
+export type EfiRecurringAuthorization = InferSelectModel<typeof efiRecurringAuthorization>;
+
+export const efiSubscriptionCharge = pgTable("efi_subscription_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  authorizationId: uuid("authorization_id").notNull().references(() => efiRecurringAuthorization.id),
+  environment: varchar("environment", { length: 16 }).$type<EfiEnvironment>().notNull(),
+  cycle: integer("cycle").notNull(),
+  purpose: varchar("purpose", { enum: ["initial", "renewal"] }).notNull(),
+  txid: varchar("txid", { length: 35 }).notNull(),
+  amount: integer("amount").notNull(),
+  dueDate: date("due_date").notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("reserved"),
+  endToEndId: varchar("end_to_end_id", { length: 32 }),
+  paymentId: uuid("payment_id").references(() => payment.id),
+  retryDate: date("retry_date"),
+  retryUncertain: boolean("retry_uncertain").notNull().default(false),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  cycleUnique: uniqueIndex("efi_charges_cycle_unique").on(table.authorizationId, table.cycle),
+  txidUnique: uniqueIndex("efi_charges_txid_unique").on(table.environment, table.txid),
+  e2eUnique: uniqueIndex("efi_charges_e2e_unique").on(table.environment, table.endToEndId),
+  pendingIdx: index("efi_charges_pending_idx").on(table.authorizationId, table.status),
+  amountPositive: check("efi_charges_amount_positive", sql`${table.amount} > 0`),
+  periodValid: check("efi_charges_period_valid", sql`${table.periodEnd} > ${table.periodStart}`),
+}));
+export type EfiSubscriptionCharge = InferSelectModel<typeof efiSubscriptionCharge>;
+
+export const efiWebhookInbox = pgTable("efi_webhook_inbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  environment: varchar("environment", { length: 16 }).$type<EfiEnvironment>().notNull(),
+  kind: varchar("kind", { enum: ["pix", "rec", "cobr"] }).notNull(),
+  entityId: varchar("entity_id", { length: 64 }).notNull(),
+  eventHash: varchar("event_hash", { length: 64 }).notNull(),
+  feeAmount: integer("fee_amount"),
+  status: varchar("status", { enum: ["pending", "processing", "processed", "review"] }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  availableAt: timestamp("available_at").notNull().defaultNow(),
+  leaseId: uuid("lease_id"),
+  leaseUntil: timestamp("lease_until"),
+  processedAt: timestamp("processed_at"),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  lastError: varchar("last_error", { length: 64 }),
+}, (table) => ({
+  eventUnique: uniqueIndex("efi_inbox_event_unique").on(table.environment, table.eventHash),
+  workIdx: index("efi_inbox_work_idx").on(table.environment, table.status, table.availableAt),
+}));
+export type EfiWebhookInbox = InferSelectModel<typeof efiWebhookInbox>;

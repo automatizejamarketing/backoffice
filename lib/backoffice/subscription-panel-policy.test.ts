@@ -137,3 +137,12 @@ test("decideSubscriptionPanelActions keeps Stripe and Mercado Pago actions and e
   assert.equal(historical.stripeCancel, false);
   assert.equal(historical.pixRenewalAllowed, true);
 });
+
+
+test("Pix Automático tem identificação própria e bloqueia renovação avulsa", () => {
+  const efi = { ...stripeActive, provider: "efi" as const, stripeSubscriptionId: null };
+  assert.equal(billingProviderLabel("efi"), "Pix Automático Efí");
+  assert.deepEqual(decideSubscriptionPanelActions({ subscription: efi, payments: [] }), {
+    stripeRecovery: false, stripeCancel: false, pixRenewalAllowed: false,
+  });
+});

@@ -24,7 +24,7 @@ export function financeProvider(input: {
   paymentMethod?: PaymentSettlementMethod | null;
 }): FinanceProvider | null {
   if (input.provider === "stripe") return "card";
-  if (input.provider === "mercadopago") return "pix";
+  if ((input.provider === "mercadopago" || input.provider === "efi")) return "pix";
   if (input.provider === "manual") return "manual";
   return null;
 }

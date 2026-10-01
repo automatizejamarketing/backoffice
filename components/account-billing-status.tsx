@@ -104,6 +104,10 @@ function describeBilling(
   subscription: BillingSubscriptionView | null,
   latestPixCharge: LatestPixCharge | null,
 ): { title: string; badge: StatusBadgeProps | null; empty?: string } {
+  if (subscription?.provider === "efi") {
+    return { title: `${billingProviderLabel("efi")} · ${formatPlanLabel(subscription.planType)}`,
+      badge: null, empty: subscription.status === "trialing" ? "Teste autorizado no banco." : "Cobrança recorrente mensal pelo banco. Consulte o pagamento do ciclo antes de alterar o acesso." };
+  }
   if (subscription?.provider === "stripe") {
     return {
       title: `${billingProviderLabel("stripe")} · ${formatPlanLabel(subscription.planType)}`,
@@ -175,7 +179,7 @@ export function AccountAccessNotice({
     );
   }
 
-  if (subscription?.provider === "stripe") return null;
+  if (subscription?.provider === "stripe" || subscription?.provider === "efi") return null;
 
   const access = getAccessState(expirationDate, now);
   if (access.kind !== "expired") return null;

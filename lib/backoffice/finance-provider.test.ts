@@ -14,6 +14,7 @@ const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 test("financeProvider maps Stripe to card, Mercado Pago to pix, and manual to manual", () => {
   assert.equal(financeProvider({ provider: "stripe" }), "card");
   assert.equal(financeProvider({ provider: "mercadopago" }), "pix");
+  assert.equal(financeProvider({ provider: "efi" }), "pix");
   assert.equal(financeProvider({ provider: "manual" }), "manual");
 });
 

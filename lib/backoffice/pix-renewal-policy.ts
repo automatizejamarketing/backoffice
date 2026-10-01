@@ -13,8 +13,8 @@ export const PIX_RENEWAL_STRIPE_BLOCK_MESSAGE =
 export class BackofficePixStripeBlockError extends Error {
   readonly code = "stripe_active" as const;
 
-  constructor() {
-    super("Usuário tem assinatura Stripe ativa.");
+  constructor(message = "Usuário tem assinatura Stripe ativa.") {
+    super(message);
     this.name = "BackofficePixStripeBlockError";
   }
 }
@@ -41,13 +41,15 @@ export function subscriptionsBlockPixRenewal(
     status?: SubscriptionStatus | string | null;
   }>,
 ): boolean {
-  return subscriptions.some(stripeBlocksPixRenewal);
+  return subscriptions.some((row) => stripeBlocksPixRenewal(row) ||
+    (row.provider === "efi" && LIVE_STRIPE_STATUSES.includes(row.status as SubscriptionStatus)));
 }
 
 export function getPixRenewalDisabledReason(
   activeSubscription: ActiveSubscriptionSummary,
 ): string | null {
   if (!activeSubscription) return null;
+  if (activeSubscription.provider === "efi" && LIVE_STRIPE_STATUSES.includes(activeSubscription.status)) return "Pix avulso bloqueado: este usuário possui Pix Automático ativo.";
   if (stripeBlocksPixRenewal(activeSubscription)) {
     return PIX_RENEWAL_STRIPE_BLOCK_MESSAGE;
   }
@@ -61,6 +63,7 @@ export function assertPixRenewalAllowed(
   }>,
 ): void {
   if (subscriptionsBlockPixRenewal(subscriptions)) {
-    throw new BackofficePixStripeBlockError();
+    throw new BackofficePixStripeBlockError(subscriptions.some(stripeBlocksPixRenewal)
+      ? "Usuário tem assinatura Stripe ativa." : "Usuário tem Pix Automático ativo. Cancele a autorização antes de gerar Pix avulso.");
   }
 }

@@ -68,6 +68,7 @@ const COLUMN_HEADER_CLASS: Record<UsersTableColumnId, string> = {
 
 const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
+  efi: "Pix Automático Efí",
   mercadopago: "Pix",
   manual: "Manual",
 };

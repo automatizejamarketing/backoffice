@@ -381,6 +381,22 @@ describe("finance payments summaries", () => {
     expect(amounts.missingNetReason).toBe("mercadopago_fees_pending");
   });
 
+  test("keeps Efí net unknown until an actual fee is available", () => {
+    const row = { ...automatizePaymentFixture, provider: "efi" as const,
+      stripeInvoiceId: null, amount: 29700, grossAmount: 29700,
+      feeAmount: null, netAmount: null, externalId: "efi:homologacao:Efixture" };
+    expect(resolveAutomatizePaymentAmounts(row).missingNetReason).toBe("efi_fees_pending");
+    expect(listAutomatizePaymentNetGaps([row], [])[0]?.reference).toBe(row.externalId);
+    expect(resolveAutomatizePaymentAmounts({ ...row, feeAmount: 350 }).net).toBe(29350);
+  });
+
+  test("labels an Efí receipt with its own gateway reference", () => {
+    expect(describeProductPaymentProvider({ provider: "efi", paymentMethodId: "pix",
+      paymentTypeId: "bank_transfer", providerPaymentId: "Efixture" })).toEqual({
+      methodLabel: "Pix Automático", referenceLabel: "Efí Efixture",
+    });
+  });
+
   test("lists automatize payment net gaps by provider", () => {
     const gaps = listAutomatizePaymentNetGaps(
       [
