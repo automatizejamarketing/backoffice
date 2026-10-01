@@ -138,6 +138,14 @@
     @apply bg-background text-foreground;
   }
 
+  /* Radix positions portaled menus with a transformed wrapper, so z-index on
+     the inner content cannot escape. Keep them above review sheets (z-90).
+     Radix also copies the content's computed z-index into the wrapper's inline
+     style (Select content is z-50), so !important is needed to win. */
+  [data-radix-popper-content-wrapper] {
+    z-index: 100 !important;
+  }
+
   .login-autofill-light {
     color-scheme: light;
   }
