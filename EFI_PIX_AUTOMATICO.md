@@ -21,10 +21,15 @@ de backfill do backoffice mantém essas linhas pendentes se a tarifa não estive
 
 Validação: 54 testes de políticas e financeiro passaram. Checagem global de TypeScript
 comparada à base: nenhum erro novo; erros globais preexistentes continuam presentes.
-Sem build, alteração em banco compartilhado ou implantação.
+Sem build local ou alteração em produção. Migração Efí aplicada pelo frontend no
+banco compartilhado de staging, com três tabelas e 11 índices verificados.
 
 Staging do frontend consultado: o deploy atual ainda não contém a integração Efí.
 Publicação e migração no banco de testes autorizadas pelo titular; checkout segue desligado
 até concluir a configuração. Login, chave Pix e conta recebedora confirmados na Efí.
+
+Portado somente este recurso para a base existente de staging; 50 testes de políticas
+e financeiro passaram nessa base. `EFI_PIX_AUTOMATIC_STORAGE_READY=true` configurado
+somente no Preview da branch staging.
 
 Guia principal: `../frontend/EFI_PIX_AUTOMATICO.md` no workspace com os dois repositórios.
