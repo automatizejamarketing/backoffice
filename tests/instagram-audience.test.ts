@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildInstagramAudienceRule, INSTAGRAM_AUDIENCE_CRITERIA, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceByProfile, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, parseInstagramAudienceRule, resolveInstagramSourceEvidence, validateInstagramAudienceSelection } from "../lib/meta-business/marketing/audiences/instagram";
+import { buildInstagramAudienceRule, INSTAGRAM_AUDIENCE_CRITERIA, INSTAGRAM_PERIOD_EVIDENCE, instagramAudienceRuleInput, instagramPeriodEvidenceByProfile, instagramPeriodEvidenceFor, instagramPeriodEvidenceStatus, instagramPeriodOutOfRange, parseInstagramAudienceRule, resolveInstagramSourceEvidence, validateInstagramAudienceSelection } from "../lib/meta-business/marketing/audiences/instagram";
 
 test("builds all five Instagram criteria with an ig_business event source", () => {
   for (const criterion of Object.keys(INSTAGRAM_AUDIENCE_CRITERIA) as Array<keyof typeof INSTAGRAM_AUDIENCE_CRITERIA>) {
@@ -11,15 +11,23 @@ test("builds all five Instagram criteria with an ig_business event source", () =
   }
 });
 
-test("records unknown period evidence instead of inventing a default", () => {
+test("records the documented Meta period contract for every Instagram criterion", () => {
   for (const evidence of Object.values(INSTAGRAM_PERIOD_EVIDENCE)) {
-    assert.equal(instagramPeriodEvidenceStatus(evidence.criterion), "blocked");
-    assert.equal(evidence.initialDays, null);
-    assert.equal(evidence.metaMaximumDays, null);
+    assert.equal(instagramPeriodEvidenceStatus(evidence.criterion), "ready");
+    assert.equal(evidence.initialDays, 365);
+    assert.equal(evidence.metaMinimumDays, 1);
+    assert.equal(evidence.metaMaximumDays, 365);
+    assert.equal(evidence.localValidationMaximumDays, 365);
+    assert.equal(evidence.editable, "yes");
+    assert.equal(evidence.historicalFill, "available");
     assert.equal(evidence.unit, "days");
-    assert.equal(evidence.historicalFill, "unknown");
+    assert.equal(evidence.observedAt, "2026-09-30");
   }
   assert.throws(() => validateInstagramAudienceSelection({ profileId: "ig-1", criterion: "all", retentionDays: 0 }));
+  const all = INSTAGRAM_PERIOD_EVIDENCE.all;
+  assert.equal(instagramPeriodOutOfRange(all, 365), false);
+  assert.equal(instagramPeriodOutOfRange(all, 366), true);
+  assert.equal(instagramPeriodOutOfRange(all, 400, true), false);
 });
 
 test("keys period evidence by the selected Instagram profile and criterion", () => {
