@@ -122,14 +122,14 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
   }, [props.isOpen]);
 
   useEffect(() => {
-    if (!props.isOpen || isLoadingPages || (props.mode === "edit" && originalIdentityQuery.isLoading) || ((props.mode === "create" || Boolean(originalIdentityQuery.data?.adsetId)) && adsetQuery.isLoading)) return;
+    if (!props.isOpen || isLoadingPages || (props.mode === "edit" && !originalIdentityQuery.isSuccess) || ((props.mode === "create" || Boolean(originalIdentityQuery.data?.adsetId)) && adsetQuery.isLoading)) return;
+    const original = !prefilledIdentity.current && originalIdentityQuery.data?.pageId ? { pageId: originalIdentityQuery.data.pageId, instagramUserId: originalIdentityQuery.data.instagramUserId } : null;
+    prefilledIdentity.current = true;
     setIdentity(current => {
-      const original = !prefilledIdentity.current && originalIdentityQuery.data?.pageId ? { pageId: originalIdentityQuery.data.pageId, instagramUserId: originalIdentityQuery.data.instagramUserId } : current;
-      prefilledIdentity.current = true;
-      const next = selectAdvertisingIdentity(pages, original, true, fixedPageId);
+      const next = selectAdvertisingIdentity(pages, original ?? current, true, fixedPageId);
       return next?.pageId === current?.pageId && next?.instagramUserId === current?.instagramUserId ? current : next;
     });
-  }, [props.isOpen, props.mode, isLoadingPages, adsetQuery.isLoading, pages, fixedPageId, originalIdentityQuery.isLoading, originalIdentityQuery.data]);
+  }, [props.isOpen, props.mode, isLoadingPages, adsetQuery.isLoading, pages, fixedPageId, originalIdentityQuery.isLoading, originalIdentityQuery.isSuccess, originalIdentityQuery.data]);
 
   // Notify parent once, when the operation succeeds.
   useEffect(() => {
@@ -140,12 +140,15 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [builder.phase]);
 
+  const identityReadPending = (isEdit && !originalIdentityQuery.isSuccess) ||
+    ((props.mode === "create" || Boolean(originalIdentityQuery.data?.adsetId)) && !adsetQuery.isSuccess);
+  const identityReadError = (isEdit ? originalIdentityQuery.error : null) ?? adsetQuery.error;
   const isVideo = media?.source === "device" && media.mediaType === "video";
   const isInstagram = media?.source === "instagram";
   const formMode: "single" | "multi" = props.adSetIsDynamic ? "multi" : "single";
 
   const canSubmit = useMemo(() => {
-    if (!media || !selectedPair || isLoadingPages || (props.mode === "create" && adsetQuery.isLoading)) return false;
+    if (identityReadPending || !media || !selectedPair || isLoadingPages || (props.mode === "create" && adsetQuery.isLoading)) return false;
     if (fixedPageId && selectedPageId !== fixedPageId) return false;
     if (!isValidHttpsUrl(form.linkUrl)) return false;
     // Instagram keeps its own caption; image/video need the text matching the
@@ -158,7 +161,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
       if (!textOk) return false;
     }
     return builder.phase === "editing" || builder.phase === "error";
-  }, [media, isInstagram, form, formMode, builder.phase, selectedPair, isLoadingPages, props.mode, adsetQuery.isLoading, fixedPageId, selectedPageId]);
+  }, [media, isInstagram, form, formMode, builder.phase, selectedPair, identityReadPending, isLoadingPages, props.mode, adsetQuery.isLoading, fixedPageId, selectedPageId]);
 
   const showForm =
     builder.phase === "editing" || builder.phase === "error";
@@ -220,9 +223,10 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                     </div>
                   </div>
                 )}
+                {identityReadError && <p role="alert" className="text-sm text-destructive">{identityReadError.message}</p>}
                 <AdvertisingIdentitySelector pages={pages} value={identity}
                   onChange={next => { setMedia(current => current?.source === "instagram" ? null : current); setIdentity(next); }}
-                  isLoading={isLoadingPages} fixedPageId={fixedPageId} />
+                  disabled={identityReadPending} isLoading={isLoadingPages} fixedPageId={fixedPageId} />
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Mídia do criativo
@@ -232,6 +236,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                     userId={props.userId}
                     onChange={setMedia}
                     instagramBusinessAccountId={selectedInstagramAccountId}
+                    identityContext={selectedPageId ?? undefined}
                   />
                 </div>
                 <div>

@@ -1610,6 +1610,7 @@ export function AiCampaignClient() {
             <MediaSourcePicker
               accountId={accountId}
               instagramBusinessAccountId={selectedPage?.instagramBusinessAccountId}
+              identityContext={pageId ?? undefined}
               maxSelection={MAX_MEDIAS}
               onChange={() => undefined}
               onChangeMany={setSelectedMedias}

@@ -27,11 +27,7 @@ function getInitial(value?: string): string {
   return value.trim().charAt(0).toUpperCase();
 }
 
-/**
- * Facebook Page selector (the ad "Identity") for the backoffice. The Instagram
- * account is derived from the chosen page. Auto-selects the first page when
- * none is chosen. Controlled: the page list comes from `usePages`.
- */
+/** Each available Facebook Page appears once; Instagram is chosen separately. */
 export function PageSelector({
   pages,
   isLoading = false,
@@ -51,7 +47,7 @@ export function PageSelector({
 
   return (
     <Select
-      value={selectedPageId ?? undefined}
+      value={selectedPageId ?? ""}
       onValueChange={(value) => {
         if (value) onSelectPage(value);
       }}
