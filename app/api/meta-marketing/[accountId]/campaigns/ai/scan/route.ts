@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { loadAiCampaignDuration } from "@/lib/meta-business/marketing/ai-creation/duration-loader";
+import type { AiCampaignDurationPolicy } from "@/lib/meta-business/ai-campaign-duration";
 import { fetchAccountContext } from "@/lib/meta-business/insights";
 import { callMeta, minorToMajor } from "@/lib/meta-business/insights";
 import {
@@ -29,6 +32,7 @@ export type ScanForMoldResponse = {
   provenAds?: ProvenAdRef[];
   truncated: boolean;
   currency: string;
+  durationPolicy: AiCampaignDurationPolicy;
 };
 
 export type ScanForMoldErrorResponse = {
@@ -56,6 +60,7 @@ export async function POST(
     }
 
     const body = (await request.json().catch(() => ({}))) as Partial<ScanForMoldRequest>;
+    const durationPolicy = await loadAiCampaignDuration(auth.userId, db, { bypassStripe: process.env.BYPASS_STRIPE === "true" });
     const account = await fetchAccountContext({
       adAccountId: auth.accountId,
       accessToken: auth.accessToken,
@@ -67,6 +72,7 @@ export async function POST(
         mold: null,
         truncated: false,
         currency: account.currency,
+        durationPolicy,
       });
     }
 
@@ -109,7 +115,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ success: true, ...payload });
+    return NextResponse.json({ success: true, ...payload, durationPolicy });
   } catch (error) {
     if (isTokenInvalidError(error)) return tokenInvalidJson();
 

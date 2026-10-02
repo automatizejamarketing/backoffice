@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { loadAiCampaignDuration } from "@/lib/meta-business/marketing/ai-creation/duration-loader";
+import { resolveAiCampaignPeriod } from "@/lib/meta-business/ai-campaign-duration";
 import type { SelectedGeoLocation } from "@/lib/meta-business/geo-targeting-types";
 import type {
   CampaignDeliveryMode,
@@ -140,6 +143,8 @@ export async function POST(
       );
     }
 
+    const durationPolicy = await loadAiCampaignDuration(auth.userId, db, { bypassStripe: process.env.BYPASS_STRIPE === "true" });
+    const period = resolveAiCampaignPeriod({ period: body.period, defaultDurationDays: durationPolicy.defaultDurationDays, defaultStartTime: new Date().toISOString() });
     const result = await publishFallbackCampaign({
       adAccountId: auth.accountId,
       accessToken: auth.accessToken,
@@ -158,7 +163,8 @@ export async function POST(
         pixelId: body.pixelId ?? null,
         deliveryMode: body.deliveryMode,
         scheduleBlocks: body.scheduleBlocks,
-        period: body.period,
+        period,
+        defaultDurationDays: durationPolicy.defaultDurationDays,
         placementsMode: body.placementsMode,
         selectedPlacements: body.selectedPlacements,
         whatsappWelcome: body.whatsappWelcome,
