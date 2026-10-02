@@ -345,7 +345,7 @@ async function listDashboardRows(
       : [desc(completedAtExpr), desc(performanceInsight.id)];
 
   const [countRow] = await db
-    .select({ total: sql<number>`count(*)::int` })
+    .select({ total: sql<number>`count(DISTINCT ${user.id})::int` })
     .from(performanceInsight)
     .innerJoin(user, eq(user.id, performanceInsight.userId))
     .leftJoin(
@@ -358,6 +358,23 @@ async function listDashboardRows(
   if (total === 0) return { rows: [], total };
 
   const offset = (filters.page - 1) * filters.pageSize;
+  // Page clients first, then load their complete groups. Paging alert rows
+  // would split a client's tasks and make "Concluir todos" incomplete.
+  const groupDate = filters.tab === "pending"
+    ? sql`max(${performanceInsight.createdAt})`
+    : sql`max(${completedAtExpr})`;
+  const clients = await db
+    .select({ userId: user.id })
+    .from(performanceInsight)
+    .innerJoin(user, eq(user.id, performanceInsight.userId))
+    .leftJoin(userMarketingConsultant, eq(userMarketingConsultant.userId, user.id))
+    .where(where)
+    .groupBy(user.id)
+    .orderBy(desc(groupDate), desc(user.id))
+    .limit(filters.pageSize)
+    .offset(offset);
+  if (clients.length === 0) return { rows: [], total };
+
   const rows = await db
     .select({
       id: performanceInsight.id,
@@ -394,10 +411,11 @@ async function listDashboardRows(
       backofficeUser,
       eq(backofficeUser.id, userMarketingConsultant.consultantId),
     )
-    .where(where)
-    .orderBy(...orderBy)
-    .limit(filters.pageSize)
-    .offset(offset);
+    .where(and(where, inArray(user.id, clients.map((client) => client.userId))))
+    .orderBy(...orderBy);
+
+  const clientOrder = new Map(clients.map((client, index) => [client.userId, index]));
+  rows.sort((a, b) => clientOrder.get(a.userId)! - clientOrder.get(b.userId)!);
 
   return {
     total,
