@@ -77,6 +77,7 @@ export type DuplicationPrepared = {
   campaignName: string;
   sourceAdSetTargetings: Array<Record<string, unknown>>;
   fixedPageId?: string;
+  newMediaTargeting?: Record<string, unknown>;
   issues: CreateIssue[];
 };
 
@@ -246,11 +247,14 @@ async function prepareDuplication(
   const hasKeptAds = keepAdIds.length > 0;
   const sourceAdSetTargetings: Array<Record<string, unknown>> = [];
   let fixedPageId: string | undefined;
+  let newMediaTargeting: Record<string, unknown> | undefined;
   if (hasNewMedia) {
     const winningSource = winningSourceAdSetId(provenAds, keepAdIds, ref.adSetId);
-    const promotedObject = winningSource === ref.adSetId
-      ? mold.adSet.promotedObject
-      : (await readAdSet(winningSource, ctx.accessToken)).promoted_object;
+    const source = winningSource === ref.adSetId
+      ? { promoted_object: mold.adSet.promotedObject, targeting: mold.adSet.targeting }
+      : await readAdSet(winningSource, ctx.accessToken);
+    const promotedObject = source.promoted_object;
+    newMediaTargeting = (source.targeting ?? {}) as Record<string, unknown>;
     if (typeof promotedObject?.page_id === "string") fixedPageId = promotedObject.page_id;
     if (fixedPageId && answers.pageId && answers.pageId !== fixedPageId) {
       issues.push(localIssue("ad", "ADSET_PAGE_MISMATCH", "As mídias novas precisam usar a Página do conjunto vencedor.", "Selecione um Instagram autorizado para a Página deste conjunto.", ["pageId"]));
@@ -403,6 +407,7 @@ async function prepareDuplication(
     sourceAdSetTargetings:
       sourceAdSetTargetings.length > 0 ? sourceAdSetTargetings : [mold.adSet.targeting],
     ...(fixedPageId ? { fixedPageId } : {}),
+    ...(newMediaTargeting ? { newMediaTargeting } : {}),
     issues,
   };
 }
@@ -1186,7 +1191,7 @@ export async function createDuplicatedCampaign(
     return { ok: false, issues: prepared.issues, rolledBack: false };
   }
   if (answers.medias.length > 0) {
-    const identity = await resolveNewMediaIdentity({ ctx, answers, moldIdentity: prepared.mold.identity, fixedPageId: prepared.fixedPageId });
+    const identity = await resolveNewMediaIdentity({ ctx, answers, moldIdentity: prepared.mold.identity, fixedPageId: prepared.fixedPageId, sourceTargeting: prepared.newMediaTargeting });
     if (!identity.ok) return { ok: false, issues: identity.issues, rolledBack: false };
     answers = identity.answers;
   }

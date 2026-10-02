@@ -335,6 +335,19 @@ export async function getAdvertisingIdentities(
   return (await discoverAdvertisingIdentities(accessToken, adAccountIdOrOptions)).identities;
 }
 
+/** Complete Page grants for Facebook-only creatives; permission failures propagate. */
+export async function getAdvertisingPages(
+  accessToken: string,
+  options: GetPagesOptions & { adAccountId: string },
+): Promise<FacebookPagesWithInstagramResponse> {
+  const rows = (await Promise.all([
+    ...resolveRequestedAdAccountIds(options).map(id => fetchPromotePagesForAdAccount(id, accessToken)),
+    ...(options.tokenKind === "bisu" && options.bisuAppScopedId ? [fetchAssignedPages(options.bisuAppScopedId, accessToken)] : []),
+    fetchMeAccounts(accessToken),
+  ])).flat();
+  return { data: mergeFacebookPagesWithInstagram(rows) };
+}
+
 async function discoverAdvertisingIdentities(accessToken: string, adAccountIdOrOptions?: string | GetPagesOptions) {
   const options = typeof adAccountIdOrOptions === "string" ? { adAccountId: adAccountIdOrOptions } : (adAccountIdOrOptions ?? {});
   let actIds = resolveRequestedAdAccountIds(options);
