@@ -634,6 +634,8 @@ export async function POST(
       );
     }
 
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const selectionCheck = await checkAudienceSelectionAvailability({
