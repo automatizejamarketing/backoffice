@@ -31,7 +31,7 @@ export async function resolveNewMediaIdentity(args: {
     : answers.placementsMode === "automatic" ? [] : args.sourceTargeting?.publisher_platforms;
   const facebookOnly = Array.isArray(platforms) && platforms.length > 0 && platforms.every(platform => platform === "facebook") &&
     (answers.placementsMode === "manual" || !Array.isArray(args.sourceTargeting?.instagram_positions) || args.sourceTargeting.instagram_positions.length === 0);
-  if (pageId && !instagramUserId && facebookOnly && answers.medias.every(media => media.kind !== "instagram_post")) {
+  if (pageId && !instagramUserId && !moldIdentity.instagramUserId && facebookOnly && answers.medias.every(media => media.kind !== "instagram_post")) {
     const pages = await getAdvertisingPages(ctx.accessToken, { adAccountId: ctx.adAccountId, tokenKind: ctx.tokenKind, bisuAppScopedId: ctx.bisuAppScopedId });
     if (pages.data.some(page => page.id === pageId)) {
       await ctx.authorizeAdvertisingIdentity?.({ pageId });
