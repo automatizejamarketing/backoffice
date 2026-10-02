@@ -1,3 +1,4 @@
+import { resolveAdvertisingIdentity, type GetPagesOptions } from "../get-instagram-connected-page";
 import { metaApiCall } from "../api";
 import { GraphApiError } from "../error";
 import {
@@ -136,14 +137,6 @@ export type BuildCreativeOutcome =
       blobUrlsForCleanup: string[];
     };
 
-type GraphApiPagesResponse = {
-  data: Array<{
-    id: string;
-    name?: string;
-    instagram_business_account?: { id: string; username?: string };
-  }>;
-};
-
 /**
  * Resolve the Facebook Page + connected Instagram business account used as
  * the `object_story_spec` actor. Mirrors the resolution in
@@ -153,29 +146,13 @@ export async function resolvePageAndIg(
   accessToken: string,
   /** Ad set's promoted_object.page_id — the creative identity MUST match it. */
   preferredPageId?: string,
+  options?: GetPagesOptions,
 ): Promise<ResolvedPage> {
-  const pagesResponse = await metaApiCall<GraphApiPagesResponse>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: "me/accounts",
-    params: "fields=id,name,instagram_business_account{id,username}",
-    accessToken,
+  const resolved = await resolveAdvertisingIdentity(accessToken, {
+    ...options,
+    pageId: preferredPageId,
   });
-
-
-  // Prefer the page the ad set actually promotes (so object_story_spec matches
-  // the ad set's promoted_object); fall back to the first page with an IG.
-  const preferredPage = preferredPageId
-    ? pagesResponse.data.find(
-        (p) => p.id === preferredPageId && p.instagram_business_account?.id,
-      )
-    : undefined;
-  const pageWithIg =
-    preferredPage ??
-    pagesResponse.data.find((p) => p.instagram_business_account?.id);
-
-
-  if (!pageWithIg?.instagram_business_account?.id) {
+  if (!resolved) {
     throw new GraphApiError({
       statusCode: 400,
       reason: {
@@ -191,9 +168,9 @@ export async function resolvePageAndIg(
   }
 
   return {
-    pageId: pageWithIg.id,
-    igAccountId: pageWithIg.instagram_business_account.id,
-    igUsername: pageWithIg.instagram_business_account.username,
+    pageId: resolved.page.id,
+    igAccountId: resolved.instagramBusinessAccountId,
+    igUsername: resolved.instagramUsername,
   };
 }
 

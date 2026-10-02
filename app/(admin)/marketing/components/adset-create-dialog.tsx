@@ -34,7 +34,8 @@ import { useMarketingInvalidate } from "../hooks/marketing-queries";
 import { useCompanyLocations } from "../hooks/use-company-locations";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import { LocationTargetingSection } from "./location-targeting-section";
-import { PageSelector } from "./page-selector";
+import { AdvertisingIdentitySelector } from "./advertising-identity-selector";
+import { selectAdvertisingIdentity, type AdvertisingIdentitySelection } from "@/lib/meta-business/advertising-identity-selection";
 import { usePages } from "./use-pages";
 import {
   AdSetDeliveryScheduleEditor,
@@ -135,7 +136,7 @@ export function AdSetCreateDialog({
   const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const { data: businessUnits = [] } = useCompanyLocations(userId);
   const [adsetName, setAdsetName] = useState("");
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<AdvertisingIdentitySelection | null>(null);
   const [budgetType, setBudgetType] = useState<BudgetType>("daily");
   const [budgetValue, setBudgetValue] = useState("15.00");
   const [startDateTime, setStartDateTime] = useState("");
@@ -177,10 +178,8 @@ export function AdSetCreateDialog({
     userId,
     isOpen,
   );
-  const selectedPage =
-    pages.find((page) => page.pageId === selectedPageId) ?? null;
-  const selectedInstagramAccountId =
-    selectedPage?.instagramBusinessAccountId ?? undefined;
+  const selectedPageId = identity?.pageId ?? null;
+  const selectedInstagramAccountId = identity?.instagramUserId;
 
   const isSalesCampaign = SALES_OBJECTIVES.includes(campaignObjective ?? "");
   const isLeadsCampaign = LEADS_OBJECTIVES.includes(campaignObjective ?? "");
@@ -252,7 +251,7 @@ export function AdSetCreateDialog({
 
   const resetForm = useCallback(() => {
     setAdsetName("");
-    setSelectedPageId(null);
+    setIdentity(null);
     setBudgetType("daily");
     setBudgetValue("15.00");
     setStartDateTime("");
@@ -282,11 +281,12 @@ export function AdSetCreateDialog({
   }, [isOpen, resetForm, fetchAudiences, fetchPixels]);
 
   useEffect(() => {
-    if (!isOpen || isLoadingPages || pages.length === 0 || selectedPageId) {
-      return;
-    }
-    setSelectedPageId(pages[0].pageId);
-  }, [isOpen, isLoadingPages, pages, selectedPageId]);
+    if (!isOpen || isLoadingPages) return;
+    setIdentity(current => {
+      const next = selectAdvertisingIdentity(pages, current, true);
+      return next?.pageId === current?.pageId && next?.instagramUserId === current?.instagramUserId ? current : next;
+    });
+  }, [isOpen, isLoadingPages, pages]);
 
   useEffect(() => {
     setSelectedPosts([]);
@@ -430,6 +430,7 @@ export function AdSetCreateDialog({
       };
 
       if (selectedPageId) body.pageId = selectedPageId;
+      if (selectedInstagramAccountId) body.instagramUserId = selectedInstagramAccountId;
       if (selectedPixelId) body.pixelId = selectedPixelId;
 
       if (!usesCampaignBudget) {
@@ -521,16 +522,8 @@ export function AdSetCreateDialog({
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Página do Facebook</Label>
-              <PageSelector
-                pages={pages}
-                isLoading={isLoadingPages}
-                selectedPageId={selectedPageId}
-                onSelectPage={setSelectedPageId}
-                disabled={isSubmitting}
-              />
-            </div>
+            <AdvertisingIdentitySelector pages={pages} value={identity} onChange={setIdentity}
+              isLoading={isLoadingPages} disabled={isSubmitting} />
 
             {isSalesCampaign && (
               <div className="space-y-2">
