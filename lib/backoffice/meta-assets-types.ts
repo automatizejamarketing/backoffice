@@ -37,6 +37,8 @@ export type MetaAssetsGrantedAdAccount = {
 };
 
 export type MetaAssetsGrantedIdentity = {
+  identityId?: string;
+  instagramBusinessAccountId?: string;
   pageId: string;
   pageName: string;
   instagramUsername: string | null;

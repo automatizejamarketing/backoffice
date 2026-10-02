@@ -1,3 +1,5 @@
+import { requireMetaAccount } from "@/lib/backoffice/require-meta-account";
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
@@ -67,6 +69,8 @@ export async function GET(
       );
     }
 
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const pages = await getAdvertisingIdentities(tokenResult.accessToken, {
       adAccountId: accountId,
       tokenKind: tokenResult.connection.tokenKind,
@@ -75,7 +79,7 @@ export async function GET(
     const enabledRows = await listEnabledAssetFlags(userId);
     const data = pages.map((page) => ({
       ...page,
-      ...flagsForGrantedAsset(enabledRows, "identity", page.pageId),
+      ...flagsForGrantedAsset(enabledRows, "identity", identityKey(page)),
     }));
 
     return NextResponse.json({ pages: data }, { status: 200 });

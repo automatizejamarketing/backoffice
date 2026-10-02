@@ -80,6 +80,9 @@ export type PromotionLinkDetails = {
   campaignObjective?: string;
   promotionUrl?: string;
   ctaType?: string;
+  adsetId?: string;
+  instagramUserId?: string;
+  pageId?: string;
 };
 
 export type PromotionLinkUpdateResult = {
@@ -438,14 +441,17 @@ export async function getPromotionLinkDetails(args: {
   accessToken: string;
 }): Promise<PromotionLinkDetails> {
   const { ad, creative } = await fetchAdAndCreative(args);
-  assertSalesCampaign(ad);
+  const identity = await resolveInstagramPostIdentity({ creative, accessToken: args.accessToken });
 
   return {
     adId: ad.id,
     creativeId: creative.id,
+    adsetId: ad.adset_id,
     campaignObjective: ad.campaign?.objective,
     promotionUrl: extractPromotionUrl(creative),
     ctaType: extractCtaType(creative),
+    pageId: identity.pageId,
+    instagramUserId: identity.instagramUserId ?? creative.instagram_user_id ?? creative.object_story_spec?.instagram_user_id,
   };
 }
 

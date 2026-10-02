@@ -1,5 +1,7 @@
 "use client";
 
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
+
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -115,7 +117,7 @@ function SelectionWizard({
     ],
     granted: {
       adAccountIds: granted.adAccounts.map((account) => account.id),
-      identityIds: granted.identities.map((identity) => identity.pageId),
+      identityIds: granted.identities.map((identity) => identityKey(identity)),
     },
     limits,
   });
@@ -131,7 +133,7 @@ function SelectionWizard({
   const grantedIds = useMemo(
     () => ({
       adAccountIds: granted.adAccounts.map((account) => account.id),
-      identityIds: granted.identities.map((identity) => identity.pageId),
+      identityIds: granted.identities.map((identity) => identityKey(identity)),
     }),
     [granted],
   );
@@ -348,17 +350,17 @@ function StepBody({
     return (
       <ul className="space-y-2">
         {granted.identities.map((identity) => (
-          <li key={identity.pageId}>
+          <li key={identityKey(identity)}>
             <ChoiceRow
-              checked={draft.identityPageIds.includes(identity.pageId)}
+              checked={draft.identityPageIds.includes(identityKey(identity))}
               title={identity.pageName}
               imageSrc={identity.pagePictureUrl}
               meta={
                 identity.instagramUsername
                   ? `@${identity.instagramUsername}`
-                  : identity.pageId
+                  : identityKey(identity)
               }
-              onToggle={() => onToggleIdentity(identity.pageId)}
+              onToggle={() => onToggleIdentity(identityKey(identity))}
             />
           </li>
         ))}
@@ -371,7 +373,7 @@ function StepBody({
       draft.adAccountIds.includes(account.id),
     );
     const chosenIdentities = granted.identities.filter((identity) =>
-      draft.identityPageIds.includes(identity.pageId),
+      draft.identityPageIds.includes(identityKey(identity)),
     );
     return (
       <div className="space-y-6">
@@ -390,7 +392,7 @@ function StepBody({
           <PrimaryGroup
             label="Identidade principal"
             options={chosenIdentities.map((identity) => ({
-              id: identity.pageId,
+              id: identityKey(identity),
               label: identity.pageName,
             }))}
             value={draft.primaryIdentityPageId}
@@ -422,11 +424,11 @@ function StepBody({
         title="Identidades"
         empty="Nenhuma Identidade habilitada"
         items={granted.identities
-          .filter((identity) => draft.identityPageIds.includes(identity.pageId))
+          .filter((identity) => draft.identityPageIds.includes(identityKey(identity)))
           .map((identity) => ({
-            id: identity.pageId,
+            id: identityKey(identity),
             label: identity.pageName,
-            isPrimary: identity.pageId === primaryIdentity,
+            isPrimary: identityKey(identity) === primaryIdentity,
           }))}
       />
     </div>

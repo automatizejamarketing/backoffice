@@ -1,3 +1,5 @@
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
+import { flagsForGrantedAsset } from "./meta-asset-selection-flags";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
@@ -97,7 +99,8 @@ export async function loadMetaAssetsCard(input: {
       tokenKind: token.connection.tokenKind,
       bisuAppScopedId: token.connection.bisuAppScopedId,
     });
-    const grantedIdentityIds = identities.map((page) => page.pageId);
+    const grantedIdentityIds = identities.map(identityKey);
+    const legacyAvailableIdentityIds = enabledRows.filter(row => row.assetKind === "identity" && identities.some(live => live.pageId === row.assetId && live.instagramBusinessAccountId === row.instagramBusinessAccountId)).map(row => row.assetId);
     const enabledByKind = indexEnabled(enabledRows);
 
     return {
@@ -121,14 +124,16 @@ export async function loadMetaAssetsCard(input: {
           };
         }),
         identities: identities.map((page) => {
-          const enabled = enabledByKind.identities.get(page.pageId);
+          const flags = flagsForGrantedAsset(enabledRows, "identity", identityKey(page));
           return {
+            identityId: page.identityId,
+            instagramBusinessAccountId: page.instagramBusinessAccountId,
             pageId: page.pageId,
             pageName: page.pageName ?? page.pageId,
             instagramUsername: page.instagramUsername ?? null,
             pagePictureUrl: page.pagePictureUrl ?? null,
-            enabled: Boolean(enabled),
-            primary: enabled?.isPrimary ?? false,
+            enabled: flags.enabled,
+            primary: flags.primary,
           };
         }),
       },
@@ -141,8 +146,12 @@ export async function loadMetaAssetsCard(input: {
         identities: mapEnabled(
           enabledRows,
           "identity",
-          grantedIdentityIds,
-        ),
+          [...grantedIdentityIds, ...legacyAvailableIdentityIds],
+        ).map(item => {
+          const row = enabledRows.find(row => row.assetKind === "identity" && row.assetId === item.id);
+          const live = identities.find(identity => identity.pageId === item.id && identity.instagramBusinessAccountId === row?.instagramBusinessAccountId);
+          return live ? {...item,id:identityKey(live)} : item;
+        }),
       },
     };
   } catch (error) {

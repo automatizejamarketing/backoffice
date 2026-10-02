@@ -1,3 +1,4 @@
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
@@ -109,7 +110,7 @@ export async function setUserMetaAssetSelectionWithAudit(input: {
     return { ok: false as const, error: "User not found" as const };
   }
 
-  const proposal = parseSelectionProposal(input.body);
+  let proposal = parseSelectionProposal(input.body);
   if (!proposal) {
     return { ok: false as const, error: "invalid_body" as const };
   }
@@ -119,6 +120,8 @@ export async function setUserMetaAssetSelectionWithAudit(input: {
     return live;
   }
 
+  proposal = parseSelectionProposal(input.body, [...live.catalog.identities.entries()].map(([identityId, identity]) => ({...identity,identityId})));
+  if (!proposal) return {ok:false as const,error:"not_granted" as const};
   const current = await loadPolicySnapshot(input.userId);
   const previouslyEnabled = await loadEnabledAssets(input.userId);
   const at = new Date();
@@ -197,6 +200,8 @@ type LiveCatalog = {
   identities: Map<
     string,
     {
+      pageId: string;
+      adAccountIds?: string[];
       pageName: string;
       instagramBusinessAccountId: string;
       instagramUsername: string | null;
@@ -249,8 +254,10 @@ async function loadLiveGranted(userId: string): Promise<
       ),
       identities: new Map(
         identities.map((page) => [
-          page.pageId,
+          identityKey(page),
           {
+            pageId: page.pageId,
+            adAccountIds: page.adAccountIds,
             pageName: page.pageName ?? page.pageId,
             instagramBusinessAccountId: page.instagramBusinessAccountId,
             instagramUsername: page.instagramUsername ?? null,

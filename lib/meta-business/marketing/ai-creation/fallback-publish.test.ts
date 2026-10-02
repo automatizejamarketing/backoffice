@@ -39,7 +39,7 @@ const NICHES: FallbackNiche[] = [
 describe("resolveFallbackConfig WhatsApp", () => {
   test("every niche can publish a WhatsApp sales campaign", () => {
     for (const niche of NICHES) {
-      const config = resolveFallbackConfig(niche, "whatsapp");
+      const config = resolveFallbackConfig(niche, "whatsapp", { whatsappNiches: "all" });
       expect("error" in config).toBe(false);
       if ("error" in config) continue;
       expect(config.metaObjective).toBe("OUTCOME_ENGAGEMENT");

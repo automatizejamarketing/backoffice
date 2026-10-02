@@ -1,9 +1,10 @@
+import { requireMetaAccount } from "@/lib/backoffice/require-meta-account";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
-import { getPagesWithInstagramAccounts } from "@/lib/meta-business/get-instagram-connected-page";
+import { getAdvertisingIdentities } from "@/lib/meta-business/get-instagram-connected-page";
 
 export type InstagramMediaType =
   | "IMAGE"
@@ -175,6 +176,8 @@ export async function GET(
       );
     }
 
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const after = searchParams.get("after");
@@ -193,52 +196,16 @@ export async function GET(
     // The identities the client can advertise with, Ads Manager semantics — the same list the
     // pages route (and the app) shows. `me/accounts` alone hides a page shared through the
     // Business Manager, and the old fallback then served ANOTHER profile's posts in silence.
-    const pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
+    const pagesResponse = await getAdvertisingIdentities(accessToken, {
       adAccountId: accountId,
       tokenKind: tokenResult.connection.tokenKind,
       bisuAppScopedId: tokenResult.connection.bisuAppScopedId,
     });
 
-    const pagesWithInstagram = pagesResponse.data.filter(
-      (page) => page.instagram_business_account?.id,
-    );
-
-    if (pagesWithInstagram.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No Instagram Business Account",
-          message:
-            "Nenhuma conta de Instagram Business conectada a esta conta Meta",
-          solution:
-            "Conecte uma conta de Instagram Business a uma Página do Facebook",
-        },
-        { status: 404 },
-      );
-    }
-
-    // The caller names the identity it is boosting for. A name we cannot find is an error: a
-    // post from the wrong profile cannot run under this Page.
-    const requestedPage = requestedInstagramAccountId
-      ? pagesWithInstagram.find(
-          (page) =>
-            page.instagram_business_account?.id === requestedInstagramAccountId,
-        )
-      : undefined;
-    if (requestedInstagramAccountId && !requestedPage) {
-      return NextResponse.json(
-        {
-          error: "Instagram account not available",
-          message:
-            "Esta conta do Instagram não está entre as identidades que o cliente pode anunciar nesta conta de anúncios.",
-          solution:
-            "Escolha outra identidade ou confira a seleção de ativos Meta do cliente.",
-        },
-        { status: 404 },
-      );
-    }
-    const igAccount =
-      requestedPage?.instagram_business_account ??
-      pagesWithInstagram[0].instagram_business_account!;
+    if (!pagesResponse.length) return NextResponse.json({error:"instagram_account_not_found",message:"Nenhum Instagram publicitário disponível nesta conta."},{status:404});
+    const requestedPage = requestedInstagramAccountId ? pagesResponse.find(identity => identity.instagramBusinessAccountId === requestedInstagramAccountId) : pagesResponse.length === 1 ? pagesResponse[0] : undefined;
+    if (!requestedPage) return NextResponse.json({error:"instagram_account_not_found",message:"Selecione um Instagram autorizado nesta conta de anúncios."},{status:404});
+    const igAccount = {id:requestedPage.instagramBusinessAccountId,username:requestedPage.instagramUsername};
 
     const mediaResponse = await getBoostEligibleInstagramMedia({
       instagramBusinessAccountId: igAccount.id,
