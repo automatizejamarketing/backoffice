@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
@@ -51,6 +51,7 @@ import {
   accountDigits,
   matchAdAccountId,
   parseMarketingDeepLink,
+  MARKETING_METRICS_ANCHOR,
 } from "../utils/marketing-deep-link";
 import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
 import { getMetricLabel } from "../utils/metric-formatters";
@@ -148,6 +149,61 @@ export function MarketingWorkspace({
   const reconnectToastKey = useRef<string | null>(null);
   const lastMetaUserId = useRef<string | null>(null);
   const selectedUserId = selectedUser?.id ?? null;
+  const metricsSectionRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const metricsAnchorInterrupted = useRef(false);
+  const metricsAnchorUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedAccountId || !selectedUserId || !workspaceRef.current) return;
+    if (window.location.hash !== `#${MARKETING_METRICS_ANCHOR}`) return;
+    if (metricsAnchorUserId.current !== selectedUserId) {
+      metricsAnchorUserId.current = selectedUserId;
+      metricsAnchorInterrupted.current = false;
+    }
+    if (metricsAnchorInterrupted.current) return;
+    let frame = 0;
+    let stopped = false;
+    const align = () => {
+      if (stopped) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        metricsSectionRef.current?.scrollIntoView({ block: "start" });
+      });
+    };
+    // Other account panels can finish after the metrics. Keep the anchor
+    // aligned across these layout changes, only until the user interacts.
+    const observer = new ResizeObserver(align);
+    observer.observe(workspaceRef.current);
+    const dispose = () => {
+      stopped = true;
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+    const stop = () => {
+      metricsAnchorInterrupted.current = true;
+      dispose();
+    };
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const event of events) window.addEventListener(event, stop, { passive: true });
+    return () => {
+      dispose();
+      for (const event of events) window.removeEventListener(event, stop);
+    };
+  }, [selectedAccountId, selectedUserId]);
+
+  const scrollToMetrics = useCallback(() => {
+    if (metricsAnchorInterrupted.current) return;
+    if (!selectedAccountId || !selectedUserId) return;
+    if (window.location.hash !== `#${MARKETING_METRICS_ANCHOR}`) return;
+    // Wait for the metrics rows: scrolling while the skeleton is mounted can
+    // hit the page's current bottom and leave the table below the viewport.
+    requestAnimationFrame(() => {
+      if (metricsAnchorInterrupted.current || window.location.hash !== `#${MARKETING_METRICS_ANCHOR}`) return;
+      metricsSectionRef.current?.scrollIntoView({ block: "start" });
+      metricsSectionRef.current?.focus({ preventScroll: true });
+    });
+  }, [selectedAccountId, selectedUserId]);
 
   useEffect(() => {
     if (initialUser) setSelectedUser(initialUser);
@@ -339,7 +395,7 @@ export function MarketingWorkspace({
   };
 
   return (
-    <div className="space-y-8">
+    <div ref={workspaceRef} className="space-y-8">
       {showHeader && (
         <div>
           <h1 className="text-2xl font-bold text-foreground">Marketing</h1>
@@ -532,7 +588,12 @@ export function MarketingWorkspace({
       ) : null}
 
       {selectedAccountId && selectedUser && (
-        <Card>
+        <Card
+          id={MARKETING_METRICS_ANCHOR}
+          ref={metricsSectionRef}
+          tabIndex={-1}
+          className={deepLink.view === "metrics" ? "scroll-mt-6 min-h-[calc(100dvh-3rem)]" : "scroll-mt-6"}
+        >
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <CardTitle>Campanhas</CardTitle>
@@ -607,6 +668,7 @@ export function MarketingWorkspace({
               sortOrder={sortOrder}
               selectedMetricIds={selectedMetricIds}
               focusCampaignId={focusCampaignId}
+              onReady={scrollToMetrics}
             />
           </CardContent>
         </Card>

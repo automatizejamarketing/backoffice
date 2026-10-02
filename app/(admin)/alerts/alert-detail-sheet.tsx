@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +29,9 @@ import {
 } from "@/lib/backoffice/playbook-alert-dashboard";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
 import type { PlaybookAlertDashboardRow } from "@/lib/db/playbook-alert-dashboard-queries";
+import type { PlaybookAlertGroup } from "@/lib/backoffice/playbook-alert-groups";
+import { CompleteAlertButton } from "./complete-alert-button";
+import { AlertMarketingLink } from "./alert-marketing-link";
 import { cn } from "@/lib/utils";
 import {
   listPlaybookApplyActions,
@@ -74,19 +76,51 @@ function visibleMetrics(metrics: Record<string, unknown> | null) {
 }
 
 export function AlertDetailSheet({
-  row,
+  group,
   canWrite,
   onClose,
 }: {
-  row: PlaybookAlertDashboardRow | null;
+  group: PlaybookAlertGroup<PlaybookAlertDashboardRow> | null;
   canWrite: boolean;
   onClose: () => void;
 }) {
   return (
-    <Sheet open={row !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent className="flex w-full flex-col gap-0 sm:max-w-xl">
-        {row ? (
-          <AlertDetail row={row} canWrite={canWrite} onClose={onClose} />
+    <Sheet open={group !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl lg:max-w-[52rem]">
+        {group ? (
+          <>
+            <SheetHeader className="border-b px-4 py-6 sm:px-8">
+              <SheetTitle className="pr-6 text-left">
+                {group.alerts[0].userName?.trim() || group.alerts[0].userEmail}
+              </SheetTitle>
+              <SheetDescription className="text-left">
+                {group.alerts[0].companyName ?? group.alerts[0].userEmail} ·{" "}
+                {group.alerts.length} alerta(s)
+              </SheetDescription>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-8">
+              {group.alerts.map((row) => (
+                <article
+                  key={row.id}
+                  className="overflow-hidden rounded-xl border"
+                >
+                  <AlertDetail row={row} canWrite={canWrite} />
+                </article>
+              ))}
+            </div>
+            {canWrite && group.pendingIds.length > 0 ? (
+              <div className="border-t px-4 py-4 sm:px-8">
+                <CompleteAlertButton
+                  userId={group.userId}
+                  insightIds={group.pendingIds}
+                  title={
+                    group.alerts[0].userName?.trim() ||
+                    group.alerts[0].userEmail
+                  }
+                />
+              </div>
+            ) : null}
+          </>
         ) : null}
       </SheetContent>
     </Sheet>
@@ -96,17 +130,14 @@ export function AlertDetailSheet({
 function AlertDetail({
   row,
   canWrite,
-  onClose,
 }: {
   row: PlaybookAlertDashboardRow;
   canWrite: boolean;
-  onClose: () => void;
 }) {
   const router = useRouter();
   const pending = isPlaybookPendingStatus(row.status);
   const actions = pending ? listPlaybookApplyActions(row) : [];
   const metrics = visibleMetrics(row.metrics);
-  const clientLabel = row.userName?.trim() || row.userEmail;
   const [applyAction, setApplyAction] = useState<PlaybookApplyActionDef | null>(
     null,
   );
@@ -118,15 +149,18 @@ function AlertDetail({
   ) {
     setBusy(true);
     try {
-      const response = await fetch(`/api/users/${row.userId}/playbook-insights`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          insightId: row.id,
-          status,
-          reviewNote: reviewNote ?? null,
-        }),
-      });
+      const response = await fetch(
+        `/api/users/${row.userId}/playbook-insights`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            insightId: row.id,
+            status,
+            reviewNote: reviewNote ?? null,
+          }),
+        },
+      );
       const body = (await response.json().catch(() => null)) as {
         error?: string;
       } | null;
@@ -138,7 +172,6 @@ function AlertDetail({
           ? "Alerta marcado como concluído"
           : "Alerta dispensado",
       );
-      onClose();
       router.refresh();
     } catch (error) {
       toast.error(
@@ -153,14 +186,17 @@ function AlertDetail({
     if (!applyAction) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/users/${row.userId}/playbook-insights`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          insightId: row.id,
-          action: applyAction.id,
-        }),
-      });
+      const response = await fetch(
+        `/api/users/${row.userId}/playbook-insights`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            insightId: row.id,
+            action: applyAction.id,
+          }),
+        },
+      );
       const body = (await response.json().catch(() => null)) as {
         error?: string;
         summary?: string;
@@ -170,7 +206,6 @@ function AlertDetail({
       }
       toast.success(body?.summary ?? "Sugestão aplicada");
       setApplyAction(null);
-      onClose();
       router.refresh();
     } catch (error) {
       toast.error(
@@ -183,7 +218,7 @@ function AlertDetail({
 
   return (
     <>
-      <SheetHeader
+      <div
         className={cn(
           "border-b px-4 py-4 sm:px-6",
           playbookSeveritySheetClass(row.severity),
@@ -203,16 +238,12 @@ function AlertDetail({
             {playbookAlertSeverityLabel(row.severity)}
           </Badge>
         </div>
-        <SheetTitle className="text-left text-lg">
+        <h3 className="mt-2 text-left text-base font-semibold">
           {playbookAlertRuleTitle(row.ruleId)}
-        </SheetTitle>
-        <SheetDescription className="text-left">
-          {clientLabel}
-          {row.companyName ? ` · ${row.companyName}` : ""}
-        </SheetDescription>
-      </SheetHeader>
+        </h3>
+      </div>
 
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
+      <div className="space-y-6 px-4 py-6 sm:px-6">
         <div>
           <p className="text-xs font-medium text-muted-foreground">Campanha</p>
           <p className="mt-1 text-sm font-medium">
@@ -223,14 +254,14 @@ function AlertDetail({
           </p>
         </div>
 
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3">
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-4">
           <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
             Evidência
           </p>
           <p className="mt-1 text-sm leading-relaxed">{row.evidence}</p>
         </div>
 
-        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-4">
           <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
             Recomendação
           </p>
@@ -301,11 +332,7 @@ function AlertDetail({
       </div>
 
       <div className="border-t border-border/60 px-4 py-3 sm:px-6">
-        <Button asChild variant="ghost" size="sm">
-          <Link href={`/users/${row.userId}?tab=marketing`}>
-            Ver conta no Marketing
-          </Link>
-        </Button>
+        <AlertMarketingLink row={row} />
       </div>
 
       <AlertDialog
