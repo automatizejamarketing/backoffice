@@ -10,6 +10,10 @@
       "schedule": "0 11,13 * * *"
     },
     {
+      "path": "/api/cron-job/business/account-alerts/refresh",
+      "schedule": "15 13 * * *"
+    },
+    {
       "path": "/api/cron-job/business/performance-drop/refresh",
       "schedule": "30 11,13 * * *"
     },

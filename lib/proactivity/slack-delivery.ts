@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { proactivityAlertDelivery, user } from "@/lib/db/schema";
+import { proactivityAlertDelivery, user, userMarketingConsultant, backofficeUser } from "@/lib/db/schema";
 import {
   buildPlaybookSlackMessage,
   playbookAlertDashboardUrl,
@@ -216,6 +216,131 @@ export async function deliverPlaybookInsightsToSlack(args: {
       evidence: insight.evidence,
       dashboardUrl,
     });
+
+    const result = await postSlackWebhook(text);
+    if (!result.ok) {
+      const reason =
+        result.error === "slack_not_configured"
+          ? "slack_not_configured"
+          : "provider_error";
+      await markDelivery({
+        alertId: channelConfig.alertId,
+        dedupKey,
+        status: reason === "slack_not_configured" ? "skipped" : "failed",
+        reasonCode: reason,
+        errorMessage: result.error,
+      });
+      if (reason === "slack_not_configured") skipped += 1;
+      else failed += 1;
+      continue;
+    }
+
+    await markDelivery({
+      alertId: channelConfig.alertId,
+      dedupKey,
+      status: "sent",
+    });
+    sent += 1;
+  }
+
+  return { attempted, sent, skipped, failed };
+}
+
+async function resolveConsultantLabel(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      email: backofficeUser.email,
+      name: backofficeUser.name,
+    })
+    .from(userMarketingConsultant)
+    .innerJoin(
+      backofficeUser,
+      eq(userMarketingConsultant.consultantId, backofficeUser.id),
+    )
+    .where(eq(userMarketingConsultant.userId, userId))
+    .limit(1);
+
+  if (!row) return null;
+  return row.name?.trim() || row.email;
+}
+
+export async function deliverAccountAlertsToSlack(args: {
+  created: Array<{
+    id: string;
+    userId: string;
+    ruleId: string;
+    title: string;
+    evidence: string;
+  }>;
+  deliverSlackByRuleId: Map<string, { alertId: string; enabled: boolean }>;
+}): Promise<{ attempted: number; sent: number; skipped: number; failed: number }> {
+  let attempted = 0;
+  let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  const labels = new Map<string, { client: string; consultant: string }>();
+
+  for (const alert of args.created) {
+    const channelConfig = args.deliverSlackByRuleId.get(alert.ruleId);
+    if (!channelConfig?.enabled) continue;
+
+    const dedupKey = alert.id;
+    const claimed = await claimDelivery({
+      userId: alert.userId,
+      alertId: channelConfig.alertId,
+      dedupKey,
+    });
+    if (!claimed) {
+      skipped += 1;
+      continue;
+    }
+
+    attempted += 1;
+    await markDelivery({
+      alertId: channelConfig.alertId,
+      dedupKey,
+      status: "sending",
+    });
+
+    if (isMetaFakeScenarioUser(alert.userId)) {
+      await markDelivery({
+        alertId: channelConfig.alertId,
+        dedupKey,
+        status: "skipped",
+        reasonCode: META_FAKE_SKIP_REASON,
+      });
+      skipped += 1;
+      continue;
+    }
+
+    let label = labels.get(alert.userId);
+    if (!label) {
+      const client = await resolveClientLabel(alert.userId);
+      const consultant = await resolveConsultantLabel(alert.userId);
+      label = {
+        client,
+        consultant: consultant
+          ? `Consultor: ${consultant}`
+          : "Consultor: (não atribuído)",
+      };
+      labels.set(alert.userId, label);
+    }
+
+    const dashboardUrl = playbookAlertDashboardUrl(
+      getBackofficeBaseUrl(),
+      label.client,
+    );
+    const accountUrl = dashboardUrl.includes("?")
+      ? `${dashboardUrl}&family=account`
+      : `${dashboardUrl}?family=account`;
+    const text = [
+      `*Conta — ${alert.title}*`,
+      `Cliente: ${label.client}`,
+      label.consultant,
+      alert.evidence,
+      `<${accountUrl}|Abrir alertas da conta>`,
+    ].join("\n");
 
     const result = await postSlackWebhook(text);
     if (!result.ok) {

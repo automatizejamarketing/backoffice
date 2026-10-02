@@ -9,6 +9,7 @@ import {
   consultantSeesOnlyAssignedClients,
 } from "@/lib/auth/rbac-core";
 import { PROACTIVITY_ALERT_DEFINITIONS } from "@/lib/proactivity/catalog";
+import { ACCOUNT_ALERT_RULE_IDS } from "@/lib/account-alerts/constants";
 import {
   PLAYBOOK_INSIGHTS_RULE_PREFIX,
   PLAYBOOK_RULE_CPA_ALERT,
@@ -60,6 +61,13 @@ export const PLAYBOOK_ALERT_RULE_IDS = [
 ] as const;
 export type PlaybookAlertRuleId = (typeof PLAYBOOK_ALERT_RULE_IDS)[number];
 
+export const ALERT_FAMILY_VALUES = ["playbook", "account"] as const;
+export type AlertFamily = (typeof ALERT_FAMILY_VALUES)[number];
+
+export type ConsultantAlertRuleId =
+  | PlaybookAlertRuleId
+  | (typeof ACCOUNT_ALERT_RULE_IDS)[number];
+
 export const PLAYBOOK_DASHBOARD_COMPLETION_NOTE =
   "Concluído no dashboard de alertas";
 
@@ -74,17 +82,19 @@ export type PlaybookAlertSearchParams = {
   status?: string | string[];
   page?: string | string[];
   pageSize?: string | string[];
+  family?: string | string[];
 };
 
 export type PlaybookAlertFilters = {
   tab: PlaybookAlertTab;
   window: DashboardDateWindow;
   search: string;
-  ruleId: PlaybookAlertRuleId | "all";
+  ruleId: ConsultantAlertRuleId | "all";
   severity: PlaybookAlertSeverity | "all";
   status: PlaybookAlertStatus | "all";
   page: number;
   pageSize: number;
+  family: AlertFamily;
 };
 
 export type PlaybookAlertKpis = {
@@ -106,17 +116,28 @@ export type PlaybookAlertAccessScope =
 
 const RULE_TITLE_BY_ID = new Map(
   PROACTIVITY_ALERT_DEFINITIONS.filter(
-    (definition) =>
-      definition.audience === "consultant" && definition.playbookRuleId,
-  ).map((definition) => [definition.playbookRuleId as string, definition.title]),
+    (definition) => definition.audience === "consultant",
+  ).flatMap((definition) => {
+    const ruleId = definition.playbookRuleId ?? definition.accountRuleId;
+    return ruleId ? [[ruleId, definition.title] as const] : [];
+  }),
 );
 
 function isPlaybookAlertTab(value: string): value is PlaybookAlertTab {
   return (PLAYBOOK_ALERT_TAB_VALUES as readonly string[]).includes(value);
 }
 
-function isPlaybookAlertRuleId(value: string): value is PlaybookAlertRuleId {
-  return (PLAYBOOK_ALERT_RULE_IDS as readonly string[]).includes(value);
+function isAlertFamily(value: string): value is AlertFamily {
+  return (ALERT_FAMILY_VALUES as readonly string[]).includes(value);
+}
+
+function isConsultantAlertRuleId(
+  value: string,
+  family: AlertFamily,
+): value is ConsultantAlertRuleId {
+  const ids =
+    family === "account" ? ACCOUNT_ALERT_RULE_IDS : PLAYBOOK_ALERT_RULE_IDS;
+  return (ids as readonly string[]).includes(value);
 }
 
 function isPlaybookAlertSeverity(value: string): value is PlaybookAlertSeverity {
@@ -290,16 +311,19 @@ export function normalizePlaybookAlertFilters(
   )
     ? pageSizeRaw
     : PLAYBOOK_ALERT_DEFAULT_PAGE_SIZE;
+  const familyRaw = firstSearchParam(input.family)?.trim() ?? "playbook";
+  const family = isAlertFamily(familyRaw) ? familyRaw : "playbook";
 
   return {
     tab: isPlaybookAlertTab(tabRaw) ? tabRaw : "pending",
     window: resolveDashboardDateWindow(input, now),
     search,
-    ruleId: isPlaybookAlertRuleId(ruleRaw) ? ruleRaw : "all",
+    ruleId: isConsultantAlertRuleId(ruleRaw, family) ? ruleRaw : "all",
     severity: isPlaybookAlertSeverity(severityRaw) ? severityRaw : "all",
     status: isPlaybookAlertStatus(statusRaw) ? statusRaw : "all",
     page,
     pageSize,
+    family,
   };
 }
 
@@ -317,6 +341,7 @@ export function buildPlaybookAlertHref(filters: PlaybookAlertFilters): string {
   if (filters.pageSize !== PLAYBOOK_ALERT_DEFAULT_PAGE_SIZE) {
     params.set("pageSize", String(filters.pageSize));
   }
+  if (filters.family === "account") params.set("family", "account");
   const query = params.toString();
   return query ? `/alerts?${query}` : "/alerts";
 }
@@ -330,11 +355,17 @@ export function playbookAlertHrefWith(
     ruleId: PlaybookAlertFilters["ruleId"];
     severity: PlaybookAlertFilters["severity"];
     status: PlaybookAlertFilters["status"];
+    family: AlertFamily;
   }>,
 ): string {
+  const familyChanged = patch.family !== undefined && patch.family !== filters.family;
   return buildPlaybookAlertHref({
     ...filters,
     ...patch,
-    page: patch.page ?? (patch.tab && patch.tab !== filters.tab ? 1 : filters.page),
+    ruleId:
+      familyChanged && patch.ruleId === undefined ? "all" : (patch.ruleId ?? filters.ruleId),
+    page:
+      patch.page ??
+      ((patch.tab && patch.tab !== filters.tab) || familyChanged ? 1 : filters.page),
   });
 }

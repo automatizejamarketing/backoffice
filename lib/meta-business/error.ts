@@ -204,7 +204,10 @@ export function parseGraphError(json: unknown): GraphErrorReturn {
       fbtraceId: json.error.fbtrace_id,
     };
 
-    const mappedError = findMappedError(errorInfo.code, errorInfo.errorSubcode);
+    const mappedError = withMetaUserText(
+      findMappedError(errorInfo.code, errorInfo.errorSubcode),
+      errorInfo,
+    );
 
     return {
       statusCode: mappedError.httpStatusCode,
@@ -217,6 +220,32 @@ export function parseGraphError(json: unknown): GraphErrorReturn {
       reason: genericError,
     };
   }
+}
+
+/**
+ * Troca a tradução GENÉRICA pelo texto que a Meta escreveu para o usuário — a mesma regra
+ * do app (automatize-frontend, `withMetaUserText` em lib/meta-business/error.ts).
+ *
+ * O `"100"` é o que sobra quando o subcódigo não tem entrada própria, e o `genericError` é o
+ * que sobra quando nem o código tem. Nesses dois casos o `error_user_msg` da Meta — em geral
+ * em pt-BR e dizendo o que fazer — explica mais do que a nossa frase: em 01/10/2026 (Divino
+ * Lanches) a Meta disse "Nenhuma data de término inserida" e a tela mostrou só o genérico.
+ * Traduções por código que já orientam ficam como estão. Status e `isTransient` seguem os da
+ * tradução; a solução pede o código ao suporte.
+ */
+function withMetaUserText(mapped: MappedError, info: GraphErrorInfo): MappedError {
+  const userMessage = info.errorUserMsg?.trim();
+  if (!userMessage || (mapped !== errorMap["100"] && mapped !== genericError)) {
+    return mapped;
+  }
+  const code =
+    info.errorSubcode == null ? String(info.code) : `${info.code}/${info.errorSubcode}`;
+  return {
+    ...mapped,
+    title: info.errorUserTitle?.trim() || mapped.title,
+    message: userMessage,
+    solution: `Se não souber como resolver, fale com o suporte e informe o código ${code}.`,
+  };
 }
 
 /**
@@ -330,6 +359,17 @@ const errorMap: Record<string, MappedError> = {
       "Um ou mais parâmetros da requisição são inválidos para a Marketing API.",
     solution:
       "Verifique os IDs, campos e formato dos dados conforme a documentação da Meta.",
+    isTransient: false,
+  },
+  // "Nenhuma data de término inserida" — mesma entrada do app (01/10/2026, Divino Lanches):
+  // o conjunto precisa da própria data de término mesmo com o orçamento total na campanha.
+  "100_1487094": {
+    httpStatusCode: 400,
+    title: "Conjunto sem data de término",
+    message:
+      "Com orçamento total, a Meta exige que cada conjunto tenha data de término mais de 24 horas depois do início, mesmo quando o orçamento fica na campanha.",
+    solution:
+      "Defina a data de término do conjunto pelo menos 24 horas após o início. Se o orçamento é da campanha, o conjunto usa as datas dela: confira se a campanha ainda tem mais de 24 horas pela frente.",
     isTransient: false,
   },
   "368": {
