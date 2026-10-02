@@ -148,6 +148,7 @@ export async function POST(
     const result = await publishFallbackCampaign({
       adAccountId: auth.accountId,
       accessToken: auth.accessToken,
+      whatsappNiches: "all",
       input: {
         customerId: auth.userId,
         niche,
