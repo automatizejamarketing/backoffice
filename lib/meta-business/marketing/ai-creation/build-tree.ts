@@ -14,6 +14,7 @@ import type { PlacementKey } from "@/lib/meta-business/placements";
 import type { CampaignMold } from "./read-mold";
 import type { DemographicLimits } from "./demographic-limits";
 import type { AudienceInclusionIds } from "./audience-inclusions";
+import type { AiCampaignPeriodInput } from "../../ai-campaign-duration";
 
 /** What the flow suggests, and the floor it advises (ADR 0022, decision 7). */
 export const DEFAULT_DAILY_BUDGET = 30;
@@ -48,6 +49,8 @@ export type PlanTexts = {
 export type PlanAnswers = {
   /** Account currency, MAJOR units — always "per day", whatever the mold's mode. */
   dailyBudget: number;
+  /** AI flight resolved at the customer boundary, or explicitly chosen in review. */
+  period?: AiCampaignPeriodInput;
   /** One ad set per media (ticket 03 sends exactly one; ticket 05 opens it up). */
   medias: PlanMedia[];
   /** Required for image ads; ignored for an Instagram boost (the post IS the creative). */

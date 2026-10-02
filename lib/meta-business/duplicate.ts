@@ -16,6 +16,12 @@ import {
   type ScheduleRefusalCode,
 } from "@/lib/meta-business/schedule-shape";
 import { withMetaRetry } from "@/lib/meta-business/write-retry";
+import {
+  campaignPeriodDays,
+  resolveAiCampaignPeriod,
+  type AiCampaignDurationDays,
+  type AiCampaignPeriodInput,
+} from "@/lib/meta-business/ai-campaign-duration";
 
 /**
  * MIRRORED FILE — `automatize-frontend` and `backoffice` must hold BYTE-IDENTICAL copies.
@@ -1678,9 +1684,7 @@ function splitDailyBudgetCents(totalCents: number, count: number): number[] {
 
 /**
  * Flight length when a lifetime budget is derived from the user's daily answer (ADR 0022/0023).
- * The ONE flight constant for proven-campaign duplication — exported so the AI-creation review
- * shows exactly the flight the engine writes, instead of keeping a second constant that can drift
- * (ticket 06).
+ * Legacy flight for direct callers; customer boundaries supply the account's resolved period.
  */
 export const AI_DUPLICATE_FLIGHT_DAYS = 7;
 
@@ -1695,6 +1699,7 @@ export function computeDuplicationBudget(args: {
   dailyBudgetMajor: number;
   /** How many ad sets carry the budget — ABO splits across them; CBO ignores the split. */
   adSetCount: number;
+  flightDays?: number;
 }): {
   flightDays: number;
   /** Total per-day budget in MINOR units — what the user answered. */
@@ -1705,12 +1710,13 @@ export function computeDuplicationBudget(args: {
   lifetimeCents: number;
 } {
   const dailyCents = Math.round(args.dailyBudgetMajor * 100);
+  const flightDays = args.flightDays ?? AI_DUPLICATE_FLIGHT_DAYS;
   const slices = splitDailyBudgetCents(dailyCents, Math.max(1, args.adSetCount));
   return {
-    flightDays: AI_DUPLICATE_FLIGHT_DAYS,
+    flightDays,
     dailyCents,
     slices,
-    lifetimeCents: dailyCents * AI_DUPLICATE_FLIGHT_DAYS,
+    lifetimeCents: dailyCents * flightDays,
   };
 }
 
@@ -3958,6 +3964,8 @@ export async function duplicateProvenCampaign(args: {
   alwaysCopyAdSetIds?: string[];
   /** User's daily budget in MAJOR units; applied after copy, never inherited from the source. */
   dailyBudgetMajor: number;
+  period?: AiCampaignPeriodInput;
+  defaultDurationDays?: AiCampaignDurationDays;
   /** Conventional campaign name (not the chat's "- Cópia" suffix). */
   campaignName: string;
   fallbackPromotionUrl?: string;
@@ -4088,6 +4096,11 @@ export async function duplicateProvenCampaign(args: {
     sourceAdsets: sourceAdsets.map((a) => adsetsById.get(a.id)),
   });
 
+  const period = resolveAiCampaignPeriod({
+    period: args.period,
+    defaultDurationDays: args.defaultDurationDays ?? AI_DUPLICATE_FLIGHT_DAYS,
+    defaultStartTime: new Date(Date.now() + START_BUFFER_MS).toISOString(),
+  });
   const tracker = new CreatedObjectsTracker();
   const limiter = createWriteLimiter(MIN_WRITE_INTERVAL_MS);
 
@@ -4255,26 +4268,21 @@ export async function duplicateProvenCampaign(args: {
     const budget = computeDuplicationBudget({
       dailyBudgetMajor,
       adSetCount: copiedAdSetIds.length,
+      flightDays: campaignPeriodDays(period),
     });
-    const freshFlight = () => {
-      const now = Date.now();
-      return {
-        start: new Date(now + START_BUFFER_MS).toISOString(),
-        stop: new Date(
-          now + START_BUFFER_MS + budget.flightDays * 24 * 60 * 60 * 1000,
-        ).toISOString(),
-      };
+    const campaignActivationFields: Record<string, string> = {
+      start_time: period.startTime,
+      stop_time: period.endTime,
     };
-
-    const campaignActivationFields: Record<string, string> = {};
-    const adSetActivationFields: Record<string, Record<string, string>> = {};
+    const adSetActivationFields: Record<string, Record<string, string>> =
+      Object.fromEntries(copiedAdSetIds.map((id) => [
+        id,
+        { start_time: period.startTime, end_time: period.endTime },
+      ]));
 
     if (isCBO) {
       if (campaignLifetime) {
-        const { start, stop } = freshFlight();
         campaignActivationFields.lifetime_budget = String(budget.lifetimeCents);
-        campaignActivationFields.start_time = start;
-        campaignActivationFields.stop_time = stop;
       } else {
         campaignActivationFields.daily_budget = String(budget.dailyCents);
       }
@@ -4288,16 +4296,12 @@ export async function duplicateProvenCampaign(args: {
           : sourceHasDayparting;
         const useLifetime =
           hasDayparting || hasPositiveMinorUnits(source?.lifetime_budget);
-        const adsetFields: Record<string, string> = {};
+        const adsetFields = adSetActivationFields[copiedAdSetIds[i]];
         if (useLifetime) {
-          const { start, stop } = freshFlight();
           adsetFields.lifetime_budget = String(budget.slices[i] * budget.flightDays);
-          adsetFields.start_time = start;
-          adsetFields.end_time = stop;
         } else {
           adsetFields.daily_budget = String(budget.slices[i]);
         }
-        adSetActivationFields[copiedAdSetIds[i]] = adsetFields;
       }
     }
 

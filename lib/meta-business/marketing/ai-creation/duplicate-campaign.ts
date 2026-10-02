@@ -16,6 +16,7 @@ import {
   type AdSetScheduleOverride,
 } from "@/lib/meta-business/duplicate";
 import { metaApiCall } from "@/lib/meta-business/api";
+import { campaignPeriodDays, resolveAiCampaignPeriod } from "../../ai-campaign-duration";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
 import { buildConventionalCampaignName, buildConventionalAdName } from "../campaign-naming";
 import { createAd } from "../creation/create-ad";
@@ -960,6 +961,11 @@ function buildDuplicationReview(
   answers: PlanAnswers,
 ): ReviewSummary {
   const { mold, ref, selectedProvenAds, campaignName } = prepared;
+  const period = resolveAiCampaignPeriod({
+    period: answers.period,
+    defaultDurationDays: 7,
+    defaultStartTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  });
   const hasNewMedia = answers.medias.length > 0;
   const adSetCount =
     selectedProvenAds.length > 0
@@ -973,6 +979,7 @@ function buildDuplicationReview(
   const budget = computeDuplicationBudget({
     dailyBudgetMajor: answers.dailyBudget,
     adSetCount,
+    flightDays: campaignPeriodDays(period),
   });
   const isCbo = mold.campaign.budgetMode === "CBO";
   const scheduleSummary = resolveReviewSchedule(mold, answers);
@@ -1013,6 +1020,8 @@ function buildDuplicationReview(
     budget: {
       mode: mold.campaign.budgetMode,
       dailyCents: budget.dailyCents,
+      startTime: period.startTime,
+      stopTime: period.endTime,
       ...(!isCbo && adSetCount > 1 ? { perAdSetDailyCents: budget.slices[0] } : {}),
       ...(copyUsesLifetime ? { lifetimeCents: budget.lifetimeCents } : {}),
       daypartingAllowed: copyUsesLifetime,
@@ -1202,6 +1211,7 @@ export async function createDuplicatedCampaign(
       keepAdIds: prepared.keepAdIds,
       ...(alwaysCopyAdSetIds ? { alwaysCopyAdSetIds } : {}),
       dailyBudgetMajor: answers.dailyBudget,
+      period: answers.period,
       campaignName: prepared.campaignName,
       ...(promotionUrl ? { fallbackPromotionUrl: promotionUrl } : {}),
       ...(answers.texts?.link?.trim()
