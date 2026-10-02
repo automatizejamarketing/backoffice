@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mock } from "bun:test";
 import { ensureMetaTestEnv, installMetaFetchStub } from "./meta-fetch-stub";
+const { mock } = require("bun:test") as { mock: { module(specifier: string, factory: () => unknown): void } };
 process.env.POSTGRES_URL = "postgres://test:test@127.0.0.1:1/test";
 process.env.REDIS_URL = "";
 ensureMetaTestEnv();
