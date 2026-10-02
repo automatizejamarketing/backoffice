@@ -347,10 +347,14 @@ export type CampaignTreePlan = {
     budgetMode: "CBO" | "ABO";
     dailyBudgetCents?: number;
     lifetimeBudgetCents?: number;
+    startTime?: string;
+    stopTime?: string;
   };
   adSets: Array<{
     name: string;
     optimizationGoal: string;
+    startTime?: string;
+    endTime?: string;
     ads: Array<{ name: string; creativeFormat: string }>;
   }>;
 };
@@ -374,6 +378,8 @@ function buildTreePlan(tree: PreviewCampaignTreeInput): CampaignTreePlan {
       name: tree.campaign.name,
       objective: tree.campaign.objective,
       budgetMode: parentUsesCampaignBudget(tree.campaign) ? "CBO" : "ABO",
+      ...(tree.campaign.startTime ? { startTime: tree.campaign.startTime } : {}),
+      ...(tree.campaign.stopTime ? { stopTime: tree.campaign.stopTime } : {}),
       ...(tree.campaign.dailyBudgetCents != null
         ? { dailyBudgetCents: tree.campaign.dailyBudgetCents }
         : {}),
@@ -384,6 +390,8 @@ function buildTreePlan(tree: PreviewCampaignTreeInput): CampaignTreePlan {
     adSets: (tree.adSets ?? []).map((s) => ({
       name: s.adSet.name,
       optimizationGoal: s.adSet.optimizationGoal,
+      ...(s.adSet.startTime ? { startTime: s.adSet.startTime } : {}),
+      ...(s.adSet.endTime ? { endTime: s.adSet.endTime } : {}),
       ads: (s.ads ?? []).map((a) => ({
         name: a.name,
         creativeFormat: a.creative?.format ?? "(criativo pendente)",
