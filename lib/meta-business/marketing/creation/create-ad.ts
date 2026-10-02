@@ -10,7 +10,10 @@
  * Endpoints: POST /act_{id}/adcreatives then POST /act_{id}/ads.
  */
 
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
+import { graphApiVersion, graphFacebookBaseUrl } from "@/lib/meta-business/constant";
 import { metaWrite } from "@/lib/meta-business/write-retry";
+import { adSetAlreadyHasVideo, applyOwnVideoThumbnail } from "./video-thumbnail";
 import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
 import { uploadAdVideoFromUrl, waitForVideoReady } from "../upload-ad-video";
@@ -397,6 +400,42 @@ function withValidateOnly(body: URLSearchParams): URLSearchParams {
   return v;
 }
 
+async function fetchVideoPicture(
+  videoId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${videoId}?fields=picture&access_token=${encodeURIComponent(accessToken)}`;
+  try {
+    const { response, data } = await fetchMetaGraph(url, { method: "GET" });
+    if (!response.ok || data.error) return null;
+    return typeof data.picture === "string" && data.picture ? data.picture : null;
+  } catch {
+    return null;
+  }
+}
+
+async function duplicateVideoAdId(params: {
+  adSetId: string;
+  videoId: string;
+  accessToken: string;
+}): Promise<string | null> {
+  const url =
+    `${graphFacebookBaseUrl}/${graphApiVersion}/${params.adSetId}/ads` +
+    `?fields=id,creative{video_id,object_story_spec}&limit=50` +
+    `&access_token=${encodeURIComponent(params.accessToken)}`;
+  try {
+    const { response, data } = await fetchMetaGraph(url, { method: "GET" });
+    if (!response.ok || data.error) return null;
+    const rows = Array.isArray(data.data) ? data.data : [];
+    return adSetAlreadyHasVideo(
+      rows as Array<{ id?: string; creative?: { video_id?: string; object_story_spec?: string } }>,
+      params.videoId,
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** Upload any imageUrl/videoUrl assets and return a creative with refs filled. */
 async function resolveAssets(
   account: string,
@@ -412,7 +451,12 @@ async function resolveAssets(
     await assertSafeFetchUrl(creative.videoUrl);
     const { id } = await uploadAdVideoFromUrl(account, accessToken, creative.videoUrl);
     await waitForVideoReady(id, accessToken);
-    return { ...creative, videoId: id };
+    const picture = await fetchVideoPicture(id, accessToken);
+    return applyOwnVideoThumbnail({ ...creative, videoId: id }, picture);
+  }
+  if (creative.format === "video" && creative.videoId) {
+    const picture = await fetchVideoPicture(creative.videoId, accessToken);
+    return applyOwnVideoThumbnail(creative, picture);
   }
   if (creative.format === "carousel") {
     const cards = await Promise.all(
@@ -634,6 +678,25 @@ export async function createAd(
 ): Promise<CreateResult<{ id: string; creativeId: string }>> {
   const localIssues = validateAdInput(input);
   if (localIssues.length) return fail(localIssues);
+
+  if (input.creative.format === "video" && input.creative.videoId) {
+    const existingAdId = await duplicateVideoAdId({
+      adSetId: input.adSetId,
+      videoId: input.creative.videoId,
+      accessToken: input.accessToken,
+    });
+    if (existingAdId) {
+      return fail([
+        localIssue(
+          "creative",
+          "DUPLICATE_VIDEO",
+          `Este vídeo já está no anúncio ${existingAdId} deste conjunto.`,
+          "Não crie outro anúncio com o mesmo videoId. Use o próximo vídeo que ainda não entrou na campanha e diga ao usuário qual já está ativo.",
+          ["video_id"],
+        ),
+      ]);
+    }
+  }
 
   const account = formatAccountId(input.adAccountId);
 
