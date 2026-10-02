@@ -40,6 +40,7 @@ import {
 } from "@/lib/meta-business/types";
 import {
   getPagesWithInstagramAccounts,
+  resolveAdvertisingIdentity,
   type FacebookPagesWithInstagramResponse,
 } from "@/lib/meta-business/get-instagram-connected-page";
 
@@ -114,6 +115,9 @@ export type CreateAdSetTargetingInput = {
 export type CreateAdSetInCampaignInput = {
   accountId: string;
   accessToken: string;
+  tokenKind?: "user" | "bisu";
+  bisuAppScopedId?: string | null;
+  instagramBusinessAccountId?: string;
   campaignId: string;
   adsetName: string;
   pageId?: string;
@@ -568,10 +572,25 @@ export async function createAdSetInExistingCampaign(
   );
 
   let pagesResponse: FacebookPagesWithInstagramResponse;
+  let selectedInstagramId: string | undefined;
   try {
-    pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
-      adAccountId: accountId,
-    });
+    if (promotedObjectType === "instagram_traffic") {
+      const selected = await resolveAdvertisingIdentity(accessToken, {
+        adAccountId: accountId,
+        pageId: pageId?.trim() || undefined,
+        instagramBusinessAccountId: input.instagramBusinessAccountId,
+        tokenKind: input.tokenKind,
+        bisuAppScopedId: input.bisuAppScopedId,
+      });
+      pagesResponse = { data: selected ? [selected.page] : [] };
+      selectedInstagramId = selected?.instagramBusinessAccountId;
+    } else {
+      pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
+        adAccountId: accountId,
+        tokenKind: input.tokenKind,
+        bisuAppScopedId: input.bisuAppScopedId,
+      });
+    }
   } catch (error) {
     const graphError = errorToGraphErrorReturn(error);
     return fail(
@@ -599,7 +618,7 @@ export async function createAdSetInExistingCampaign(
   let promotedObject: Record<string, string>;
 
   if (promotedObjectType === "instagram_traffic") {
-    const igAccountId = connectedPage.instagram_business_account?.id;
+    const igAccountId = selectedInstagramId;
     if (!igAccountId) {
       return fail(
         400,

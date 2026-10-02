@@ -1,6 +1,7 @@
 // Absolute (not `../api`): this file is mirrored into the backoffice's FLATTENED
 // `lib/meta-business/` root, where a relative parent import would miss.
 import { metaApiCall } from "@/lib/meta-business/api";
+import { advertisingIdentityId } from "@/lib/meta-business/advertising-identity-key";
 
 /**
  * Facebook Page connected to Instagram Business Account
@@ -52,6 +53,7 @@ export type InstagramBusinessAccountInfo = {
  */
 export type FacebookPageWithInstagram = FacebookConnectedPage & {
   instagram_business_account?: InstagramBusinessAccountInfo;
+  connected_instagram_account?: InstagramBusinessAccountInfo;
 };
 
 /**
@@ -85,12 +87,13 @@ export type FacebookGraphApiError = {
 };
 
 /**
- * A Facebook Page that can run ads, together with its connected Instagram
- * Business Account. This represents the ad "Identity": the user picks the Page,
- * and the Instagram profile is derived from it (mirrors Meta's Ads Manager).
- * Pages without a connected Instagram account are excluded from this shape.
+ * A real Page and Instagram advertising pair. Account provenance authorizes
+ * advertising profiles; positive Page links restrict compatible pairs.
  */
 export type PageIdentity = {
+  identityId?: string;
+  adAccountIds?: string[];
+  linkage?: "known_page" | "not_observed";
   pageId: string;
   pageName?: string;
   pagePictureUrl?: string;
@@ -110,7 +113,7 @@ export type InstagramConnectedPageResult = {
 };
 
 const PAGE_WITH_IG_FIELDS =
-  "id,name,username,picture,category,tasks,instagram_business_account{id,username,name,profile_picture_url}";
+  "id,name,username,picture,category,tasks,instagram_business_account{id,username,name,profile_picture_url},connected_instagram_account{id,username}";
 
 export type GetPagesOptions = {
   tokenKind?: "user" | "bisu";
@@ -119,6 +122,8 @@ export type GetPagesOptions = {
   adAccountId?: string;
   /** Merge promotable pages across several ad accounts. */
   adAccountIds?: string[];
+  /** Explicit Instagram selection; never replaced by another profile. */
+  instagramBusinessAccountId?: string;
 };
 
 /** Normalize bare / act_ ad-account ids into unique `act_` ids. */
@@ -170,45 +175,44 @@ export function mergeFacebookPagesWithInstagram(
   return [...byId.values()];
 }
 
+/** Read cursors on our own endpoint; never reuse paging URLs containing tokens. */
+async function fetchEdge<T>(path: string, fields: string, accessToken: string): Promise<T[]> {
+  const data: T[] = [];
+  const seen = new Set<string>();
+  let after: string | undefined;
+  do {
+    const params = new URLSearchParams({ fields, limit: "100" });
+    if (after) params.set("after", after);
+    const response = await metaApiCall<{ data?: T[]; paging?: FacebookPagesResponse["paging"] }>({
+      domain: "FACEBOOK", method: "GET", path, params: params.toString(), accessToken,
+    });
+    data.push(...(response.data ?? []));
+    if (!response.paging?.next) break;
+    after = response.paging.cursors?.after;
+    if (!after || seen.has(after)) throw new Error(`Incomplete Meta pagination for ${path}`);
+    seen.add(after);
+  } while (after);
+  return data;
+}
+
 async function fetchPromotePagesForAdAccount(
   adAccountActId: string,
   accessToken: string,
 ): Promise<FacebookPageWithInstagram[]> {
-  const response = await metaApiCall<FacebookPagesWithInstagramResponse>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: `${adAccountActId}/promote_pages`,
-    params: `fields=${PAGE_WITH_IG_FIELDS}&limit=100`,
-    accessToken,
-  });
-  return response.data ?? [];
+  return fetchEdge(`${adAccountActId}/promote_pages`, PAGE_WITH_IG_FIELDS, accessToken);
 }
 
 async function fetchAssignedPages(
   bisuAppScopedId: string,
   accessToken: string,
 ): Promise<FacebookPageWithInstagram[]> {
-  const response = await metaApiCall<FacebookPagesWithInstagramResponse>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: `${bisuAppScopedId}/assigned_pages`,
-    params: `fields=${PAGE_WITH_IG_FIELDS}&limit=100`,
-    accessToken,
-  });
-  return response.data ?? [];
+  return fetchEdge(`${bisuAppScopedId}/assigned_pages`, PAGE_WITH_IG_FIELDS, accessToken);
 }
 
 async function fetchMeAccounts(
   accessToken: string,
 ): Promise<FacebookPageWithInstagram[]> {
-  const response = await metaApiCall<FacebookPagesWithInstagramResponse>({
-    domain: "FACEBOOK",
-    method: "GET",
-    path: "me/accounts",
-    params: `fields=${PAGE_WITH_IG_FIELDS}&limit=100`,
-    accessToken,
-  });
-  return response.data ?? [];
+  return fetchEdge("me/accounts", PAGE_WITH_IG_FIELDS, accessToken);
 }
 
 /**
@@ -219,6 +223,9 @@ export async function getInstagramConnectedPage(
   instagramBusinessAccountId: string,
   options?: GetPagesOptions,
 ): Promise<InstagramConnectedPageResult | null> {
+  if (options?.adAccountId || options?.adAccountIds?.length) {
+    return resolveAdvertisingIdentity(accessToken, { ...options, instagramBusinessAccountId });
+  }
   const pagesResponse = await getPagesWithInstagramAccounts(accessToken, options);
 
   const connectedPage = pagesResponse.data.find(
@@ -318,17 +325,99 @@ export function toPageIdentities(
 }
 
 /**
- * THE single method to list advertising identities (Facebook Page + connected
- * Instagram). Prefer passing adAccountId(s) so listing follows Ads Manager
- * promote_pages instead of only Login-for-Business assigned assets.
+ * List advertising pairs under the requested accounts, retaining each pair's
+ * provenance. Omitted accounts are discovered from the current token.
  */
 export async function getAdvertisingIdentities(
   accessToken: string,
   adAccountIdOrOptions?: string | GetPagesOptions,
 ): Promise<PageIdentity[]> {
-  return toPageIdentities(
-    await getPagesWithInstagramAccounts(accessToken, adAccountIdOrOptions),
+  return (await discoverAdvertisingIdentities(accessToken, adAccountIdOrOptions)).identities;
+}
+
+async function discoverAdvertisingIdentities(accessToken: string, adAccountIdOrOptions?: string | GetPagesOptions) {
+  const options = typeof adAccountIdOrOptions === "string" ? { adAccountId: adAccountIdOrOptions } : (adAccountIdOrOptions ?? {});
+  let actIds = resolveRequestedAdAccountIds(options);
+  if (!actIds.length) {
+    const accounts = await fetchEdge<{ id: string }>("me/adaccounts", "id", accessToken);
+    actIds = normalizeActAccountIds(...accounts.map(account => account.id));
+  }
+  // All Page sources must be complete before declaring a link not observed.
+  // Keep original rows until links are collected: merging first could hide conflicts.
+  const rawPages = (await Promise.all([
+    ...actIds.map(id => fetchPromotePagesForAdAccount(id, accessToken)),
+    ...(options.tokenKind === "bisu" && options.bisuAppScopedId ? [fetchAssignedPages(options.bisuAppScopedId, accessToken)] : []),
+    fetchMeAccounts(accessToken),
+  ])).flat();
+  const pages = mergeFacebookPagesWithInstagram(rawPages);
+  const knownPagesByIg = new Map<string, Set<string>>();
+  const linkedIg = new Map<string, InstagramBusinessAccountInfo>();
+  for (const page of rawPages) {
+    for (const ig of [page.instagram_business_account, page.connected_instagram_account]) {
+      if (!ig?.id) continue;
+      const links = knownPagesByIg.get(ig.id) ?? new Set<string>();
+      links.add(page.id);
+      knownPagesByIg.set(ig.id, links);
+      linkedIg.set(ig.id, { ...linkedIg.get(ig.id), ...ig });
+    }
+  }
+  const identities = new Map<string, PageIdentity>();
+  const add = (page: FacebookPageWithInstagram, ig: InstagramBusinessAccountInfo, accountId?: string) => {
+    const links = knownPagesByIg.get(ig.id);
+    if (links && (links.size !== 1 || !links.has(page.id))) return;
+    const id = advertisingIdentityId(page.id, ig.id);
+    const existing = identities.get(id);
+    identities.set(id, {
+      ...existing,
+      identityId: id, pageId: page.id, pageName: page.name, pagePictureUrl: page.picture?.data?.url,
+      instagramBusinessAccountId: ig.id,
+      instagramUsername: ig.username ?? existing?.instagramUsername,
+      instagramProfilePictureUrl: ig.profile_picture_url ?? existing?.instagramProfilePictureUrl,
+      linkage: links ? "known_page" : "not_observed",
+      adAccountIds: [...new Set([...(existing?.adAccountIds ?? []), ...(accountId ? [accountId] : [])])],
+    });
+  };
+  for (const actId of actIds) {
+    const accounts = await fetchEdge<InstagramBusinessAccountInfo>(`${actId}/connected_instagram_accounts`, "id,username", accessToken);
+    for (const ig of accounts) {
+      if (!ig.id) continue;
+      for (const page of pages) add(page, { ...linkedIg.get(ig.id), ...ig }, actId);
+    }
+    // Preserve the existing Page-connected advertising path, even if the new
+    // account edge omits that profile. A positive Page link still restricts it.
+    for (const [igId, links] of knownPagesByIg) {
+      if (links.size !== 1) continue;
+      const page = pages.find(page => links.has(page.id));
+      if (page) add(page, linkedIg.get(igId)!, actId);
+    }
+  }
+  if (!actIds.length) {
+    for (const [igId, links] of knownPagesByIg) {
+      if (links.size !== 1) continue;
+      const page = pages.find(page => links.has(page.id));
+      if (page) add(page, linkedIg.get(igId)!);
+    }
+  }
+  return { identities: [...identities.values()], pages };
+}
+
+export type ResolveAdvertisingIdentityOptions = GetPagesOptions & { pageId?: string };
+
+/** Resolve only the requested pair; ambiguous legacy requests may use a unique positive Page link. */
+export async function resolveAdvertisingIdentity(accessToken: string, options: ResolveAdvertisingIdentityOptions): Promise<InstagramConnectedPageResult | null> {
+  const { identities, pages } = await discoverAdvertisingIdentities(accessToken, options);
+  let matches = identities.filter(identity =>
+    (!options.pageId || identity.pageId === options.pageId) &&
+    (!options.instagramBusinessAccountId || identity.instagramBusinessAccountId === options.instagramBusinessAccountId),
   );
+  if (matches.length > 1 && !options.instagramBusinessAccountId) {
+    matches = matches.filter(identity => identity.linkage === "known_page");
+  }
+  if (matches.length !== 1) return null;
+  const match = matches[0];
+  const rawPage = pages.find(page => page.id === match.pageId)!;
+  const { instagram_business_account: _ig, connected_instagram_account: _connected, ...page } = rawPage;
+  return { page, instagramBusinessAccountId: match.instagramBusinessAccountId, instagramUsername: match.instagramUsername };
 }
 
 /**
@@ -339,6 +428,9 @@ export async function getConnectedPageById(
   pageId: string,
   options?: GetPagesOptions,
 ): Promise<InstagramConnectedPageResult | null> {
+  if (options?.adAccountId || options?.adAccountIds?.length || options?.instagramBusinessAccountId) {
+    return resolveAdvertisingIdentity(accessToken, { ...options, pageId });
+  }
   const pagesResponse = await getPagesWithInstagramAccounts(accessToken, options);
 
   const matchedPage = pagesResponse.data.find((page) => page.id === pageId);

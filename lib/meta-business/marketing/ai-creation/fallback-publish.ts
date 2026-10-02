@@ -15,7 +15,7 @@
 import { metaApiCall } from "@/lib/meta-business/api";
 import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
-import { getConnectedPageById } from "@/lib/meta-business/get-instagram-connected-page";
+import { getConnectedPageById, resolveAdvertisingIdentity } from "@/lib/meta-business/get-instagram-connected-page";
 import { campaignPacingForNewCampaign } from "@/lib/meta-business/schedule-shape";
 import {
   buildGeoLocationsPayload,
@@ -185,14 +185,19 @@ export function resolveFallbackConfig(
   }
 
   if (objective === "whatsapp") {
+    if (normalizedNiche !== "food_service") {
+      return {
+        error: `Campanhas de WhatsApp não estão disponíveis para o nicho ${niche}.`,
+      };
+    }
     return {
       metaObjective: WHATSAPP_CAMPAIGN_OBJECTIVE,
       optimizationGoal: WHATSAPP_OPTIMIZATION_GOAL,
       requiresPixel: false,
       requiresPromotionUrl: false,
       requiresInstagram: false,
-      // An ad that says "chama no zap" outside opening hours buys conversations
-      // nobody is there to answer. Every niche gets that same dayparting preset.
+      // Inherited from food-service sales on purpose: an ad that says "chama no zap" outside
+      // opening hours buys conversations nobody is there to answer.
       acceptsDeliverySchedule: true,
       usesInclusiveMinusOneDefault: true,
       isWhatsapp: true,
@@ -627,6 +632,8 @@ function treeToPublish(result: CampaignTreeResult): PublishResult {
 export async function publishFallbackCampaign(args: {
   adAccountId: string;
   accessToken: string;
+  tokenKind?: "user" | "bisu";
+  bisuAppScopedId?: string | null;
   input: FallbackPublishInput;
 }): Promise<PublishResult> {
   const { adAccountId, accessToken, input } = args;
@@ -650,7 +657,21 @@ export async function publishFallbackCampaign(args: {
   let instagramProfileUrl: string | undefined;
   let instagramUserId = input.instagramUserId ?? undefined;
   if (input.pageId) {
-    const connected = await getConnectedPageById(accessToken, input.pageId);
+    const needsAdvertisingIdentity = resolved.requiresInstagram || !!input.instagramUserId;
+    const connected = needsAdvertisingIdentity
+      ? await resolveAdvertisingIdentity(accessToken, {
+          adAccountId, pageId: input.pageId,
+          instagramBusinessAccountId: input.instagramUserId ?? undefined,
+          tokenKind: args.tokenKind, bisuAppScopedId: args.bisuAppScopedId,
+        })
+      : await getConnectedPageById(accessToken, input.pageId);
+    if (needsAdvertisingIdentity && !connected) {
+      return {
+        ok: false,
+        issues: [localIssue("ad", "A Página e o Instagram selecionados não estão disponíveis para esta conta de anúncios.", "Selecione uma combinação autorizada de Página e Instagram.", ["pageId", "instagramUserId"])],
+        rolledBack: false,
+      };
+    }
     if (connected) {
       instagramUserId = instagramUserId ?? connected.instagramBusinessAccountId;
       instagramProfileUrl = connected.instagramUsername
