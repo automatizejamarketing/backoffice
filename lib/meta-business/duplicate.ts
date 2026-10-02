@@ -244,6 +244,10 @@ const ERROR_HINTS_BY_SUBCODE: Record<number, string> = {
     "Atualize os posicionamentos do conjunto de anúncios original no Gerenciador de Anúncios (Instagram Explore) e tente duplicar novamente.",
   2446149:
     "Esta campanha usa orçamento de campanha (CBO): aumente o orçamento da campanha para cobrir o conjunto adicional, ou reduza a quantidade de conjuntos, e tente duplicar novamente.",
+  // A Meta manda "selecionar outra chamada para ação", o que o cliente não consegue fazer
+  // aqui. Caso conhecido (visitas ao perfil do IG) já é evitado por GOALS_REWRITTEN_ON_COPY.
+  3858615:
+    "O botão do anúncio original não é aceito pela meta de desempenho da cópia. Fale com o suporte para duplicar esta campanha.",
   1885015:
     "O objeto promovido da campanha original (catálogo/conjunto de produtos, pixel ou app) não existe mais ou você perdeu o acesso a ele. Verifique o recurso no Gerenciador da Meta ou recrie a campanha com o recurso atual e tente duplicar novamente.",
 };
@@ -1966,6 +1970,46 @@ function computeRebuildSchedule(
 }
 
 /**
+ * Metas de otimização que o `/copies` do conjunto reescreve por conta própria. Provado ao
+ * vivo em 01/10/2026 (act_1038784634408465; o mesmo em 26/09 na act_1299674262246062): a
+ * cópia de um conjunto VISIT_INSTAGRAM_PROFILE nasce PROFILE_VISIT, e a cópia do anúncio
+ * passa a ser recusada (2061015 sem botão; 3858615 "sua chamada para ação não pode ser
+ * usada para sua meta de desempenho" com o "Saiba mais"). Com a meta de origem devolvida
+ * ao conjunto copiado, a cópia NATIVA do anúncio passa.
+ */
+const GOALS_REWRITTEN_ON_COPY = new Set<string>(["VISIT_INSTAGRAM_PROFILE"]);
+
+/**
+ * Devolve ao conjunto copiado a meta de origem que o `/copies` trocou. Fatal de propósito:
+ * nenhum anúncio passa num conjunto com a meta trocada, então a recusa da Meta tem de
+ * chegar ao usuário (com rollback) em vez de virar um 3858615 mais adiante. O conjunto
+ * copiado ainda não foi entregue ao rastreador de quem chamou, por isso é apagado aqui.
+ */
+async function restoreCopiedAdsetGoal(
+  copiedAdsetId: string,
+  source: AdsetFull,
+  accessToken: string,
+): Promise<void> {
+  const goal = source.optimization_goal;
+  if (!goal || !GOALS_REWRITTEN_ON_COPY.has(goal)) return;
+  try {
+    await withMetaRetry(() =>
+      metaApiCall<{ success?: boolean }>({
+        domain: "FACEBOOK",
+        method: "POST",
+        path: copiedAdsetId,
+        params: "",
+        body: new URLSearchParams({ optimization_goal: goal }),
+        accessToken,
+      }),
+    );
+  } catch (err) {
+    await deleteMetaObject(copiedAdsetId, accessToken);
+    throw err;
+  }
+}
+
+/**
  * Light-touch schedule reset for a NATIVELY copied lifetime ad set. The copy
  * inherits the source's (often past/expired) flight verbatim; we move it to the
  * fresh future window from `computeFreshFlightWindow` — but only set `start_time`
@@ -2389,6 +2433,8 @@ async function copyOrRebuildAdsetInto(args: {
     };
   }
   if (!copiedAdsetId) throw missingCopyIdError("do conjunto");
+
+  await restoreCopiedAdsetGoal(copiedAdsetId, source, accessToken);
 
   // Light-touch schedule reset on the native copy: give a lifetime copy a fresh
   // future window so it doesn't inherit a past/expired flight that would force a
@@ -3015,8 +3061,26 @@ function buildPreemptiveAdPatch(
   if (urlPatch) {
     Object.assign(patch, urlPatch);
     if (!opts.overridePromotionUrl) repairs.push("promotion-url");
+  } else {
+    const ctaPatch = instagramPostCtaPatch(creative);
+    if (ctaPatch) Object.assign(patch, ctaPatch);
   }
   return { patch, repairs };
+}
+
+/**
+ * O `/copies` de um post do IG impulsionado (`source_instagram_media_id`, sem
+ * `object_story_spec`) recria o criativo SEM o `call_to_action` de topo: visto ao vivo em
+ * 01/10/2026, a cópia nativa saiu sem o "Saiba mais" do original. Reenviar o botão de
+ * origem mantém a cópia fiel. Em vendas o patch de URL já faz isso; aqui cobre o resto.
+ */
+function instagramPostCtaPatch(
+  creative: GraphCreativeShape,
+): Record<string, unknown> | null {
+  if (!creative.source_instagram_media_id) return null;
+  if (creative.object_story_spec || creative.asset_feed_spec) return null;
+  if (!creative.call_to_action?.type) return null;
+  return { call_to_action: creative.call_to_action };
 }
 
 /**
