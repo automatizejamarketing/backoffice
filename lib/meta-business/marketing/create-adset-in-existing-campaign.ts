@@ -738,6 +738,13 @@ export async function createAdSetInExistingCampaign(
       adsetParams.set("daily_budget", budgetCents.toString());
       adsetParams.set("end_time", "0");
     }
+  } else if (hasEffectiveLifetimeBudget) {
+    // Orçamento total na campanha: a Meta ainda exige a janela no CONJUNTO (100/1487094
+    // "Nenhuma data de término inserida"), então ele segue as datas da campanha, como nos
+    // assistentes (campaign-budget.ts). Sonda de 02/10/2026 na campanha que falhou: sem
+    // datas, 1487094; com elas, aceito — inclusive com o início já no passado.
+    if (effectiveStartTime) adsetParams.set("start_time", effectiveStartTime);
+    if (effectiveEndTime) adsetParams.set("end_time", effectiveEndTime);
   }
 
   if (destinationType) {
