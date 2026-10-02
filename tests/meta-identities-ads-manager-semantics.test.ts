@@ -38,9 +38,9 @@ describe("identities are listed with Ads Manager semantics", () => {
 
     assert.match(
       route,
-      /import \{ getPagesWithInstagramAccounts \} from "@\/lib\/meta-business\/get-instagram-connected-page"/,
+      /import \{ getAdvertisingIdentities \} from "@\/lib\/meta-business\/get-instagram-connected-page"/,
     );
-    assert.match(route, /getPagesWithInstagramAccounts\(accessToken, \{/);
+    assert.match(route, /getAdvertisingIdentities\(accessToken, \{/);
     assert.match(route, /adAccountId: accountId/);
     assert.match(route, /tokenKind: tokenResult\.connection\.tokenKind/);
     assert.match(route, /bisuAppScopedId: tokenResult\.connection\.bisuAppScopedId/);

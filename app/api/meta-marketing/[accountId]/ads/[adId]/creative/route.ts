@@ -1,3 +1,4 @@
+import { requireMetaAccount } from "@/lib/backoffice/require-meta-account";
 import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
 import { logMetaMutationError } from "@/lib/observability/meta-logger";
 import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
@@ -39,6 +40,7 @@ type EditCreativeRequestBody = {
   confirmVideoId?: string;
   /** Facebook Page chosen as the ad identity (page-first selection). */
   pageId?: string;
+  instagramUserId?: string;
 };
 
 type EditCreativeSuccess =
@@ -177,6 +179,8 @@ export async function POST(
         { status: tokenResult.error.statusCode },
       );
     }
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const body = (await request.json()) as EditCreativeRequestBody;
@@ -339,6 +343,7 @@ export async function POST(
     const page = await resolvePageAndIg(
       accessToken,
       requestedPageId ?? adsetPageId,
+      { adAccountId: accountId, instagramBusinessAccountId: body.instagramUserId, tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId },
     );
     const text = {
       titles: body.text.titles ?? [],

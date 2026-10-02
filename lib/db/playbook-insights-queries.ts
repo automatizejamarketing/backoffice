@@ -1,4 +1,5 @@
-import { and, desc, eq, inArray, like, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
+import { ACCOUNT_ALERTS_RULE_PREFIX } from "@/lib/account-alerts/constants";
 import { sourceStatusesForPlaybookUpdate } from "@/lib/backoffice/playbook-alert-dashboard";
 import { db } from "@/lib/db";
 import {
@@ -501,12 +502,45 @@ export async function updatePlaybookInsightStatus(args: {
           performanceInsight.status,
           [...sourceStatusesForPlaybookUpdate(args.status)],
         ),
-        like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`),
+        or(
+          like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`),
+          like(performanceInsight.ruleId, `${ACCOUNT_ALERTS_RULE_PREFIX}%`),
+        ),
       ),
     )
     .returning();
 
   return updated ?? null;
+}
+
+export async function completePlaybookAlertGroup(args: {
+  insightIds: string[];
+  userId: string;
+  reviewedByEmail: string;
+  reviewNote?: string | null;
+}): Promise<{ id: string; status: string }[]> {
+  if (args.insightIds.length === 0) return [];
+  const now = new Date();
+  // One UPDATE is atomic. Scope both the user and explicit task ids, and never
+  // overwrite tasks that another consultant has already finalized.
+  return db.update(performanceInsight)
+    .set({
+      status: "done",
+      reviewedByEmail: args.reviewedByEmail,
+      reviewNote: args.reviewNote ?? null,
+      reviewedAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(performanceInsight.userId, args.userId),
+      inArray(performanceInsight.id, args.insightIds),
+      inArray(performanceInsight.status, ["open", "acknowledged"]),
+      or(
+        like(performanceInsight.ruleId, `${PLAYBOOK_INSIGHTS_RULE_PREFIX}%`),
+        like(performanceInsight.ruleId, `${ACCOUNT_ALERTS_RULE_PREFIX}%`),
+      ),
+    ))
+    .returning({ id: performanceInsight.id, status: performanceInsight.status });
 }
 
 export async function getPlaybookInsightSummariesForUsers(

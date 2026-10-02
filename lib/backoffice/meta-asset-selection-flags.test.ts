@@ -28,3 +28,9 @@ describe("flagsForGrantedAsset", () => {
     });
   });
 });
+
+test("legacy Page selection enables only its saved Instagram", () => {
+  const rows = [{assetKind:"identity" as const,assetId:"page-1",instagramBusinessAccountId:"ig-1",isPrimary:true}];
+  expect(flagsForGrantedAsset(rows,"identity","page-1:ig-1")).toEqual({enabled:true,primary:true});
+  expect(flagsForGrantedAsset(rows,"identity","page-1:ig-2")).toEqual({enabled:false,primary:false});
+});

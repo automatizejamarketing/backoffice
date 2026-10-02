@@ -46,6 +46,7 @@ type MediaSourcePickerProps = {
    * Instagram post is cleared.
    */
   instagramBusinessAccountId?: string;
+  identityContext?: string;
 };
 
 function toSelectedMedia(
@@ -81,6 +82,7 @@ export function MediaSourcePicker({
   onChangeMany,
   maxSelection = 1,
   instagramBusinessAccountId,
+  identityContext,
 }: MediaSourcePickerProps) {
   const [igSelected, setIgSelected] = useState<InstagramMediaItem[]>([]);
   const [automatizeSelected, setAutomatizeSelected] = useState<
@@ -108,7 +110,7 @@ export function MediaSourcePicker({
       emit([], automatizeSelected, deviceSelected);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instagramBusinessAccountId]);
+  }, [accountId, identityContext, instagramBusinessAccountId]);
 
   const exclusive = maxSelection === 1;
   const usedSlots =

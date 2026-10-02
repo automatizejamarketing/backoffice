@@ -50,6 +50,19 @@ describe("resolveFallbackConfig WhatsApp", () => {
     }
   });
 
+  test("the backoffice all-niche option supports every WhatsApp fallback preset", () => {
+    for (const niche of NICHES) {
+      const config = resolveFallbackConfig(niche, "whatsapp", { whatsappNiches: "all" });
+      expect("error" in config).toBe(false);
+      if ("error" in config) continue;
+      expect(config.metaObjective).toBe("OUTCOME_ENGAGEMENT");
+      expect(config.isWhatsapp).toBe(true);
+      expect(config.requiresPixel).toBe(false);
+      expect(config.requiresPromotionUrl).toBe(false);
+      expect(config.acceptsDeliverySchedule).toBe(true);
+    }
+  });
+
   test("sales stays limited to food service, retail and outros", () => {
     const blocked = resolveFallbackConfig("real_estate_broker", "sales");
     expect("error" in blocked).toBe(true);

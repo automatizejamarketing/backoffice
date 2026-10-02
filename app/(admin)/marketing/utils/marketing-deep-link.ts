@@ -14,9 +14,23 @@ export type MarketingDeepLink = {
 
 const DATE_PRESET_VALUES = new Set<string>(Object.values(DatePreset));
 
-export function parseMarketingDeepLink(
-  searchParams: { get: (key: string) => string | null },
-): MarketingDeepLink {
+export const MARKETING_METRICS_ANCHOR = "marketing-metrics";
+
+export function buildMarketingMetricsHref(input: {
+  userId: string;
+  userEmail?: string | null;
+  accountId?: string | null;
+}): string {
+  const params = new URLSearchParams({ userId: input.userId });
+  params.set("view", "metrics");
+  if (input.userEmail) params.set("email", input.userEmail);
+  if (input.accountId) params.set("accountId", accountDigits(input.accountId));
+  return `/marketing?${params.toString()}#${MARKETING_METRICS_ANCHOR}`;
+}
+
+export function parseMarketingDeepLink(searchParams: {
+  get: (key: string) => string | null;
+}): MarketingDeepLink {
   const since = searchParams.get("since");
   const until = searchParams.get("until");
   const rawPreset = searchParams.get("datePreset");

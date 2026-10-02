@@ -149,6 +149,8 @@ export async function POST(
       adAccountId: auth.accountId,
       accessToken: auth.accessToken,
       whatsappNiches: "all",
+      tokenKind: auth.connection?.tokenKind,
+      bisuAppScopedId: auth.connection?.bisuAppScopedId,
       input: {
         customerId: auth.userId,
         niche,
