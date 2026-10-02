@@ -2522,6 +2522,30 @@ export const metaPublishHold = pgTable(
 
 export type MetaPublishHold = InferSelectModel<typeof metaPublishHold>;
 
+/**
+ * Personal Facebook token of a backoffice consultant. Twin of the frontend
+ * table: written when admin reconnect completes, read when a certification
+ * refusal retries the publish. Ciphertext uses the shared token envelope.
+ */
+export const metaConsultantCredential = pgTable(
+  "meta_consultant_credentials",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    facebookUserId: text("facebook_user_id").notNull().unique(),
+    actorAdminId: text("actor_admin_id").notNull(),
+    actorAdminEmail: text("actor_admin_email").notNull(),
+    name: text("name"),
+    accessToken: text("access_token").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+);
+
+export type MetaConsultantCredential = InferSelectModel<
+  typeof metaConsultantCredential
+>;
+
 // AdSet targeting type for audit logs (subset + index for Meta targeting JSON)
 export type AdSetTargetingData = {
   age_min?: number;
