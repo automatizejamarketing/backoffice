@@ -40,6 +40,7 @@ import {
   registrableDomain,
 } from "./build-tree";
 import { readMold, type CampaignMold } from "./read-mold";
+import { resolveNewMediaIdentity, type AdvertisingCampaignContext } from "./new-media-identity";
 import {
   applyDemographicLimits,
   hasAppliedDemographicLimits,
@@ -75,6 +76,7 @@ export type DuplicationPrepared = {
   keepAdIds: string[];
   campaignName: string;
   sourceAdSetTargetings: Array<Record<string, unknown>>;
+  fixedPageId?: string;
   issues: CreateIssue[];
 };
 
@@ -243,6 +245,17 @@ async function prepareDuplication(
   const hasNewMedia = answers.medias.length > 0;
   const hasKeptAds = keepAdIds.length > 0;
   const sourceAdSetTargetings: Array<Record<string, unknown>> = [];
+  let fixedPageId: string | undefined;
+  if (hasNewMedia) {
+    const winningSource = winningSourceAdSetId(provenAds, keepAdIds, ref.adSetId);
+    const promotedObject = winningSource === ref.adSetId
+      ? mold.adSet.promotedObject
+      : (await readAdSet(winningSource, ctx.accessToken)).promoted_object;
+    if (typeof promotedObject?.page_id === "string") fixedPageId = promotedObject.page_id;
+    if (fixedPageId && answers.pageId && answers.pageId !== fixedPageId) {
+      issues.push(localIssue("ad", "ADSET_PAGE_MISMATCH", "As mídias novas precisam usar a Página do conjunto vencedor.", "Selecione um Instagram autorizado para a Página deste conjunto.", ["pageId"]));
+    }
+  }
   const hasAudienceOverride =
     hasAppliedDemographicLimits(answers.demographics) ||
     answers.includedCustomAudienceIds !== undefined ||
@@ -389,6 +402,7 @@ async function prepareDuplication(
     campaignName,
     sourceAdSetTargetings:
       sourceAdSetTargetings.length > 0 ? sourceAdSetTargetings : [mold.adSet.targeting],
+    ...(fixedPageId ? { fixedPageId } : {}),
     issues,
   };
 }
@@ -1050,11 +1064,12 @@ function buildDuplicationReview(
     },
     ...(scheduleSummary ? { schedule: scheduleSummary } : {}),
     identity: {
-      ...(mold.identity.pageId ? { pageId: mold.identity.pageId } : {}),
-      ...(mold.identity.instagramUserId
-        ? { instagramUserId: mold.identity.instagramUserId }
+      ...((prepared.fixedPageId ?? answers.pageId ?? mold.identity.pageId) ? { pageId: prepared.fixedPageId ?? answers.pageId ?? mold.identity.pageId } : {}),
+      ...((answers.instagramUserId ?? mold.identity.instagramUserId)
+        ? { instagramUserId: answers.instagramUserId ?? mold.identity.instagramUserId }
         : {}),
     },
+    ...(prepared.fixedPageId ? { fixedPageId: prepared.fixedPageId } : {}),
     ...(mold.pixelId ? { pixelId: mold.pixelId } : {}),
   };
 }
@@ -1161,7 +1176,7 @@ async function activateDuplicatedTree(args: {
 }
 
 export async function createDuplicatedCampaign(
-  ctx: MetaCtx,
+  ctx: AdvertisingCampaignContext,
   clientRef: MoldRef,
   answers: PlanAnswers,
   limits: AccountLimits = {},
@@ -1169,6 +1184,11 @@ export async function createDuplicatedCampaign(
   const prepared = await prepareDuplication(ctx, clientRef, answers, limits);
   if (prepared.issues.length > 0) {
     return { ok: false, issues: prepared.issues, rolledBack: false };
+  }
+  if (answers.medias.length > 0) {
+    const identity = await resolveNewMediaIdentity({ ctx, answers, moldIdentity: prepared.mold.identity, fixedPageId: prepared.fixedPageId });
+    if (!identity.ok) return { ok: false, issues: identity.issues, rolledBack: false };
+    answers = identity.answers;
   }
 
   const promotionUrl =
