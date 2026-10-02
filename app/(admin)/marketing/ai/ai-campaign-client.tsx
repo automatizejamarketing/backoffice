@@ -352,7 +352,10 @@ export function AiCampaignClient() {
   const [ctaType, setCtaType] = useState<string>("LEARN_MORE");
   const [isWritingCopy, setIsWritingCopy] = useState(false);
   const [identity, setIdentity] = useState<AdvertisingIdentitySelection | null>(null);
+  const [fixedPageId, setFixedPageId] = useState<string | undefined>(undefined);
+  const planRequestSequence = useRef(0);
   const pageId = identity?.pageId ?? null;
+  useEffect(() => { setFixedPageId(undefined); planRequestSequence.current += 1; }, [accountId]);
   useEffect(() => { setSelectedMedias(current => current.filter(m => m.source !== "instagram")); }, [accountId, pageId, identity?.instagramUserId]);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixels, setPixels] = useState<PixelOption[]>([]);
@@ -545,10 +548,10 @@ export function AiCampaignClient() {
   useEffect(() => {
     if (isLoadingPages) return;
     setIdentity(current => {
-      const next = selectAdvertisingIdentity(pages, current, true);
+      const next = selectAdvertisingIdentity(pages, current, true, fixedPageId);
       return next?.pageId === current?.pageId && next?.instagramUserId === current?.instagramUserId ? current : next;
     });
-  }, [pages, isLoadingPages]);
+  }, [pages, isLoadingPages, fixedPageId]);
 
   // With a single page there is nothing to ask: the step skips itself once the list is known.
   useEffect(() => {
@@ -841,33 +844,55 @@ export function AiCampaignClient() {
     } = {},
   ) {
     if (!mold) return;
+    const requestSequence = ++planRequestSequence.current;
     try {
-      const res = await fetch(apiPath(accountId, userId, "plan"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mold, answers: buildAnswers(overrides) }),
-      });
-      const data = await res.json();
-      setPlanIssues(Array.isArray(data.issues) ? data.issues : []);
-      setPlannedAudience(data.review?.audience);
-      setDaypartingAllowed(data.review?.budget?.daypartingAllowed !== false);
-      setPlannedExcludedAudienceCount(
-        typeof data.review?.audience?.excludedCustomAudiences === "number"
-          ? data.review.audience.excludedCustomAudiences
-          : undefined,
-      );
-      setPlannedIncludedAudienceCount(
-        typeof data.review?.audience?.customAudiences === "number"
-          ? data.review.audience.customAudiences
-          : undefined,
-      );
+      let effectiveAnswers = buildAnswers(overrides);
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const res = await fetch(apiPath(accountId, userId, "plan"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mold, answers: effectiveAnswers }),
+        });
+        const data = await res.json();
+        if (requestSequence !== planRequestSequence.current) return;
+        const responseFixedPageId = data.review?.fixedPageId;
+        setFixedPageId(responseFixedPageId);
+        if (attempt === 0 && effectiveAnswers.medias.length > 0 && responseFixedPageId) {
+          const next = selectAdvertisingIdentity(pages, { pageId: responseFixedPageId, instagramUserId: effectiveAnswers.instagramUserId }, true, responseFixedPageId);
+          if (!next || next.pageId !== effectiveAnswers.pageId || next.instagramUserId !== effectiveAnswers.instagramUserId) {
+            setSelectedMedias(current => current.filter(media => media.source !== "instagram"));
+            setIdentity(next);
+            if (next) {
+              effectiveAnswers = { ...effectiveAnswers, pageId: next.pageId, instagramUserId: next.instagramUserId, medias: effectiveAnswers.medias.filter(media => media.kind !== "instagram_post") };
+              continue;
+            }
+          }
+        }
+        setPlanIssues(Array.isArray(data.issues) ? data.issues : []);
+        setPlannedAudience(data.review?.audience);
+        setDaypartingAllowed(data.review?.budget?.daypartingAllowed !== false);
+        setPlannedExcludedAudienceCount(
+          typeof data.review?.audience?.excludedCustomAudiences === "number"
+            ? data.review.audience.excludedCustomAudiences
+            : undefined,
+        );
+        setPlannedIncludedAudienceCount(
+          typeof data.review?.audience?.customAudiences === "number"
+            ? data.review.audience.customAudiences
+            : undefined,
+        );
+        return;
+      }
     } catch {
+      if (requestSequence !== planRequestSequence.current) return;
       setPlanIssues([]);
       setPlannedAudience(undefined);
     }
   }
 
   async function scanAccount() {
+    setFixedPageId(undefined);
+    planRequestSequence.current += 1;
     setIsBusy(true);
     setError(null);
     setPlanIssues([]);
@@ -1571,7 +1596,7 @@ export function AiCampaignClient() {
               </p>
             </div>
           ) : (
-            <AdvertisingIdentitySelector pages={pages} value={identity} onChange={setIdentity} />
+            <AdvertisingIdentitySelector pages={pages} value={identity} fixedPageId={fixedPageId} onChange={setIdentity} />
           )}
           <StepActions
             back={
@@ -1995,6 +2020,7 @@ export function AiCampaignClient() {
               description="A Página e o Instagram que assinam o anúncio."
             >
               <AdvertisingIdentitySelector pages={pages} value={identity} isLoading={isLoadingPages}
+                fixedPageId={fixedPageId}
                 disabled={phase === "publishing"} onChange={next => {
                   setIdentity(next);
                   setSelectedMedias(current => current.filter(m => m.source !== "instagram"));
