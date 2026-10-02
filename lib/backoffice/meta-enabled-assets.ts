@@ -11,6 +11,7 @@ export async function listEnabledAssetFlags(
       assetKind: metaEnabledAsset.assetKind,
       assetId: metaEnabledAsset.assetId,
       isPrimary: metaEnabledAsset.isPrimary,
+      instagramBusinessAccountId: metaEnabledAsset.instagramBusinessAccountId,
     })
     .from(metaEnabledAsset)
     .where(eq(metaEnabledAsset.userId, userId));
