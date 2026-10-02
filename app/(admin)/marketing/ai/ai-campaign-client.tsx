@@ -48,7 +48,8 @@ import {
   type PixelOption,
 } from "./pixel-step";
 import { MediaSourcePicker, type SelectedMedia } from "../components/media-source-picker";
-import { PageSelector } from "../components/page-selector";
+import { AdvertisingIdentitySelector } from "../components/advertising-identity-selector";
+import { selectAdvertisingIdentity, type AdvertisingIdentitySelection } from "@/lib/meta-business/advertising-identity-selection";
 import { usePages } from "../components/use-pages";
 import { LocationTargetingSection } from "../components/location-targeting-section";
 import { MetaAssetSelectionBadges } from "../components/meta-asset-selection-badges";
@@ -350,7 +351,9 @@ export function AiCampaignClient() {
   const [offer, setOffer] = useState("");
   const [ctaType, setCtaType] = useState<string>("LEARN_MORE");
   const [isWritingCopy, setIsWritingCopy] = useState(false);
-  const [pageId, setPageId] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<AdvertisingIdentitySelection | null>(null);
+  const pageId = identity?.pageId ?? null;
+  useEffect(() => { setSelectedMedias(current => current.filter(m => m.source !== "instagram")); }, [accountId, pageId, identity?.instagramUserId]);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixels, setPixels] = useState<PixelOption[]>([]);
   const [pixelsLoaded, setPixelsLoaded] = useState(false);
@@ -406,7 +409,7 @@ export function AiCampaignClient() {
   const [sheetSelectedPlacements, setSheetSelectedPlacements] = useState<PlacementKey[]>([]);
   const [sheetCtaType, setSheetCtaType] = useState<string>("LEARN_MORE");
 
-  const selectedPage = pages.find((page) => page.pageId === pageId) ?? pages[0] ?? null;
+  const selectedPage = pages.find(page => page.available !== false && page.pageId === pageId && page.instagramBusinessAccountId === identity?.instagramUserId) ?? null;
   const hasMold = Boolean(mold);
   const planMedias = useMemo(
     () =>
@@ -540,10 +543,12 @@ export function AiCampaignClient() {
   const backHref = `${embedded ? "/embed" : ""}/users/${userId}?tab=marketing`;
 
   useEffect(() => {
-    if (pages.length > 0 && !pageId) {
-      setPageId(preselectIdentity(pages)?.pageId ?? pages[0].pageId);
-    }
-  }, [pages, pageId]);
+    if (isLoadingPages) return;
+    setIdentity(current => {
+      const next = selectAdvertisingIdentity(pages, current, true);
+      return next?.pageId === current?.pageId && next?.instagramUserId === current?.instagramUserId ? current : next;
+    });
+  }, [pages, isLoadingPages]);
 
   // With a single page there is nothing to ask: the step skips itself once the list is known.
   useEffect(() => {
@@ -755,10 +760,12 @@ export function AiCampaignClient() {
       excludedCustomAudienceIds?: AudienceExclusionIds;
       includedCustomAudienceIds?: AudienceInclusionIds;
       pageId?: string | null;
+      instagramUserId?: string;
       pixelId?: string | null;
       dailyBudget?: string;
       placementsMode?: PlacementsMode;
       selectedPlacements?: PlacementKey[];
+      medias?: PlanMedia[];
     } = {},
   ) {
     const hasExcludedAudienceOverride = Object.hasOwn(overrides, "excludedCustomAudienceIds");
@@ -780,10 +787,10 @@ export function AiCampaignClient() {
       ? overrides.pageId
       : selectedPage?.pageId;
     const effectivePage =
-      pages.find((page) => page.pageId === effectivePageId) ?? selectedPage;
+      pages.find(page => page.pageId === effectivePageId && page.instagramBusinessAccountId === (overrides.instagramUserId ?? identity?.instagramUserId)) ?? null;
     return {
       dailyBudget: Number(overrides.dailyBudget ?? dailyBudget) || DEFAULT_DAILY_BUDGET,
-      medias: planMedias,
+      medias: overrides.medias ?? planMedias,
       texts: {
         headline,
         message,
@@ -825,10 +832,12 @@ export function AiCampaignClient() {
       excludedCustomAudienceIds?: AudienceExclusionIds;
       includedCustomAudienceIds?: AudienceInclusionIds;
       pageId?: string | null;
+      instagramUserId?: string;
       pixelId?: string | null;
       dailyBudget?: string;
       placementsMode?: PlacementsMode;
       selectedPlacements?: PlacementKey[];
+      medias?: PlanMedia[];
     } = {},
   ) {
     if (!mold) return;
@@ -1562,48 +1571,7 @@ export function AiCampaignClient() {
               </p>
             </div>
           ) : (
-            <div className="space-y-2">
-              {pages.map((page) => {
-                const selected = pageId === page.pageId;
-                return (
-                  <button
-                    key={page.pageId}
-                    type="button"
-                    onClick={() => setPageId(page.pageId)}
-                    aria-pressed={selected}
-                    className={cn(
-                      flowSelectionItemClassName,
-                      "flex w-full items-center gap-3",
-                      selected ? flowSelectionSelectedClassName : flowSelectionIdleClassName,
-                    )}
-                  >
-                    <Avatar className="size-9 shrink-0">
-                      <AvatarImage
-                        src={page.instagramProfilePictureUrl ?? page.pagePictureUrl}
-                        alt={page.pageName ?? page.pageId}
-                      />
-                      <AvatarFallback className="text-xs font-medium">
-                        {getInitial(page.pageName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="min-w-0 flex-1">
-                      <span className={cn("block truncate", flowBodyMediumClassName)}>
-                        {page.pageName ?? page.pageId}
-                      </span>
-                      <span className={cn("mt-0.5 block truncate", flowMonoCaptionClassName)}>
-                        {page.instagramUsername
-                          ? `@${page.instagramUsername}`
-                          : "sem Instagram conectado"}
-                      </span>
-                      <span className="mt-1.5 block">
-                        <MetaAssetSelectionBadges enabled={page.enabled} primary={page.primary} />
-                      </span>
-                    </span>
-                    {selected && <Check className="size-4 shrink-0 text-primary" />}
-                  </button>
-                );
-              })}
-            </div>
+            <AdvertisingIdentitySelector pages={pages} value={identity} onChange={setIdentity} />
           )}
           <StepActions
             back={
@@ -2025,16 +1993,12 @@ export function AiCampaignClient() {
               label="Identidade"
               description="A Página e o Instagram que assinam o anúncio."
             >
-              <PageSelector
-                isLoading={isLoadingPages}
-                disabled={phase === "publishing"}
-                onSelectPage={(nextPageId) => {
-                  setPageId(nextPageId);
-                  if (mold) void refreshPlan({ pageId: nextPageId });
-                }}
-                pages={pages}
-                selectedPageId={pageId}
-              />
+              <AdvertisingIdentitySelector pages={pages} value={identity} isLoading={isLoadingPages}
+                disabled={phase === "publishing"} onChange={next => {
+                  setIdentity(next);
+                  setSelectedMedias(current => current.filter(m => m.source !== "instagram"));
+                  if (mold) void refreshPlan({ ...next, medias: planMedias.filter(m => m.kind !== "instagram_post") });
+                }} />
             </ReviewInlineBlock>
 
             {objective === "sales" ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { distinctIdentityPages } from "@/lib/meta-business/advertising-identity-selection";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
@@ -39,20 +39,14 @@ export function PageSelector({
   onSelectPage,
   disabled = false,
 }: PageSelectorProps) {
-  // Auto-select the first page once loaded if the current selection is invalid.
-  useEffect(() => {
-    if (isLoading || pages.length === 0) return;
-    if (!pages.some((page) => page.pageId === selectedPageId)) {
-      onSelectPage(pages[0].pageId);
-    }
-  }, [isLoading, pages, selectedPageId, onSelectPage]);
+  const distinctPages = distinctIdentityPages(pages);
 
-  const selectedPage = pages.find((page) => page.pageId === selectedPageId);
+  const selectedPage = distinctPages.find((page) => page.pageId === selectedPageId);
 
   const placeholder = isLoading
     ? "Carregando páginas..."
     : pages.length === 0
-      ? "Nenhuma página com Instagram conectado"
+      ? "Nenhuma identidade disponível"
       : "Selecione uma página";
 
   return (
@@ -78,11 +72,6 @@ export function PageSelector({
             <span className="truncate text-sm">
               {selectedPage.pageName ?? selectedPage.pageId}
             </span>
-            {selectedPage.instagramUsername ? (
-              <span className="truncate text-xs text-muted-foreground">
-                @{selectedPage.instagramUsername}
-              </span>
-            ) : null}
             <MetaAssetSelectionBadges
               enabled={selectedPage.enabled}
               primary={selectedPage.primary}
@@ -93,7 +82,7 @@ export function PageSelector({
         )}
       </SelectTrigger>
       <SelectContent>
-        {pages.map((page) => (
+        {distinctPages.map((page) => (
           <SelectItem key={page.pageId} value={page.pageId}>
             <div className="flex w-full items-center gap-2">
               <Avatar className="size-5 shrink-0">
@@ -109,11 +98,6 @@ export function PageSelector({
                 <span className="truncate text-sm">
                   {page.pageName ?? page.pageId}
                 </span>
-                {page.instagramUsername ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    @{page.instagramUsername}
-                  </span>
-                ) : null}
               </div>
               <MetaAssetSelectionBadges
                 enabled={page.enabled}

@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, CheckCircle2, Info, Loader2 } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AdvertisingIdentitySelector } from "./advertising-identity-selector";
+import { selectAdvertisingIdentity, type AdvertisingIdentitySelection } from "@/lib/meta-business/advertising-identity-selection";
+import { useAdSetDetail } from "../hooks/marketing-queries";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,7 +25,7 @@ import {
 } from "./ad-creative-form";
 import { AdMediaProcessingCard } from "./ad-media-processing-card";
 import { MediaSourcePicker, type SelectedMedia } from "./media-source-picker";
-import { PageSelector } from "./page-selector";
+
 import { usePages } from "./use-pages";
 import { useAdCreativeBuilder } from "./use-ad-creative-builder";
 
@@ -62,7 +65,7 @@ type AdCreativeDialogProps = CreateModeProps | EditModeProps;
 export function AdCreativeDialog(props: AdCreativeDialogProps) {
   const isEdit = props.mode === "edit";
   const [media, setMedia] = useState<SelectedMedia | null>(null);
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<AdvertisingIdentitySelection | null>(null);
   const [form, setForm] = useState<AdCreativeFormValue>(
     DEFAULT_AD_CREATIVE_FORM,
   );
@@ -72,10 +75,23 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
     props.userId,
     props.isOpen,
   );
-  const selectedPage =
-    pages.find((page) => page.pageId === selectedPageId) ?? null;
-  const selectedInstagramAccountId =
-    selectedPage?.instagramBusinessAccountId ?? undefined;
+  const prefilledIdentity = useRef(false);
+  const originalIdentityQuery = useQuery<{ pageId?: string; instagramUserId?: string; adsetId?: string }>({
+    queryKey: ["creative-identity", props.accountId, props.userId, props.mode === "edit" ? props.ad.id : null],
+    enabled: props.isOpen && props.mode === "edit",
+    queryFn: async () => {
+      if (props.mode !== "edit") return {};
+      const response = await fetch(`/api/meta-marketing/${props.accountId}/ads/${props.ad.id}/promotion-link?userId=${encodeURIComponent(props.userId)}`);
+      if (!response.ok) throw new Error("Falha ao carregar a identidade atual do anúncio.");
+      return response.json();
+    },
+  });
+  const adsetQuery = useAdSetDetail(props.accountId, props.userId, props.mode === "create" ? props.adsetId : originalIdentityQuery.data?.adsetId ?? "", { enabled: props.isOpen && (props.mode === "create" || Boolean(originalIdentityQuery.data?.adsetId)) });
+  const rawFixedPageId = adsetQuery.data?.adset?.promotedObject?.page_id;
+  const fixedPageId = typeof rawFixedPageId === "string" ? rawFixedPageId : undefined;
+  const selectedPageId = identity?.pageId ?? null;
+  const selectedInstagramAccountId = identity?.instagramUserId;
+  const selectedPair = pages.find(p => p.available !== false && p.pageId === selectedPageId && p.instagramBusinessAccountId === selectedInstagramAccountId);
 
   const builder = useAdCreativeBuilder(
     props.mode === "create"
@@ -97,12 +113,23 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
   useEffect(() => {
     if (props.isOpen) {
       setMedia(null);
-      setSelectedPageId(null);
+      setIdentity(null);
+      prefilledIdentity.current = false;
       setForm(DEFAULT_AD_CREATIVE_FORM);
       builder.reset();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.isOpen]);
+
+  useEffect(() => {
+    if (!props.isOpen || isLoadingPages || (props.mode === "edit" && originalIdentityQuery.isLoading) || ((props.mode === "create" || Boolean(originalIdentityQuery.data?.adsetId)) && adsetQuery.isLoading)) return;
+    setIdentity(current => {
+      const original = !prefilledIdentity.current && originalIdentityQuery.data?.pageId ? { pageId: originalIdentityQuery.data.pageId, instagramUserId: originalIdentityQuery.data.instagramUserId } : current;
+      prefilledIdentity.current = true;
+      const next = selectAdvertisingIdentity(pages, original, true, fixedPageId);
+      return next?.pageId === current?.pageId && next?.instagramUserId === current?.instagramUserId ? current : next;
+    });
+  }, [props.isOpen, props.mode, isLoadingPages, adsetQuery.isLoading, pages, fixedPageId, originalIdentityQuery.isLoading, originalIdentityQuery.data]);
 
   // Notify parent once, when the operation succeeds.
   useEffect(() => {
@@ -118,7 +145,8 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
   const formMode: "single" | "multi" = props.adSetIsDynamic ? "multi" : "single";
 
   const canSubmit = useMemo(() => {
-    if (!media) return false;
+    if (!media || !selectedPair || isLoadingPages || (props.mode === "create" && adsetQuery.isLoading)) return false;
+    if (fixedPageId && selectedPageId !== fixedPageId) return false;
     if (!isValidHttpsUrl(form.linkUrl)) return false;
     // Instagram keeps its own caption; image/video need the text matching the
     // ad set's mode (1 title + 1 text for non-dynamic, 1-5 each for legacy).
@@ -130,7 +158,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
       if (!textOk) return false;
     }
     return builder.phase === "editing" || builder.phase === "error";
-  }, [media, isInstagram, form, formMode, builder.phase]);
+  }, [media, isInstagram, form, formMode, builder.phase, selectedPair, isLoadingPages, props.mode, adsetQuery.isLoading, fixedPageId, selectedPageId]);
 
   const showForm =
     builder.phase === "editing" || builder.phase === "error";
@@ -192,50 +220,9 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                     </div>
                   </div>
                 )}
-                <div className="space-y-3">
-                  <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Página do Facebook (Identidade)
-                    </p>
-                    <PageSelector
-                      pages={pages}
-                      isLoading={isLoadingPages}
-                      selectedPageId={selectedPageId}
-                      onSelectPage={setSelectedPageId}
-                    />
-                  </div>
-                  <div>
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Conta do Instagram
-                    </p>
-                    <div className="flex h-9 min-w-0 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
-                      {isLoadingPages ? (
-                        <span className="truncate">Carregando...</span>
-                      ) : selectedPage ? (
-                        <>
-                          <Avatar className="size-5 shrink-0">
-                            <AvatarImage
-                              src={selectedPage.instagramProfilePictureUrl}
-                              alt={selectedPage.instagramUsername ?? ""}
-                            />
-                            <AvatarFallback className="text-[10px]">
-                              {(selectedPage.instagramUsername ?? "?")
-                                .charAt(0)
-                                .toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="truncate text-foreground">
-                            {selectedPage.instagramUsername
-                              ? `@${selectedPage.instagramUsername}`
-                              : selectedPage.instagramBusinessAccountId}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="truncate">Selecione uma página</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <AdvertisingIdentitySelector pages={pages} value={identity}
+                  onChange={next => { setMedia(current => current?.source === "instagram" ? null : current); setIdentity(next); }}
+                  isLoading={isLoadingPages} fixedPageId={fixedPageId} />
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Mídia do criativo
@@ -294,6 +281,7 @@ export function AdCreativeDialog(props: AdCreativeDialogProps) {
                         media,
                         text: form,
                         pageId: selectedPageId,
+                        instagramUserId: selectedInstagramAccountId,
                       });
                   }}
                 >

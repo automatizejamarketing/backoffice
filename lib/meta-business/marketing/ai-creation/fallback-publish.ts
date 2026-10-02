@@ -158,6 +158,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function resolveFallbackConfig(
   niche: FallbackNiche,
   objective: FallbackObjective,
+  options: { whatsappNiches?: "all" | "food_service" } = {},
 ): FallbackConfig | { error: string } {
   const normalizedNiche = niche === "service" ? "insurance_broker" : niche;
 
@@ -185,7 +186,7 @@ export function resolveFallbackConfig(
   }
 
   if (objective === "whatsapp") {
-    if (normalizedNiche !== "food_service") {
+    if (normalizedNiche !== "food_service" && options.whatsappNiches !== "all") {
       return {
         error: `Campanhas de WhatsApp não estão disponíveis para o nicho ${niche}.`,
       };
@@ -635,9 +636,10 @@ export async function publishFallbackCampaign(args: {
   tokenKind?: "user" | "bisu";
   bisuAppScopedId?: string | null;
   input: FallbackPublishInput;
+  whatsappNiches?: "all" | "food_service";
 }): Promise<PublishResult> {
   const { adAccountId, accessToken, input } = args;
-  const resolved = resolveFallbackConfig(input.niche, input.objective);
+  const resolved = resolveFallbackConfig(input.niche, input.objective, { whatsappNiches: args.whatsappNiches });
   if ("error" in resolved) {
     return {
       ok: false,
@@ -668,7 +670,7 @@ export async function publishFallbackCampaign(args: {
     if (needsAdvertisingIdentity && !connected) {
       return {
         ok: false,
-        issues: [localIssue("ad", "A Página e o Instagram selecionados não estão disponíveis para esta conta de anúncios.", "Selecione uma combinação autorizada de Página e Instagram.", ["pageId", "instagramUserId"])],
+        issues: [localIssue("ad", "ADVERTISING_IDENTITY_UNAVAILABLE", "A Página e o Instagram selecionados não estão disponíveis para esta conta de anúncios.", "Selecione uma combinação autorizada de Página e Instagram.", ["pageId", "instagramUserId"])],
         rolledBack: false,
       };
     }
