@@ -60,7 +60,7 @@ assert.equal(scans, 1, "Meta scan remains cached while policy changes");
 assert.equal((await (await call("scan", { objective: "followers" })).json()).durationPolicy.defaultDurationDays, 30);
 assert.deepEqual(loaded, [customerId, customerId, customerId]);
 const startTime = "2027-01-01T18:00:00Z";
-const body = { mold: { adSetId: "mold" }, answers: { dailyBudget: 30, period: { startTime } } };
+const body = { mold: { adSetId: "mold" }, answers: { dailyBudget: 30, medias: [], period: { startTime } } };
 const plan = await (await call("plan", body)).json();
 assert.deepEqual(captured.period, resolveAiCampaignPeriod({ period: { startTime }, defaultDurationDays: 30, defaultStartTime: startTime }));
 if (backoffice) {

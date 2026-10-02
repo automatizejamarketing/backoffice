@@ -19,7 +19,7 @@ const CAMPAIGN_FIELDS =
 const AD_SET_FIELDS =
   "optimization_goal,billing_event,destination_type,promoted_object,targeting," +
   "bid_strategy,bid_amount,daily_budget,lifetime_budget,adset_schedule,is_dynamic_creative";
-const AD_FIELDS = "conversion_domain,creative{object_story_spec}";
+const AD_FIELDS = "conversion_domain,creative{object_id,instagram_user_id,object_story_spec}";
 
 export type CampaignMold = {
   ref: MoldRef;
@@ -108,7 +108,7 @@ export type RawStorySpec = {
 
 type RawAd = {
   conversion_domain?: string;
-  creative?: { object_story_spec?: RawStorySpec };
+  creative?: { object_id?: string; instagram_user_id?: string; object_story_spec?: RawStorySpec };
 };
 
 /**
@@ -132,6 +132,13 @@ const toCents = (value?: string): number | undefined => {
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) ? n : undefined;
 };
+
+export function identityFromCreative(creative: RawAd["creative"]): { pageId?: string; instagramUserId?: string } {
+  const story = identityFromStory(creative?.object_story_spec);
+  const pageId = story.pageId ?? creative?.object_id;
+  const instagramUserId = story.instagramUserId ?? creative?.instagram_user_id;
+  return { ...(pageId ? { pageId } : {}), ...(instagramUserId ? { instagramUserId } : {}) };
+}
 
 export function moldScheduleFromGraph(raw?: RawSchedule[]): AdSetScheduleInput | undefined {
   // Campanha programada guarda "o dia todo" como grade de 24h x 7: para o modelo, é sem horário.
@@ -209,7 +216,7 @@ export async function readMold(ctx: MetaCtx, ref: MoldRef): Promise<CampaignMold
         : {}),
       isDynamicCreative: Boolean(adSet.is_dynamic_creative),
     },
-    identity: identityFromStory(story),
+    identity: identityFromCreative(ad.creative),
     destination: {
       ...(story.link_data?.link ? { link: story.link_data.link } : {}),
       ...(story.link_data?.call_to_action?.type

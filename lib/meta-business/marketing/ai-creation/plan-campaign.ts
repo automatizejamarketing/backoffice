@@ -24,6 +24,8 @@ export class MoldNotFoundError extends Error {
 
 /** Everything the review screen shows, in business language. Never a Meta payload. */
 export type ReviewSummary = {
+  /** The copied host adset can require a Page for newly added media. */
+  fixedPageId?: string;
   /**
    * What the campaign was based on — or NULL when the account proved nothing and the flow fell back
    * to the niche presets. Null means the review says NOTHING about history (ADR 0022, decision 6):

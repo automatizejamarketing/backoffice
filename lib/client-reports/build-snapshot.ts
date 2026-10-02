@@ -35,6 +35,7 @@ import {
   type ClientReportPeriodType,
 } from "./payload-schema";
 import { inclusiveDays, previousWindow } from "./dates";
+import { platformAdjustmentWhere } from "./platform-adjustments";
 
 function toNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -488,13 +489,7 @@ async function loadWorkThisWeek(
       count: sql<number>`count(*)::int`,
     })
     .from(metaTrackingChangeEvent)
-    .where(
-      and(
-        eq(metaTrackingChangeEvent.userId, userId),
-        gte(metaTrackingChangeEvent.occurredAt, new Date(`${start}T00:00:00Z`)),
-        lte(metaTrackingChangeEvent.occurredAt, new Date(`${end}T23:59:59Z`)),
-      ),
-    );
+    .where(platformAdjustmentWhere(userId, start, end));
 
   const diagnoses = await db.execute(sql`
     SELECT count(*)::int AS count

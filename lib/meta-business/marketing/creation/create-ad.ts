@@ -406,10 +406,9 @@ async function fetchVideoPicture(
 ): Promise<string | null> {
   const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${videoId}?fields=picture&access_token=${encodeURIComponent(accessToken)}`;
   try {
-    const { response, data: raw } = await fetchMetaGraph(url, { method: "GET" });
-    const data = raw as { error?: unknown; picture?: unknown };
-    if (!response.ok || data.error) return null;
-    return typeof data.picture === "string" && data.picture ? data.picture : null;
+    const { response, data } = await fetchMetaGraph(url, { method: "GET" });
+    if (!response.ok || !data || typeof data !== "object" || ("error" in data && data.error)) return null;
+    return "picture" in data && typeof data.picture === "string" && data.picture ? data.picture : null;
   } catch {
     return null;
   }
@@ -425,10 +424,9 @@ async function duplicateVideoAdId(params: {
     `?fields=id,creative{video_id,object_story_spec}&limit=50` +
     `&access_token=${encodeURIComponent(params.accessToken)}`;
   try {
-    const { response, data: raw } = await fetchMetaGraph(url, { method: "GET" });
-    const data = raw as { error?: unknown; data?: unknown };
-    if (!response.ok || data.error) return null;
-    const rows = Array.isArray(data.data) ? data.data : [];
+    const { response, data } = await fetchMetaGraph(url, { method: "GET" });
+    if (!response.ok || !data || typeof data !== "object" || ("error" in data && data.error)) return null;
+    const rows = "data" in data && Array.isArray(data.data) ? data.data : [];
     return adSetAlreadyHasVideo(
       rows as Array<{ id?: string; creative?: { video_id?: string; object_story_spec?: string } }>,
       params.videoId,
