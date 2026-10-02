@@ -7,6 +7,7 @@ import { graphApiVersion } from "@/lib/meta-business/constant";
 import { hashOauthState } from "@/lib/meta-business/oauth-state-utils";
 import {
   ADMIN_OAUTH_STATE_PREFIX,
+  CONSULTANT_CREDENTIAL_AUTH_MODE,
   defaultAdminReconnectMode,
   type MetaAuthMode,
 } from "@/lib/meta-business/admin-oauth-utils";
@@ -63,6 +64,45 @@ export function generateMarketingAuthUrl(args: {
   });
 
   return `https://www.facebook.com/${graphApiVersion}/dialog/oauth?${params.toString()}`;
+}
+
+/**
+ * Starts the login where the consultant saves their own personal Facebook
+ * token. The classic user login config is only set on the customer frontend,
+ * so the Meta URL is built there: this returns the frontend entry point, on
+ * the same origin as the registered redirect URI.
+ */
+export async function createConsultantCredentialAttempt(args: {
+  targetUserId: string;
+  actorAdminId: string;
+  actorAdminEmail: string;
+}): Promise<{ attemptId: string; authUrl: string }> {
+  const redirectUri = firstEnv(
+    "META_MARKETING_REDIRECT_URI",
+    "NEXT_PUBLIC_META_MARKETING_REDIRECT_URI",
+  );
+  if (!redirectUri) {
+    throw new Error("Meta Marketing OAuth is not configured for admin reconnect.");
+  }
+  const state = `${ADMIN_OAUTH_STATE_PREFIX}${randomBytes(32).toString("base64url")}`;
+  const [row] = await db
+    .insert(metaAdminOauthAttempt)
+    .values({
+      targetUserId: args.targetUserId,
+      actorAdminId: args.actorAdminId,
+      actorAdminEmail: args.actorAdminEmail,
+      stateHash: hashOauthState(state),
+      authMode: CONSULTANT_CREDENTIAL_AUTH_MODE,
+      expiresAt: new Date(Date.now() + STATE_TTL_MS),
+    })
+    .returning({ id: metaAdminOauthAttempt.id });
+
+  const authUrl = new URL(
+    "/api/meta-business/marketing/auth/consultant",
+    new URL(redirectUri).origin,
+  );
+  authUrl.searchParams.set("state", state);
+  return { attemptId: row.id, authUrl: authUrl.toString() };
 }
 
 export async function createAdminOauthAttempt(args: {

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
-import { createAdminOauthAttempt } from "@/lib/meta-business/admin-oauth";
+import {
+  createAdminOauthAttempt,
+  createConsultantCredentialAttempt,
+} from "@/lib/meta-business/admin-oauth";
 
 /**
  * POST /api/users/[id]/meta-account/admin-reconnect
@@ -10,6 +13,10 @@ import { createAdminOauthAttempt } from "@/lib/meta-business/admin-oauth";
  * customer. The Meta redirect URI is the customer frontend callback (the only
  * URI registered on the app); that handler sends the consultant back here
  * without falling through to /login.
+ *
+ * With `purpose: "consultant_credential"` the consultant only saves their own
+ * personal Facebook token for the certification fallback; the customer's
+ * connection is not changed.
  */
 export async function POST(
   request: Request,
@@ -20,9 +27,14 @@ export async function POST(
   if (!authz.ok) return authz.response;
 
   let confirmed = false;
+  let consultantCredential = false;
   try {
-    const body = (await request.json()) as { confirm?: boolean };
+    const body = (await request.json()) as {
+      confirm?: boolean;
+      purpose?: string;
+    };
     confirmed = body.confirm === true;
+    consultantCredential = body.purpose === "consultant_credential";
   } catch {
     confirmed = false;
   }
@@ -35,6 +47,19 @@ export async function POST(
   }
 
   try {
+    if (consultantCredential) {
+      const attempt = await createConsultantCredentialAttempt({
+        targetUserId: id,
+        actorAdminId: authz.actor.id,
+        actorAdminEmail: authz.actor.email,
+      });
+      return NextResponse.json({
+        authUrl: attempt.authUrl,
+        attemptId: attempt.attemptId,
+        authMode: "user",
+      });
+    }
+
     const attempt = await createAdminOauthAttempt({
       targetUserId: id,
       actorAdminId: authz.actor.id,
