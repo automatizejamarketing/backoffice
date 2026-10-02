@@ -2384,7 +2384,7 @@ export function AiCampaignClient() {
                   value={sheetPeriod.startTime}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>{sheetPeriod.startTime}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {HOUR_OPTIONS.map((time) => (
@@ -2404,7 +2404,7 @@ export function AiCampaignClient() {
                   value={sheetPeriod.endTime}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>{sheetPeriod.endTime}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {END_TIME_OPTIONS.map((time) => (
