@@ -79,6 +79,8 @@ export async function POST(
       {
         adAccountId: auth.accountId,
         accessToken: auth.accessToken,
+        tokenKind: auth.connection?.tokenKind ?? "user",
+        bisuAppScopedId: auth.connection?.bisuAppScopedId,
         currency: account.currency,
         timezoneName: account.timezoneName,
         customerId: auth.userId,
