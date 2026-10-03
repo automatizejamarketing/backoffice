@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { addDays, format, startOfDay } from "date-fns";
+import { format, startOfDay } from "date-fns";
+import { resolveAiCampaignPeriod, derivedLifetimeBudgetCents, type AiCampaignPeriod, type AiCampaignDurationPolicy } from "@/lib/meta-business/ai-campaign-duration";
 import { ptBR } from "date-fns/locale";
 import {
   ArrowLeft,
@@ -67,7 +68,6 @@ import { scheduleFromLocationHours } from "@/lib/meta-business/location-hours";
 import {
   ADVISED_MIN_DAILY_BUDGET,
   DEFAULT_DAILY_BUDGET,
-  DEFAULT_FLIGHT_DAYS,
   MAX_MEDIAS,
   needsTexts as planNeedsTexts,
   type PlanMedia,
@@ -355,7 +355,7 @@ export function AiCampaignClient() {
   const [fixedPageId, setFixedPageId] = useState<string | undefined>(undefined);
   const planRequestSequence = useRef(0);
   const pageId = identity?.pageId ?? null;
-  useEffect(() => { setFixedPageId(undefined); planRequestSequence.current += 1; }, [accountId]);
+  useEffect(() => { setFixedPageId(undefined); planRequestSequence.current += 1; setIsPlanning(false); }, [accountId]);
   useEffect(() => { setSelectedMedias(current => current.filter(m => m.source !== "instagram")); }, [accountId, pageId, identity?.instagramUserId]);
   const [pixelId, setPixelId] = useState<string | null>(null);
   const [pixels, setPixels] = useState<PixelOption[]>([]);
@@ -380,12 +380,22 @@ export function AiCampaignClient() {
   const [excludedCustomAudienceIds, setExcludedCustomAudienceIds] = useState<AudienceExclusionIds | undefined>(undefined);
   const [includedCustomAudienceIds, setIncludedCustomAudienceIds] = useState<AudienceInclusionIds | undefined>(undefined);
   const [advancedAudienceOpen, setAdvancedAudienceOpen] = useState(false);
-  const [periodStart, setPeriodStart] = useState(() => startOfDay(new Date()));
-  const [periodEnd, setPeriodEnd] = useState(() =>
-    addDays(startOfDay(new Date()), DEFAULT_FLIGHT_DAYS - 1),
-  );
-  const [periodStartTime, setPeriodStartTime] = useState("00:00");
-  const [periodEndTime, setPeriodEndTime] = useState("23:59");
+  const [durationPolicy, setDurationPolicy] = useState<AiCampaignDurationPolicy>({ accountState: "legacy", defaultDurationDays: 7 });
+  const [manualPeriod, setManualPeriod] = useState<AiCampaignPeriod | null>(null);
+  const [automaticStart, setAutomaticStart] = useState(() => new Date().toISOString());
+  const [plannedBudget, setPlannedBudget] = useState<ReviewSummary["budget"]>();
+  const [isPlanning, setIsPlanning] = useState(false);
+  const reviewedPeriod = resolveAiCampaignPeriod({
+    period: mold && plannedBudget?.startTime && plannedBudget.stopTime
+      ? { startTime: plannedBudget.startTime, endTime: plannedBudget.stopTime }
+      : manualPeriod ?? undefined,
+    defaultDurationDays: durationPolicy.defaultDurationDays,
+    defaultStartTime: automaticStart,
+  });
+  const periodStart = new Date(reviewedPeriod.startTime);
+  const periodEnd = new Date(reviewedPeriod.endTime);
+  const periodStartTime = format(periodStart, "HH:mm");
+  const periodEndTime = format(periodEnd, "HH:mm");
   const [planIssues, setPlanIssues] = useState<PlanIssue[]>([]);
   const [plannedAudience, setPlannedAudience] = useState<ReviewSummary["audience"]>();
   const [plannedExcludedAudienceCount, setPlannedExcludedAudienceCount] = useState<number | undefined>();
@@ -766,6 +776,7 @@ export function AiCampaignClient() {
       instagramUserId?: string;
       pixelId?: string | null;
       dailyBudget?: string;
+      period?: AiCampaignPeriod;
       placementsMode?: PlacementsMode;
       selectedPlacements?: PlacementKey[];
       medias?: PlanMedia[];
@@ -792,6 +803,7 @@ export function AiCampaignClient() {
     const effectivePage =
       pages.find(page => page.pageId === effectivePageId && page.instagramBusinessAccountId === (overrides.instagramUserId ?? identity?.instagramUserId)) ?? null;
     return {
+      ...((overrides.period ?? manualPeriod) ? { period: overrides.period ?? manualPeriod! } : {}),
       dailyBudget: Number(overrides.dailyBudget ?? dailyBudget) || DEFAULT_DAILY_BUDGET,
       medias: overrides.medias ?? planMedias,
       texts: {
@@ -838,6 +850,7 @@ export function AiCampaignClient() {
       instagramUserId?: string;
       pixelId?: string | null;
       dailyBudget?: string;
+      period?: AiCampaignPeriod;
       placementsMode?: PlacementsMode;
       selectedPlacements?: PlacementKey[];
       medias?: PlanMedia[];
@@ -845,6 +858,7 @@ export function AiCampaignClient() {
   ) {
     if (!mold) return;
     const requestSequence = ++planRequestSequence.current;
+    setIsPlanning(true);
     try {
       let effectiveAnswers = buildAnswers(overrides);
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -855,6 +869,7 @@ export function AiCampaignClient() {
         });
         const data = await res.json();
         if (requestSequence !== planRequestSequence.current) return;
+        if (!res.ok || !data.success) throw new Error(data.message ?? "Falha ao revisar a campanha.");
         const responseFixedPageId = data.review?.fixedPageId;
         setFixedPageId(responseFixedPageId);
         if (attempt === 0 && effectiveAnswers.medias.length > 0 && responseFixedPageId) {
@@ -868,6 +883,7 @@ export function AiCampaignClient() {
             }
           }
         }
+        setPlannedBudget(data.review?.budget);
         setPlanIssues(Array.isArray(data.issues) ? data.issues : []);
         setPlannedAudience(data.review?.audience);
         setDaypartingAllowed(data.review?.budget?.daypartingAllowed !== false);
@@ -885,14 +901,18 @@ export function AiCampaignClient() {
       }
     } catch {
       if (requestSequence !== planRequestSequence.current) return;
+      setPlannedBudget(undefined);
       setPlanIssues([]);
       setPlannedAudience(undefined);
+    } finally {
+      if (requestSequence === planRequestSequence.current) setIsPlanning(false);
     }
   }
 
   async function scanAccount() {
     setFixedPageId(undefined);
     planRequestSequence.current += 1;
+    setIsPlanning(false);
     setIsBusy(true);
     setError(null);
     setPlanIssues([]);
@@ -909,6 +929,9 @@ export function AiCampaignClient() {
         throw new Error(data.message ?? "Não foi possível analisar a conta.");
       }
       setCurrency(data.currency ?? "BRL");
+      setDurationPolicy(data.durationPolicy);
+      setAutomaticStart(new Date().toISOString());
+      setPlannedBudget(undefined);
       setMold(objective === "whatsapp" ? null : (data.mold ?? null));
       setProvenAds(objective === "whatsapp" ? [] : (data.provenAds ?? []));
       setKeepAdIds(
@@ -1019,7 +1042,7 @@ export function AiCampaignClient() {
     setPhase("publishing");
     setError(null);
     try {
-      const answers = buildAnswers();
+      const answers = buildAnswers({ period: reviewedPeriod });
 
       if (hasMold && mold) {
         const res = await fetch(apiPath(accountId, userId, "create"), {
@@ -1054,10 +1077,7 @@ export function AiCampaignClient() {
             demographics,
             excludedCustomAudienceIds,
             includedCustomAudienceIds,
-            period: {
-              startTime: combineDateTime(periodStart, periodStartTime),
-              endTime: combineDateTime(periodEnd, periodEndTime),
-            },
+            period: reviewedPeriod,
             ...(objective === "whatsapp"
               ? {
                   whatsappWelcome: {
@@ -1250,6 +1270,8 @@ export function AiCampaignClient() {
   const publishBlockedReason =
     phase === "publishing"
       ? "Publicando na Meta… isso leva alguns segundos."
+      : hasMold && !plannedBudget
+        ? "Não foi possível revisar a campanha. Tente novamente."
       : planIssues.length > 0
         ? "Resolva as pendências apontadas pela Meta antes de publicar."
         : planMedias.length === 0
@@ -1269,7 +1291,7 @@ export function AiCampaignClient() {
                       : scheduleEmpty
                         ? "Escolha ao menos um horário de veiculação, ou use o dia todo."
                         : null;
-  const publishDisabled = isBusy || publishBlockedReason !== null;
+  const publishDisabled = isBusy || isPlanning || publishBlockedReason !== null;
 
   const sheetLinkValid = isValidPromotionLink(sheetLink);
   const sheetLinkSaveDisabled =
@@ -1957,6 +1979,12 @@ export function AiCampaignClient() {
                   />
                   <span className="text-sm text-muted-foreground">/dia</span>
                 </dd>
+                <dd className="w-full text-right text-sm text-muted-foreground">
+                  {currencySymbol(currency)} {((hasMold && plannedBudget?.lifetimeCents != null
+                    ? plannedBudget.lifetimeCents
+                    : derivedLifetimeBudgetCents(Number(dailyBudget) || 0, reviewedPeriod)) / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                  {!hasMold || plannedBudget?.lifetimeCents != null ? " no total" : " estimados no período"}
+                </dd>
               </div>
               {needsTexts || showsLink ? (
                 <ReviewRow
@@ -1975,14 +2003,12 @@ export function AiCampaignClient() {
                   invalid={linkBlocks || (Boolean(promotionUrl) && !linkValid)}
                 />
               ) : null}
-              {!hasMold ? (
-                <ReviewRow
-                  label="Período"
-                  value={periodLabel}
-                  onEdit={openPeriodSheet}
-                  disabled={phase === "publishing"}
-                />
-              ) : null}
+              <ReviewRow
+                label="Período"
+                value={periodLabel}
+                onEdit={openPeriodSheet}
+                disabled={phase === "publishing"}
+              />
               {showDeliverySchedule ? (
                 <ReviewRow
                   label="Horários"
@@ -2294,10 +2320,12 @@ export function AiCampaignClient() {
         onOpenChange={(open) => !open && setReviewSheet(null)}
         onSave={() => {
           if (!sheetPeriod) return;
-          setPeriodStart(sheetPeriod.start);
-          setPeriodEnd(sheetPeriod.end);
-          setPeriodStartTime(sheetPeriod.startTime);
-          setPeriodEndTime(sheetPeriod.endTime);
+          const period = {
+            startTime: combineDateTime(sheetPeriod.start, sheetPeriod.startTime),
+            endTime: combineDateTime(sheetPeriod.end, sheetPeriod.endTime),
+          };
+          setManualPeriod(period);
+          if (mold) void refreshPlan({ period });
           setReviewSheet(null);
         }}
       >
@@ -2344,7 +2372,7 @@ export function AiCampaignClient() {
                   value={sheetPeriod.startTime}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>{sheetPeriod.startTime}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {HOUR_OPTIONS.map((time) => (
@@ -2364,7 +2392,7 @@ export function AiCampaignClient() {
                   value={sheetPeriod.endTime}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue />
+                    <SelectValue>{sheetPeriod.endTime}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {END_TIME_OPTIONS.map((time) => (

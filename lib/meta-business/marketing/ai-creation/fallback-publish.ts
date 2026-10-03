@@ -13,6 +13,12 @@
  * igual".
  */
 import { metaApiCall } from "@/lib/meta-business/api";
+import {
+  derivedLifetimeBudgetCents,
+  resolveAiCampaignPeriod,
+  type AiCampaignDurationDays,
+  type AiCampaignPeriodInput,
+} from "../../ai-campaign-duration";
 import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
 import { getConnectedPageById, resolveAdvertisingIdentity } from "@/lib/meta-business/get-instagram-connected-page";
@@ -96,10 +102,7 @@ export type FallbackNiche =
  */
 export type FallbackObjective = "sales" | "followers" | "leads" | "whatsapp";
 
-export type FallbackPeriod = {
-  startTime: string;
-  endTime: string;
-};
+export type FallbackPeriod = AiCampaignPeriodInput;
 
 export type FallbackPublishInput = {
   customerId?: string;
@@ -116,6 +119,7 @@ export type FallbackPublishInput = {
   deliveryMode?: CampaignDeliveryMode;
   scheduleBlocks?: CampaignScheduleBlock[];
   period?: FallbackPeriod;
+  defaultDurationDays?: AiCampaignDurationDays;
   /**
    * Advantage+ = omit placement fields. Manual = send publisher_platforms /
    * *_positions. Followers (traffic) stays Instagram-only either way.
@@ -152,8 +156,6 @@ export type FallbackConfig = {
   /** Click-to-WhatsApp: OUTCOME_ENGAGEMENT + WHATSAPP destination. */
   isWhatsapp?: boolean;
 };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function resolveFallbackConfig(
   niche: FallbackNiche,
@@ -402,37 +404,16 @@ export function fallbackIssues(
   return issues;
 }
 
-function inclusiveCampaignDays(start: Date, end: Date): number {
-  const diffMs = end.getTime() - start.getTime();
-  return Math.max(1, Math.ceil(diffMs / DAY_MS) + 1);
-}
-
 function resolveFlight(
   input: FallbackPublishInput,
-  config: FallbackConfig,
   now: Date,
 ): { startTime: string; endTime: string; lifetimeCents: number } {
-  if (input.period?.startTime && input.period?.endTime) {
-    const start = new Date(input.period.startTime);
-    const end = new Date(input.period.endTime);
-    const days = inclusiveCampaignDays(start, end);
-    return {
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      lifetimeCents: Math.round(input.dailyBudget * days * 100),
-    };
-  }
-
-  const defaultDays = config.usesInclusiveMinusOneDefault
-    ? DEFAULT_FLIGHT_DAYS - 1
-    : DEFAULT_FLIGHT_DAYS;
-  const start = now;
-  const end = new Date(now.getTime() + defaultDays * DAY_MS);
-  return {
-    startTime: start.toISOString(),
-    endTime: end.toISOString(),
-    lifetimeCents: Math.round(input.dailyBudget * DEFAULT_FLIGHT_DAYS * 100),
-  };
+  const period = resolveAiCampaignPeriod({
+    period: input.period,
+    defaultDurationDays: input.defaultDurationDays ?? DEFAULT_FLIGHT_DAYS,
+    defaultStartTime: now.toISOString(),
+  });
+  return { ...period, lifetimeCents: derivedLifetimeBudgetCents(input.dailyBudget, period) };
 }
 
 function resolvePlacementFields(
@@ -735,7 +716,7 @@ export async function publishFallbackCampaign(args: {
     input.niche,
     resolved.isWhatsapp ? "whatsapp" : null,
   );
-  const flight = resolveFlight(input, resolved, new Date());
+  const flight = resolveFlight(input, new Date());
   const geoLocations =
     buildGeoLocationsPayload(input.locations) ?? { countries: ["BR"] };
 

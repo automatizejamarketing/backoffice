@@ -37,7 +37,20 @@ const NICHES: FallbackNiche[] = [
 ];
 
 describe("resolveFallbackConfig WhatsApp", () => {
-  test("every niche can publish a WhatsApp sales campaign", () => {
+  test("food service alone has the shared WhatsApp fallback preset", () => {
+    for (const niche of NICHES) {
+      const config = resolveFallbackConfig(niche, "whatsapp");
+      expect("error" in config).toBe(niche !== "food_service");
+      if ("error" in config) continue;
+      expect(config.metaObjective).toBe("OUTCOME_ENGAGEMENT");
+      expect(config.isWhatsapp).toBe(true);
+      expect(config.requiresPixel).toBe(false);
+      expect(config.requiresPromotionUrl).toBe(false);
+      expect(config.acceptsDeliverySchedule).toBe(true);
+    }
+  });
+
+  test("the backoffice all-niche option supports every WhatsApp fallback preset", () => {
     for (const niche of NICHES) {
       const config = resolveFallbackConfig(niche, "whatsapp", { whatsappNiches: "all" });
       expect("error" in config).toBe(false);
