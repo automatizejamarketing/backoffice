@@ -1,6 +1,6 @@
 # Públicos da Meta no backoffice — design
 
-Data: 2026-10-05. Estado: aguardando aprovação do usuário nesta janela de brainstorming.
+Data: 2026-10-05. Estado: aprovado explicitamente pelo usuário em 2026-10-05 ("Aprovo.").
 
 ## Intenção e escopo acordados
 
