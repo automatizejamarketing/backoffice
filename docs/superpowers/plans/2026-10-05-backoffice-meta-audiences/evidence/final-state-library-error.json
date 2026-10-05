@@ -1,0 +1,33 @@
+{
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 503
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 503
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\nConta sintética 222\nhabilitada\n\nBiblioteca do cliente e da conta selecionados. A consulta é reautorizada no servidor; listar um público não libera suas demais ações.\n\nFalha sintética ao consultar a biblioteca.\n\nBiblioteca da conta\n\nCriar público"
+}

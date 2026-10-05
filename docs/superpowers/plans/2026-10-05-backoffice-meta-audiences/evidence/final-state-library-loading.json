@@ -1,0 +1,31 @@
+{
+  "dialogs": 0,
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences",
+      "query": "?detailed=1&userId=fixture-user"
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences/customer-file",
+      "query": "?userId=fixture-user"
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences",
+      "query": "?detailed=1&userId=fixture-user"
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences/customer-file",
+      "query": "?userId=fixture-user"
+    }
+  ],
+  "rows": 1,
+  "text": "Alternar tema\nPúblicos\nConta sintética 111\nhabilitada\nprincipal\n\nBiblioteca do cliente e da conta selecionados. A consulta é reautorizada no servidor; listar um público não libera suas demais ações.\n\nBiblioteca da conta\n\nCriar público"
+}

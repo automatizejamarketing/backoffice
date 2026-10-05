@@ -1,0 +1,16 @@
+Independent evaluator raw-log extract. Complete raw output retained in the ignored plan workspace.
+
+exit=1
+
+(fail) CRM contact filters, signup association, monthly goals and gifted access separation
+(fail) journal de migrations > não estreia colisão de `when` com o repositório irmão
+(fail) journal de migrations > gêmeas byte-idênticas compartilham o mesmo when
+(fail) grant concurrency, expiry extension, lapsed renewal, monthly idempotency, ended partnership, billing separation
+(fail) both apps share the tag migration and timestamp
+(fail) settings persist across reads with editor attribution and do not alter contact attribution
+(fail) expiration and audit remain atomic with pipelining disabled
+(fail) pool preserves transactions, queues work, releases idle clients and reconnects
+
+ 1671 pass
+ 8 fail
+Ran 1679 tests across 225 files. [43.84s]

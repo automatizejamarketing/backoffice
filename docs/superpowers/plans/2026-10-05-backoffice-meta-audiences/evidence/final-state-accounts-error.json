@@ -1,0 +1,20 @@
+{
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 503
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\n\nFalha sintética ao consultar as contas.\n\nTentar novamente",
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=111"
+}

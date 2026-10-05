@@ -1,0 +1,483 @@
+{
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/meta-assets",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/meta-account/publish-holds",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/playbook-insights",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/client-reports",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/meta-account",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/meta-account/partner-access",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/meta-account/partner-access",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts/222/money",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/campaigns",
+      "query": "?userId=fixture-user&fetchAll=1&datePreset=today&effectiveStatus=ACTIVE",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/campaigns",
+      "query": "?userId=fixture-user&fetchAll=1&datePreset=today&effectiveStatus=PAUSED",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user&after=fixture-222-page2",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "instagram-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "instagram-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user&sources=website",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user&sources=website",
+      "status": 200
+    },
+    {
+      "action": "website-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "website-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 409
+    },
+    {
+      "action": "website-reconcile",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "upload",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "preview",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file/upload-222-5",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file/terms",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "preview",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file/upload-222-5",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "start",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file/upload-222-5",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user&sources=website",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user&sources=website",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user&after=fixture-222-page2",
+      "status": 200
+    },
+    {
+      "action": "review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user&after=fixture-222-page2",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user&after=fixture-222-page2",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 409
+    },
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "delete-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ],
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=222"
+}

@@ -1,0 +1,14 @@
+PASS isolated account catalogs and deterministic pagination
+PASS real rule parsers resolve editable rules and preserve compound rules
+PASS real lookalike assessment accepts seed and blocks pending imports/lookalikes
+PASS source catalogs include source-specific periods and all Instagram activities
+PASS MarketingWorkspace connection/accounts/panel read contracts enable account222 entry
+PASS wrong user/account/method/action fail closed
+PASS metadata review carries full impact and confirmation updates local catalog
+PASS Instagram, website and lookalike creation review/confirm stays local
+PASS uncertain confirmation and reconciliation retain reviewed payload
+PASS deletion preflight, dependency rejection and confirm remove local object
+PASS customer upload/preview/declarations/terms/start/history have accurate shapes
+PASS Request objects and act_ account IDs supported
+PASS AI scan/plan/copy canned locally; publication and uploads rejected
+13 checks passed; 0 native fetch calls.
