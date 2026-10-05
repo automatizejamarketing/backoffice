@@ -1,0 +1,33 @@
+{
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=222",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "fixture": true,
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "fixture": true,
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "fixture": true,
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "fixture": true,
+      "status": 200
+    }
+  ]
+}

@@ -202,7 +202,7 @@ Compare TypeScript output to baseline; no new errors in touched code. Record exa
 - Produces: `buildAudienceLibraryHref({ userId, accountId, embedded }: { userId: string; accountId: string | null; embedded?: boolean }): string` using URLSearchParams and `/embed` prefix.
 - Page ready state uses manager `key={`${userId}:${selectedAccountId}`}` with exactly matching client/account props. Requested account from URL cannot bypass accounts fetch or RBAC.
 
-- [ ] **Step 1: Write failing behavioral tests for resolution and navigation.**
+- [x] **Step 1: Write failing behavioral tests for resolution and navigation.**
 
 ```ts
 import assert from "node:assert/strict";
@@ -225,7 +225,7 @@ test("embed link carries both boundaries and encodes parameters", () => {
 
 Add malformed/empty/prefixed IDs and ordinary href without account; malformed requested value must not be treated as absent. Run `bun test tests/audience-account-selection.test.ts` and record RED.
 
-- [ ] **Step 2: Implement pure selection/navigation helper.** Use existing client-safe account normalization if applicable, otherwise strip only known `act_` prefix, validate digits and compare to accessible accounts. URL building uses `URLSearchParams`, not unescaped interpolation.
+- [x] **Step 2: Implement pure selection/navigation helper.** Use existing client-safe account normalization if applicable, otherwise strip only known `act_` prefix, validate digits and compare to accessible accounts. URL building uses `URLSearchParams`, not unescaped interpolation.
 
 ```ts
 export function buildAudienceLibraryHref({ userId, accountId, embedded = false }: {
@@ -237,7 +237,7 @@ export function buildAudienceLibraryHref({ userId, accountId, embedded = false }
 }
 ```
 
-- [ ] **Step 3: Implement account loading state and safe navigation.** Preserve loading/error/empty distinctions and show a selector even when requested account is inaccessible, allowing explicit recovery. Ignore old responses after client change. Gate all account data with the client identity that loaded it; clearing/loading should not briefly expose an old manager. Account change updates state only for the current loaded client.
+- [x] **Step 3: Implement account loading state and safe navigation.** Preserve loading/error/empty distinctions and show a selector even when requested account is inaccessible, allowing explicit recovery. Ignore old responses after client change. Gate all account data with the client identity that loaded it; clearing/loading should not briefly expose an old manager. Account change updates state only for the current loaded client.
 
 ```tsx
 <AudienceLibraryManager key={`${userId}:${selectedAccountId}`}
@@ -249,7 +249,7 @@ router.push(buildAudienceLibraryHref({ userId: selectedUser.id,
 
 Implement explicit messages: loading accounts, failed load with visible error/retry, choose client, no accessible accounts, requested account unavailable. No manager mounts until the current client's accounts are loaded and selection is valid.
 
-- [ ] **Step 4: Wire embedded contexts without changing targeting semantics.** In the existing sheet:
+- [x] **Step 4: Wire embedded contexts without changing targeting semantics.** In the existing sheet:
 
 ```tsx
 <AudienceLibraryManager key={`${userId}:${accountId}`}
@@ -258,16 +258,16 @@ Implement explicit messages: loading accounts, failed load with visible error/re
 
 Add `/embed/marketing/audiences` server wrapper following the adjacent AI wrapper: require `marketing:write`, reuse the client page, and use Suspense if the existing pattern requires it. Keep the sheet tabs and `onInclusionsChange`/`onExclusionsChange`/`onDemographicsChange` untouched. No audience-selection callback is added to the manager.
 
-- [ ] **Step 5: Update contracts and GREEN.** Contracts assert actual shared component/surface and embed permission boundary. Run:
+- [x] **Step 5: Update contracts and GREEN.** Contracts assert actual shared component/surface and embed permission boundary. Run:
 
 ```powershell
 bun test tests/audience-account-selection.test.ts tests/audience-kind.test.ts tests/audience-library-manager.test.ts tests/audience-period-copy.test.ts tests/ai-audience-inclusions.test.ts tests/ai-audience-exclusions.test.ts
 bunx tsc --noEmit -p .
 ```
 
-- [ ] **Step 6: agent-browser against running app.** Use task-specific session/fixtures. From marketing or client hub on account 222 click Públicos and verify URL/selection/payloads retain account 222. Repeat under `/embed` and confirm no nested admin sidebar. Exercise missing user, loading, account failure, empty list, inaccessible requested ID (no library call until manual selection), switch accounts, and switch user with slow old response. In IA reach review through fixtures, snapshot answers/targeting before opening **Configurações avançadas de público**, enter **Públicos da conta**, create/edit/cancel inline, return to review and compare answers/targeting unchanged. Run viewport 390×844 and desktop, plus narrow embedded panel; assert no overflow and controls usable. Save `task2-account-preserved.png`, `task2-invalid-account.png`, `task2-embed-library.png`, `task2-ai-inline.png`, `task2-ai-mobile.png`, state comparison and network scope assertions.
+- [x] **Step 6: agent-browser against running app.** Use task-specific session/fixtures. From marketing or client hub on account 222 click Públicos and verify URL/selection/payloads retain account 222. Repeat under `/embed` and confirm no nested admin sidebar. Exercise missing user, loading, account failure, empty list, inaccessible requested ID (no library call until manual selection), switch accounts, and switch user with slow old response. In IA reach review through fixtures, snapshot answers/targeting before opening **Configurações avançadas de público**, enter **Públicos da conta**, create/edit/cancel inline, return to review and compare answers/targeting unchanged. Run viewport 390×844 and desktop, plus narrow embedded panel; assert no overflow and controls usable. Save `task2-account-preserved.png`, `task2-invalid-account.png`, `task2-embed-library.png`, `task2-ai-inline.png`, `task2-ai-mobile.png`, state comparison and network scope assertions.
 
-- [ ] **Step 7: Self-review, report and commit.** Record exact tests, screenshots, runtime checks, changed files and concerns; commit the task. No upstream/main changes or push yet.
+- [x] **Step 7: Self-review, report and commit.** Record exact tests, screenshots, runtime checks, changed files and concerns; commit the task. No upstream/main changes or push yet.
 
 **Execution notes after Task 1 review:** Strengthen the workspace-remount contract to identify `AudienceWorkspaceBody` key/context/target; align website URL/event spans with the container breakpoint and validate a narrow embedded container. Personally check selectors and both deletion confirmation layers inside the z-[110] AI sheet; existing portals use z50. Use installed Chromium149 through the native agent-browser executable with identical startup options on every invocation; the npm PowerShell wrapper loses stdin. The existing embedded user hub requires a server UUID profile unavailable to browser fixtures: cover its URL/component contract and directly traverse the actual approved `/embed/marketing/audiences` route, reporting this as direct entry rather than a hub click. See this plan's ledger rulings and browser-support README/task2-readiness for diagnostic evidence and exact commands. No DB profile writes, auth bypass or invented product entry.
 
