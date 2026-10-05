@@ -16,8 +16,14 @@ type PublishHoldRow = {
   createdAt: string;
 };
 
+type ConsultantCredentialStatus = {
+  connectedAt: string | null;
+  needsConnect: boolean;
+};
+
 export function PublishHoldAlert({ userId }: { userId: string }) {
   const [holds, setHolds] = useState<PublishHoldRow[]>([]);
+  const [credential, setCredential] = useState<ConsultantCredentialStatus | null>(null);
   const [isStarting, setIsStarting] = useState(false);
 
   // Saves the consultant's own personal token. The customer's connection is
@@ -58,9 +64,18 @@ export function PublishHoldAlert({ userId }: { userId: string }) {
     let cancelled = false;
     fetch(`/api/users/${userId}/meta-account/publish-holds`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { holds?: PublishHoldRow[] } | null) => {
-        if (!cancelled) setHolds(data?.holds ?? []);
-      })
+      .then(
+        (
+          data: {
+            holds?: PublishHoldRow[];
+            consultantCredential?: ConsultantCredentialStatus;
+          } | null,
+        ) => {
+          if (cancelled) return;
+          setHolds(data?.holds ?? []);
+          setCredential(data?.consultantCredential ?? null);
+        },
+      )
       .catch(() => {
         if (!cancelled) setHolds([]);
       });
@@ -69,7 +84,29 @@ export function PublishHoldAlert({ userId }: { userId: string }) {
     };
   }, [userId]);
 
-  if (holds.length === 0) return null;
+  if (holds.length === 0) {
+    if (!credential?.needsConnect) return null;
+    return (
+      <div className="space-y-2 rounded-md border border-border bg-muted/40 p-4">
+        <div className="flex items-center gap-2">
+          <Badge variant="outline">Certificação Meta</Badge>
+          <p className="text-sm font-medium text-foreground">
+            {credential.connectedAt
+              ? "Seu Facebook pessoal foi conectado há 50 dias ou mais"
+              : "Seu Facebook pessoal não está conectado"}
+          </p>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Quando a Meta recusar uma publicação por certificação, o seu acesso
+          é usado para publicar. Ele vale para todos os clientes. Este cliente
+          não tem publicações seguradas, então nada é republicado agora.
+        </p>
+        <Button size="sm" onClick={connectPersonalFacebook} disabled={isStarting}>
+          {isStarting ? "Abrindo..." : "Conectar meu Facebook pessoal"}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-4">
