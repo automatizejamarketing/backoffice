@@ -107,7 +107,7 @@ Rodar na raiz de cada app; `bun test tests/` não é suíte completa. Registrar 
 - Produces: `AudienceWorkspace` source contract plus `userId: string`, `surface: "dialog" | "inline"`, callbacks `onClose`, `onBackToTypes`, `onSelectKind`, `onSaved`.
 - Produces: editor `chrome?: "disclosure" | "plain"` (metadata uses `"dialog" | "plain"`); importer `defaultAudienceId?: string`, `defaultOperation?: "create" | "add" | "remove" | "replace"`.
 
-- [ ] **Step 1: Write behavioral tests for classification and formatting before creating the module.** Build valid typed fixtures, not type casts hiding required fields:
+- [x] **Step 1: Write behavioral tests for classification and formatting before creating the module.** Build valid typed fixtures, not type casts hiding required fields:
 
 ```ts
 import assert from "node:assert/strict";
@@ -141,9 +141,9 @@ test("missing estimates and statuses have source fallbacks", () => {
 
 Add cases using the real builders in `audiences/instagram.ts` and `audiences/website.ts`: representable Instagram → instagram, website → website, compound/external rule → metadata, zero estimate stays zero, bounded estimate is formatted pt-BR. Read their existing tests for exact builder signatures. These test real helper behavior.
 
-- [ ] **Step 2: RED.** Run `bun test tests/audience-kind.test.ts`, save output with missing module failure to report.
+- [x] **Step 2: RED.** Run `bun test tests/audience-kind.test.ts`, save output with missing module failure to report.
 
-- [ ] **Step 3: Port pure functions and workspace from the reference.** Read complete source files once; carry `userId` through every editor and keep client imports free of server modules. Port source selection cards, headers, back/close logic and plain presentation. Keep the existing local Meta endpoints and review/reconciliation implementations.
+- [x] **Step 3: Port pure functions and workspace from the reference.** Read complete source files once; carry `userId` through every editor and keep client imports free of server modules. Port source selection cards, headers, back/close logic and plain presentation. Keep the existing local Meta endpoints and review/reconciliation implementations.
 
 ```tsx
 <InstagramAudienceEditor accountId={accountId} userId={userId}
@@ -155,7 +155,7 @@ Add cases using the real builders in `audiences/instagram.ts` and `audiences/web
 
 The workspace owns create/edit selection, not authorization. For customer edit use the audience's ID with proven capability only. Each opened editor must remount/reset when switching target; key by view/kind/audience ID if needed so defaults cannot leak between edits.
 
-- [ ] **Step 4: Update manager to the source layout and surface.** Preserve `userId` in detailed/page/customer history requests. Replace permanently rendered forms with `AudienceWorkspace`. Show labels, empty state, pagination and pending import state. On save refresh and close the workspace. On account/client changes discard state and ignore earlier request completion. While a new library page is loading, do not expose stale mutation targets; pagination actions must not race cursor state.
+- [x] **Step 4: Update manager to the source layout and surface.** Preserve `userId` in detailed/page/customer history requests. Replace permanently rendered forms with `AudienceWorkspace`. Show labels, empty state, pagination and pending import state. On save refresh and close the workspace. On account/client changes discard state and ignore earlier request completion. While a new library page is loading, do not expose stale mutation targets; pagination actions must not race cursor state.
 
 ```tsx
 <AudienceWorkspace accountId={accountId} userId={userId}
@@ -169,7 +169,7 @@ The workspace owns create/edit selection, not authorization. For customer edit u
 
 Keep layout usable at the narrower embedded container width, not only the browser viewport. Existing deletion control remains scoped by `accountId + userId`; do not port frontend-only font classes into backoffice controls.
 
-- [ ] **Step 5: Update integration contracts and GREEN.** Existing `tests/audience-library-manager.test.ts` should still prove page/campaign share the manager and no targeting callback exists. Add checks for workspace reuse and userId propagation only where meaningful; avoid tests that enumerate every CSS token. Run:
+- [x] **Step 5: Update integration contracts and GREEN.** Existing `tests/audience-library-manager.test.ts` should still prove page/campaign share the manager and no targeting callback exists. Add checks for workspace reuse and userId propagation only where meaningful; avoid tests that enumerate every CSS token. Run:
 
 ```powershell
 bun test tests/audience-kind.test.ts tests/audience-library-manager.test.ts tests/audience-period-copy.test.ts tests/audience-metadata-update.test.ts tests/audience-integration.test.ts tests/website-audience.test.ts tests/instagram-audience.test.ts
@@ -178,9 +178,9 @@ bunx tsc --noEmit -p .
 
 Compare TypeScript output to baseline; no new errors in touched code. Record exact output and pass counts.
 
-- [ ] **Step 6: agent-browser against running app.** Use task-specific authenticated session and safe fixtures. Open `/marketing/audiences?userId=fixture-user&accountId=222`. Verify populated/empty library, next/previous, all four create types, back, close, Instagram/site fields and review, lookalike eligible/blocked origin, customer upload/preview/terms states, metadata edit fallback, deletion review, confirmation and reconciliation failure state. At 390×844 and desktop capture at least `task1-library-desktop.png`, `task1-create-types.png`, `task1-instagram.png`, `task1-site.png`, `task1-customer.png`, `task1-lookalike.png`, `task1-library-mobile.png`. Verify `document.documentElement.scrollWidth <= window.innerWidth`, focus and accessible close/return controls. Save requests/snapshots with synthetic data only. Embedded UI is wired and fully traversed in Task 2.
+- [x] **Step 6: agent-browser against running app.** Use task-specific authenticated session and safe fixtures. Open `/marketing/audiences?userId=fixture-user&accountId=222`. Verify populated/empty library, next/previous, all four create types, back, close, Instagram/site fields and review, lookalike eligible/blocked origin, customer upload/preview/terms states, metadata edit fallback, deletion review, confirmation and reconciliation failure state. At 390×844 and desktop capture at least `task1-library-desktop.png`, `task1-create-types.png`, `task1-instagram.png`, `task1-site.png`, `task1-customer.png`, `task1-lookalike.png`, `task1-library-mobile.png`. Verify `document.documentElement.scrollWidth <= window.innerWidth`, focus and accessible close/return controls. Save requests/snapshots with synthetic data only. Embedded UI is wired and fully traversed in Task 2.
 
-- [ ] **Step 7: Self-review, report and commit.** Report changed files, exact RED/GREEN outputs, screenshots, limitations and concerns to the supplied report path. Commit only Task 1 product/test changes (evidence files stay available locally); do not commit `.env`, tokens or generated build caches.
+- [x] **Step 7: Self-review, report and commit.** Report changed files, exact RED/GREEN outputs, screenshots, limitations and concerns to the supplied report path. Commit only Task 1 product/test changes (evidence files stay available locally); do not commit `.env`, tokens or generated build caches.
 
 ### Task 2: Preservar contexto de conta e integrar a experiência em campanha/iframe
 
@@ -192,6 +192,9 @@ Compare TypeScript output to baseline; no new errors in touched code. Record exa
 - Create: `app/embed/marketing/audiences/page.tsx`
 - Test: `tests/audience-account-selection.test.ts`
 - Test: `tests/audience-library-manager.test.ts`
+- Modify: `app/(admin)/marketing/audiences/website-audience-editor.tsx` (align URL/event spans with container breakpoint; nonblocking Task 1 review improvement).
+- Test: `tests/audience-kind.test.ts` (add available-members representable-rule precedence variant; nonblocking Task 1 review improvement).
+- Optional if the named embedded stacking defect is reproduced: local audience editor/deletion-control portal styles or sheet layer, preserving operation/RBAC logic and global UI primitives.
 
 **Interfaces:**
 - Consumes: Task 1 `AudienceLibraryManager` with `surface?: "page" | "embedded"` and existing `AdAccountSelector`/API account list.
@@ -265,6 +268,8 @@ bunx tsc --noEmit -p .
 - [ ] **Step 6: agent-browser against running app.** Use task-specific session/fixtures. From marketing or client hub on account 222 click Públicos and verify URL/selection/payloads retain account 222. Repeat under `/embed` and confirm no nested admin sidebar. Exercise missing user, loading, account failure, empty list, inaccessible requested ID (no library call until manual selection), switch accounts, and switch user with slow old response. In IA reach review through fixtures, snapshot answers/targeting before opening **Configurações avançadas de público**, enter **Públicos da conta**, create/edit/cancel inline, return to review and compare answers/targeting unchanged. Run viewport 390×844 and desktop, plus narrow embedded panel; assert no overflow and controls usable. Save `task2-account-preserved.png`, `task2-invalid-account.png`, `task2-embed-library.png`, `task2-ai-inline.png`, `task2-ai-mobile.png`, state comparison and network scope assertions.
 
 - [ ] **Step 7: Self-review, report and commit.** Record exact tests, screenshots, runtime checks, changed files and concerns; commit the task. No upstream/main changes or push yet.
+
+**Execution notes after Task 1 review:** Strengthen the workspace-remount contract to identify `AudienceWorkspaceBody` key/context/target; align website URL/event spans with the container breakpoint and validate a narrow embedded container. Personally check selectors and both deletion confirmation layers inside the z-[110] AI sheet; existing portals use z50. Use installed Chromium149 through the native agent-browser executable with identical startup options on every invocation; the npm PowerShell wrapper loses stdin. The existing embedded user hub requires a server UUID profile unavailable to browser fixtures: cover its URL/component contract and directly traverse the actual approved `/embed/marketing/audiences` route, reporting this as direct entry rather than a hub click. See this plan's ledger rulings and browser-support README/task2-readiness for diagnostic evidence and exact commands. No DB profile writes, auth bypass or invented product entry.
 
 ## Final Evaluation and Delivery
 
