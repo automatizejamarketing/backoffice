@@ -49,7 +49,7 @@ const criteria: Array<[InstagramAudienceCriterion, string]> = [
 
 const stateLabel = (value: string) => value === "available" ? "disponível" : value === "unavailable" ? "indisponível" : "não confirmada";
 
-export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }: { accountId: string; userId: string; audience?: CustomAudienceView; onSaved: () => void }) {
+export function InstagramAudienceEditor({ accountId, userId, audience, chrome = "disclosure", onSaved }: { accountId: string; userId: string; audience?: CustomAudienceView; chrome?: "disclosure" | "plain"; onSaved: () => void }) {
   const looksLikeInstagram = !audience || JSON.stringify(audience.rule ?? {}).includes('"type":"ig_business"');
   const parsed = audience ? parseInstagramAudienceRule(audience.rule) : null;
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -150,10 +150,8 @@ export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }
   const periodEvidenceReady = periodReady || isCurrentPeriod;
   const periodBlocker = "O Gerenciador da Meta ainda não comprovou esta combinação de origem e critério. O período inicial, a edição, os limites e o preenchimento histórico permanecem desconhecidos; a criação ou a troca para esta combinação está impedida.";
   const periodKeptOutOfRange = periodReady && isCurrentPeriod && parsed !== null && parsed !== undefined && Number(retentionDays) === parsed.retentionDays && instagramPeriodOutOfRange(periodEvidence, parsed.retentionDays, false);
-  return (
-    <details className="rounded-lg border bg-card p-4">
-      <summary className="cursor-pointer font-medium">{audience ? "Editar regra do Instagram" : "Criar público do Instagram"}</summary>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
+  const form = (<>
+      <div className="mt-4 grid gap-3 @min-[30rem]:grid-cols-2">
         <label className="text-sm">Nome<input className="mt-1 w-full rounded border bg-background p-2" value={name} onChange={(event) => setName(event.target.value)} /></label>
         <label className="text-sm">Perfil<select className="mt-1 w-full rounded border bg-background p-2" value={profileId} onChange={(event) => setProfileId(event.target.value)}>{profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.username ? `@${profile.username}` : profile.name ?? profile.id}</option>)}</select></label>
         <label className="text-sm">Critério<select className="mt-1 w-full rounded border bg-background p-2" value={criterion} onChange={(event) => setCriterion(event.target.value as InstagramAudienceCriterion)}>{criteria.map(([value, label]) => <option key={value} value={value}>{label} ({INSTAGRAM_AUDIENCE_CRITERIA[value]})</option>)}</select></label>
@@ -165,6 +163,8 @@ export function InstagramAudienceEditor({ accountId, userId, audience, onSaved }
       {guidance ? <p role="status" className="mt-3 text-sm text-muted-foreground">{guidance}</p> : null}
       {review ? <div className="mt-4 space-y-2 rounded border bg-muted/20 p-3 text-sm"><p className="font-medium">Revisão pronta para confirmação</p><p>Antes: {review.before ? `${review.before.criterion}, ${review.before.retentionDays} dias` : "público inexistente"} · depois: {review.after.criterion}, {review.after.retentionDays} dias.</p><p>Fonte: {stateLabel(review.source.access)} · atividade: {stateLabel(review.source.activity)} · disponibilidade: {stateLabel(review.source.availability)}.</p><p>{review.notice}</p><p className="text-xs text-muted-foreground">Período inicial: {review.periodEvidence.initialDays ?? "não registrado"}; limite Meta específico: {review.periodEvidence.metaMaximumDays ?? "não confirmado"}; preenchimento histórico: {stateLabel(review.periodEvidence.historicalFill)}.</p>{review.impact.knownUses.length ? <p className="text-xs text-muted-foreground">Usos conhecidos: {review.impact.knownUses.map((use) => `${use.adSetName ?? use.adSetId} (${use.placement})`).join(", ")}</p> : null}{review.impact.limitations.map((limitation) => <p key={limitation} className="text-xs text-muted-foreground">{limitation}</p>)}<div className="flex flex-wrap gap-2"><Button type="button" onClick={() => void send("instagram-confirm")} disabled={saving}>{saving ? "Salvando..." : "Confirmar"}</Button><Button type="button" variant="outline" onClick={() => void send("instagram-review")} disabled={saving || !periodEvidenceReady}>Revisar novamente</Button></div></div> : <Button type="button" className="mt-4" onClick={() => void send("instagram-review")} disabled={saving || profiles.length === 0 || !periodEvidenceReady}>{saving ? "Revisando..." : "Revisar"}</Button>}
       {error ? <div className="mt-3 space-y-2"><p role="alert" className="text-sm text-destructive">{error}</p>{review ? <Button type="button" variant="outline" onClick={() => void send("instagram-reconcile")} disabled={saving}>Reconciliar resultado</Button> : null}</div> : null}
-    </details>
-  );
+    </>);
+  if (chrome === "plain") return form;
+  return (<details className="rounded-lg border bg-card p-4">
+      <summary className="cursor-pointer font-medium">{audience ? "Editar regra do Instagram" : "Criar público do Instagram"}</summary><div className="mt-4">{form}</div></details>);
 }

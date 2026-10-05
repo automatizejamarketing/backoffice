@@ -71,19 +71,25 @@ export function CustomerListImport({
   accountId,
   userId,
   audiences,
+  chrome = "disclosure",
+  defaultAudienceId = "",
+  defaultOperation = "create",
   onChanged,
 }: {
   accountId: string;
   userId: string;
   audiences: CustomAudienceView[];
+  chrome?: "disclosure" | "plain";
+  defaultAudienceId?: string;
+  defaultOperation?: Operation;
   onChanged: () => void;
 }) {
   const apiBase = `/api/meta-marketing/${accountId}/audiences/customer-file`;
   const userQuery = `userId=${encodeURIComponent(userId)}`;
-  const [operation, setOperation] = useState<Operation>("create");
+  const [operation, setOperation] = useState<Operation>(defaultOperation);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [audienceId, setAudienceId] = useState("");
+  const [audienceId, setAudienceId] = useState(defaultAudienceId);
   const [file, setFile] = useState<File | null>(null);
   const [upload, setUpload] = useState<CustomerFileUploadResult | null>(null);
   const [worksheet, setWorksheet] = useState("");
@@ -271,9 +277,7 @@ export function CustomerListImport({
     termsDeclared &&
     (!preview.confirmation.requiresValidRowsChoice || sendValidRowsOnly);
 
-  return (
-    <details className="rounded-lg border bg-card p-4">
-      <summary className="cursor-pointer font-medium">Lista de clientes por arquivo (CSV ou XLSX)</summary>
+  const form = (<>
 
       {!enabled ? (
         <p className="mt-4 text-sm text-muted-foreground">
@@ -281,7 +285,7 @@ export function CustomerListImport({
         </p>
       ) : null}
 
-      {enabled ? <div className="mt-4 grid gap-3 md:grid-cols-2">
+      {enabled ? <div className="mt-4 grid gap-3 @min-[30rem]:grid-cols-2">
         <label>
           Operação
           <CustomerFileSelect
@@ -353,7 +357,7 @@ export function CustomerListImport({
           ) : null}
 
           {headers.length ? (
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 @min-[30rem]:grid-cols-3">
               <label>
                 Coluna de e-mail
                 <CustomerFileSelect
@@ -402,7 +406,7 @@ export function CustomerListImport({
             {preview.referenceCountry ? ` · país de referência ${preview.referenceCountry}` : ""}
           </p>
 
-          <ul className="grid gap-1 md:grid-cols-5">
+          <ul className="grid gap-1 @min-[30rem]:grid-cols-5">
             <li>Lidos: {preview.counts.read}</li>
             <li>Válidos: {preview.counts.valid}</li>
             <li>Inválidos: {preview.counts.invalid}</li>
@@ -416,7 +420,7 @@ export function CustomerListImport({
             </ul>
           ) : null}
 
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto"><table className="w-full text-xs">
             <caption className="text-left text-xs text-muted-foreground">Exemplos interpretados</caption>
             <thead><tr><th className="text-left">Linha</th><th className="text-left">E-mail</th><th className="text-left">Telefone</th><th className="text-left">Avisos</th></tr></thead>
             <tbody>
@@ -426,7 +430,7 @@ export function CustomerListImport({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
 
           {preview.report.available && reportHref ? (
             <p className="text-xs">
@@ -504,6 +508,8 @@ export function CustomerListImport({
       ) : null}
 
       {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
-    </details>
-  );
+    </>);
+  if (chrome === "plain") return form;
+  return (<details className="rounded-lg border bg-card p-4">
+      <summary className="cursor-pointer font-medium">Lista de clientes por arquivo (CSV ou XLSX)</summary><div className="mt-4">{form}</div></details>);
 }

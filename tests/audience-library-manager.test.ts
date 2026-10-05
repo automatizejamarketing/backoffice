@@ -27,7 +27,7 @@ test("standalone library and AI campaign sheet share the operator audience manag
     /<AudienceLibraryManager\s+key=\{`\$\{userId\}:\$\{accountId\}`\}\s+accountId=\{accountId\}\s+userId=\{userId\}\s*\/>/,
   );
 
-  assert.match(manager, /CustomerListImport/);
+  assert.match(manager, /AudienceWorkspace/);
   assert.match(manager, /userId: string/);
   assert.match(manager, /aria-label="Gerenciador de públicos"/);
   assert.match(campaignSheet, /Sheet modal=\{false\} open=\{open\} onOpenChange=\{onOpenChange\}/);
@@ -37,4 +37,18 @@ test("standalone library and AI campaign sheet share the operator audience manag
 
   assert.doesNotMatch(campaignSheet, /InstagramAudienceEditor|WebsiteAudienceEditor|LookalikeAudienceCreator|CustomerListImport/);
   assert.doesNotMatch(campaignSheet, /onSelectAudience|onApplyAudience/);
+});
+
+
+test("shared workspace preserves administrative scope and resets editor defaults per target", () => {
+  const workspace = readSource("app/(admin)/marketing/audiences/audience-workspace.tsx");
+  const manager = readSource("app/(admin)/marketing/audiences/audience-library-manager.tsx");
+  assert.match(workspace, /userId: string/);
+  assert.match(workspace, /defaultAudienceId=\{state\.audience\.id\}/);
+  assert.match(workspace, /defaultOperation="add"/);
+  assert.match(workspace, /key=\{/);
+  assert.match(manager, /surface\?: "page" \| "embedded"/);
+  assert.match(manager, /new URLSearchParams\(\{ detailed: "1", userId \}\)/);
+  assert.match(manager, /userId=\{userId\}/);
+  assert.doesNotMatch(manager + workspace, /\/api\/meta-business\/marketing\/|onApplyAudience|onSelectAudience/);
 });

@@ -18,11 +18,13 @@ export function LookalikeAudienceCreator({
   accountId,
   userId,
   audiences,
+  chrome = "disclosure",
   onSaved,
 }: {
   accountId: string;
   userId: string;
   audiences: CustomAudienceView[];
+  chrome?: "disclosure" | "plain";
   onSaved: () => void;
 }) {
   const { sources, blockedSources } = useMemo(() => {
@@ -86,10 +88,8 @@ export function LookalikeAudienceCreator({
     }
   };
 
-  return (
-    <details className="rounded-lg border p-4">
-      <summary className="cursor-pointer font-medium">Criar público semelhante</summary>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
+  const form = (<>
+      <div className="mt-4 grid gap-3 @min-[30rem]:grid-cols-2">
         <label>Nome<input className="mt-1 w-full rounded border p-2" value={name} onChange={(event) => { setName(event.target.value); setReview(null); setReconciliationRequired(false); }} /></label>
         <label>Descrição (opcional)<input className="mt-1 w-full rounded border p-2" value={description} onChange={(event) => { setDescription(event.target.value); setReview(null); setReconciliationRequired(false); }} /></label>
         <label>Origem elegível<select className="mt-1 w-full rounded border p-2" value={originAudienceId} onChange={(event) => { setOriginAudienceId(event.target.value); setReview(null); setReconciliationRequired(false); }}><option value="">Selecione</option>{sources.map((source) => <option key={source.id} value={source.id}>{source.name ?? source.id}</option>)}</select></label>
@@ -101,6 +101,8 @@ export function LookalikeAudienceCreator({
       {review ? <div className="mt-3 rounded border p-3 text-sm"><p>Revise: {review.source.name ?? review.source.id} · {review.formation.country} · {review.formation.percentage}%.</p><p className="mt-1 text-xs text-muted-foreground">{review.notice}</p><div className="mt-3 flex flex-wrap gap-2"><Button disabled={saving} onClick={() => void request("lookalike-confirm")}>{saving ? "Criando..." : "Confirmar criação"}</Button>{reconciliationRequired ? <Button variant="outline" disabled={saving} onClick={() => void request("lookalike-reconcile")}>Reconciliar resultado</Button> : null}</div></div> : <Button className="mt-3" disabled={saving || !sources.length} onClick={() => void request("lookalike-review")}>{saving ? "Revisando..." : "Revisar criação"}</Button>}
       {error ? <p role="alert" className="mt-2 text-sm text-destructive">{error}</p> : null}
       {!sources.length ? <p className="mt-2 text-sm text-muted-foreground">Nenhuma origem elegível acessível nesta página.</p> : null}
-    </details>
-  );
+    </>);
+  if (chrome === "plain") return form;
+  return (<details className="rounded-lg border p-4">
+      <summary className="cursor-pointer font-medium">Criar público semelhante</summary><div className="mt-4">{form}</div></details>);
 }
