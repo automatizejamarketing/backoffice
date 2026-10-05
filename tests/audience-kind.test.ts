@@ -24,8 +24,8 @@ test("lookalike without a representable rule keeps metadata editing", () => {
   assert.equal(audienceTypeLabel(audience), "Semelhante");
 });
 test("representable rules select their lossless editor before customer capability", () => {
-  const instagram = { ...base, rule: buildInstagramAudienceRule({ profileId: "ig-1", criterion: "saved", retentionDays: 63 }) };
-  const website = { ...base, rule: buildWebsiteAudienceRule({ pixelId: "pixel-1", criterion: "url", url: "/precos", retentionDays: 30 }) };
+  const instagram = { ...base, capabilities: { ...base.capabilities, manageMembers: "available" as const }, rule: buildInstagramAudienceRule({ profileId: "ig-1", criterion: "saved", retentionDays: 63 }) };
+  const website = { ...base, capabilities: { ...base.capabilities, manageMembers: "available" as const }, rule: buildWebsiteAudienceRule({ pixelId: "pixel-1", criterion: "url", url: "/precos", retentionDays: 30 }) };
   assert.equal(resolveAudienceEditKind(instagram), "instagram");
   assert.equal(audienceTypeLabel(instagram), "Instagram");
   assert.equal(resolveAudienceEditKind(website), "website");

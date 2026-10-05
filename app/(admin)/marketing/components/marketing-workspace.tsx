@@ -55,6 +55,7 @@ import {
 } from "../utils/marketing-deep-link";
 import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
 import { getMetricLabel } from "../utils/metric-formatters";
+import { buildAudienceLibraryHref } from "../audiences/audience-account-selection";
 
 export type MarketingWorkspaceUser = {
   id: string;
@@ -427,7 +428,7 @@ export function MarketingWorkspace({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => router.push(`/marketing/audiences?userId=${selectedUser.id}`)}
+                onClick={() => router.push(buildAudienceLibraryHref({ userId: selectedUser.id, accountId: selectedAccountId, embedded }))}
               >
                 Públicos
               </Button>

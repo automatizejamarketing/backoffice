@@ -51,7 +51,7 @@ export function AiAdvancedAudienceSheet({
     <Sheet modal={false} open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="z-[110] flex h-full w-full flex-col overflow-hidden sm:max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl"
+        className="z-50 flex h-full w-full flex-col overflow-hidden sm:max-w-lg md:max-w-xl lg:max-w-2xl xl:max-w-3xl"
         onFocusOutside={(event) => event.preventDefault()}
       >
         <SheetHeader className="shrink-0 pr-8">
@@ -116,6 +116,7 @@ export function AiAdvancedAudienceSheet({
                   key={`${userId}:${accountId}`}
                   accountId={accountId}
                   userId={userId}
+                  surface="embedded"
                 />
               </TabsContent>
             </div>
