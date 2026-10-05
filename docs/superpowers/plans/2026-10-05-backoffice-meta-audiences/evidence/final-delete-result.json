@@ -1,0 +1,29 @@
+{
+  "deleteRequests": [
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 409
+    },
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "delete-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ],
+  "gone": true
+}

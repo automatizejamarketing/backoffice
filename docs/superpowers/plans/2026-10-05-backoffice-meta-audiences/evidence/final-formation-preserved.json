@@ -1,0 +1,155 @@
+{
+  "after": [
+    {
+      "id": "aud222-lookalike",
+      "lookalikeSpec": {
+        "country": "BR",
+        "ratio": 0.01
+      },
+      "subtype": "LOOKALIKE"
+    },
+    {
+      "id": "aud222-external",
+      "rule": {
+        "inclusions": {
+          "operator": "or",
+          "rules": [
+            {
+              "event_sources": [
+                {
+                  "id": "pixel222",
+                  "type": "pixel"
+                }
+              ],
+              "filter": {
+                "filters": [
+                  {
+                    "field": "event",
+                    "operator": "eq",
+                    "value": "PageView"
+                  }
+                ],
+                "operator": "and"
+              },
+              "retention_seconds": 2592000
+            },
+            {
+              "event_sources": [
+                {
+                  "id": "pixel222",
+                  "type": "pixel"
+                }
+              ],
+              "filter": {
+                "filters": [
+                  {
+                    "field": "event",
+                    "operator": "eq",
+                    "value": "Purchase"
+                  }
+                ],
+                "operator": "and"
+              },
+              "retention_seconds": 15552000
+            }
+          ]
+        }
+      },
+      "subtype": "WEBSITE"
+    }
+  ],
+  "before": [
+    {
+      "id": "aud222-lookalike",
+      "lookalikeSpec": {
+        "country": "BR",
+        "ratio": 0.01
+      },
+      "subtype": "LOOKALIKE"
+    },
+    {
+      "id": "aud222-external",
+      "rule": {
+        "inclusions": {
+          "operator": "or",
+          "rules": [
+            {
+              "event_sources": [
+                {
+                  "id": "pixel222",
+                  "type": "pixel"
+                }
+              ],
+              "filter": {
+                "filters": [
+                  {
+                    "field": "event",
+                    "operator": "eq",
+                    "value": "PageView"
+                  }
+                ],
+                "operator": "and"
+              },
+              "retention_seconds": 2592000
+            },
+            {
+              "event_sources": [
+                {
+                  "id": "pixel222",
+                  "type": "pixel"
+                }
+              ],
+              "filter": {
+                "filters": [
+                  {
+                    "field": "event",
+                    "operator": "eq",
+                    "value": "Purchase"
+                  }
+                ],
+                "operator": "and"
+              },
+              "retention_seconds": 15552000
+            }
+          ]
+        }
+      },
+      "subtype": "WEBSITE"
+    }
+  ],
+  "equal": true,
+  "requests": [
+    {
+      "action": "review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ]
+}

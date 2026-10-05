@@ -1,0 +1,6 @@
+{
+  "ready": "interactive",
+  "requests": [],
+  "text": "Alternar tema\nPúblicos\nEscolha um cliente no painel de marketing antes de abrir a biblioteca.",
+  "url": "http://127.0.0.1:3016/marketing/audiences"
+}

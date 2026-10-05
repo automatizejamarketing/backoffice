@@ -1,0 +1,21 @@
+{
+  "manager": false,
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences",
+      "query": "?detailed=1&userId=fixture-user&after=fixture-111-page2",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/other-user/ad-accounts",
+      "query": "",
+      "status": 403
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\n\nUnknown user or user mutation refused\n\nTentar novamente",
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=other-user&accountId=222"
+}

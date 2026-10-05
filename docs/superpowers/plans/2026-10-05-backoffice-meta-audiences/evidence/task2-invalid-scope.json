@@ -1,0 +1,13 @@
+{
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=999",
+  "manager": false,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "fixture": true,
+      "status": 200
+    }
+  ]
+}

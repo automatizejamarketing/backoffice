@@ -1,0 +1,8 @@
+Independent evaluator raw-log extract. Complete raw output retained in the ignored plan workspace.
+
+exit=0
+
+
+ 5 pass
+ 0 fail
+Ran 5 tests across 2 files. [11.49s]

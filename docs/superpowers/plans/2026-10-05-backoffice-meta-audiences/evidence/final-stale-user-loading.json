@@ -1,0 +1,20 @@
+{
+  "dialog": false,
+  "manager": false,
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences",
+      "query": "?detailed=1&userId=fixture-user&after=fixture-111-page2"
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/other-user/ad-accounts",
+      "query": ""
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\n\nCarregando contas de anúncios…",
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=other-user&accountId=222"
+}

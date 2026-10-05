@@ -1,0 +1,14 @@
+Prepared main baseline; full raw test output retained in ignored plan workspace.
+
+(fail) CRM contact filters, signup association, monthly goals and gifted access separation
+(fail) journal de migrations > não estreia colisão de `when` com o repositório irmão
+(fail) journal de migrations > gêmeas byte-idênticas compartilham o mesmo when
+(fail) grant concurrency, expiry extension, lapsed renewal, monthly idempotency, ended partnership, billing separation
+(fail) both apps share the tag migration and timestamp
+(fail) settings persist across reads with editor attribution and do not alter contact attribution
+(fail) expiration and audit remain atomic with pipelining disabled
+(fail) pool preserves transactions, queues work, releases idle clients and reconnects
+
+ 1651 pass
+ 8 fail
+Ran 1659 tests across 223 files. [17.23s]

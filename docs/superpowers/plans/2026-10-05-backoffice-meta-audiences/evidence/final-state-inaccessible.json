@@ -1,0 +1,14 @@
+{
+  "libraryCalls": 0,
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\nSelecione uma conta\n\nA conta solicitada não está disponível para este cliente. Selecione uma conta acessível para continuar.",
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=999"
+}

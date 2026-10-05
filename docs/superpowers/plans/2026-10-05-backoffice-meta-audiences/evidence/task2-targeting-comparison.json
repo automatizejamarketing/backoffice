@@ -1,0 +1,358 @@
+{
+  "after": {
+    "plans": 1,
+    "text": "Voltar para o cliente\nCriar campanha com IA\n\nTudo o que o cliente faz no app, na conta selecionada. Uma pergunta por vez; você aprova antes de publicar.\n\nPASSO 6 DE 6 · REVISÃO\n\nRevisar e publicar\n\nConfira o que vai ao ar. A campanha sobe ativa na Meta assim que você aprovar.\n\nCOM BASE NO ANÚNCIO VALIDADO\n\nAnúncio sintético validado · ROAS 8.0 · Gasto R$ 1.000,00\n\nCriativos\n\n1 anúncio(s) validado(s) copiado(s) e 1 mídia(s) nova(s).\n\nAnúncio sintético validado\n\nPost do Instagram\n\nOBJETIVO\nVendas no site\nBASE\nHistórico validado da conta\nORÇAMENTO DIÁRIO\nR$\n/dia\nR$ 210,00 estimados no período\nBOTÃO (CTA)\nSaiba mais\nEditar\nLINK DE DESTINO\nhttps://example.test/oferta\nEditar\nPERÍODO\n05/10/26 13:33 – 12/10/26 13:33\nEditar\nLOCALIZAÇÃO\nBrasil\nPOSICIONAMENTOS\nAdvantage+ (a Meta escolhe)\nEditar\n\nIDENTIDADE\n\nA Página e o Instagram que assinam o anúncio.\n\nPágina do Facebook\nP\nPágina sintética 222\nhabilitada\nprincipal\nConta do Instagram\nF\n@fixture_222\n\nPIXEL DE CONVERSÃO\n\nO pixel que registra as compras desta campanha.\n\nPixel sintético 222\nConfigurações avançadas de público\nIdade, gênero, inclusões, exclusões e biblioteca de públicos\n\nConfiguração efetiva em todos os novos conjuntos: 1 inclusão(ões) e 1 exclusão(ões) de públicos. O Advantage+ permanece no estado herdado.\n\nSegmentação efetiva por conjunto\n\nValores aplicados substituem somente o campo correspondente; os demais permanecem herdados.\n\nConjunto 1\n\nLocalização: Brasil\nExpansão: ativada (Advantage+)\nPúblicos personalizados: 1 (herdado)\nPúblicos excluídos: 1 (herdado)\nIdade: 18–65 (inherited)\nGênero: não especificado (inherited)\nPosicionamentos: automáticos (Advantage+)\nVoltar\nPublicar campanha\n\nA campanha sobe ativa na Meta assim que você aprovar.\n",
+    "values": [
+      {
+        "label": null,
+        "value": "https://example.test/oferta"
+      },
+      {
+        "label": "Orçamento diário",
+        "value": "30"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      }
+    ]
+  },
+  "before": {
+    "plans": 1,
+    "text": "Voltar para o cliente\nCriar campanha com IA\n\nTudo o que o cliente faz no app, na conta selecionada. Uma pergunta por vez; você aprova antes de publicar.\n\nPASSO 6 DE 6 · REVISÃO\n\nRevisar e publicar\n\nConfira o que vai ao ar. A campanha sobe ativa na Meta assim que você aprovar.\n\nCOM BASE NO ANÚNCIO VALIDADO\n\nAnúncio sintético validado · ROAS 8.0 · Gasto R$ 1.000,00\n\nCriativos\n\n1 anúncio(s) validado(s) copiado(s) e 1 mídia(s) nova(s).\n\nAnúncio sintético validado\n\nPost do Instagram\n\nOBJETIVO\nVendas no site\nBASE\nHistórico validado da conta\nORÇAMENTO DIÁRIO\nR$\n/dia\nR$ 210,00 estimados no período\nBOTÃO (CTA)\nSaiba mais\nEditar\nLINK DE DESTINO\nhttps://example.test/oferta\nEditar\nPERÍODO\n05/10/26 13:33 – 12/10/26 13:33\nEditar\nLOCALIZAÇÃO\nBrasil\nPOSICIONAMENTOS\nAdvantage+ (a Meta escolhe)\nEditar\n\nIDENTIDADE\n\nA Página e o Instagram que assinam o anúncio.\n\nPágina do Facebook\nP\nPágina sintética 222\nhabilitada\nprincipal\nConta do Instagram\nF\n@fixture_222\n\nPIXEL DE CONVERSÃO\n\nO pixel que registra as compras desta campanha.\n\nPixel sintético 222\nConfigurações avançadas de público\nIdade, gênero, inclusões, exclusões e biblioteca de públicos\n\nConfiguração efetiva em todos os novos conjuntos: 1 inclusão(ões) e 1 exclusão(ões) de públicos. O Advantage+ permanece no estado herdado.\n\nSegmentação efetiva por conjunto\n\nValores aplicados substituem somente o campo correspondente; os demais permanecem herdados.\n\nConjunto 1\n\nLocalização: Brasil\nExpansão: ativada (Advantage+)\nPúblicos personalizados: 1 (herdado)\nPúblicos excluídos: 1 (herdado)\nIdade: 18–65 (inherited)\nGênero: não especificado (inherited)\nPosicionamentos: automáticos (Advantage+)\nVoltar\nPublicar campanha\n\nA campanha sobe ativa na Meta assim que você aprovar.\n",
+    "values": [
+      {
+        "label": null,
+        "value": "https://example.test/oferta"
+      },
+      {
+        "label": "Orçamento diário",
+        "value": "30"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      },
+      {
+        "label": null,
+        "value": "on"
+      }
+    ]
+  },
+  "equalPlanCount": true,
+  "equalText": true,
+  "equalValues": true,
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/pages",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/company-locations",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/pixels",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/campaigns/ai/scan",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/instagram/user-media",
+      "query": "?userId=fixture-user&limit=12&instagramBusinessAccountId=ig222",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/instagram/user-media",
+      "query": "?userId=fixture-user&limit=12&instagramBusinessAccountId=ig222",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/campaigns/ai/plan",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "instagram-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "instagram-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?sources=instagram&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "instagram-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "instagram-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "upload",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user&sources=website",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user&sources=website",
+      "status": 200
+    },
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "delete-review",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "delete-confirm",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "action": "upload",
+      "fixture": true,
+      "method": "POST",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ]
+}
