@@ -64,7 +64,7 @@ Preparação realizada pelo orquestrador após self-review do plano, antes da Ta
 
 ```powershell
 $env:APP_ENV = 'staging'
-bun scripts/with-env.ts next dev --webpack -p 3016
+bun scripts/with-env.ts bun node_modules/next/dist/bin/next dev --webpack -p 3016
 ```
 
 7. Autenticar apenas localhost com o mecanismo existente de `backoffice_magic_session`; usar um admin allowlisted (`lib/config.ts`). Gerar token com `createBackofficeMagicSessionToken` e gravar em arquivo privado temporário, sem imprimir; instalar cookie com `agent-browser --session backoffice-audiences-task1 cookies set backoffice_magic_session <token> --url http://localhost:3016 --httpOnly`. Apagar arquivo privado no fim.
