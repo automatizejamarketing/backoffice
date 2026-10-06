@@ -46,9 +46,18 @@ export function assertSchedule(input: {
 }
 
 export const CAMPAIGN_STATE_LABELS: Record<string, string> = {
-  draft: "Precisa de configuração", scheduled: "Agendada", paused: "Pausada", completed: "Concluída",
+  draft: "Rascunho salvo", scheduled: "Agendada", paused: "Pausada", completed: "Concluída",
 };
 export const RECIPIENT_STATE_LABELS: Record<string, string> = {
   pending: "Na fila", sending: "Em envio", sent: "Enviado", failed: "Falhou",
   skipped: "Não elegível", unknown: "Verificar envio", excluded: "Excluído",
 };
+
+
+export type CampaignMetaLookup = "found" | "missing" | "unavailable" | "disconnected";
+export function campaignMetaLookupLabel(lookup: CampaignMetaLookup): string {
+  return { found: "Consultado", missing: "Template não encontrado", unavailable: "Consulta indisponível", disconnected: "Conexão pendente" }[lookup];
+}
+export function canConfirmCampaignSend(enabled: boolean, status?: string): boolean {
+  return enabled && status === "APPROVED";
+}

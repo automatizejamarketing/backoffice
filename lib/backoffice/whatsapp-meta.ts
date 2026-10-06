@@ -9,6 +9,10 @@ const templateSchema = z.object({
 });
 export type CampaignMetaTemplate = z.infer<typeof templateSchema>;
 
+export function whatsappTemplatesConfigured() {
+  return Boolean(process.env.META_WHATSAPP_ACCESS_TOKEN && process.env.META_WHATSAPP_WABA_ID);
+}
+
 export function whatsappMetaConfigured() {
   return Boolean(process.env.META_WHATSAPP_ACCESS_TOKEN && process.env.META_WHATSAPP_WABA_ID && process.env.META_WHATSAPP_PHONE_NUMBER_ID);
 }

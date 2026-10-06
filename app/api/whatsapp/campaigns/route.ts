@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
-import { findCampaignTemplate, submitCampaignTemplate, whatsappMetaConfigured } from "@/lib/backoffice/whatsapp-meta";
+import { findCampaignTemplate, submitCampaignTemplate, whatsappTemplatesConfigured } from "@/lib/backoffice/whatsapp-meta";
 
 export const maxDuration = 60;
 const uuid = z.string().uuid();
@@ -20,11 +20,13 @@ export async function GET(request: Request) {
     if (params.has('id')) {
       const id = uuid.parse(params.get('id'));
       const campaign = await getCampaign(id);
-      const [recipients, template] = await Promise.all([campaignRecipients(id), whatsappMetaConfigured() ? findCampaignTemplate(campaign.template_name) : Promise.resolve(null)]);
-      return NextResponse.json({ campaign, recipients, template });
+      const [recipients, lookup] = await Promise.all([campaignRecipients(id), whatsappTemplatesConfigured()
+        ? findCampaignTemplate(campaign.template_name).then(template => ({ template, metaLookup: template ? "found" : "missing" })).catch(() => ({ template: null, metaLookup: "unavailable" }))
+        : Promise.resolve({ template: null, metaLookup: "disconnected" })]);
+      return NextResponse.json({ campaign, recipients, ...lookup });
     }
     const [campaigns, audience, pricing] = await Promise.all([listCampaigns(), campaignAudience(), getCampaignPricing().catch(() => null)]);
-    return NextResponse.json({ campaigns, audience, pricing, configured: whatsappMetaConfigured(), enabled: process.env.WHATSAPP_CAMPAIGNS_ENABLED === 'true' });
+    return NextResponse.json({ campaigns, audience, pricing, configured: whatsappTemplatesConfigured(), enabled: process.env.WHATSAPP_CAMPAIGNS_ENABLED === 'true' });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {

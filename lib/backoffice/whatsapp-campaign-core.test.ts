@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { assertSchedule, campaignInput, campaignPhone } from "./whatsapp-campaign-core";
+import { assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES } from "./whatsapp-october-templates";
 
 describe("WhatsApp campaign validation", () => {
@@ -23,5 +23,19 @@ describe("WhatsApp campaign validation", () => {
     assert.equal(campaignInput.safeParse(input).success, true);
     for (const body of ["Olá [LINK_TRIAL]", "Olá {{2}}", "[NOME]", "a".repeat(1025)]) assert.equal(campaignInput.safeParse({ ...input, body }).success, false);
     for (const seed of OCTOBER_WHATSAPP_TEMPLATES) assert.equal(campaignInput.safeParse({ ...input, title: seed.title, templateName: seed.name, body: seed.body }).success, true);
+  });
+});
+
+
+describe("campaign connection and release status", () => {
+  it("distinguishes an unqueried template from one not found", () => {
+    assert.equal(campaignMetaLookupLabel('disconnected'), 'Conexão pendente');
+    assert.equal(campaignMetaLookupLabel('missing'), 'Template não encontrado');
+    assert.equal(campaignMetaLookupLabel('unavailable'), 'Consulta indisponível');
+  });
+  it("allows confirmation only with approval and enabled dispatch", () => {
+    assert.equal(canConfirmCampaignSend(true, 'APPROVED'),true);
+    for (const status of [undefined,'PENDING','REJECTED']) assert.equal(canConfirmCampaignSend(true,status),false);
+    assert.equal(canConfirmCampaignSend(false,'APPROVED'),false);
   });
 });
