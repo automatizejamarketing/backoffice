@@ -1,3 +1,4 @@
+import { campaignTemplateMatches } from "./whatsapp-campaign-core";
 import "server-only";
 import { db, postgresClient as pg } from "@/lib/db";
 import { sql } from "drizzle-orm";
@@ -36,7 +37,7 @@ export async function dispatchWhatsappCampaigns() {
   let processed = 0;
   for (const campaign of campaigns) {
     const template = await findCampaignTemplate(campaign.template_name);
-    if (template?.status !== 'APPROVED' || template.components.find(c => c.type === 'BODY')?.text !== campaign.body) {
+    if (template?.status !== 'APPROVED' || !campaignTemplateMatches(template,campaign.template_name,campaign.body)) {
       await pg`update whatsapp_campaigns set state='paused',updated_at=now(),updated_by='system:template' where id=${campaign.id} and state='scheduled'`;
       continue;
     }

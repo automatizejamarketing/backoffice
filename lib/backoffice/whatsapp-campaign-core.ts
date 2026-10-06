@@ -1,3 +1,4 @@
+import { campaignContactButton } from "./whatsapp-october-templates";
 import { z } from "zod";
 import { normalizeBrazilianPhone } from "@/lib/phone";
 
@@ -23,12 +24,21 @@ export function firstName(name: string | null): string {
 }
 
 export function campaignTemplateDefinition(name: string, body: string) {
+  const button = campaignContactButton(name);
   return {
     name, language: "pt_BR", category: "MARKETING",
     components: [{ type: "BODY", text: body,
       ...(body.includes("{{1}}") ? { example: { body_text: [["João"]] } } : {}),
-    }],
+    }, ...(button ? [{ type: "BUTTONS", buttons: [{ type: "URL", ...button }] }] : [])],
   };
+}
+
+export function campaignTemplateMatches(template: {components: Array<{type:string;text?:string;buttons?:unknown}>}|null, name:string, body:string): boolean {
+  if (template?.components.find(c=>c.type==='BODY')?.text !== body) return false;
+  const expected = campaignContactButton(name);
+  const buttons = template.components.find(c=>c.type==='BUTTONS')?.buttons;
+  if (!expected) return !buttons || (Array.isArray(buttons) && buttons.length===0);
+  return Array.isArray(buttons) && buttons.length===1 && buttons[0]?.type==='URL' && buttons[0]?.text===expected.text && buttons[0]?.url===expected.url;
 }
 
 export function assertSchedule(input: {

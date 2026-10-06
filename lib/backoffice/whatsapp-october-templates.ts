@@ -8,8 +8,9 @@ export const OCTOBER_WHATSAPP_TEMPLATES = [
   {
     date: "2026-10-05",
     title: "Você criou a conta. O que te travou?",
-    name: "outubro_2026_0510_atendimento_v1",
-    body: `Olá, {{1}}!! Vi que você criou sua conta na Automatize, mas ainda não começou o teste… 🥲\n\nFicou alguma dúvida? Pode ser sobre campanha, orçamento, pagamento ou qualquer outra parte da ferramenta.\n\nEnvie AGORA uma mensagem para nossa equipe, e ganhe uma Reunião de Implementação Gratuita: ${OCTOBER_SUPPORT_URL} 💜`,
+    name: "outubro_2026_0510_atendimento_v2",
+    button: { text: "Falar com a equipe", url: "https://www.automatizemarketing.com/contato" },
+    body: `Olá, {{1}}!! Vi que você criou sua conta na Automatize, mas ainda não começou o teste… 🥲\n\nFicou alguma dúvida? Pode ser sobre campanha, orçamento, pagamento ou qualquer outra parte da ferramenta.\n\nEnvie AGORA uma mensagem para nossa equipe, e ganhe uma Reunião de Implementação Gratuita. Toque no botão abaixo. 💜`,
   },
   {
     date: "2026-10-08",
@@ -41,3 +42,9 @@ export const OCTOBER_PENDING_MESSAGES = [
   { date: "2026-10-28", title: "O primeiro teste pode ser a sua próxima oferta", reason: "Aguardando vídeo, grupo e link do trial" },
   { date: "2026-10-29", title: "Você não precisa decidir no escuro", reason: "Aguardando destino do segundo CTA (trial)" },
 ] as const;
+
+/** Static URL buttons are registered with Meta; no URL parameter is sent at delivery. */
+export function campaignContactButton(templateName: string) {
+  const template = OCTOBER_WHATSAPP_TEMPLATES.find(item => item.name === templateName);
+  return template && 'button' in template ? template.button : null;
+}

@@ -1,3 +1,4 @@
+import { campaignTemplateMatches } from "./whatsapp-campaign-core";
 import { getCampaignPricing } from "./whatsapp-campaign-pricing";
 import "server-only";
 import { sql } from "drizzle-orm";
@@ -129,6 +130,7 @@ export async function saveCampaign(id: string, input: unknown, actor: string) {
 export async function scheduleCampaign(id: string, requestedDate: Date | null, userIds: string[], actor: string) {
   const campaign = await getCampaign(id);
   const template = await findCampaignTemplate(campaign.template_name);
+  if (!campaignTemplateMatches(template,campaign.template_name,campaign.body)) throw new Error("O texto e o botão precisam corresponder ao template aprovado.");
   if (template?.category !== "MARKETING") throw new Error("Esta campanha exige um template de Marketing.");
   const pricing = await getCampaignPricing();
   if (campaign.unit_cost_micros !== pricing.unitCostMicros) throw new Error("A tarifa da Meta mudou. Salve o rascunho novamente para atualizar a estimativa antes de confirmar.");
@@ -156,7 +158,7 @@ export async function setCampaignPaused(id: string, paused: boolean, actor: stri
   if (!paused) {
     const campaign = await getCampaign(id);
     const template = await findCampaignTemplate(campaign.template_name);
-    if (template?.status !== "APPROVED" || template.components.find(c => c.type === "BODY")?.text !== campaign.body)
+    if (template?.status !== "APPROVED" || !campaignTemplateMatches(template,campaign.template_name,campaign.body))
       throw new Error("O template precisa continuar aprovado e com o mesmo texto.");
   }
   const rows = await pg`update whatsapp_campaigns set state=${paused ? 'paused' : 'scheduled'},updated_by=${actor},updated_at=now()

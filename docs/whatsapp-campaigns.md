@@ -132,3 +132,16 @@ Cada tentativa tem uma chave própria; repetir a mesma requisição não dispara
 novo, mesmo quando a resposta se perde. **Preparar outro teste** inicia uma nova
 tentativa explícita. Respostas incertas pedem conferência no telefone, sem retry
 automático. O histórico de entrega usa a origem `backoffice_campaign_test`.
+
+## Botão de contato na campanha de 05/10
+
+A versão `outubro_2026_0510_atendimento_v2` substitui a URL longa no corpo por
+um botão estático **Falar com a equipe**. A Meta recusa links diretos para WhatsApp
+em botões de URL (erro 100/2388081); o destino é a página pública de contato
+`https://www.automatizemarketing.com/contato`, que contém o acesso ao WhatsApp de
+atendimento. Não há redirecionamento automático.
+
+A definição do botão fica junto ao texto do lote. Prévia, submissão, teste e
+envio oficial conferem o texto e a configuração do botão. O envio de um botão
+estático não requer parâmetro de URL no payload da mensagem. Os templates v1
+continuam disponíveis; campanhas já enviadas não devem ser alteradas.

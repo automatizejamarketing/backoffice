@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
-import { campaignTemplateDefinition } from "./whatsapp-campaign-core";
+import { campaignTemplateDefinition, campaignTemplateMatches } from "./whatsapp-campaign-core";
 
 const templateSchema = z.object({
   id: z.string(), name: z.string(), language: z.string(), status: z.string(),
@@ -55,8 +55,8 @@ export async function findCampaignTemplate(name: string): Promise<CampaignMetaTe
 export async function submitCampaignTemplate(name: string, body: string) {
   const existing = await findCampaignTemplate(name);
   if (existing) {
-    if (existing.components.find(c => c.type === "BODY")?.text !== body)
-      throw new Error("Esse nome já existe com outro texto. Use um novo nome/versionamento para aprovação.");
+    if (!campaignTemplateMatches(existing,name,body))
+      throw new Error("Esse nome já existe com outro texto ou botão. Use um novo nome/versionamento para aprovação.");
     return { id: existing.id, status: existing.status, existing: true };
   }
   const result = z.object({ id: z.string(), status: z.string() }).parse(await whatsappMetaRequest(`${waba()}/message_templates`, {
