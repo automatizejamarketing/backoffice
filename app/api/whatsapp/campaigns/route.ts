@@ -6,6 +6,8 @@ import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { campaignMetrics, saveCampaignAudience, campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
 import { findCampaignTemplate, submitCampaignTemplate, whatsappTemplatesConfigured } from "@/lib/backoffice/whatsapp-meta";
 
+import { campaignTestContacts, sendCampaignTest } from "@/lib/backoffice/whatsapp-campaign-test";
+
 export const maxDuration = 60;
 const uuid = z.string().uuid();
 function failure(error: unknown) {
@@ -18,6 +20,7 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
   try {
     const params = new URL(request.url).searchParams;
+    if(params.has('testContacts')) return NextResponse.json({contacts:await campaignTestContacts()});
     if(params.has('audience')) return NextResponse.json({audience:await campaignAudience(undefined,audienceFiltersSchema.parse(JSON.parse(params.get('audience')!)))});
     if (params.has('id')) {
       const id = uuid.parse(params.get('id'));
@@ -36,9 +39,10 @@ export async function POST(request: Request) {
   const auth = await requireBackofficePermissionResponse("whatsapp:campaigns");
   if (!auth.ok) return auth.response;
   try {
-    const input = z.object({action:z.enum(['saveAudience','save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
+    const input = z.object({action:z.enum(['sendTest','saveAudience','save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
     const actor = auth.actor.email;
     switch (input.action) {
+      case 'sendTest': return NextResponse.json(await sendCampaignTest(input.id,input.data,actor));
       case 'saveAudience': return NextResponse.json({campaign:await saveCampaignAudience(input.id,input.data,actor)});
       case 'save': {
         const data = z.object({ title:z.string(),templateName:z.string(),body:z.string(),budgetMicros:z.number() }).parse(input.data);

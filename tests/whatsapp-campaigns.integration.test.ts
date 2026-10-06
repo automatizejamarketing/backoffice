@@ -13,6 +13,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
   let dispatch: typeof import("../lib/backoffice/whatsapp-campaign-dispatch").dispatchWhatsappCampaigns;
   const originalFetch = globalThis.fetch;
   const originalEnvironment = { ...process.env };
+  let testSend: typeof import("../lib/backoffice/whatsapp-campaign-test");
   let sends = 0;
   let failAmbiguously = false;
   const body = "Olá {{1}}, conheça nossa plataforma.";
@@ -26,6 +27,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     process.env.META_WHATSAPP_PHONE_NUMBER_ID = "456";
     process.env.WHATSAPP_CAMPAIGNS_ENABLED = "true";
     ({ postgresClient: pg } = await import("../lib/db"));
+    testSend = await import("../lib/backoffice/whatsapp-campaign-test");
     campaigns = await import("../lib/backoffice/whatsapp-campaigns");
     ({ dispatchWhatsappCampaigns: dispatch } = await import("../lib/backoffice/whatsapp-campaign-dispatch"));
     await pg.unsafe(`
@@ -84,6 +86,46 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await campaigns.scheduleCampaign(id, new Date(Date.now() + 60_000), [userId], "test@example.invalid");
     await pg`update whatsapp_campaigns set scheduled_at=now()-interval '1 minute' where id=${id}`;
   }
+  it("sends repeatable isolated tests without consuming the campaign or its audience", async()=>{
+    const {id,userId}=await seed();
+    process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
+    await pg`insert into credit_transactions(user_id,type) values (${userId},'trial_grant')`;
+    assert.equal((await campaigns.campaignAudience(userId)).length,0);
+    const initial=await campaigns.getCampaign(id);
+    const request={userId,requestId:crypto.randomUUID()};
+    await Promise.all([testSend.sendCampaignTest(id,request,'admin'),testSend.sendCampaignTest(id,request,'admin')]);
+    assert.equal(sends,1);
+    assert.equal((await testSend.sendCampaignTest(id,request,'admin')).status,'accepted');
+    assert.equal((await testSend.sendCampaignTest(id,{userId,requestId:crypto.randomUUID()},'admin')).status,'accepted');
+    assert.equal(sends,2);
+    assert.deepEqual(await campaigns.getCampaign(id),initial);
+    assert.equal((await campaigns.campaignRecipients(id)).length,0);
+    assert.equal((await campaigns.campaignMetrics(id,7)).sent,0);
+    const deliveries=await pg`select source,current_status from whatsapp_template_deliveries`;
+    assert.ok(deliveries.every(row=>row.source==='backoffice_campaign_test'&&row.current_status==='delivered'));
+  });
+  it("rejects unconfigured test recipients, disabled sending and unapproved text without sending", async()=>{
+    const {id,userId}=await seed();
+    const request={userId,requestId:crypto.randomUUID()};
+    await assert.rejects(testSend.sendCampaignTest(id,request,'admin'),/habilitado para testes/);
+    process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
+    process.env.WHATSAPP_CAMPAIGNS_ENABLED='false';
+    await assert.rejects(testSend.sendCampaignTest(id,request,'admin'),/não está habilitado/);
+    process.env.WHATSAPP_CAMPAIGNS_ENABLED='true';
+    await pg`update whatsapp_campaigns set body='Alterado' where id=${id}`;
+    await assert.rejects(testSend.sendCampaignTest(id,request,'admin'),/template aprovado/);
+    assert.equal(sends,0);
+  });
+  it("does not retry an ambiguous test send and leaves the official campaign untouched", async()=>{
+    const {id,userId}=await seed();
+    process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
+    failAmbiguously=true;
+    const request={userId,requestId:crypto.randomUUID()};
+    assert.equal((await testSend.sendCampaignTest(id,request,'admin')).status,'unknown');
+    assert.equal((await testSend.sendCampaignTest(id,request,'admin')).status,'unknown');
+    assert.equal(sends,1);
+    assert.equal((await campaigns.getCampaign(id)).state,'draft');
+  });
   it("segments paid churn separately from expired trial and rechecks before dispatch", async()=>{
     const {id,userId}=await seed();
     await pg`update users set expiration_date=now()-interval '2 days' where id=${userId}`;
