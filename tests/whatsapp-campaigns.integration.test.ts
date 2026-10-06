@@ -62,6 +62,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await pg`truncate whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,payments,users cascade`;
     sends = 0; failAmbiguously = false;
     process.env.WHATSAPP_CAMPAIGNS_ENABLED = "true";
+    delete process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS;
   });
   after(async () => {
     globalThis.fetch = originalFetch;
@@ -135,6 +136,26 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await pg`insert into conversation_events values (${conversation.id},'message.received')`;
     assert.equal((await campaigns.campaignAudience()).length, 0);
   });
+  it("excludes a phone with inbound history stored without the ninth digit", async()=>{
+    const {userId}=await seed();
+    const [conversation]=await pg`insert into conversations(channel,phone_e164) values ('whatsapp','+552297259506') returning id`;
+    await pg`insert into conversation_events values (${conversation.id},'message.received')`;
+    assert.equal((await campaigns.campaignAudience(userId)).length,0);
+  });
+  it("allows only the explicit QA account while preserving status filters and excluding its duplicates",async()=>{
+    const {id,userId}=await seed();
+    await pg`insert into backoffice_users values ('test@example.invalid')`;
+    const [peer]=await pg`insert into users(email,phone,expiration_date) values ('qa-other@example.invalid','+5522997259506',now()-interval '1 day') returning id`;
+    assert.equal((await campaigns.campaignAudience(userId)).length,0);
+    process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
+    assert.equal((await campaigns.campaignAudience(userId)).length,1);
+    assert.equal((await campaigns.campaignAudience(peer.id)).length,0);
+    await schedule(id,userId);
+    await dispatch();assert.equal(sends,1);
+    await pg`insert into credit_transactions(user_id,type) values (${userId},'trial_grant')`;
+    assert.equal((await campaigns.campaignAudience(userId)).length,0);
+    delete process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS;
+  });
   it("does not let five interrupted campaigns starve a later campaign", async () => {
     const { id, userId } = await seed();
     await schedule(id, userId);
@@ -171,6 +192,15 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     assert.equal(delivery.current_status, "delivered");
     assert.ok(delivery.delivered_at);
     assert.equal((await campaigns.getCampaign(id)).state, "completed");
+  });
+  it("recovers a persisted Meta message ID without sending again",async()=>{
+    const {id,userId}=await seed();await schedule(id,userId);await dispatch();
+    await pg`update whatsapp_campaign_recipients set state='unknown' where campaign_id=${id}`;
+    await pg`update whatsapp_campaigns set state='paused' where id=${id}`;
+    await dispatch();
+    assert.equal(sends,1);
+    assert.equal((await campaigns.campaignRecipients(id))[0].state,'sent');
+    assert.equal((await campaigns.getCampaign(id)).state,'paused');
   });
   it("never retries an ambiguous send and pauses the campaign", async () => {
     const { id, userId } = await seed(); await schedule(id, userId);

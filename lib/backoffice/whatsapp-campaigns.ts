@@ -22,7 +22,9 @@ export type CampaignAudience = { id: string; name: string | null; email: string;
 
 function phoneSql(column: string) {
   const digits = `regexp_replace(${column}, '[^0-9]', '', 'g')`;
-  return `case when length(${digits}) <= 11 then '55' || ${digits} else ${digits} end`;
+  const international = `(case when length(${digits}) <= 11 then '55' || ${digits} else ${digits} end)`;
+  // Match legacy mobile numbers without the ninth digit to the same contact.
+  return `case when ${international} ~ '^55[1-9]{2}9[6-9][0-9]{7}$' then left(${international},4) || right(${international},8) else ${international} end`;
 }
 const excludedEmails = [...ADMIN_EMAILS, ...CUSTOMER_BASE_TRIAL_EXCLUDED_EMAILS].map(v => v.toLowerCase());
 // Classification uses paid subscription history, never subscription existence as proof of payment.
@@ -36,25 +38,28 @@ const classifiedUsersSql = `select u.*,
       and not exists(select 1 from credit_transactions t where t.user_id=u.id and t.type='trial_grant') then 'never_started'
     else 'other' end as account_status,
   (exists(select 1 from crm_leads l where l.user_id=u.id and l.commercial_status<>'novo_lead')
-    or exists(select 1 from conversations c join conversation_events e on e.conversation_id=c.id
-      where c.channel='whatsapp' and e.type='message.received' and (c.user_id=u.id or ${phoneSql('c.phone_e164')}=${phoneSql('u.phone')}))) as contacted,
+    or exists(select 1 from inbound_contacts c where c.user_id=u.id or c.phone_key=u.phone_key)) as contacted,
   (lower(u.email)=any($1::text[]) or exists(select 1 from backoffice_users b where lower(b.email)=lower(u.email))) as internal
-  from users u`;
+  from normalized_users u`;
 
 export async function campaignAudience(userId?: string, input: AudienceFilters = DEFAULT_AUDIENCE_FILTERS): Promise<CampaignAudience[]> {
   const filters=audienceFiltersSchema.parse(input);
-  const rows=await pg.unsafe<CampaignAudience[]>(`with classified as (${classifiedUsersSql})
+  const rows=await pg.unsafe<CampaignAudience[]>(`with normalized_users as materialized (select u.*,${phoneSql('u.phone')} as phone_key from users u),
+    inbound_contacts as materialized (select distinct c.user_id,${phoneSql('c.phone_e164')} as phone_key
+      from conversations c join conversation_events e on e.conversation_id=c.id
+      where c.channel='whatsapp' and e.type='message.received'),
+    classified as materialized (${classifiedUsersSql})
     select u.id,u.name,u.email,u.phone,u.created_at,u.expiration_date,u.account_status from classified u
-    where not u.internal and u.account_status=any($2::text[]) and (not $3::boolean or not u.contacted)
+    where (not u.internal or u.id=any($9::uuid[])) and u.account_status=any($2::text[]) and (not $3::boolean or not u.contacted or u.id=any($9::uuid[]))
     and ($4::date is null or u.created_at >= $4::date::timestamp at time zone 'America/Sao_Paulo')
     and ($5::date is null or u.created_at < ($5::date+1)::timestamp at time zone 'America/Sao_Paulo')
     and ($6::date is null or u.expiration_date >= $6::date::timestamp at time zone 'America/Sao_Paulo')
     and ($7::date is null or u.expiration_date < ($7::date+1)::timestamp at time zone 'America/Sao_Paulo')
-    and not exists(select 1 from classified peer where ${phoneSql('peer.phone')}=${phoneSql('u.phone')}
-      and (peer.internal or not(peer.account_status=any($2::text[])) or ($3::boolean and peer.contacted)))
+    and (u.id=any($9::uuid[]) or not exists(select 1 from classified peer where peer.phone_key=u.phone_key
+      and (peer.internal or not(peer.account_status=any($2::text[])) or ($3::boolean and peer.contacted))))
     and ($8::uuid is null or u.id=$8::uuid)
     order by u.created_at asc nulls last,u.id limit 10001`,
-    [excludedEmails,filters.statuses,filters.excludeContacted,filters.createdFrom||null,filters.createdTo||null,filters.expiresFrom||null,filters.expiresTo||null,userId||null]);
+    [excludedEmails,filters.statuses,filters.excludeContacted,filters.createdFrom||null,filters.createdTo||null,filters.expiresFrom||null,filters.expiresTo||null,userId||null,(process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS??'').split(',').map(v=>v.trim()).filter(v=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v))]);
   if(rows.length>10000)throw new Error('Mais de 10.000 contas. Restrinja os filtros para selecionar o público completo.');
   const phones=new Set<string>();
   return rows.flatMap(row=>{const phone=campaignPhone(row.phone);if(!phone||phones.has(phone))return [];phones.add(phone);return [{...row,phone}];});

@@ -9,6 +9,18 @@ import { reconcileWhatsappTemplateDelivery } from "@/lib/meta-business/whatsapp/
 /** A sending claim is never retried automatically: Meta has no send idempotency key. */
 export async function dispatchWhatsappCampaigns() {
   if (process.env.WHATSAPP_CAMPAIGNS_ENABLED !== "true") return { enabled: false, processed: 0 };
+  // A persisted provider ID proves acceptance; recover local bookkeeping without resending.
+  const recoverable=await pg<{id:string;provider_message_id:string}[]>`select r.id,d.provider_message_id
+    from whatsapp_campaign_recipients r join whatsapp_template_deliveries d on d.id=r.delivery_id
+    where d.provider_message_id is not null and (r.state='unknown' or (r.state='sending' and r.updated_at<now()-interval '10 minutes'))
+    limit 100`;
+  for(const recipient of recoverable) {
+    await db.transaction(async tx=>{
+      await reconcileWhatsappTemplateDelivery(tx,recipient.provider_message_id);
+      await tx.execute(sql`update whatsapp_campaign_recipients set state='sent',reason=null,updated_at=now()
+        where id=${recipient.id} and state in ('unknown','sending')`);
+    });
+  }
   await pg`update whatsapp_campaign_recipients set state='unknown',reason='Envio interrompido. Verifique na Meta antes de tentar novamente.',updated_at=now()
     where state='sending' and updated_at < now() - interval '10 minutes'`;
   // Empty or uncertain campaigns must not occupy all five executable slots.
