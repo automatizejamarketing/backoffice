@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, CalendarClock, Loader2, Plus, RefreshCw } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, CalendarClock, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,8 @@ export function WhatsappCampaignsClient() {
   const [query,setQuery]=useState('');
   const [confirmed,setConfirmed]=useState(false);
   const [audienceFilters,setAudienceFilters]=useState<AudienceFilters>(DEFAULT_AUDIENCE_FILTERS);
+  const [filtersExpanded,setFiltersExpanded]=useState(true);
+  const filtersPanelId=useId();
   const [filtersApplied,setFiltersApplied]=useState(true);
   const [reportDays,setReportDays]=useState(7);
   const [pendingExpanded,setPendingExpanded]=useState(false);
@@ -89,7 +91,7 @@ export function WhatsappCampaignsClient() {
     catch(e){setFiltersApplied(false);toast.error((e as Error).message);}finally{setBusy(false);}
   }
   function changeFilters(filters:AudienceFilters){setAudienceFilters(filters);setFiltersApplied(false);setAudience([]);setSelected([]);setConfirmed(false);}
-  async function configureAudience(){if(!detail)return;const filters=detail.campaign.audience_filters??DEFAULT_AUDIENCE_FILTERS;setAudienceFilters(filters);setScheduledAt('');setDispatchMode('manual');setQuery('');setScheduleOpen(true);await loadAudience(filters);}
+  async function configureAudience(){if(!detail)return;const filters=detail.campaign.audience_filters??DEFAULT_AUDIENCE_FILTERS;setAudienceFilters(filters);setScheduledAt('');setDispatchMode('manual');setQuery('');setFiltersExpanded(true);setScheduleOpen(true);await loadAudience(filters);}
   const totalSent=campaigns.reduce((sum,c)=>sum+c.sent,0);
   const estimated=campaigns.reduce((sum,c)=>sum+c.delivered*c.unit_cost_micros,0);
   const visibleAudience=audience.filter(c=>`${c.name} ${c.email}`.toLowerCase().includes(query.toLowerCase()));
@@ -165,8 +167,14 @@ export function WhatsappCampaignsClient() {
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm"><input type="radio" name="dispatch-mode" className="mt-1 accent-primary" checked={dispatchMode==='scheduled'} onChange={()=>{setDispatchMode('scheduled');setConfirmed(false);}}/><span className="flex-1"><span className="block font-medium">Automático · agendar</span><span className="text-muted-foreground">Começa na data e hora escolhidas, sem precisar voltar para confirmar.</span></span></label>
         </fieldset>
         {dispatchMode==='scheduled'&&<label className="block space-y-1 text-sm">Data e hora · Brasília<Input type="datetime-local" value={scheduledAt} onChange={e=>{setScheduledAt(e.target.value);setConfirmed(false);}}/></label>}
-        <fieldset disabled={busy} className="min-w-0 border-t pt-4"><legend className="sr-only">Público da campanha</legend>
-          <h3 aria-hidden="true" className="text-sm font-medium">Público da campanha</h3>
+        <section className="min-w-0 border-t pt-2">
+          <button type="button" aria-expanded={filtersExpanded} aria-controls={filtersPanelId} onClick={()=>setFiltersExpanded(value=>!value)} className="flex w-full items-center justify-between gap-3 rounded-md py-2 text-left text-sm outline-none hover:text-foreground/80 focus-visible:ring-2 focus-visible:ring-ring">
+            <span className="min-w-0"><span className="block font-medium">Público da campanha</span>{!filtersExpanded&&<span className="mt-1 block text-xs text-muted-foreground">{audienceFilters.statuses.map(status=>AUDIENCE_STATUSES[status]).join(' · ')||'Nenhuma situação selecionada'}{(audienceFilters.createdFrom||audienceFilters.createdTo)?' · Cadastro filtrado':''}{(audienceFilters.expiresFrom||audienceFilters.expiresTo)?' · Expiração filtrada':''}{audienceFilters.excludeContacted?' · Exclui atendidos':''}{!filtersApplied?' · Alterações não salvas':''}</span>}</span>
+            <ChevronDown aria-hidden="true" className={`size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-out motion-reduce:transition-none ${filtersExpanded?'rotate-180':''}`}/>
+          </button>
+          <div id={filtersPanelId} inert={!filtersExpanded} aria-hidden={!filtersExpanded} className={`grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none ${filtersExpanded?'grid-rows-[1fr] opacity-100':'grid-rows-[0fr] opacity-0'}`}>
+          <div className="min-h-0 overflow-hidden">
+          <fieldset disabled={busy} className="min-w-0"><legend className="sr-only">Filtros do público</legend>
           <div className="mt-4 grid min-w-0 gap-x-6 gap-y-2.5 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:gap-y-5">
             <div id="audience-status-label" className="text-sm sm:pt-1.5"><span className="font-medium">Situação da conta</span><span className="block text-xs text-muted-foreground">Uma ou mais</span></div>
             <ToggleGroup type="multiple" variant="outline" size="sm" spacing={2} aria-labelledby="audience-status-label" className="w-full min-w-0 flex-wrap"
@@ -195,6 +203,9 @@ export function WhatsappCampaignsClient() {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">Contas internas e telefones duplicados ficam de fora. Os filtros são conferidos de novo antes de cada envio.</p>
         </fieldset>
+          </div>
+          </div>
+        </section>
         <div className="flex flex-wrap items-center gap-2"><Input className="min-w-0 basis-full sm:basis-0 sm:flex-1" aria-label="Buscar destinatários" placeholder="Buscar por nome ou email" value={query} onChange={e=>setQuery(e.target.value)}/><Button variant="outline" size="sm" disabled={busy||!filtersApplied} onClick={()=>{setSelected(visibleAudience.map(c=>c.id));setConfirmed(false);}}>Selecionar filtrados</Button><Button variant="ghost" size="sm" onClick={()=>{setSelected([]);setConfirmed(false);}}>Limpar</Button></div>
         <div className="max-h-56 overflow-y-auto rounded-md border">{visibleAudience.map(c=><label key={c.id} className="flex cursor-pointer items-start gap-3 border-b p-3 text-sm last:border-b-0 hover:bg-muted/30"><Checkbox className="mt-0.5" checked={selected.includes(c.id)} onCheckedChange={checked=>{setSelected(checked===true?[...selected,c.id]:selected.filter(id=>id!==c.id));setConfirmed(false);}}/><span className="min-w-0 [overflow-wrap:anywhere]">{c.name??c.email}<span className="block text-xs text-muted-foreground">{c.email}</span><span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><Badge variant="secondary">{AUDIENCE_STATUSES[c.account_status]}</Badge><span>Criada: {c.created_at?dateLabel(c.created_at):'Não informada'}</span><span>Expira: {c.expiration_date?dateLabel(c.expiration_date):'Sem data'}</span></span></span></label>)}{!visibleAudience.length&&<p className="p-4 text-sm text-muted-foreground">Nenhum contato elegível encontrado.</p>}</div>
         <div className="flex flex-wrap justify-between gap-2 border-y py-3 text-sm"><span>{selected.length} destinatários</span><span className={aboveBudget?'text-destructive font-medium':'font-medium'}>Estimativa: {currency(selectedCost)} · orçamento: {currency(Number(detail?.campaign.budget_micros??0))}</span></div>
