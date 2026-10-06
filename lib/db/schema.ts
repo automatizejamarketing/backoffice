@@ -9956,6 +9956,7 @@ export const whatsappCampaign = pgTable("whatsapp_campaigns", {
   title: varchar("title", { length: 160 }).notNull(),
   templateName: varchar("template_name", { length: 255 }).notNull(),
   body: text("body").notNull(),
+  audienceFilters: jsonb("audience_filters").notNull().default({ statuses: ["never_started"], createdFrom: "", createdTo: "", expiresFrom: "", expiresTo: "", excludeContacted: true }),
   state: varchar("state", { length: 24 }).$type<"draft" | "scheduled" | "paused" | "completed">().notNull().default("draft"),
   dispatchMode: varchar("dispatch_mode", { length: 16 }).$type<"manual" | "scheduled">().notNull().default("manual"),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),

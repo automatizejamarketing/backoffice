@@ -31,7 +31,8 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await pg.unsafe(`
       CREATE TABLE users(id uuid primary key default gen_random_uuid(),name text,email text,phone text,expiration_date timestamp,created_at timestamp default now());
       CREATE TABLE subscriptions(user_id uuid);
-      CREATE TABLE credit_transactions(user_id uuid,type text);
+      CREATE TABLE credit_transactions(user_id uuid,type text,created_at timestamp default now());
+      CREATE TABLE payments(user_id uuid,status text,amount integer,purpose text,paid_at timestamp);
       CREATE TABLE backoffice_users(email text);
       CREATE TABLE crm_leads(user_id uuid,commercial_status text);
       CREATE TABLE conversations(id uuid primary key default gen_random_uuid(),user_id uuid,channel text,phone_e164 text);
@@ -40,6 +41,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
       CREATE TABLE whatsapp_template_status_events(id uuid primary key default gen_random_uuid(),delivery_id uuid references whatsapp_template_deliveries(id),event_key text unique,provider_message_id text,provider_status text,provider_status_at timestamp,failure_code text,failure_detail text,created_at timestamp default now());
     `);
     await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0110_whatsapp_campaigns.sql", import.meta.url), "utf8"));
+    await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0127_whatsapp_campaign_audience.sql", import.meta.url), "utf8"));
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const requestUrl = new URL(String(input));
       if (requestUrl.hostname === "whatsappbusiness.com") return requestUrl.pathname.includes('/wp-json/')
@@ -57,7 +59,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     }) as typeof fetch;
   });
   beforeEach(async () => {
-    await pg`truncate whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,users cascade`;
+    await pg`truncate whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,payments,users cascade`;
     sends = 0; failAmbiguously = false;
     process.env.WHATSAPP_CAMPAIGNS_ENABLED = "true";
   });
@@ -67,7 +69,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
       if (originalEnvironment[key] === undefined) delete process.env[key]; else process.env[key] = originalEnvironment[key];
     }
     if (pg) {
-      await pg`drop table if exists whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,users cascade`;
+      await pg`drop table if exists whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,payments,users cascade`;
       await pg.end();
     }
   });
@@ -81,11 +83,42 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await campaigns.scheduleCampaign(id, new Date(Date.now() + 60_000), [userId], "test@example.invalid");
     await pg`update whatsapp_campaigns set scheduled_at=now()-interval '1 minute' where id=${id}`;
   }
+  it("segments paid churn separately from expired trial and rechecks before dispatch", async()=>{
+    const {id,userId}=await seed();
+    await pg`update users set expiration_date=now()-interval '2 days' where id=${userId}`;
+    const filters={statuses:['churn'],excludeContacted:false};
+    const saved=await campaigns.saveCampaignAudience(id,filters,'test@example.invalid');
+    assert.equal((await campaigns.campaignAudience(undefined,saved.audience_filters)).length,0);
+    await pg`insert into payments values (${userId},'succeeded',100,'subscription',now()-interval '30 days')`;
+    assert.equal((await campaigns.campaignAudience(undefined,saved.audience_filters)).length,1);
+    await schedule(id,userId);
+    await pg`update users set expiration_date=now()+interval '30 days' where id=${userId}`;
+    await dispatch();assert.equal(sends,0);
+    assert.equal((await pg`select state from whatsapp_campaign_recipients where campaign_id=${id}`)[0].state,'skipped');
+  });
+  it("combines inclusive creation dates with explicit contact-history exclusion",async()=>{
+    const {userId}=await seed();
+    await pg`update users set created_at='2026-10-06 14:00:00' where id=${userId}`;
+    const saved=await campaigns.saveCampaignAudience((await campaigns.listCampaigns())[0].id,{createdFrom:'2026-10-06',createdTo:'2026-10-06'},'test@example.invalid');
+    assert.equal((await campaigns.campaignAudience(undefined,saved.audience_filters)).length,1);
+    assert.equal((await campaigns.campaignAudience(undefined,{...saved.audience_filters,createdFrom:'2026-10-07',createdTo:'2026-10-07'})).length,0);
+    await pg`insert into crm_leads values(${userId},'em_atendimento')`;
+    assert.equal((await campaigns.campaignAudience(undefined,saved.audience_filters)).length,0);
+    assert.equal((await campaigns.campaignAudience(undefined,{...saved.audience_filters,excludeContacted:false})).length,1);
+  });
+  it("counts unique trials and positive subscription payments only after delivery within the chosen window",async()=>{
+    const {id,userId}=await seed();await schedule(id,userId);await dispatch();
+    await pg`update whatsapp_template_deliveries set delivered_at=now()-interval '10 days',read_at=now()-interval '9 days'`;
+    await pg`insert into credit_transactions values (${userId},'trial_grant',now()-interval '8 days'),(${userId},'trial_grant',now()-interval '8 days')`;
+    await pg`insert into payments values (${userId},'succeeded',100,'subscription',now()),(${userId},'succeeded',100,'subscription',now()),(${userId},'succeeded',100,'credit_purchase',now()-interval '9 days')`;
+    const week=await campaigns.campaignMetrics(id,7);assert.equal(week.trials,1);assert.equal(week.paying,0);assert.equal(week.read,1);
+    const fortnight=await campaigns.campaignMetrics(id,14);assert.equal(fortnight.paying,1);assert.equal(fortnight.trials,1);
+  });
   it("deduplicates phones and excludes trials, subscriptions, CRM contacts, internal users and inbound conversations", async () => {
     const { userId } = await seed();
     await pg`insert into users(email,phone) values ('duplicate@example.invalid','+55 22 99725-9506')`;
     assert.equal((await campaigns.campaignAudience()).length, 1);
-    await pg`insert into credit_transactions values (${userId},'trial_grant')`;
+    await pg`insert into credit_transactions(user_id,type) values (${userId},'trial_grant')`;
     // Exclusions follow the phone even when another account has no history.
     assert.equal((await campaigns.campaignAudience()).length, 0);
     await pg`delete from credit_transactions`;

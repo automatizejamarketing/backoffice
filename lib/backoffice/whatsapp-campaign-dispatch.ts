@@ -43,9 +43,9 @@ export async function dispatchWhatsappCampaigns() {
       let deliveryId: string | null = null;
       let attempted = false;
       try {
-        const contact = (await campaignAudience(recipient.user_id))[0];
+        const contact = (await campaignAudience(recipient.user_id,campaign.audience_filters))[0];
         if (!contact || contact.phone !== recipient.phone) {
-          await pg`update whatsapp_campaign_recipients set state='skipped',reason='Trial, assinatura, contato comercial ou telefone alterado.',updated_at=now() where id=${recipient.id}`;
+          await pg`update whatsapp_campaign_recipients set state='skipped',reason='Contato deixou de corresponder aos filtros ou alterou o telefone.',updated_at=now() where id=${recipient.id}`;
           continue;
         }
         const [active] = await pg`select id from whatsapp_campaigns where id=${campaign.id} and state='scheduled'`;

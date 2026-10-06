@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CalendarClock, Loader2, Plus, RefreshCw } from "lucide-react";
+import { ArrowLeft, Check, CalendarClock, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,22 +15,24 @@ import { campaignBudgetMicros, formatCampaignBudgetInput, campaignBudgetReach } 
 import { WhatsappMessagePreview } from "./whatsapp-message-preview";
 import type { CampaignMetaTemplate } from "@/lib/backoffice/whatsapp-meta";
 
+import { AUDIENCE_STATUSES, DEFAULT_AUDIENCE_FILTERS, templateRejectionReason, readRate, type AudienceFilters, type AudienceStatus } from "@/lib/backoffice/whatsapp-campaign-audience";
 import type { CampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
 
 type Campaign = {
-  id: string; title: string; template_name: string; body: string; state: string;
+  id: string; title: string; template_name: string; body: string; state: string; audience_filters: AudienceFilters;
   scheduled_at: string | null; dispatch_mode: "manual" | "scheduled"; unit_cost_micros: number; budget_micros: string;
   total: number; sent: number; delivered: number; read: number; failed: number; pending: number; unknown: number; excluded: number;
 };
-type Contact = { id: string; name: string | null; email: string; phone: string };
+type Contact = { id: string; name: string | null; email: string; phone: string; created_at: string | null; expiration_date: string | null; account_status: AudienceStatus };
 type Recipient = { id: string; name: string | null; email: string; state: string; reason: string | null; current_status: string | null };
-type Detail = { metaLookup: CampaignMetaLookup; campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
+type Metrics = { total:number; sent:number; delivered:number; read:number; failed:number; tracked_clicks:number; trials:number; paying:number; windowDays:number };
+type Detail = { metrics: Metrics; metaLookup: CampaignMetaLookup; campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
 type Form = { id: string; title: string; templateName: string; body: string; budget: string };
 const currency = (micros: number) => (micros / 1_000_000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateLabel = (date: string) => new Date(date).toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo",dateStyle:"short",timeStyle:"short"});
 const templateStatus: Record<string,string> = {APPROVED:"Aprovado",PENDING:"Em análise",REJECTED:"Rejeitado",PAUSED:"Pausado",DISABLED:"Desativado"};
-async function api(body?: unknown, id?: string) {
-  const response = await fetch(`/api/whatsapp/campaigns${id ? `?id=${id}` : ''}`, body ? { method: 'POST', headers: {'Content-Type':'application/json'}, body:JSON.stringify(body) } : {cache:'no-store'});
+async function api(body?: unknown, id?: string, days=7) {
+  const response = await fetch(`/api/whatsapp/campaigns${id ? `?id=${id}&days=${days}` : ''}`, body ? { method: 'POST', headers: {'Content-Type':'application/json'}, body:JSON.stringify(body) } : {cache:'no-store'});
   const payload = await response.json();
   if(!response.ok)throw new Error(payload.error || 'Não foi possível carregar as campanhas.');
   return payload;
@@ -54,6 +56,9 @@ export function WhatsappCampaignsClient() {
   const [dispatchMode,setDispatchMode]=useState<'manual'|'scheduled'>('manual');
   const [query,setQuery]=useState('');
   const [confirmed,setConfirmed]=useState(false);
+  const [audienceFilters,setAudienceFilters]=useState<AudienceFilters>(DEFAULT_AUDIENCE_FILTERS);
+  const [filtersApplied,setFiltersApplied]=useState(true);
+  const [reportDays,setReportDays]=useState(7);
   const [pendingExpanded,setPendingExpanded]=useState(false);
   const reload=useCallback(async()=>{
     setLoading(true);setError('');
@@ -62,7 +67,7 @@ export function WhatsappCampaignsClient() {
     finally {setLoading(false);}
   },[]);
   useEffect(()=>{void reload();},[reload]);
-  async function inspect(id:string){setBusy(true);try{setDetail(await api(undefined,id));}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
+  async function inspect(id:string,days=reportDays){setBusy(true);try{setDetail(await api(undefined,id,days));}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
   async function mutate(action:string,id:string,data?:unknown){
     setBusy(true);
     try {const result=await api({action,id,data});await reload();return result;}
@@ -73,6 +78,13 @@ export function WhatsappCampaignsClient() {
     setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:''});
   }
   function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros))});}
+  async function loadAudience(filters:AudienceFilters) {
+    setBusy(true);setAudience([]);setSelected([]);setConfirmed(false);
+    try {const response=await fetch(`/api/whatsapp/campaigns?audience=${encodeURIComponent(JSON.stringify(filters))}`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(result.error);setAudience(result.audience);setFiltersApplied(true);}
+    catch(e){setFiltersApplied(false);toast.error((e as Error).message);}finally{setBusy(false);}
+  }
+  function changeFilters(filters:AudienceFilters){setAudienceFilters(filters);setFiltersApplied(false);setAudience([]);setSelected([]);setConfirmed(false);}
+  async function configureAudience(){if(!detail)return;const filters=detail.campaign.audience_filters??DEFAULT_AUDIENCE_FILTERS;setAudienceFilters(filters);setScheduledAt('');setDispatchMode('manual');setQuery('');setScheduleOpen(true);await loadAudience(filters);}
   const totalSent=campaigns.reduce((sum,c)=>sum+c.sent,0);
   const estimated=campaigns.reduce((sum,c)=>sum+c.delivered*c.unit_cost_micros,0);
   const visibleAudience=audience.filter(c=>`${c.name} ${c.email}`.toLowerCase().includes(query.toLowerCase()));
@@ -83,7 +95,7 @@ export function WhatsappCampaignsClient() {
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div><Link href="/whatsapp" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5"/>Histórico do WhatsApp</Link>
         <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">Campanhas de WhatsApp</h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Prepare as mensagens, acompanhe a aprovação da Meta e programe os envios para quem ainda não começou o trial.</p>
+        <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Prepare as mensagens, segmente seus clientes e acompanhe a aprovação e os resultados das campanhas.</p>
       </div><div className="flex gap-2"><Button variant="outline" size="icon" aria-label="Atualizar campanhas" onClick={reload} disabled={loading||busy}><RefreshCw className="size-4"/></Button><Button onClick={()=>draft()}><Plus className="size-4"/>Nova campanha</Button></div>
     </header>
     {error ? <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm">{error}<Button className="ml-3" variant="outline" size="sm" onClick={reload}>Tentar novamente</Button></div> : !loading && (!configured || !enabled) ? <div className="rounded-lg border bg-muted/40 p-4 text-sm"><p className="font-medium">{!configured?'Conecte a conta do WhatsApp para enviar os templates à Meta.':'O processamento das campanhas ainda não está habilitado.'}</p><p className="mt-1 text-muted-foreground">Você pode preparar rascunhos. Nenhuma mensagem será enviada enquanto essa configuração estiver pendente.</p></div> : null}
@@ -139,17 +151,8 @@ export function WhatsappCampaignsClient() {
         <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
       </form>}
     </DialogContent></Dialog>
-    <Dialog open={Boolean(detail)&&!scheduleOpen} onOpenChange={open=>{if(!open&&!busy)setDetail(null);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>{detail?.campaign.title}</DialogTitle><DialogDescription>Aprovação, público e acompanhamento desta campanha.</DialogDescription></DialogHeader>
-      {detail&&<div className="space-y-4"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{detail.campaign.state==='scheduled'&&detail.campaign.dispatch_mode==='manual'?'Envio iniciado':CAMPAIGN_STATE_LABELS[detail.campaign.state]}</Badge><Badge variant="outline">Meta: {detail.template?(templateStatus[detail.template.status]??detail.template.status):campaignMetaLookupLabel(detail.metaLookup)}</Badge></div>
-        {detail.metaLookup==='disconnected'&&<p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Seu rascunho está salvo. A conexão do backoffice com a Meta precisa ser configurada para consultar e enviar templates. Isso não informa se o template já foi enviado pelo WhatsApp Manager.</p>}
-        {detail.metaLookup==='unavailable'&&<p role="status" className="text-sm text-muted-foreground">Não foi possível consultar a Meta. Use Atualizar status para tentar novamente.</p>}
-        <WhatsappMessagePreview body={detail.campaign.body}/>
-        {detail.template?.rejected_reason&&<p role="alert" className="text-sm text-destructive">{detail.template.rejected_reason}</p>}
-        <div className="flex flex-wrap gap-2">{detail.campaign.state==='draft'?<><Button variant="outline" disabled={busy} onClick={()=>edit(detail.campaign)}>Editar</Button><Button variant="outline" disabled={busy||!configured} onClick={async()=>{const result=await mutate('submit',detail.campaign.id);if(result){toast.success(result.existing?'Template já cadastrado na Meta.':'Template enviado para análise da Meta.');await inspect(detail.campaign.id);}}}>Enviar template à Meta</Button><Button disabled={busy} onClick={()=>{setSelected([]);setScheduledAt('');setDispatchMode('manual');setConfirmed(false);setQuery('');setScheduleOpen(true);}}><CalendarClock className="size-4"/>Configurar envio</Button></>:detail.campaign.state==='scheduled'||detail.campaign.state==='paused'?<Button disabled={busy} variant="outline" onClick={async()=>{if(await mutate(detail.campaign.state==='paused'?'resume':'pause',detail.campaign.id)){await inspect(detail.campaign.id);toast.success('Campanha atualizada.');}}}>{detail.campaign.state==='paused'?'Retomar envios':'Pausar envios'}</Button>:null}<Button variant="ghost" disabled={busy} onClick={()=>inspect(detail.campaign.id)}>Atualizar status</Button></div>
-        {detail.recipients.length>0&&<div className="overflow-x-auto border-t"><p className="py-3 text-sm font-medium">Destinatários · até 1.000 registros</p><table className="w-full text-left text-sm"><tbody>{detail.recipients.map(r=><tr key={r.id} className="border-t"><td className="py-3 pr-3"><p>{r.name??r.email}</p><p className="text-xs text-muted-foreground">{r.email}</p>{r.reason&&<p className="mt-1 max-w-sm text-xs text-muted-foreground">{r.reason}</p>}</td><td className="py-3 pr-3">{r.current_status==='read'?'Lida':r.current_status==='delivered'?'Entregue':r.current_status==='failed'?'Falhou':RECIPIENT_STATE_LABELS[r.state]}</td><td>{r.state==='pending'&&<Button size="sm" variant="ghost" disabled={busy} onClick={async()=>{if(await mutate('exclude',detail.campaign.id,r.id))await inspect(detail.campaign.id);}}>Retirar</Button>}</td></tr>)}</tbody></table></div>}
-      </div>}
-    </DialogContent></Dialog>
-    <Dialog open={scheduleOpen} onOpenChange={open=>{if(!busy)setScheduleOpen(open);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>Configurar envio</DialogTitle><DialogDescription>Escolha o público desta campanha. A seleção só é salva ao confirmar o envio; voltar descarta a seleção.</DialogDescription></DialogHeader>
+    <Dialog open={Boolean(detail)} onOpenChange={open=>{if(!open&&!busy){setDetail(null);setScheduleOpen(false);}}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>{scheduleOpen?'Configurar envio':detail?.campaign.title}</DialogTitle><DialogDescription>{scheduleOpen?'Escolha e salve os filtros do público. Os destinatários escolhidos só são salvos ao confirmar o envio.':'Aprovação, público e acompanhamento desta campanha.'}</DialogDescription></DialogHeader>
+      {scheduleOpen ? <>
       <div className="space-y-4">
         {!canConfirmCampaignSend(enabled,detail?.template?.status)&&<p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Você pode conferir e selecionar o público. A confirmação permanece bloqueada até a integração estar conectada, o template aprovado pela Meta e os disparos habilitados.</p>}
         <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">Como deseja disparar?</legend>
@@ -157,13 +160,45 @@ export function WhatsappCampaignsClient() {
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm"><input type="radio" name="dispatch-mode" className="mt-1" checked={dispatchMode==='scheduled'} onChange={()=>{setDispatchMode('scheduled');setConfirmed(false);}}/><span className="flex-1"><span className="block font-medium">Automático · agendar</span><span className="text-muted-foreground">Começa na data e hora escolhidas, sem precisar voltar para confirmar.</span></span></label>
         </fieldset>
         {dispatchMode==='scheduled'&&<label className="block space-y-1 text-sm">Data e hora · Brasília<Input type="datetime-local" value={scheduledAt} onChange={e=>{setScheduledAt(e.target.value);setConfirmed(false);}}/></label>}
-        <p className="text-xs text-muted-foreground">Apenas contas sem assinatura ou trial. Excluímos números repetidos, contas internas e contatos em atendimento identificados no CRM ou no histórico do WhatsApp. Atualize o CRM para contatos atendidos fora da plataforma.</p>
-        <div className="flex flex-wrap items-center gap-2"><Input className="flex-1" aria-label="Buscar destinatários" placeholder="Buscar por nome ou email" value={query} onChange={e=>setQuery(e.target.value)}/><Button variant="outline" size="sm" onClick={()=>setSelected(visibleAudience.map(c=>c.id))}>Selecionar filtrados</Button><Button variant="ghost" size="sm" onClick={()=>setSelected([])}>Limpar</Button></div>
-        <div className="max-h-56 overflow-y-auto rounded-md border">{visibleAudience.map(c=><label key={c.id} className="flex cursor-pointer items-start gap-3 border-b p-3 text-sm last:border-b-0 hover:bg-muted/30"><input className="mt-1 size-4" type="checkbox" checked={selected.includes(c.id)} onChange={e=>setSelected(e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id))}/><span className="min-w-0 [overflow-wrap:anywhere]">{c.name??c.email}<span className="block text-xs text-muted-foreground">{c.email}</span></span></label>)}{!visibleAudience.length&&<p className="p-4 text-sm text-muted-foreground">Nenhum contato elegível encontrado.</p>}</div>
+        <fieldset disabled={busy} className="space-y-3 border-t pt-4"><legend className="text-sm font-medium">Público da campanha</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">{Object.entries(AUDIENCE_STATUSES).map(([status,label])=><label key={status} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={audienceFilters.statuses.includes(status as AudienceStatus)} onChange={e=>changeFilters({...audienceFilters,statuses:e.target.checked?[...audienceFilters.statuses,status as AudienceStatus]:audienceFilters.statuses.filter(v=>v!==status)})}/>{label}</label>)}</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{([['createdFrom','Cadastro de'],['createdTo','Cadastro até'],['expiresFrom','Expiração de'],['expiresTo','Expiração até']] as const).map(([key,label])=><label key={key} className="min-w-0 space-y-1 text-xs">{label}<Input className="min-w-0" aria-label={label} type="date" value={audienceFilters[key]} onChange={e=>changeFilters({...audienceFilters,[key]:e.target.value})}/></label>)}</div>
+          <label className="flex items-start gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={audienceFilters.excludeContacted} onChange={e=>changeFilters({...audienceFilters,excludeContacted:e.target.checked})}/>Excluir contas com histórico de atendimento no CRM ou WhatsApp integrado</label>
+          <p className="text-xs text-muted-foreground">Churn: já pagou pela assinatura e o acesso venceu. Contas internas e telefones duplicados são excluídos. Datas em Brasília. Os filtros são conferidos novamente antes de cada envio.</p>
+          <div className="flex flex-wrap items-center gap-3"><Button size="sm" variant="outline" disabled={busy||!audienceFilters.statuses.length} onClick={async()=>{if(!detail)return;const result=await mutate('saveAudience',detail.campaign.id,audienceFilters);if(result){setDetail({...detail,campaign:{...detail.campaign,...result.campaign}});await loadAudience(audienceFilters);toast.success('Filtros salvos.');}}}>{busy?<Loader2 className="size-4 animate-spin"/>:null}Salvar filtros e atualizar público</Button><span role="status" className="text-xs text-muted-foreground">{filtersApplied?`${audience.length} contatos elegíveis`:'Atualize o público para aplicar os filtros'}</span></div>
+        </fieldset>
+        <div className="flex flex-wrap items-center gap-2"><Input className="flex-1" aria-label="Buscar destinatários" placeholder="Buscar por nome ou email" value={query} onChange={e=>setQuery(e.target.value)}/><Button variant="outline" size="sm" disabled={busy||!filtersApplied} onClick={()=>{setSelected(visibleAudience.map(c=>c.id));setConfirmed(false);}}>Selecionar filtrados</Button><Button variant="ghost" size="sm" onClick={()=>{setSelected([]);setConfirmed(false);}}>Limpar</Button></div>
+        <div className="max-h-56 overflow-y-auto rounded-md border">{visibleAudience.map(c=><label key={c.id} className="flex cursor-pointer items-start gap-3 border-b p-3 text-sm last:border-b-0 hover:bg-muted/30"><input className="mt-1 size-4" type="checkbox" checked={selected.includes(c.id)} onChange={e=>{setSelected(e.target.checked?[...selected,c.id]:selected.filter(id=>id!==c.id));setConfirmed(false);}}/><span className="min-w-0 [overflow-wrap:anywhere]">{c.name??c.email}<span className="block text-xs text-muted-foreground">{c.email}</span><span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><Badge variant="secondary">{AUDIENCE_STATUSES[c.account_status]}</Badge><span>Criada: {c.created_at?dateLabel(c.created_at):'Não informada'}</span><span>Expira: {c.expiration_date?dateLabel(c.expiration_date):'Sem data'}</span></span></span></label>)}{!visibleAudience.length&&<p className="p-4 text-sm text-muted-foreground">Nenhum contato elegível encontrado.</p>}</div>
         <div className="flex flex-wrap justify-between gap-2 border-y py-3 text-sm"><span>{selected.length} destinatários</span><span className={aboveBudget?'text-destructive font-medium':'font-medium'}>Estimativa: {currency(selectedCost)} · orçamento: {currency(Number(detail?.campaign.budget_micros??0))}</span></div>
         <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1 size-4 shrink-0" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/><span>Conferi a mensagem, a tarifa e o público selecionado, incluindo permissões de contato e pedidos para não receber mensagens.</span></label>
-        <div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={()=>setScheduleOpen(false)}>Voltar</Button><Button disabled={busy||!canConfirmCampaignSend(enabled,detail?.template?.status)||!confirmed||!selected.length||(dispatchMode==='scheduled'&&!scheduledAt)||aboveBudget||!detail?.campaign.unit_cost_micros} onClick={async()=>{if(!detail)return;const result=await mutate(dispatchMode==='manual'?'sendNow':'schedule',detail.campaign.id,{...(dispatchMode==='scheduled'?{scheduledAt:`${scheduledAt}:00-03:00`}:{}),userIds:selected});if(result){toast.success(dispatchMode==='manual'?'Envio manual iniciado.':'Envio automático agendado.');setScheduleOpen(false);await inspect(detail.campaign.id);}}}>{dispatchMode==='manual'?'Confirmar envio agora':'Confirmar agendamento'}</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="outline" disabled={busy} onClick={()=>setScheduleOpen(false)}>Voltar</Button><Button disabled={busy||!filtersApplied||!canConfirmCampaignSend(enabled,detail?.template?.status)||!confirmed||!selected.length||(dispatchMode==='scheduled'&&!scheduledAt)||aboveBudget||!detail?.campaign.unit_cost_micros} onClick={async()=>{if(!detail)return;const result=await mutate(dispatchMode==='manual'?'sendNow':'schedule',detail.campaign.id,{...(dispatchMode==='scheduled'?{scheduledAt:`${scheduledAt}:00-03:00`}:{}),userIds:selected});if(result){toast.success(dispatchMode==='manual'?'Envio manual iniciado.':'Envio automático agendado.');setScheduleOpen(false);await inspect(detail.campaign.id);}}}>{dispatchMode==='manual'?'Confirmar envio agora':'Confirmar agendamento'}</Button></div>
       </div>
+      </> : <>
+      {detail&&<div className="space-y-4"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{detail.campaign.state==='scheduled'&&detail.campaign.dispatch_mode==='manual'?'Envio iniciado':CAMPAIGN_STATE_LABELS[detail.campaign.state]}</Badge><Badge variant="outline" className={detail.template?.status==='APPROVED'?'border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400':undefined}>{detail.template?.status==='APPROVED'&&<Check aria-hidden="true"/>}Meta: {detail.template?(templateStatus[detail.template.status]??detail.template.status):campaignMetaLookupLabel(detail.metaLookup)}</Badge></div>
+        {detail.metaLookup==='disconnected'&&<p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Seu rascunho está salvo. A conexão do backoffice com a Meta precisa ser configurada para consultar e enviar templates. Isso não informa se o template já foi enviado pelo WhatsApp Manager.</p>}
+        {detail.metaLookup==='unavailable'&&<p role="status" className="text-sm text-muted-foreground">Não foi possível consultar a Meta. Use Atualizar status para tentar novamente.</p>}
+        <WhatsappMessagePreview body={detail.campaign.body}/>
+        {templateRejectionReason(detail.template?.status,detail.template?.rejected_reason)&&<p role="alert" className="text-sm text-destructive">{templateRejectionReason(detail.template?.status,detail.template?.rejected_reason)}</p>}
+        <div className="flex flex-wrap gap-2">{detail.campaign.state==='draft'?<><Button variant="outline" disabled={busy} onClick={()=>edit(detail.campaign)}>Editar</Button><Button variant="outline" disabled={busy||!configured||detail.template?.status==='APPROVED'} onClick={async()=>{const result=await mutate('submit',detail.campaign.id);if(result){toast.success(result.existing?'Template já cadastrado na Meta.':'Template enviado para análise da Meta.');await inspect(detail.campaign.id);}}}>{detail.template?.status==='APPROVED'?'Template aprovado':'Enviar template à Meta'}</Button><Button disabled={busy} onClick={configureAudience}><CalendarClock className="size-4"/>Configurar envio</Button></>:detail.campaign.state==='scheduled'||detail.campaign.state==='paused'?<Button disabled={busy} variant="outline" onClick={async()=>{if(await mutate(detail.campaign.state==='paused'?'resume':'pause',detail.campaign.id)){await inspect(detail.campaign.id);toast.success('Campanha atualizada.');}}}>{detail.campaign.state==='paused'?'Retomar envios':'Pausar envios'}</Button>:null}<Button variant="ghost" disabled={busy} onClick={()=>inspect(detail.campaign.id)}>Atualizar status</Button></div>
+        <section aria-label="Resultados da campanha" className="space-y-3 border-t pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">Resultados da campanha</h3><label className="flex items-center gap-2 text-xs text-muted-foreground">Conversões após a entrega<select aria-label="Janela de conversão" className="rounded-md border bg-background px-2 py-1 text-foreground" value={reportDays} disabled={busy} onChange={e=>{const days=Number(e.target.value);setReportDays(days);void inspect(detail.campaign.id,days);}}>{[7,14,30].map(days=><option key={days} value={days}>{days} dias</option>)}</select></label></div>
+          <dl className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
+            {[
+              ['Enviadas',String(detail.metrics.sent),'Aceitas pela Meta'],
+              ['Entregues',String(detail.metrics.delivered),'Entrega confirmada pelo WhatsApp'],
+              ['Leitura confirmada',readRate(detail.metrics.read,detail.metrics.delivered)===null?'—':`${readRate(detail.metrics.read,detail.metrics.delivered)!.toLocaleString('pt-BR',{maximumFractionDigits:1})}%`,`${detail.metrics.read} lidas de ${detail.metrics.delivered} entregues`],
+              ['Iniciaram trial',String(detail.metrics.trials),`Pessoas com trial nos ${reportDays} dias seguintes`],
+              ['Pagaram',String(detail.metrics.paying),'Assinatura ou reativação paga; exclui créditos avulsos'],
+              ['Falhas',String(detail.metrics.failed),'Falha confirmada no envio ou na entrega'],
+              ['Cliques no link',detail.metrics.tracked_clicks?String(detail.metrics.tracked_clicks):'Não rastreado','Links diretos no texto não identificam quem clicou'],
+              ['Entraram em contato','Não rastreado','Clique não comprova conversa no número de atendimento'],
+              ['Gasto exato','Não disponível',`Estimativa das entregues: ${currency(detail.metrics.delivered*detail.campaign.unit_cost_micros)}`],
+            ].map(([label,value,caption])=><div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{value}</dd><p className="mt-1 text-xs text-muted-foreground">{caption}</p></div>)}
+          </dl><p className="text-xs text-muted-foreground">Trial e pagamento contam pessoas únicas por campanha, após entrega confirmada. São eventos posteriores, não prova de que a campanha causou a conversão; uma pessoa pode aparecer em campanhas diferentes. Leitura depende da confirmação disponibilizada pelo WhatsApp. Gasto exato exige conciliação com a cobrança da Meta.</p>
+        </section>
+        {detail.recipients.length>0&&<div className="overflow-x-auto border-t"><p className="py-3 text-sm font-medium">Destinatários · até 1.000 registros</p><table className="w-full text-left text-sm"><tbody>{detail.recipients.map(r=><tr key={r.id} className="border-t"><td className="py-3 pr-3"><p>{r.name??r.email}</p><p className="text-xs text-muted-foreground">{r.email}</p>{r.reason&&<p className="mt-1 max-w-sm text-xs text-muted-foreground">{r.reason}</p>}</td><td className="py-3 pr-3">{r.current_status==='read'?'Lida':r.current_status==='delivered'?'Entregue':r.current_status==='failed'?'Falhou':RECIPIENT_STATE_LABELS[r.state]}</td><td>{r.state==='pending'&&<Button size="sm" variant="ghost" disabled={busy} onClick={async()=>{if(await mutate('exclude',detail.campaign.id,r.id))await inspect(detail.campaign.id);}}>Retirar</Button>}</td></tr>)}</tbody></table></div>}
+      </div>}
+      </>}
     </DialogContent></Dialog>
   </div>;
 }

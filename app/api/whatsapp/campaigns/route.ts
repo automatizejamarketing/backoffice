@@ -1,8 +1,9 @@
+import { audienceFiltersSchema } from "@/lib/backoffice/whatsapp-campaign-audience";
 import { getCampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
+import { campaignMetrics, saveCampaignAudience, campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
 import { findCampaignTemplate, submitCampaignTemplate, whatsappTemplatesConfigured } from "@/lib/backoffice/whatsapp-meta";
 
 export const maxDuration = 60;
@@ -17,13 +18,15 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response;
   try {
     const params = new URL(request.url).searchParams;
+    if(params.has('audience')) return NextResponse.json({audience:await campaignAudience(undefined,audienceFiltersSchema.parse(JSON.parse(params.get('audience')!)))});
     if (params.has('id')) {
       const id = uuid.parse(params.get('id'));
       const campaign = await getCampaign(id);
       const [recipients, lookup] = await Promise.all([campaignRecipients(id), whatsappTemplatesConfigured()
         ? findCampaignTemplate(campaign.template_name).then(template => ({ template, metaLookup: template ? "found" : "missing" })).catch(() => ({ template: null, metaLookup: "unavailable" }))
         : Promise.resolve({ template: null, metaLookup: "disconnected" })]);
-      return NextResponse.json({ campaign, recipients, ...lookup });
+      const days=z.coerce.number().refine(n=>[7,14,30].includes(n)).parse(params.get("days")??7);
+      return NextResponse.json({ campaign, recipients, metrics:await campaignMetrics(id,days), ...lookup });
     }
     const [campaigns, audience, pricing] = await Promise.all([listCampaigns(), campaignAudience(), getCampaignPricing().catch(() => null)]);
     return NextResponse.json({ campaigns, audience, pricing, configured: whatsappTemplatesConfigured(), enabled: process.env.WHATSAPP_CAMPAIGNS_ENABLED === 'true' });
@@ -33,9 +36,10 @@ export async function POST(request: Request) {
   const auth = await requireBackofficePermissionResponse("whatsapp:campaigns");
   if (!auth.ok) return auth.response;
   try {
-    const input = z.object({action:z.enum(['save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
+    const input = z.object({action:z.enum(['saveAudience','save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
     const actor = auth.actor.email;
     switch (input.action) {
+      case 'saveAudience': return NextResponse.json({campaign:await saveCampaignAudience(input.id,input.data,actor)});
       case 'save': {
         const data = z.object({ title:z.string(),templateName:z.string(),body:z.string(),budgetMicros:z.number() }).parse(input.data);
         const pricing = await getCampaignPricing().catch(() => null);

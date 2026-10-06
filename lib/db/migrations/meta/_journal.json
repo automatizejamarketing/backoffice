@@ -778,6 +778,13 @@
       "when": 1801400000000,
       "tag": "0126_meta_consultant_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1801400000001,
+      "tag": "0127_whatsapp_campaign_audience",
+      "breakpoints": true
     }
   ]
 }
