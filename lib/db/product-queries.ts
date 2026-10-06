@@ -22,6 +22,54 @@ import {
   getProductRefundRootOrderId,
 } from "@/lib/products/refund-scope";
 
+/** Estados em que o provedor aprovou e a conciliação segurou o Acesso. */
+export const HELD_PRODUCT_PAYMENT_STATUSES = [
+  "split_divergence",
+  "account_divergence",
+  "settlement_mismatch",
+] as const;
+
+/**
+ * Pagamentos retidos: um por cobrança (a linha do pedido principal, que guarda
+ * o id do provedor). Inclui o Pix aprovado sem líquido publicado há mais de
+ * uma hora, que normalmente se resolve sozinho em minutos.
+ */
+export async function listHeldProductPayments() {
+  return db
+    .select({
+      providerPaymentId: productPayment.providerPaymentId,
+      rawStatus: productPayment.rawStatus,
+      heldSince: productPayment.updatedAt,
+      grossAmountCentavos: productPayment.grossAmountCentavos,
+      paymentMethodId: productPayment.paymentMethodId,
+      installments: productPayment.mercadoPagoInstallments,
+      orderId: productOrder.id,
+      orderCreatedAt: productOrder.createdAt,
+      priceCentavos: productOrder.priceCentavos,
+      productTitle: productOrder.productTitleSnapshot,
+      buyerName: productOrder.buyerName,
+      buyerEmail: productOrder.buyerEmail,
+      expertName: expertProfile.displayName,
+    })
+    .from(productPayment)
+    .innerJoin(productOrder, eq(productOrder.id, productPayment.orderId))
+    .leftJoin(expertProfile, eq(expertProfile.id, productOrder.expertIdSnapshot))
+    .where(
+      and(
+        eq(productPayment.provider, "mercadopago"),
+        sql`${productPayment.providerPaymentId} is not null`,
+        or(
+          inArray(productPayment.rawStatus, [...HELD_PRODUCT_PAYMENT_STATUSES]),
+          and(
+            eq(productPayment.rawStatus, "approved_waiting_settlement"),
+            sql`${productPayment.updatedAt} < now() - interval '1 hour'`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(productPayment.updatedAt));
+}
+
 /** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
  * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
  * transferência que conserte o Split Inicial ou complete um parcial. */
