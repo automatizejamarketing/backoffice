@@ -93,6 +93,7 @@ export default async function WhatsappPage({
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-6">
       <header>
+        <Button asChild variant="outline" className="float-right"><Link href="/whatsapp/campanhas">Campanhas e templates</Link></Button>
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <span className="size-1.5 rounded-full bg-emerald-500" />
           Templates oficiais outbound

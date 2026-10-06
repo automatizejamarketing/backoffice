@@ -9949,3 +9949,43 @@ export const signupCouponRedemption = pgTable(
 );
 
 export type SignupCouponRedemption = InferSelectModel<typeof signupCouponRedemption>;
+
+/** Backoffice-owned WhatsApp campaigns. No recipient is sent while in draft. */
+export const whatsappCampaign = pgTable("whatsapp_campaigns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: varchar("title", { length: 160 }).notNull(),
+  templateName: varchar("template_name", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  state: varchar("state", { length: 24 }).$type<"draft" | "scheduled" | "paused" | "completed">().notNull().default("draft"),
+  dispatchMode: varchar("dispatch_mode", { length: 16 }).$type<"manual" | "scheduled">().notNull().default("manual"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  // Estimated BRL cost in millionths, preserving Meta's sub-cent prices.
+  unitCostMicros: integer("unit_cost_micros").notNull().default(0),
+  budgetMicros: numeric("budget_micros", { precision: 16, scale: 0 }).notNull().default("0"),
+  createdBy: varchar("created_by", { length: 100 }).notNull(),
+  updatedBy: varchar("updated_by", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  dueIdx: index("whatsapp_campaigns_due_idx").on(table.state, table.scheduledAt),
+  stateCheck: check("whatsapp_campaigns_state_check", sql`${table.state} in ('draft','scheduled','paused','completed')`),
+  dispatchModeCheck: check("whatsapp_campaigns_dispatch_mode_check", sql`${table.dispatchMode} in ('manual','scheduled')`),
+  unitCostCheck: check("whatsapp_campaigns_unit_cost_micros_check", sql`${table.unitCostMicros} >= 0`),
+  budgetCheck: check("whatsapp_campaigns_budget_micros_check", sql`${table.budgetMicros} >= 0`),
+}));
+
+export const whatsappCampaignRecipient = pgTable("whatsapp_campaign_recipients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaignId: uuid("campaign_id").notNull().references(() => whatsappCampaign.id),
+  userId: uuid("user_id").notNull().references(() => user.id),
+  phone: varchar("phone", { length: 16 }).notNull(),
+  state: varchar("state", { length: 24 }).$type<"pending" | "sending" | "sent" | "failed" | "skipped" | "unknown" | "excluded">().notNull().default("pending"),
+  reason: text("reason"),
+  deliveryId: uuid("delivery_id").references(() => whatsappTemplateDelivery.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  phoneUnique: unique("whatsapp_campaign_recipients_phone_unique").on(table.campaignId, table.phone),
+  userUnique: unique("whatsapp_campaign_recipients_user_unique").on(table.campaignId, table.userId),
+  pendingIdx: index("whatsapp_campaign_recipients_pending_idx").on(table.campaignId, table.state),
+  stateCheck: check("whatsapp_campaign_recipients_state_check", sql`${table.state} in ('pending','sending','sent','failed','skipped','unknown','excluded')`),
+}));

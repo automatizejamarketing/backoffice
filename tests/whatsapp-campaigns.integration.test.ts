@@ -1,0 +1,159 @@
+/** Run with bun --conditions=react-server test and WHATSAPP_TEST_DATABASE_URL.
+ * The database must be a disposable localhost database named automatize_whatsapp_test.
+ * No real Meta calls: the HTTP boundary is replaced; SQL and transactions are real.
+ */
+import { before, after, beforeEach, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const databaseUrl = process.env.WHATSAPP_TEST_DATABASE_URL;
+describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl }, () => {
+  let pg: typeof import("../lib/db").postgresClient;
+  let campaigns: typeof import("../lib/backoffice/whatsapp-campaigns");
+  let dispatch: typeof import("../lib/backoffice/whatsapp-campaign-dispatch").dispatchWhatsappCampaigns;
+  const originalFetch = globalThis.fetch;
+  const originalEnvironment = { ...process.env };
+  let sends = 0;
+  let failAmbiguously = false;
+  const body = "Olá {{1}}, conheça nossa plataforma.";
+  before(async () => {
+    const url = new URL(databaseUrl!);
+    assert.equal(url.hostname, "127.0.0.1");
+    assert.equal(url.pathname, "/automatize_whatsapp_test");
+    process.env.POSTGRES_URL = databaseUrl;
+    process.env.META_WHATSAPP_ACCESS_TOKEN = "test-only";
+    process.env.META_WHATSAPP_WABA_ID = "123";
+    process.env.META_WHATSAPP_PHONE_NUMBER_ID = "456";
+    process.env.WHATSAPP_CAMPAIGNS_ENABLED = "true";
+    ({ postgresClient: pg } = await import("../lib/db"));
+    campaigns = await import("../lib/backoffice/whatsapp-campaigns");
+    ({ dispatchWhatsappCampaigns: dispatch } = await import("../lib/backoffice/whatsapp-campaign-dispatch"));
+    await pg.unsafe(`
+      CREATE TABLE users(id uuid primary key default gen_random_uuid(),name text,email text,phone text,expiration_date timestamp,created_at timestamp default now());
+      CREATE TABLE subscriptions(user_id uuid);
+      CREATE TABLE credit_transactions(user_id uuid,type text);
+      CREATE TABLE backoffice_users(email text);
+      CREATE TABLE crm_leads(user_id uuid,commercial_status text);
+      CREATE TABLE conversations(id uuid primary key default gen_random_uuid(),user_id uuid,channel text,phone_e164 text);
+      CREATE TABLE conversation_events(conversation_id uuid,type text);
+      CREATE TABLE whatsapp_template_deliveries(id uuid primary key default gen_random_uuid(),user_id uuid references users(id),source text,source_delivery_id text,template_name text,language_code text,provider_message_id text unique,current_status text default 'queued',current_status_at timestamp,accepted_at timestamp,delivered_at timestamp,read_at timestamp,failed_at timestamp,deleted_at timestamp,clicked_at timestamp,failure_code text,failure_detail text,historical_status_untracked boolean default false,created_at timestamp default now(),updated_at timestamp default now(),unique(source,source_delivery_id));
+      CREATE TABLE whatsapp_template_status_events(id uuid primary key default gen_random_uuid(),delivery_id uuid references whatsapp_template_deliveries(id),event_key text unique,provider_message_id text,provider_status text,provider_status_at timestamp,failure_code text,failure_detail text,created_at timestamp default now());
+    `);
+    await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0110_whatsapp_campaigns.sql", import.meta.url), "utf8"));
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = new URL(String(input));
+      assert.equal(requestUrl.hostname, "graph.facebook.com");
+      if (requestUrl.pathname.endsWith("/message_templates")) return Response.json({ data: [{ id: "template1", name: "campaign_v1", language: "pt_BR", category: "MARKETING", status: "APPROVED", components: [{ type: "BODY", text: body }] }] });
+      assert.ok(requestUrl.pathname.endsWith("/messages"));
+      assert.equal(init?.method, "POST");
+      sends++;
+      if (failAmbiguously) throw new TypeError("Simulated lost response");
+      const providerId = `wamid.test.${sends}`;
+      // A webhook may arrive before the POST response is persisted.
+      await pg`insert into whatsapp_template_status_events(event_key,provider_message_id,provider_status,provider_status_at) values (${providerId},${providerId},'delivered',now())`;
+      return Response.json({ messages: [{ id: providerId }] });
+    }) as typeof fetch;
+  });
+  beforeEach(async () => {
+    await pg`truncate whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,users cascade`;
+    sends = 0; failAmbiguously = false;
+    process.env.WHATSAPP_CAMPAIGNS_ENABLED = "true";
+  });
+  after(async () => {
+    globalThis.fetch = originalFetch;
+    for (const key of ["POSTGRES_URL", "META_WHATSAPP_ACCESS_TOKEN", "META_WHATSAPP_WABA_ID", "META_WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_CAMPAIGNS_ENABLED"]) {
+      if (originalEnvironment[key] === undefined) delete process.env[key]; else process.env[key] = originalEnvironment[key];
+    }
+    if (pg) {
+      await pg`drop table if exists whatsapp_campaign_recipients,whatsapp_campaigns,whatsapp_template_status_events,whatsapp_template_deliveries,conversation_events,conversations,crm_leads,backoffice_users,subscriptions,credit_transactions,users cascade`;
+      await pg.end();
+    }
+  });
+  async function seed() {
+    const [user] = await pg`insert into users(name,email,phone) values ('João Teste','test@example.invalid','22997259506') returning id`;
+    const id = crypto.randomUUID();
+    await campaigns.saveCampaign(id, { title: "Test campaign", templateName: "campaign_v1", body, unitCostMicros: 300_000, budgetMicros: 600_000 }, "test@example.invalid");
+    return { id, userId: String(user.id) };
+  }
+  async function schedule(id: string, userId: string) {
+    await campaigns.scheduleCampaign(id, new Date(Date.now() + 60_000), [userId], "test@example.invalid");
+    await pg`update whatsapp_campaigns set scheduled_at=now()-interval '1 minute' where id=${id}`;
+  }
+  it("deduplicates phones and excludes trials, subscriptions, CRM contacts, internal users and inbound conversations", async () => {
+    const { userId } = await seed();
+    await pg`insert into users(email,phone) values ('duplicate@example.invalid','+55 22 99725-9506')`;
+    assert.equal((await campaigns.campaignAudience()).length, 1);
+    await pg`insert into credit_transactions values (${userId},'trial_grant')`;
+    // A duplicate untouched account remains eligible; the selected account itself is always rechecked.
+    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    await pg`delete from credit_transactions`;
+    await pg`insert into subscriptions values (${userId})`;
+    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    await pg`delete from subscriptions`;
+    await pg`insert into crm_leads values (${userId},'em_atendimento')`;
+    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    await pg`delete from crm_leads`;
+    await pg`insert into backoffice_users values ('test@example.invalid')`;
+    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    await pg`delete from backoffice_users`;
+    const [conversation] = await pg`insert into conversations(channel,phone_e164) values ('whatsapp','+5522997259506') returning id`;
+    await pg`insert into conversation_events values (${conversation.id},'message.received')`;
+    assert.equal((await campaigns.campaignAudience()).length, 0);
+  });
+  it("serializes simultaneous scheduling and cron runs without duplicate sends, reconciling early webhooks", async () => {
+    const { id, userId } = await seed();
+    const results = await Promise.allSettled([schedule(id, userId), schedule(id, userId)]);
+    assert.equal(results.filter(r => r.status === 'fulfilled').length, 1);
+    await Promise.all([dispatch(), dispatch()]);
+    assert.equal(sends, 1);
+    const [delivery] = await pg`select current_status,delivered_at from whatsapp_template_deliveries`;
+    assert.equal(delivery.current_status, "delivered");
+    assert.ok(delivery.delivered_at);
+    assert.equal((await campaigns.getCampaign(id)).state, "completed");
+  });
+  it("never retries an ambiguous send and pauses the campaign", async () => {
+    const { id, userId } = await seed(); await schedule(id, userId);
+    failAmbiguously = true;
+    await dispatch(); await dispatch();
+    assert.equal(sends, 1);
+    assert.equal((await campaigns.campaignRecipients(id))[0].state, "unknown");
+    assert.equal((await campaigns.getCampaign(id)).state, "paused");
+  });
+  it("rechecks eligibility at dispatch and honors the environment kill switch", async () => {
+    const { id, userId } = await seed(); await schedule(id, userId);
+    process.env.WHATSAPP_CAMPAIGNS_ENABLED = "false";
+    await dispatch(); assert.equal(sends, 0);
+    process.env.WHATSAPP_CAMPAIGNS_ENABLED = "true";
+    await pg`insert into subscriptions values (${userId})`;
+    await dispatch(); assert.equal(sends, 0);
+    assert.equal((await campaigns.campaignRecipients(id))[0].state, "skipped");
+  });
+  it("honors pause and recipient removal", async () => {
+    const { id, userId } = await seed(); await schedule(id, userId);
+    await campaigns.setCampaignPaused(id, true, "test@example.invalid");
+    await dispatch(); assert.equal(sends, 0);
+    const [recipient] = await campaigns.campaignRecipients(id);
+    await campaigns.excludeCampaignRecipient(id, String(recipient.id), "test@example.invalid");
+    await campaigns.setCampaignPaused(id, false, "test@example.invalid");
+    await dispatch(); assert.equal(sends, 0);
+    assert.equal((await campaigns.getCampaign(id)).state, "completed");
+  });
+  it("keeps approved drafts idle until an explicit manual release and never repeats a manual release", async () => {
+    const { id, userId } = await seed();
+    await dispatch(); assert.equal(sends, 0);
+    assert.equal((await campaigns.getCampaign(id)).state, "draft");
+    await campaigns.scheduleCampaign(id, null, [userId], "test@example.invalid");
+    assert.equal((await campaigns.getCampaign(id)).dispatch_mode, "manual");
+    await assert.rejects(campaigns.scheduleCampaign(id, null, [userId], "test@example.invalid"));
+    await dispatch(); await dispatch();
+    assert.equal(sends, 1);
+  });
+  it("holds an automatic campaign until its chosen time", async () => {
+    const { id, userId } = await seed();
+    await campaigns.scheduleCampaign(id, new Date(Date.now() + 3_600_000), [userId], "test@example.invalid");
+    assert.equal((await campaigns.getCampaign(id)).dispatch_mode, "scheduled");
+    await dispatch(); assert.equal(sends, 0);
+    await pg`update whatsapp_campaigns set scheduled_at=now()-interval '1 minute' where id=${id}`;
+    await dispatch(); assert.equal(sends, 1);
+  });
+});
