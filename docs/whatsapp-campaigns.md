@@ -135,11 +135,12 @@ automático. O histórico de entrega usa a origem `backoffice_campaign_test`.
 
 ## Botão de contato na campanha de 05/10
 
-A versão `outubro_2026_0510_atendimento_v2` substitui a URL longa no corpo por
-um botão estático **Falar com a equipe**. A Meta recusa links diretos para WhatsApp
-em botões de URL (erro 100/2388081); o destino é a página pública de contato
-`https://www.automatizemarketing.com/contato`, que contém o acesso ao WhatsApp de
-atendimento. Não há redirecionamento automático.
+A versão `outubro_2026_0510_atendimento_v3` usa o botão estático **Falar com a equipe**
+com destino `https://www.automatizemarketing.com/contato-direto`. Essa rota pública
+do frontend responde com 307 para o `wa.me` original, preservando o número da equipe
+e a mensagem preenchida, sem página intermediária. A URL é fixa e não aceita
+destinos enviados por query string. A versão v2 mantém sua página de contato original.
+Cada nova versão precisa de aprovação da Meta antes de enviar.
 
 A definição do botão fica junto ao texto do lote. Prévia, submissão, teste e
 envio oficial conferem o texto e a configuração do botão. O envio de um botão
