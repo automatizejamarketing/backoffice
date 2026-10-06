@@ -118,3 +118,17 @@ sem inventar preço. Rascunhos continuam permitidos; envio exige tarifa válida.
 O cliente não escolhe a tarifa: o servidor a substitui ao salvar e confere se
 continua igual ao confirmar o envio. Se mudou, exige salvar e revisar novamente.
 A moeda real de cobrança pode ser diferente; o valor exibido é referência BRL.
+
+## Envio de teste
+
+**Enviar teste** envia uma cópia do template aprovado para um dos usuários de
+`WHATSAPP_CAMPAIGN_TEST_USER_IDS`, usando seu telefone e primeiro nome cadastrados.
+O teste independe dos filtros, orçamento e estado da campanha. Exige a permissão
+`whatsapp:campaigns`, integração configurada e `WHATSAPP_CAMPAIGNS_ENABLED=true`.
+Não cria destinatários oficiais, altera o agendamento ou entra nas métricas da
+campanha. A Meta pode cobrar essa mensagem separadamente.
+
+Cada tentativa tem uma chave própria; repetir a mesma requisição não dispara de
+novo, mesmo quando a resposta se perde. **Preparar outro teste** inicia uma nova
+tentativa explícita. Respostas incertas pedem conferência no telefone, sem retry
+automático. O histórico de entrega usa a origem `backoffice_campaign_test`.
