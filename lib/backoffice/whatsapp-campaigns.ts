@@ -29,12 +29,21 @@ const eligibleSql = `u.expiration_date is null
       and (c.user_id = u.id or regexp_replace(c.phone_e164, '[^0-9]', '', 'g') =
         case when length(regexp_replace(u.phone, '[^0-9]', '', 'g')) <= 11
           then '55' || regexp_replace(u.phone, '[^0-9]', '', 'g') else regexp_replace(u.phone, '[^0-9]', '', 'g') end))`;
+// Compare the recipient identity across accounts, not only the selected user.
+function phoneSql(column: string) {
+  const digits = `regexp_replace(${column}, '[^0-9]', '', 'g')`;
+  return `case when length(${digits}) <= 11 then '55' || ${digits} else ${digits} end`;
+}
+const peerEligibleSql = eligibleSql.replaceAll('u.', 'peer.');
 const excludedEmails = [...ADMIN_EMAILS, ...CUSTOMER_BASE_TRIAL_EXCLUDED_EMAILS].map(v => v.toLowerCase());
 
 export async function campaignAudience(userId?: string): Promise<CampaignAudience[]> {
   const rows = await pg.unsafe<{id: string; name: string | null; email: string; phone: string | null}[]>(
     `select u.id,u.name,u.email,u.phone from users u where ${eligibleSql}
-     and not (lower(u.email) = any($1::text[])) ${userId ? "and u.id = $2::uuid" : ""}
+     and not (lower(u.email) = any($1::text[]))
+     and not exists (select 1 from users peer
+       where ${phoneSql('peer.phone')} = ${phoneSql('u.phone')}
+         and (not (${peerEligibleSql}) or lower(peer.email) = any($1::text[]))) ${userId ? "and u.id = $2::uuid" : ""}
      order by u.created_at asc nulls last,u.id limit 10000`,
     userId ? [excludedEmails, userId] : [excludedEmails],
   );

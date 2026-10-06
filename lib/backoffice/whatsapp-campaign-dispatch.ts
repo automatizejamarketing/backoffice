@@ -11,7 +11,16 @@ export async function dispatchWhatsappCampaigns() {
   if (process.env.WHATSAPP_CAMPAIGNS_ENABLED !== "true") return { enabled: false, processed: 0 };
   await pg`update whatsapp_campaign_recipients set state='unknown',reason='Envio interrompido. Verifique na Meta antes de tentar novamente.',updated_at=now()
     where state='sending' and updated_at < now() - interval '10 minutes'`;
-  const campaigns = await pg<CampaignRow[]>`select * from whatsapp_campaigns where state='scheduled' and scheduled_at <= now() order by scheduled_at limit 5`;
+  // Empty or uncertain campaigns must not occupy all five executable slots.
+  await pg`update whatsapp_campaigns c set
+    state=case when exists (select 1 from whatsapp_campaign_recipients r where r.campaign_id=c.id and r.state='unknown') then 'paused' else 'completed' end,
+    updated_at=now(),updated_by='system:reconcile'
+    where c.state='scheduled' and c.scheduled_at <= now() and not exists (
+      select 1 from whatsapp_campaign_recipients r where r.campaign_id=c.id and r.state in ('pending','sending'))`;
+  const campaigns = await pg<CampaignRow[]>`select c.* from whatsapp_campaigns c
+    where c.state='scheduled' and c.scheduled_at <= now() and exists (
+      select 1 from whatsapp_campaign_recipients r where r.campaign_id=c.id and r.state='pending')
+    order by c.scheduled_at limit 5`;
   let processed = 0;
   for (const campaign of campaigns) {
     const template = await findCampaignTemplate(campaign.template_name);

@@ -84,21 +84,47 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await pg`insert into users(email,phone) values ('duplicate@example.invalid','+55 22 99725-9506')`;
     assert.equal((await campaigns.campaignAudience()).length, 1);
     await pg`insert into credit_transactions values (${userId},'trial_grant')`;
-    // A duplicate untouched account remains eligible; the selected account itself is always rechecked.
-    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    // Exclusions follow the phone even when another account has no history.
+    assert.equal((await campaigns.campaignAudience()).length, 0);
     await pg`delete from credit_transactions`;
     await pg`insert into subscriptions values (${userId})`;
-    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    assert.equal((await campaigns.campaignAudience()).length, 0);
     await pg`delete from subscriptions`;
     await pg`insert into crm_leads values (${userId},'em_atendimento')`;
-    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    assert.equal((await campaigns.campaignAudience()).length, 0);
     await pg`delete from crm_leads`;
     await pg`insert into backoffice_users values ('test@example.invalid')`;
-    assert.equal((await campaigns.campaignAudience(userId)).length, 0);
+    assert.equal((await campaigns.campaignAudience()).length, 0);
     await pg`delete from backoffice_users`;
     const [conversation] = await pg`insert into conversations(channel,phone_e164) values ('whatsapp','+5522997259506') returning id`;
     await pg`insert into conversation_events values (${conversation.id},'message.received')`;
     assert.equal((await campaigns.campaignAudience()).length, 0);
+  });
+  it("does not let five interrupted campaigns starve a later campaign", async () => {
+    const { id, userId } = await seed();
+    await schedule(id, userId);
+    const blocked = [id];
+    for (let i = 0; i < 5; i++) {
+      const next = crypto.randomUUID();
+      await campaigns.saveCampaign(next, { title: "Next", templateName: "campaign_v1", body, unitCostMicros: 300_000, budgetMicros: 600_000 }, "test@example.invalid");
+      await schedule(next, userId);
+      if (i < 4) blocked.push(next);
+    }
+    await pg`update whatsapp_campaign_recipients set state='sending',updated_at=now()-interval '11 minutes' where campaign_id in ${pg(blocked)}`;
+    await dispatch();
+    assert.equal(sends, 1);
+    for (const campaignId of blocked) assert.equal((await campaigns.getCampaign(campaignId)).state, 'paused');
+    await dispatch();
+    assert.equal(sends, 1);
+  });
+  it("rechecks a duplicate account subscription before dispatch", async () => {
+    const { id, userId } = await seed();
+    await schedule(id, userId);
+    const [duplicate] = await pg`insert into users(email,phone) values ('subscribed@example.invalid','+55 22 99725-9506') returning id`;
+    await pg`insert into subscriptions values (${duplicate.id})`;
+    await dispatch();
+    assert.equal(sends, 0);
+    assert.equal((await campaigns.campaignRecipients(id))[0].state, 'skipped');
   });
   it("serializes simultaneous scheduling and cron runs without duplicate sends, reconciling early webhooks", async () => {
     const { id, userId } = await seed();

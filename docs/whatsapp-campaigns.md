@@ -10,6 +10,9 @@ operador e não representam a fatura da Meta.
 - Aplicar `0110_whatsapp_campaigns.sql` pelo migrador do backoffice. A migration
   espelhada no frontend é `0114_whatsapp_campaigns.sql`, com o mesmo hash e `when`.
   São duas tabelas novas; não há alteração dos dados existentes.
+  O `when=1799600000001` já aplicado é imutável. Em outros ambientes com watermark
+  posterior, executar `db:migrate:status` e o reparo existente para esta migration
+  se a auditoria indicar tabelas ausentes; o migrador normal pode ignorá-la.
 - Configurar no backoffice `META_WHATSAPP_ACCESS_TOKEN`, `META_WHATSAPP_WABA_ID`
   e `META_WHATSAPP_PHONE_NUMBER_ID`, correspondentes à conta de produção usada
   pelo frontend. `META_GENERAL_APP_SECRET` habilita appsecret_proof.
