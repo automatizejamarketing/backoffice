@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
+import { campaignTemplateDefinition, campaignTemplateMatches, assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES } from "./whatsapp-october-templates";
 
 describe("WhatsApp campaign validation", () => {
@@ -37,5 +37,24 @@ describe("campaign connection and release status", () => {
     assert.equal(canConfirmCampaignSend(true, 'APPROVED'),true);
     for (const status of [undefined,'PENDING','REJECTED']) assert.equal(canConfirmCampaignSend(true,status),false);
     assert.equal(canConfirmCampaignSend(false,'APPROVED'),false);
+  });
+});
+
+describe('contact button template',()=>{
+  it('registers the contact URL as a static button without exposing it in the body',()=>{
+    const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
+    const definition=campaignTemplateDefinition(seed.name,seed.body);
+    assert.ok(!seed.body.includes('https://'));
+    assert.deepEqual(definition.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:seed.button.url}]});
+    assert.equal(campaignTemplateMatches(definition,seed.name,seed.body),true);
+    assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body}]},seed.name,seed.body),false);
+    assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body},{type:'BUTTONS',buttons:[{type:'URL',text:seed.button.text,url:'https://example.com'}]}]},seed.name,seed.body),false);
+    assert.equal(campaignTemplateMatches(definition,seed.name,seed.body+' mudou'),false);
+  });
+  it('keeps existing text-only templates compatible',()=>{
+    const seed=OCTOBER_WHATSAPP_TEMPLATES[1];
+    const definition=campaignTemplateDefinition(seed.name,seed.body);
+    assert.equal(definition.components.length,1);
+    assert.equal(campaignTemplateMatches(definition,seed.name,seed.body),true);
   });
 });

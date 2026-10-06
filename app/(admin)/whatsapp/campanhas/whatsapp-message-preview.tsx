@@ -1,7 +1,9 @@
-import { ArrowLeft, MoreVertical } from "lucide-react";
+import { campaignContactButton } from "@/lib/backoffice/whatsapp-october-templates";
+import { ArrowLeft, MoreVertical, ExternalLink } from "lucide-react";
 
 /** Visual approximation of the message received by a customer, not a live chat. */
-export function WhatsappMessagePreview({ body }: { body: string }) {
+export function WhatsappMessagePreview({ body, templateName = "" }: { body: string; templateName?: string }) {
+  const button = campaignContactButton(templateName);
   const message = body.replaceAll("{{1}}", "João");
 
   return (
@@ -28,6 +30,7 @@ export function WhatsappMessagePreview({ body }: { body: string }) {
               ) : <span className="text-[#667781]">Sua mensagem aparecerá aqui.</span>}
             </div>
             <p aria-hidden="true" className="mt-1 text-right text-[10px] text-[#667781]">10:00</p>
+            {button && <div className="-mx-3 mt-2 flex items-center justify-center gap-2 border-t border-black/10 px-3 py-3 text-sm text-[#027eb5]"><ExternalLink aria-hidden="true" className="size-4"/>{button.text}</div>}
           </div>
         </div>
       </div>

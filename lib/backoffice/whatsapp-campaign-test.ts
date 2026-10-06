@@ -1,3 +1,4 @@
+import { campaignTemplateMatches } from "./whatsapp-campaign-core";
 import "server-only";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -25,7 +26,7 @@ export async function sendCampaignTest(campaignId: string, input: unknown, actor
   if (!contact) throw new Error('Escolha um número habilitado para testes.');
   const campaign = await getCampaign(campaignId);
   const template = await findCampaignTemplate(campaign.template_name);
-  if (template?.status !== 'APPROVED' || template.components.find(c => c.type === 'BODY')?.text !== campaign.body) throw new Error('Salve o texto idêntico ao template aprovado pela Meta antes de testar.');
+  if (template?.status !== 'APPROVED' || !campaignTemplateMatches(template,campaign.template_name,campaign.body)) throw new Error('Salve o texto idêntico ao template aprovado pela Meta antes de testar.');
   // Reusing the same request never sends twice, including when the HTTP response is lost.
   const key = `${campaignId}:${createHash('sha256').update(actor).digest('hex').slice(0,16)}:${requestId}`;
   const [delivery] = await pg<{id:string}[]>`insert into whatsapp_template_deliveries (user_id,source,source_delivery_id,template_name,language_code)
