@@ -44,6 +44,10 @@
     {
       "path": "/api/cron-job/business/client-reports/milestones",
       "schedule": "*/20 10-13 * * *"
+    },
+    {
+      "path": "/api/cron-job/whatsapp-campaigns",
+      "schedule": "* * * * *"
     }
   ]
 }

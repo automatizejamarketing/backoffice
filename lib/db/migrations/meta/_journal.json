@@ -656,120 +656,134 @@
     {
       "idx": 110,
       "version": "7",
+      "when": 1799600000001,
+      "tag": "0110_whatsapp_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
       "when": 1799700000000,
       "tag": "0110_meta_partner_access",
       "breakpoints": true
     },
     {
-      "idx": 111,
+      "idx": 112,
       "version": "7",
       "when": 1799900000000,
       "tag": "0111_meta_asset_selection",
       "breakpoints": true
     },
     {
-      "idx": 112,
+      "idx": 113,
       "version": "7",
       "when": 1800000000000,
       "tag": "0112_campaign_destination_url",
       "breakpoints": true
     },
     {
-      "idx": 113,
+      "idx": 114,
       "version": "7",
       "when": 1800100000000,
       "tag": "0113_whatsapp_support_sessions",
       "breakpoints": true
     },
     {
-      "idx": 114,
+      "idx": 115,
       "version": "7",
       "when": 1800200000000,
       "tag": "0114_client_reports",
       "breakpoints": true
     },
     {
-      "idx": 115,
+      "idx": 116,
       "version": "7",
       "when": 1800300000000,
       "tag": "0115_playbook_alert_dashboard_indexes",
       "breakpoints": true
     },
     {
-      "idx": 116,
+      "idx": 117,
       "version": "7",
       "when": 1800400000000,
       "tag": "0116_client_report_scopes",
       "breakpoints": true
     },
     {
-      "idx": 117,
+      "idx": 118,
       "version": "7",
       "when": 1800500000000,
       "tag": "0117_cancellation_retention",
       "breakpoints": true
     },
     {
-      "idx": 118,
+      "idx": 119,
       "version": "7",
       "when": 1800600000000,
       "tag": "0118_pricing",
       "breakpoints": true
     },
     {
-      "idx": 119,
+      "idx": 120,
       "version": "7",
       "when": 1800900000000,
       "tag": "0119_actionable_client_alerts",
       "breakpoints": true
     },
     {
-      "idx": 120,
+      "idx": 121,
       "version": "7",
       "when": 1800900001000,
       "tag": "0120_capture_ambassadors",
       "breakpoints": true
     },
     {
-      "idx": 121,
+      "idx": 122,
       "version": "7",
       "when": 1800900002000,
       "tag": "0121_crm_tag_settings",
       "breakpoints": true
     },
     {
-      "idx": 122,
+      "idx": 123,
       "version": "7",
       "when": 1801000000000,
       "tag": "0122_signup_coupon_dudu20",
       "breakpoints": true
     },
     {
-      "idx": 123,
+      "idx": 124,
       "version": "7",
       "when": 1801100000000,
       "tag": "0123_whatsapp_account_choice",
       "breakpoints": true
     },
     {
-      "idx": 124,
+      "idx": 125,
       "version": "7",
       "when": 1801200000000,
       "tag": "0124_product_tracking_pixels",
       "breakpoints": true
     },
     {
-      "idx": 125,
+      "idx": 126,
       "version": "7",
       "when": 1801300000000,
       "tag": "0125_meta_publish_holds",
       "breakpoints": true
     },
     {
-      "idx": 126,
+      "idx": 127,
       "version": "7",
       "when": 1801400000000,
       "tag": "0126_meta_consultant_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1801400000001,
+      "tag": "0127_whatsapp_campaign_audience",
       "breakpoints": true
     }
   ]

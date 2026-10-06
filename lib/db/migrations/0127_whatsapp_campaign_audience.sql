@@ -1,0 +1,1 @@
+ALTER TABLE "whatsapp_campaigns" ADD COLUMN "audience_filters" jsonb NOT NULL DEFAULT '{"statuses":["never_started"],"createdFrom":"","createdTo":"","expiresFrom":"","expiresTo":"","excludeContacted":true}'::jsonb;

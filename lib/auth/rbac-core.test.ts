@@ -199,3 +199,12 @@ describe("marketing_consultant_premium", () => {
     );
   });
 });
+
+
+describe("WhatsApp campaign permissions", () => {
+  test("restricts global campaign data and actions to admin and dev", () => {
+    for (const actor of [admin, dev]) expect(hasBackofficePermission(actor, "whatsapp:campaigns")).toBe(true);
+    for (const actor of [consultant, premiumConsultant, financeViewer, { ...admin, role: "comercial" as const }])
+      expect(hasBackofficePermission(actor, "whatsapp:campaigns")).toBe(false);
+  });
+});
