@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { shiftCalendarDate } from "@/lib/backoffice/dashboard-date-range";
+import type { DateCondition } from "@/lib/dates";
 
 export const AUDIENCE_STATUSES = {
   never_started: "Nunca iniciou trial", trial_active: "Trial ativo", trial_expired: "Trial expirado",
@@ -19,4 +21,17 @@ export function templateRejectionReason(status: string | undefined, reason: stri
 }
 export function readRate(read: number, delivered: number): number | null {
   return delivered > 0 ? Math.min(100, read / delivered * 100) : null;
+}
+/** Filtros salvos guardam limites inclusivos; o filtro de data da tela fala em operadores. "Antes de" e "Depois de" não incluem o próprio dia. */
+export function audienceDateCondition(from: string, to: string): DateCondition | undefined {
+  if (from && to) return from === to ? { op: 'on', date: from } : { op: 'between', from, to };
+  if (from) return { op: 'after', date: shiftCalendarDate(from, -1) };
+  if (to) return { op: 'before', date: shiftCalendarDate(to, 1) };
+  return undefined;
+}
+export function audienceDateBounds(condition: DateCondition | undefined): { from: string; to: string } {
+  if (!condition) return { from: '', to: '' };
+  if (condition.op === 'between') return { from: condition.from, to: condition.to };
+  if (condition.op === 'on') return { from: condition.date, to: condition.date };
+  return condition.op === 'after' ? { from: shiftCalendarDate(condition.date, 1), to: '' } : { from: '', to: shiftCalendarDate(condition.date, -1) };
 }
