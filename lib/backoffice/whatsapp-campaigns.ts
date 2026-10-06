@@ -1,3 +1,4 @@
+import { getCampaignPricing } from "./whatsapp-campaign-pricing";
 import "server-only";
 import { sql } from "drizzle-orm";
 import { db, postgresClient as pg } from "@/lib/db";
@@ -95,6 +96,9 @@ export async function saveCampaign(id: string, input: unknown, actor: string) {
 export async function scheduleCampaign(id: string, requestedDate: Date | null, userIds: string[], actor: string) {
   const campaign = await getCampaign(id);
   const template = await findCampaignTemplate(campaign.template_name);
+  if (template?.category !== "MARKETING") throw new Error("Esta campanha exige um template de Marketing.");
+  const pricing = await getCampaignPricing();
+  if (campaign.unit_cost_micros !== pricing.unitCostMicros) throw new Error("A tarifa da Meta mudou. Salve o rascunho novamente para atualizar a estimativa antes de confirmar.");
   const audience = (await campaignAudience()).filter(u => userIds.includes(u.id));
   if (audience.length !== new Set(userIds).size) throw new Error("O público mudou. Atualize a seleção antes de agendar.");
   // Null means an explicit manual release; the server chooses its start time.

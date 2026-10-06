@@ -1,3 +1,4 @@
+import { getCampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
@@ -22,8 +23,8 @@ export async function GET(request: Request) {
       const [recipients, template] = await Promise.all([campaignRecipients(id), whatsappMetaConfigured() ? findCampaignTemplate(campaign.template_name) : Promise.resolve(null)]);
       return NextResponse.json({ campaign, recipients, template });
     }
-    const [campaigns, audience] = await Promise.all([listCampaigns(), campaignAudience()]);
-    return NextResponse.json({ campaigns, audience, configured: whatsappMetaConfigured(), enabled: process.env.WHATSAPP_CAMPAIGNS_ENABLED === 'true' });
+    const [campaigns, audience, pricing] = await Promise.all([listCampaigns(), campaignAudience(), getCampaignPricing().catch(() => null)]);
+    return NextResponse.json({ campaigns, audience, pricing, configured: whatsappMetaConfigured(), enabled: process.env.WHATSAPP_CAMPAIGNS_ENABLED === 'true' });
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {
@@ -33,7 +34,11 @@ export async function POST(request: Request) {
     const input = z.object({action:z.enum(['save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
     const actor = auth.actor.email;
     switch (input.action) {
-      case 'save': return NextResponse.json({campaign:await saveCampaign(input.id,input.data,actor)});
+      case 'save': {
+        const data = z.object({ title:z.string(),templateName:z.string(),body:z.string(),budgetMicros:z.number() }).parse(input.data);
+        const pricing = await getCampaignPricing().catch(() => null);
+        return NextResponse.json({campaign:await saveCampaign(input.id,{...data,unitCostMicros:pricing?.unitCostMicros ?? 0},actor)});
+      }
       case 'submit': {
         const campaign=await getCampaign(input.id);
         if(campaign.state!=='draft')throw new Error('Somente rascunhos podem ser enviados para aprovação.');

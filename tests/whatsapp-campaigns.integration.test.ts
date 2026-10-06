@@ -42,6 +42,8 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0110_whatsapp_campaigns.sql", import.meta.url), "utf8"));
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const requestUrl = new URL(String(input));
+      if (requestUrl.hostname === "whatsappbusiness.com") return requestUrl.pathname.includes('/wp-json/')
+        ? Response.json({quote:"0.3000"}) : new Response('{"restNonce":"test-public-nonce"}');
       assert.equal(requestUrl.hostname, "graph.facebook.com");
       if (requestUrl.pathname.endsWith("/message_templates")) return Response.json({ data: [{ id: "template1", name: "campaign_v1", language: "pt_BR", category: "MARKETING", status: "APPROVED", components: [{ type: "BODY", text: body }] }] });
       assert.ok(requestUrl.pathname.endsWith("/messages"));
@@ -173,6 +175,13 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await assert.rejects(campaigns.scheduleCampaign(id, null, [userId], "test@example.invalid"));
     await dispatch(); await dispatch();
     assert.equal(sends, 1);
+  });
+  it("rejects a stale saved tariff before scheduling", async () => {
+    const { id, userId } = await seed();
+    await pg`update whatsapp_campaigns set unit_cost_micros=1 where id=${id}`;
+    await assert.rejects(campaigns.scheduleCampaign(id, null, [userId], "test@example.invalid"), /tarifa da Meta mudou/);
+    assert.equal((await campaigns.getCampaign(id)).state, 'draft');
+    assert.equal((await campaigns.campaignRecipients(id)).length, 0);
   });
   it("holds an automatic campaign until its chosen time", async () => {
     const { id, userId } = await seed();

@@ -2,8 +2,8 @@
 
 `/whatsapp/campanhas` permite preparar rascunhos, submeter textos à Meta,
 consultar aprovação, selecionar destinatários, enviar manualmente, agendar, pausar e retirar contatos
-que ainda estão na fila. As estimativas usam a tarifa em reais informada pelo
-operador e não representam a fatura da Meta.
+que ainda estão na fila. As estimativas usam a tabela pública da Meta em BRL para Marketing no Brasil;
+o operador define apenas o orçamento máximo. Não representam a fatura da conta.
 
 ## Configuração e publicação
 
@@ -56,7 +56,7 @@ Esses status são um registro da submissão, não uma consulta em tempo real.
 Nenhum envio a clientes foi executado. Antes da publicação, conferir que as
 variáveis de ambiente do backoffice apontam para essa mesma WABA.
 
-Ambos os modos exigem template aprovado com texto idêntico, tarifa positiva e
+Ambos os modos exigem template aprovado com texto idêntico, tarifa oficial disponível e
 orçamento suficiente para todo o público selecionado. O agendamento exige
 também horário futuro de Brasília.
 A seleção exclui contas com trial/assinatura, contas internas, leads em
@@ -105,3 +105,16 @@ ativação, verificar estes pontos operacionais no fluxo real:
 Pausar em erros definitivos individuais é uma decisão conservadora desta versão:
 permite revisar o erro antes de continuar o lote; não há retry automático. Uma
 classificação mais granular dos erros da Meta pode reduzir essas pausas depois.
+
+
+## Tarifa automática
+
+A referência é consultada no calculador público oficial em
+https://whatsappbusiness.com/products/platform-pricing/ (Brasil, BRL, Marketing).
+O servidor usa o nonce público fornecido pela página, sem credenciais da conta,
+e guarda somente a tarifa por até uma hora. O endpoint do calculador não é uma
+API contratual de faturamento: se a página ou a resposta mudar, a consulta falha
+sem inventar preço. Rascunhos continuam permitidos; envio exige tarifa válida.
+O cliente não escolhe a tarifa: o servidor a substitui ao salvar e confere se
+continua igual ao confirmar o envio. Se mudou, exige salvar e revisar novamente.
+A moeda real de cobrança pode ser diferente; o valor exibido é referência BRL.

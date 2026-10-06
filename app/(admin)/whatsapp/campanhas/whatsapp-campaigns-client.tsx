@@ -14,6 +14,8 @@ import { OCTOBER_WHATSAPP_TEMPLATES, OCTOBER_PENDING_MESSAGES } from "@/lib/back
 import { WhatsappMessagePreview } from "./whatsapp-message-preview";
 import type { CampaignMetaTemplate } from "@/lib/backoffice/whatsapp-meta";
 
+import type { CampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
+
 type Campaign = {
   id: string; title: string; template_name: string; body: string; state: string;
   scheduled_at: string | null; dispatch_mode: "manual" | "scheduled"; unit_cost_micros: number; budget_micros: string;
@@ -22,7 +24,7 @@ type Campaign = {
 type Contact = { id: string; name: string | null; email: string; phone: string };
 type Recipient = { id: string; name: string | null; email: string; state: string; reason: string | null; current_status: string | null };
 type Detail = { campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
-type Form = { id: string; title: string; templateName: string; body: string; unit: string; budget: string };
+type Form = { id: string; title: string; templateName: string; body: string; budget: string };
 const currency = (micros: number) => (micros / 1_000_000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateLabel = (date: string) => new Date(date).toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo",dateStyle:"short",timeStyle:"short"});
 const templateStatus: Record<string,string> = {APPROVED:"Aprovado",PENDING:"Em análise",REJECTED:"Rejeitado",PAUSED:"Pausado",DISABLED:"Desativado"};
@@ -38,6 +40,7 @@ export function WhatsappCampaignsClient() {
   const [audience,setAudience]=useState<Contact[]>([]);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState('');
+  const [pricing,setPricing]=useState<CampaignPricing|null>(null);
   const [configured,setConfigured]=useState(false);
   const [enabled,setEnabled]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -53,7 +56,7 @@ export function WhatsappCampaignsClient() {
   const [pendingExpanded,setPendingExpanded]=useState(false);
   const reload=useCallback(async()=>{
     setLoading(true);setError('');
-    try {const data=await api();setCampaigns(data.campaigns);setAudience(data.audience);setConfigured(data.configured);setEnabled(data.enabled);}
+    try {const data=await api();setPricing(data.pricing);setCampaigns(data.campaigns);setAudience(data.audience);setConfigured(data.configured);setEnabled(data.enabled);}
     catch(e){setError(e instanceof Error?e.message:'Falha ao carregar.');}
     finally {setLoading(false);}
   },[]);
@@ -66,9 +69,9 @@ export function WhatsappCampaignsClient() {
     finally{setBusy(false);}
   }
   function draft(seed?:typeof OCTOBER_WHATSAPP_TEMPLATES[number]) {
-    setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',unit:'',budget:''});
+    setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:''});
   }
-  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,unit:String(c.unit_cost_micros/1_000_000),budget:String(Number(c.budget_micros)/1_000_000)});}
+  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:String(Number(c.budget_micros)/1_000_000)});}
   const totalSent=campaigns.reduce((sum,c)=>sum+c.sent,0);
   const estimated=campaigns.reduce((sum,c)=>sum+c.delivered*c.unit_cost_micros,0);
   const visibleAudience=audience.filter(c=>`${c.name} ${c.email}`.toLowerCase().includes(query.toLowerCase()));
@@ -87,7 +90,7 @@ export function WhatsappCampaignsClient() {
     </section>
     <section aria-label="Campanhas">
       {loading ? <div role="status" className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none"/>Carregando campanhas…</div> : campaigns.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-muted/50 text-xs text-muted-foreground"><tr>{['Campanha','Status','Envio (Brasília)','Público','Entregues','Estimativa'].map(t=><th key={t} className="p-3 font-medium">{t}</th>)}</tr></thead><tbody>{campaigns.map(c=><tr key={c.id} className="border-t hover:bg-muted/30"><td className="p-3"><button className="text-left font-medium underline-offset-4 hover:underline focus-visible:outline-2" disabled={busy} onClick={()=>inspect(c.id)}>{c.title}</button><p className="mt-1 text-xs text-muted-foreground">{c.template_name}</p></td><td className="p-3"><Badge variant="secondary">{c.state==='scheduled'&&c.dispatch_mode==='manual'?'Envio iniciado':CAMPAIGN_STATE_LABELS[c.state]}</Badge>{c.unknown>0&&<p className="mt-1 text-xs text-destructive">{c.unknown} envio(s) a verificar</p>}</td><td className="p-3 tabular-nums">{c.scheduled_at?<><span className="block">{c.dispatch_mode==='manual'?'Manual':'Automático'}</span><span className="text-xs text-muted-foreground">{dateLabel(c.scheduled_at)}</span></>:'Aguardando decisão'}</td><td className="p-3 tabular-nums">{c.total}</td><td className="p-3 tabular-nums">{c.delivered}</td><td className="p-3 tabular-nums">{currency(c.delivered*c.unit_cost_micros)}</td></tr>)}</tbody></table></div> : <div className="py-8"><h2 className="font-medium">Prepare a primeira campanha</h2><p className="mt-1 text-sm text-muted-foreground">Use uma das mensagens de outubro abaixo ou crie um novo texto.</p></div>}
-      <p className="mt-3 text-xs text-muted-foreground">Estimativas em reais, calculadas pela tarifa informada por mensagem entregue. Não representam a fatura da Meta. Envios sem confirmação aparecem separadamente.</p>
+      <p className="mt-3 text-xs text-muted-foreground">Estimativas em reais, calculadas pela tarifa de referência da Meta por mensagem entregue. Não representam a fatura da Meta. Envios sem confirmação aparecem separadamente.</p>
     </section>
     <section className="space-y-3"><div><h2 className="text-lg font-semibold">Outubro · primeiro lote</h2><p className="mt-1 text-sm text-muted-foreground">Textos para o atendimento. Salvar um rascunho não agenda nem dispara mensagens.</p></div>
       <div className="divide-y rounded-lg border">
@@ -104,7 +107,7 @@ export function WhatsappCampaignsClient() {
                 <p className="text-sm font-medium">{template.title}</p>
                 <Badge variant="outline" className={needsConfiguration ? 'border-amber-600/30 bg-amber-500/10 text-amber-800 dark:text-amber-300' : ''}>{status}</Badge>
                 <p className="text-xs text-muted-foreground">{needsConfiguration
-                  ? 'Envio não programado. Defina público, tarifa, orçamento e quando enviar.'
+                  ? 'Envio não programado. Defina público, orçamento e quando enviar.'
                   : campaign.scheduled_at ? `${campaign.dispatch_mode === 'manual' ? 'Iniciado manualmente' : 'Agendamento'}: ${dateLabel(campaign.scheduled_at)}` : 'Consulte os detalhes da campanha.'}</p>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -125,12 +128,12 @@ export function WhatsappCampaignsClient() {
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(form)} onOpenChange={open=>{if(!open&&!busy)setForm(null);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>Preparar campanha</DialogTitle><DialogDescription>Salve o texto antes de enviar para aprovação. Use {'{{1}}'} para o primeiro nome.</DialogDescription></DialogHeader>
-      {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,unitCostMicros:Math.round(Number(form.unit.replace(',','.'))*1e6),budgetMicros:Math.round(Number(form.budget.replace(',','.'))*1e6)});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
+      {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,budgetMicros:Math.round(Number(form.budget.replace(',','.'))*1e6)});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><label className="space-y-1 text-sm">Nome da campanha<Input required maxLength={160} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label className="space-y-1 text-sm">Nome do template na Meta<Input required pattern="[a-z0-9_]+" maxLength={255} value={form.templateName} onChange={e=>setForm({...form,templateName:e.target.value})}/></label></div>
         <label className="block space-y-1 text-sm">Mensagem<Textarea className="min-w-0 [field-sizing:fixed]" required rows={11} maxLength={1024} value={form.body} onChange={e=>setForm({...form,body:e.target.value})}/><span className="block text-right text-xs text-muted-foreground">{form.body.length}/1024</span></label>
         <details className="min-w-0 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Ver prévia no WhatsApp</summary><div className="pt-4"><WhatsappMessagePreview body={form.body}/></div></details>
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><label className="space-y-1 text-sm">Tarifa estimada por entrega (R$)<Input inputMode="decimal" placeholder="Informe a tarifa da sua conta" value={form.unit} onChange={e=>setForm({...form,unit:e.target.value})}/></label><label className="space-y-1 text-sm">Orçamento da campanha (R$)<Input inputMode="decimal" placeholder="Defina antes de agendar" value={form.budget} onChange={e=>setForm({...form,budget:e.target.value})}/></label></div>
-        <p className="text-xs text-muted-foreground">A estimativa depende da categoria, do país de destino e da tarifa da conta. O orçamento limita o público pelo custo estimado.</p>
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><div className="space-y-1 text-sm"><p>Tarifa de referência da Meta</p><p className="font-medium">{pricing ? `${(pricing.unitCostMicros / 1e6).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:4})} por mensagem entregue` : 'Consulta indisponível'}</p><p className="text-xs text-muted-foreground">Marketing · Brasil · tabela em reais. {pricing ? 'Atualizada automaticamente.' : 'Você pode salvar o rascunho; a tarifa será consultada novamente antes do envio.'}</p><a className="text-xs underline underline-offset-4" href="https://whatsappbusiness.com/products/platform-pricing/" target="_blank" rel="noreferrer">Ver tabela oficial da Meta</a></div><label className="space-y-1 text-sm">Orçamento máximo da campanha (R$)<Input inputMode="decimal" placeholder="Defina antes de agendar" value={form.budget} onChange={e=>setForm({...form,budget:e.target.value})}/></label></div>
+        <p className="text-xs text-muted-foreground">O orçamento limita o público pela estimativa da tabela oficial em reais. A cobrança efetiva depende da moeda e das condições da sua conta Meta.</p>
         <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
       </form>}
     </DialogContent></Dialog>
