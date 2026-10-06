@@ -85,6 +85,7 @@ import { ProductSalesPanel } from "@/components/product-sales/product-sales-pane
 import { FilterBar, FilterSelect } from "@/components/ui/filter";
 import { resolveMarketplaceFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { HeldPaymentsPanel } from "./held-payments-panel";
 import { RecoveryPixPanel } from "./recovery-pix-panel";
 import {
   formatBrazilianPhone,
@@ -2347,6 +2348,7 @@ export function ProductsAdminWorkspace({
         </TabsContent>
 
       <TabsContent value="orders" className="pt-4">
+          <HeldPaymentsPanel />
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
               <CardTitle>Vendas</CardTitle>
