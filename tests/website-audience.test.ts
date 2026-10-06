@@ -36,12 +36,23 @@ test("uses only source-scoped observed events and source-scoped period evidence"
   assert.deepEqual(source.observedEvents, ["Purchase"]);
   assert.equal(source.observedEventsStatus, "available");
   assert.equal(resolveWebsiteSourceEvidence([{ id: "pixel-1", lastFiredTime: "2026-09-09T00:00:00Z", observedEvents: ["Purchase"], observedEventsStatus: "unknown" }], "pixel-1").observedEventsStatus, "unknown");
-  assert.deepEqual(extractObservedWebsiteEvents({ data: [{ event: "Purchase", count: 3 }, { event: "ViewContent", count: 0 }] }), ["Purchase"]);
   const evidence = websitePeriodEvidenceBySource(["pixel-1", "pixel-2"]);
   assert.equal(evidence["pixel-1"].visitors.sourceId, "pixel-1");
   assert.equal(evidence["pixel-2"].visitors.sourceId, "pixel-2");
   assert.equal(websiteSelectionsEqual({ pixelId: "pixel-1", criterion: "visitors", retentionDays: 365, url: "/ignored" }, { pixelId: "pixel-1", criterion: "visitors", retentionDays: 365 }), true);
   assert.equal(websiteSelectionsEqual({ pixelId: "pixel-1", criterion: "url", retentionDays: 7, url: "/x" }, { pixelId: "pixel-1", criterion: "url", retentionDays: 7, url: "/y" }), false);
+});
+
+test("reads observed events from the hourly buckets of Meta's pixel stats", () => {
+  // Shape of a real GET /{pixel}/stats?aggregation=event (captured 2026-10-06): one bucket per hour, the event name in `value`.
+  const response = { data: [
+    { start_time: "2026-09-29T20:00:00+0000", aggregation: "event", data: [{ value: "Purchase", count: 1 }] },
+    { start_time: "2026-09-29T21:00:00+0000", aggregation: "event", data: [{ value: "PageView", count: 60 }, { value: "Purchase", count: 2 }, { value: "InitiateCheckout", count: 1 }, { value: "AddToCart", count: 1 }] },
+    { start_time: "2026-09-29T22:00:00+0000", aggregation: "event", data: [{ value: "PageView", count: 25 }, { value: "Purchase", count: 4 }, { value: "Lead", count: 0 }] },
+  ], paging: { cursors: { after: "MTc5MTMxMzIwMAZDZD" } } };
+  assert.deepEqual(extractObservedWebsiteEvents(response), ["AddToCart", "InitiateCheckout", "PageView", "Purchase"]);
+  assert.deepEqual(extractObservedWebsiteEvents({ data: [] }), []);
+  assert.deepEqual(extractObservedWebsiteEvents({ error: { code: 100 } }), []);
 });
 
 test("records the documented Meta period contract for every website criterion", () => {
