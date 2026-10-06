@@ -41,6 +41,12 @@ describe("campaign connection and release status", () => {
 });
 
 describe('contact button template',()=>{
+  it('preserves the old approved button while new templates use direct contact',()=>{
+    const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
+    assert.equal(seed.button.url,'https://www.automatizemarketing.com/contato-direto');
+    const old=campaignTemplateDefinition('outubro_2026_0510_atendimento_v2',seed.body);
+    assert.deepEqual(old.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:'https://www.automatizemarketing.com/contato'}]});
+  });
   it('registers the contact URL as a static button without exposing it in the body',()=>{
     const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
     const definition=campaignTemplateDefinition(seed.name,seed.body);
