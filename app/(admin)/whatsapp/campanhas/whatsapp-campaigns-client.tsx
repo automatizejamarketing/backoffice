@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { CAMPAIGN_STATE_LABELS, RECIPIENT_STATE_LABELS } from "@/lib/backoffice/whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES, OCTOBER_PENDING_MESSAGES } from "@/lib/backoffice/whatsapp-october-templates";
+import { campaignBudgetMicros, formatCampaignBudgetInput, campaignBudgetReach } from "@/lib/backoffice/whatsapp-campaign-budget";
 import { WhatsappMessagePreview } from "./whatsapp-message-preview";
 import type { CampaignMetaTemplate } from "@/lib/backoffice/whatsapp-meta";
 
@@ -71,11 +72,12 @@ export function WhatsappCampaignsClient() {
   function draft(seed?:typeof OCTOBER_WHATSAPP_TEMPLATES[number]) {
     setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:''});
   }
-  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:String(Number(c.budget_micros)/1_000_000)});}
+  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros))});}
   const totalSent=campaigns.reduce((sum,c)=>sum+c.sent,0);
   const estimated=campaigns.reduce((sum,c)=>sum+c.delivered*c.unit_cost_micros,0);
   const visibleAudience=audience.filter(c=>`${c.name} ${c.email}`.toLowerCase().includes(query.toLowerCase()));
   const selectedCost=selected.length*(detail?.campaign.unit_cost_micros??0);
+  const estimatedReach=campaignBudgetReach(campaignBudgetMicros(form?.budget??''),pricing?.unitCostMicros);
   const aboveBudget=selectedCost>Number(detail?.campaign.budget_micros??0);
   return <div className="mx-auto w-full max-w-[1440px] space-y-6">
     <header className="flex flex-wrap items-start justify-between gap-4">
@@ -128,11 +130,11 @@ export function WhatsappCampaignsClient() {
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(form)} onOpenChange={open=>{if(!open&&!busy)setForm(null);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>Preparar campanha</DialogTitle><DialogDescription>Salve o texto antes de enviar para aprovação. Use {'{{1}}'} para o primeiro nome.</DialogDescription></DialogHeader>
-      {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,budgetMicros:Math.round(Number(form.budget.replace(',','.'))*1e6)});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
+      {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,budgetMicros:campaignBudgetMicros(form.budget)});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><label className="space-y-1 text-sm">Nome da campanha<Input required maxLength={160} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label className="space-y-1 text-sm">Nome do template na Meta<Input required pattern="[a-z0-9_]+" maxLength={255} value={form.templateName} onChange={e=>setForm({...form,templateName:e.target.value})}/></label></div>
         <label className="block space-y-1 text-sm">Mensagem<Textarea className="min-w-0 [field-sizing:fixed]" required rows={11} maxLength={1024} value={form.body} onChange={e=>setForm({...form,body:e.target.value})}/><span className="block text-right text-xs text-muted-foreground">{form.body.length}/1024</span></label>
         <details className="min-w-0 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Ver prévia no WhatsApp</summary><div className="pt-4"><WhatsappMessagePreview body={form.body}/></div></details>
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><div className="space-y-1 text-sm"><p>Tarifa de referência da Meta</p><p className="font-medium">{pricing ? `${(pricing.unitCostMicros / 1e6).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:4})} por mensagem entregue` : 'Consulta indisponível'}</p><p className="text-xs text-muted-foreground">Marketing · Brasil · tabela em reais. {pricing ? 'Atualizada automaticamente.' : 'Você pode salvar o rascunho; a tarifa será consultada novamente antes do envio.'}</p><a className="text-xs underline underline-offset-4" href="https://whatsappbusiness.com/products/platform-pricing/" target="_blank" rel="noreferrer">Ver tabela oficial da Meta</a></div><label className="space-y-1 text-sm">Orçamento máximo da campanha (R$)<Input inputMode="decimal" placeholder="Defina antes de agendar" value={form.budget} onChange={e=>setForm({...form,budget:e.target.value})}/></label></div>
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><div className="space-y-1 text-sm"><p>Tarifa de referência da Meta</p><p className="font-medium">{pricing ? `${(pricing.unitCostMicros / 1e6).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:4})} por mensagem entregue` : 'Consulta indisponível'}</p><p className="text-xs text-muted-foreground">Marketing · Brasil · tabela em reais. {pricing ? 'Atualizada automaticamente.' : 'Você pode salvar o rascunho; a tarifa será consultada novamente antes do envio.'}</p><a className="text-xs underline underline-offset-4" href="https://whatsappbusiness.com/products/platform-pricing/" target="_blank" rel="noreferrer">Ver tabela oficial da Meta</a></div><label className="space-y-1 text-sm">Orçamento máximo da campanha (R$)<Input inputMode="numeric" placeholder="R$ 0,00" aria-describedby="campaign-budget-estimate" value={form.budget} onChange={e=>setForm({...form,budget:formatCampaignBudgetInput(e.target.value)})}/><span id="campaign-budget-estimate" className="block text-xs text-muted-foreground" aria-live="polite">{estimatedReach===null ? 'A estimativa de pessoas aparecerá quando a tarifa estiver disponível.' : !campaignBudgetMicros(form.budget) ? 'Informe o orçamento para estimar quantas pessoas poderão receber.' : `Aproximadamente ${estimatedReach.toLocaleString('pt-BR')} ${estimatedReach===1?'pessoa':'pessoas'}, com uma mensagem por pessoa, pela tarifa atual.`}</span></label></div>
         <p className="text-xs text-muted-foreground">O orçamento limita o público pela estimativa da tabela oficial em reais. A cobrança efetiva depende da moeda e das condições da sua conta Meta.</p>
         <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
       </form>}
