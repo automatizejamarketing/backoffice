@@ -29,6 +29,7 @@ export type BackofficePermission =
   | "dashboard:view"
   | "finance:view"
   | "emails:view"
+  | "whatsapp:campaigns"
   | "whatsapp:view"
   | "whatsapp:support-session"
   | "users:manage"
@@ -119,6 +120,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "dashboard:view",
     "finance:view",
     "emails:view",
+    "whatsapp:campaigns",
     "whatsapp:view",
     "whatsapp:support-session",
     "users:manage",
@@ -140,6 +142,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   dev: [
     "dashboard:view",
     "emails:view",
+    "whatsapp:campaigns",
     "whatsapp:view",
     "whatsapp:support-session",
     "users:manage",

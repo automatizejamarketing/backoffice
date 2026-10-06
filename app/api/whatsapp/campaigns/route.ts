@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import { campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
 import { findCampaignTemplate, submitCampaignTemplate, whatsappMetaConfigured } from "@/lib/backoffice/whatsapp-meta";
 
@@ -13,7 +12,7 @@ function failure(error: unknown) {
   return NextResponse.json({ error: error instanceof Error ? error.message : "Não foi possível concluir a operação." }, { status: 400 });
 }
 export async function GET(request: Request) {
-  const auth = await requireBackofficePermissionResponse("whatsapp:view");
+  const auth = await requireBackofficePermissionResponse("whatsapp:campaigns");
   if (!auth.ok) return auth.response;
   try {
     const params = new URL(request.url).searchParams;
@@ -28,9 +27,8 @@ export async function GET(request: Request) {
   } catch (error) { return failure(error); }
 }
 export async function POST(request: Request) {
-  const auth = await requireBackofficePermissionResponse("whatsapp:view");
+  const auth = await requireBackofficePermissionResponse("whatsapp:campaigns");
   if (!auth.ok) return auth.response;
-  if (!hasBackofficePermission(auth.actor,"marketing:write")) return NextResponse.json({error:"Sem permissão para gerenciar campanhas."},{status:403});
   try {
     const input = z.object({action:z.enum(['save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
     const actor = auth.actor.email;

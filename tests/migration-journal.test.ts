@@ -39,10 +39,10 @@ function siblingFrontendMigrations(backofficeRoot: string): string | null {
     ? dirName.slice("backoffice".length)
     : "";
   const candidates = [
-    join(backofficeRoot, "..", "frontend", "lib", "db", "migrations"),
     ...(process.env.FRONTEND_ROOT
       ? [join(process.env.FRONTEND_ROOT, "lib", "db", "migrations")]
       : []),
+    join(backofficeRoot, "..", "frontend", "lib", "db", "migrations"),
     join(backofficeRoot, "..", `automatize-frontend${suffix}`, "lib", "db", "migrations"),
     join(backofficeRoot, "..", "automatize-frontend", "lib", "db", "migrations"),
   ];

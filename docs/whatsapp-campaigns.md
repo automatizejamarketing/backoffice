@@ -20,8 +20,8 @@ operador e não representam a fatura da Meta.
   `WHATSAPP_CAMPAIGNS_ENABLED=true`; deixá-lo ausente durante a preparação.
 - A publicação e a ativação dos disparos são etapas separadas da submissão dos
   templates. Nenhuma delas é feita automaticamente pelo código de preparação.
-- Preserva as permissões existentes: leitura exige `whatsapp:view`; alterações
-  também exigem `marketing:write`. Não amplia o acesso do papel comercial.
+- Leitura e alterações exigem `whatsapp:campaigns`, exclusiva de admin/dev.
+  A permissão geral de WhatsApp ou marketing não permite acessar campanhas.
 
 ## Operação
 
@@ -85,3 +85,23 @@ WHATSAPP_TEST_DATABASE_URL=postgres://USER@127.0.0.1:55985/automatize_whatsapp_t
 
 Cobertura: orçamento, variáveis, telefone, elegibilidade, concorrência,
 webhook antecipado, resposta perdida, pausa, exclusão, desligamento e migrations.
+
+
+## Pendências antes de ativar os disparos
+
+A revisão Fable não bloqueou a preparação com a flag desligada. Antes da
+ativação, verificar estes pontos operacionais no fluxo real:
+
+- Identidade telefônica: validar a correspondência de números móveis recebidos
+  com e sem o nono dígito. Hoje a exclusão compara o telefone completo normalizado.
+- Envios incertos: disponibilizar uma resolução auditada após conferência na Meta.
+  Atualmente ficam sem retry e podem manter a campanha pausada; retomar não
+  resolve a incerteza. Não marcar como concluído para ocultar essa pendência.
+- Confirmação recebida com falha de persistência: melhorar a recuperação quando
+  há ID da Meta, mas a transação local falha. Hoje a campanha pausa por segurança.
+- Medir o custo da consulta de público e considerar carregá-la apenas ao configurar
+  o envio. A hipótese de lentidão da revisão ainda não foi medida.
+
+Pausar em erros definitivos individuais é uma decisão conservadora desta versão:
+permite revisar o erro antes de continuar o lote; não há retry automático. Uma
+classificação mais granular dos erros da Meta pode reduzir essas pausas depois.
