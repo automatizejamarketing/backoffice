@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
-import { campaignTemplateDefinition, campaignTemplateMatches } from "./whatsapp-campaign-core";
+import { campaignTemplateDefinition, campaignTemplateMatches, campaignSendComponents } from "./whatsapp-campaign-core";
 
 const templateSchema = z.object({
   id: z.string(), name: z.string(), language: z.string(), status: z.string(),
@@ -65,13 +65,13 @@ export async function submitCampaignTemplate(name: string, body: string) {
   return { ...result, existing: false };
 }
 
-export async function sendCampaignTemplate(phone: string, name: string, body: string, firstName: string) {
+export async function sendCampaignTemplate(phone: string, name: string, body: string, firstName: string, deliveryId?: string) {
   const phoneId = process.env.META_WHATSAPP_PHONE_NUMBER_ID;
   if (!phoneId || !/^\d+$/.test(phoneId)) throw new WhatsappMetaError("Número remetente não configurado.", true);
   const result = z.object({ messages: z.array(z.object({ id: z.string() })).min(1) }).parse(await whatsappMetaRequest(`${phoneId}/messages`, {
     method: "POST", body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "template", template: {
       name, language: { code: "pt_BR" },
-      ...(body.includes("{{1}}") ? { components: [{ type: "body", parameters: [{ type: "text", text: firstName }] }] } : {}),
+      components: campaignSendComponents(name, body, firstName, deliveryId),
     } }),
   }));
   return result.messages[0].id;

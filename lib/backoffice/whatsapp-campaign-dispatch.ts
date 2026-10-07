@@ -71,7 +71,7 @@ export async function dispatchWhatsappCampaigns() {
         deliveryId = delivery.id;
         await pg`update whatsapp_campaign_recipients set delivery_id=${deliveryId} where id=${recipient.id}`;
         attempted = true;
-        providerId = await sendCampaignTemplate(recipient.phone, campaign.template_name, campaign.body, firstName(contact.name));
+        providerId = await sendCampaignTemplate(recipient.phone, campaign.template_name, campaign.body, firstName(contact.name), deliveryId);
         await db.transaction(async tx => {
           await tx.execute(sql`update whatsapp_template_deliveries set provider_message_id=${providerId},current_status='sent',accepted_at=now(),updated_at=now() where id=${deliveryId}`);
           await reconcileWhatsappTemplateDelivery(tx, providerId!);

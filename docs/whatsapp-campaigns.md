@@ -146,3 +146,23 @@ A definição do botão fica junto ao texto do lote. Prévia, submissão, teste 
 envio oficial conferem o texto e a configuração do botão. O envio de um botão
 estático não requer parâmetro de URL no payload da mensagem. Os templates v1
 continuam disponíveis; campanhas já enviadas não devem ser alteradas.
+
+## Cliques rastreados
+
+As versões 05/10 v4 e 08, 12 e 26/10 v2 usam o botão dinâmico
+`https://www.automatizemarketing.com/contato-direto/{{1}}`. O parâmetro enviado
+à Meta é o UUID aleatório do registro em `whatsapp_template_deliveries`, criado
+antes da chamada de envio. Não há telefone, email ou destino livre no link.
+
+O frontend reaproveita o repositório de cliques existente: registra o evento e
+marca `clicked_at` na entrega. Robôs de prévia conhecidos e requisições HEAD
+não contam. Tokens desconhecidos não contam; falhas no registro não impedem o
+redirecionamento para o WhatsApp da equipe. Não há cookie nem IP armazenado por
+esta rota; links encaminhados ainda são atribuídos à entrega original.
+
+O relatório conta entregas únicas com clique, dividido pelos envios aceitos pela
+Meta. Envios de teste ficam fora das métricas oficiais. Zero cliques em templates
+rastreáveis aparece como zero; versões antigas continuam como "Não rastreado".
+Isso mede acesso ao link, não uma conversa confirmada. Não é possível recuperar
+cliques anteriores nem identificar cliques posteriores de links estáticos antigos.
+Cada nova versão precisa de aprovação Meta; campanhas já enviadas não são alteradas.

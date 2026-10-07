@@ -1,4 +1,4 @@
-import { campaignContactButton } from "./whatsapp-october-templates";
+import { campaignContactButton, campaignTracksClicks } from "./whatsapp-october-templates";
 import { z } from "zod";
 import { normalizeBrazilianPhone } from "@/lib/phone";
 
@@ -29,7 +29,7 @@ export function campaignTemplateDefinition(name: string, body: string) {
     name, language: "pt_BR", category: "MARKETING",
     components: [{ type: "BODY", text: body,
       ...(body.includes("{{1}}") ? { example: { body_text: [["João"]] } } : {}),
-    }, ...(button ? [{ type: "BUTTONS", buttons: [{ type: "URL", ...button }] }] : [])],
+    }, ...(button ? [{ type: "BUTTONS", buttons: [{ type: "URL", ...button, ...(campaignTracksClicks(name) ? {example: [button.url.replace("{{1}}", "00000000-0000-4000-8000-000000000001")]} : {}) }] }] : [])],
   };
 }
 
@@ -70,4 +70,13 @@ export function campaignMetaLookupLabel(lookup: CampaignMetaLookup): string {
 }
 export function canConfirmCampaignSend(enabled: boolean, status?: string): boolean {
   return enabled && status === "APPROVED";
+}
+
+export function campaignSendComponents(name: string, body: string, firstName: string, deliveryId?: string) {
+  if (campaignTracksClicks(name) && !z.string().uuid().safeParse(deliveryId).success)
+    throw new Error("O envio rastreável precisa de um identificador de entrega válido.");
+  return [
+    ...(body.includes("{{1}}") ? [{ type: "body", parameters: [{ type: "text", text: firstName }] }] : []),
+    ...(campaignTracksClicks(name) ? [{type: "button", sub_type: "url", index: "0", parameters: [{type: "text", text: deliveryId!}]}] : []),
+  ];
 }

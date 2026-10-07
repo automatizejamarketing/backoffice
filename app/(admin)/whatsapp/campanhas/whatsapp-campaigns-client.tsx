@@ -1,4 +1,5 @@
 "use client";
+import { campaignTracksClicks } from "@/lib/backoffice/whatsapp-october-templates";
 
 import { useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
@@ -230,7 +231,7 @@ export function WhatsappCampaignsClient() {
               ['Iniciaram trial',String(detail.metrics.trials),`Pessoas com trial nos ${reportDays} dias seguintes`],
               ['Pagaram',String(detail.metrics.paying),'Assinatura ou reativação paga; exclui créditos avulsos'],
               ['Falhas',String(detail.metrics.failed),'Falha confirmada no envio ou na entrega'],
-              ['Cliques no link',detail.metrics.tracked_clicks?String(detail.metrics.tracked_clicks):'Não rastreado','Links diretos no texto não identificam quem clicou'],
+              ['Cliques únicos',campaignTracksClicks(detail.campaign.template_name)?String(detail.metrics.tracked_clicks):'Não rastreado',campaignTracksClicks(detail.campaign.template_name)?`${detail.metrics.sent ? (detail.metrics.tracked_clicks/detail.metrics.sent*100).toLocaleString('pt-BR',{maximumFractionDigits:1}) : '0'}% dos envios · prévias automáticas conhecidas são ignoradas`:'Esta versão foi enviada sem link rastreável'],
               ['Entraram em contato','Não rastreado','Clique não comprova conversa no número de atendimento'],
               ['Gasto exato','Não disponível',`Estimativa das entregues: ${currency(detail.metrics.delivered*detail.campaign.unit_cost_micros)}`],
             ].map(([label,value,caption])=><div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{value}</dd><p className="mt-1 text-xs text-muted-foreground">{caption}</p></div>)}
