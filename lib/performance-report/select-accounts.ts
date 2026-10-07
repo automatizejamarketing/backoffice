@@ -4,8 +4,11 @@ export type SelectableAccount = {
   name?: string | null;
 };
 
+import { pickEnabledVisibleAccounts } from "@/lib/backoffice/enabled-ad-account-scope";
+
 export type AccountScopeMode =
   | "explicit"
+  | "client_enabled"
   | "automatize_managed"
   | "name_match"
   | "needs_choice";
@@ -108,6 +111,13 @@ export function buildAccountScopeSummary(input: {
   if (input.mode === "explicit") {
     return `Escopo desta análise: a conta pedida (${selectedLabels.join(", ")}).${skippedSuffix}`;
   }
+  if (input.mode === "client_enabled") {
+    const who =
+      selectedLabels.length === 1
+        ? `a conta habilitada pelo cliente (${selectedLabels[0]})`
+        : `todas as contas habilitadas pelo cliente, a principal primeiro — ${selectedLabels.join(", ")}. Mostre os números separados por conta`;
+    return `Escopo desta análise: ${who}.${skippedSuffix}`;
+  }
   if (input.mode === "needs_choice") {
     const connected = [...input.selected, ...input.skipped].map(accountLabel);
     return `Nenhuma conta com campanha criada pelo Automatize. Contas conectadas: ${connected.join(", ") || "nenhuma"}. Peça qual conta analisar — não consolide as outras empresas.`;
@@ -132,6 +142,12 @@ export function buildAccountScopeSummary(input: {
 export function selectReportAccounts(input: {
   connected: SelectableAccount[];
   explicitAccountId?: string | null;
+  /**
+   * Ad accounts the client enabled (meta_enabled_assets), principal first.
+   * When any of them is connected, the report covers exactly those — the
+   * client's own choice beats every heuristic below.
+   */
+  enabledAccountIds?: string[];
   managedAccountIds: string[];
   liveManagedAccountIds?: string[];
   /** Spend in the last 15 days; only applied inside the Automatize-managed set. */
@@ -165,6 +181,30 @@ export function selectReportAccounts(input: {
         skipped,
       }),
     };
+  }
+
+  if (input.enabledAccountIds?.length) {
+    const selected = pickEnabledVisibleAccounts({
+      visible: connected,
+      enabledIds: input.enabledAccountIds,
+      keysOf,
+    });
+    if (selected.length > 0) {
+      const selectedKeys = toAccountKeySet(selected.map((account) => account.id));
+      const skipped = connected.filter(
+        (account) => !accountInKeySet(account, selectedKeys),
+      );
+      return {
+        mode: "client_enabled",
+        selected,
+        skipped,
+        summary: buildAccountScopeSummary({
+          mode: "client_enabled",
+          selected,
+          skipped,
+        }),
+      };
+    }
   }
 
   const managedKeys = toAccountKeySet([

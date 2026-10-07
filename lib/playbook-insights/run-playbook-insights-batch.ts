@@ -34,6 +34,13 @@ import {
   type PlaybookEvaluationConfig,
 } from "@/lib/playbook-insights/evaluate";
 import { fetchCampaignMetricsForAccount } from "@/lib/playbook-insights/fetch-campaign-metrics";
+import {
+  labelCandidatesByAccount,
+  pickPlaybookAccounts,
+  type PlaybookAccount,
+} from "@/lib/playbook-insights/multi-account";
+import type { CampaignMetricsRow } from "@/lib/playbook-insights/types";
+import { listEnabledAdAccountIds } from "@/lib/backoffice/meta-enabled-assets";
 import { loadReadyCreativeDiagnosesForUser } from "@/lib/playbook-insights/load-creative-diagnoses";
 import { deliverPlaybookInsightsToSlack } from "@/lib/proactivity/slack-delivery";
 
@@ -376,8 +383,11 @@ async function evaluatePlaybookTarget(args: {
       clientBusinessId: connection.clientBusinessId,
       connectionName: connection.name,
     });
-    const firstAccount = profile.adaccounts?.data?.[0];
-    if (!firstAccount) {
+    const accounts = pickPlaybookAccounts({
+      visible: profile.adaccounts?.data ?? [],
+      enabledIds: await listEnabledAdAccountIds(target.id),
+    });
+    if (accounts.length === 0) {
       const empty = evaluatePlaybookInsights({
         accountId: null,
         campaigns: [],
@@ -402,25 +412,38 @@ async function evaluatePlaybookTarget(args: {
       };
     }
 
-    const accountId = firstAccount.id.startsWith("act_")
-      ? firstAccount.id
-      : `act_${firstAccount.account_id}`;
-
-    const campaigns = await fetchCampaignMetricsForAccount({
-      accessToken,
-      accountId,
-      lookbackDays: evaluationConfig.enabledRuleIds?.has(
-        PLAYBOOK_RULE_ROAS_DECLINE,
-      )
-        ? playbookRoasDeclineLookbackDays(evaluationConfig)
-        : undefined,
-    });
-    const evaluation = evaluatePlaybookInsights({
-      accountId,
-      campaigns,
-      config: evaluationConfig,
-      connectionCreatedAt: connection.createdAt,
-      creativeDiagnoses,
+    // One evaluation over every account's campaigns, so creative diagnoses
+    // (per user, not per account) are matched once. A Graph error on any
+    // account fails the whole user, like before: persisting a partial set
+    // would resolve the open insights of the account that failed.
+    const lookbackDays = evaluationConfig.enabledRuleIds?.has(
+      PLAYBOOK_RULE_ROAS_DECLINE,
+    )
+      ? playbookRoasDeclineLookbackDays(evaluationConfig)
+      : undefined;
+    const accountByCampaignId = new Map<string, PlaybookAccount>();
+    const campaigns: CampaignMetricsRow[] = [];
+    for (const account of accounts) {
+      const rows = await fetchCampaignMetricsForAccount({
+        accessToken,
+        accountId: account.accountId,
+        lookbackDays,
+      });
+      for (const row of rows) {
+        accountByCampaignId.set(row.id, account);
+        campaigns.push(row);
+      }
+    }
+    const evaluation = labelCandidatesByAccount({
+      evaluation: evaluatePlaybookInsights({
+        accountId: accounts[0]!.accountId,
+        campaigns,
+        config: evaluationConfig,
+        connectionCreatedAt: connection.createdAt,
+        creativeDiagnoses,
+      }),
+      accountByCampaignId,
+      multipleAccounts: accounts.length > 1,
     });
     const persisted = await persistPlaybookInsightsForUser({
       runId,
