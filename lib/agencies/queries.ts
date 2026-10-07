@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { BackofficeActor } from "@/lib/auth/rbac-core";
 import { db } from "@/lib/db";
 import { agency, agencyInvitation, agencyMember, user } from "@/lib/db/schema";
@@ -72,10 +72,23 @@ function inviterId(actor: BackofficeActor): string | null {
   return actor.source === "database" ? actor.id : null;
 }
 
+type Executor = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Mesma trava de equipe do frontend (`lib/agency/agencies.ts`): convites e
+ * aceites de uma Agência ficam serializados entre os dois apps.
+ */
+async function lockAgency(tx: Executor, agencyId: string) {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended('agency:' || ${agencyId}::uuid::text, 0))`,
+  );
+}
+
 async function insertOwnerInvitation(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tx: Executor,
   input: { agencyId: string; email: string; actor: BackofficeActor; now: Date },
 ) {
+  await lockAgency(tx, input.agencyId);
   await tx
     .update(agencyInvitation)
     .set({ revokedAt: input.now })
