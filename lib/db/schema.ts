@@ -2178,6 +2178,7 @@ export const companyModuleEntitlement = pgTable(
       .notNull(),
     sourceReference: varchar("source_reference", { length: 255 }),
     validUntil: timestamp("valid_until", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
     updatedByUserId: uuid("updated_by_user_id").references(() => user.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -2209,9 +2210,11 @@ export const companyModuleEvent = pgTable(
     validUntil: timestamp("valid_until", { withTimezone: true }),
     actorUserId: uuid("actor_user_id").references(() => user.id),
     idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
-    occurredAt: timestamp("occurred_at", { withTimezone: true })
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    applied: boolean("applied").notNull(),
   },
   (table) => ({
     idempotencyKeyUnique: uniqueIndex(
