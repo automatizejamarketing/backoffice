@@ -13,6 +13,7 @@ import {
   KanbanSquare,
   LayoutDashboard,
   LayoutGrid,
+  Building2,
   Link2,
   LogOut,
   Mail,
@@ -210,6 +211,13 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Links rastreáveis",
         icon: Link2,
         permission: "trackable-links:manage",
+      },
+      {
+        kind: "leaf",
+        href: "/agencias",
+        label: "Agências",
+        icon: Building2,
+        permission: "agencies:manage",
       },
       {
         kind: "group",
