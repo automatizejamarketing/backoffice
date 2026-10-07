@@ -88,18 +88,27 @@ export async function campaignMetrics(id:string, days=7) {
       where p.user_id=r.user_id and p.status='succeeded' and p.amount>0 and (p.purpose is null or p.purpose in ('subscription','legacy_renewal'))
       and p.paid_at>=coalesce(d.delivered_at,d.read_at) and p.paid_at<coalesce(d.delivered_at,d.read_at)+make_interval(days=>${days})))::int as paying
     from whatsapp_campaign_recipients r left join whatsapp_template_deliveries d on d.id=r.delivery_id where r.campaign_id=${id}`;
-  // EXISTS counts each payment once, even if a recipient has multiple delivery records.
-  const [revenue] = await pg<{revenue_centavos:string}[]>`select coalesce(sum(
-    case when p.status='refunded' then 0 else greatest(p.amount-coalesce(p.refunded_amount,0),0) end
-  ),0)::text as revenue_centavos from payments p
-    where p.status in ('succeeded','refunded') and lower(p.currency)='brl' and p.amount>0
-      and (p.purpose is null or p.purpose in ('subscription','legacy_renewal'))
-      and exists(select 1 from whatsapp_campaign_recipients r
-        join whatsapp_template_deliveries d on d.id=r.delivery_id
-        where r.campaign_id=${id} and r.user_id=p.user_id
-          and p.paid_at>=coalesce(d.delivered_at,d.read_at)
-          and p.paid_at<coalesce(d.delivered_at,d.read_at)+make_interval(days=>${days}))`;
-  return {...row,revenue_centavos:Number(revenue.revenue_centavos),windowDays:days};
+  const revenues = await campaignRevenues([id],days);
+  return {...row,revenue_centavos:revenues.get(id)??0,windowDays:days};
+}
+
+// Shared by the list and detail so attribution and refunds cannot drift.
+async function campaignRevenues(ids:string[],days:number) {
+  if(!ids.length)return new Map<string,number>();
+  const rows=await pg<{id:string;revenue_centavos:string}[]>`select c.id,
+    (select coalesce(sum(case when p.status='refunded' then 0
+      else greatest(p.amount-coalesce(p.refunded_amount,0),0) end),0)::text
+     from payments p
+     where p.status in ('succeeded','refunded') and lower(p.currency)='brl' and p.amount>0
+       and (p.purpose is null or p.purpose in ('subscription','legacy_renewal'))
+       and exists(select 1 from whatsapp_campaign_recipients r
+         join whatsapp_template_deliveries d on d.id=r.delivery_id
+         where r.campaign_id=c.id and r.user_id=p.user_id
+           and p.paid_at>=coalesce(d.delivered_at,d.read_at)
+           and p.paid_at<coalesce(d.delivered_at,d.read_at)+make_interval(days=>${days}))
+    ) as revenue_centavos
+    from whatsapp_campaigns c where c.id in ${pg(ids)}`;
+  return new Map(rows.map(row=>[row.id,Number(row.revenue_centavos)]));
 }
 
 export async function getCampaign(id: string) {
@@ -121,7 +130,8 @@ export async function listCampaigns() {
     from whatsapp_campaigns c left join whatsapp_campaign_recipients r on r.campaign_id=c.id
     left join whatsapp_template_deliveries d on d.id=r.delivery_id
     group by c.id order by c.created_at desc limit 100`;
-  return rows;
+  const revenues=await campaignRevenues(rows.map(row=>row.id),7);
+  return rows.map(row=>({...row,revenue_centavos:revenues.get(row.id)??0}));
 }
 
 export async function saveCampaign(id: string, input: unknown, actor: string) {

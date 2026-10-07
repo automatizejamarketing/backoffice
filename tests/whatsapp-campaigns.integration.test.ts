@@ -202,6 +202,10 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
       (${userId},'succeeded',99900,'subscription',now()-interval '11 days','brl',0),
       (${userId},'succeeded',10000,'subscription',now(),'brl',0)`;
     assert.equal((await campaigns.campaignMetrics(id,7)).revenue_centavos,69700);
+    const draft=await seed();
+    const listed=await campaigns.listCampaigns();
+    assert.equal(listed.find(c=>c.id===id)?.revenue_centavos,69700);
+    assert.equal(listed.find(c=>c.id===draft.id)?.revenue_centavos,0);
     assert.equal((await campaigns.campaignMetrics(id,14)).revenue_centavos,79700);
     await pg`update whatsapp_template_deliveries set delivered_at=null,read_at=null`;
     assert.equal((await campaigns.campaignMetrics(id,14)).revenue_centavos,0);
