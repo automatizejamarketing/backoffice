@@ -38,7 +38,7 @@ export async function sendCampaignTest(campaignId: string, input: unknown, actor
   }
   let providerId: string | null = null;
   try {
-    providerId = await sendCampaignTemplate(contact.phone,campaign.template_name,campaign.body,firstName(contact.name));
+    providerId = await sendCampaignTemplate(contact.phone,campaign.template_name,campaign.body,firstName(contact.name), delivery.id);
     await db.transaction(async tx => {
       await tx.execute(sql`update whatsapp_template_deliveries set provider_message_id=${providerId},current_status='sent',accepted_at=now(),updated_at=now() where id=${delivery.id}`);
       await reconcileWhatsappTemplateDelivery(tx,providerId!);

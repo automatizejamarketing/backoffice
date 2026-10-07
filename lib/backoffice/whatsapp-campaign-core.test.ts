@@ -43,7 +43,7 @@ describe("campaign connection and release status", () => {
 describe('contact button template',()=>{
   it('preserves the old approved button while new templates use direct contact',()=>{
     const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
-    assert.equal(seed.button.url,'https://www.automatizemarketing.com/contato-direto');
+    assert.equal(seed.button.url,'https://www.automatizemarketing.com/contato-direto/{{1}}');
     const old=campaignTemplateDefinition('outubro_2026_0510_atendimento_v2',seed.body);
     assert.deepEqual(old.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:'https://www.automatizemarketing.com/contato'}]});
   });
@@ -51,7 +51,7 @@ describe('contact button template',()=>{
     const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
     const definition=campaignTemplateDefinition(seed.name,seed.body);
     assert.ok(!seed.body.includes('https://'));
-    assert.deepEqual(definition.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:seed.button.url}]});
+    assert.deepEqual(definition.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:seed.button.url,example:[seed.button.url.replace('{{1}}','00000000-0000-4000-8000-000000000001')]}]});
     assert.equal(campaignTemplateMatches(definition,seed.name,seed.body),true);
     assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body}]},seed.name,seed.body),false);
     assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body},{type:'BUTTONS',buttons:[{type:'URL',text:seed.button.text,url:'https://example.com'}]}]},seed.name,seed.body),false);
@@ -59,8 +59,22 @@ describe('contact button template',()=>{
   });
   it('keeps existing text-only templates compatible',()=>{
     const seed=OCTOBER_WHATSAPP_TEMPLATES[1];
-    const definition=campaignTemplateDefinition(seed.name,seed.body);
+    const legacy='outubro_2026_0810_assinatura_v1';
+    const definition=campaignTemplateDefinition(legacy,seed.body);
     assert.equal(definition.components.length,1);
-    assert.equal(campaignTemplateMatches(definition,seed.name,seed.body),true);
+    assert.equal(campaignTemplateMatches(definition,legacy,seed.body),true);
   });
+});
+
+import { campaignSendComponents } from './whatsapp-campaign-core';
+it('sends the unique delivery ID in the dynamic button and rejects missing IDs',()=>{
+ const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
+ const token='00000000-0000-4000-8000-000000000001';
+ assert.deepEqual(campaignSendComponents(seed.name,seed.body,'Ana',token),[
+  {type:'body',parameters:[{type:'text',text:'Ana'}]},
+  {type:'button',sub_type:'url',index:'0',parameters:[{type:'text',text:token}]}
+ ]);
+ assert.throws(()=>campaignSendComponents(seed.name,seed.body,'Ana'));
+ assert.throws(()=>campaignSendComponents(seed.name,seed.body,'Ana','not-a-token'));
+ assert.equal(campaignSendComponents('outubro_2026_0510_atendimento_v3',seed.body,'Ana').length,1);
 });

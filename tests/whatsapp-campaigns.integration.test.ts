@@ -6,6 +6,9 @@ import { before, after, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+import { OCTOBER_WHATSAPP_TEMPLATES } from "../lib/backoffice/whatsapp-october-templates";
+import { campaignTemplateDefinition } from "../lib/backoffice/whatsapp-campaign-core";
+
 const databaseUrl = process.env.WHATSAPP_TEST_DATABASE_URL;
 describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl }, () => {
   let pg: typeof import("../lib/db").postgresClient;
@@ -49,9 +52,20 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
       if (requestUrl.hostname === "whatsappbusiness.com") return requestUrl.pathname.includes('/wp-json/')
         ? Response.json({quote:"0.3000"}) : new Response('{"restNonce":"test-public-nonce"}');
       assert.equal(requestUrl.hostname, "graph.facebook.com");
+      if (requestUrl.pathname.endsWith("/message_templates") && requestUrl.searchParams.get("name")===OCTOBER_WHATSAPP_TEMPLATES[0].name) {
+        const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
+        return Response.json({data:[{id:'tracked-template',...campaignTemplateDefinition(seed.name,seed.body),status:'APPROVED'}]});
+      }
       if (requestUrl.pathname.endsWith("/message_templates")) return Response.json({ data: [{ id: "template1", name: "campaign_v1", language: "pt_BR", category: "MARKETING", status: "APPROVED", components: [{ type: "BODY", text: body }] }] });
       assert.ok(requestUrl.pathname.endsWith("/messages"));
       assert.equal(init?.method, "POST");
+      const payload=JSON.parse(String(init?.body));
+      if(payload.template.name===OCTOBER_WHATSAPP_TEMPLATES[0].name) {
+        const button=payload.template.components.find((c:{type:string})=>c.type==='button');
+        assert.equal(button.sub_type,'url');
+        const [delivery]=await pg`select id from whatsapp_template_deliveries where id=${button.parameters[0].text}`;
+        assert.ok(delivery,'button must identify a persisted delivery');
+      }
       sends++;
       if (failAmbiguously) throw new TypeError("Simulated lost response");
       const providerId = `wamid.test.${sends}`;
@@ -103,6 +117,24 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     assert.equal((await campaigns.campaignMetrics(id,7)).sent,0);
     const deliveries=await pg`select source,current_status from whatsapp_template_deliveries`;
     assert.ok(deliveries.every(row=>row.source==='backoffice_campaign_test'&&row.current_status==='delivered'));
+  });
+  it("tracks official recipients separately from test sends, counting each clicked delivery once",async()=>{
+    const {id,userId}=await seed();
+    const template=OCTOBER_WHATSAPP_TEMPLATES[0];
+    await pg`update whatsapp_campaigns set template_name=${template.name},body=${template.body} where id=${id}`;
+    process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
+    await testSend.sendCampaignTest(id,{userId,requestId:crypto.randomUUID()},'admin');
+    await pg`update whatsapp_template_deliveries set clicked_at=now() where source='backoffice_campaign_test'`;
+    assert.equal((await campaigns.campaignMetrics(id)).tracked_clicks,0);
+    await campaigns.scheduleCampaign(id,null,[userId],'admin');
+    await dispatch();
+    const [official]=await pg`select delivery_id from whatsapp_campaign_recipients where campaign_id=${id}`;
+    await pg`update whatsapp_template_deliveries set clicked_at=now() where id=${official.delivery_id}`;
+    await pg`update whatsapp_template_deliveries set clicked_at=coalesce(clicked_at,now()) where id=${official.delivery_id}`;
+    const metrics=await campaigns.campaignMetrics(id);
+    assert.equal(metrics.tracked_clicks,1);
+    assert.equal(metrics.sent,1);
+    assert.equal(sends,2);
   });
   it("rejects unconfigured test recipients, disabled sending and unapproved text without sending", async()=>{
     const {id,userId}=await seed();
