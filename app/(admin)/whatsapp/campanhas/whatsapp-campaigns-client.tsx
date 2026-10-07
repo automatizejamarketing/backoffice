@@ -1,7 +1,7 @@
 "use client";
 import { campaignTracksClicks, findOctoberCampaign } from "@/lib/backoffice/whatsapp-october-templates";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, ChevronDown, CalendarClock, Loader2, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,9 @@ import { WhatsappMessagePreview } from "./whatsapp-message-preview";
 import type { CampaignMetaTemplate } from "@/lib/backoffice/whatsapp-meta";
 
 import { AUDIENCE_STATUSES, DEFAULT_AUDIENCE_FILTERS, audienceDateBounds, audienceDateCondition, templateRejectionReason, readRate, type AudienceFilters, type AudienceStatus } from "@/lib/backoffice/whatsapp-campaign-audience";
+import { WhatsappDeliveryStatus } from "@/components/whatsapp-delivery-status";
+import type { WhatsappDeliveryStatus as DeliveryStatus } from "@/lib/backoffice/whatsapp-history-model";
+import { campaignReturn } from "@/lib/backoffice/whatsapp-campaign-return";
 import type { CampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
 
 type Campaign = {
@@ -30,8 +33,8 @@ type Campaign = {
   total: number; sent: number; delivered: number; read: number; failed: number; pending: number; unknown: number; excluded: number;
 };
 type Contact = { id: string; name: string | null; email: string; phone: string; created_at: string | null; expiration_date: string | null; account_status: AudienceStatus };
-type Recipient = { id: string; name: string | null; email: string; state: string; reason: string | null; current_status: string | null };
-type Metrics = { total:number; sent:number; delivered:number; read:number; failed:number; tracked_clicks:number; trials:number; paying:number; windowDays:number };
+type Recipient = { id: string; name: string | null; email: string; state: string; reason: string | null; current_status: DeliveryStatus | null; accepted_at:string|null;delivered_at:string|null;read_at:string|null;clicked_at:string|null };
+type Metrics = { total:number; sent:number; delivered:number; read:number; failed:number; tracked_clicks:number; trials:number; paying:number; windowDays:number; revenue_centavos:number };
 type Detail = { metrics: Metrics; metaLookup: CampaignMetaLookup; campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
 type Form = { id: string; title: string; templateName: string; body: string; budget: string };
 const AUDIENCE_STATUS_ORDER = Object.keys(AUDIENCE_STATUSES) as AudienceStatus[];
@@ -57,6 +60,9 @@ export function WhatsappCampaignsClient() {
   const [form,setForm]=useState<Form|null>(null);
   const [preview,setPreview]=useState<{title:string;body:string;name:string}|null>(null);
   const [detail,setDetail]=useState<Detail|null>(null);
+  const [detailRequest,setDetailRequest]=useState<{id:string;title:string;error:string}|null>(null);
+  const [detailLoading,setDetailLoading]=useState(false);
+  const detailSequence=useRef(0);
   const [scheduleOpen,setScheduleOpen]=useState(false);
   const [selected,setSelected]=useState<string[]>([]);
   const [scheduledAt,setScheduledAt]=useState('');
@@ -76,7 +82,16 @@ export function WhatsappCampaignsClient() {
     finally {setLoading(false);}
   },[]);
   useEffect(()=>{void reload();},[reload]);
-  async function inspect(id:string,days=reportDays){setBusy(true);try{setDetail(await api(undefined,id,days));}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
+  async function inspect(id:string,days=reportDays){
+    const sequence=++detailSequence.current;
+    setDetailRequest({id,title:campaigns.find(c=>c.id===id)?.title??'Campanha',error:''});
+    setDetailLoading(true);setBusy(true);
+    try{const result=await api(undefined,id,days);if(sequence===detailSequence.current){setDetail(result);setDetailRequest(null);}}
+    catch(e){if(sequence===detailSequence.current)setDetailRequest({id,title:'Não foi possível carregar a campanha',error:(e as Error).message});}
+    finally{if(sequence===detailSequence.current){setDetailLoading(false);setBusy(false);}}
+  }
+  function closeDetail(){++detailSequence.current;setDetailRequest(null);setDetailLoading(false);setBusy(false);setDetail(null);setScheduleOpen(false);}
+
   async function mutate(action:string,id:string,data?:unknown){
     setBusy(true);
     try {const result=await api({action,id,data});await reload();return result;}
@@ -100,6 +115,7 @@ export function WhatsappCampaignsClient() {
   const selectedCost=selected.length*(detail?.campaign.unit_cost_micros??0);
   const estimatedReach=campaignBudgetReach(campaignBudgetMicros(form?.budget??''),pricing?.unitCostMicros);
   const aboveBudget=selectedCost>Number(detail?.campaign.budget_micros??0);
+  const returns=detail?campaignReturn(detail.metrics.revenue_centavos,detail.metrics.delivered,detail.campaign.unit_cost_micros):null;
   return <div className="mx-auto w-full max-w-[1440px] space-y-6">
     <header className="flex flex-wrap items-start justify-between gap-4">
       <div><Link href="/whatsapp" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5"/>Histórico do WhatsApp</Link>
@@ -112,7 +128,7 @@ export function WhatsappCampaignsClient() {
       {[['Campanhas na fila',String(campaigns.filter(c=>c.state==='scheduled').length)],['Mensagens enviadas',String(totalSent)],['Estimativa das entregues',currency(estimated)]].map(([label,value])=><div key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold tabular-nums">{loading?'—':value}</p></div>)}
     </section>
     <section aria-label="Campanhas">
-      {loading ? <div role="status" className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none"/>Carregando campanhas…</div> : campaigns.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-muted/50 text-xs text-muted-foreground"><tr>{['Campanha','Status','Envio (Brasília)','Público','Entregues','Estimativa'].map(t=><th key={t} className="p-3 font-medium">{t}</th>)}</tr></thead><tbody>{campaigns.map(c=><tr key={c.id} className="border-t hover:bg-muted/30"><td className="p-3"><button className="text-left font-medium underline-offset-4 hover:underline focus-visible:outline-2" disabled={busy} onClick={()=>inspect(c.id)}>{c.title}</button><p className="mt-1 text-xs text-muted-foreground">{c.template_name}</p></td><td className="p-3"><Badge variant="secondary">{c.state==='scheduled'&&c.dispatch_mode==='manual'?'Envio iniciado':CAMPAIGN_STATE_LABELS[c.state]}</Badge>{c.unknown>0&&<p className="mt-1 text-xs text-destructive">{c.unknown} envio(s) a verificar</p>}</td><td className="p-3 tabular-nums">{c.scheduled_at?<><span className="block">{c.dispatch_mode==='manual'?'Manual':'Automático'}</span><span className="text-xs text-muted-foreground">{dateLabel(c.scheduled_at)}</span></>:'Aguardando decisão'}</td><td className="p-3 tabular-nums">{c.total}</td><td className="p-3 tabular-nums">{c.delivered}</td><td className="p-3 tabular-nums">{currency(c.delivered*c.unit_cost_micros)}</td></tr>)}</tbody></table></div> : <div className="py-8"><h2 className="font-medium">Prepare a primeira campanha</h2><p className="mt-1 text-sm text-muted-foreground">Use uma das mensagens de outubro abaixo ou crie um novo texto.</p></div>}
+      {loading ? <div role="status" className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin motion-reduce:animate-none"/>Carregando campanhas…</div> : campaigns.length ? <div className="overflow-x-auto rounded-lg border"><table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-muted/50 text-xs text-muted-foreground"><tr>{['Campanha','Status','Envio (Brasília)','Público','Entregues','Estimativa'].map(t=><th key={t} className="p-3 font-medium">{t}</th>)}</tr></thead><tbody>{campaigns.map(c=><tr key={c.id} className="border-t hover:bg-muted/30"><td className="p-3"><button className="cursor-pointer text-left font-medium underline-offset-4 hover:underline focus-visible:outline-2 disabled:cursor-wait" disabled={busy} onClick={()=>inspect(c.id)}>{c.title}</button><p className="mt-1 text-xs text-muted-foreground">{c.template_name}</p></td><td className="p-3"><Badge variant="secondary">{c.state==='scheduled'&&c.dispatch_mode==='manual'?'Envio iniciado':CAMPAIGN_STATE_LABELS[c.state]}</Badge>{c.unknown>0&&<p className="mt-1 text-xs text-destructive">{c.unknown} envio(s) a verificar</p>}</td><td className="p-3 tabular-nums">{c.scheduled_at?<><span className="block">{c.dispatch_mode==='manual'?'Manual':'Automático'}</span><span className="text-xs text-muted-foreground">{dateLabel(c.scheduled_at)}</span></>:'Aguardando decisão'}</td><td className="p-3 tabular-nums">{c.total}</td><td className="p-3 tabular-nums">{c.delivered}</td><td className="p-3 tabular-nums">{currency(c.delivered*c.unit_cost_micros)}</td></tr>)}</tbody></table></div> : <div className="py-8"><h2 className="font-medium">Prepare a primeira campanha</h2><p className="mt-1 text-sm text-muted-foreground">Use uma das mensagens de outubro abaixo ou crie um novo texto.</p></div>}
       <p className="mt-3 text-xs text-muted-foreground">Estimativas em reais, calculadas pela tarifa de referência da Meta por mensagem entregue. Não representam a fatura da Meta. Envios sem confirmação aparecem separadamente.</p>
     </section>
     <section className="space-y-3"><div><h2 className="text-lg font-semibold">Outubro · primeiro lote</h2><p className="mt-1 text-sm text-muted-foreground">Textos para o atendimento. Salvar um rascunho não agenda nem dispara mensagens.</p></div>
@@ -160,8 +176,8 @@ export function WhatsappCampaignsClient() {
         <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
       </form>}
     </DialogContent></Dialog>
-    <Dialog open={Boolean(detail)} onOpenChange={open=>{if(!open&&!busy){setDetail(null);setScheduleOpen(false);}}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>{scheduleOpen?'Configurar envio':detail?.campaign.title}</DialogTitle><DialogDescription>{scheduleOpen?'Escolha e salve os filtros do público. Os destinatários escolhidos só são salvos ao confirmar o envio.':'Aprovação, público e acompanhamento desta campanha.'}</DialogDescription></DialogHeader>
-      {scheduleOpen ? <>
+    <Dialog open={Boolean(detail)||Boolean(detailRequest)} onOpenChange={open=>{if(!open&&(!busy||detailLoading))closeDetail();}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>{detailRequest?.title??(scheduleOpen?'Configurar envio':detail?.campaign.title)}</DialogTitle><DialogDescription>{scheduleOpen?'Escolha e salve os filtros do público. Os destinatários escolhidos só são salvos ao confirmar o envio.':'Aprovação, público e acompanhamento desta campanha.'}</DialogDescription></DialogHeader>
+      {detailLoading ? <div role="status" aria-live="polite" className="flex min-h-64 flex-col items-center justify-center gap-3 py-12 text-sm text-muted-foreground"><Loader2 className="size-6 animate-spin motion-reduce:animate-none" aria-hidden="true"/>Carregando campanha e resultados…</div> : detailRequest?.error ? <div className="space-y-4 py-8"><p role="alert" className="text-sm text-destructive">{detailRequest.error}</p><Button variant="outline" onClick={()=>inspect(detailRequest.id)}>Tentar novamente</Button></div> : scheduleOpen ? <>
       <div className="space-y-4">
         {!canConfirmCampaignSend(enabled,detail?.template?.status)&&<p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Você pode conferir e selecionar o público. A confirmação permanece bloqueada até a integração estar conectada, o template aprovado pela Meta e os disparos habilitados.</p>}
         <fieldset className="space-y-2"><legend className="mb-2 text-sm font-medium">Como deseja disparar?</legend>
@@ -223,6 +239,13 @@ export function WhatsappCampaignsClient() {
         <div className="flex flex-wrap gap-2">{detail.campaign.state==='draft'?<><Button variant="outline" disabled={busy} onClick={()=>edit(detail.campaign)}>Editar</Button><Button variant="outline" disabled={busy||!configured||detail.template?.status==='APPROVED'} onClick={async()=>{const result=await mutate('submit',detail.campaign.id);if(result){toast.success(result.existing?'Template já cadastrado na Meta.':'Template enviado para análise da Meta.');await inspect(detail.campaign.id);}}}>{detail.template?.status==='APPROVED'?'Template aprovado':'Enviar template à Meta'}</Button><Button disabled={busy} onClick={configureAudience}><CalendarClock className="size-4"/>Configurar envio</Button></>:detail.campaign.state==='scheduled'||detail.campaign.state==='paused'?<Button disabled={busy} variant="outline" onClick={async()=>{if(await mutate(detail.campaign.state==='paused'?'resume':'pause',detail.campaign.id)){await inspect(detail.campaign.id);toast.success('Campanha atualizada.');}}}>{detail.campaign.state==='paused'?'Retomar envios':'Pausar envios'}</Button>:null}<WhatsappCampaignTest key={detail.campaign.id} campaignId={detail.campaign.id} approved={detail.template?.status==='APPROVED'} enabled={enabled}/><Button variant="ghost" disabled={busy} onClick={()=>inspect(detail.campaign.id)}>Atualizar status</Button></div>
         <section aria-label="Resultados da campanha" className="space-y-3 border-t pt-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">Resultados da campanha</h3><label className="flex items-center gap-2 text-xs text-muted-foreground">Conversões após a entrega<select aria-label="Janela de conversão" className="rounded-md border bg-background px-2 py-1 text-foreground" value={reportDays} disabled={busy} onChange={e=>{const days=Number(e.target.value);setReportDays(days);void inspect(detail.campaign.id,days);}}>{[7,14,30].map(days=><option key={days} value={days}>{days} dias</option>)}</select></label></div>
+          <dl className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-3">
+            {[
+              ['Receita após a campanha',currency(detail.metrics.revenue_centavos*10_000),'Assinaturas em reais, descontados os estornos'],
+              ['ROAS estimado',returns?.roas==null?'—':`${returns.roas.toLocaleString('pt-BR',{maximumFractionDigits:2})}×`,'Receita ÷ custo estimado das mensagens'],
+              ['Saldo após envios',currency(returns?.balanceMicros??0),'Receita menos envios estimados; não é lucro'],
+            ].map(([label,value,caption])=><div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-2xl font-semibold tabular-nums">{value}</dd><p className="mt-1 text-xs text-muted-foreground">{caption}</p></div>)}
+          </dl>
           <dl className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
             {[
               ['Enviadas',String(detail.metrics.sent),'Aceitas pela Meta'],
@@ -233,11 +256,12 @@ export function WhatsappCampaignsClient() {
               ['Falhas',String(detail.metrics.failed),'Falha confirmada no envio ou na entrega'],
               ['Cliques únicos',campaignTracksClicks(detail.campaign.template_name)?String(detail.metrics.tracked_clicks):'Não rastreado',campaignTracksClicks(detail.campaign.template_name)?`${detail.metrics.sent ? (detail.metrics.tracked_clicks/detail.metrics.sent*100).toLocaleString('pt-BR',{maximumFractionDigits:1}) : '0'}% dos envios · prévias automáticas conhecidas são ignoradas`:'Esta versão foi enviada sem link rastreável'],
               ['Entraram em contato','Não rastreado','Clique não comprova conversa no número de atendimento'],
-              ['Gasto exato','Não disponível',`Estimativa das entregues: ${currency(detail.metrics.delivered*detail.campaign.unit_cost_micros)}`],
+              ['Custo estimado dos envios',currency(detail.metrics.delivered*detail.campaign.unit_cost_micros),'Entregas × tarifa de referência; cobrança ainda não conciliada'],
             ].map(([label,value,caption])=><div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{value}</dd><p className="mt-1 text-xs text-muted-foreground">{caption}</p></div>)}
-          </dl><p className="text-xs text-muted-foreground">Trial e pagamento contam pessoas únicas por campanha, após entrega confirmada. São eventos posteriores, não prova de que a campanha causou a conversão; uma pessoa pode aparecer em campanhas diferentes. Leitura depende da confirmação disponibilizada pelo WhatsApp. Gasto exato exige conciliação com a cobrança da Meta.</p>
+          </dl><p className="text-xs text-muted-foreground">Trial e pagamento contam pessoas únicas por campanha, após entrega confirmada. São eventos posteriores, não prova de que a campanha causou a conversão; uma pessoa pode aparecer em campanhas diferentes. Leitura depende da confirmação disponibilizada pelo WhatsApp. Receita considera assinaturas pagas em BRL dentro da janela, descontados estornos, sem taxas do gateway, impostos ou outros custos. ROAS usa custo estimado dos envios; não representa ROI líquido.</p>
+          <p className="text-xs text-muted-foreground">O gasto confirmado depende da conciliação com a fatura. Na Meta, acesse Cobrança e pagamentos → Atividade de pagamento e selecione a conta do WhatsApp. <a className="cursor-pointer font-medium text-foreground underline underline-offset-4" href="https://business.facebook.com/latest/billing_hub/payment_activity/" target="_blank" rel="noreferrer">Abrir cobrança da Meta ↗</a></p>
         </section>
-        {detail.recipients.length>0&&<div className="overflow-x-auto border-t"><p className="py-3 text-sm font-medium">Destinatários · até 1.000 registros</p><table className="w-full text-left text-sm"><tbody>{detail.recipients.map(r=><tr key={r.id} className="border-t"><td className="py-3 pr-3"><p>{r.name??r.email}</p><p className="text-xs text-muted-foreground">{r.email}</p>{r.reason&&<p className="mt-1 max-w-sm text-xs text-muted-foreground">{r.reason}</p>}</td><td className="py-3 pr-3">{r.current_status==='read'?'Lida':r.current_status==='delivered'?'Entregue':r.current_status==='failed'?'Falhou':RECIPIENT_STATE_LABELS[r.state]}</td><td>{r.state==='pending'&&<Button size="sm" variant="ghost" disabled={busy} onClick={async()=>{if(await mutate('exclude',detail.campaign.id,r.id))await inspect(detail.campaign.id);}}>Retirar</Button>}</td></tr>)}</tbody></table></div>}
+        {detail.recipients.length>0&&<div className="space-y-3 border-t pt-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">Destinatários <span className="font-normal text-muted-foreground">· {detail.recipients.length}{detail.recipients.length===1000?' primeiros':''}</span></h3>{!campaignTracksClicks(detail.campaign.template_name)&&<span className="text-xs text-muted-foreground">Cliques não rastreados nesta versão</span>}</div><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="border-b bg-muted/40 text-xs text-muted-foreground"><tr><th className="p-3 font-medium">Usuário</th><th className="p-3 font-medium">Status</th><th className="p-3 font-medium">Enviado em</th><th><span className="sr-only">Ações</span></th></tr></thead><tbody>{detail.recipients.map(r=><tr key={r.id} className="border-b last:border-0 hover:bg-muted/20"><td className="min-w-48 p-3"><p className="font-medium">{r.name??r.email}</p><p className="text-xs text-muted-foreground">{r.email}</p>{r.reason&&<p className="mt-1 max-w-sm text-xs text-muted-foreground">{r.reason}</p>}</td><td className="p-3">{r.current_status&& !['excluded','skipped','unknown','sending'].includes(r.state)?<WhatsappDeliveryStatus compact trackClicks={campaignTracksClicks(detail.campaign.template_name)} status={r.current_status} acceptedAt={r.accepted_at?new Date(r.accepted_at):null} deliveredAt={r.delivered_at?new Date(r.delivered_at):null} readAt={r.read_at?new Date(r.read_at):null} clickedAt={r.clicked_at?new Date(r.clicked_at):null}/>:<Badge variant={r.state==='failed'?'destructive':'secondary'}>{RECIPIENT_STATE_LABELS[r.state]}</Badge>}</td><td className="whitespace-nowrap p-3 text-xs tabular-nums text-muted-foreground">{r.accepted_at?dateLabel(r.accepted_at):'—'}</td><td className="pr-3">{r.state==='pending'&&<Button size="sm" variant="ghost" disabled={busy} onClick={async()=>{if(await mutate('exclude',detail.campaign.id,r.id))await inspect(detail.campaign.id);}}>Retirar</Button>}</td></tr>)}</tbody></table></div></div>}
       </div>}
       </>}
     </DialogContent></Dialog>
