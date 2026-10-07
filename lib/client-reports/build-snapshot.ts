@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { previewFromCreativeSpec } from "@/lib/creative-analysis/playground";
 import { db } from "@/lib/db";
 import {
@@ -6,6 +6,8 @@ import {
   clientReportMission,
   clientReportSnapshot,
   metaTrackingChangeEvent,
+  metaBusinessAccount,
+  metaEnabledAsset,
   metaTrackingDailyMetric,
   payment,
   performanceInsight,
@@ -27,6 +29,7 @@ import {
   percentileRank,
   resolveHeadlineState,
   spendBucket,
+  type ClientReportAccountRow,
   type ClientReportAction,
   type ClientReportCampaignCard,
   type ClientReportCreativeCard,
@@ -36,6 +39,8 @@ import {
 } from "./payload-schema";
 import { inclusiveDays, previousWindow } from "./dates";
 import { platformAdjustmentWhere } from "./platform-adjustments";
+import { orderedEnabledAdAccountIds } from "@/lib/backoffice/enabled-ad-account-scope";
+import { accountRowsFromTotals, type AccountTotals } from "./account-breakdown";
 
 function toNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -136,12 +141,74 @@ function emptyTotals(): Totals {
   };
 }
 
+type ReportAccountScope = {
+  /** `act_` ids the report is limited to, principal first; null = every collected account. */
+  accountIds: string[] | null;
+  names: Map<string, string>;
+};
+
+/**
+ * The client's enabled ad accounts when there is a selection — meta-tracking
+ * collects every account the token sees, which for a consultant's Facebook
+ * includes other companies. Names come from the selection, else the
+ * connection snapshot.
+ */
+async function loadReportAccountScope(userId: string): Promise<ReportAccountScope> {
+  const [enabledRows, connections] = await Promise.all([
+    db
+      .select({
+        assetId: metaEnabledAsset.assetId,
+        isPrimary: metaEnabledAsset.isPrimary,
+        displayName: metaEnabledAsset.displayName,
+      })
+      .from(metaEnabledAsset)
+      .where(
+        and(
+          eq(metaEnabledAsset.userId, userId),
+          eq(metaEnabledAsset.assetKind, "ad_account"),
+        ),
+      ),
+    db
+      .select({ assignedAssets: metaBusinessAccount.assignedAssets })
+      .from(metaBusinessAccount)
+      .where(
+        and(
+          eq(metaBusinessAccount.userId, userId),
+          isNull(metaBusinessAccount.deletedAt),
+        ),
+      )
+      .orderBy(desc(metaBusinessAccount.updatedAt))
+      .limit(1),
+  ]);
+
+  const names = new Map<string, string>();
+  for (const account of connections[0]?.assignedAssets?.adAccounts ?? []) {
+    const id = account.accountId ?? account.id.replace(/^act_/i, "");
+    if (account.name?.trim()) names.set(`act_${id}`, account.name.trim());
+  }
+  for (const row of enabledRows) {
+    const id = `act_${row.assetId.replace(/^act_/i, "")}`;
+    if (row.displayName?.trim()) names.set(id, row.displayName.trim());
+  }
+
+  const enabledIds = orderedEnabledAdAccountIds(enabledRows);
+  return {
+    accountIds: enabledIds.length > 0 ? enabledIds.map((id) => `act_${id}`) : null,
+    names,
+  };
+}
+
 async function aggregateCampaignMetrics(input: {
   userId: string;
   start: string;
   end: string;
   campaignId?: string | null;
-}): Promise<{ totals: Totals; campaigns: ClientReportCampaignCard[] }> {
+  accountScope: ReportAccountScope;
+}): Promise<{
+  totals: Totals;
+  campaigns: ClientReportCampaignCard[];
+  accounts: ClientReportAccountRow[];
+}> {
   const filters = [
     eq(metaTrackingDailyMetric.userId, input.userId),
     eq(metaTrackingDailyMetric.entityLevel, "campaign"),
@@ -151,8 +218,14 @@ async function aggregateCampaignMetrics(input: {
   if (input.campaignId) {
     filters.push(eq(metaTrackingDailyMetric.entityId, input.campaignId));
   }
+  if (input.accountScope.accountIds) {
+    filters.push(
+      inArray(metaTrackingDailyMetric.accountId, input.accountScope.accountIds),
+    );
+  }
   const rows = await db
     .select({
+      accountId: metaTrackingDailyMetric.accountId,
       entityId: metaTrackingDailyMetric.entityId,
       spend: sql<string>`coalesce(sum(${metaTrackingDailyMetric.spend}::numeric), 0)`,
       purchaseValue: sql<string>`coalesce(sum(${metaTrackingDailyMetric.purchaseValue}::numeric), 0)`,
@@ -162,10 +235,11 @@ async function aggregateCampaignMetrics(input: {
     })
     .from(metaTrackingDailyMetric)
     .where(and(...filters))
-    .groupBy(metaTrackingDailyMetric.entityId);
+    .groupBy(metaTrackingDailyMetric.accountId, metaTrackingDailyMetric.entityId);
 
   const totals = emptyTotals();
   const campaigns: ClientReportCampaignCard[] = [];
+  const byAccount = new Map<string, AccountTotals>();
   const names = await loadCampaignNames(input.userId);
 
   for (const row of rows) {
@@ -177,6 +251,15 @@ async function aggregateCampaignMetrics(input: {
     totals.purchases += purchases;
     totals.impressions += toNumber(row.impressions);
     totals.clicks += toNumber(row.clicks);
+    const account = byAccount.get(row.accountId) ?? {
+      spend: 0,
+      purchaseValue: 0,
+      purchases: 0,
+    };
+    account.spend += spend;
+    account.purchaseValue += purchaseValue;
+    account.purchases += purchases;
+    byAccount.set(row.accountId, account);
     campaigns.push({
       id: row.entityId,
       name: names.get(row.entityId) ?? "Campanha sem nome",
@@ -188,7 +271,15 @@ async function aggregateCampaignMetrics(input: {
     });
   }
 
-  return { totals, campaigns };
+  return {
+    totals,
+    campaigns,
+    accounts: accountRowsFromTotals({
+      byAccount,
+      order: input.accountScope.accountIds,
+      names: input.accountScope.names,
+    }),
+  };
 }
 
 async function loadCampaignNames(userId: string): Promise<Map<string, string>> {
@@ -592,13 +683,15 @@ export async function buildReportSnapshot(input: {
     windowDays,
   };
   const payload = emptyPayload(period);
+  const accountScope = await loadReportAccountScope(input.userId);
 
-  const [{ totals, campaigns }, plan, prev] = await Promise.all([
+  const [{ totals, campaigns, accounts }, plan, prev] = await Promise.all([
     aggregateCampaignMetrics({
       userId: input.userId,
       start: input.periodStart,
       end: input.periodEnd,
       campaignId: input.campaignId,
+      accountScope,
     }),
     loadPlan(input.userId),
     previousWindow(input.periodStart, input.periodEnd),
@@ -609,6 +702,7 @@ export async function buildReportSnapshot(input: {
     start: prev.start,
     end: prev.end,
     campaignId: input.campaignId,
+    accountScope,
   });
   const campaignName = input.campaignId
     ? (campaigns[0]?.name ??
@@ -664,6 +758,7 @@ export async function buildReportSnapshot(input: {
     userId: input.userId,
     start: "2020-01-01",
     end: input.periodEnd,
+    accountScope,
   });
   const lifetimeDays = await db
     .select({
@@ -674,6 +769,9 @@ export async function buildReportSnapshot(input: {
       and(
         eq(metaTrackingDailyMetric.userId, input.userId),
         eq(metaTrackingDailyMetric.entityLevel, "campaign"),
+        ...(accountScope.accountIds
+          ? [inArray(metaTrackingDailyMetric.accountId, accountScope.accountIds)]
+          : []),
       ),
     );
   const firstDate = lifetimeDays[0]?.firstDate;
@@ -815,6 +913,7 @@ export async function buildReportSnapshot(input: {
     expirationDate: plan.expirationDate,
   };
   payload.campaigns = { best, needsAttention };
+  if (!input.campaignId && accounts.length > 1) payload.accounts = accounts;
   payload.creatives = creatives;
   payload.actions = actions;
   payload.workThisWeek = workThisWeek;

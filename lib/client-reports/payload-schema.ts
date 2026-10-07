@@ -24,6 +24,16 @@ export type ClientReportCampaignCard = {
   cpa: number | null;
 };
 
+/** One row per ad account when the report covers more than one. */
+export type ClientReportAccountRow = {
+  accountId: string;
+  name: string;
+  spend: number;
+  purchaseValue: number;
+  purchases: number;
+  roas: number | null;
+};
+
 export type ClientReportCreativeCard = {
   adId: string;
   name: string | null;
@@ -99,6 +109,8 @@ export type ClientReportPayloadV1 = {
     best: ClientReportCampaignCard[];
     needsAttention: ClientReportCampaignCard[];
   };
+  /** Present only when two or more accounts had data; the scorecard is their sum. */
+  accounts?: ClientReportAccountRow[];
   creatives: ClientReportCreativeCard[];
   actions: ClientReportAction[];
   missions: Array<{

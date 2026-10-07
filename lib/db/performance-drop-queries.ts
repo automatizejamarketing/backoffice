@@ -13,6 +13,7 @@ import {
 import { wasCapturedOnBusinessDay } from "@/lib/performance-drop/dates";
 import type { PerformanceDropEvaluation } from "@/lib/performance-drop/evaluate";
 import type { AccountWindowPair } from "@/lib/performance-drop/fetch-account-insights";
+import type { AccountDropInsight } from "@/lib/performance-drop/per-account";
 
 /**
  * Runs stuck in `running` longer than this are marked failed before a new run.
@@ -182,9 +183,13 @@ export async function persistPerformanceDropForUser(args: {
   runId: string;
   userId: string;
   pairs: AccountWindowPair[];
+  /** Sum of every account: kept on the snapshot as the user-level picture. */
   evaluation: PerformanceDropEvaluation;
+  /** What actually opens insights: one per account that dropped. */
+  accountDrops: AccountDropInsight[];
 }): Promise<{ insightCreated: boolean }> {
-  const { runId, userId, pairs, evaluation } = args;
+  const { runId, userId, pairs, evaluation, accountDrops } = args;
+  const worst = accountDrops[0]?.evaluation ?? null;
   const capturedAt = new Date();
 
   // One rollup snapshot per user. Account breakdown lives in payload (avoids
@@ -225,52 +230,62 @@ export async function persistPerformanceDropForUser(args: {
       metrics: {
         current: evaluation.current,
         previous: evaluation.previous,
-        hasDrop: evaluation.hasDrop,
-        severity: evaluation.severity,
-        metric: evaluation.metric,
-        dropRatio: evaluation.dropRatio,
-        dropPercent: evaluation.dropPercent,
+        hasDrop: accountDrops.length > 0,
+        severity: worst?.severity ?? null,
+        metric: worst?.metric ?? null,
+        dropRatio: worst?.dropRatio ?? null,
+        dropPercent: worst?.dropPercent ?? null,
         sampleInsufficient: evaluation.sampleInsufficient,
         accountCount: pairs.length,
+        dropAccountCount: accountDrops.length,
       },
       payload: {
         kind: "performance-drop",
         rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
         accounts: accountsSummary,
         evaluation,
+        accountDrops: accountDrops.map((drop) => ({
+          accountId: drop.accountId,
+          accountName: drop.accountName,
+          evaluation: drop.evaluation,
+        })),
       },
       capturedAt,
     });
 
-    if (!evaluation.hasDrop || !evaluation.severity || !evaluation.ruleId) {
-      return { insightCreated: false };
+    let insightCreated = false;
+    for (const drop of accountDrops) {
+      const { evaluation: accountEvaluation } = drop;
+      if (!accountEvaluation.severity || !accountEvaluation.ruleId) continue;
+      await tx.insert(performanceInsight).values({
+        runId,
+        userId,
+        ruleId: accountEvaluation.ruleId,
+        rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
+        severity: accountEvaluation.severity,
+        confidence: accountEvaluation.sampleInsufficient ? "low" : "medium",
+        entityLevel: "account",
+        entityId: drop.accountId,
+        entityName: drop.accountName ?? drop.accountId,
+        actionType: "investigate_drop",
+        title: drop.title,
+        evidence: drop.evidence,
+        recommendation: accountEvaluation.recommendation,
+        metrics: {
+          accountId: drop.accountId,
+          accountName: drop.accountName,
+          current: accountEvaluation.current,
+          previous: accountEvaluation.previous,
+          metric: accountEvaluation.metric,
+          dropRatio: accountEvaluation.dropRatio,
+          dropPercent: accountEvaluation.dropPercent,
+        },
+        status: "open",
+      });
+      insightCreated = true;
     }
 
-    await tx.insert(performanceInsight).values({
-      runId,
-      userId,
-      ruleId: evaluation.ruleId,
-      rulebookVersion: PERFORMANCE_DROP_RULEBOOK_VERSION,
-      severity: evaluation.severity,
-      confidence: evaluation.sampleInsufficient ? "low" : "medium",
-      entityLevel: "account",
-      entityId: `user:${userId}`,
-      entityName: "Account rollup",
-      actionType: "investigate_drop",
-      title: evaluation.title,
-      evidence: evaluation.evidence,
-      recommendation: evaluation.recommendation,
-      metrics: {
-        current: evaluation.current,
-        previous: evaluation.previous,
-        metric: evaluation.metric,
-        dropRatio: evaluation.dropRatio,
-        dropPercent: evaluation.dropPercent,
-      },
-      status: "open",
-    });
-
-    return { insightCreated: true };
+    return { insightCreated };
   });
 }
 
