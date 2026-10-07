@@ -2546,6 +2546,40 @@ export type MetaConsultantCredential = InferSelectModel<
   typeof metaConsultantCredential
 >;
 
+/**
+ * Meta certification (100/2859024) per client: the validate_only test of the
+ * BISU run right after the connection, and the personal Facebook token the
+ * client connects as a fallback when the BISU is refused. One row per client;
+ * `connection_id` + `connection_updated_at` say which connection was tested,
+ * so a reconnect makes the BISU result stale and it is tested again.
+ */
+export const metaCertificationState = pgTable("meta_certification_states", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id"),
+  connectionUpdatedAt: timestamp("connection_updated_at"),
+  /** checking | ok | certification_required | account_error | inconclusive */
+  bisuStatus: varchar("bisu_status", { length: 32 }),
+  bisuCheckedAt: timestamp("bisu_checked_at"),
+  bisuDetail: jsonb("bisu_detail").$type<Record<string, unknown>>(),
+  personalFacebookUserId: text("personal_facebook_user_id"),
+  /** Encrypted with the same envelope as `meta_business_accounts.access_token`. */
+  personalAccessToken: text("personal_access_token"),
+  personalTokenExpiresAt: timestamp("personal_token_expires_at"),
+  /** ok | certification_required | account_error | inconclusive */
+  personalStatus: varchar("personal_status", { length: 32 }),
+  personalCheckedAt: timestamp("personal_checked_at"),
+  personalDetail: jsonb("personal_detail").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type MetaCertificationState = InferSelectModel<
+  typeof metaCertificationState
+>;
+
 // AdSet targeting type for audit logs (subset + index for Meta targeting JSON)
 export type AdSetTargetingData = {
   age_min?: number;

@@ -59,6 +59,7 @@ export async function POST(
 
   try {
     const result = await runCertificationDiagnostic({
+      userId: id,
       clientToken: tokenResult.accessToken,
       adAccountId,
       adSetId: hold?.adSetId ?? null,

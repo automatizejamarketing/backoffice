@@ -1,8 +1,8 @@
 import "server-only";
 
-import { desc, gt, isNull, or } from "drizzle-orm";
+import { desc, eq, gt, isNull, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { metaConsultantCredential } from "@/lib/db/schema";
+import { metaCertificationState, metaConsultantCredential } from "@/lib/db/schema";
 import { appSecretProof, facebookAppSecret } from "./appsecret-proof";
 import { graphApiVersion, graphFacebookBaseUrl } from "./constant";
 import { decryptAccessToken } from "./token-vault";
@@ -197,7 +197,38 @@ async function consultantTokens(): Promise<Array<{ label: string; token: string 
   });
 }
 
+/**
+ * The client's personal token saved by the certification flow (frontend
+ * `certification/state.ts`), with what the post-connect check found for the
+ * BISU and for that token.
+ */
+async function clientPersonalToken(
+  userId: string,
+): Promise<Array<{ label: string; token: string }>> {
+  const [row] = await db
+    .select({
+      token: metaCertificationState.personalAccessToken,
+      expiresAt: metaCertificationState.personalTokenExpiresAt,
+    })
+    .from(metaCertificationState)
+    .where(eq(metaCertificationState.userId, userId))
+    .limit(1);
+  if (!row?.token) return [];
+  const expired = row.expiresAt ? row.expiresAt <= new Date() : false;
+  try {
+    return [
+      {
+        label: `Facebook pessoal do cliente${expired ? " (expirado)" : ""}`,
+        token: decryptAccessToken(row.token),
+      },
+    ];
+  } catch {
+    return [];
+  }
+}
+
 export async function runCertificationDiagnostic(args: {
+  userId: string;
   clientToken: string;
   adAccountId: string;
   adSetId?: string | null;
@@ -211,6 +242,7 @@ export async function runCertificationDiagnostic(args: {
 
   const tokens = [
     { label: "Token do cliente", token: args.clientToken },
+    ...(await clientPersonalToken(args.userId)),
     ...(await consultantTokens()),
   ];
   const results: TokenDiagnostic[] = [];
