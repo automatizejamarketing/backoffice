@@ -2219,7 +2219,7 @@ export const companyModuleEvent = pgTable(
   (table) => ({
     idempotencyKeyUnique: uniqueIndex(
       "company_module_events_idempotency_key_unique",
-    ).on(table.idempotencyKey),
+    ).on(table.companyId, table.module, table.idempotencyKey),
     companyModuleIdx: index("company_module_events_company_module_idx").on(
       table.companyId,
       table.module,

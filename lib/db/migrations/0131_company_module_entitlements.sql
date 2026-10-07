@@ -1,7 +1,7 @@
 -- Módulos por empresa (ADR 0041, oferta para Agências): o direito de acesso a
 -- um Módulo (postagem, trafego) é por empresa e é a autoridade; a cobrança só
 -- alimenta este estado. `company_module_events` é o histórico append-only e a
--- chave de idempotência: evento repetido não muda nada. `occurred_at` é o
+-- chave de idempotência por (empresa, Módulo): evento repetido não muda nada. `occurred_at` é o
 -- instante do evento na origem; evento mais antigo que `last_event_at` do
 -- direito fica no histórico com `applied = false`. Códigos de Módulo, status e
 -- origem vivem no catálogo em TypeScript, sem CHECK no banco.
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS "company_module_events" (
 );--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "company_module_events_idempotency_key_unique"
-  ON "company_module_events" ("idempotency_key");--> statement-breakpoint
+  ON "company_module_events" ("company_id", "module", "idempotency_key");--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "company_module_events_company_module_idx"
   ON "company_module_events" ("company_id", "module", "occurred_at");
