@@ -7,6 +7,7 @@ import {
   listPartners,
   listPendingPeople,
   removePartner,
+  resolveConnectionTargets,
 } from "@/lib/meta-business/access-grant-test";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 
@@ -63,9 +64,10 @@ export async function POST(
     );
   }
   const { accessToken: token, connection } = tokenResult;
-  const first = connection.assignedAssets?.adAccounts?.[0];
-  const adAccountId = first?.accountId ?? first?.id ?? null;
-  const clientBusinessId = connection.clientBusinessId;
+  const { adAccountId, clientBusinessId } = await resolveConnectionTargets(
+    token,
+    connection,
+  );
 
   let result = null;
   if (action === "add_partner" || action === "remove_partner") {

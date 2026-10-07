@@ -85,3 +85,38 @@ export const invitePerson = (token: string, clientBusinessId: string, email: str
 /** Cancels a still-pending invitation (id from `pending_users`). */
 export const cancelInvite = (token: string, pendingUserId: string) =>
   call("DELETE", pendingUserId, token, {});
+
+type ConnectionTargets = {
+  tokenKind: string;
+  clientBusinessId: string | null;
+  assignedAssets?: { adAccounts?: Array<{ id: string; accountId?: string }> } | null;
+};
+
+/**
+ * Ad account and client BM for a connection. A BISU connection stores both;
+ * a personal ("user") connection stores neither, so they are read from Meta
+ * (`/me/adaccounts`), preferring an account owned by a Business Manager.
+ */
+export async function resolveConnectionTargets(
+  token: string,
+  connection: ConnectionTargets,
+): Promise<{ adAccountId: string | null; clientBusinessId: string | null }> {
+  const stored = connection.assignedAssets?.adAccounts?.[0];
+  const storedAccount = stored?.accountId ?? stored?.id ?? null;
+  if (storedAccount && connection.clientBusinessId) {
+    return { adAccountId: storedAccount, clientBusinessId: connection.clientBusinessId };
+  }
+
+  const res = await call("GET", "me/adaccounts", token, {
+    fields: "account_id,business{id}",
+    limit: "50",
+  });
+  const accounts =
+    ((res.data as { data?: Array<{ account_id?: string; id?: string; business?: { id?: string } }> } | undefined)
+      ?.data ?? []);
+  const owned = accounts.find((a) => a.business?.id) ?? accounts[0];
+  return {
+    adAccountId: storedAccount ?? owned?.account_id ?? owned?.id ?? null,
+    clientBusinessId: connection.clientBusinessId ?? owned?.business?.id ?? null,
+  };
+}

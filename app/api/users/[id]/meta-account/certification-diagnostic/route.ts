@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { metaPublishHold } from "@/lib/db/schema";
+import { resolveConnectionTargets } from "@/lib/meta-business/access-grant-test";
 import { runCertificationDiagnostic } from "@/lib/meta-business/certification-diagnostic";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 
@@ -45,10 +46,10 @@ export async function POST(
     .orderBy(desc(metaPublishHold.createdAt))
     .limit(1);
 
-  const firstAccount =
-    tokenResult.connection.assignedAssets?.adAccounts?.[0] ?? null;
-  const adAccountId =
-    hold?.adAccountId ?? firstAccount?.accountId ?? firstAccount?.id ?? null;
+  const targets = hold?.adAccountId
+    ? null
+    : await resolveConnectionTargets(tokenResult.accessToken, tokenResult.connection);
+  const adAccountId = hold?.adAccountId ?? targets?.adAccountId ?? null;
   if (!adAccountId) {
     return NextResponse.json(
       { error: "no_ad_account", message: "O cliente não tem conta de anúncios conectada." },
