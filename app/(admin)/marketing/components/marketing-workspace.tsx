@@ -36,8 +36,6 @@ import { MetaAssetsCard } from "./meta-assets-card";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { PartnerAccessPanel } from "./partner-access-panel";
 import { PublishHoldAlert } from "./publish-hold-alert";
-import { CertificationDiagnosticPanel } from "./certification-diagnostic-panel";
-import { AccessGrantTestPanel } from "./access-grant-test-panel";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
@@ -508,14 +506,6 @@ export function MarketingWorkspace({
               </div>
 
               <PublishHoldAlert userId={selectedUser.id} />
-
-              {metaAccount ? (
-                <CertificationDiagnosticPanel userId={selectedUser.id} />
-              ) : null}
-
-              {metaAccount ? (
-                <AccessGrantTestPanel userId={selectedUser.id} />
-              ) : null}
 
               {metaAccount ? (
                 <PartnerAccessPanel
