@@ -62,3 +62,14 @@ export function campaignContactButton(templateName: string) {
 export function campaignTracksClicks(templateName: string): boolean {
   return campaignContactButton(templateName)?.url.endsWith("/contato-direto/{{1}}") ?? false;
 }
+
+/** Resolve the saved campaign even when the suggested Meta template was versioned.
+ * Campaigns arrive newest first; an explicitly saved current version takes priority.
+ */
+export function findOctoberCampaign<T extends { template_name: string }>(campaigns: readonly T[], templateName: string): T | undefined {
+  const exact = campaigns.find(campaign => campaign.template_name === templateName);
+  if (exact) return exact;
+  if (!OCTOBER_WHATSAPP_TEMPLATES.some(template => template.name === templateName)) return undefined;
+  const family = templateName.replace(/_v\d+$/, "");
+  return campaigns.find(campaign => campaign.template_name.replace(/_v\d+$/, "") === family);
+}

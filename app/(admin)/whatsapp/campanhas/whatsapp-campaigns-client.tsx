@@ -1,5 +1,5 @@
 "use client";
-import { campaignTracksClicks } from "@/lib/backoffice/whatsapp-october-templates";
+import { campaignTracksClicks, findOctoberCampaign } from "@/lib/backoffice/whatsapp-october-templates";
 
 import { useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
@@ -55,7 +55,7 @@ export function WhatsappCampaignsClient() {
   const [enabled,setEnabled]=useState(false);
   const [busy,setBusy]=useState(false);
   const [form,setForm]=useState<Form|null>(null);
-  const [preview,setPreview]=useState<typeof OCTOBER_WHATSAPP_TEMPLATES[number]|null>(null);
+  const [preview,setPreview]=useState<{title:string;body:string;name:string}|null>(null);
   const [detail,setDetail]=useState<Detail|null>(null);
   const [scheduleOpen,setScheduleOpen]=useState(false);
   const [selected,setSelected]=useState<string[]>([]);
@@ -118,7 +118,7 @@ export function WhatsappCampaignsClient() {
     <section className="space-y-3"><div><h2 className="text-lg font-semibold">Outubro · primeiro lote</h2><p className="mt-1 text-sm text-muted-foreground">Textos para o atendimento. Salvar um rascunho não agenda nem dispara mensagens.</p></div>
       <div className="divide-y rounded-lg border">
         {OCTOBER_WHATSAPP_TEMPLATES.map(template => {
-          const campaign = campaigns.find(item => item.template_name === template.name);
+          const campaign = findOctoberCampaign(campaigns, template.name);
           const needsConfiguration = !campaign;
           const status = needsConfiguration ? 'Precisa de configuração'
             : campaign.state === 'scheduled' && campaign.dispatch_mode === 'manual' ? 'Envio iniciado'
@@ -134,7 +134,7 @@ export function WhatsappCampaignsClient() {
                   : campaign.state==='draft' ? 'Rascunho salvo. Falta definir o público e confirmar o envio.' : campaign.scheduled_at ? `${campaign.dispatch_mode === 'manual' ? 'Iniciado manualmente' : 'Agendamento'}: ${dateLabel(campaign.scheduled_at)}` : 'Consulte os detalhes da campanha.'}</p>
               </div>
               <div className="flex shrink-0 gap-2">
-                <Button variant="ghost" size="sm" onClick={()=>setPreview(template)}>Ver mensagem</Button>
+                <Button variant="ghost" size="sm" onClick={()=>setPreview(campaign ? {title:campaign.title,body:campaign.body,name:campaign.template_name} : template)}>Ver mensagem</Button>
                 <Button variant="outline" size="sm" disabled={busy} onClick={()=>campaign ? inspect(campaign.id) : draft(template)}>{needsConfiguration ? 'Configurar campanha' : 'Abrir campanha'}</Button>
               </div>
             </div>
