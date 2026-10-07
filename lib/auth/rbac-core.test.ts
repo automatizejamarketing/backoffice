@@ -208,3 +208,12 @@ describe("WhatsApp campaign permissions", () => {
       expect(hasBackofficePermission(actor, "whatsapp:campaigns")).toBe(false);
   });
 });
+
+describe("Agency permissions", () => {
+  test("lets admin, dev and the sales team create agencies", () => {
+    for (const actor of [admin, dev, { ...admin, role: "comercial" as const }])
+      expect(hasBackofficePermission(actor, "agencies:manage")).toBe(true);
+    for (const actor of [consultant, premiumConsultant, financeViewer])
+      expect(hasBackofficePermission(actor, "agencies:manage")).toBe(false);
+  });
+});

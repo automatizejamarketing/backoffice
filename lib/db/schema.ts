@@ -2229,6 +2229,75 @@ export const companyModuleEvent = pgTable(
 );
 
 export type CompanyModuleEvent = InferSelectModel<typeof companyModuleEvent>;
+// Agências (ADR 0041). Dono (owner) e Membros (member); convite por link com
+// hash do token. Catálogo de papéis em código, sem CHECK no banco.
+export const AGENCY_ROLE_VALUES = ["owner", "member"] as const;
+export type AgencyRole = (typeof AGENCY_ROLE_VALUES)[number];
+
+export const agency = pgTable("agencies", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type Agency = InferSelectModel<typeof agency>;
+
+export const agencyMember = pgTable(
+  "agency_members",
+  {
+    agencyId: uuid("agency_id")
+      .notNull()
+      .references(() => agency.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    role: varchar("role", { length: 16 }).$type<AgencyRole>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.agencyId, table.userId] }),
+    userIdx: index("agency_members_user_idx").on(table.userId),
+  }),
+);
+
+export type AgencyMember = InferSelectModel<typeof agencyMember>;
+
+export const agencyInvitation = pgTable(
+  "agency_invitations",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    agencyId: uuid("agency_id")
+      .notNull()
+      .references(() => agency.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    role: varchar("role", { length: 16 }).$type<AgencyRole>().notNull(),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    invitedByUserId: uuid("invited_by_user_id").references(() => user.id),
+    invitedByBackofficeUserId: uuid("invited_by_backoffice_user_id").references(
+      () => backofficeUser.id,
+    ),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedByUserId: uuid("accepted_by_user_id").references(() => user.id),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    tokenHashUnique: uniqueIndex("agency_invitations_token_hash_unique").on(
+      table.tokenHash,
+    ),
+    agencyIdx: index("agency_invitations_agency_idx").on(
+      table.agencyId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type AgencyInvitation = InferSelectModel<typeof agencyInvitation>;
 
 // Instagram Account table for storing Instagram account connections
 export const instagramAccount = pgTable(

@@ -51,7 +51,9 @@ export type BackofficePermission =
   | "creative-analysis:manage"
   | "ambassadors:manage"
   | "ambassadors:grant"
-  | "team:manage";
+  | "team:manage"
+  /** Criar Agências e gerar o link de convite do Dono (ADR 0041 do frontend). */
+  | "agencies:manage";
 
 export type BackofficeActorSource =
   | "database"
@@ -138,6 +140,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "products:manage",
     "creative-analysis:manage",
     "team:manage",
+    "agencies:manage",
   ],
   dev: [
     "dashboard:view",
@@ -156,6 +159,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "masterclass:manage",
     "products:manage",
     "creative-analysis:manage",
+    "agencies:manage",
   ],
   marketing_consultant: ["marketing:read", "marketing:write"],
   // Consultor com carteira que, como admin, mexe em tudo do cliente: ficha,
@@ -173,7 +177,13 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   finance_viewer: ["finance:view"],
   // Time comercial: CRM, painel, usuários em leitura, ativação e contato.
   // Sem dinheiro (billing), sem alterar acesso/créditos, sem equipe.
-  comercial: ["dashboard:view", "crm:manage", "users:read", "users:activate"],
+  comercial: [
+    "dashboard:view",
+    "crm:manage",
+    "users:read",
+    "users:activate",
+    "agencies:manage",
+  ],
 };
 
 function hasFullUserAccess(actor: BackofficeActor): boolean {
