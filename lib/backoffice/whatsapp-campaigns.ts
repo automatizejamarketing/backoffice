@@ -88,7 +88,18 @@ export async function campaignMetrics(id:string, days=7) {
       where p.user_id=r.user_id and p.status='succeeded' and p.amount>0 and (p.purpose is null or p.purpose in ('subscription','legacy_renewal'))
       and p.paid_at>=coalesce(d.delivered_at,d.read_at) and p.paid_at<coalesce(d.delivered_at,d.read_at)+make_interval(days=>${days})))::int as paying
     from whatsapp_campaign_recipients r left join whatsapp_template_deliveries d on d.id=r.delivery_id where r.campaign_id=${id}`;
-  return {...row,windowDays:days};
+  // EXISTS counts each payment once, even if a recipient has multiple delivery records.
+  const [revenue] = await pg<{revenue_centavos:string}[]>`select coalesce(sum(
+    case when p.status='refunded' then 0 else greatest(p.amount-coalesce(p.refunded_amount,0),0) end
+  ),0)::text as revenue_centavos from payments p
+    where p.status in ('succeeded','refunded') and lower(p.currency)='brl' and p.amount>0
+      and (p.purpose is null or p.purpose in ('subscription','legacy_renewal'))
+      and exists(select 1 from whatsapp_campaign_recipients r
+        join whatsapp_template_deliveries d on d.id=r.delivery_id
+        where r.campaign_id=${id} and r.user_id=p.user_id
+          and p.paid_at>=coalesce(d.delivered_at,d.read_at)
+          and p.paid_at<coalesce(d.delivered_at,d.read_at)+make_interval(days=>${days}))`;
+  return {...row,revenue_centavos:Number(revenue.revenue_centavos),windowDays:days};
 }
 
 export async function getCampaign(id: string) {
@@ -167,7 +178,7 @@ export async function setCampaignPaused(id: string, paused: boolean, actor: stri
 }
 
 export async function campaignRecipients(id: string) {
-  return pg`select r.id,r.user_id,r.phone,r.state,r.reason,u.name,u.email,d.current_status,d.delivered_at,d.read_at
+  return pg`select r.id,r.user_id,r.phone,r.state,r.reason,u.name,u.email,d.current_status,d.accepted_at,d.delivered_at,d.read_at,d.clicked_at
     from whatsapp_campaign_recipients r join users u on u.id=r.user_id
     left join whatsapp_template_deliveries d on d.id=r.delivery_id
     where r.campaign_id=${id} order by r.updated_at desc limit 1000`;

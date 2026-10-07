@@ -37,7 +37,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
       CREATE TABLE users(id uuid primary key default gen_random_uuid(),name text,email text,phone text,expiration_date timestamp,created_at timestamp default now());
       CREATE TABLE subscriptions(user_id uuid);
       CREATE TABLE credit_transactions(user_id uuid,type text,created_at timestamp default now());
-      CREATE TABLE payments(user_id uuid,status text,amount integer,purpose text,paid_at timestamp);
+      CREATE TABLE payments(user_id uuid,status text,amount integer,purpose text,paid_at timestamp,currency text default 'brl',refunded_amount integer);
       CREATE TABLE backoffice_users(email text);
       CREATE TABLE crm_leads(user_id uuid,commercial_status text);
       CREATE TABLE conversations(id uuid primary key default gen_random_uuid(),user_id uuid,channel text,phone_e164 text);
@@ -164,7 +164,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     const filters={statuses:['churn'],excludeContacted:false};
     const saved=await campaigns.saveCampaignAudience(id,filters,'test@example.invalid');
     assert.equal((await campaigns.campaignAudience(undefined,saved.audience_filters)).length,0);
-    await pg`insert into payments values (${userId},'succeeded',100,'subscription',now()-interval '30 days')`;
+    await pg`insert into payments(user_id,status,amount,purpose,paid_at) values (${userId},'succeeded',100,'subscription',now()-interval '30 days')`;
     assert.equal((await campaigns.campaignAudience(undefined,saved.audience_filters)).length,1);
     await schedule(id,userId);
     await pg`update users set expiration_date=now()+interval '30 days' where id=${userId}`;
@@ -185,9 +185,26 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     const {id,userId}=await seed();await schedule(id,userId);await dispatch();
     await pg`update whatsapp_template_deliveries set delivered_at=now()-interval '10 days',read_at=now()-interval '9 days'`;
     await pg`insert into credit_transactions values (${userId},'trial_grant',now()-interval '8 days'),(${userId},'trial_grant',now()-interval '8 days')`;
-    await pg`insert into payments values (${userId},'succeeded',100,'subscription',now()),(${userId},'succeeded',100,'subscription',now()),(${userId},'succeeded',100,'credit_purchase',now()-interval '9 days')`;
+    await pg`insert into payments(user_id,status,amount,purpose,paid_at) values (${userId},'succeeded',100,'subscription',now()),(${userId},'succeeded',100,'subscription',now()),(${userId},'succeeded',100,'credit_purchase',now()-interval '9 days')`;
     const week=await campaigns.campaignMetrics(id,7);assert.equal(week.trials,1);assert.equal(week.paying,0);assert.equal(week.read,1);
     const fortnight=await campaigns.campaignMetrics(id,14);assert.equal(fortnight.paying,1);assert.equal(fortnight.trials,1);
+  });
+  it("sums eligible BRL revenue once, subtracts refunds and respects the delivery window",async()=>{
+    const {id,userId}=await seed();await schedule(id,userId);await dispatch();
+    await pg`update whatsapp_template_deliveries set delivered_at=now()-interval '10 days'`;
+    await pg`insert into payments(user_id,status,amount,purpose,paid_at,currency,refunded_amount) values
+      (${userId},'succeeded',49700,'subscription',now()-interval '9 days','brl',0),
+      (${userId},'succeeded',29700,'legacy_renewal',now()-interval '8 days','brl',9700),
+      (${userId},'refunded',49700,'subscription',now()-interval '8 days','brl',null),
+      (${userId},'succeeded',99900,'credit_purchase',now()-interval '8 days','brl',0),
+      (${userId},'succeeded',99900,'subscription',now()-interval '8 days','usd',0),
+      (${userId},'pending',99900,'subscription',now()-interval '8 days','brl',0),
+      (${userId},'succeeded',99900,'subscription',now()-interval '11 days','brl',0),
+      (${userId},'succeeded',10000,'subscription',now(),'brl',0)`;
+    assert.equal((await campaigns.campaignMetrics(id,7)).revenue_centavos,69700);
+    assert.equal((await campaigns.campaignMetrics(id,14)).revenue_centavos,79700);
+    await pg`update whatsapp_template_deliveries set delivered_at=null,read_at=null`;
+    assert.equal((await campaigns.campaignMetrics(id,14)).revenue_centavos,0);
   });
   it("deduplicates phones and excludes trials, subscriptions, CRM contacts, internal users and inbound conversations", async () => {
     const { userId } = await seed();
