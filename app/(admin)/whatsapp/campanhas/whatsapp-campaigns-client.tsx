@@ -111,15 +111,17 @@ export function WhatsappCampaignsClient() {
   function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:c.button,headerMedia:c.header_media});}
   async function uploadHeaderMedia(file:File){
     if(!form)return;
+    const formId=form.id;
     const type=file.type.startsWith('video/')?'video':'image';
     const rule=CAMPAIGN_MEDIA_RULES[type];
     if(!(rule.types as readonly string[]).includes(file.type)||file.size>rule.maxBytes){toast.error(`Use ${rule.label}.`);return;}
     setUploading(true);
     try{
-      const presign=await api({action:'presignMedia',id:form.id,data:{type,contentType:file.type,size:file.size}});
+      const presign=await api({action:'presignMedia',id:formId,data:{type,contentType:file.type,size:file.size}});
       const upload=await fetch(presign.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},body:file});
       if(!upload.ok)throw new Error('Não foi possível enviar o arquivo. Tente novamente.');
-      setForm(current=>current&&{...current,headerMedia:{type,url:presign.url}});
+      // A late upload must not land on another campaign opened in the meantime.
+      setForm(current=>current?.id===formId?{...current,headerMedia:{type,url:presign.url}}:current);
     }catch(e){toast.error((e as Error).message);}
     finally{setUploading(false);}
   }
@@ -187,7 +189,7 @@ export function WhatsappCampaignsClient() {
         {preview&&<WhatsappMessagePreview body={preview.body} button={preview.button} headerMedia={preview.headerMedia}/>}
       </DialogContent>
     </Dialog>
-    <Dialog open={Boolean(form)} onOpenChange={open=>{if(!open&&!busy)setForm(null);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>Preparar campanha</DialogTitle><DialogDescription>Salve o texto antes de enviar para aprovação. Use {'{{1}}'} para o primeiro nome.</DialogDescription></DialogHeader>
+    <Dialog open={Boolean(form)} onOpenChange={open=>{if(!open&&!busy&&!uploading)setForm(null);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>Preparar campanha</DialogTitle><DialogDescription>Salve o texto antes de enviar para aprovação. Use {'{{1}}'} para o primeiro nome.</DialogDescription></DialogHeader>
       {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,budgetMicros:campaignBudgetMicros(form.budget),button:form.button,headerMedia:form.headerMedia});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><label className="space-y-1 text-sm">Nome da campanha<Input required maxLength={160} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label className="space-y-1 text-sm">Nome do template na Meta<Input required pattern="[a-z0-9_]+" maxLength={255} value={form.templateName} onChange={e=>setForm({...form,templateName:e.target.value})}/></label></div>
         <label className="block space-y-1 text-sm">Mensagem<Textarea className="min-w-0 [field-sizing:fixed]" required rows={11} maxLength={1024} value={form.body} onChange={e=>setForm({...form,body:e.target.value})}/><span className="block text-right text-xs text-muted-foreground">{form.body.length}/1024</span></label>
@@ -206,7 +208,7 @@ export function WhatsappCampaignsClient() {
         <p className="text-xs text-muted-foreground">Texto, imagem/vídeo e botão vão juntos para aprovação. Depois de aprovado, qualquer mudança exige um novo nome de template.</p>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><div className="space-y-1 text-sm"><p>Tarifa de referência da Meta</p><p className="font-medium">{pricing ? `${(pricing.unitCostMicros / 1e6).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:4})} por mensagem entregue` : 'Consulta indisponível'}</p><p className="text-xs text-muted-foreground">Marketing · Brasil · tabela em reais. {pricing ? 'Atualizada automaticamente.' : 'Você pode salvar o rascunho; a tarifa será consultada novamente antes do envio.'}</p><a className="text-xs underline underline-offset-4" href="https://whatsappbusiness.com/products/platform-pricing/" target="_blank" rel="noreferrer">Ver tabela oficial da Meta</a></div><label className="space-y-1 text-sm">Orçamento máximo da campanha (R$)<Input inputMode="numeric" placeholder="R$ 0,00" aria-describedby="campaign-budget-estimate" value={form.budget} onChange={e=>setForm({...form,budget:formatCampaignBudgetInput(e.target.value)})}/><span id="campaign-budget-estimate" className="block text-xs text-muted-foreground" aria-live="polite">{estimatedReach===null ? 'A estimativa de pessoas aparecerá quando a tarifa estiver disponível.' : !campaignBudgetMicros(form.budget) ? 'Informe o orçamento para estimar quantas pessoas poderão receber.' : `Aproximadamente ${estimatedReach.toLocaleString('pt-BR')} ${estimatedReach===1?'pessoa':'pessoas'}, com uma mensagem por pessoa, pela tarifa atual.`}</span></label></div>
         <p className="text-xs text-muted-foreground">O orçamento limita o público pela estimativa da tabela oficial em reais. A cobrança efetiva depende da moeda e das condições da sua conta Meta.</p>
-        <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy||uploading}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy||uploading} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy||uploading}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
       </form>}
     </DialogContent></Dialog>
     <Dialog open={Boolean(detail)||Boolean(detailRequest)} onOpenChange={open=>{if(!open&&(!busy||detailLoading))closeDetail();}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>{detailRequest?.title??(scheduleOpen?'Configurar envio':detail?.campaign.title)}</DialogTitle><DialogDescription>{scheduleOpen?'Escolha e salve os filtros do público. Os destinatários escolhidos só são salvos ao confirmar o envio.':'Aprovação, público e acompanhamento desta campanha.'}</DialogDescription></DialogHeader>

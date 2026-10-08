@@ -62,7 +62,10 @@ async function uploadHeaderExample(media: CampaignHeaderMedia): Promise<string> 
   const type = file.headers.get("content-type") ?? (media.type === "video" ? "video/mp4" : "image/jpeg");
   const query = new URLSearchParams({ file_name: media.url.split("/").pop() ?? "header", file_length: String(bytes.byteLength), file_type: type });
   const session = z.object({ id: z.string() }).parse(await whatsappMetaRequest(`${appId}/uploads?${query}`, { method: "POST" }));
-  const response = await fetch(`https://graph.facebook.com/v22.0/${session.id}`, {
+  const uploadUrl = new URL(`https://graph.facebook.com/v22.0/${session.id}`);
+  const secret = process.env.META_GENERAL_APP_SECRET;
+  if (secret) uploadUrl.searchParams.set("appsecret_proof", createHmac("sha256", secret).update(process.env.META_WHATSAPP_ACCESS_TOKEN ?? "").digest("hex"));
+  const response = await fetch(uploadUrl, {
     method: "POST", body: bytes, cache: "no-store", signal: AbortSignal.timeout(30_000),
     headers: { Authorization: `OAuth ${process.env.META_WHATSAPP_ACCESS_TOKEN}`, file_offset: "0" },
   });
