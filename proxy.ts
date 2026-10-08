@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { safeLoginReturn } from "@/lib/auth/login-return";
 import { BACKOFFICE_MAGIC_SESSION_COOKIE } from "@/lib/auth/magic-session-constants";
 
 const isDevelopmentEnvironment = process.env.NODE_ENV === "development";
@@ -11,6 +12,10 @@ export async function proxy(request: NextRequest) {
   // intern report (that route validates Bearer MAT_PERFORMANCE_REPORT_SECRET).
   if (
     pathname.startsWith("/api/auth") ||
+    // MCP connector: OAuth discovery/token endpoints are public; /api/mcp checks its own bearer.
+    pathname.startsWith("/.well-known/oauth-") ||
+    pathname.startsWith("/api/oauth/") ||
+    pathname === "/api/mcp" ||
     pathname.startsWith("/api/cron-job") ||
     pathname.startsWith("/api/internal/client-reports/") ||
     pathname === "/api/internal/mat-performance-report"
@@ -29,12 +34,15 @@ export async function proxy(request: NextRequest) {
 
   // If not logged in and not on login page, redirect to login
   if (!token && !hasMagicSessionCookie && pathname !== "/login") {
-    return NextResponse.redirect(new URL("/login", request.url));
+    const login = new URL("/login", request.url);
+    // Connecting an MCP client must come back to the consent page after signing in.
+    if (pathname === "/oauth/authorize") login.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+    return NextResponse.redirect(login);
   }
 
   // If logged in and on login page, redirect to home
   if (token && pathname === "/login") {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL(safeLoginReturn(request.nextUrl.searchParams.get("next")) ?? "/", request.url));
   }
 
   return NextResponse.next();
