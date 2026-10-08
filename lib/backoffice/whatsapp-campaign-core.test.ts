@@ -110,7 +110,12 @@ describe('campaign button input',()=>{
     for(const button of [{text:'Entrar',url:'https://chat.whatsapp.com/abc'},{text:'x',url:CAMPAIGN_TRACKED_LINK_URL},trackedLinkButton('x','http://a.com'),trackedLinkButton('x','https://a.com/{{1}}'),trackedLinkButton('a'.repeat(26),'https://a.com'),trackedLinkButton('','https://a.com'),{...CAMPAIGN_CONTACT_BUTTON,destination:'https://a.com'}])
       assert.equal(campaignInput.safeParse({...input,button}).success,false,JSON.stringify(button));
   });
-  it('rejects links in the message text',()=>{
-    for(const body of ['Entre: https://chat.whatsapp.com/abc','Veja www.site.com','http://x.com']) assert.equal(campaignInput.safeParse({...input,body}).success,false,body);
+  it('rejects links in the message text, with or without protocol',()=>{
+    for(const body of ['Entre: https://chat.whatsapp.com/abc','Veja www.site.com','http://x.com','Entre em chat.whatsapp.com/CtuGgvKtOAs3sEMdHBm6sS','Acesse automatizemarketing.com','Visite loja.com.br/promo','Escreva para contato@automatize.com'])
+      assert.equal(campaignInput.safeParse({...input,body}).success,false,body);
+  });
+  it('accepts ordinary text without false positives',()=>{
+    for(const body of ['Olá {{1}}, tudo bem? O plano custa R$ 1.000,00.','Sr. João, abra o app. Depois toque no botão.','Fale no WhatsApp com a equipe da Automatize. 💜','Ex.: anúncio, público e orçamento.',...OCTOBER_WHATSAPP_TEMPLATES.map(t=>t.body)])
+      assert.equal(campaignInput.safeParse({...input,body}).success,true,body);
   });
 });

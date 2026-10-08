@@ -101,6 +101,16 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await campaigns.scheduleCampaign(id, new Date(Date.now() + 60_000), [userId], "test@example.invalid");
     await pg`update whatsapp_campaigns set scheduled_at=now()-interval '1 minute' where id=${id}`;
   }
+  it("keeps a legacy untracked button on edits but never accepts a new one",async()=>{
+    const {id}=await seed();
+    const legacy={text:"Falar com a equipe",url:"https://www.automatizemarketing.com/contato-direto"};
+    await pg`update whatsapp_campaigns set button=${JSON.stringify(legacy)}::jsonb where id=${id}`;
+    const base={title:"Renomeada",templateName:"campaign_v1",body,unitCostMicros:300_000,budgetMicros:600_000};
+    const saved=await campaigns.saveCampaign(id,{...base,button:{url:legacy.url,text:legacy.text}},"admin");
+    assert.equal(saved.title,"Renomeada");
+    assert.deepEqual(saved.button,legacy);
+    await assert.rejects(campaigns.saveCampaign(crypto.randomUUID(),{...base,button:legacy},"admin"));
+  });
   it("stores button and media from our storage only, and deletes only drafts without recipients",async()=>{
     const {id,userId}=await seed();
     process.env.MEDIA_PUBLIC_BASE_URL="https://media.example.test";

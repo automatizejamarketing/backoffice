@@ -35,6 +35,18 @@ export function campaignTracksClicks(button: CampaignButton | null | undefined):
   return button?.url === CAMPAIGN_CONTACT_BUTTON.url || button?.url === CAMPAIGN_TRACKED_LINK_URL;
 }
 
+/** Same button, field by field (jsonb returns keys in its own order). */
+export function sameCampaignButton(a: CampaignButton | null | undefined, b: unknown): boolean {
+  const other = b && typeof b === "object" ? (b as Partial<CampaignButton>) : null;
+  return Boolean(a && other) && a!.text === other!.text && a!.url === other!.url && (a!.destination ?? null) === (other!.destination ?? null);
+}
+
+/** Links without a protocol count too ("chat.whatsapp.com/…", "site.com.br"); e-mails as well. */
+const BODY_LINK_PATTERN = /https?:\/\/|www\.|\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.(?:com|net|org|br|io|app|me|ly|gl|co|link|site|store|shop|online|info|biz|tv)\b/i;
+export function bodyHasLink(body: string): boolean {
+  return BODY_LINK_PATTERN.test(body);
+}
+
 export function trackedLinkButton(text: string, destination: string): CampaignButton {
   return { text, url: CAMPAIGN_TRACKED_LINK_URL, destination };
 }
@@ -51,7 +63,7 @@ export const campaignInput = z.object({
   if (value.body.replaceAll("{{1}}", "").match(/{{|}}|\[(?:LINK|NOME|PERÍODO|RESULTADO)/)) {
     ctx.addIssue({ code: "custom", path: ["body"], message: "Use apenas {{1}} para o primeiro nome e substitua todos os links pendentes." });
   }
-  if (/https?:\/\/|www\./i.test(value.body)) {
+  if (bodyHasLink(value.body)) {
     ctx.addIssue({ code: "custom", path: ["body"], message: "Links não vão no texto: use o botão de link, que registra quem clicou." });
   }
 });

@@ -1,4 +1,4 @@
-import { campaignSpec, campaignTemplateMatches, type CampaignButton, type CampaignHeaderMedia } from "./whatsapp-campaign-core";
+import { campaignSpec, campaignTemplateMatches, campaignTracksClicks, sameCampaignButton, type CampaignButton, type CampaignHeaderMedia } from "./whatsapp-campaign-core";
 import { getCampaignPricing } from "./whatsapp-campaign-pricing";
 import "server-only";
 import { sql } from "drizzle-orm";
@@ -136,7 +136,12 @@ export async function listCampaigns() {
 }
 
 export async function saveCampaign(id: string, input: unknown, actor: string) {
-  const value = campaignInput.parse(input);
+  // Campaigns saved before every link had to be tracked keep their approved button while other fields change.
+  const [current] = await pg<{ button: CampaignButton | null }[]>`select button from whatsapp_campaigns where id=${id}`;
+  const raw = (input && typeof input === "object" ? input : {}) as { button?: unknown };
+  const keepLegacyButton = Boolean(current?.button) && sameCampaignButton(current!.button, raw.button) && !campaignTracksClicks(current!.button);
+  const parsed = campaignInput.parse(keepLegacyButton ? { ...raw, button: null } : raw);
+  const value = keepLegacyButton ? { ...parsed, button: current!.button } : parsed;
   // Media is fetched by Meta and by the server on submission: only our own storage is accepted.
   const mediaBase = process.env.MEDIA_PUBLIC_BASE_URL?.replace(/\/$/, "");
   if (value.headerMedia && (!mediaBase || !value.headerMedia.url.startsWith(`${mediaBase}/media/whatsapp-campaigns/`)))

@@ -40,7 +40,11 @@ type Metrics = { total:number; sent:number; delivered:number; read:number; faile
 type Detail = { metrics: Metrics; metaLookup: CampaignMetaLookup; campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
 type Form = { id: string; title: string; templateName: string; body: string; budget: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
 type Preview = { title: string; body: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
-const buttonKind = (button: CampaignButton | null) => !button ? 'none' : button.url === CAMPAIGN_TRACKED_LINK_URL ? 'link' : 'contact';
+// Older approved contact buttons (/contato, /contato-direto) still read as the contact option.
+const isContactButton = (button: CampaignButton) => button.url === CAMPAIGN_CONTACT_BUTTON.url || /^https:\/\/www\.automatizemarketing\.com\/contato(-direto)?$/.test(button.url);
+const buttonKind = (button: CampaignButton | null) => !button ? 'none' : isContactButton(button) ? 'contact' : 'link';
+/** Drafts saved before tracking had the destination as the button URL; reopen them as a tracked link to the same place. */
+const editableButton = (button: CampaignButton | null): CampaignButton | null => !button || isContactButton(button) || button.url === CAMPAIGN_TRACKED_LINK_URL ? button : trackedLinkButton(button.text, button.url);
 const AUDIENCE_STATUS_ORDER = Object.keys(AUDIENCE_STATUSES) as AudienceStatus[];
 const currency = (micros: number) => (micros / 1_000_000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateLabel = (date: string) => new Date(date).toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo",dateStyle:"short",timeStyle:"short"});
@@ -108,7 +112,7 @@ export function WhatsappCampaignsClient() {
   function draft(seed?:typeof OCTOBER_WHATSAPP_TEMPLATES[number]) {
     setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:'',button:seed?seed.button:CAMPAIGN_CONTACT_BUTTON,headerMedia:seed?.headerMedia??null});
   }
-  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:c.button,headerMedia:c.header_media});}
+  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:editableButton(c.button),headerMedia:c.header_media});}
   async function uploadHeaderMedia(file:File){
     if(!form)return;
     const formId=form.id;
