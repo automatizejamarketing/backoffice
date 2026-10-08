@@ -505,6 +505,7 @@ export async function UserHubPage({
           }}
           showHeader={false}
           showUserPicker={false}
+          showAccessSummary={false}
           embedded={embedded}
         />
       )}

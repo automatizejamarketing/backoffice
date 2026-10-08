@@ -39,6 +39,7 @@ import { PublishHoldAlert } from "./publish-hold-alert";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
+import { MarketingAccessSummary } from "./marketing-access-summary";
 import { MarketingUsersPicker } from "./marketing-users-picker";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
@@ -67,6 +68,8 @@ type MarketingWorkspaceProps = {
   initialUser?: MarketingWorkspaceUser | null;
   showHeader?: boolean;
   showUserPicker?: boolean;
+  /** The user hub turns it off: its header already shows the access date. */
+  showAccessSummary?: boolean;
   /**
    * Rendered inside the client drawer's iframe (`/embed/users/[id]`). Navigations must stay under
    * `/embed`, or the whole admin shell renders inside the drawer.
@@ -90,6 +93,7 @@ export function MarketingWorkspace({
   initialUser = null,
   showHeader = true,
   showUserPicker = true,
+  showAccessSummary = true,
   embedded = false,
 }: MarketingWorkspaceProps) {
   const router = useRouter();
@@ -459,13 +463,16 @@ export function MarketingWorkspace({
                     {selectedUser.email.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2 className="truncate text-xl font-bold text-foreground">
                     {selectedUser.email}
                   </h2>
                   <p className="truncate text-sm text-muted-foreground">
                     ID: {selectedUser.id}
                   </p>
+                  {showAccessSummary && (
+                    <MarketingAccessSummary userId={selectedUser.id} />
+                  )}
                 </div>
               </div>
 
