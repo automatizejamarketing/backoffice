@@ -7,10 +7,11 @@ import { MCP_SCOPE_WRITE } from "@/lib/mcp-oauth/core";
 import type { McpAuthExtra } from "@/lib/mcp-oauth/service";
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
 import { toCallToolResult, toErrorResult, toolAnnotations } from "@/lib/mcp/tool";
+import { META_ADS_TOOLS } from "@/lib/mcp/meta-ads-tools";
 import { WHATSAPP_CAMPAIGN_TOOLS } from "@/lib/mcp/whatsapp-campaign-tools";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 
-/** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta. */
+/** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta; a client read can hit 5 ad accounts. */
 export const maxDuration = 120;
 
 const TOOL_RATE_LIMIT = { limit: 60, windowSeconds: 60 } as const;
@@ -20,7 +21,11 @@ const INSTRUCTIONS =
   "Campanhas de WhatsApp: save_whatsapp_campaign_draft (texto, botão, mídia por link) → submit_whatsapp_template (aprovação da Meta) → " +
   "get_whatsapp_campaign até o template ficar APPROVED → send_whatsapp_campaign_test → set_whatsapp_campaign_audience → " +
   "preview_whatsapp_campaign_send → mostre a prévia e espere o usuário aprovar → confirm_whatsapp_campaign_send. " +
-  "Nunca confirme envio, nem escolha horário, sem aprovação explícita do usuário. Valores em reais; horários de Brasília (-03:00). " +
+  "Nunca confirme envio, nem escolha horário, sem aprovação explícita do usuário. " +
+  "Meta Ads dos clientes (só leitura): list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
+  "list_portfolio_alerts (alertas pendentes) e get_client_campaigns (campanhas, conjuntos ou anúncios de um cliente, ao vivo). " +
+  "Para perguntas sobre a carteira comece por portfolio_performance; abra um cliente com get_client_campaigns só quando precisar do detalhe. " +
+  "Valores em reais; horários de Brasília (-03:00). " +
   "Responda em português do Brasil.";
 
 function inputSchema(schema: z.ZodObject): JsonSchemaType {
@@ -31,7 +36,7 @@ function inputSchema(schema: z.ZodObject): JsonSchemaType {
 
 const handler = createMcpHandler(
   (server) => {
-    for (const tool of WHATSAPP_CAMPAIGN_TOOLS) {
+    for (const tool of [...WHATSAPP_CAMPAIGN_TOOLS, ...META_ADS_TOOLS]) {
       server.registerTool(
         tool.name,
         { title: tool.title, description: tool.description, inputSchema: fromJsonSchema(inputSchema(tool.input)), annotations: toolAnnotations(tool) },

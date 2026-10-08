@@ -58,7 +58,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
           <p className="text-sm text-zinc-600">O {client} vai agir em seu nome, com as mesmas permissões que você tem no backoffice. Dá para desconectar quando quiser no próprio {client}.</p>
         </div>
         <ul className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-900">
-          {["Consultar campanhas e resultados", ...(canWrite ? ["Criar e editar rascunhos, enviar templates à Meta e mandar testes", "Agendar envios, sempre depois de mostrar a prévia e você confirmar"] : [])].map(item =>
+          {["Consultar campanhas de WhatsApp e resultados", "Consultar Meta Ads e alertas dos clientes que você acompanha", ...(canWrite ? ["Criar e editar rascunhos, enviar templates à Meta e mandar testes", "Agendar envios, sempre depois de mostrar a prévia e você confirmar"] : [])].map(item =>
             <li key={item} className="flex gap-2.5"><ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-zinc-500" />{item}</li>)}
         </ul>
         <div className="flex flex-col gap-2">
