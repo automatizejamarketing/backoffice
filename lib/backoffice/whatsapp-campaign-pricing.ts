@@ -1,6 +1,14 @@
 /** Public BRL reference from Meta's calculator; not an account billing quote. */
 export const META_PRICING_SOURCE = "https://whatsappbusiness.com/products/platform-pricing/";
-export type CampaignPricing = { unitCostMicros: number; currency: "BRL"; category: "MARKETING"; market: "BR"; checkedAt: string; source: string };
+export type CampaignPricing = { unitCostMicros: number; currency: "BRL"; category: "MARKETING"; market: "BR"; checkedAt: string; source: string; fallback?: true };
+
+/** Last quote read from Meta (05/10/2026), used when the public calculator is down so campaigns are not blocked. */
+export const FALLBACK_UNIT_COST_MICROS = 321_700;
+const FALLBACK_RETRY_MS = 10 * 60 * 1000;
+
+export function fallbackCampaignPricing(now = new Date()): CampaignPricing {
+  return { unitCostMicros: FALLBACK_UNIT_COST_MICROS, currency: "BRL", category: "MARKETING", market: "BR", checkedAt: now.toISOString(), source: "fallback", fallback: true };
+}
 
 export async function fetchCampaignPricing(request: typeof fetch = fetch): Promise<CampaignPricing> {
   const page = await request(META_PRICING_SOURCE, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
@@ -21,8 +29,15 @@ export async function fetchCampaignPricing(request: typeof fetch = fetch): Promi
 
 let cached: CampaignPricing | undefined;
 let pending: Promise<CampaignPricing> | undefined;
-export async function getCampaignPricing(): Promise<CampaignPricing> {
-  if (cached && Date.now() - Date.parse(cached.checkedAt) < 3_600_000) return cached;
-  if (!pending) pending = fetchCampaignPricing().then(result => { cached = result; return result; }).finally(() => { pending = undefined; });
+export async function getCampaignPricing(request: typeof fetch = fetch): Promise<CampaignPricing> {
+  // A fallback is retried sooner than a real quote, so the live price returns as soon as Meta does.
+  if (cached && Date.now() - Date.parse(cached.checkedAt) < (cached.fallback ? FALLBACK_RETRY_MS : 3_600_000)) return cached;
+  if (!pending) pending = fetchCampaignPricing(request)
+    .catch(error => {
+      console.warn("[whatsapp-pricing] public calculator unavailable; using fallback", error instanceof Error ? error.message : error);
+      return fallbackCampaignPricing();
+    })
+    .then(result => { cached = result; return result; })
+    .finally(() => { pending = undefined; });
   return pending;
 }
