@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, between, desc, eq, gte, inArray, isNull, like, ne, sql, type SQL } from "drizzle-orm";
+import { and, between, desc, eq, gte, inArray, isNotNull, isNull, like, ne, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { PLAYBOOK_PENDING_STATUSES } from "@/lib/backoffice/playbook-alert-dashboard";
@@ -60,9 +60,10 @@ function toWindow(row: Record<keyof WindowTotals, unknown>): WindowTotals {
 }
 
 /**
- * Both windows for every client with campaign data, from the daily warehouse the
+ * Both windows for every ad account with campaign data, from the daily warehouse the
  * meta-tracking cron fills (meta_tracking_daily_metrics). One grouped query, no Meta call:
- * campaign-level rows only, so ad sets and ads are never counted twice.
+ * campaign-level rows only, so ad sets and ads are never counted twice. Per account, because
+ * accounts of one client can be in different currencies.
  */
 export async function loadPortfolioWindows(args: { consultantId: string | null; current: Period; previous: Period; userIds?: string[] }) {
   const m = metaTrackingDailyMetric;
@@ -71,10 +72,10 @@ export async function loadPortfolioWindows(args: { consultantId: string | null; 
   const rows = await db
     .select({
       userId: m.userId,
-      accounts: sql<string>`COUNT(DISTINCT ${m.accountId})`,
+      accountId: m.accountId,
       ...Object.fromEntries(Object.entries(cur).map(([k, v]) => [`cur_${k}`, v])),
       ...Object.fromEntries(Object.entries(prev).map(([k, v]) => [`prev_${k}`, v])),
-    } as Record<string, SQL | typeof m.userId>)
+    } as Record<string, SQL | typeof m.userId | typeof m.accountId>)
     .from(m)
     .where(and(
       eq(m.entityLevel, "campaign"),
@@ -82,12 +83,24 @@ export async function loadPortfolioWindows(args: { consultantId: string | null; 
       inScope(m.userId, args.consultantId),
       args.userIds ? inArray(m.userId, args.userIds) : undefined,
     ))
-    .groupBy(m.userId);
+    .groupBy(m.userId, m.accountId);
 
   return rows.map(row => {
     const pick = (prefix: string) => Object.fromEntries(Object.keys(cur).map(k => [k, (row as Record<string, unknown>)[`${prefix}_${k}`]])) as Record<keyof WindowTotals, unknown>;
-    return { userId: String(row.userId), accounts: num(row.accounts), current: toWindow(pick("cur")), previous: toWindow(pick("prev")) };
+    return { userId: String(row.userId), accountId: String(row.accountId), current: toWindow(pick("cur")), previous: toWindow(pick("prev")) };
   });
+}
+
+/** Currency of each ad account (`userId:accountId`), as the collector last recorded it. */
+export async function loadAccountCurrencies(userIds: string[]): Promise<Map<string, string>> {
+  if (userIds.length === 0) return new Map();
+  const c = metaTrackingAccountCoverage;
+  const rows = await db
+    .selectDistinctOn([c.userId, c.accountId], { userId: c.userId, accountId: c.accountId, currency: c.currency })
+    .from(c)
+    .where(and(inArray(c.userId, userIds), isNotNull(c.currency)))
+    .orderBy(c.userId, c.accountId, desc(c.businessDate));
+  return new Map(rows.map(r => [`${r.userId}:${r.accountId}`, r.currency!]));
 }
 
 /** Clients in scope with a live Meta connection: the denominator for "who is not spending". */
@@ -122,28 +135,21 @@ export async function loadClientLabels(userIds: string[]): Promise<Map<string, C
   }]));
 }
 
-export type ClientCollection = { currency: string | null; issue: string | null };
-
 /**
- * Latest collection outcome per client: the account currency and, when any account was not
- * collected on its last run (expired connection, failure), why — its numbers may be stale.
+ * Clients whose last collection (since `since`) left an account uncollected — expired
+ * connection, failure — so their numbers may be stale. Maps client → status.
  */
-export async function loadCollectionStatus(userIds: string[], since: string): Promise<Map<string, ClientCollection>> {
+export async function loadCollectionIssues(userIds: string[], since: string): Promise<Map<string, string>> {
   if (userIds.length === 0) return new Map();
   const c = metaTrackingAccountCoverage;
   // Only accounts collected since `since`: an account abandoned months ago must not flag the client forever.
   const rows = await db
-    .selectDistinctOn([c.userId, c.accountId], { userId: c.userId, status: c.status, currency: c.currency })
+    .selectDistinctOn([c.userId, c.accountId], { userId: c.userId, status: c.status })
     .from(c)
     .where(and(inArray(c.userId, userIds), gte(c.businessDate, since)))
     .orderBy(c.userId, c.accountId, desc(c.businessDate), desc(c.createdAt));
-  const byUser = new Map<string, ClientCollection>();
-  for (const row of rows) {
-    const entry = byUser.get(row.userId) ?? { currency: null, issue: null };
-    entry.currency = entry.currency ?? row.currency;
-    if (row.status !== "complete") entry.issue = entry.issue ?? row.status;
-    byUser.set(row.userId, entry);
-  }
+  const byUser = new Map<string, string>();
+  for (const row of rows) if (row.status !== "complete" && !byUser.has(row.userId)) byUser.set(row.userId, row.status);
   return byUser;
 }
 

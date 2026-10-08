@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compareWindows, EMPTY_WINDOW, pctChange, resolvePeriods, sortComparisons, sumWindows, type WindowTotals } from "./meta-ads-metrics";
+import { compareWindows, EMPTY_WINDOW, pctChange, resolvePeriods, rollUpByCurrency, sortComparisons, sumWindows, totalsByCurrency, type WindowTotals } from "./meta-ads-metrics";
 
 // 2026-10-08 10:00 in Brasília.
 const now = new Date("2026-10-08T13:00:00Z");
@@ -89,5 +89,25 @@ describe("sortComparisons", () => {
   });
   it("sorts by spend", () => {
     assert.deepEqual(sortComparisons(rows, "spend", "desc").map(r => r.id), ["c", "b", "a", "d"]);
+  });
+});
+
+describe("currencies", () => {
+  const rows = [
+    { userId: "u1", accountId: "act_1", current: w({ spend: 100, revenue: 300 }), previous: w({ spend: 50 }) },
+    { userId: "u1", accountId: "act_2", current: w({ spend: 40 }), previous: w({ spend: 10 }) },
+    { userId: "u1", accountId: "act_3", current: w({ spend: 7 }), previous: EMPTY_WINDOW },
+    { userId: "u2", accountId: "act_4", current: w({ spend: 60 }), previous: w({ spend: 60 }) },
+  ];
+  const currency: Record<string, string> = { "u1:act_1": "BRL", "u1:act_2": "USD", "u2:act_4": "BRL" };
+  const rolled = rollUpByCurrency(rows, (u, a) => currency[`${u}:${a}`]);
+  it("never sums money across currencies; unknown currency reads as BRL", () => {
+    const u1 = rolled.filter(r => r.userId === "u1").map(r => [r.currency, r.accounts, r.current.spend]);
+    assert.deepEqual(u1.sort(), [["BRL", 2, 107], ["USD", 1, 40]]);
+  });
+  it("totals per currency, largest spend first", () => {
+    const totals = totalsByCurrency(rolled);
+    assert.deepEqual(totals.map(t => [t.currency, t.spend, t.clientsWithSpend]), [["BRL", 167, 2], ["USD", 40, 1]]);
+    assert.equal(totals[0].roas, 1.8);
   });
 });

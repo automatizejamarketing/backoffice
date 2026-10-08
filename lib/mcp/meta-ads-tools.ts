@@ -8,9 +8,9 @@ import { getBusinessPortfolioPage } from "@/lib/db/business-queries";
 import { round2 } from "@/lib/meta-business/insights/currency";
 import { playbookBusinessDateKey, shiftYmd } from "@/lib/playbook-insights/dates";
 import { getClientCampaigns } from "./meta-ads-live";
-import { clip, compareWindows, pctChange, PORTFOLIO_SORTS, resolvePeriods, sortComparisons, sumWindows, windowKpis } from "./meta-ads-metrics";
+import { clip, compareWindows, DEFAULT_CURRENCY, PORTFOLIO_SORTS, resolvePeriods, rollUpByCurrency, sortComparisons, totalsByCurrency } from "./meta-ads-metrics";
 import {
-  ALERT_FAMILIES, listPendingAlerts, loadAdAccountsByUser, loadClientLabels, loadCollectionStatus, loadPortfolioWindows,
+  ALERT_FAMILIES, listPendingAlerts, loadAccountCurrencies, loadAdAccountsByUser, loadClientLabels, loadCollectionIssues, loadPortfolioWindows,
   loadScopedMetaClientIds, loadSpendByUser, resolveConsultantScope, type AlertFamily,
 } from "./meta-ads-queries";
 import { defineTool, type McpTool } from "./tool";
@@ -77,7 +77,7 @@ export const META_ADS_TOOLS: McpTool[] = [
       "Meta Ads de todos os clientes da carteira de uma vez: período vs período anterior de mesmo tamanho (padrão: últimos 7 dias completos vs os 7 anteriores). " +
       "Por cliente: gasto, resultados (o resultado de cada campanha, como a Meta define), custo por resultado, compras, receita, ROAS, leads, conversas, CTR de link e variação %. " +
       "Lê o histórico diário coletado toda madrugada (dados até ontem; hoje fica incompleto), então é rápido e não gasta cota da Meta. " +
-      "Clientes sem gasto nos dois períodos vêm só em idleClients. Valores na moeda da conta (quase sempre BRL).",
+      "Clientes sem gasto nos dois períodos vêm só em idleClients. Valores na moeda da conta (quase sempre BRL); moedas nunca são somadas: totais vêm por moeda e um cliente com contas em duas moedas aparece em duas linhas.",
     input: z.object({
       ...periodInput,
       sortBy: z.enum(PORTFOLIO_SORTS).default("spend"),
@@ -94,44 +94,39 @@ export const META_ADS_TOOLS: McpTool[] = [
         loadPortfolioWindows({ consultantId, current: periods.current, previous: periods.previous, userIds: input.userIds }),
         loadScopedMetaClientIds(consultantId, input.userIds),
       ]);
-      const spending = windows.filter(w => w.current.spend > 0 || w.previous.spend > 0);
+      const currencies = await loadAccountCurrencies([...new Set(windows.map(w => w.userId))]);
+      const spending = rollUpByCurrency(windows, (userId, accountId) => currencies.get(`${userId}:${accountId}`))
+        .filter(w => w.current.spend > 0 || w.previous.spend > 0);
       const spendingIds = new Set(spending.map(w => w.userId));
       const idleIds = metaClientIds.filter(id => !spendingIds.has(id));
       const shown = sortComparisons(
         spending.filter(w => w.current.spend >= input.minSpend).map(w => ({ ...w, metrics: compareWindows(w.current, w.previous) })),
         input.sortBy, input.order,
       ).slice(0, input.limit);
-      const labelIds = [...shown.map(w => w.userId), ...idleIds.slice(0, 100)];
-      const [labels, collection] = await Promise.all([loadClientLabels(labelIds), loadCollectionStatus(labelIds, shiftYmd(periods.current.until, -7))]);
-      const cur = sumWindows(spending.map(w => w.current));
-      const prev = sumWindows(spending.map(w => w.previous));
-      const currencies = new Set([...collection.values()].map(c => c.currency).filter(Boolean));
+      const labelIds = [...new Set([...shown.map(w => w.userId), ...idleIds.slice(0, 100)])];
+      const [labels, issues] = await Promise.all([loadClientLabels(labelIds), loadCollectionIssues(labelIds, shiftYmd(periods.current.until, -7))]);
+      const totals = totalsByCurrency(spending);
       return {
         period: { ...periods.current, previous: periods.previous, days: periods.days },
         notes: [
           ...(periods.includesToday ? ["O período inclui hoje: o dia de hoje ainda está incompleto no histórico."] : []),
-          ...(currencies.size > 1 ? [`Há contas em mais de uma moeda (${[...currencies].join(", ")}); o total soma valores de moedas diferentes.`] : []),
+          ...(totals.length > 1 ? ["Há contas em mais de uma moeda: totais e linhas são separados por moeda (campo currency), sem conversão."] : []),
         ],
-        totals: {
-          clientsWithSpend: spending.filter(w => w.current.spend > 0).length,
-          spend: round2(cur.spend), previousSpend: round2(prev.spend), spendChange: pctChange(cur.spend, prev.spend),
-          results: cur.results, revenue: round2(cur.revenue),
-          roas: windowKpis(cur, cur.revenue > 0 || prev.revenue > 0).roas, previousRoas: windowKpis(prev, cur.revenue > 0 || prev.revenue > 0).roas,
-        },
+        totals,
         clients: shown.map(w => {
           const label = labels.get(w.userId);
-          const status = collection.get(w.userId);
+          const issue = issues.get(w.userId);
           return {
             userId: w.userId, client: label?.client ?? w.userId, consultant: label?.consultant ?? null, accountCount: w.accounts,
-            ...(status?.currency && status.currency !== "BRL" ? { currency: status.currency } : {}),
-            ...(status?.issue ? { dataIssue: status.issue } : {}),
+            ...(w.currency !== DEFAULT_CURRENCY ? { currency: w.currency } : {}),
+            ...(issue ? { dataIssue: issue } : {}),
             ...w.metrics,
           };
         }),
         hiddenClients: Math.max(0, spending.length - shown.length),
         idleClients: {
           count: idleIds.length,
-          sample: idleIds.slice(0, 100).map(id => ({ userId: id, client: labels.get(id)?.client ?? id, ...(collection.get(id)?.issue ? { dataIssue: collection.get(id)!.issue } : {}) })),
+          sample: idleIds.slice(0, 100).map(id => ({ userId: id, client: labels.get(id)?.client ?? id, ...(issues.get(id) ? { dataIssue: issues.get(id) } : {}) })),
         },
       };
     },

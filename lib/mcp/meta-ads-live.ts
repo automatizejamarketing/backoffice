@@ -115,7 +115,7 @@ function rowFor(level: CampaignLevel, cur: RawInsight | undefined, prev: RawInsi
   };
 }
 
-export type ClientCampaignRow = ReturnType<typeof rowFor> & { account?: string; active?: boolean; dailyBudget?: number | null; lifetimeBudget?: number | null };
+export type ClientCampaignRow = ReturnType<typeof rowFor> & { account?: string; currency?: string; active?: boolean; dailyBudget?: number | null; lifetimeBudget?: number | null };
 
 async function readAccount(args: { ctx: Ctx; level: CampaignLevel; periods: ComparedPeriods; campaignId?: string }) {
   const { ctx, level, periods, campaignId } = args;
@@ -199,7 +199,12 @@ export async function getClientCampaigns(args: { userId: string; level: Campaign
       spend: round2(r.rows.reduce((sum, row) => sum + (row.spend ?? 0), 0)),
       ...(r.error ? { error: r.error } : {}),
     })),
-    rows: results.flatMap(r => r.rows.map(row => (multiple ? { ...row, account: r.account.name ?? r.account.accountId } : row))),
+    rows: results.flatMap(r => r.rows.map(row => ({
+      ...row,
+      ...(multiple ? { account: r.account.name ?? r.account.accountId } : {}),
+      // Rows of several accounts are sorted together; money in another currency must say so.
+      ...(r.currency !== "BRL" ? { currency: r.currency } : {}),
+    }))),
     truncated: results.some(r => r.truncated),
   };
 }

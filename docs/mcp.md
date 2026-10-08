@@ -44,6 +44,7 @@ Limites e decisões:
 - O dia do histórico (`metric_date`) é o dia no fuso da conta de anúncio; o período é calculado em Brasília. Para contas em São Paulo (quase todas) coincide; para conta em outro fuso, o dia de borda desloca.
 - "Resultados" na carteira é a soma do resultado de cada campanha como a Meta define (conversa, compra, lead, clique…). Para comparar clientes de objetivos diferentes, use também as colunas específicas (compras, leads, conversas).
 - `get_client_campaigns` lê as contas que o cliente habilitou (principal primeiro, até 5), 2 a 3 chamadas por conta em paralelo, com cache de 5 minutos por consulta (`lib/meta-business/read-cache.ts`). Uma conta com erro aparece em `accounts[].error` e as outras respondem. Até 200 linhas por período, ordenadas por gasto.
+- Moedas nunca são somadas: a carteira agrega por cliente e moeda (cliente com conta BRL e USD sai em duas linhas) e os totais vêm por moeda; em `get_client_campaigns` a linha de conta não BRL traz `currency`.
 - Respostas enxutas: `portfolio_performance` devolve 50 clientes por padrão (até 200); `list_portfolio_alerts` corta evidência e recomendação em 400 caracteres.
 - Ficou para a v2: ações (pausar, ativar, orçamento), detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série).
 
