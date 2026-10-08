@@ -93,8 +93,8 @@ export const META_ADS_TOOLS: McpTool[] = [
         loadPortfolioWindows({ consultantId, current: periods.current, previous: periods.previous, userIds: input.userIds }),
         loadScopedMetaClientIds(consultantId, input.userIds),
       ]);
-      const currencies = await loadAccountCurrencies([...new Set(windows.map(w => w.userId))]);
-      const spending = rollUpByCurrency(windows, (userId, accountId) => currencies.get(`${userId}:${accountId}`))
+      const currencies = await loadAccountCurrencies([...new Set(windows.map(w => w.accountId))]);
+      const spending = rollUpByCurrency(windows, accountId => currencies.get(accountId))
         .filter(w => w.current.spend > 0 || w.previous.spend > 0);
       const spendingIds = new Set(spending.map(w => w.userId));
       const idleIds = metaClientIds.filter(id => !spendingIds.has(id));
@@ -122,7 +122,7 @@ export const META_ADS_TOOLS: McpTool[] = [
             ...w.metrics,
           };
         }),
-        hiddenClients: Math.max(0, spending.length - shown.length),
+        hiddenRows: Math.max(0, spending.length - shown.length),
         idleClients: {
           count: idleIds.length,
           sample: idleIds.slice(0, 100).map(id => ({ userId: id, client: labels.get(id)?.client ?? id, ...(issues.get(id) ? { dataIssue: issues.get(id) } : {}) })),

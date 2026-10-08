@@ -92,16 +92,20 @@ export async function loadPortfolioWindows(args: { consultantId: string | null; 
   });
 }
 
-/** Currency of each ad account (`userId:accountId`), as the collector last recorded it. */
-export async function loadAccountCurrencies(userIds: string[]): Promise<Map<string, string>> {
-  if (userIds.length === 0) return new Map();
+/**
+ * Currency of each ad account, as the collector last recorded it. Keyed by account only: the
+ * currency belongs to the account, and coverage keeps one row per account and day (the last
+ * client that collected it), so a key with the client would miss a shared account.
+ */
+export async function loadAccountCurrencies(accountIds: string[]): Promise<Map<string, string>> {
+  if (accountIds.length === 0) return new Map();
   const c = metaTrackingAccountCoverage;
   const rows = await db
-    .selectDistinctOn([c.userId, c.accountId], { userId: c.userId, accountId: c.accountId, currency: c.currency })
+    .selectDistinctOn([c.accountId], { accountId: c.accountId, currency: c.currency })
     .from(c)
-    .where(and(inArray(c.userId, userIds), isNotNull(c.currency)))
-    .orderBy(c.userId, c.accountId, desc(c.businessDate));
-  return new Map(rows.map(r => [`${r.userId}:${r.accountId}`, r.currency!]));
+    .where(and(inArray(c.accountId, accountIds), isNotNull(c.currency)))
+    .orderBy(c.accountId, desc(c.businessDate));
+  return new Map(rows.map(r => [r.accountId, r.currency!]));
 }
 
 /** Clients in scope with a live Meta connection: the denominator for "who is not spending". */
@@ -159,17 +163,15 @@ export async function loadCollectionIssues(userIds: string[], since: string): Pr
 export async function loadSpendByUser(userIds: string[], period: Period): Promise<Map<string, Record<string, number>>> {
   if (userIds.length === 0) return new Map();
   const m = metaTrackingDailyMetric;
-  const [rows, currencies] = await Promise.all([
-    db
-      .select({ userId: m.userId, accountId: m.accountId, spend: sql<string>`COALESCE(SUM(${m.spend}), 0)` })
-      .from(m)
-      .where(and(eq(m.entityLevel, "campaign"), inArray(m.userId, userIds), between(m.metricDate, period.since, period.until)))
-      .groupBy(m.userId, m.accountId),
-    loadAccountCurrencies(userIds),
-  ]);
+  const rows = await db
+    .select({ userId: m.userId, accountId: m.accountId, spend: sql<string>`COALESCE(SUM(${m.spend}), 0)` })
+    .from(m)
+    .where(and(eq(m.entityLevel, "campaign"), inArray(m.userId, userIds), between(m.metricDate, period.since, period.until)))
+    .groupBy(m.userId, m.accountId);
+  const currencies = await loadAccountCurrencies([...new Set(rows.map(r => r.accountId))]);
   const byUser = new Map<string, Record<string, number>>();
   for (const row of rows) {
-    const currency = currencies.get(`${row.userId}:${row.accountId}`) ?? DEFAULT_CURRENCY;
+    const currency = currencies.get(row.accountId) ?? DEFAULT_CURRENCY;
     const spend = byUser.get(row.userId) ?? {};
     spend[currency] = round2((spend[currency] ?? 0) + num(row.spend)) ?? 0;
     byUser.set(row.userId, spend);

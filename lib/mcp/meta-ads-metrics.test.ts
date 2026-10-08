@@ -99,11 +99,11 @@ describe("currencies", () => {
     { userId: "u1", accountId: "act_3", current: w({ spend: 7 }), previous: EMPTY_WINDOW },
     { userId: "u2", accountId: "act_4", current: w({ spend: 60 }), previous: w({ spend: 60 }) },
   ];
-  const currency: Record<string, string> = { "u1:act_1": "BRL", "u1:act_2": "USD", "u2:act_4": "BRL" };
-  const rolled = rollUpByCurrency(rows, (u, a) => currency[`${u}:${a}`]);
+  const currency: Record<string, string> = { act_1: "BRL", act_2: "USD", act_4: "BRL" };
+  const rolled = rollUpByCurrency(rows, a => currency[a]);
   it("never sums money across currencies; unknown currency reads as BRL", () => {
-    const u1 = rolled.filter(r => r.userId === "u1").map(r => [r.currency, r.accounts, r.current.spend]);
-    assert.deepEqual(u1.sort(), [["BRL", 2, 107], ["USD", 1, 40]]);
+    const u1 = rolled.filter(r => r.userId === "u1").sort((a, b) => a.currency.localeCompare(b.currency)).map(r => [r.currency, r.accounts, r.current.spend]);
+    assert.deepEqual(u1, [["BRL", 2, 107], ["USD", 1, 40]]);
   });
   it("totals per currency, largest spend first", () => {
     const totals = totalsByCurrency(rolled);

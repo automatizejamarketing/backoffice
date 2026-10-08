@@ -122,10 +122,10 @@ export type ClientWindows = { userId: string; currency: string; accounts: number
  * One line per client AND currency: money in different currencies is never summed. A client
  * with a BRL and a USD account gets two lines.
  */
-export function rollUpByCurrency(rows: readonly AccountWindows[], currencyOf: (userId: string, accountId: string) => string | undefined): ClientWindows[] {
+export function rollUpByCurrency(rows: readonly AccountWindows[], currencyOf: (accountId: string) => string | undefined): ClientWindows[] {
   const byKey = new Map<string, { userId: string; currency: string; accounts: AccountWindows[] }>();
   for (const row of rows) {
-    const currency = currencyOf(row.userId, row.accountId) ?? DEFAULT_CURRENCY;
+    const currency = currencyOf(row.accountId) ?? DEFAULT_CURRENCY;
     const key = `${row.userId}:${currency}`;
     const group = byKey.get(key) ?? { userId: row.userId, currency, accounts: [] };
     group.accounts.push(row);
