@@ -11,7 +11,6 @@ mock.module("@/lib/meta-business/get-user-access-token", () => ({
     ? { success: false, error: { message: "A conexão com o Facebook expirou." } }
     : { success: true, userId, accessToken: `token-${userId}`, connection: { tokenKind: "user", name: "Conexão" } },
 }));
-mock.module("@/lib/backoffice/meta-enabled-assets", () => ({ listEnabledAdAccountIds: async () => ["111", "222"] }));
 
 const ACCOUNTS = [
   { id: "act_111", account_id: "111", name: "Loja", currency: "BRL" },
@@ -54,7 +53,7 @@ describe("getClientCampaigns", () => {
       return undefined;
     });
     try {
-      const result = await getClientCampaigns({ userId: "client-1", level: "campaign", periods });
+      const result = await getClientCampaigns({ userId: "client-1", level: "campaign", periods, spendByAccount: new Map() });
       assert.deepEqual(result.accounts.map(a => [a.id, a.spend, "error" in a]), [["act_111", 300, false], ["act_222", 0, true]]);
       const byId = new Map(result.rows.map(r => [r.id, r]));
       const c1 = byId.get("c1")!;
@@ -89,7 +88,7 @@ describe("getClientCampaigns", () => {
       return undefined;
     });
     try {
-      const result = await getClientCampaigns({ userId: "client-3", level: "campaign", periods });
+      const result = await getClientCampaigns({ userId: "client-3", level: "campaign", periods, spendByAccount: new Map() });
       const c9 = result.rows.find(r => r.id === "c9")!;
       assert.equal(c9.active, true);
       assert.equal(c9.dailyBudget, 30);
@@ -104,11 +103,11 @@ describe("getClientCampaigns", () => {
   it("refuses an ad account the client did not grant and explains a missing connection", async () => {
     const stub = installMetaFetchStub(req => (req.path === "me" ? { body: { id: "me" } } : req.path === "me/adaccounts" ? { body: { data: ACCOUNTS } } : undefined));
     try {
-      await assert.rejects(getClientCampaigns({ userId: "client-2", level: "campaign", periods, adAccountId: "999" }), /não está concedida/);
+      await assert.rejects(getClientCampaigns({ userId: "client-2", level: "campaign", periods, spendByAccount: new Map(), adAccountId: "999" }), /não está concedida/);
       assert.ok(stub.calls.every(c => !c.path.startsWith("act_")), "no read of an account the client does not own");
     } finally {
       stub.restore();
     }
-    await assert.rejects(getClientCampaigns({ userId: "no-meta", level: "campaign", periods }), /expirou/);
+    await assert.rejects(getClientCampaigns({ userId: "no-meta", level: "campaign", periods, spendByAccount: new Map() }), /expirou/);
   });
 });

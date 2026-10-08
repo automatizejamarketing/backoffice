@@ -1,6 +1,5 @@
 import "server-only";
 
-import { listEnabledAdAccountIds } from "@/lib/backoffice/meta-enabled-assets";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { RESULT_FIELDS } from "@/lib/meta-business/insights/catalogs/metrics";
@@ -10,8 +9,9 @@ import { mapErrorKind } from "@/lib/meta-business/insights/envelope";
 import { normalizeInsightRow, type RawInsight } from "@/lib/meta-business/insights/normalize";
 import { paginate } from "@/lib/meta-business/insights/pagination";
 import { cachedMetaRead, INSIGHTS_CACHE_TTL_MS, tokenCacheId } from "@/lib/meta-business/read-cache";
-import { pickPlaybookAccounts, type PlaybookAccount } from "@/lib/playbook-insights/multi-account";
-import { pctChange, type ComparedPeriods, type Period } from "./meta-ads-metrics";
+import { pctChange, pickClientAccounts, type ComparedPeriods, type Period } from "./meta-ads-metrics";
+
+type ClientAccount = { accountId: string; name: string | null };
 
 /**
  * Live Meta read of ONE client (the consultant opened a client): campaigns, ad sets or ads
@@ -156,10 +156,11 @@ function accountError(error: unknown): string {
 }
 
 /**
- * Campaigns / ad sets / ads of one client across the ad accounts the client enabled (principal
- * first, up to 5), or one account. A failing account is reported and the others still answer.
+ * Campaigns / ad sets / ads of one client across the ad accounts the connection sees, the ones
+ * that spent most recently first (up to 5, `spendByAccount` from the daily warehouse), or one
+ * account. A failing account is reported and the others still answer.
  */
-export async function getClientCampaigns(args: { userId: string; level: CampaignLevel; periods: ComparedPeriods; adAccountId?: string; campaignId?: string }) {
+export async function getClientCampaigns(args: { userId: string; level: CampaignLevel; periods: ComparedPeriods; spendByAccount: ReadonlyMap<string, number>; adAccountId?: string; campaignId?: string }) {
   const token = await getUserAccessTokenByUserId(args.userId);
   if (!token.success) throw new Error(`Sem leitura da Meta deste cliente: ${token.error.message}`);
   const { accessToken, connection } = token;
@@ -168,19 +169,20 @@ export async function getClientCampaigns(args: { userId: string; level: Campaign
     clientBusinessId: connection.clientBusinessId, connectionName: connection.name,
   });
   const visible = profile.adaccounts?.data ?? [];
-  let accounts: PlaybookAccount[];
+  let accounts: ClientAccount[];
+  let omitted: ClientAccount[] = [];
   if (args.adAccountId) {
     const wanted = args.adAccountId.replace(/^act_/, "");
     const match = visible.find(a => (a.account_id || a.id.replace(/^act_/, "")) === wanted);
     if (!match) throw new Error("Esta conta de anúncios não está concedida ao cliente.");
     accounts = [{ accountId: `act_${wanted}`, name: match.name ?? null }];
   } else {
-    accounts = pickPlaybookAccounts({ visible, enabledIds: await listEnabledAdAccountIds(args.userId) });
+    ({ accounts, omitted } = pickClientAccounts(visible, args.spendByAccount));
   }
-  if (accounts.length === 0) return { accounts: [], rows: [] as ClientCampaignRow[], truncated: false };
+  if (accounts.length === 0) return { accounts: [], omittedAccounts: [], rows: [] as ClientCampaignRow[], truncated: false };
 
   const currencyOf = (accountId: string) => visible.find(a => a.id === accountId || `act_${a.account_id}` === accountId)?.currency ?? "BRL";
-  const readOne = async (account: PlaybookAccount) => {
+  const readOne = async (account: ClientAccount) => {
     const ctx = { accessToken, accountId: account.accountId, currency: currencyOf(account.accountId) };
     try {
       return { account, currency: ctx.currency, ...(await readAccount({ ctx, level: args.level, periods: args.periods, campaignId: args.campaignId })), error: null };
@@ -199,6 +201,7 @@ export async function getClientCampaigns(args: { userId: string; level: Campaign
       spend: round2(r.rows.reduce((sum, row) => sum + (row.spend ?? 0), 0)),
       ...(r.error ? { error: r.error } : {}),
     })),
+    omittedAccounts: omitted,
     rows: results.flatMap(r => r.rows.map(row => ({
       ...row,
       ...(multiple ? { account: r.account.name ?? r.account.accountId } : {}),

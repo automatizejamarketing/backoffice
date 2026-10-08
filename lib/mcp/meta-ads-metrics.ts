@@ -159,6 +159,25 @@ export function totalsByCurrency(rows: readonly ClientWindows[]) {
   }).sort((a, b) => b.spend - a.spend);
 }
 
+export const MAX_LIVE_ACCOUNTS = 5;
+
+/**
+ * Ad accounts a live client read covers: every account the connection sees, the ones that spent
+ * most recently (per the daily warehouse) first, up to `max`. Same set the portfolio counts, so
+ * the detail of a client adds up to its line in the portfolio.
+ */
+export function pickClientAccounts<T extends { id: string; account_id?: string; name?: string }>(
+  visible: readonly T[], spendByAccount: ReadonlyMap<string, number>, max = MAX_LIVE_ACCOUNTS,
+) {
+  const key = (a: T) => `act_${a.account_id || a.id.replace(/^act_/, "")}`;
+  const ranked = visible.map((a, i) => ({ a, i, spend: spendByAccount.get(key(a)) ?? 0 }))
+    .sort((x, y) => y.spend - x.spend || x.i - y.i);
+  return {
+    accounts: ranked.slice(0, max).map(({ a }) => ({ accountId: key(a), name: a.name?.trim() || null })),
+    omitted: ranked.slice(max).map(({ a }) => ({ accountId: key(a), name: a.name?.trim() || null })),
+  };
+}
+
 export const PORTFOLIO_SORTS = ["spend", "spend_change", "results", "results_change", "cost_per_result", "cost_per_result_change", "roas", "roas_change"] as const;
 export type PortfolioSort = (typeof PORTFOLIO_SORTS)[number];
 

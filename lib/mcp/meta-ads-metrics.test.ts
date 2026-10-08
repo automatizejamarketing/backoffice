@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compareWindows, EMPTY_WINDOW, pctChange, resolvePeriods, rollUpByCurrency, sortComparisons, sumWindows, totalsByCurrency, type WindowTotals } from "./meta-ads-metrics";
+import { compareWindows, EMPTY_WINDOW, pctChange, pickClientAccounts, resolvePeriods, rollUpByCurrency, sortComparisons, sumWindows, totalsByCurrency, type WindowTotals } from "./meta-ads-metrics";
 
 // 2026-10-08 10:00 in Brasília.
 const now = new Date("2026-10-08T13:00:00Z");
@@ -110,5 +110,17 @@ describe("currencies", () => {
     const totals = totalsByCurrency(rolled);
     assert.deepEqual(totals.map(t => [t.currency, t.spend, t.clientsWithSpend]), [["BRL", 167, 2], ["USD", 40, 1]]);
     assert.equal(totals[0].roas, 1.8);
+  });
+});
+
+describe("pickClientAccounts", () => {
+  const visible = ["1", "2", "3", "4", "5", "6"].map(n => ({ id: `act_${n}`, account_id: n, name: `Conta ${n}` }));
+  it("reads every visible account, most recent spend first, and reports the rest", () => {
+    const { accounts, omitted } = pickClientAccounts(visible, new Map([["act_6", 900], ["act_2", 50]]));
+    assert.deepEqual(accounts.map(a => a.accountId), ["act_6", "act_2", "act_1", "act_3", "act_4"]);
+    assert.deepEqual(omitted.map(a => a.accountId), ["act_5"]);
+  });
+  it("keeps Meta's order when nothing spent", () => {
+    assert.deepEqual(pickClientAccounts(visible.slice(0, 2), new Map()).accounts.map(a => a.name), ["Conta 1", "Conta 2"]);
   });
 });
