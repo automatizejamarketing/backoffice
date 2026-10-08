@@ -113,7 +113,8 @@ export const META_ADS_TOOLS: McpTool[] = [
         totals: {
           clientsWithSpend: spending.filter(w => w.current.spend > 0).length,
           spend: round2(cur.spend), previousSpend: round2(prev.spend), spendChange: pctChange(cur.spend, prev.spend),
-          results: cur.results, revenue: round2(cur.revenue), roas: windowKpis(cur).roas, previousRoas: windowKpis(prev).roas,
+          results: cur.results, revenue: round2(cur.revenue),
+          roas: windowKpis(cur, cur.revenue > 0 || prev.revenue > 0).roas, previousRoas: windowKpis(prev, cur.revenue > 0 || prev.revenue > 0).roas,
         },
         clients: shown.map(w => {
           const label = labels.get(w.userId);
@@ -163,7 +164,7 @@ export const META_ADS_TOOLS: McpTool[] = [
         accounts: data.accounts,
         rows: rows.slice(0, input.limit),
         hiddenRows: Math.max(0, rows.length - input.limit),
-        ...(data.truncated ? { notes: ["A Meta devolveu mais de 200 linhas; ficaram de fora as de menor gasto."] } : {}),
+        ...(data.truncated ? { notes: ["Lista incompleta: mais de 200 linhas por período (ficaram de fora as de menor gasto) ou mais de 500 campanhas ativas (active ausente = status desconhecido)."] } : {}),
       };
     },
   }),

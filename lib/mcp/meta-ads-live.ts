@@ -55,15 +55,21 @@ async function fetchInsights(ctx: Ctx, level: CampaignLevel, period: Period, cam
 
 type RawCampaign = { id: string; name?: string; objective?: string; daily_budget?: string; lifetime_budget?: string };
 
-/** Active campaigns with their budget — the ones running even if they spent nothing yet. */
-async function fetchActiveCampaigns(ctx: Ctx): Promise<RawCampaign[]> {
+/**
+ * Active campaigns with their budget — the ones running even if they spent nothing yet. Up to
+ * 500; past that `truncated` says a campaign missing from the list may still be active.
+ */
+async function fetchActiveCampaigns(ctx: Ctx) {
   return cachedMetaRead({
     key: `mcp:active-campaigns:${tokenCacheId(ctx.accessToken)}:${ctx.accountId}`,
     ttlMs: 2 * 60 * 1000,
-    fetcher: async () => (await callMeta<{ data?: RawCampaign[] }>({
-      domain: "FACEBOOK", method: "GET", path: `${ctx.accountId}/campaigns`, accessToken: ctx.accessToken,
-      params: `fields=id,name,objective,daily_budget,lifetime_budget&effective_status=${encodeURIComponent(JSON.stringify(["ACTIVE"]))}&limit=100`,
-    })).data ?? [],
+    fetcher: () => paginate<RawCampaign>(async after => {
+      const res = await callMeta<{ data?: RawCampaign[]; paging?: { cursors?: { after?: string }; next?: string } }>({
+        domain: "FACEBOOK", method: "GET", path: `${ctx.accountId}/campaigns`, accessToken: ctx.accessToken,
+        params: `fields=id,name,objective,daily_budget,lifetime_budget&effective_status=${encodeURIComponent(JSON.stringify(["ACTIVE"]))}&limit=100${after ? `&after=${after}` : ""}`,
+      });
+      return { data: res.data ?? [], after: res.paging?.next ? res.paging.cursors?.after : undefined };
+    }, { maxRows: 500, maxPages: 5 }),
   });
 }
 
@@ -76,8 +82,11 @@ function summarize(raw: RawInsight | undefined, currency: string) {
 }
 
 function rowFor(level: CampaignLevel, cur: RawInsight | undefined, prev: RawInsight | undefined, currency: string) {
-  const c = summarize(cur, currency);
   const p = summarize(prev, currency);
+  const c0 = summarize(cur, currency);
+  // It sold last period and spent this one without a sale: that is ROAS 0, not "no ROAS".
+  const c = c0 && c0.result.roas == null && p?.result.roas != null && (c0.spend ?? 0) > 0
+    ? { ...c0, result: { ...c0.result, roas: 0 } } : c0;
   const raw = (cur ?? prev ?? {}) as Record<string, unknown>;
   const str = (key: string) => (raw[key] == null ? undefined : String(raw[key]));
   return {
@@ -123,13 +132,14 @@ async function readAccount(args: { ctx: Ctx; level: CampaignLevel; periods: Comp
   for (const r of previous.rows) if (!seen.has(idOf(r))) { rows.push(rowFor(level, undefined, r, ctx.currency)); seen.add(idOf(r)); }
 
   if (active) {
-    const activeById = new Map(active.map(c => [c.id, c]));
+    const activeById = new Map(active.rows.map(c => [c.id, c]));
     for (const row of rows) {
       const campaign = activeById.get(row.id);
-      row.active = Boolean(campaign);
+      // Not in a truncated list = unknown, not inactive.
+      if (campaign || !active.truncated) row.active = Boolean(campaign);
       if (campaign) Object.assign(row, { dailyBudget: minorToMajor(campaign.daily_budget), lifetimeBudget: minorToMajor(campaign.lifetime_budget) });
     }
-    for (const campaign of active) {
+    for (const campaign of active.rows) {
       if (seen.has(campaign.id)) continue;
       rows.push({
         ...rowFor("campaign", { campaign_id: campaign.id, campaign_name: campaign.name, objective: campaign.objective } as RawInsight, undefined, ctx.currency),
@@ -137,7 +147,7 @@ async function readAccount(args: { ctx: Ctx; level: CampaignLevel; periods: Comp
       });
     }
   }
-  return { rows, truncated: current.truncated || previous.truncated };
+  return { rows, truncated: current.truncated || previous.truncated || Boolean(active?.truncated) };
 }
 
 function accountError(error: unknown): string {

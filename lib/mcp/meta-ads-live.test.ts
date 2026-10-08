@@ -73,6 +73,33 @@ describe("getClientCampaigns", () => {
     }
   });
 
+  it("follows the active-campaign pages and reads ROAS 0 when sales stop", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ id: `p${i}`, name: `C${i}`, daily_budget: "1000" }));
+    const stub = installMetaFetchStub(req => {
+      if (req.path === "me") return { body: { id: "me" } };
+      if (req.path === "me/adaccounts") return { body: { data: [ACCOUNTS[0]] } };
+      if (req.path === "act_111/campaigns") return req.params.get("after")
+        ? { body: { data: [{ id: "c9", name: "Pagina 2", daily_budget: "3000" }] } }
+        : { body: { data: page1, paging: { cursors: { after: "next" }, next: "https://graph.facebook.com/next" } } };
+      if (req.path === "act_111/insights") {
+        const current = req.params.get("time_range")?.includes("2026-10-01");
+        return { body: { data: [{ campaign_id: "c9", campaign_name: "Pagina 2", objective: "OUTCOME_SALES", spend: current ? "100" : "100", ...(current ? {} : { actions: [{ action_type: "purchase", value: "2" }], action_values: [{ action_type: "purchase", value: "300" }] }) }] } };
+      }
+      return undefined;
+    });
+    try {
+      const result = await getClientCampaigns({ userId: "client-3", level: "campaign", periods });
+      const c9 = result.rows.find(r => r.id === "c9")!;
+      assert.equal(c9.active, true);
+      assert.equal(c9.dailyBudget, 30);
+      assert.equal(c9.roas, 0);
+      assert.equal(c9.change.roas, -100);
+      assert.equal(result.rows.length, 101);
+    } finally {
+      stub.restore();
+    }
+  });
+
   it("refuses an ad account the client did not grant and explains a missing connection", async () => {
     const stub = installMetaFetchStub(req => (req.path === "me" ? { body: { id: "me" } } : req.path === "me/adaccounts" ? { body: { data: ACCOUNTS } } : undefined));
     try {

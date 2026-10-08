@@ -64,19 +64,24 @@ export const EMPTY_WINDOW: WindowTotals = {
 
 const ratio = (num: number, den: number) => (den > 0 ? round2(num / den) : null);
 
-export function windowKpis(t: WindowTotals) {
+/**
+ * `sells`: the client had purchase value in either window. Then a window without revenue is a
+ * real ROAS of 0 (a -100% drop), not "no ROAS" — only clients that never sell get null.
+ */
+export function windowKpis(t: WindowTotals, sells = t.revenue > 0) {
   return {
     costPerResult: ratio(t.spend, t.results),
     costPerPurchase: ratio(t.spend, t.purchases),
-    roas: t.revenue > 0 ? ratio(t.revenue, t.spend) : null,
+    roas: sells ? ratio(t.revenue, t.spend) : null,
     ctr: t.impressions > 0 ? round2((t.linkClicks / t.impressions) * 100) : null,
   };
 }
 
 /** One client's line: current window, previous window and the variation between them. */
 export function compareWindows(current: WindowTotals, previous: WindowTotals) {
-  const cur = windowKpis(current);
-  const prev = windowKpis(previous);
+  const sells = current.revenue > 0 || previous.revenue > 0;
+  const cur = windowKpis(current, sells);
+  const prev = windowKpis(previous, sells);
   return {
     spend: round2(current.spend) ?? 0,
     results: current.results,

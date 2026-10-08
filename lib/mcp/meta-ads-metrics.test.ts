@@ -64,6 +64,12 @@ describe("compareWindows", () => {
     assert.equal(c.costPerResult, null);
     assert.deepEqual(c.change, { spend: null, results: null, costPerResult: null, roas: null });
   });
+  it("reads a client that stopped selling as ROAS 0 (-100%), and one that never sells as no ROAS", () => {
+    const stopped = compareWindows(w({ spend: 100 }), w({ spend: 100, revenue: 200 }));
+    assert.equal(stopped.roas, 0);
+    assert.equal(stopped.change.roas, -100);
+    assert.equal(compareWindows(w({ spend: 100 }), w({ spend: 100 })).previous.roas, null);
+  });
   it("sums windows field by field", () => {
     assert.deepEqual(sumWindows([w({ spend: 1, results: 2 }), w({ spend: 3, leads: 4 })]), w({ spend: 4, results: 2, leads: 4 }));
   });
