@@ -45,7 +45,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL(safeLoginReturn(request.nextUrl.searchParams.get("next")) ?? "/", request.url));
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  // One-click consent must never render inside another site's frame (clickjacking).
+  if (pathname === "/oauth/authorize") {
+    response.headers.set("X-Frame-Options", "DENY");
+    response.headers.set("Content-Security-Policy", "frame-ancestors 'none'");
+  }
+  return response;
 }
 
 export const config = {

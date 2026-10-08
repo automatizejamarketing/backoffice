@@ -65,7 +65,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
           <Button name="decision" type="submit" value="approve" size="lg" className="w-full border border-zinc-900 bg-zinc-900 text-white shadow-sm hover:border-zinc-800 hover:bg-zinc-800 hover:text-white">Autorizar</Button>
           <Button name="decision" type="submit" value="deny" variant="outline" size="lg" className="w-full border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-100">Recusar</Button>
         </div>
-        <p className="text-center text-xs text-zinc-500">Conectado como {actor.email}</p>
+        <p className="text-center text-xs text-zinc-500">Conectado como {actor.email} · retorno para {new URL(parsed.request.redirectUri).host}</p>
       </form>
     </Shell>
   );
