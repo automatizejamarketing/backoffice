@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { campaignTemplateDefinition, campaignTemplateMatches, campaignSendComponents } from "./whatsapp-campaign-core";
+import { campaignHeaderVideo } from "./whatsapp-october-templates";
 
 const templateSchema = z.object({
   id: z.string(), name: z.string(), language: z.string(), status: z.string(),
@@ -59,6 +60,7 @@ export async function submitCampaignTemplate(name: string, body: string) {
       throw new Error("Esse nome já existe com outro texto ou botão. Use um novo nome/versionamento para aprovação.");
     return { id: existing.id, status: existing.status, existing: true };
   }
+  if (campaignHeaderVideo(name)) throw new Error("Templates com vídeo precisam ser criados no WhatsApp Manager antes da aprovação.");
   const result = z.object({ id: z.string(), status: z.string() }).parse(await whatsappMetaRequest(`${waba()}/message_templates`, {
     method: "POST", body: JSON.stringify(campaignTemplateDefinition(name, body)),
   }));

@@ -1,4 +1,4 @@
-import { campaignContactButton, campaignTracksClicks } from "./whatsapp-october-templates";
+import { campaignContactButton, campaignHeaderVideo, campaignTracksClicks } from "./whatsapp-october-templates";
 import { z } from "zod";
 import { normalizeBrazilianPhone } from "@/lib/phone";
 
@@ -33,8 +33,9 @@ export function campaignTemplateDefinition(name: string, body: string) {
   };
 }
 
-export function campaignTemplateMatches(template: {components: Array<{type:string;text?:string;buttons?:unknown}>}|null, name:string, body:string): boolean {
+export function campaignTemplateMatches(template: {components: Array<{type:string;text?:string;format?:unknown;buttons?:unknown}>}|null, name:string, body:string): boolean {
   if (template?.components.find(c=>c.type==='BODY')?.text !== body) return false;
+  if (Boolean(campaignHeaderVideo(name)) !== (template.components.find(c=>c.type==='HEADER')?.format === 'VIDEO')) return false;
   const expected = campaignContactButton(name);
   const buttons = template.components.find(c=>c.type==='BUTTONS')?.buttons;
   if (!expected) return !buttons || (Array.isArray(buttons) && buttons.length===0);
@@ -75,7 +76,9 @@ export function canConfirmCampaignSend(enabled: boolean, status?: string): boole
 export function campaignSendComponents(name: string, body: string, firstName: string, deliveryId?: string) {
   if (campaignTracksClicks(name) && !z.string().uuid().safeParse(deliveryId).success)
     throw new Error("O envio rastreável precisa de um identificador de entrega válido.");
+  const video = campaignHeaderVideo(name);
   return [
+    ...(video ? [{ type: "header", parameters: [{ type: "video", video: { link: video } }] }] : []),
     ...(body.includes("{{1}}") ? [{ type: "body", parameters: [{ type: "text", text: firstName }] }] : []),
     ...(campaignTracksClicks(name) ? [{type: "button", sub_type: "url", index: "0", parameters: [{type: "text", text: deliveryId!}]}] : []),
   ];

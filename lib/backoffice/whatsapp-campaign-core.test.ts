@@ -58,7 +58,7 @@ describe('contact button template',()=>{
     assert.equal(campaignTemplateMatches(definition,seed.name,seed.body+' mudou'),false);
   });
   it('keeps existing text-only templates compatible',()=>{
-    const seed=OCTOBER_WHATSAPP_TEMPLATES[1];
+    const seed=OCTOBER_WHATSAPP_TEMPLATES.find(t=>t.name==='outubro_2026_0810_assinatura_v2')!;
     const legacy='outubro_2026_0810_assinatura_v1';
     const definition=campaignTemplateDefinition(legacy,seed.body);
     assert.equal(definition.components.length,1);
@@ -77,4 +77,15 @@ it('sends the unique delivery ID in the dynamic button and rejects missing IDs',
  assert.throws(()=>campaignSendComponents(seed.name,seed.body,'Ana'));
  assert.throws(()=>campaignSendComponents(seed.name,seed.body,'Ana','not-a-token'));
  assert.equal(campaignSendComponents('outubro_2026_0510_atendimento_v3',seed.body,'Ana').length,1);
+});
+
+it('sends the video header for video templates and requires a VIDEO header to match',()=>{
+ const seed=OCTOBER_WHATSAPP_TEMPLATES.find(t=>'video' in t)!;
+ assert.deepEqual(campaignSendComponents(seed.name,seed.body,'Ana'),[
+  {type:'header',parameters:[{type:'video',video:{link:(seed as {video:string}).video}}]}
+ ]);
+ assert.equal(campaignTemplateMatches({components:[{type:'HEADER',format:'VIDEO'},{type:'BODY',text:seed.body}]},seed.name,seed.body),true);
+ assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body}]},seed.name,seed.body),false);
+ const text=OCTOBER_WHATSAPP_TEMPLATES[0];
+ assert.equal(campaignTemplateMatches({components:[{type:'HEADER',format:'VIDEO'},{type:'BODY',text:text.body},{type:'BUTTONS',buttons:[{type:'URL',...text.button}]}]},text.name,text.body),false);
 });

@@ -1,5 +1,5 @@
-/** Text-only first batch from Bernardo's October campaign (05/10/2026).
- * Group invitations, videos and the unconfigured trial CTA remain pending.
+/** Bernardo's October campaign (05/10/2026), revised on 08/10/2026.
+ * Remaining group invitations, videos and the unconfigured trial CTA stay pending.
  */
 export const OCTOBER_SUPPORT_URL =
   "https://wa.me/5522997259506?text=Ol%C3%A1!%20Quero%20agendar%20uma%20demonstra%C3%A7%C3%A3o%20gratuita%20da%20Automatize%20para%20tirar%20algumas%20d%C3%BAvidas.%20";
@@ -14,6 +14,14 @@ export const OCTOBER_WHATSAPP_TEMPLATES = [
   },
   {
     date: "2026-10-08",
+    title: "Você não precisa contratar uma agência para começar",
+    name: "outubro_2026_0810_comunidade_v1",
+    // Meta requires a header handle to approve video templates; this template was registered outside the backoffice.
+    video: "https://piostivtjjqwpdmk.public.blob.vercel-storage.com/whatsapp-campaigns/outubro-2026-0810-comunidade.mp4",
+    body: `Quer receber conteúdos como este toda semana? Entre agora na Comunidade Automatize 💜🧞\n\nhttps://chat.whatsapp.com/CtuGgvKtOAs3sEMdHBm6sS?mode=gi_t`,
+  },
+  {
+    date: "2026-10-09",
     title: "O que é assinatura e o que é verba de anúncio?",
     name: "outubro_2026_0810_assinatura_v2",
     button: { text: "Falar com a equipe", url: "https://www.automatizemarketing.com/contato-direto/{{1}}" },
@@ -36,7 +44,6 @@ export const OCTOBER_WHATSAPP_TEMPLATES = [
 ] as const;
 
 export const OCTOBER_PENDING_MESSAGES = [
-  { date: "2026-10-07", title: "Você não precisa contratar uma agência para começar", reason: "Aguardando vídeo e grupo" },
   { date: "2026-10-14", title: "Eu não tenho tempo para fazer meus anúncios", reason: "Aguardando vídeo e grupo" },
   { date: "2026-10-15", title: "Veja o que mudou para um restaurante real", reason: "Aguardando vídeo, case e grupo" },
   { date: "2026-10-19", title: "O que uma IA de tráfego faz no dia a dia?", reason: "Aguardando vídeo" },
@@ -57,6 +64,12 @@ export function campaignContactButton(templateName: string) {
   }
   const template = OCTOBER_WHATSAPP_TEMPLATES.find(item => item.name === templateName);
   return template && 'button' in template ? template.button : null;
+}
+
+/** Public MP4 sent as the template's video header, when the template has one. */
+export function campaignHeaderVideo(templateName: string): string | null {
+  const template = OCTOBER_WHATSAPP_TEMPLATES.find(item => item.name === templateName);
+  return template && 'video' in template ? template.video : null;
 }
 
 export function campaignTracksClicks(templateName: string): boolean {
