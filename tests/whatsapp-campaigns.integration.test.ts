@@ -107,7 +107,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     const base={title:"Media",templateName:"campaign_v1",body,unitCostMicros:300_000,budgetMicros:600_000};
     await assert.rejects(campaigns.saveCampaign(id,{...base,headerMedia:{type:"video",url:"https://evil.example/x.mp4"}},"admin"));
     const media={type:"video",url:"https://media.example.test/media/whatsapp-campaigns/a.mp4"};
-    const button={text:"Entrar no grupo",url:"https://chat.whatsapp.com/abc"};
+    const button={text:"Entrar no grupo",url:"https://www.automatizemarketing.com/r/{{1}}",destination:"https://chat.whatsapp.com/abc"};
     const saved=await campaigns.saveCampaign(id,{...base,headerMedia:media,button},"admin");
     assert.deepEqual([saved.header_media,saved.button],[media,button]);
     await campaigns.deleteCampaign(id);

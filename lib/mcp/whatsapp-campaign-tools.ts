@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import * as z from "zod/v4";
 import { AUDIENCE_STATUSES, audienceFiltersSchema, templateRejectionReason, type AudienceStatus } from "@/lib/backoffice/whatsapp-campaign-audience";
-import { CAMPAIGN_CONTACT_BUTTON, CAMPAIGN_MEDIA_RULES, campaignSpec, type CampaignButton, type CampaignHeaderMedia } from "@/lib/backoffice/whatsapp-campaign-core";
+import { CAMPAIGN_CONTACT_BUTTON, CAMPAIGN_MEDIA_RULES, campaignSpec, trackedLinkButton, type CampaignButton, type CampaignHeaderMedia } from "@/lib/backoffice/whatsapp-campaign-core";
 import { importCampaignMedia } from "@/lib/backoffice/whatsapp-campaign-media";
 import { getCampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
 import { campaignTestContacts, sendCampaignTest } from "@/lib/backoffice/whatsapp-campaign-test";
@@ -72,13 +72,13 @@ async function sendPreview(id: string, scheduledAt: string | null) {
 const buttonInput = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none") }),
   z.object({ type: z.literal("contact").describe(`Botão "${CAMPAIGN_CONTACT_BUTTON.text}" para o WhatsApp da equipe, com clique rastreado.`) }),
-  z.object({ type: z.literal("link"), text: z.string().max(25), url: z.string().describe("Link https fixo, sem variáveis. Clique não rastreado.") }),
+  z.object({ type: z.literal("link"), text: z.string().max(25), url: z.string().describe("Destino https (ex.: grupo do WhatsApp). O botão passa pelo nosso link rastreado e registra quem clicou.") }),
 ]);
 
 function toButton(input: z.infer<typeof buttonInput>): CampaignButton | null {
   if (input.type === "none") return null;
   if (input.type === "contact") return CAMPAIGN_CONTACT_BUTTON;
-  return { text: input.text, url: input.url };
+  return trackedLinkButton(input.text, input.url);
 }
 
 async function resolveMedia(id: string, mediaUrl: string | null | undefined, current: CampaignHeaderMedia | null): Promise<CampaignHeaderMedia | null> {
@@ -115,7 +115,7 @@ export const WHATSAPP_CAMPAIGN_TOOLS: McpTool[] = [
   defineTool({
     name: "save_whatsapp_campaign_draft", title: "Salvar rascunho de campanha", permission: "whatsapp:campaigns", write: true,
     description:
-      "Cria (sem campaignId) ou edita (com campaignId) um rascunho. Texto até 1024 caracteres; use {{1}} para o primeiro nome. " +
+      "Cria (sem campaignId) ou edita (com campaignId) um rascunho. Texto até 1024 caracteres, sem links (links vão no botão, sempre rastreado); use {{1}} para o primeiro nome. " +
       `Mídia opcional por link público https (Google Drive aceito): ${CAMPAIGN_MEDIA_RULES.image.label} ou ${CAMPAIGN_MEDIA_RULES.video.label}. ` +
       "Texto, mídia e botão vão juntos para aprovação: depois de aprovado, qualquer mudança exige um novo templateName (ex.: _v2). Não envia nada.",
     input: z.object({

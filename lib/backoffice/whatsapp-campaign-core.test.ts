@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CAMPAIGN_CONTACT_BUTTON, campaignSendComponents, campaignTemplateDefinition, campaignTemplateMatches, campaignTracksClicks, assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
+import { CAMPAIGN_CONTACT_BUTTON, CAMPAIGN_TRACKED_LINK_URL, trackedLinkButton, campaignSendComponents, campaignTemplateDefinition, campaignTemplateMatches, campaignTracksClicks, assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES } from "./whatsapp-october-templates";
 
 describe("WhatsApp campaign validation", () => {
@@ -49,7 +49,7 @@ describe('template shape',()=>{
     assert.deepEqual(definition.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:CAMPAIGN_CONTACT_BUTTON.url,example:[CAMPAIGN_CONTACT_BUTTON.url.replace('{{1}}','00000000-0000-4000-8000-000000000001')]}]});
     assert.equal(campaignTemplateMatches(definition,spec),true);
     assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:spec.body}]},spec),false);
-    assert.equal(campaignTemplateMatches(definition,{...spec,button:{text:spec.button!.text,url:'https://example.com'}}),false);
+    assert.equal(campaignTemplateMatches(definition,{...spec,button:trackedLinkButton(spec.button!.text,'https://example.com')}),false);
     assert.equal(campaignTemplateMatches(definition,{...spec,body:spec.body+' mudou'}),false);
   });
   it('keeps legacy text-only and static-button campaigns compatible',()=>{
@@ -84,18 +84,33 @@ describe('send components',()=>{
     assert.throws(()=>campaignSendComponents(spec,'Ana'));
     assert.throws(()=>campaignSendComponents(spec,'Ana','not-a-token'));
   });
-  it('sends the header media by link and no parameter for a static button',()=>{
-    const media={...spec,body:'Oi',button:{text:'Entrar no grupo',url:'https://chat.whatsapp.com/abc'},headerMedia:{type:'image' as const,url:'https://media.example.com/media/x.jpg'}};
-    assert.deepEqual(campaignSendComponents(media,'Ana'),[{type:'header',parameters:[{type:'image',image:{link:'https://media.example.com/media/x.jpg'}}]}]);
+  it('sends the header media by link and the delivery ID for a tracked link button',()=>{
+    const media={...spec,body:'Oi',button:trackedLinkButton('Entrar no grupo','https://chat.whatsapp.com/abc'),headerMedia:{type:'image' as const,url:'https://media.example.com/media/x.jpg'}};
+    assert.deepEqual(campaignSendComponents(media,'Ana',token),[
+      {type:'header',parameters:[{type:'image',image:{link:'https://media.example.com/media/x.jpg'}}]},
+      {type:'button',sub_type:'url',index:'0',parameters:[{type:'text',text:token}]},
+    ]);
+    assert.throws(()=>campaignSendComponents(media,'Ana'));
+  });
+  it('registers the tracked link without exposing its destination to Meta',()=>{
+    const button=trackedLinkButton('Entrar no grupo','https://chat.whatsapp.com/abc');
+    const definition=campaignTemplateDefinition({...spec,button});
+    const buttons=definition.components.find(c=>c.type==='BUTTONS');
+    assert.deepEqual(buttons,{type:'BUTTONS',buttons:[{type:'URL',text:'Entrar no grupo',url:CAMPAIGN_TRACKED_LINK_URL,example:[CAMPAIGN_TRACKED_LINK_URL.replace('{{1}}','00000000-0000-4000-8000-000000000001')]}]});
+    assert.ok(!JSON.stringify(definition).includes('chat.whatsapp.com'));
+    assert.equal(campaignTemplateMatches(definition,{...spec,button:trackedLinkButton('Entrar no grupo','https://chat.whatsapp.com/outro')}),true);
   });
 });
 
 describe('campaign button input',()=>{
   const input={title:'Teste',templateName:'teste_v1',body:'Olá',unitCostMicros:0,budgetMicros:0};
-  it('accepts static https links and the tracked contact URL only',()=>{
-    assert.equal(campaignInput.safeParse({...input,button:{text:'Entrar no grupo',url:'https://chat.whatsapp.com/abc'}}).success,true);
+  it('accepts only tracked buttons: the contact button or a tracked link with an https destination',()=>{
+    assert.equal(campaignInput.safeParse({...input,button:trackedLinkButton('Entrar no grupo','https://chat.whatsapp.com/abc')}).success,true);
     assert.equal(campaignInput.safeParse({...input,button:CAMPAIGN_CONTACT_BUTTON}).success,true);
-    for(const button of [{text:'x',url:'http://a.com'},{text:'x',url:'https://a.com/{{1}}'},{text:'a'.repeat(26),url:'https://a.com'},{text:'',url:'https://a.com'}])
-      assert.equal(campaignInput.safeParse({...input,button}).success,false);
+    for(const button of [{text:'Entrar',url:'https://chat.whatsapp.com/abc'},{text:'x',url:CAMPAIGN_TRACKED_LINK_URL},trackedLinkButton('x','http://a.com'),trackedLinkButton('x','https://a.com/{{1}}'),trackedLinkButton('a'.repeat(26),'https://a.com'),trackedLinkButton('','https://a.com'),{...CAMPAIGN_CONTACT_BUTTON,destination:'https://a.com'}])
+      assert.equal(campaignInput.safeParse({...input,button}).success,false,JSON.stringify(button));
+  });
+  it('rejects links in the message text',()=>{
+    for(const body of ['Entre: https://chat.whatsapp.com/abc','Veja www.site.com','http://x.com']) assert.equal(campaignInput.safeParse({...input,body}).success,false,body);
   });
 });

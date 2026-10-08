@@ -3,15 +3,24 @@ import { normalizeBrazilianPhone } from "@/lib/phone";
 
 /** Tracked contact button: each delivery ID becomes the {{1}} of the URL. */
 export const CAMPAIGN_CONTACT_BUTTON = { text: "Falar com a equipe", url: "https://www.automatizemarketing.com/contato-direto/{{1}}" } as const;
+/** Every other link button goes through the frontend /r redirect, which records the click and follows `destination`. */
+export const CAMPAIGN_TRACKED_LINK_URL = "https://www.automatizemarketing.com/r/{{1}}";
 export const CAMPAIGN_MEDIA_RULES = {
   image: { types: ["image/jpeg", "image/png"], maxBytes: 5 * 1024 * 1024, label: "JPG ou PNG, até 5 MB" },
   video: { types: ["video/mp4"], maxBytes: 16 * 1024 * 1024, label: "MP4 (H.264), até 16 MB" },
 } as const;
 
+const httpsUrl = z.string().trim().url("Informe um link válido.").max(2000).refine(url => url.startsWith("https://"), "Use um link https.");
+// Every link must be measurable: only the tracked contact button or a tracked link (destination kept server-side) is accepted.
 const buttonSchema = z.object({
   text: z.string().trim().min(1, "Informe o texto do botão.").max(25, "O texto do botão tem no máximo 25 caracteres."),
-  url: z.string().trim().url("Informe um link válido.").max(2000).refine(url => url.startsWith("https://"), "Use um link https."),
-}).refine(button => !button.url.includes("{{") || button.url === CAMPAIGN_CONTACT_BUTTON.url, { message: "O link do botão não pode ter variáveis.", path: ["url"] });
+  url: z.string(),
+  destination: httpsUrl.refine(url => !url.includes("{{"), "O link de destino não pode ter variáveis.").optional(),
+}).superRefine((button, ctx) => {
+  if (button.url === CAMPAIGN_CONTACT_BUTTON.url && !button.destination) return;
+  if (button.url === CAMPAIGN_TRACKED_LINK_URL && button.destination) return;
+  ctx.addIssue({ code: "custom", path: ["url"], message: "Todo link da campanha precisa ser rastreado: use \"Falar com a equipe\" ou um link rastreado." });
+});
 const headerMediaSchema = z.object({ type: z.enum(["image", "video"]), url: z.string().url().refine(url => url.startsWith("https://")) });
 export type CampaignButton = z.infer<typeof buttonSchema>;
 export type CampaignHeaderMedia = z.infer<typeof headerMediaSchema>;
@@ -23,7 +32,11 @@ export function campaignSpec(campaign: { template_name: string; body: string; bu
 }
 
 export function campaignTracksClicks(button: CampaignButton | null | undefined): boolean {
-  return button?.url === CAMPAIGN_CONTACT_BUTTON.url;
+  return button?.url === CAMPAIGN_CONTACT_BUTTON.url || button?.url === CAMPAIGN_TRACKED_LINK_URL;
+}
+
+export function trackedLinkButton(text: string, destination: string): CampaignButton {
+  return { text, url: CAMPAIGN_TRACKED_LINK_URL, destination };
 }
 
 export const campaignInput = z.object({
@@ -37,6 +50,9 @@ export const campaignInput = z.object({
 }).superRefine((value, ctx) => {
   if (value.body.replaceAll("{{1}}", "").match(/{{|}}|\[(?:LINK|NOME|PERÍODO|RESULTADO)/)) {
     ctx.addIssue({ code: "custom", path: ["body"], message: "Use apenas {{1}} para o primeiro nome e substitua todos os links pendentes." });
+  }
+  if (/https?:\/\/|www\./i.test(value.body)) {
+    ctx.addIssue({ code: "custom", path: ["body"], message: "Links não vão no texto: use o botão de link, que registra quem clicou." });
   }
 });
 
