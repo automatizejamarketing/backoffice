@@ -1,4 +1,4 @@
-import { campaignTemplateMatches } from "./whatsapp-campaign-core";
+import { campaignSpec, campaignTemplateMatches, type CampaignButton, type CampaignHeaderMedia } from "./whatsapp-campaign-core";
 import { getCampaignPricing } from "./whatsapp-campaign-pricing";
 import "server-only";
 import { sql } from "drizzle-orm";
@@ -11,6 +11,7 @@ import { findCampaignTemplate } from "./whatsapp-meta";
 
 export type CampaignRow = {
   id: string; title: string; template_name: string; body: string; audience_filters: AudienceFilters;
+  button: CampaignButton | null; header_media: CampaignHeaderMedia | null;
   state: "draft" | "scheduled" | "paused" | "completed";
   dispatch_mode: "manual" | "scheduled";
   scheduled_at: Date | null; unit_cost_micros: number; budget_micros: string;
@@ -136,11 +137,17 @@ export async function listCampaigns() {
 
 export async function saveCampaign(id: string, input: unknown, actor: string) {
   const value = campaignInput.parse(input);
+  // Media is fetched by Meta and by the server on submission: only our own storage is accepted.
+  const mediaBase = process.env.MEDIA_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  if (value.headerMedia && (!mediaBase || !value.headerMedia.url.startsWith(`${mediaBase}/media/whatsapp-campaigns/`)))
+    throw new Error("Envie a mídia pelo formulário da campanha.");
+  const button = value.button ? JSON.stringify(value.button) : null;
+  const headerMedia = value.headerMedia ? JSON.stringify(value.headerMedia) : null;
   const rows = await pg`insert into whatsapp_campaigns
-    (id,title,template_name,body,unit_cost_micros,budget_micros,created_by,updated_by)
-    values (${id},${value.title},${value.templateName},${value.body},${value.unitCostMicros},${value.budgetMicros},${actor},${actor})
+    (id,title,template_name,body,button,header_media,unit_cost_micros,budget_micros,created_by,updated_by)
+    values (${id},${value.title},${value.templateName},${value.body},${button}::jsonb,${headerMedia}::jsonb,${value.unitCostMicros},${value.budgetMicros},${actor},${actor})
     on conflict (id) do update set title=excluded.title, template_name=excluded.template_name,
-      body=excluded.body,unit_cost_micros=excluded.unit_cost_micros,budget_micros=excluded.budget_micros,
+      body=excluded.body,button=excluded.button,header_media=excluded.header_media,unit_cost_micros=excluded.unit_cost_micros,budget_micros=excluded.budget_micros,
       updated_by=excluded.updated_by,updated_at=now()
     where whatsapp_campaigns.state='draft'
     returning id`;
@@ -148,10 +155,17 @@ export async function saveCampaign(id: string, input: unknown, actor: string) {
   return getCampaign(id);
 }
 
+/** Only drafts that never had recipients can disappear; the Meta template stays registered. */
+export async function deleteCampaign(id: string) {
+  const rows = await pg`delete from whatsapp_campaigns c where c.id=${id} and c.state='draft'
+    and not exists(select 1 from whatsapp_campaign_recipients r where r.campaign_id=c.id) returning id`;
+  if (!rows.length) throw new Error("Somente rascunhos sem envios podem ser excluídos.");
+}
+
 export async function scheduleCampaign(id: string, requestedDate: Date | null, userIds: string[], actor: string) {
   const campaign = await getCampaign(id);
   const template = await findCampaignTemplate(campaign.template_name);
-  if (!campaignTemplateMatches(template,campaign.template_name,campaign.body)) throw new Error("O texto e o botão precisam corresponder ao template aprovado.");
+  if (!campaignTemplateMatches(template,campaignSpec(campaign))) throw new Error("O texto, o botão e a mídia precisam corresponder ao template aprovado.");
   if (template?.category !== "MARKETING") throw new Error("Esta campanha exige um template de Marketing.");
   const pricing = await getCampaignPricing();
   if (campaign.unit_cost_micros !== pricing.unitCostMicros) throw new Error("A tarifa da Meta mudou. Salve o rascunho novamente para atualizar a estimativa antes de confirmar.");
@@ -179,7 +193,7 @@ export async function setCampaignPaused(id: string, paused: boolean, actor: stri
   if (!paused) {
     const campaign = await getCampaign(id);
     const template = await findCampaignTemplate(campaign.template_name);
-    if (template?.status !== "APPROVED" || !campaignTemplateMatches(template,campaign.template_name,campaign.body))
+    if (template?.status !== "APPROVED" || !campaignTemplateMatches(template,campaignSpec(campaign)))
       throw new Error("O template precisa continuar aprovado e com o mesmo texto.");
   }
   const rows = await pg`update whatsapp_campaigns set state=${paused ? 'paused' : 'scheduled'},updated_by=${actor},updated_at=now()

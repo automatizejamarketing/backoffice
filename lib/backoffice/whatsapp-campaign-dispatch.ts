@@ -1,4 +1,4 @@
-import { campaignTemplateMatches } from "./whatsapp-campaign-core";
+import { campaignSpec, campaignTemplateMatches } from "./whatsapp-campaign-core";
 import "server-only";
 import { db, postgresClient as pg } from "@/lib/db";
 import { sql } from "drizzle-orm";
@@ -37,7 +37,7 @@ export async function dispatchWhatsappCampaigns() {
   let processed = 0;
   for (const campaign of campaigns) {
     const template = await findCampaignTemplate(campaign.template_name);
-    if (template?.status !== 'APPROVED' || !campaignTemplateMatches(template,campaign.template_name,campaign.body)) {
+    if (template?.status !== 'APPROVED' || !campaignTemplateMatches(template,campaignSpec(campaign))) {
       await pg`update whatsapp_campaigns set state='paused',updated_at=now(),updated_by='system:template' where id=${campaign.id} and state='scheduled'`;
       continue;
     }
@@ -71,7 +71,7 @@ export async function dispatchWhatsappCampaigns() {
         deliveryId = delivery.id;
         await pg`update whatsapp_campaign_recipients set delivery_id=${deliveryId} where id=${recipient.id}`;
         attempted = true;
-        providerId = await sendCampaignTemplate(recipient.phone, campaign.template_name, campaign.body, firstName(contact.name), deliveryId);
+        providerId = await sendCampaignTemplate(recipient.phone, campaignSpec(campaign), firstName(contact.name), deliveryId);
         await db.transaction(async tx => {
           await tx.execute(sql`update whatsapp_template_deliveries set provider_message_id=${providerId},current_status='sent',accepted_at=now(),updated_at=now() where id=${deliveryId}`);
           await reconcileWhatsappTemplateDelivery(tx, providerId!);

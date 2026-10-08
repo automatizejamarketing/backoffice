@@ -9997,6 +9997,9 @@ export const whatsappCampaign = pgTable("whatsapp_campaigns", {
   // Estimated BRL cost in millionths, preserving Meta's sub-cent prices.
   unitCostMicros: integer("unit_cost_micros").notNull().default(0),
   budgetMicros: numeric("budget_micros", { precision: 16, scale: 0 }).notNull().default("0"),
+  // Approved template shape: optional URL button and optional image/video header.
+  button: jsonb("button").$type<{ text: string; url: string }>(),
+  headerMedia: jsonb("header_media").$type<{ type: "image" | "video"; url: string }>(),
   createdBy: varchar("created_by", { length: 100 }).notNull(),
   updatedBy: varchar("updated_by", { length: 100 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

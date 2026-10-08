@@ -3,10 +3,12 @@ import { getCampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { campaignMetrics, saveCampaignAudience, campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
+import { deleteCampaign, campaignMetrics, saveCampaignAudience, campaignAudience, campaignRecipients, excludeCampaignRecipient, getCampaign, listCampaigns, saveCampaign, scheduleCampaign, setCampaignPaused } from "@/lib/backoffice/whatsapp-campaigns";
 import { findCampaignTemplate, submitCampaignTemplate, whatsappTemplatesConfigured } from "@/lib/backoffice/whatsapp-meta";
 
 import { campaignTestContacts, sendCampaignTest } from "@/lib/backoffice/whatsapp-campaign-test";
+import { CAMPAIGN_MEDIA_RULES, campaignSpec } from "@/lib/backoffice/whatsapp-campaign-core";
+import { createMediaUploadUrl } from "@/lib/storage/media-r2";
 
 export const maxDuration = 60;
 const uuid = z.string().uuid();
@@ -39,20 +41,20 @@ export async function POST(request: Request) {
   const auth = await requireBackofficePermissionResponse("whatsapp:campaigns");
   if (!auth.ok) return auth.response;
   try {
-    const input = z.object({action:z.enum(['sendTest','saveAudience','save','submit','schedule','sendNow','pause','resume','exclude']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
+    const input = z.object({action:z.enum(['sendTest','saveAudience','save','submit','schedule','sendNow','pause','resume','exclude','delete','presignMedia']),id:uuid,data:z.unknown().optional()}).parse(await request.json());
     const actor = auth.actor.email;
     switch (input.action) {
       case 'sendTest': return NextResponse.json(await sendCampaignTest(input.id,input.data,actor));
       case 'saveAudience': return NextResponse.json({campaign:await saveCampaignAudience(input.id,input.data,actor)});
       case 'save': {
-        const data = z.object({ title:z.string(),templateName:z.string(),body:z.string(),budgetMicros:z.number() }).parse(input.data);
+        const data = z.object({ title:z.string(),templateName:z.string(),body:z.string(),budgetMicros:z.number(),button:z.unknown().optional(),headerMedia:z.unknown().optional() }).parse(input.data);
         const pricing = await getCampaignPricing().catch(() => null);
         return NextResponse.json({campaign:await saveCampaign(input.id,{...data,unitCostMicros:pricing?.unitCostMicros ?? 0},actor)});
       }
       case 'submit': {
         const campaign=await getCampaign(input.id);
         if(campaign.state!=='draft')throw new Error('Somente rascunhos podem ser enviados para aprovação.');
-        return NextResponse.json(await submitCampaignTemplate(campaign.template_name,campaign.body));
+        return NextResponse.json(await submitCampaignTemplate(campaignSpec(campaign)));
       }
       case 'schedule': {
         if (process.env.WHATSAPP_CAMPAIGNS_ENABLED !== 'true') throw new Error('O processamento de campanhas ainda não está habilitado.');
@@ -69,6 +71,15 @@ export async function POST(request: Request) {
         if (process.env.WHATSAPP_CAMPAIGNS_ENABLED !== 'true') throw new Error('O processamento de campanhas ainda não está habilitado.');
         await setCampaignPaused(input.id,false,actor); break;
       case 'exclude': await excludeCampaignRecipient(input.id,uuid.parse(input.data),actor); break;
+      case 'delete': await deleteCampaign(input.id); break;
+      case 'presignMedia': {
+        const data=z.object({type:z.enum(['image','video']),contentType:z.string(),size:z.number().int().positive()}).parse(input.data);
+        const rule=CAMPAIGN_MEDIA_RULES[data.type];
+        if(!(rule.types as readonly string[]).includes(data.contentType)||data.size>rule.maxBytes)throw new Error(`Use ${rule.label}.`);
+        const extension=data.contentType.split('/')[1].replace('jpeg','jpg');
+        const upload=await createMediaUploadUrl({pathname:`whatsapp-campaigns/${input.id}.${extension}`,contentType:data.contentType});
+        return NextResponse.json({uploadUrl:upload.uploadUrl,url:upload.url});
+      }
     }
     return NextResponse.json({ok:true});
   } catch(error) { return failure(error); }
