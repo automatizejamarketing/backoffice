@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { fetchCampaignPricing } from "./whatsapp-campaign-pricing";
+import { FALLBACK_UNIT_COST_MICROS, fetchCampaignPricing, getCampaignPricing } from "./whatsapp-campaign-pricing";
 
 describe("Meta public reference pricing", () => {
   it("queries Brazil marketing in BRL and preserves sub-cent precision", async () => {
@@ -23,5 +23,11 @@ describe("Meta public reference pricing", () => {
     }
     await assert.rejects(fetchCampaignPricing((async () => new Response('',{status:503})) as typeof fetch));
     await assert.rejects(fetchCampaignPricing((async () => new Response('changed markup')) as typeof fetch));
+  });
+  it("falls back to the last known quote when the calculator is down, and retries later", async () => {
+    const down = (async () => new Response("Site Unavailable", { status: 502 })) as unknown as typeof fetch;
+    const pricing = await getCampaignPricing(down);
+    assert.equal(pricing.unitCostMicros, FALLBACK_UNIT_COST_MICROS);
+    assert.equal(pricing.fallback, true);
   });
 });
