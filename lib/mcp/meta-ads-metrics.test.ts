@@ -27,6 +27,7 @@ describe("resolvePeriods", () => {
   it("refuses invalid, inverted, future or oversized ranges", () => {
     assert.throws(() => resolvePeriods({ since: "2026-10-01" }, now), /juntos/);
     assert.throws(() => resolvePeriods({ since: "01/10/2026", until: "2026-10-02" }, now), /AAAA-MM-DD/);
+    assert.throws(() => resolvePeriods({ since: "2026-02-30", until: "2026-03-01" }, now), /existam/);
     assert.throws(() => resolvePeriods({ since: "2026-10-05", until: "2026-10-01" }, now), /antes/);
     assert.throws(() => resolvePeriods({ since: "2026-10-01", until: "2026-10-09" }, now), /hoje/);
     assert.throws(() => resolvePeriods({ since: "2026-01-01", until: "2026-10-01" }, now), /90/);

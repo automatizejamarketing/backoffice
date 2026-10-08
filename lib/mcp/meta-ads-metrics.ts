@@ -9,6 +9,11 @@ export type ComparedPeriods = { current: Period; previous: Period; days: number;
 export const MAX_PERIOD_DAYS = 90;
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 
+/** YYYY-MM-DD that exists on the calendar: Date.parse would roll 2026-02-30 into March. */
+function isRealDate(value: string): boolean {
+  return YMD.test(value) && new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) === value;
+}
+
 function dayCount(p: Period): number {
   return Math.round((Date.parse(`${p.until}T12:00:00Z`) - Date.parse(`${p.since}T12:00:00Z`)) / 86_400_000) + 1;
 }
@@ -22,8 +27,7 @@ export function resolvePeriods(input: { days?: number; since?: string; until?: s
   let current: Period;
   if (input.since || input.until) {
     if (!input.since || !input.until) throw new Error("Informe since e until juntos (AAAA-MM-DD), ou use days.");
-    if (!YMD.test(input.since) || !YMD.test(input.until) || Number.isNaN(Date.parse(input.since)) || Number.isNaN(Date.parse(input.until)))
-      throw new Error("Datas no formato AAAA-MM-DD.");
+    if (!isRealDate(input.since) || !isRealDate(input.until)) throw new Error("Datas no formato AAAA-MM-DD, e que existam.");
     if (input.since > input.until) throw new Error("since deve ser antes de until.");
     if (input.until > today) throw new Error(`until não pode ser depois de hoje (${today}).`);
     current = { since: input.since, until: input.until };

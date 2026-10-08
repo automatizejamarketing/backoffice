@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
+// @ts-expect-error Bun's runtime mock API is absent from this repository's test declarations.
 import { mock } from "bun:test";
 import { ensureMetaTestEnv, graphErrorBody, installMetaFetchStub } from "../../tests/helpers/meta-fetch-stub";
 

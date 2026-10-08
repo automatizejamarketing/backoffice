@@ -33,5 +33,4 @@ declare module "bun:test" {
   export function beforeEach(fn: () => void | Promise<void>): void;
   export function afterEach(fn: () => void | Promise<void>): void;
   export const expect: (actual?: unknown) => Matchers;
-  export const mock: { module(specifier: string, factory: () => unknown): void };
 }
