@@ -9,7 +9,7 @@ import { playbookBusinessDateKey, shiftYmd } from "@/lib/playbook-insights/dates
 import { getClientCampaigns } from "./meta-ads-live";
 import { clip, compareWindows, DEFAULT_CURRENCY, PORTFOLIO_SORTS, resolvePeriods, rollUpByCurrency, sortComparisons, totalsByCurrency } from "./meta-ads-metrics";
 import {
-  ALERT_FAMILIES, listPendingAlerts, loadAccountCurrencies, loadAdAccountsByUser, loadClientLabels, loadCollectionIssues, loadPortfolioWindows,
+  ALERT_FAMILIES, listPendingAlerts, loadAccountCurrencies, loadAdAccountsByUser, loadClientLabels, loadCollectionIssues, loadPortfolioWindows, loadSpendByAccount,
   loadScopedMetaClientIds, loadSpendByUser, resolveConsultantScope, type AlertFamily,
 } from "./meta-ads-queries";
 import { defineTool, type McpTool } from "./tool";
@@ -135,7 +135,7 @@ export const META_ADS_TOOLS: McpTool[] = [
     description:
       "Detalhe ao vivo na Meta de um cliente: campanhas (padrão), conjuntos ou anúncios com gasto, resultado e custo por resultado (pelo objetivo de cada campanha), " +
       "receita, ROAS, CTR, CPC, CPM, frequência e variação contra o período anterior. No nível de campanha também traz as campanhas ativas sem gasto, com orçamento. " +
-      "Usa as contas que o cliente habilitou (principal primeiro, até 5). Período padrão: últimos 7 dias completos; until pode ser hoje. Só leitura.",
+      "Lê as contas de anúncio do cliente com mais gasto recente (até 5, as mesmas que a carteira soma); adAccountId lê uma conta específica. Período padrão: últimos 7 dias completos; until pode ser hoje. Só leitura.",
     input: z.object({
       userId: z.string().uuid().describe("Cliente (list_my_clients ou portfolio_performance)."),
       level: z.enum(["campaign", "adset", "ad"]).default("campaign"),
@@ -147,10 +147,11 @@ export const META_ADS_TOOLS: McpTool[] = [
     async run(actor, input) {
       assertClientAccess(actor, input.userId);
       const periods = resolvePeriods(input);
-      const [labels, data] = await Promise.all([
+      const [labels, spendByAccount] = await Promise.all([
         loadClientLabels([input.userId]),
-        getClientCampaigns({ userId: input.userId, level: input.level, periods, adAccountId: input.adAccountId, campaignId: input.campaignId }),
+        loadSpendByAccount(input.userId, { since: shiftYmd(periods.current.until, -29), until: periods.current.until }),
       ]);
+      const data = await getClientCampaigns({ userId: input.userId, level: input.level, periods, spendByAccount, adAccountId: input.adAccountId, campaignId: input.campaignId });
       const label = labels.get(input.userId);
       if (!label) throw new Error("Cliente não encontrado.");
       const rows = [...data.rows].sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0) || Number(b.active ?? false) - Number(a.active ?? false));
@@ -160,7 +161,10 @@ export const META_ADS_TOOLS: McpTool[] = [
         accounts: data.accounts,
         rows: rows.slice(0, input.limit),
         hiddenRows: Math.max(0, rows.length - input.limit),
-        ...(data.truncated ? { notes: ["Lista incompleta: mais de 200 linhas por período (ficaram de fora as de menor gasto) ou mais de 500 campanhas ativas (active ausente = status desconhecido)."] } : {}),
+        notes: [
+          ...(data.truncated ? ["Lista incompleta: mais de 200 linhas por período (ficaram de fora as de menor gasto) ou mais de 500 campanhas ativas (active ausente = status desconhecido)."] : []),
+          ...(data.omittedAccounts.length ? [`O cliente tem mais ${data.omittedAccounts.length} conta(s) de anúncio fora desta leitura (as de menor gasto recente); use adAccountId para ler uma delas: ${data.omittedAccounts.map(a => `${a.name ?? a.accountId} (${a.accountId})`).join(", ")}.`] : []),
+        ],
       };
     },
   }),

@@ -159,6 +159,17 @@ export async function loadCollectionIssues(userIds: string[], since: string): Pr
   return byUser;
 }
 
+/** Spend per ad account (`act_…`) of one client in one window, from the daily warehouse. */
+export async function loadSpendByAccount(userId: string, period: Period): Promise<Map<string, number>> {
+  const m = metaTrackingDailyMetric;
+  const rows = await db
+    .select({ accountId: m.accountId, spend: sql<string>`COALESCE(SUM(${m.spend}), 0)` })
+    .from(m)
+    .where(and(eq(m.entityLevel, "campaign"), eq(m.userId, userId), between(m.metricDate, period.since, period.until)))
+    .groupBy(m.accountId);
+  return new Map(rows.map(r => [r.accountId.startsWith("act_") ? r.accountId : `act_${r.accountId}`, num(r.spend)]));
+}
+
 /** Spend per client in one window, per currency (never summed across currencies). */
 export async function loadSpendByUser(userIds: string[], period: Period): Promise<Map<string, Record<string, number>>> {
   if (userIds.length === 0) return new Map();
