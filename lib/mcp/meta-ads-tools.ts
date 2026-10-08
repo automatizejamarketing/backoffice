@@ -5,7 +5,6 @@ import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-co
 import { playbookAlertRuleTitle } from "@/lib/backoffice/playbook-alert-dashboard";
 import { PORTFOLIO_SUBSCRIPTION_STATUS_FILTER_VALUES } from "@/lib/backoffice/portfolio-filters";
 import { getBusinessPortfolioPage } from "@/lib/db/business-queries";
-import { round2 } from "@/lib/meta-business/insights/currency";
 import { playbookBusinessDateKey, shiftYmd } from "@/lib/playbook-insights/dates";
 import { getClientCampaigns } from "./meta-ads-live";
 import { clip, compareWindows, DEFAULT_CURRENCY, PORTFOLIO_SORTS, resolvePeriods, rollUpByCurrency, sortComparisons, totalsByCurrency } from "./meta-ads-metrics";
@@ -34,7 +33,7 @@ export const META_ADS_TOOLS: McpTool[] = [
     name: "list_my_clients", title: "Listar clientes da carteira", permission: "marketing:read", write: false,
     description:
       "Clientes que você acompanha (consultor: os atribuídos; admin: todos, paginado). Para cada um: saúde do negócio e motivos, assinatura, " +
-      "contas de anúncio, gasto dos últimos 7 dias, campanhas gerenciadas ([AM]) no ar e alertas abertos. Não consulta a Meta: use portfolio_performance para desempenho.",
+      "contas de anúncio, gasto dos últimos 7 dias por moeda (ex.: {\"BRL\": 1234.5}), campanhas gerenciadas ([AM]) no ar e alertas abertos. Não consulta a Meta: use portfolio_performance para desempenho.",
     input: z.object({
       search: z.string().optional().describe("Nome, e-mail ou empresa."),
       subscriptionStatus: z.enum(PORTFOLIO_SUBSCRIPTION_STATUS_FILTER_VALUES).default("all"),
@@ -63,7 +62,7 @@ export const META_ADS_TOOLS: McpTool[] = [
           health: { status: i.health.status, reasons: i.health.reasons.map(r => r.label), nextAction: i.health.nextAction },
           metaConnected: i.metaAccountName != null,
           adAccounts: accounts.get(i.userId) ?? [],
-          spendLast7Days: round2(spend.get(i.userId) ?? 0),
+          spendLast7Days: spend.get(i.userId) ?? {},
           activeManagedCampaigns: i.managedCampaignNames,
           ...(i.managedCampaignError ? { metaError: clip(i.managedCampaignError, 160) } : {}),
           openAlerts: i.playbookInsights.openCount, worstAlert: i.playbookInsights.highestSeverity,

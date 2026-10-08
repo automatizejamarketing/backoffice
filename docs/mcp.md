@@ -32,7 +32,7 @@ Para o consultor analisar muitos clientes e campanhas de uma vez. Nenhuma escrev
 
 | Ferramenta | O que faz | Fonte |
 | --- | --- | --- |
-| `list_my_clients` | Carteira: saúde do negócio e motivos, assinatura, contas de anúncio, gasto dos últimos 7 dias, campanhas [AM] no ar e alertas abertos. Paginada (25/50/100) | Banco |
+| `list_my_clients` | Carteira: saúde do negócio e motivos, assinatura, contas de anúncio, gasto dos últimos 7 dias por moeda, campanhas [AM] no ar e alertas abertos. Paginada (25/50/100) | Banco |
 | `portfolio_performance` | Todos os clientes de uma vez: período vs anterior de mesmo tamanho (padrão: últimos 7 dias completos). Gasto, resultados, custo por resultado, compras, receita, ROAS, leads, conversas, CTR de link e variação %. Ordena por gasto, resultado, custo por resultado, ROAS ou pela variação de cada um; filtra por gasto mínimo e por clientes | `meta_tracking_daily_metrics` |
 | `list_portfolio_alerts` | Alertas pendentes (abertos ou em andamento) agrupados por cliente, críticos primeiro: `playbook`, `drop` (queda de performance) e `account` (conta de anúncio) | `performance_insights` |
 | `get_client_campaigns` | Um cliente ao vivo: campanhas, conjuntos ou anúncios com gasto, resultado pelo objetivo de cada campanha, ROAS, CTR, CPC, CPM, frequência e variação. No nível de campanha também lista as ativas sem gasto, com orçamento | Graph API |

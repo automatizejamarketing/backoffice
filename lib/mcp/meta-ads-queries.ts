@@ -9,7 +9,8 @@ import {
   backofficeUser, businessManagedCampaignCache, metaBusinessAccount, metaTrackingAccountCoverage,
   metaTrackingDailyMetric, performanceInsight, user, userMarketingConsultant,
 } from "@/lib/db/schema";
-import type { Period, WindowTotals } from "./meta-ads-metrics";
+import { round2 } from "@/lib/meta-business/insights/currency";
+import { DEFAULT_CURRENCY, type Period, type WindowTotals } from "./meta-ads-metrics";
 
 /**
  * Whose clients a call may read. A plain consultant is pinned to their own portfolio; everyone
@@ -154,16 +155,26 @@ export async function loadCollectionIssues(userIds: string[], since: string): Pr
   return byUser;
 }
 
-/** Spend per client in one window, for the portfolio list. */
-export async function loadSpendByUser(userIds: string[], period: Period): Promise<Map<string, number>> {
+/** Spend per client in one window, per currency (never summed across currencies). */
+export async function loadSpendByUser(userIds: string[], period: Period): Promise<Map<string, Record<string, number>>> {
   if (userIds.length === 0) return new Map();
   const m = metaTrackingDailyMetric;
-  const rows = await db
-    .select({ userId: m.userId, spend: sql<string>`COALESCE(SUM(${m.spend}), 0)` })
-    .from(m)
-    .where(and(eq(m.entityLevel, "campaign"), inArray(m.userId, userIds), between(m.metricDate, period.since, period.until)))
-    .groupBy(m.userId);
-  return new Map(rows.map(r => [r.userId, num(r.spend)]));
+  const [rows, currencies] = await Promise.all([
+    db
+      .select({ userId: m.userId, accountId: m.accountId, spend: sql<string>`COALESCE(SUM(${m.spend}), 0)` })
+      .from(m)
+      .where(and(eq(m.entityLevel, "campaign"), inArray(m.userId, userIds), between(m.metricDate, period.since, period.until)))
+      .groupBy(m.userId, m.accountId),
+    loadAccountCurrencies(userIds),
+  ]);
+  const byUser = new Map<string, Record<string, number>>();
+  for (const row of rows) {
+    const currency = currencies.get(`${row.userId}:${row.accountId}`) ?? DEFAULT_CURRENCY;
+    const spend = byUser.get(row.userId) ?? {};
+    spend[currency] = round2((spend[currency] ?? 0) + num(row.spend)) ?? 0;
+    byUser.set(row.userId, spend);
+  }
+  return byUser;
 }
 
 const META_CHECK_PLACEHOLDER = "__meta_check__";

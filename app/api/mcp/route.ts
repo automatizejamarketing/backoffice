@@ -25,7 +25,8 @@ const INSTRUCTIONS =
   "Meta Ads dos clientes (só leitura): list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
   "list_portfolio_alerts (alertas pendentes) e get_client_campaigns (campanhas, conjuntos ou anúncios de um cliente, ao vivo). " +
   "Para perguntas sobre a carteira comece por portfolio_performance; abra um cliente com get_client_campaigns só quando precisar do detalhe. " +
-  "Valores em reais; horários de Brasília (-03:00). " +
+  "Valores de WhatsApp em reais. Valores de Meta Ads na moeda da conta: BRL quando o campo currency não vem; nunca some nem converta moedas diferentes. " +
+  "Horários de Brasília (-03:00). " +
   "Responda em português do Brasil.";
 
 function inputSchema(schema: z.ZodObject): JsonSchemaType {
