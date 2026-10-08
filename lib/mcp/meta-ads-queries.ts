@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, between, desc, eq, inArray, isNull, like, ne, sql, type SQL } from "drizzle-orm";
+import { and, between, desc, eq, gte, inArray, isNull, like, ne, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { PLAYBOOK_PENDING_STATUSES } from "@/lib/backoffice/playbook-alert-dashboard";
@@ -128,13 +128,14 @@ export type ClientCollection = { currency: string | null; issue: string | null }
  * Latest collection outcome per client: the account currency and, when any account was not
  * collected on its last run (expired connection, failure), why — its numbers may be stale.
  */
-export async function loadCollectionStatus(userIds: string[]): Promise<Map<string, ClientCollection>> {
+export async function loadCollectionStatus(userIds: string[], since: string): Promise<Map<string, ClientCollection>> {
   if (userIds.length === 0) return new Map();
   const c = metaTrackingAccountCoverage;
+  // Only accounts collected since `since`: an account abandoned months ago must not flag the client forever.
   const rows = await db
     .selectDistinctOn([c.userId, c.accountId], { userId: c.userId, status: c.status, currency: c.currency })
     .from(c)
-    .where(inArray(c.userId, userIds))
+    .where(and(inArray(c.userId, userIds), gte(c.businessDate, since)))
     .orderBy(c.userId, c.accountId, desc(c.businessDate), desc(c.createdAt));
   const byUser = new Map<string, ClientCollection>();
   for (const row of rows) {

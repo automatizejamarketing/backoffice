@@ -6,6 +6,7 @@ import { playbookAlertRuleTitle } from "@/lib/backoffice/playbook-alert-dashboar
 import { PORTFOLIO_SUBSCRIPTION_STATUS_FILTER_VALUES } from "@/lib/backoffice/portfolio-filters";
 import { getBusinessPortfolioPage } from "@/lib/db/business-queries";
 import { round2 } from "@/lib/meta-business/insights/currency";
+import { playbookBusinessDateKey, shiftYmd } from "@/lib/playbook-insights/dates";
 import { getClientCampaigns } from "./meta-ads-live";
 import { clip, compareWindows, pctChange, PORTFOLIO_SORTS, resolvePeriods, sortComparisons, sumWindows, windowKpis } from "./meta-ads-metrics";
 import {
@@ -14,7 +15,8 @@ import {
 } from "./meta-ads-queries";
 import { defineTool, type McpTool } from "./tool";
 
-const ymd = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
+/** Calendar day in Brasília, like every date the consultant sees in the backoffice. */
+const ymd = (d: Date | string | null | undefined) => (d ? playbookBusinessDateKey(new Date(d)) : null);
 
 const periodInput = {
   days: z.number().int().min(1).max(90).optional().describe("Últimos N dias completos (até ontem). Padrão 7."),
@@ -100,7 +102,7 @@ export const META_ADS_TOOLS: McpTool[] = [
         input.sortBy, input.order,
       ).slice(0, input.limit);
       const labelIds = [...shown.map(w => w.userId), ...idleIds.slice(0, 100)];
-      const [labels, collection] = await Promise.all([loadClientLabels(labelIds), loadCollectionStatus(labelIds)]);
+      const [labels, collection] = await Promise.all([loadClientLabels(labelIds), loadCollectionStatus(labelIds, shiftYmd(periods.current.until, -7))]);
       const cur = sumWindows(spending.map(w => w.current));
       const prev = sumWindows(spending.map(w => w.previous));
       const currencies = new Set([...collection.values()].map(c => c.currency).filter(Boolean));
@@ -120,7 +122,7 @@ export const META_ADS_TOOLS: McpTool[] = [
           const label = labels.get(w.userId);
           const status = collection.get(w.userId);
           return {
-            userId: w.userId, client: label?.client ?? w.userId, consultant: label?.consultant ?? null, accounts: w.accounts,
+            userId: w.userId, client: label?.client ?? w.userId, consultant: label?.consultant ?? null, accountCount: w.accounts,
             ...(status?.currency && status.currency !== "BRL" ? { currency: status.currency } : {}),
             ...(status?.issue ? { dataIssue: status.issue } : {}),
             ...w.metrics,
@@ -143,7 +145,7 @@ export const META_ADS_TOOLS: McpTool[] = [
     input: z.object({
       userId: z.string().uuid().describe("Cliente (list_my_clients ou portfolio_performance)."),
       level: z.enum(["campaign", "adset", "ad"]).default("campaign"),
-      campaignId: z.string().regex(/^\d+$/).optional().describe("Nos níveis adset/ad, só os desta campanha."),
+      campaignId: z.string().regex(/^\d+$/).optional().describe("Só esta campanha (e, nos níveis adset/ad, seus conjuntos ou anúncios)."),
       adAccountId: z.string().regex(/^(act_)?\d+$/).optional().describe("Uma conta específica do cliente."),
       ...periodInput,
       limit: z.number().int().min(1).max(100).default(30),

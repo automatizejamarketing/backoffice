@@ -43,7 +43,7 @@ async function fetchInsights(ctx: Ctx, level: CampaignLevel, period: Period, cam
         "sort=spend_descending",
         "limit=100",
       ];
-      if (campaignId && level !== "campaign") parts.push(buildFilteringPart([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]));
+      if (campaignId) parts.push(buildFilteringPart([{ field: "campaign.id", operator: "EQUAL", value: campaignId }]));
       if (after) parts.push(`after=${after}`);
       const res = await callMeta<{ data?: RawInsight[]; paging?: { cursors?: { after?: string }; next?: string } }>({
         domain: "FACEBOOK", method: "GET", path: `${ctx.accountId}/insights`, params: parts.join("&"), accessToken: ctx.accessToken,
@@ -140,7 +140,7 @@ async function readAccount(args: { ctx: Ctx; level: CampaignLevel; periods: Comp
       if (campaign) Object.assign(row, { dailyBudget: minorToMajor(campaign.daily_budget), lifetimeBudget: minorToMajor(campaign.lifetime_budget) });
     }
     for (const campaign of active.rows) {
-      if (seen.has(campaign.id)) continue;
+      if (seen.has(campaign.id) || (campaignId && campaign.id !== campaignId)) continue;
       rows.push({
         ...rowFor("campaign", { campaign_id: campaign.id, campaign_name: campaign.name, objective: campaign.objective } as RawInsight, undefined, ctx.currency),
         spend: 0, result: null, active: true, dailyBudget: minorToMajor(campaign.daily_budget), lifetimeBudget: minorToMajor(campaign.lifetime_budget),
@@ -180,14 +180,17 @@ export async function getClientCampaigns(args: { userId: string; level: Campaign
   if (accounts.length === 0) return { accounts: [], rows: [] as ClientCampaignRow[], truncated: false };
 
   const currencyOf = (accountId: string) => visible.find(a => a.id === accountId || `act_${a.account_id}` === accountId)?.currency ?? "BRL";
-  const results = await Promise.all(accounts.map(async account => {
+  const readOne = async (account: PlaybookAccount) => {
     const ctx = { accessToken, accountId: account.accountId, currency: currencyOf(account.accountId) };
     try {
       return { account, currency: ctx.currency, ...(await readAccount({ ctx, level: args.level, periods: args.periods, campaignId: args.campaignId })), error: null };
     } catch (error) {
       return { account, currency: ctx.currency, rows: [] as ClientCampaignRow[], truncated: false, error: accountError(error) };
     }
-  }));
+  };
+  // Two accounts at a time: 3 reads each on the same token stays clear of Meta's per-user limit (code 17).
+  const results: Awaited<ReturnType<typeof readOne>>[] = [];
+  for (let i = 0; i < accounts.length; i += 2) results.push(...(await Promise.all(accounts.slice(i, i + 2).map(readOne))));
 
   const multiple = accounts.length > 1;
   return {
