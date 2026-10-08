@@ -31,6 +31,7 @@ import {
   type InstagramMediaItem,
 } from "./instagram-post-picker";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
+import { formatPixelOption } from "../utils/formatters";
 import { useCompanyLocations } from "../hooks/use-company-locations";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import { LocationTargetingSection } from "./location-targeting-section";
@@ -541,7 +542,7 @@ export function AdSetCreateDialog({
                   <SelectContent>
                     {pixels.map((pixel) => (
                       <SelectItem key={pixel.id} value={pixel.id}>
-                        {pixel.name ?? pixel.id}
+                        {formatPixelOption(pixel)}
                       </SelectItem>
                     ))}
                   </SelectContent>
