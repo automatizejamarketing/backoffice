@@ -1,19 +1,27 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { safeLoginReturn } from "@/lib/auth/login-return";
-import { assertPublicHttpsUrl, directDownloadUrl, importCampaignMedia, sniffCampaignMedia } from "@/lib/backoffice/whatsapp-campaign-media";
-import { sendConfirmationCode } from "./send-confirmation";
+import { assertPublicHttpsUrl, directDownloadUrl, importCampaignMedia, isPublicAddress, sniffCampaignMedia } from "@/lib/backoffice/whatsapp-campaign-media";
+import { SEND_CONFIRMATION_TTL_MS, sendConfirmationCode, verifySendConfirmation } from "./send-confirmation";
 
 describe("send confirmation code", () => {
   const base = { campaignId: "c1", revision: "2026-10-08 13:00:00+00", scheduledAt: "2026-10-09T15:00:00-03:00", userIds: ["b", "a"] };
-  it("is stable for the same preview regardless of audience order", () => {
-    assert.equal(sendConfirmationCode(base, "s"), sendConfirmationCode({ ...base, userIds: ["a", "b"] }, "s"));
+  const now = Date.parse("2026-10-08T16:00:00Z");
+  it("verifies the same preview regardless of audience order", () => {
+    assert.equal(verifySendConfirmation(sendConfirmationCode(base, "s", now), { ...base, userIds: ["a", "b"] }, "s", now + 1000), "ok");
   });
-  it("changes when the campaign, time, audience or secret change", () => {
-    const code = sendConfirmationCode(base, "s");
+  it("rejects a changed campaign, time, audience or secret", () => {
+    const code = sendConfirmationCode(base, "s", now);
     for (const changed of [{ ...base, revision: "x" }, { ...base, scheduledAt: null }, { ...base, userIds: ["a"] }, { ...base, campaignId: "c2" }])
-      assert.notEqual(sendConfirmationCode(changed, "s"), code);
-    assert.notEqual(sendConfirmationCode(base, "other"), code);
+      assert.equal(verifySendConfirmation(code, changed, "s", now), "mismatch");
+    assert.equal(verifySendConfirmation(code, base, "other", now), "mismatch");
+  });
+  it("expires, and a forged expiry does not verify", () => {
+    const code = sendConfirmationCode({ ...base, scheduledAt: null }, "s", now);
+    assert.equal(verifySendConfirmation(code, { ...base, scheduledAt: null }, "s", now + SEND_CONFIRMATION_TTL_MS + 1), "expired");
+    const forged = `${(now + 10 * SEND_CONFIRMATION_TTL_MS).toString(36)}.${code.split(".")[1]}`;
+    assert.equal(verifySendConfirmation(forged, { ...base, scheduledAt: null }, "s", now + SEND_CONFIRMATION_TTL_MS + 1), "mismatch");
+    assert.equal(verifySendConfirmation("garbage", base, "s", now), "mismatch");
   });
 });
 
@@ -34,6 +42,17 @@ describe("campaign media by link", () => {
   it("rejects non-https, localhost and IP literal hosts", () => {
     for (const url of ["http://example.com/a.mp4", "https://localhost/a.mp4", "https://127.0.0.1/a.mp4", "https://[::1]/a.mp4", "not a url"]) assert.throws(() => assertPublicHttpsUrl(url));
     assert.doesNotThrow(() => assertPublicHttpsUrl("https://example.com/a.mp4"));
+  });
+  it("only treats public addresses as fetchable", () => {
+    for (const ip of ["10.0.0.1", "127.0.0.1", "169.254.169.254", "172.16.0.1", "192.168.1.1", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"]) assert.equal(isPublicAddress(ip), false, ip);
+    for (const ip of ["8.8.8.8", "142.250.79.46", "2800:3f0:4001:80d::200e"]) assert.equal(isPublicAddress(ip), true, ip);
+  });
+  it("re-validates redirects and refuses internal destinations", async () => {
+    const store = async () => "https://media.example/x";
+    const redirectTo = (location: string) => (async () => new Response(null, { status: 302, headers: { location } })) as unknown as typeof fetch;
+    await assert.rejects(importCampaignMedia("c1", "https://example.com/v", store, redirectTo("http://169.254.169.254/latest")), /https/);
+    await assert.rejects(importCampaignMedia("c1", "https://example.com/v", store, redirectTo("https://127.0.0.1/x")), /público/);
+    await assert.rejects(importCampaignMedia("c1", "https://example.com/v", store, redirectTo("https://example.com/loop")), /redireciona demais/);
   });
   it("detects the type from the file signature", () => {
     assert.equal(sniffCampaignMedia(mp4)?.kind, "video");

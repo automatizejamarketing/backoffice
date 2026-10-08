@@ -13,7 +13,7 @@ import {
 } from "@/lib/backoffice/whatsapp-campaigns";
 import { findCampaignTemplate, submitCampaignTemplate } from "@/lib/backoffice/whatsapp-meta";
 import { putMediaObject } from "@/lib/storage/media-r2";
-import { sendConfirmationCode } from "./send-confirmation";
+import { sendConfirmationCode, verifySendConfirmation } from "./send-confirmation";
 import { defineTool, type McpTool } from "./tool";
 
 const campaignId = z.string().uuid().describe("ID da campanha (list_whatsapp_campaigns).");
@@ -193,7 +193,7 @@ export const WHATSAPP_CAMPAIGN_TOOLS: McpTool[] = [
     name: "preview_whatsapp_campaign_send", title: "Prévia do envio", permission: "whatsapp:campaigns", write: false,
     description:
       "Mostra o que será enviado (mensagem, quantidade de destinatários, custo estimado, orçamento, horário) e os impedimentos. " +
-      "Devolve um confirmationCode quando não há impedimentos. Mostre a prévia ao usuário e só chame confirm_whatsapp_campaign_send depois que ele aprovar explicitamente.",
+      "Devolve um confirmationCode (vale 15 minutos) quando não há impedimentos. Mostre a prévia ao usuário e só chame confirm_whatsapp_campaign_send depois que ele aprovar explicitamente.",
     input: z.object({ campaignId, scheduledAt: z.string().datetime({ offset: true }).optional().describe("Data e hora com fuso, ex.: 2026-10-09T15:00:00-03:00. Omita para enviar agora.") }),
     async run(_actor, { campaignId: id, scheduledAt }) {
       const { campaign, audience, issues, preview } = await sendPreview(id, scheduledAt ?? null);
@@ -208,15 +208,17 @@ export const WHATSAPP_CAMPAIGN_TOOLS: McpTool[] = [
     description:
       "Agenda ou inicia o envio real da campanha (gasta dinheiro na Meta). Exige o confirmationCode da prévia e falha se campanha, público ou horário mudaram. " +
       "Nunca chame sem a aprovação explícita do usuário para a prévia mostrada.",
-    input: z.object({ campaignId, scheduledAt: z.string().datetime({ offset: true }).optional(), confirmationCode: z.string().min(8) }),
+    input: z.object({ campaignId, scheduledAt: z.string().datetime({ offset: true }).optional(), confirmationCode: z.string().min(8).describe("Código devolvido pela prévia; vale 15 minutos.") }),
     async run(actor, { campaignId: id, scheduledAt, confirmationCode }) {
       if (!dispatchEnabled()) throw new Error("Os disparos não estão habilitados neste ambiente.");
       const { campaign, audience, issues } = await sendPreview(id, scheduledAt ?? null);
       if (issues.length) throw new Error(issues.join(" "));
       const userIds = audience.map(u => u.id);
-      const expected = sendConfirmationCode({ campaignId: id, revision: campaign.revision, scheduledAt: scheduledAt ?? null, userIds }, confirmationSecret());
-      if (expected !== confirmationCode) throw new Error("A campanha, o público ou o horário mudaram desde a prévia. Gere uma nova prévia e confirme com o usuário.");
-      await scheduleCampaign(id, scheduledAt ? new Date(scheduledAt) : null, userIds, actor.email);
+      const check = verifySendConfirmation(confirmationCode, { campaignId: id, revision: campaign.revision, scheduledAt: scheduledAt ?? null, userIds }, confirmationSecret());
+      if (check === "expired") throw new Error("A prévia expirou. Gere uma nova prévia e confirme com o usuário.");
+      if (check !== "ok") throw new Error("A campanha, o público ou o horário mudaram desde a prévia. Gere uma nova prévia e confirme com o usuário.");
+      // The confirmed revision travels to the claim: an edit after this check makes scheduling fail.
+      await scheduleCampaign(id, scheduledAt ? new Date(scheduledAt) : null, userIds, actor.email, campaign.revision);
       return { campaign: summary(await getCampaign(id)), recipients: userIds.length };
     },
   }),

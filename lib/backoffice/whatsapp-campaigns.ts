@@ -162,8 +162,10 @@ export async function deleteCampaign(id: string) {
   if (!rows.length) throw new Error("Somente rascunhos sem envios podem ser excluídos.");
 }
 
-export async function scheduleCampaign(id: string, requestedDate: Date | null, userIds: string[], actor: string) {
+/** `expectedRevision` pins the version a confirmation was given for; the transactional claim then rejects later edits. */
+export async function scheduleCampaign(id: string, requestedDate: Date | null, userIds: string[], actor: string, expectedRevision?: string) {
   const campaign = await getCampaign(id);
+  if (expectedRevision && campaign.revision !== expectedRevision) throw new Error("A campanha mudou. Atualize a página.");
   const template = await findCampaignTemplate(campaign.template_name);
   if (!campaignTemplateMatches(template,campaignSpec(campaign))) throw new Error("O texto, o botão e a mídia precisam corresponder ao template aprovado.");
   if (template?.category !== "MARKETING") throw new Error("Esta campanha exige um template de Marketing.");
