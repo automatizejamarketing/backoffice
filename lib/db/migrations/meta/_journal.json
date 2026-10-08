@@ -792,6 +792,13 @@
       "when": 1801500000000,
       "tag": "0128_meta_certification_states",
       "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1801600000000,
+      "tag": "0129_whatsapp_campaign_button_media",
+      "breakpoints": true
     }
   ]
 }

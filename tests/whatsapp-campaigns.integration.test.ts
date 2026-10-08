@@ -47,6 +47,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     `);
     await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0110_whatsapp_campaigns.sql", import.meta.url), "utf8"));
     await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0127_whatsapp_campaign_audience.sql", import.meta.url), "utf8"));
+    await pg.unsafe(readFileSync(new URL("../lib/db/migrations/0129_whatsapp_campaign_button_media.sql", import.meta.url), "utf8"));
     globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
       const requestUrl = new URL(String(input));
       if (requestUrl.hostname === "whatsappbusiness.com") return requestUrl.pathname.includes('/wp-json/')
@@ -54,7 +55,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
       assert.equal(requestUrl.hostname, "graph.facebook.com");
       if (requestUrl.pathname.endsWith("/message_templates") && requestUrl.searchParams.get("name")===OCTOBER_WHATSAPP_TEMPLATES[0].name) {
         const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
-        return Response.json({data:[{id:'tracked-template',...campaignTemplateDefinition(seed.name,seed.body),status:'APPROVED'}]});
+        return Response.json({data:[{id:'tracked-template',...campaignTemplateDefinition({name:seed.name,body:seed.body,button:seed.button,headerMedia:seed.headerMedia}),status:'APPROVED'}]});
       }
       if (requestUrl.pathname.endsWith("/message_templates")) return Response.json({ data: [{ id: "template1", name: "campaign_v1", language: "pt_BR", category: "MARKETING", status: "APPROVED", components: [{ type: "BODY", text: body }] }] });
       assert.ok(requestUrl.pathname.endsWith("/messages"));
@@ -100,6 +101,22 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
     await campaigns.scheduleCampaign(id, new Date(Date.now() + 60_000), [userId], "test@example.invalid");
     await pg`update whatsapp_campaigns set scheduled_at=now()-interval '1 minute' where id=${id}`;
   }
+  it("stores button and media from our storage only, and deletes only drafts without recipients",async()=>{
+    const {id,userId}=await seed();
+    process.env.MEDIA_PUBLIC_BASE_URL="https://media.example.test";
+    const base={title:"Media",templateName:"campaign_v1",body,unitCostMicros:300_000,budgetMicros:600_000};
+    await assert.rejects(campaigns.saveCampaign(id,{...base,headerMedia:{type:"video",url:"https://evil.example/x.mp4"}},"admin"));
+    const media={type:"video",url:"https://media.example.test/media/whatsapp-campaigns/a.mp4"};
+    const button={text:"Entrar no grupo",url:"https://chat.whatsapp.com/abc"};
+    const saved=await campaigns.saveCampaign(id,{...base,headerMedia:media,button},"admin");
+    assert.deepEqual([saved.header_media,saved.button],[media,button]);
+    await campaigns.deleteCampaign(id);
+    await assert.rejects(campaigns.getCampaign(id));
+    const other=crypto.randomUUID();
+    await campaigns.saveCampaign(other,base,"admin");
+    await campaigns.scheduleCampaign(other,null,[userId],"admin");
+    await assert.rejects(campaigns.deleteCampaign(other));
+  });
   it("sends repeatable isolated tests without consuming the campaign or its audience", async()=>{
     const {id,userId}=await seed();
     process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
@@ -121,7 +138,7 @@ describe("WhatsApp campaigns against disposable Postgres", { skip: !databaseUrl 
   it("tracks official recipients separately from test sends, counting each clicked delivery once",async()=>{
     const {id,userId}=await seed();
     const template=OCTOBER_WHATSAPP_TEMPLATES[0];
-    await pg`update whatsapp_campaigns set template_name=${template.name},body=${template.body} where id=${id}`;
+    await pg`update whatsapp_campaigns set template_name=${template.name},body=${template.body},button=${JSON.stringify(template.button)}::jsonb where id=${id}`;
     process.env.WHATSAPP_CAMPAIGN_TEST_USER_IDS=userId;
     await testSend.sendCampaignTest(id,{userId,requestId:crypto.randomUUID()},'admin');
     await pg`update whatsapp_template_deliveries set clicked_at=now() where source='backoffice_campaign_test'`;

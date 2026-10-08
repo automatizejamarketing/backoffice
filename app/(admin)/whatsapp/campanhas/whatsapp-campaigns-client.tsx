@@ -1,9 +1,9 @@
 "use client";
-import { campaignTracksClicks, findOctoberCampaign } from "@/lib/backoffice/whatsapp-october-templates";
+import { findOctoberCampaign } from "@/lib/backoffice/whatsapp-october-templates";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, ChevronDown, CalendarClock, Loader2, Plus, RefreshCw } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, CalendarClock, Loader2, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,8 @@ import { FilterDate } from "@/components/ui/filter";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CAMPAIGN_STATE_LABELS, RECIPIENT_STATE_LABELS, campaignMetaLookupLabel, canConfirmCampaignSend, type CampaignMetaLookup } from "@/lib/backoffice/whatsapp-campaign-core";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { CAMPAIGN_CONTACT_BUTTON, CAMPAIGN_MEDIA_RULES, CAMPAIGN_STATE_LABELS, RECIPIENT_STATE_LABELS, campaignMetaLookupLabel, campaignTracksClicks, canConfirmCampaignSend, type CampaignButton, type CampaignHeaderMedia, type CampaignMetaLookup } from "@/lib/backoffice/whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES, OCTOBER_PENDING_MESSAGES } from "@/lib/backoffice/whatsapp-october-templates";
 import { campaignBudgetMicros, formatCampaignBudgetInput, campaignBudgetReach } from "@/lib/backoffice/whatsapp-campaign-budget";
 import { WhatsappCampaignTest } from "./whatsapp-campaign-test";
@@ -29,6 +30,7 @@ import type { CampaignPricing } from "@/lib/backoffice/whatsapp-campaign-pricing
 
 type Campaign = {
   id: string; title: string; template_name: string; body: string; state: string; audience_filters: AudienceFilters;
+  button: CampaignButton | null; header_media: CampaignHeaderMedia | null;
   scheduled_at: string | null; dispatch_mode: "manual" | "scheduled"; unit_cost_micros: number; budget_micros: string;
   revenue_centavos: number; total: number; sent: number; delivered: number; read: number; failed: number; pending: number; unknown: number; excluded: number;
 };
@@ -36,7 +38,9 @@ type Contact = { id: string; name: string | null; email: string; phone: string; 
 type Recipient = { id: string; name: string | null; email: string; state: string; reason: string | null; current_status: DeliveryStatus | null; accepted_at:string|null;delivered_at:string|null;read_at:string|null;clicked_at:string|null };
 type Metrics = { total:number; sent:number; delivered:number; read:number; failed:number; tracked_clicks:number; trials:number; paying:number; windowDays:number; revenue_centavos:number };
 type Detail = { metrics: Metrics; metaLookup: CampaignMetaLookup; campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
-type Form = { id: string; title: string; templateName: string; body: string; budget: string };
+type Form = { id: string; title: string; templateName: string; body: string; budget: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
+type Preview = { title: string; body: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
+const buttonKind = (button: CampaignButton | null) => !button ? 'none' : campaignTracksClicks(button) ? 'contact' : 'link';
 const AUDIENCE_STATUS_ORDER = Object.keys(AUDIENCE_STATUSES) as AudienceStatus[];
 const currency = (micros: number) => (micros / 1_000_000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateLabel = (date: string) => new Date(date).toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo",dateStyle:"short",timeStyle:"short"});
@@ -60,7 +64,8 @@ export function WhatsappCampaignsClient() {
   const [enabled,setEnabled]=useState(false);
   const [busy,setBusy]=useState(false);
   const [form,setForm]=useState<Form|null>(null);
-  const [preview,setPreview]=useState<{title:string;body:string;name:string}|null>(null);
+  const [preview,setPreview]=useState<Preview|null>(null);
+  const [uploading,setUploading]=useState(false);
   const [detail,setDetail]=useState<Detail|null>(null);
   const [detailRequest,setDetailRequest]=useState<{id:string;title:string;error:string}|null>(null);
   const [detailLoading,setDetailLoading]=useState(false);
@@ -101,9 +106,23 @@ export function WhatsappCampaignsClient() {
     finally{setBusy(false);}
   }
   function draft(seed?:typeof OCTOBER_WHATSAPP_TEMPLATES[number]) {
-    setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:''});
+    setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:'',button:seed?seed.button:CAMPAIGN_CONTACT_BUTTON,headerMedia:seed?.headerMedia??null});
   }
-  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros))});}
+  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:c.button,headerMedia:c.header_media});}
+  async function uploadHeaderMedia(file:File){
+    if(!form)return;
+    const type=file.type.startsWith('video/')?'video':'image';
+    const rule=CAMPAIGN_MEDIA_RULES[type];
+    if(!(rule.types as readonly string[]).includes(file.type)||file.size>rule.maxBytes){toast.error(`Use ${rule.label}.`);return;}
+    setUploading(true);
+    try{
+      const presign=await api({action:'presignMedia',id:form.id,data:{type,contentType:file.type,size:file.size}});
+      const upload=await fetch(presign.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},body:file});
+      if(!upload.ok)throw new Error('Não foi possível enviar o arquivo. Tente novamente.');
+      setForm(current=>current&&{...current,headerMedia:{type,url:presign.url}});
+    }catch(e){toast.error((e as Error).message);}
+    finally{setUploading(false);}
+  }
   async function loadAudience(filters:AudienceFilters) {
     setBusy(true);setAudience([]);setSelected([]);setConfirmed(false);
     try {const response=await fetch(`/api/whatsapp/campaigns?audience=${encodeURIComponent(JSON.stringify(filters))}`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(result.error);setAudience(result.audience);setFiltersApplied(true);}
@@ -152,7 +171,7 @@ export function WhatsappCampaignsClient() {
                   : campaign.state==='draft' ? 'Rascunho salvo. Falta definir o público e confirmar o envio.' : campaign.scheduled_at ? `${campaign.dispatch_mode === 'manual' ? 'Iniciado manualmente' : 'Agendamento'}: ${dateLabel(campaign.scheduled_at)}` : 'Consulte os detalhes da campanha.'}</p>
               </div>
               <div className="flex shrink-0 gap-2">
-                <Button variant="ghost" size="sm" onClick={()=>setPreview(campaign ? {title:campaign.title,body:campaign.body,name:campaign.template_name} : template)}>Ver mensagem</Button>
+                <Button variant="ghost" size="sm" onClick={()=>setPreview(campaign ? {title:campaign.title,body:campaign.body,button:campaign.button,headerMedia:campaign.header_media} : template)}>Ver mensagem</Button>
                 <Button variant="outline" size="sm" disabled={busy} onClick={()=>campaign ? inspect(campaign.id) : draft(template)}>{needsConfiguration ? 'Configurar campanha' : 'Abrir campanha'}</Button>
               </div>
             </div>
@@ -165,17 +184,29 @@ export function WhatsappCampaignsClient() {
     <Dialog open={Boolean(preview)} onOpenChange={open=>{if(!open)setPreview(null);}}>
       <DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-lg">
         <DialogHeader><DialogTitle>{preview?.title}</DialogTitle><DialogDescription>Veja como o cliente receberia esta mensagem. Esta prévia não envia nada.</DialogDescription></DialogHeader>
-        {preview&&<WhatsappMessagePreview body={preview.body} templateName={preview.name}/>}
+        {preview&&<WhatsappMessagePreview body={preview.body} button={preview.button} headerMedia={preview.headerMedia}/>}
       </DialogContent>
     </Dialog>
     <Dialog open={Boolean(form)} onOpenChange={open=>{if(!open&&!busy)setForm(null);}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>Preparar campanha</DialogTitle><DialogDescription>Salve o texto antes de enviar para aprovação. Use {'{{1}}'} para o primeiro nome.</DialogDescription></DialogHeader>
-      {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,budgetMicros:campaignBudgetMicros(form.budget)});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
+      {form&&<form className="min-w-0 space-y-4" onSubmit={async event=>{event.preventDefault();const result=await mutate('save',form.id,{title:form.title,templateName:form.templateName,body:form.body,budgetMicros:campaignBudgetMicros(form.budget),button:form.button,headerMedia:form.headerMedia});if(result){setForm(null);toast.success('Rascunho salvo.');await inspect(form.id);}}}>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><label className="space-y-1 text-sm">Nome da campanha<Input required maxLength={160} value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label className="space-y-1 text-sm">Nome do template na Meta<Input required pattern="[a-z0-9_]+" maxLength={255} value={form.templateName} onChange={e=>setForm({...form,templateName:e.target.value})}/></label></div>
         <label className="block space-y-1 text-sm">Mensagem<Textarea className="min-w-0 [field-sizing:fixed]" required rows={11} maxLength={1024} value={form.body} onChange={e=>setForm({...form,body:e.target.value})}/><span className="block text-right text-xs text-muted-foreground">{form.body.length}/1024</span></label>
-        <details className="min-w-0 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Ver prévia no WhatsApp</summary><div className="pt-4"><WhatsappMessagePreview body={form.body} templateName={form.templateName}/></div></details>
+        <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0">
+          <div className="space-y-2 text-sm"><p className="font-medium">Imagem ou vídeo <span className="font-normal text-muted-foreground">· opcional</span></p>
+            {form.headerMedia ? <div className="flex min-w-0 items-center gap-2 rounded-md border p-2"><span className="min-w-0 flex-1 truncate">{form.headerMedia.type==='video'?'Vídeo':'Imagem'} · {decodeURIComponent(form.headerMedia.url.split('/').pop()??'')}</span><Button type="button" size="sm" variant="ghost" disabled={busy||uploading} onClick={()=>setForm({...form,headerMedia:null})}>Remover</Button></div>
+              : <label className={`flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed p-3 text-muted-foreground hover:bg-muted/40 ${uploading?'pointer-events-none opacity-60':''}`}>{uploading?<Loader2 className="size-4 animate-spin motion-reduce:animate-none"/>:<Upload className="size-4"/>}{uploading?'Enviando arquivo…':'Escolher arquivo'}<input type="file" className="sr-only" accept={[...CAMPAIGN_MEDIA_RULES.image.types,...CAMPAIGN_MEDIA_RULES.video.types].join(',')} disabled={busy||uploading} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void uploadHeaderMedia(file);}}/></label>}
+            <p className="text-xs text-muted-foreground">Aparece acima do texto. Imagem: {CAMPAIGN_MEDIA_RULES.image.label}. Vídeo: {CAMPAIGN_MEDIA_RULES.video.label}.</p>
+          </div>
+          <fieldset className="space-y-2 text-sm"><legend className="mb-2 font-medium">Botão</legend>
+            {([['none','Sem botão'],['contact','Falar com a equipe · rastreia cliques'],['link','Link próprio']] as const).map(([kind,label])=><label key={kind} className="flex cursor-pointer items-center gap-2"><input type="radio" name="campaign-button" className="accent-primary" checked={buttonKind(form.button)===kind} onChange={()=>setForm({...form,button:kind==='none'?null:kind==='contact'?CAMPAIGN_CONTACT_BUTTON:{text:'',url:'https://'}})}/>{label}</label>)}
+            {buttonKind(form.button)==='link'&&form.button&&<div className="grid gap-2 pt-1"><Input aria-label="Texto do botão" placeholder="Texto do botão" required maxLength={25} value={form.button.text} onChange={e=>setForm({...form,button:{...form.button!,text:e.target.value}})}/><Input aria-label="Link do botão" type="url" placeholder="https://" required value={form.button.url} onChange={e=>setForm({...form,button:{...form.button!,url:e.target.value}})}/><span className="text-xs text-muted-foreground">Até 25 caracteres. Cliques nesse link não são rastreados.</span></div>}
+          </fieldset>
+        </div>
+        <details className="min-w-0 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Ver prévia no WhatsApp</summary><div className="pt-4"><WhatsappMessagePreview body={form.body} button={form.button} headerMedia={form.headerMedia}/></div></details>
+        <p className="text-xs text-muted-foreground">Texto, imagem/vídeo e botão vão juntos para aprovação. Depois de aprovado, qualquer mudança exige um novo nome de template.</p>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2 [&>*]:min-w-0"><div className="space-y-1 text-sm"><p>Tarifa de referência da Meta</p><p className="font-medium">{pricing ? `${(pricing.unitCostMicros / 1e6).toLocaleString('pt-BR',{style:'currency',currency:'BRL',minimumFractionDigits:4})} por mensagem entregue` : 'Consulta indisponível'}</p><p className="text-xs text-muted-foreground">Marketing · Brasil · tabela em reais. {pricing ? 'Atualizada automaticamente.' : 'Você pode salvar o rascunho; a tarifa será consultada novamente antes do envio.'}</p><a className="text-xs underline underline-offset-4" href="https://whatsappbusiness.com/products/platform-pricing/" target="_blank" rel="noreferrer">Ver tabela oficial da Meta</a></div><label className="space-y-1 text-sm">Orçamento máximo da campanha (R$)<Input inputMode="numeric" placeholder="R$ 0,00" aria-describedby="campaign-budget-estimate" value={form.budget} onChange={e=>setForm({...form,budget:formatCampaignBudgetInput(e.target.value)})}/><span id="campaign-budget-estimate" className="block text-xs text-muted-foreground" aria-live="polite">{estimatedReach===null ? 'A estimativa de pessoas aparecerá quando a tarifa estiver disponível.' : !campaignBudgetMicros(form.budget) ? 'Informe o orçamento para estimar quantas pessoas poderão receber.' : `Aproximadamente ${estimatedReach.toLocaleString('pt-BR')} ${estimatedReach===1?'pessoa':'pessoas'}, com uma mensagem por pessoa, pela tarifa atual.`}</span></label></div>
         <p className="text-xs text-muted-foreground">O orçamento limita o público pela estimativa da tabela oficial em reais. A cobrança efetiva depende da moeda e das condições da sua conta Meta.</p>
-        <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="outline" type="button" disabled={busy} onClick={()=>setForm(null)}>Cancelar</Button><Button disabled={busy||uploading}>{busy&&<Loader2 className="size-4 animate-spin"/>}Salvar rascunho</Button></div>
       </form>}
     </DialogContent></Dialog>
     <Dialog open={Boolean(detail)||Boolean(detailRequest)} onOpenChange={open=>{if(!open&&(!busy||detailLoading))closeDetail();}}><DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-3xl"><DialogHeader><DialogTitle>{detailRequest?.title??(scheduleOpen?'Configurar envio':detail?.campaign.title)}</DialogTitle><DialogDescription>{scheduleOpen?'Escolha e salve os filtros do público. Os destinatários escolhidos só são salvos ao confirmar o envio.':'Aprovação, público e acompanhamento desta campanha.'}</DialogDescription></DialogHeader>
@@ -236,9 +267,12 @@ export function WhatsappCampaignsClient() {
       {detail&&<div className="space-y-4"><div className="flex flex-wrap gap-2"><Badge variant="secondary">{detail.campaign.state==='scheduled'&&detail.campaign.dispatch_mode==='manual'?'Envio iniciado':CAMPAIGN_STATE_LABELS[detail.campaign.state]}</Badge><Badge variant="outline" className={detail.template?.status==='APPROVED'?'border-emerald-500/30 bg-emerald-500/10 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400':undefined}>{detail.template?.status==='APPROVED'&&<Check aria-hidden="true"/>}Meta: {detail.template?(templateStatus[detail.template.status]??detail.template.status):campaignMetaLookupLabel(detail.metaLookup)}</Badge></div>
         {detail.metaLookup==='disconnected'&&<p role="status" className="rounded-md border bg-muted/40 p-3 text-sm">Seu rascunho está salvo. A conexão do backoffice com a Meta precisa ser configurada para consultar e enviar templates. Isso não informa se o template já foi enviado pelo WhatsApp Manager.</p>}
         {detail.metaLookup==='unavailable'&&<p role="status" className="text-sm text-muted-foreground">Não foi possível consultar a Meta. Use Atualizar status para tentar novamente.</p>}
-        <WhatsappMessagePreview body={detail.campaign.body} templateName={detail.campaign.template_name}/>
+        <WhatsappMessagePreview body={detail.campaign.body} button={detail.campaign.button} headerMedia={detail.campaign.header_media}/>
         {templateRejectionReason(detail.template?.status,detail.template?.rejected_reason)&&<p role="alert" className="text-sm text-destructive">{templateRejectionReason(detail.template?.status,detail.template?.rejected_reason)}</p>}
-        <div className="flex flex-wrap gap-2">{detail.campaign.state==='draft'?<><Button variant="outline" disabled={busy} onClick={()=>edit(detail.campaign)}>Editar</Button><Button variant="outline" disabled={busy||!configured||detail.template?.status==='APPROVED'} onClick={async()=>{const result=await mutate('submit',detail.campaign.id);if(result){toast.success(result.existing?'Template já cadastrado na Meta.':'Template enviado para análise da Meta.');await inspect(detail.campaign.id);}}}>{detail.template?.status==='APPROVED'?'Template aprovado':'Enviar template à Meta'}</Button><Button disabled={busy} onClick={configureAudience}><CalendarClock className="size-4"/>Configurar envio</Button></>:detail.campaign.state==='scheduled'||detail.campaign.state==='paused'?<Button disabled={busy} variant="outline" onClick={async()=>{if(await mutate(detail.campaign.state==='paused'?'resume':'pause',detail.campaign.id)){await inspect(detail.campaign.id);toast.success('Campanha atualizada.');}}}>{detail.campaign.state==='paused'?'Retomar envios':'Pausar envios'}</Button>:null}<WhatsappCampaignTest key={detail.campaign.id} campaignId={detail.campaign.id} approved={detail.template?.status==='APPROVED'} enabled={enabled}/><Button variant="ghost" disabled={busy} onClick={()=>inspect(detail.campaign.id)}>Atualizar status</Button></div>
+        <div className="flex flex-wrap gap-2">{detail.campaign.state==='draft'?<><Button variant="outline" disabled={busy} onClick={()=>edit(detail.campaign)}>Editar</Button><Button variant="outline" disabled={busy||!configured||detail.template?.status==='APPROVED'} onClick={async()=>{const result=await mutate('submit',detail.campaign.id);if(result){toast.success(result.existing?'Template já cadastrado na Meta.':'Template enviado para análise da Meta.');await inspect(detail.campaign.id);}}}>{detail.template?.status==='APPROVED'?'Template aprovado':'Enviar template à Meta'}</Button><Button disabled={busy} onClick={configureAudience}><CalendarClock className="size-4"/>Configurar envio</Button>
+          <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" disabled={busy} className="text-destructive hover:text-destructive"><Trash2 className="size-4"/>Excluir rascunho</Button></AlertDialogTrigger>
+            <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Excluir este rascunho?</AlertDialogTitle><AlertDialogDescription>A campanha sai do backoffice. O template continua cadastrado na Meta e pode ser usado de novo com o mesmo nome, texto, mídia e botão.</AlertDialogDescription></AlertDialogHeader>
+              <AlertDialogFooter><AlertDialogCancel>Cancelar</AlertDialogCancel><AlertDialogAction onClick={async()=>{if(await mutate('delete',detail.campaign.id)){closeDetail();toast.success('Rascunho excluído.');}}}>Excluir</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></>:detail.campaign.state==='scheduled'||detail.campaign.state==='paused'?<Button disabled={busy} variant="outline" onClick={async()=>{if(await mutate(detail.campaign.state==='paused'?'resume':'pause',detail.campaign.id)){await inspect(detail.campaign.id);toast.success('Campanha atualizada.');}}}>{detail.campaign.state==='paused'?'Retomar envios':'Pausar envios'}</Button>:null}<WhatsappCampaignTest key={detail.campaign.id} campaignId={detail.campaign.id} approved={detail.template?.status==='APPROVED'} enabled={enabled}/><Button variant="ghost" disabled={busy} onClick={()=>inspect(detail.campaign.id)}>Atualizar status</Button></div>
         <section aria-label="Resultados da campanha" className="space-y-3 border-t pt-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-medium">Resultados da campanha</h3><label className="flex items-center gap-2 text-xs text-muted-foreground">Conversões após a entrega<select aria-label="Janela de conversão" className="rounded-md border bg-background px-2 py-1 text-foreground" value={reportDays} disabled={busy} onChange={e=>{const days=Number(e.target.value);setReportDays(days);void inspect(detail.campaign.id,days);}}>{[7,14,30].map(days=><option key={days} value={days}>{days} dias</option>)}</select></label></div>
           <dl className="grid grid-cols-1 gap-4 rounded-lg border bg-muted/30 p-4 sm:grid-cols-3">
@@ -256,14 +290,14 @@ export function WhatsappCampaignsClient() {
               ['Iniciaram trial',String(detail.metrics.trials),`Pessoas com trial nos ${reportDays} dias seguintes`],
               ['Pagaram',String(detail.metrics.paying),'Assinatura ou reativação paga; exclui créditos avulsos'],
               ['Falhas',String(detail.metrics.failed),'Falha confirmada no envio ou na entrega'],
-              ['Cliques únicos',campaignTracksClicks(detail.campaign.template_name)?String(detail.metrics.tracked_clicks):'Não rastreado',campaignTracksClicks(detail.campaign.template_name)?`${detail.metrics.sent ? (detail.metrics.tracked_clicks/detail.metrics.sent*100).toLocaleString('pt-BR',{maximumFractionDigits:1}) : '0'}% dos envios · prévias automáticas conhecidas são ignoradas`:'Esta versão foi enviada sem link rastreável'],
+              ['Cliques únicos',campaignTracksClicks(detail.campaign.button)?String(detail.metrics.tracked_clicks):'Não rastreado',campaignTracksClicks(detail.campaign.button)?`${detail.metrics.sent ? (detail.metrics.tracked_clicks/detail.metrics.sent*100).toLocaleString('pt-BR',{maximumFractionDigits:1}) : '0'}% dos envios · prévias automáticas conhecidas são ignoradas`:'Esta versão foi enviada sem link rastreável'],
               ['Entraram em contato','Não rastreado','Clique não comprova conversa no número de atendimento'],
               ['Custo estimado dos envios',currency(detail.metrics.delivered*detail.campaign.unit_cost_micros),'Entregas × tarifa de referência; cobrança ainda não conciliada'],
             ].map(([label,value,caption])=><div key={label} className="min-w-0"><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{value}</dd><p className="mt-1 text-xs text-muted-foreground">{caption}</p></div>)}
           </dl><p className="text-xs text-muted-foreground">Trial e pagamento contam pessoas únicas por campanha, após entrega confirmada. São eventos posteriores, não prova de que a campanha causou a conversão; uma pessoa pode aparecer em campanhas diferentes. Leitura depende da confirmação disponibilizada pelo WhatsApp. Receita considera assinaturas pagas em BRL dentro da janela, descontados estornos, sem taxas do gateway, impostos ou outros custos. ROAS usa custo estimado dos envios; não representa ROI líquido.</p>
           <p className="text-xs text-muted-foreground">O gasto confirmado depende da conciliação com a fatura. Na Meta, acesse Cobrança e pagamentos → Atividade de pagamento e selecione a conta do WhatsApp. <a className="cursor-pointer font-medium text-foreground underline underline-offset-4" href="https://business.facebook.com/latest/billing_hub/payment_activity/" target="_blank" rel="noreferrer">Abrir cobrança da Meta ↗</a></p>
         </section>
-        {detail.recipients.length>0&&<div className="space-y-3 border-t pt-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">Destinatários <span className="font-normal text-muted-foreground">· {detail.recipients.length}{detail.recipients.length===1000?' primeiros':''}</span></h3>{!campaignTracksClicks(detail.campaign.template_name)&&<span className="text-xs text-muted-foreground">Cliques não rastreados nesta versão</span>}</div><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="border-b bg-muted/40 text-xs text-muted-foreground"><tr><th className="p-3 font-medium">Usuário</th><th className="p-3 font-medium">Status</th><th className="p-3 font-medium">Enviado em</th><th><span className="sr-only">Ações</span></th></tr></thead><tbody>{detail.recipients.map(r=><tr key={r.id} className="border-b last:border-0 hover:bg-muted/20"><td className="min-w-48 p-3"><p className="font-medium">{r.name??r.email}</p><p className="text-xs text-muted-foreground">{r.email}</p>{r.reason&&<p className="mt-1 max-w-sm text-xs text-muted-foreground">{r.reason}</p>}</td><td className="p-3">{r.current_status&& !['excluded','skipped','unknown','sending'].includes(r.state)?<WhatsappDeliveryStatus compact trackClicks={campaignTracksClicks(detail.campaign.template_name)} status={r.current_status} acceptedAt={r.accepted_at?new Date(r.accepted_at):null} deliveredAt={r.delivered_at?new Date(r.delivered_at):null} readAt={r.read_at?new Date(r.read_at):null} clickedAt={r.clicked_at?new Date(r.clicked_at):null}/>:<Badge variant={r.state==='failed'?'destructive':'secondary'}>{RECIPIENT_STATE_LABELS[r.state]}</Badge>}</td><td className="whitespace-nowrap p-3 text-xs tabular-nums text-muted-foreground">{r.accepted_at?dateLabel(r.accepted_at):'—'}</td><td className="pr-3">{r.state==='pending'&&<Button size="sm" variant="ghost" disabled={busy} onClick={async()=>{if(await mutate('exclude',detail.campaign.id,r.id))await inspect(detail.campaign.id);}}>Retirar</Button>}</td></tr>)}</tbody></table></div></div>}
+        {detail.recipients.length>0&&<div className="space-y-3 border-t pt-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">Destinatários <span className="font-normal text-muted-foreground">· {detail.recipients.length}{detail.recipients.length===1000?' primeiros':''}</span></h3>{!campaignTracksClicks(detail.campaign.button)&&<span className="text-xs text-muted-foreground">Cliques não rastreados nesta versão</span>}</div><div className="overflow-x-auto rounded-lg border"><table className="w-full text-left text-sm"><thead className="border-b bg-muted/40 text-xs text-muted-foreground"><tr><th className="p-3 font-medium">Usuário</th><th className="p-3 font-medium">Status</th><th className="p-3 font-medium">Enviado em</th><th><span className="sr-only">Ações</span></th></tr></thead><tbody>{detail.recipients.map(r=><tr key={r.id} className="border-b last:border-0 hover:bg-muted/20"><td className="min-w-48 p-3"><p className="font-medium">{r.name??r.email}</p><p className="text-xs text-muted-foreground">{r.email}</p>{r.reason&&<p className="mt-1 max-w-sm text-xs text-muted-foreground">{r.reason}</p>}</td><td className="p-3">{r.current_status&& !['excluded','skipped','unknown','sending'].includes(r.state)?<WhatsappDeliveryStatus compact trackClicks={campaignTracksClicks(detail.campaign.button)} status={r.current_status} acceptedAt={r.accepted_at?new Date(r.accepted_at):null} deliveredAt={r.delivered_at?new Date(r.delivered_at):null} readAt={r.read_at?new Date(r.read_at):null} clickedAt={r.clicked_at?new Date(r.clicked_at):null}/>:<Badge variant={r.state==='failed'?'destructive':'secondary'}>{RECIPIENT_STATE_LABELS[r.state]}</Badge>}</td><td className="whitespace-nowrap p-3 text-xs tabular-nums text-muted-foreground">{r.accepted_at?dateLabel(r.accepted_at):'—'}</td><td className="pr-3">{r.state==='pending'&&<Button size="sm" variant="ghost" disabled={busy} onClick={async()=>{if(await mutate('exclude',detail.campaign.id,r.id))await inspect(detail.campaign.id);}}>Retirar</Button>}</td></tr>)}</tbody></table></div></div>}
       </div>}
       </>}
     </DialogContent></Dialog>

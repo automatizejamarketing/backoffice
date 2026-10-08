@@ -1,6 +1,30 @@
-import { campaignContactButton, campaignHeaderVideo, campaignTracksClicks } from "./whatsapp-october-templates";
 import { z } from "zod";
 import { normalizeBrazilianPhone } from "@/lib/phone";
+
+/** Tracked contact button: each delivery ID becomes the {{1}} of the URL. */
+export const CAMPAIGN_CONTACT_BUTTON = { text: "Falar com a equipe", url: "https://www.automatizemarketing.com/contato-direto/{{1}}" } as const;
+export const CAMPAIGN_MEDIA_RULES = {
+  image: { types: ["image/jpeg", "image/png"], maxBytes: 5 * 1024 * 1024, label: "JPG ou PNG, até 5 MB" },
+  video: { types: ["video/mp4"], maxBytes: 16 * 1024 * 1024, label: "MP4 (H.264), até 16 MB" },
+} as const;
+
+const buttonSchema = z.object({
+  text: z.string().trim().min(1, "Informe o texto do botão.").max(25, "O texto do botão tem no máximo 25 caracteres."),
+  url: z.string().trim().url("Informe um link válido.").max(2000).refine(url => url.startsWith("https://"), "Use um link https."),
+}).refine(button => !button.url.includes("{{") || button.url === CAMPAIGN_CONTACT_BUTTON.url, { message: "O link do botão não pode ter variáveis.", path: ["url"] });
+const headerMediaSchema = z.object({ type: z.enum(["image", "video"]), url: z.string().url().refine(url => url.startsWith("https://")) });
+export type CampaignButton = z.infer<typeof buttonSchema>;
+export type CampaignHeaderMedia = z.infer<typeof headerMediaSchema>;
+/** What Meta approves and what each send must repeat: header, body and button. */
+export type CampaignTemplateSpec = { name: string; body: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
+
+export function campaignSpec(campaign: { template_name: string; body: string; button: CampaignButton | null; header_media: CampaignHeaderMedia | null }): CampaignTemplateSpec {
+  return { name: campaign.template_name, body: campaign.body, button: campaign.button, headerMedia: campaign.header_media };
+}
+
+export function campaignTracksClicks(button: CampaignButton | null | undefined): boolean {
+  return button?.url === CAMPAIGN_CONTACT_BUTTON.url;
+}
 
 export const campaignInput = z.object({
   title: z.string().trim().min(1).max(160),
@@ -8,6 +32,8 @@ export const campaignInput = z.object({
   body: z.string().trim().min(1).max(1024),
   unitCostMicros: z.number().int().min(0).max(100_000_000),
   budgetMicros: z.number().int().min(0).max(100_000_000_000),
+  button: buttonSchema.nullable().default(null),
+  headerMedia: headerMediaSchema.nullable().default(null),
 }).superRefine((value, ctx) => {
   if (value.body.replaceAll("{{1}}", "").match(/{{|}}|\[(?:LINK|NOME|PERÍODO|RESULTADO)/)) {
     ctx.addIssue({ code: "custom", path: ["body"], message: "Use apenas {{1}} para o primeiro nome e substitua todos os links pendentes." });
@@ -23,20 +49,24 @@ export function firstName(name: string | null): string {
   return name?.trim().split(/\s+/)[0]?.slice(0, 60) || "tudo bem";
 }
 
-export function campaignTemplateDefinition(name: string, body: string) {
-  const button = campaignContactButton(name);
+/** Meta only approves media headers with an example uploaded beforehand (`headerHandle`). */
+export function campaignTemplateDefinition(spec: CampaignTemplateSpec, headerHandle?: string) {
+  const { name, body, button, headerMedia } = spec;
+  if (headerMedia && !headerHandle) throw new Error("Envie a mídia de exemplo antes de cadastrar o template.");
   return {
     name, language: "pt_BR", category: "MARKETING",
-    components: [{ type: "BODY", text: body,
-      ...(body.includes("{{1}}") ? { example: { body_text: [["João"]] } } : {}),
-    }, ...(button ? [{ type: "BUTTONS", buttons: [{ type: "URL", ...button, ...(campaignTracksClicks(name) ? {example: [button.url.replace("{{1}}", "00000000-0000-4000-8000-000000000001")]} : {}) }] }] : [])],
+    components: [
+      ...(headerMedia ? [{ type: "HEADER", format: headerMedia.type.toUpperCase(), example: { header_handle: [headerHandle!] } }] : []),
+      { type: "BODY", text: body, ...(body.includes("{{1}}") ? { example: { body_text: [["João"]] } } : {}) },
+      ...(button ? [{ type: "BUTTONS", buttons: [{ type: "URL", text: button.text, url: button.url, ...(campaignTracksClicks(button) ? {example: [button.url.replace("{{1}}", "00000000-0000-4000-8000-000000000001")]} : {}) }] }] : []),
+    ],
   };
 }
 
-export function campaignTemplateMatches(template: {components: Array<{type:string;text?:string;format?:unknown;buttons?:unknown}>}|null, name:string, body:string): boolean {
-  if (template?.components.find(c=>c.type==='BODY')?.text !== body) return false;
-  if (Boolean(campaignHeaderVideo(name)) !== (template.components.find(c=>c.type==='HEADER')?.format === 'VIDEO')) return false;
-  const expected = campaignContactButton(name);
+export function campaignTemplateMatches(template: {components: Array<{type:string;text?:string;format?:unknown;buttons?:unknown}>}|null, spec: CampaignTemplateSpec): boolean {
+  if (template?.components.find(c=>c.type==='BODY')?.text !== spec.body) return false;
+  if (template.components.find(c=>c.type==='HEADER')?.format !== spec.headerMedia?.type.toUpperCase()) return false;
+  const expected = spec.button;
   const buttons = template.components.find(c=>c.type==='BUTTONS')?.buttons;
   if (!expected) return !buttons || (Array.isArray(buttons) && buttons.length===0);
   return Array.isArray(buttons) && buttons.length===1 && buttons[0]?.type==='URL' && buttons[0]?.text===expected.text && buttons[0]?.url===expected.url;
@@ -73,13 +103,14 @@ export function canConfirmCampaignSend(enabled: boolean, status?: string): boole
   return enabled && status === "APPROVED";
 }
 
-export function campaignSendComponents(name: string, body: string, firstName: string, deliveryId?: string) {
-  if (campaignTracksClicks(name) && !z.string().uuid().safeParse(deliveryId).success)
+export function campaignSendComponents(spec: CampaignTemplateSpec, firstName: string, deliveryId?: string) {
+  const tracked = campaignTracksClicks(spec.button);
+  if (tracked && !z.string().uuid().safeParse(deliveryId).success)
     throw new Error("O envio rastreável precisa de um identificador de entrega válido.");
-  const video = campaignHeaderVideo(name);
+  const media = spec.headerMedia;
   return [
-    ...(video ? [{ type: "header", parameters: [{ type: "video", video: { link: video } }] }] : []),
-    ...(body.includes("{{1}}") ? [{ type: "body", parameters: [{ type: "text", text: firstName }] }] : []),
-    ...(campaignTracksClicks(name) ? [{type: "button", sub_type: "url", index: "0", parameters: [{type: "text", text: deliveryId!}]}] : []),
+    ...(media ? [{ type: "header", parameters: [{ type: media.type, [media.type]: { link: media.url } }] }] : []),
+    ...(spec.body.includes("{{1}}") ? [{ type: "body", parameters: [{ type: "text", text: firstName }] }] : []),
+    ...(tracked ? [{type: "button", sub_type: "url", index: "0", parameters: [{type: "text", text: deliveryId!}]}] : []),
   ];
 }

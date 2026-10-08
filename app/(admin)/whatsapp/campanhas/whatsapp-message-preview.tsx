@@ -1,10 +1,8 @@
-import { campaignContactButton, campaignHeaderVideo } from "@/lib/backoffice/whatsapp-october-templates";
+import type { CampaignButton, CampaignHeaderMedia } from "@/lib/backoffice/whatsapp-campaign-core";
 import { ArrowLeft, MoreVertical, ExternalLink } from "lucide-react";
 
 /** Visual approximation of the message received by a customer, not a live chat. */
-export function WhatsappMessagePreview({ body, templateName = "" }: { body: string; templateName?: string }) {
-  const button = campaignContactButton(templateName);
-  const video = campaignHeaderVideo(templateName);
+export function WhatsappMessagePreview({ body, button = null, headerMedia = null }: { body: string; button?: CampaignButton | null; headerMedia?: CampaignHeaderMedia | null }) {
   const message = body.replaceAll("{{1}}", "João");
 
   return (
@@ -23,7 +21,9 @@ export function WhatsappMessagePreview({ body, templateName = "" }: { body: stri
           <div className="mb-4 text-center"><span className="rounded-md bg-white/80 px-3 py-1 text-[11px] text-[#54656f]">Hoje</span></div>
           <div className="relative mr-3 rounded-lg rounded-tl-none bg-white px-3 pb-2 pt-3 shadow-sm">
             <span aria-hidden="true" className="absolute -left-2 top-0 size-0 border-r-8 border-t-8 border-r-white border-t-transparent" />
-            {video && <video className="-mx-2 -mt-2 mb-2 aspect-[9/16] w-[calc(100%+1rem)] max-w-none rounded-md bg-black object-cover" src={video} controls preload="metadata" playsInline />}
+            {headerMedia?.type === "video" && <video className="-mx-2 -mt-2 mb-2 max-h-96 w-[calc(100%+1rem)] max-w-none rounded-md bg-black object-contain" src={headerMedia.url} controls preload="metadata" playsInline />}
+            {/* eslint-disable-next-line @next/next/no-img-element -- remote campaign media, shown as received */}
+            {headerMedia?.type === "image" && <img className="-mx-2 -mt-2 mb-2 max-h-96 w-[calc(100%+1rem)] max-w-none rounded-md object-cover" src={headerMedia.url} alt="" />}
             <div className="whitespace-pre-wrap text-[14px] leading-[1.45] [overflow-wrap:anywhere]">
               {message ? message.split(/(https?:\/\/[^\s]+)/g).map((part, index) =>
                 /^https?:\/\//.test(part)

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { campaignTemplateDefinition, campaignTemplateMatches, assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
+import { CAMPAIGN_CONTACT_BUTTON, campaignSendComponents, campaignTemplateDefinition, campaignTemplateMatches, campaignTracksClicks, assertSchedule, campaignInput, campaignPhone, campaignMetaLookupLabel, canConfirmCampaignSend } from "./whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES } from "./whatsapp-october-templates";
 
 describe("WhatsApp campaign validation", () => {
@@ -40,52 +40,62 @@ describe("campaign connection and release status", () => {
   });
 });
 
-describe('contact button template',()=>{
-  it('preserves the old approved button while new templates use direct contact',()=>{
-    const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
-    assert.equal(seed.button.url,'https://www.automatizemarketing.com/contato-direto/{{1}}');
-    const old=campaignTemplateDefinition('outubro_2026_0510_atendimento_v2',seed.body);
-    assert.deepEqual(old.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:'https://www.automatizemarketing.com/contato'}]});
+describe('template shape',()=>{
+  const contact=OCTOBER_WHATSAPP_TEMPLATES[0];
+  const spec={name:contact.name,body:contact.body,button:contact.button,headerMedia:contact.headerMedia};
+  it('registers the tracked contact button with an example ID and matches only the same shape',()=>{
+    const definition=campaignTemplateDefinition(spec);
+    assert.ok(!contact.body.includes('https://'));
+    assert.deepEqual(definition.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:CAMPAIGN_CONTACT_BUTTON.url,example:[CAMPAIGN_CONTACT_BUTTON.url.replace('{{1}}','00000000-0000-4000-8000-000000000001')]}]});
+    assert.equal(campaignTemplateMatches(definition,spec),true);
+    assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:spec.body}]},spec),false);
+    assert.equal(campaignTemplateMatches(definition,{...spec,button:{text:spec.button!.text,url:'https://example.com'}}),false);
+    assert.equal(campaignTemplateMatches(definition,{...spec,body:spec.body+' mudou'}),false);
   });
-  it('registers the contact URL as a static button without exposing it in the body',()=>{
-    const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
-    const definition=campaignTemplateDefinition(seed.name,seed.body);
-    assert.ok(!seed.body.includes('https://'));
-    assert.deepEqual(definition.components.find(c=>c.type==='BUTTONS'),{type:'BUTTONS',buttons:[{type:'URL',text:'Falar com a equipe',url:seed.button.url,example:[seed.button.url.replace('{{1}}','00000000-0000-4000-8000-000000000001')]}]});
-    assert.equal(campaignTemplateMatches(definition,seed.name,seed.body),true);
-    assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body}]},seed.name,seed.body),false);
-    assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body},{type:'BUTTONS',buttons:[{type:'URL',text:seed.button.text,url:'https://example.com'}]}]},seed.name,seed.body),false);
-    assert.equal(campaignTemplateMatches(definition,seed.name,seed.body+' mudou'),false);
+  it('keeps legacy text-only and static-button campaigns compatible',()=>{
+    const textOnly={...spec,name:'outubro_2026_0810_assinatura_v1',button:null};
+    assert.equal(campaignTemplateDefinition(textOnly).components.length,1);
+    assert.equal(campaignTemplateMatches(campaignTemplateDefinition(textOnly),textOnly),true);
+    const legacy={...spec,button:{text:'Falar com a equipe',url:'https://www.automatizemarketing.com/contato'}};
+    assert.equal(campaignTracksClicks(legacy.button),false);
+    assert.equal(campaignSendComponents(legacy,'Ana').length,1);
   });
-  it('keeps existing text-only templates compatible',()=>{
-    const seed=OCTOBER_WHATSAPP_TEMPLATES.find(t=>t.name==='outubro_2026_0810_assinatura_v2')!;
-    const legacy='outubro_2026_0810_assinatura_v1';
-    const definition=campaignTemplateDefinition(legacy,seed.body);
-    assert.equal(definition.components.length,1);
-    assert.equal(campaignTemplateMatches(definition,legacy,seed.body),true);
+  it('requires an uploaded example for media headers and the same header format to match',()=>{
+    const video={...spec,button:null,headerMedia:{type:'video' as const,url:'https://media.example.com/media/whatsapp-campaigns/a.mp4'}};
+    assert.throws(()=>campaignTemplateDefinition(video));
+    const definition=campaignTemplateDefinition(video,'4:handle');
+    assert.deepEqual(definition.components[0],{type:'HEADER',format:'VIDEO',example:{header_handle:['4:handle']}});
+    assert.equal(campaignTemplateMatches(definition,video),true);
+    assert.equal(campaignTemplateMatches(definition,{...video,headerMedia:{...video.headerMedia,type:'image'}}),false);
+    assert.equal(campaignTemplateMatches(definition,{...video,headerMedia:null}),false);
+    assert.equal(campaignTemplateMatches(campaignTemplateDefinition({...video,headerMedia:null}),video),false);
   });
 });
 
-import { campaignSendComponents } from './whatsapp-campaign-core';
-it('sends the unique delivery ID in the dynamic button and rejects missing IDs',()=>{
- const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
- const token='00000000-0000-4000-8000-000000000001';
- assert.deepEqual(campaignSendComponents(seed.name,seed.body,'Ana',token),[
-  {type:'body',parameters:[{type:'text',text:'Ana'}]},
-  {type:'button',sub_type:'url',index:'0',parameters:[{type:'text',text:token}]}
- ]);
- assert.throws(()=>campaignSendComponents(seed.name,seed.body,'Ana'));
- assert.throws(()=>campaignSendComponents(seed.name,seed.body,'Ana','not-a-token'));
- assert.equal(campaignSendComponents('outubro_2026_0510_atendimento_v3',seed.body,'Ana').length,1);
+describe('send components',()=>{
+  const seed=OCTOBER_WHATSAPP_TEMPLATES[0];
+  const spec={name:seed.name,body:seed.body,button:seed.button,headerMedia:seed.headerMedia};
+  const token='00000000-0000-4000-8000-000000000001';
+  it('sends the unique delivery ID in the tracked button and rejects missing IDs',()=>{
+    assert.deepEqual(campaignSendComponents(spec,'Ana',token),[
+      {type:'body',parameters:[{type:'text',text:'Ana'}]},
+      {type:'button',sub_type:'url',index:'0',parameters:[{type:'text',text:token}]},
+    ]);
+    assert.throws(()=>campaignSendComponents(spec,'Ana'));
+    assert.throws(()=>campaignSendComponents(spec,'Ana','not-a-token'));
+  });
+  it('sends the header media by link and no parameter for a static button',()=>{
+    const media={...spec,body:'Oi',button:{text:'Entrar no grupo',url:'https://chat.whatsapp.com/abc'},headerMedia:{type:'image' as const,url:'https://media.example.com/media/x.jpg'}};
+    assert.deepEqual(campaignSendComponents(media,'Ana'),[{type:'header',parameters:[{type:'image',image:{link:'https://media.example.com/media/x.jpg'}}]}]);
+  });
 });
 
-it('sends the video header for video templates and requires a VIDEO header to match',()=>{
- const seed=OCTOBER_WHATSAPP_TEMPLATES.find(t=>'video' in t)!;
- assert.deepEqual(campaignSendComponents(seed.name,seed.body,'Ana'),[
-  {type:'header',parameters:[{type:'video',video:{link:(seed as {video:string}).video}}]}
- ]);
- assert.equal(campaignTemplateMatches({components:[{type:'HEADER',format:'VIDEO'},{type:'BODY',text:seed.body}]},seed.name,seed.body),true);
- assert.equal(campaignTemplateMatches({components:[{type:'BODY',text:seed.body}]},seed.name,seed.body),false);
- const text=OCTOBER_WHATSAPP_TEMPLATES[0];
- assert.equal(campaignTemplateMatches({components:[{type:'HEADER',format:'VIDEO'},{type:'BODY',text:text.body},{type:'BUTTONS',buttons:[{type:'URL',...text.button}]}]},text.name,text.body),false);
+describe('campaign button input',()=>{
+  const input={title:'Teste',templateName:'teste_v1',body:'Olá',unitCostMicros:0,budgetMicros:0};
+  it('accepts static https links and the tracked contact URL only',()=>{
+    assert.equal(campaignInput.safeParse({...input,button:{text:'Entrar no grupo',url:'https://chat.whatsapp.com/abc'}}).success,true);
+    assert.equal(campaignInput.safeParse({...input,button:CAMPAIGN_CONTACT_BUTTON}).success,true);
+    for(const button of [{text:'x',url:'http://a.com'},{text:'x',url:'https://a.com/{{1}}'},{text:'a'.repeat(26),url:'https://a.com'},{text:'',url:'https://a.com'}])
+      assert.equal(campaignInput.safeParse({...input,button}).success,false);
+  });
 });
