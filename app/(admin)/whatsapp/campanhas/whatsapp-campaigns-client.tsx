@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { CAMPAIGN_CONTACT_BUTTON, CAMPAIGN_MEDIA_RULES, CAMPAIGN_STATE_LABELS, RECIPIENT_STATE_LABELS, campaignMetaLookupLabel, campaignTracksClicks, canConfirmCampaignSend, type CampaignButton, type CampaignHeaderMedia, type CampaignMetaLookup } from "@/lib/backoffice/whatsapp-campaign-core";
+import { CAMPAIGN_CONTACT_BUTTON, CAMPAIGN_MEDIA_RULES, CAMPAIGN_TRACKED_LINK_URL, trackedLinkButton, CAMPAIGN_STATE_LABELS, RECIPIENT_STATE_LABELS, campaignMetaLookupLabel, campaignTracksClicks, canConfirmCampaignSend, type CampaignButton, type CampaignHeaderMedia, type CampaignMetaLookup } from "@/lib/backoffice/whatsapp-campaign-core";
 import { OCTOBER_WHATSAPP_TEMPLATES, OCTOBER_PENDING_MESSAGES } from "@/lib/backoffice/whatsapp-october-templates";
 import { campaignBudgetMicros, formatCampaignBudgetInput, campaignBudgetReach } from "@/lib/backoffice/whatsapp-campaign-budget";
 import { WhatsappCampaignTest } from "./whatsapp-campaign-test";
@@ -40,7 +40,11 @@ type Metrics = { total:number; sent:number; delivered:number; read:number; faile
 type Detail = { metrics: Metrics; metaLookup: CampaignMetaLookup; campaign: Campaign; recipients: Recipient[]; template: CampaignMetaTemplate | null };
 type Form = { id: string; title: string; templateName: string; body: string; budget: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
 type Preview = { title: string; body: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null };
-const buttonKind = (button: CampaignButton | null) => !button ? 'none' : campaignTracksClicks(button) ? 'contact' : 'link';
+// Older approved contact buttons (/contato, /contato-direto) still read as the contact option.
+const isContactButton = (button: CampaignButton) => button.url === CAMPAIGN_CONTACT_BUTTON.url || /^https:\/\/www\.automatizemarketing\.com\/contato(-direto)?$/.test(button.url);
+const buttonKind = (button: CampaignButton | null) => !button ? 'none' : isContactButton(button) ? 'contact' : 'link';
+/** Drafts saved before tracking had the destination as the button URL; reopen them as a tracked link to the same place. */
+const editableButton = (button: CampaignButton | null): CampaignButton | null => !button || isContactButton(button) || button.url === CAMPAIGN_TRACKED_LINK_URL ? button : trackedLinkButton(button.text, button.url);
 const AUDIENCE_STATUS_ORDER = Object.keys(AUDIENCE_STATUSES) as AudienceStatus[];
 const currency = (micros: number) => (micros / 1_000_000).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateLabel = (date: string) => new Date(date).toLocaleString("pt-BR", {timeZone:"America/Sao_Paulo",dateStyle:"short",timeStyle:"short"});
@@ -108,7 +112,7 @@ export function WhatsappCampaignsClient() {
   function draft(seed?:typeof OCTOBER_WHATSAPP_TEMPLATES[number]) {
     setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:'',button:seed?seed.button:CAMPAIGN_CONTACT_BUTTON,headerMedia:seed?.headerMedia??null});
   }
-  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:c.button,headerMedia:c.header_media});}
+  function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:editableButton(c.button),headerMedia:c.header_media});}
   async function uploadHeaderMedia(file:File){
     if(!form)return;
     const formId=form.id;
@@ -200,8 +204,8 @@ export function WhatsappCampaignsClient() {
             <p className="text-xs text-muted-foreground">Aparece acima do texto. Imagem: {CAMPAIGN_MEDIA_RULES.image.label}. Vídeo: {CAMPAIGN_MEDIA_RULES.video.label}.</p>
           </div>
           <fieldset className="space-y-2 text-sm"><legend className="mb-2 font-medium">Botão</legend>
-            {([['none','Sem botão'],['contact','Falar com a equipe · rastreia cliques'],['link','Link próprio']] as const).map(([kind,label])=><label key={kind} className="flex cursor-pointer items-center gap-2"><input type="radio" name="campaign-button" className="accent-primary" checked={buttonKind(form.button)===kind} onChange={()=>setForm({...form,button:kind==='none'?null:kind==='contact'?CAMPAIGN_CONTACT_BUTTON:{text:'',url:'https://'}})}/>{label}</label>)}
-            {buttonKind(form.button)==='link'&&form.button&&<div className="grid gap-2 pt-1"><Input aria-label="Texto do botão" placeholder="Texto do botão" required maxLength={25} value={form.button.text} onChange={e=>setForm({...form,button:{...form.button!,text:e.target.value}})}/><Input aria-label="Link do botão" type="url" placeholder="https://" required value={form.button.url} onChange={e=>setForm({...form,button:{...form.button!,url:e.target.value}})}/><span className="text-xs text-muted-foreground">Até 25 caracteres. Cliques nesse link não são rastreados.</span></div>}
+            {([['none','Sem botão'],['contact','Falar com a equipe'],['link','Link rastreado']] as const).map(([kind,label])=><label key={kind} className="flex cursor-pointer items-center gap-2"><input type="radio" name="campaign-button" className="accent-primary" checked={buttonKind(form.button)===kind} onChange={()=>setForm({...form,button:kind==='none'?null:kind==='contact'?CAMPAIGN_CONTACT_BUTTON:trackedLinkButton('','https://')})}/>{label}</label>)}
+            {buttonKind(form.button)==='link'&&form.button&&<div className="grid gap-2 pt-1"><Input aria-label="Texto do botão" placeholder="Texto do botão" required maxLength={25} value={form.button.text} onChange={e=>setForm({...form,button:{...form.button!,text:e.target.value}})}/><Input aria-label="Destino do botão" type="url" placeholder="https://" required value={form.button.destination??''} onChange={e=>setForm({...form,button:{...form.button!,destination:e.target.value}})}/><span className="text-xs text-muted-foreground">Até 25 caracteres. O botão passa pelo nosso link e registra quem clicou antes de abrir o destino.</span></div>}
           </fieldset>
         </div>
         <details className="min-w-0 rounded-lg border p-3"><summary className="cursor-pointer text-sm font-medium">Ver prévia no WhatsApp</summary><div className="pt-4"><WhatsappMessagePreview body={form.body} button={form.button} headerMedia={form.headerMedia}/></div></details>

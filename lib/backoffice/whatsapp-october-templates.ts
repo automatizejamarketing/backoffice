@@ -1,4 +1,4 @@
-import { CAMPAIGN_CONTACT_BUTTON, type CampaignButton, type CampaignHeaderMedia } from "./whatsapp-campaign-core";
+import { CAMPAIGN_CONTACT_BUTTON, trackedLinkButton, type CampaignButton, type CampaignHeaderMedia } from "./whatsapp-campaign-core";
 
 /** Bernardo's October campaign (05/10/2026), revised on 08/10/2026.
  * Remaining group invitations, videos and the unconfigured trial CTA stay pending.
@@ -18,10 +18,11 @@ export const OCTOBER_WHATSAPP_TEMPLATES = [
   {
     date: "2026-10-08",
     title: "Você não precisa contratar uma agência para começar",
-    name: "outubro_2026_0810_comunidade_v1",
-    button: null,
+    // v1 (link no texto, sem rastreio) foi aprovada mas não enviada; v2 leva o link no botão rastreado.
+    name: "outubro_2026_0810_comunidade_v2",
+    button: trackedLinkButton("Entrar na comunidade", "https://chat.whatsapp.com/CtuGgvKtOAs3sEMdHBm6sS?mode=gi_t"),
     headerMedia: { type: "video", url: "https://media.automatizemarketing.com/media/whatsapp-campaigns/outubro-2026-0810-comunidade-0d786c2a2e.mp4" },
-    body: `Quer receber conteúdos como este toda semana? Entre agora na Comunidade Automatize 💜🧞\n\nhttps://chat.whatsapp.com/CtuGgvKtOAs3sEMdHBm6sS?mode=gi_t`,
+    body: `Quer receber conteúdos como este toda semana? Entre agora na Comunidade Automatize: toque no botão abaixo. 💜🧞`,
   },
   {
     date: "2026-10-09",
