@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signInWithGoogle } from "../actions";
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string | null }) {
   const [email, setEmail] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export function LoginForm() {
       const response = await fetch("/api/auth/magic-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, next }),
       });
       const data = (await response.json().catch(() => null)) as {
         ok?: boolean;
@@ -74,6 +74,7 @@ export function LoginForm() {
   return (
     <div className="mt-8 space-y-5">
       <form action={signInWithGoogle}>
+        {next && <input type="hidden" name="next" value={next} />}
         <Button type="submit" className="w-full gap-2" size="lg">
           <GoogleIcon />
           Entrar com Google

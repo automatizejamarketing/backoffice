@@ -1,4 +1,5 @@
 import { auth } from "@/app/(auth)/auth";
+import { safeLoginReturn } from "@/lib/auth/login-return";
 import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./login-form";
@@ -14,7 +15,7 @@ const errorMessages: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
   const [session, actor, params] = await Promise.all([
     auth(),
@@ -23,8 +24,9 @@ export default async function LoginPage({
   ]);
 
   // Se já estiver logado, redireciona para o dashboard
+  const next = safeLoginReturn(params.next);
   if (session?.user || actor) {
-    redirect("/");
+    redirect(next ?? "/");
   }
 
   return (
@@ -53,7 +55,7 @@ export default async function LoginPage({
           </div>
         )}
 
-        <LoginForm />
+        <LoginForm next={next} />
       </div>
     </div>
   );

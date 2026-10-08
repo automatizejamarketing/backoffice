@@ -10027,3 +10027,44 @@ export const whatsappCampaignRecipient = pgTable("whatsapp_campaign_recipients",
   pendingIdx: index("whatsapp_campaign_recipients_pending_idx").on(table.campaignId, table.state),
   stateCheck: check("whatsapp_campaign_recipients_state_check", sql`${table.state} in ('pending','sending','sent','failed','skipped','unknown','excluded')`),
 }));
+
+// Backoffice MCP connector: OAuth 2.1 grants for team members (not customers).
+// The grant stores the actor e-mail; permissions are re-resolved on every call.
+export const backofficeMcpOauthClient = pgTable("backoffice_mcp_oauth_clients", {
+  id: varchar("id", { length: 64 }).primaryKey().notNull(),
+  clientName: varchar("client_name", { length: 200 }).notNull(),
+  clientSecretHash: varchar("client_secret_hash", { length: 64 }),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  tokenEndpointAuthMethod: varchar("token_endpoint_auth_method", { length: 32 }).notNull(),
+  grantTypes: jsonb("grant_types").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const backofficeMcpOauthAuthorizationCode = pgTable("backoffice_mcp_oauth_authorization_codes", {
+  codeHash: varchar("code_hash", { length: 64 }).primaryKey().notNull(),
+  clientId: varchar("client_id", { length: 64 }).notNull().references(() => backofficeMcpOauthClient.id, { onDelete: "cascade" }),
+  actorEmail: varchar("actor_email", { length: 100 }).notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  codeChallenge: varchar("code_challenge", { length: 128 }).notNull(),
+  scope: varchar("scope", { length: 200 }).notNull(),
+  resource: text("resource"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const backofficeMcpOauthToken = pgTable("backoffice_mcp_oauth_tokens", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  clientId: varchar("client_id", { length: 64 }).notNull().references(() => backofficeMcpOauthClient.id, { onDelete: "cascade" }),
+  actorEmail: varchar("actor_email", { length: 100 }).notNull(),
+  accessTokenHash: varchar("access_token_hash", { length: 64 }).notNull().unique(),
+  refreshTokenHash: varchar("refresh_token_hash", { length: 64 }).notNull().unique(),
+  scope: varchar("scope", { length: 200 }).notNull(),
+  resource: text("resource"),
+  accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }).notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  actorIdx: index("backoffice_mcp_oauth_tokens_actor_idx").on(table.actorEmail),
+}));
