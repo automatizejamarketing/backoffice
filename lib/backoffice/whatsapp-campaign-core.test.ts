@@ -111,11 +111,11 @@ describe('campaign button input',()=>{
       assert.equal(campaignInput.safeParse({...input,button}).success,false,JSON.stringify(button));
   });
   it('rejects links in the message text, with or without protocol',()=>{
-    for(const body of ['Entre: https://chat.whatsapp.com/abc','Veja www.site.com','http://x.com','Entre em chat.whatsapp.com/CtuGgvKtOAs3sEMdHBm6sS','Acesse automatizemarketing.com','Visite loja.com.br/promo','Escreva para contato@automatize.com','Veja youtu.be/abc123','Acesse empresa.ai','Link: bit.ly/x','Site: automatize.marketing'])
+    for(const body of ['Entre: https://chat.whatsapp.com/abc','Veja www.site.com','http://x.com','Entre em chat.whatsapp.com/CtuGgvKtOAs3sEMdHBm6sS','Acesse automatizemarketing.com','Visite loja.com.br/promo','Escreva para contato@automatize.com','Veja youtu.be/abc123','Acesse empresa.ai','Link: bit.ly/x','Site: automatize.marketing','Siga nossas novidades: x.com/automatize','Confira a oferta: t.co/abc123'])
       assert.equal(campaignInput.safeParse({...input,body}).success,false,body);
   });
   it('accepts ordinary text without false positives',()=>{
-    for(const body of ['Olá {{1}}, tudo bem? O plano custa R$ 1.000,00.','Sr. João, abra o app. Depois toque no botão.','Fale no WhatsApp com a equipe da Automatize. 💜','Ex.: anúncio, público e orçamento.','Até às 15h. Garanta já!','Versão 2.0 com 7 dias grátis.','Comece hoje… Simples assim.',...OCTOBER_WHATSAPP_TEMPLATES.map(t=>t.body)])
+    for(const body of ['Olá {{1}}, tudo bem? O plano custa R$ 1.000,00.','Sr. João, abra o app. Depois toque no botão.','Fale no WhatsApp com a equipe da Automatize. 💜','Ex.: anúncio, público e orçamento.','Até às 15h. Garanta já!','Versão 2.0 com 7 dias grátis.','Planos para MEI, S.A. e Ltda. Ex.: e.g. a.m. p. ex. O.K.','Comece hoje… Simples assim.',...OCTOBER_WHATSAPP_TEMPLATES.map(t=>t.body)])
       assert.equal(campaignInput.safeParse({...input,body}).success,true,body);
   });
 });

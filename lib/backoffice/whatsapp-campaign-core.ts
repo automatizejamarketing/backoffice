@@ -43,10 +43,10 @@ export function sameCampaignButton(a: CampaignButton | null | undefined, b: unkn
 
 /**
  * Any domain-shaped token counts, with or without protocol ("youtu.be/x", "empresa.ai", e-mails):
- * a label of 2+ characters, a dot and a 2+ letter suffix with no space in between.
+ * a label, a dot and a 2+ letter suffix with no space in between ("x.com", "t.co" included).
  * Prose keeps a space after the period, so "app. Depois" or "R$ 1.000" never match.
  */
-const BODY_LINK_PATTERN = /https?:\/\/|www\.|[\p{L}\p{N}-]{2,}(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,24}(?![\p{L}\p{N}])/iu;
+const BODY_LINK_PATTERN = /https?:\/\/|www\.|[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)*\.\p{L}{2,24}(?![\p{L}\p{N}])/iu;
 export function bodyHasLink(body: string): boolean {
   return BODY_LINK_PATTERN.test(body);
 }
