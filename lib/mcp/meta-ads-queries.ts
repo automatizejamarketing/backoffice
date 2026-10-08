@@ -136,8 +136,9 @@ export async function loadClientLabels(userIds: string[]): Promise<Map<string, C
 }
 
 /**
- * Clients whose last collection (since `since`) left an account uncollected — expired
- * connection, failure — so their numbers may be stale. Maps client → status.
+ * Clients whose latest collection left an account uncollected — expired connection,
+ * failure — so their numbers may be stale. It is the CURRENT state of the connection, also for
+ * a past period; accounts not collected since `since` are ignored. Maps client → status.
  */
 export async function loadCollectionIssues(userIds: string[], since: string): Promise<Map<string, string>> {
   if (userIds.length === 0) return new Map();
