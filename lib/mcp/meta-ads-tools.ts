@@ -149,7 +149,11 @@ export const META_ADS_TOOLS: McpTool[] = [
       const periods = resolvePeriods(input);
       const [labels, spendByAccount] = await Promise.all([
         loadClientLabels([input.userId]),
-        loadSpendByAccount(input.userId, { since: shiftYmd(periods.current.until, -29), until: periods.current.until }),
+        // Rank accounts by spend over the period asked for, or the last 30 days if longer: an account
+        // that spent only early in a 90-day period must not drop out of the read.
+        input.adAccountId ? new Map<string, number>() : loadSpendByAccount(input.userId, {
+          since: [periods.current.since, shiftYmd(periods.current.until, -29)].sort()[0], until: periods.current.until,
+        }),
       ]);
       const data = await getClientCampaigns({ userId: input.userId, level: input.level, periods, spendByAccount, adAccountId: input.adAccountId, campaignId: input.campaignId });
       const label = labels.get(input.userId);
