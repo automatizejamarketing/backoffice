@@ -42,7 +42,7 @@ import {
   type PlacementKey,
 } from "@/lib/meta-business/placements";
 import { cn } from "@/lib/utils";
-import { formatCurrency } from "../utils/formatters";
+import { formatCurrency, formatPixelOption } from "../utils/formatters";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
 import {
   AudienceMultiSelect,
@@ -975,7 +975,7 @@ export function AdSetEditDialog({
                     ) : (
                       pixels.map((pixel) => (
                         <SelectItem key={pixel.id} value={pixel.id}>
-                          {pixel.name ?? pixel.id}
+                          {formatPixelOption(pixel)}
                         </SelectItem>
                       ))
                     )}

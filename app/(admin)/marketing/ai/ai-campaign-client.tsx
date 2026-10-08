@@ -54,6 +54,7 @@ import { selectAdvertisingIdentity, type AdvertisingIdentitySelection } from "@/
 import { usePages } from "../components/use-pages";
 import { LocationTargetingSection } from "../components/location-targeting-section";
 import { MetaAssetSelectionBadges } from "../components/meta-asset-selection-badges";
+import { formatPixelOption } from "../utils/formatters";
 import {
   AdSetDeliveryScheduleEditor,
   type AdSetDeliveryScheduleValue,
@@ -1879,7 +1880,7 @@ export function AiCampaignClient() {
               <SelectContent>
                 {pixels.map((pixel) => (
                   <SelectItem key={pixel.id} value={pixel.id}>
-                    {pixel.name || pixel.id}
+                    {formatPixelOption(pixel)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -2075,7 +2076,7 @@ export function AiCampaignClient() {
                       <SelectContent>
                         {pixels.map((pixel) => (
                           <SelectItem key={pixel.id} value={pixel.id}>
-                            {pixel.name || pixel.id}
+                            {formatPixelOption(pixel)}
                           </SelectItem>
                         ))}
                       </SelectContent>

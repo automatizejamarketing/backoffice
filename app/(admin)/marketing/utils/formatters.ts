@@ -414,6 +414,16 @@ export function formatPixelLabel(
   return pixelName ?? pixelId;
 }
 
+/**
+ * A pixel in a picker: `Nome (ID)`. Two pixels can share a name; only the ID tells them apart.
+ */
+export function formatPixelOption(pixel: {
+  id: string;
+  name?: string | null;
+}): string {
+  return formatPixelLabel(pixel.id, pixel.name?.trim() || undefined) ?? pixel.id;
+}
+
 export function formatCustomEventType(
   value: string | undefined,
 ): string | undefined {
