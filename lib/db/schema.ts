@@ -2140,6 +2140,95 @@ export const userCompany = pgTable(
 );
 
 export type UserCompany = InferSelectModel<typeof userCompany>;
+// Módulos por empresa (ADR 0041). O direito de acesso é a autoridade; a
+// cobrança só alimenta este estado. Catálogo em código, sem CHECK no banco.
+export const COMPANY_MODULE_VALUES = ["postagem", "trafego"] as const;
+export type CompanyModule = (typeof COMPANY_MODULE_VALUES)[number];
+
+export const COMPANY_MODULE_STATUS_VALUES = [
+  "active",
+  "revoked",
+  "expired",
+] as const;
+export type CompanyModuleStatus = (typeof COMPANY_MODULE_STATUS_VALUES)[number];
+
+export const COMPANY_MODULE_SOURCE_VALUES = ["manual", "stripe"] as const;
+export type CompanyModuleSource = (typeof COMPANY_MODULE_SOURCE_VALUES)[number];
+
+export const COMPANY_MODULE_EVENT_TYPE_VALUES = [
+  "activated",
+  "revoked",
+  "expired",
+] as const;
+export type CompanyModuleEventType =
+  (typeof COMPANY_MODULE_EVENT_TYPE_VALUES)[number];
+
+export const companyModuleEntitlement = pgTable(
+  "company_module_entitlements",
+  {
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    module: varchar("module", { length: 32 }).$type<CompanyModule>().notNull(),
+    status: varchar("status", { length: 16 })
+      .$type<CompanyModuleStatus>()
+      .notNull(),
+    source: varchar("source", { length: 16 })
+      .$type<CompanyModuleSource>()
+      .notNull(),
+    sourceReference: varchar("source_reference", { length: 255 }),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.companyId, table.module] }),
+  }),
+);
+
+export type CompanyModuleEntitlement = InferSelectModel<
+  typeof companyModuleEntitlement
+>;
+
+export const companyModuleEvent = pgTable(
+  "company_module_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    module: varchar("module", { length: 32 }).$type<CompanyModule>().notNull(),
+    eventType: varchar("event_type", { length: 16 })
+      .$type<CompanyModuleEventType>()
+      .notNull(),
+    source: varchar("source", { length: 16 })
+      .$type<CompanyModuleSource>()
+      .notNull(),
+    sourceReference: varchar("source_reference", { length: 255 }),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    actorUserId: uuid("actor_user_id").references(() => user.id),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    applied: boolean("applied").notNull(),
+  },
+  (table) => ({
+    idempotencyKeyUnique: uniqueIndex(
+      "company_module_events_idempotency_key_unique",
+    ).on(table.companyId, table.module, table.idempotencyKey),
+    companyModuleIdx: index("company_module_events_company_module_idx").on(
+      table.companyId,
+      table.module,
+      table.occurredAt,
+    ),
+  }),
+);
+
+export type CompanyModuleEvent = InferSelectModel<typeof companyModuleEvent>;
 
 // Instagram Account table for storing Instagram account connections
 export const instagramAccount = pgTable(
