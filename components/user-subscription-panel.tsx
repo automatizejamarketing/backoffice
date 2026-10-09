@@ -344,7 +344,7 @@ export function UserSubscriptionPanel({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Receipt className="h-5 w-5" />
-            Mercado Pago Pix
+            Renovação com Pix
           </CardTitle>
         </CardHeader>
         <CardContent>
