@@ -60,6 +60,12 @@ export interface McpOauthStore {
   findTokenByAccessHash(accessTokenHash: string): Promise<TokenRow | null>;
   /** Revokes the grant and returns it; null when unknown or already revoked. */
   consumeRefreshToken(refreshTokenHash: string, now: Date): Promise<TokenRow | null>;
+  /**
+   * Revokes every live grant of this person on this client and burns their
+   * unused codes, so a consent given seconds before cannot be exchanged after.
+   * Returns how many grants were live.
+   */
+  revokeConnection(actorEmail: string, clientId: string, now: Date): Promise<number>;
 }
 
 export type TokenErrorCode =
@@ -284,6 +290,11 @@ export function createMcpOauthService(
         scopes,
         resource: previous.resource,
       });
+    },
+
+    /** "Desconectar": the client loses access at once and must ask for consent again. */
+    disconnect(input: { actorEmail: string; clientId: string }): Promise<number> {
+      return store.revokeConnection(input.actorEmail, input.clientId, now());
     },
 
     /** Bearer check for `/api/mcp`; null means 401. */

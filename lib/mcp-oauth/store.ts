@@ -65,6 +65,29 @@ export const mcpOauthDbStore: McpOauthStore = {
       .returning();
     return row ?? null;
   },
+
+  async revokeConnection(actorEmail, clientId, now) {
+    return db.transaction(async (tx) => {
+      const revoked = await tx
+        .update(backofficeMcpOauthToken)
+        .set({ revokedAt: now })
+        .where(and(
+          eq(backofficeMcpOauthToken.actorEmail, actorEmail),
+          eq(backofficeMcpOauthToken.clientId, clientId),
+          isNull(backofficeMcpOauthToken.revokedAt),
+        ))
+        .returning({ refreshExpiresAt: backofficeMcpOauthToken.refreshExpiresAt });
+      await tx
+        .update(backofficeMcpOauthAuthorizationCode)
+        .set({ usedAt: now })
+        .where(and(
+          eq(backofficeMcpOauthAuthorizationCode.actorEmail, actorEmail),
+          eq(backofficeMcpOauthAuthorizationCode.clientId, clientId),
+          isNull(backofficeMcpOauthAuthorizationCode.usedAt),
+        ));
+      return revoked.filter((row) => row.refreshExpiresAt > now).length;
+    });
+  },
 };
 
 /** The service the routes use; one instance per module load. */

@@ -3,17 +3,20 @@ import { before, describe, it } from "node:test";
 // @ts-expect-error Bun's runtime mock API is absent from this repository's test declarations.
 import { mock } from "bun:test";
 import type { BackofficeActor } from "@/lib/auth/rbac-core";
+import { MCP_CAPABILITIES } from "./connections";
 
 // Any database or Meta access in these tests is a bug: scope is decided before IO.
 const forbidden = new Proxy({}, { get() { throw new Error("unexpected IO"); } });
 mock.module("server-only", () => ({}));
-mock.module("@/lib/db", () => ({ db: forbidden }));
+mock.module("@/lib/db", () => ({ db: forbidden, postgresClient: forbidden }));
 
 let resolveConsultantScope: typeof import("./meta-ads-queries").resolveConsultantScope;
 let tools: typeof import("./meta-ads-tools").META_ADS_TOOLS;
+let whatsappTools: typeof import("./whatsapp-campaign-tools").WHATSAPP_CAMPAIGN_TOOLS;
 before(async () => {
   ({ resolveConsultantScope } = await import("./meta-ads-queries"));
   ({ META_ADS_TOOLS: tools } = await import("./meta-ads-tools"));
+  ({ WHATSAPP_CAMPAIGN_TOOLS: whatsappTools } = await import("./whatsapp-campaign-tools"));
 });
 
 const actor = (role: BackofficeActor["role"], assignedUserIds?: string[]): BackofficeActor =>
@@ -42,5 +45,10 @@ describe("Meta Ads MCP scope", () => {
       assert.equal(t.write, false, t.name);
       assert.equal(t.permission, "marketing:read", t.name);
     }
+  });
+
+  it("describes on the Claude page exactly the permissions the tools check", () => {
+    const toolPermissions = new Set([...tools, ...whatsappTools].map(t => t.permission));
+    assert.deepEqual([...toolPermissions].sort(), MCP_CAPABILITIES.map(c => c.permission).sort());
   });
 });

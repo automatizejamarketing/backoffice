@@ -55,7 +55,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
         <input name="query" type="hidden" value={params.toString()} />
         <div className="space-y-2 text-center">
           <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Conectar {client} ao backoffice</h1>
-          <p className="text-sm text-zinc-600">O {client} vai agir em seu nome, com as mesmas permissões que você tem no backoffice. Dá para desconectar quando quiser no próprio {client}.</p>
+          <p className="text-sm text-zinc-600">O {client} vai agir em seu nome, com as mesmas permissões que você tem no backoffice. Dá para desconectar quando quiser no próprio {client} ou no backoffice, na página Claude.</p>
         </div>
         <ul className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-900">
           {["Consultar campanhas de WhatsApp e resultados", "Consultar Meta Ads e alertas dos clientes que você acompanha", ...(canWrite ? ["Criar e editar rascunhos, enviar templates à Meta e mandar testes", "Agendar envios, sempre depois de mostrar a prévia e você confirmar"] : [])].map(item =>

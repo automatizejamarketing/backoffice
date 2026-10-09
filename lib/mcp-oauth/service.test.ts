@@ -44,6 +44,14 @@ function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash:
       row.revokedAt = now;
       return row;
     },
+    async revokeConnection(actorEmail, clientId, now) {
+      for (const code of codes.values()) {
+        if (code.actorEmail === actorEmail && code.clientId === clientId && !code.usedAt) code.usedAt = now;
+      }
+      const live = tokens.filter((t) => t.actorEmail === actorEmail && t.clientId === clientId && !t.revokedAt);
+      for (const t of live) t.revokedAt = now;
+      return live.filter((t) => t.refreshExpiresAt > now).length;
+    },
   };
 }
 
@@ -286,5 +294,35 @@ describe("verifyAccessToken", () => {
     assert.ok(first.ok);
     clock.now = new Date("2026-09-13T13:01:00Z");
     assert.equal(await ctx.service.verifyAccessToken(first.body.access_token), null);
+  });
+});
+
+describe("disconnect", () => {
+  it("cuts the access and refresh tokens and burns a pending consent, only for that person and app", async () => {
+    const ctx = await setup();
+    const exchange = (clientId: string, code: string) => ctx.service.exchangeAuthorizationCode({
+      credentials: { clientId, clientSecret: null }, code, codeVerifier: verifier, redirectUri, resource: null,
+    });
+    const first = await exchange(ctx.clientId, ctx.code);
+    assert.ok(first.ok);
+    // Another colleague on the same app, and a consent given just before the click.
+    const colleagueCode = await ctx.service.issueAuthorizationCode({ request: ctx.request, actorEmail: "ana@example.com" });
+    const colleague = await exchange(ctx.clientId, colleagueCode);
+    assert.ok(colleague.ok);
+    const pending = await ctx.service.issueAuthorizationCode({ request: ctx.request, actorEmail: "bernardo@example.com" });
+
+    assert.equal(await ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId }), 1);
+
+    assert.equal(await ctx.service.verifyAccessToken(first.body.access_token), null);
+    const refresh = await ctx.service.refreshAccessToken({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, refreshToken: first.body.refresh_token, scope: null,
+    });
+    assert.ok(!refresh.ok && refresh.error === "invalid_grant");
+    const late = await exchange(ctx.clientId, pending);
+    assert.ok(!late.ok && late.error === "invalid_grant");
+    assert.equal((await ctx.service.verifyAccessToken(colleague.body.access_token))?.extra.actorEmail, "ana@example.com");
+
+    // Already disconnected: nothing left to revoke.
+    assert.equal(await ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId }), 0);
   });
 });
