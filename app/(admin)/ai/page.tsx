@@ -4,7 +4,7 @@ import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import { capabilitiesFor, MCP_PAGE_PERMISSION, mcpServerUrl } from "@/lib/mcp/connections";
 import { listMcpConnections, type McpConnection } from "@/lib/mcp/connections-queries";
 import { resolveIssuer } from "@/lib/mcp-oauth/http";
-import { ClaudePageClient, type ConnectionRow } from "./claude-page-client";
+import { AiPageClient, type ConnectionRow } from "./ai-page-client";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ const toRow = (c: McpConnection): ConnectionRow => ({
   lastActivityAt: c.lastActivityAt.toISOString(),
 });
 
-export default async function ClaudePage() {
+export default async function AiPage() {
   const actor = await requirePagePermission(MCP_PAGE_PERMISSION);
   const managesTeam = hasBackofficePermission(actor, "team:manage");
   const [mine, team] = await Promise.all([
@@ -23,7 +23,7 @@ export default async function ClaudePage() {
   ]);
 
   return (
-    <ClaudePageClient
+    <AiPageClient
       serverUrl={mcpServerUrl(resolveIssuer(await headers()))}
       capabilities={capabilitiesFor(actor)}
       ownConnections={mine.map(toRow)}

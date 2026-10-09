@@ -116,7 +116,7 @@ function WhatsappNavIcon({ className }: { className?: string }) {
  * 3. "Mensagens" — histórico de envios.
  *
  * Telas que são passos de um mesmo assunto viram um grupo expansível em vez
- * de um item cada (Criativos, Conteúdo). Claude, Regras e Equipe ficam no
+ * de um item cada (Criativos, Conteúdo). Conectar IA, Regras e Equipe ficam no
  * rodapé porque são configuração, não trabalho recorrente.
  *
  * `/masterclass` saiu daqui: a rota só redireciona para `/products`.
@@ -282,8 +282,8 @@ const NAV_SECTIONS: NavSection[] = [
 const SETTINGS_ENTRIES: NavLeaf[] = [
   {
     kind: "leaf",
-    href: "/claude",
-    label: "Claude",
+    href: "/ai",
+    label: "Conectar IA",
     icon: Plug,
     permission: MCP_PAGE_PERMISSION,
   },

@@ -1,8 +1,9 @@
 import { hasBackofficePermission, type BackofficeActor, type BackofficePermission } from "@/lib/auth/rbac-core";
 
 /**
- * The "Claude" page: how to connect the backoffice MCP and which connections
- * are live. Pure, so the page, the API route and the tests share the rules.
+ * The "Conectar IA" page and the consent screen: how to connect the backoffice
+ * MCP, what it can do and which connections are live. Pure, so the pages, the
+ * API route and the tests share the rules.
  */
 
 /** Every role that holds an MCP tool permission also holds this one (see the tests). */
@@ -31,7 +32,15 @@ export function canDisconnect(actor: BackofficeActor, ownerEmail: string): boole
   return hasBackofficePermission(actor, "team:manage");
 }
 
-export type McpCapability = { permission: BackofficePermission; title: string; examples: string[]; limit: string };
+export type McpCapability = {
+  permission: BackofficePermission;
+  title: string;
+  examples: string[];
+  limit: string;
+  /** What the consent screen promises, for read-only and for read-write grants. */
+  consent: string[];
+  consentWrite?: string[];
+};
 
 /** What the connector can do, by the permission its tools check. Mirrors the tools in `lib/mcp`. */
 export const MCP_CAPABILITIES: McpCapability[] = [
@@ -45,7 +54,8 @@ export const MCP_CAPABILITIES: McpCapability[] = [
       "Quais alertas críticos estão abertos na minha carteira?",
       "Abra as campanhas do cliente X e mostre os anúncios que mais gastaram.",
     ],
-    limit: "Só leitura: o Claude não pausa, não ativa e não muda orçamento na Meta.",
+    limit: "Só leitura: a IA não pausa, não ativa e não muda orçamento na Meta.",
+    consent: ["Consultar Meta Ads, resultados e alertas dos clientes que você acompanha"],
   },
   {
     permission: "whatsapp:campaigns",
@@ -56,6 +66,11 @@ export const MCP_CAPABILITIES: McpCapability[] = [
       "Mande um teste da campanha X para o meu número.",
     ],
     limit: "Envio para clientes só acontece depois que você aprova a prévia.",
+    consent: ["Consultar campanhas de WhatsApp e resultados"],
+    consentWrite: [
+      "Criar e editar rascunhos, enviar templates à Meta e mandar testes",
+      "Agendar envios, sempre depois de mostrar a prévia e você confirmar",
+    ],
   },
 ];
 
@@ -65,3 +80,31 @@ export function capabilitiesFor(actor: BackofficeActor): McpCapability[] {
 
 /** First message to confirm the connection works; every role on the page can run it. */
 export const TEST_PROMPT = "Liste os clientes da minha carteira no backoffice da Automatize.";
+
+/** What the consent screen lists for this person: only areas their role can use. */
+export function consentItems(actor: BackofficeActor, canWrite: boolean): string[] {
+  return capabilitiesFor(actor).flatMap((c) => [...c.consent, ...(canWrite ? (c.consentWrite ?? []) : [])]);
+}
+
+export type AiProvider = "claude" | "chatgpt";
+
+/** Which assistant an OAuth client is, from the name it registered with. */
+export function providerOf(clientName: string): AiProvider | null {
+  if (/claude|anthropic/i.test(clientName)) return "claude";
+  if (/chatgpt|openai/i.test(clientName)) return "chatgpt";
+  return null;
+}
+
+/** Claude Code registers from the terminal; its mark gets a terminal badge. */
+export function isTerminalClient(clientName: string): boolean {
+  return /claude[\s_-]*code/i.test(clientName);
+}
+
+/** Name to show for a client: the assistant's own name, or what it registered with. */
+export function appLabel(clientName: string): string {
+  if (isTerminalClient(clientName)) return "Claude Code";
+  const provider = providerOf(clientName);
+  if (provider === "claude") return "Claude";
+  if (provider === "chatgpt") return "ChatGPT";
+  return clientName;
+}

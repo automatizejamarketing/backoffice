@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -13,6 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { AiProviderMark } from "@/components/ai-provider-logo";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -22,16 +24,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import {
-  CLAUDE_CODE_SERVER_NAME,
-  CONNECTOR_NAME,
-  TEST_PROMPT,
-  claudeCodeCommand,
-  claudeConnectorLink,
-  type McpCapability,
-} from "@/lib/mcp/connections";
+import { appLabel, isTerminalClient, providerOf, type McpCapability } from "@/lib/mcp/connections";
+import { ConnectGuide } from "./connect-guide";
 
 export type ConnectionRow = {
   actorEmail: string;
@@ -45,129 +40,6 @@ export type ConnectionRow = {
 const sameConnection = (a: ConnectionRow, b: ConnectionRow) =>
   a.actorEmail === b.actorEmail && a.clientId === b.clientId;
 
-function CopyField({ label, value, wrap = false }: { label: string; value: string; wrap?: boolean }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("Não foi possível copiar. Selecione o texto e copie.");
-    }
-  }
-  return (
-    <div className="space-y-1">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="flex min-w-0 items-center gap-1 rounded-md border bg-muted/40 py-1 pr-1 pl-3">
-        {wrap ? (
-          <p className="min-w-0 flex-1 py-1 text-sm text-foreground">{value}</p>
-        ) : (
-          <code className="min-w-0 flex-1 truncate font-mono text-sm" title={value}>
-            {value}
-          </code>
-        )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 shrink-0"
-          onClick={copy}
-          aria-label={`Copiar ${label.toLowerCase()}`}
-        >
-          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-        </Button>
-        <span className="sr-only" aria-live="polite">
-          {copied ? `${label} copiado` : ""}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
-  return (
-    <li className="relative grid grid-cols-[1.75rem_minmax(0,1fr)] gap-3">
-      <span
-        aria-hidden="true"
-        className="flex size-7 items-center justify-center rounded-full border bg-background text-xs font-semibold tabular-nums"
-      >
-        {n}
-      </span>
-      <div className="min-w-0 space-y-2 pt-0.5 pb-1">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <div className="space-y-3 text-sm text-muted-foreground">{children}</div>
-      </div>
-    </li>
-  );
-}
-
-function ConnectSteps({ serverUrl }: { serverUrl: string }) {
-  return (
-    <Tabs defaultValue="claude" className="gap-4">
-      <TabsList>
-        <TabsTrigger value="claude">Claude (site e app)</TabsTrigger>
-        <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="claude" className="mt-4">
-        <ol className="space-y-5">
-          <Step n={1} title="Adicione o conector">
-            <p>Abra o formulário do Claude com nome e endereço já preenchidos e clique em Add.</p>
-            <Button asChild variant="outline" size="sm">
-              <a href={claudeConnectorLink(serverUrl)} target="_blank" rel="noreferrer">
-                Abrir no Claude
-                <ExternalLink className="size-3.5" />
-              </a>
-            </Button>
-            <p>
-              Se o formulário não abrir, vá em Configurações → Conectores → Adicionar conector
-              personalizado e preencha:
-            </p>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
-              <CopyField label="Nome" value={CONNECTOR_NAME} />
-              <CopyField label="Endereço" value={serverUrl} />
-            </div>
-          </Step>
-          <Step n={2} title="Autorize com a sua conta do backoffice">
-            <p>
-              Clique em Connect no conector {CONNECTOR_NAME}. O Claude abre o backoffice: entre com o
-              seu e-mail da equipe e clique em Autorizar.
-            </p>
-          </Step>
-          <Step n={3} title="Teste">
-            <p>Numa conversa nova, deixe o conector ligado no menu de ferramentas e envie:</p>
-            <CopyField label="Mensagem" value={TEST_PROMPT} wrap />
-            <p>Se a sua carteira aparecer na resposta, está funcionando.</p>
-          </Step>
-        </ol>
-        <p className="mt-5 border-t pt-4 text-xs text-muted-foreground">
-          Usa o Claude de uma empresa (plano Team ou Enterprise)? Quem administra a organização adiciona
-          o conector uma vez; depois cada pessoa só clica em Connect.
-        </p>
-      </TabsContent>
-
-      <TabsContent value="claude-code" className="mt-4">
-        <ol className="space-y-5">
-          <Step n={1} title="Adicione o servidor">
-            <p>No terminal, rode:</p>
-            <CopyField label="Comando" value={claudeCodeCommand(serverUrl)} />
-          </Step>
-          <Step n={2} title="Autorize">
-            <p>
-              No Claude Code, digite <code className="font-mono text-foreground">/mcp</code>, escolha{" "}
-              <code className="font-mono text-foreground">{CLAUDE_CODE_SERVER_NAME}</code> e depois
-              Authenticate. O navegador abre o backoffice para você autorizar.
-            </p>
-          </Step>
-          <Step n={3} title="Teste">
-            <CopyField label="Mensagem" value={TEST_PROMPT} wrap />
-          </Step>
-        </ol>
-      </TabsContent>
-    </Tabs>
-  );
-}
 
 function ConnectionsTable({
   rows,
@@ -188,7 +60,7 @@ function ConnectionsTable({
             {showPerson ? <TableHead>Pessoa</TableHead> : null}
             <TableHead className={showPerson ? "hidden sm:table-cell" : undefined}>App</TableHead>
             <TableHead className="hidden md:table-cell">Primeira conexão</TableHead>
-            <TableHead className={showPerson ? "hidden sm:table-cell" : undefined}>Última atividade</TableHead>
+            <TableHead className="hidden sm:table-cell">Última atividade</TableHead>
             <TableHead className="w-0">
               <span className="sr-only">Ações</span>
             </TableHead>
@@ -208,18 +80,28 @@ function ConnectionsTable({
                   <TableCell className="whitespace-normal">
                     <div className="font-medium break-all">{row.actorName ?? row.actorEmail}</div>
                     {row.actorName ? <div className="text-xs break-all text-muted-foreground">{row.actorEmail}</div> : null}
-                    <div className="text-xs text-muted-foreground sm:hidden">{row.clientName}</div>
+                    <div className="text-xs text-muted-foreground sm:hidden">{appLabel(row.clientName)}</div>
                   </TableCell>
                 ) : null}
-                <TableCell className={showPerson ? "hidden font-medium sm:table-cell" : "font-medium"}>{row.clientName}</TableCell>
+                <TableCell className={showPerson ? "hidden sm:table-cell" : undefined}>
+                  <span className="flex items-center gap-2.5 font-medium">
+                    <AiProviderMark provider={providerOf(row.clientName)} terminal={isTerminalClient(row.clientName)} className="size-7" />
+                    <span>
+                      {appLabel(row.clientName)}
+                      <span className="block text-xs font-normal text-muted-foreground tabular-nums sm:hidden">
+                        Última atividade: {formatShortDateTimeInSaoPaulo(row.lastActivityAt)}
+                      </span>
+                    </span>
+                  </span>
+                </TableCell>
                 <TableCell className="hidden tabular-nums md:table-cell">{formatShortDateTimeInSaoPaulo(row.firstConnectedAt)}</TableCell>
-                <TableCell className={showPerson ? "hidden tabular-nums sm:table-cell" : "tabular-nums"}>{formatShortDateTimeInSaoPaulo(row.lastActivityAt)}</TableCell>
+                <TableCell className="hidden tabular-nums sm:table-cell">{formatShortDateTimeInSaoPaulo(row.lastActivityAt)}</TableCell>
                 <TableCell className="text-right">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => onDisconnect(row)}
-                    aria-label={showPerson ? `Desconectar ${row.clientName} de ${row.actorName ?? row.actorEmail}` : `Desconectar ${row.clientName}`}
+                    aria-label={showPerson ? `Desconectar ${appLabel(row.clientName)} de ${row.actorName ?? row.actorEmail}` : `Desconectar ${appLabel(row.clientName)}`}
                   >
                     Desconectar
                   </Button>
@@ -233,7 +115,7 @@ function ConnectionsTable({
   );
 }
 
-export function ClaudePageClient({
+export function AiPageClient({
   serverUrl,
   capabilities,
   ownConnections,
@@ -248,6 +130,12 @@ export function ClaudePageClient({
   const [team, setTeam] = useState(teamConnections);
   const [target, setTarget] = useState<{ row: ConnectionRow; own: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
+
+  function showConnections() {
+    router.refresh();
+    document.getElementById("mine-title")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   async function disconnect() {
     if (!target) return;
@@ -266,8 +154,8 @@ export function ClaudePageClient({
       const { revoked } = (await response.json()) as { revoked: number };
       setMine((rows) => rows.filter((r) => !sameConnection(r, row)));
       setTeam((rows) => rows?.filter((r) => !sameConnection(r, row)) ?? null);
-      if (revoked > 0) toast.success(`${row.clientName} desconectado.`);
-      else toast.info(`${row.clientName} já estava desconectado.`);
+      if (revoked > 0) toast.success(`${appLabel(row.clientName)} desconectado.`);
+      else toast.info(`${appLabel(row.clientName)} já estava desconectado.`);
       setTarget(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível desconectar.");
@@ -279,9 +167,9 @@ export function ClaudePageClient({
   return (
     <div className="min-w-0 space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Claude</h1>
+        <h1 className="text-2xl font-bold text-foreground">Conectar IA</h1>
         <p className="text-sm text-muted-foreground">
-          Converse com o Claude sobre a sua carteira. Ele consulta o backoffice com as suas permissões.
+          Converse com o Claude ou o ChatGPT sobre a sua carteira. A IA consulta o backoffice com as suas permissões.
         </p>
       </div>
 
@@ -290,7 +178,7 @@ export function ClaudePageClient({
           <h2 id="connect-title" className="mb-4 text-base font-semibold">
             Conectar
           </h2>
-          <ConnectSteps serverUrl={serverUrl} />
+          <ConnectGuide serverUrl={serverUrl} onDone={showConnections} />
         </section>
 
         <section aria-labelledby="ask-title" className="min-w-0 space-y-5 rounded-lg border bg-card p-5">
@@ -321,7 +209,7 @@ export function ClaudePageClient({
             Suas conexões
           </h2>
           <p className="text-sm text-muted-foreground">
-            Desconectar corta o acesso na hora. Para voltar, conecte de novo pelo Claude.
+            Desconectar corta o acesso na hora. Para voltar, conecte de novo pelo app.
           </p>
         </div>
         <ConnectionsTable
@@ -359,11 +247,11 @@ export function ClaudePageClient({
       <AlertDialog open={target !== null} onOpenChange={(open) => (!open && !busy ? setTarget(null) : undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Desconectar o {target?.row.clientName}?</AlertDialogTitle>
+            <AlertDialogTitle>Desconectar o {target ? appLabel(target.row.clientName) : ""}?</AlertDialogTitle>
             <AlertDialogDescription>
               {target?.own
-                ? `O ${target.row.clientName} perde o acesso ao backoffice na hora. Para voltar a usar, conecte de novo pelo Claude.`
-                : `O ${target?.row.clientName} de ${target?.row.actorName ?? target?.row.actorEmail} perde o acesso ao backoffice na hora. A pessoa precisa conectar de novo para voltar a usar.`}
+                ? `O ${appLabel(target.row.clientName)} perde o acesso ao backoffice na hora. Para voltar a usar, conecte de novo pelo app.`
+                : `O ${target ? appLabel(target.row.clientName) : ""} de ${target?.row.actorName ?? target?.row.actorEmail} perde o acesso ao backoffice na hora. A pessoa precisa conectar de novo para voltar a usar.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
