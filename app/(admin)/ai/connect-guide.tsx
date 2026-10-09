@@ -170,13 +170,12 @@ export function ConnectGuide({ serverUrl, onDone }: { serverUrl: string; onDone:
         <p id="guide-app-label" className="text-sm font-medium">
           Onde você vai usar?
         </p>
-        <div role="radiogroup" aria-labelledby="guide-app-label" className="grid grid-cols-3 gap-2">
+        <div role="group" aria-labelledby="guide-app-label" className="grid grid-cols-3 gap-2">
           {all.map((g) => (
             <button
               key={g.key}
               type="button"
-              role="radio"
-              aria-checked={g.key === key}
+              aria-pressed={g.key === key}
               onClick={() => {
                 setKey(g.key);
                 setStepIndex(0);
@@ -230,18 +229,20 @@ export function ConnectGuide({ serverUrl, onDone }: { serverUrl: string; onDone:
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t pt-4">
-        <Button variant="ghost" disabled={stepIndex === 0} onClick={() => setStepIndex((i) => Math.max(0, i - 1))}>
+        {/* aria-disabled instead of disabled, and one forward button, so keyboard focus survives the step change. */}
+        <Button
+          variant="ghost"
+          aria-disabled={stepIndex === 0}
+          className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+          onClick={() => setStepIndex((i) => Math.max(0, i - 1))}
+        >
           <ArrowLeft className="size-4" aria-hidden="true" />
           Voltar
         </Button>
-        {isLast ? (
-          <Button onClick={onDone}>Ver minhas conexões</Button>
-        ) : (
-          <Button onClick={() => setStepIndex((i) => Math.min(guide.steps.length - 1, i + 1))}>
-            Próximo passo
-            <ArrowRight className="size-4" aria-hidden="true" />
-          </Button>
-        )}
+        <Button onClick={() => (isLast ? onDone() : setStepIndex((i) => Math.min(guide.steps.length - 1, i + 1)))}>
+          {isLast ? "Ver minhas conexões" : "Próximo passo"}
+          {isLast ? null : <ArrowRight className="size-4" aria-hidden="true" />}
+        </Button>
       </div>
     </div>
   );

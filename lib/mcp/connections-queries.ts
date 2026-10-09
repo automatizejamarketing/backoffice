@@ -9,6 +9,8 @@ export type McpConnection = {
   actorName: string | null;
   clientId: string;
   clientName: string;
+  /** Registered redirects: what proves which assistant the client is (`identifyClient`). */
+  redirectUris: string[];
   /**
    * First grant this person ever had on this app. Rows do not record whether a
    * revocation was a refresh or a disconnect, so the start of the current
@@ -32,6 +34,7 @@ export async function listMcpConnections(actorEmail: string | null): Promise<Mcp
       actorName: backofficeUser.name,
       clientId: t.clientId,
       clientName: backofficeMcpOauthClient.clientName,
+      redirectUris: backofficeMcpOauthClient.redirectUris,
       firstConnectedAt: sql<Date>`min(${t.createdAt})`.mapWith(t.createdAt),
       lastActivityAt: sql<Date>`max(${t.createdAt})`.mapWith(t.createdAt),
     })
@@ -39,7 +42,7 @@ export async function listMcpConnections(actorEmail: string | null): Promise<Mcp
     .innerJoin(backofficeMcpOauthClient, eq(backofficeMcpOauthClient.id, t.clientId))
     .leftJoin(backofficeUser, sql`lower(${backofficeUser.email}) = lower(${t.actorEmail})`)
     .where(actorEmail ? eq(t.actorEmail, actorEmail) : undefined)
-    .groupBy(t.actorEmail, backofficeUser.name, t.clientId, backofficeMcpOauthClient.clientName)
+    .groupBy(t.actorEmail, backofficeUser.name, t.clientId, backofficeMcpOauthClient.clientName, backofficeMcpOauthClient.redirectUris)
     .having(sql`count(*) filter (where ${t.revokedAt} is null and ${t.refreshExpiresAt} > now()) > 0`)
     .orderBy(desc(sql`max(${t.createdAt})`));
 }

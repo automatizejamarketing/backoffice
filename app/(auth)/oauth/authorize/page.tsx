@@ -6,7 +6,7 @@ import { AiProviderMark } from "@/components/ai-provider-logo";
 import { Button } from "@/components/ui/button";
 import { loginUrlWithReturn } from "@/lib/auth/login-return";
 import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
-import { appLabel, consentItems, isTerminalClient, providerOf } from "@/lib/mcp/connections";
+import { consentItems, identifyClient, type ClientIdentity } from "@/lib/mcp/connections";
 import { MCP_SCOPE_WRITE, buildRedirect } from "@/lib/mcp-oauth/core";
 import { resolveAuthorizeRequest } from "@/lib/mcp-oauth/http";
 import { decideAuthorization } from "./actions";
@@ -22,20 +22,17 @@ function toSearchParams(searchParams: SearchParams): URLSearchParams {
   return params;
 }
 
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
 /**
  * The consent screen is the next step of signing in, so it keeps the login's
  * light frame; the band on top shows who is connecting to what.
  */
-function Shell({ client, children }: { client: string | null; children: React.ReactNode }) {
-  const provider = client ? providerOf(client) : null;
-  const terminal = client ? isTerminalClient(client) : false;
-  const label = client ? appLabel(client) : null;
+function Shell({ client, children }: { client: ClientIdentity | null; children: React.ReactNode }) {
+  const label = client?.label ?? null;
   return (
     <div className="flex min-h-screen items-start justify-center bg-zinc-50 px-3 py-6 sm:items-center sm:py-12">
       <main className="w-full max-w-[440px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_24px_60px_-28px_rgba(46,42,138,0.35)]">
         <div
+          role="img"
           aria-label={label ? `AutomatizeJá com ${label}` : "AutomatizeJá"}
           className="grid place-items-center gap-3 bg-[radial-gradient(circle_at_85%_0%,rgba(217,119,87,0.35),transparent_45%),linear-gradient(135deg,#5F55D2_0%,#3A33A3_60%,#2B2780_100%)] px-6 py-8"
         >
@@ -49,11 +46,11 @@ function Shell({ client, children }: { client: string | null; children: React.Re
                 <span aria-hidden="true" className="relative h-px w-8 bg-white/70">
                   <span className="absolute top-1/2 left-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_0_5px_rgba(255,255,255,0.15)] motion-safe:animate-pulse" />
                 </span>
-                <AiProviderMark provider={provider} terminal={terminal} className="size-14 rounded-2xl border-0 shadow-lg ring-1 ring-white/30" />
+                <AiProviderMark provider={client.provider} terminal={client.local} className="size-14 rounded-2xl border-0 shadow-lg ring-1 ring-white/30" />
               </>
             ) : null}
           </div>
-          <p className="text-sm font-semibold text-white">
+          <p className="text-center text-sm font-semibold [overflow-wrap:anywhere] text-white">
             Backoffice{label ? <span className="font-normal text-white/75"> com </span> : null}
             {label}
           </p>
@@ -64,10 +61,13 @@ function Shell({ client, children }: { client: string | null; children: React.Re
   );
 }
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
+function Eyebrow({ children, caution = false }: { children: React.ReactNode; caution?: boolean }) {
   return (
-    <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-[#5F55D2] uppercase">
-      <span aria-hidden="true" className="size-1.5 rounded-full bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]" />
+    <p className={`flex items-center gap-2 text-xs font-semibold tracking-wide uppercase ${caution ? "text-amber-700" : "text-[#5F55D2]"}`}>
+      <span
+        aria-hidden="true"
+        className={`size-1.5 rounded-full ${caution ? "bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.15)]" : "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.15)]"}`}
+      />
       {children}
     </p>
   );
@@ -99,26 +99,27 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const actor = await getCurrentBackofficeActor();
   if (!actor) redirect(loginUrlWithReturn(`/oauth/authorize?${params}`));
 
-  const registered = clientName ?? parsed.request.clientId;
-  const client = appLabel(registered);
+  // Branded by where the code goes, not by the self-registered name.
+  const identity = identifyClient(clientName ?? parsed.request.clientId, [parsed.request.redirectUri]);
+  const client = identity.label;
   const items = consentItems(actor, parsed.request.scopes.includes(MCP_SCOPE_WRITE));
   const redirectHost = new URL(parsed.request.redirectUri).host;
-  const runsLocally = LOOPBACK_HOSTS.has(new URL(parsed.request.redirectUri).hostname);
 
   return (
-    <Shell client={registered}>
+    <Shell client={identity}>
       <form action={decideAuthorization} className="space-y-5">
         <input name="query" type="hidden" value={params.toString()} />
         <div className="space-y-2">
-          <Eyebrow>Conexão segura</Eyebrow>
-          <h1 className="text-2xl font-bold tracking-tight text-balance text-zinc-900">Conectar {client} ao backoffice?</h1>
+          {/* Only a redirect to Claude's or ChatGPT's own domain proves who is asking. */}
+          {identity.provider ? <Eyebrow>Conexão segura</Eyebrow> : <Eyebrow caution>Confira o app antes de autorizar</Eyebrow>}
+          <h1 className="text-2xl font-bold tracking-tight [overflow-wrap:anywhere] text-zinc-900">Conectar {client} ao backoffice?</h1>
           <p className="text-sm text-zinc-600">
             Entrou como <span className="font-medium text-zinc-900">{actor.email}</span> · retorno para{" "}
             <span className="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap text-zinc-700">{redirectHost}</span>
           </p>
         </div>
 
-        {runsLocally ? (
+        {identity.local ? (
           <p className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
             Este app roda no seu computador. Autorize só se foi você quem iniciou a conexão agora.

@@ -88,23 +88,58 @@ export function consentItems(actor: BackofficeActor, canWrite: boolean): string[
 
 export type AiProvider = "claude" | "chatgpt";
 
-/** Which assistant an OAuth client is, from the name it registered with. */
-export function providerOf(clientName: string): AiProvider | null {
-  if (/claude|anthropic/i.test(clientName)) return "claude";
-  if (/chatgpt|openai/i.test(clientName)) return "chatgpt";
-  return null;
+/** Where each assistant sends the OAuth code back. Only these prove who the client is. */
+const OFFICIAL_REDIRECT_HOSTS: Record<AiProvider, string[]> = {
+  claude: ["claude.ai", "claude.com"],
+  chatgpt: ["chatgpt.com", "chat.openai.com"],
+};
+const PROVIDER_LABEL: Record<AiProvider, string> = { claude: "Claude", chatgpt: "ChatGPT" };
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+export type ClientIdentity = {
+  /** Set only when every redirect goes to that assistant's own domain. */
+  provider: AiProvider | null;
+  /** The assistant's name when verified; otherwise the name the client registered. */
+  label: string;
+  /** Returns to this computer (Claude Code, local tools): anyone can claim any name there. */
+  local: boolean;
+};
+
+/**
+ * Brands a client only by what its redirect proves. `client_name` comes from
+ * open dynamic registration, so a client calling itself "Claude" that returns
+ * to another domain keeps its own name and a generic mark.
+ */
+export function identifyClient(clientName: string, redirectUris: string[]): ClientIdentity {
+  const hosts = redirectUris.map((uri) => {
+    try {
+      return new URL(uri).hostname;
+    } catch {
+      return null;
+    }
+  });
+  const known = hosts.length > 0 && hosts.every((h): h is string => h !== null);
+  const provider = known
+    ? ((Object.keys(OFFICIAL_REDIRECT_HOSTS) as AiProvider[]).find((p) => hosts.every((h) => OFFICIAL_REDIRECT_HOSTS[p].includes(h as string))) ?? null)
+    : null;
+  return {
+    provider,
+    label: provider ? PROVIDER_LABEL[provider] : clientName,
+    local: known && hosts.every((h) => LOOPBACK_HOSTS.has(h as string)),
+  };
 }
 
-/** Claude Code registers from the terminal; its mark gets a terminal badge. */
-export function isTerminalClient(clientName: string): boolean {
-  return /claude[\s_-]*code/i.test(clientName);
+/** Rows still on screen: a disconnected one hides until the same pair shows newer activity. */
+export function visibleConnections<T extends { actorEmail: string; clientId: string; lastActivityAt: string }>(
+  rows: T[],
+  hidden: Record<string, string>,
+): T[] {
+  return rows.filter((r) => {
+    const hiddenAt = hidden[connectionKey(r)];
+    return hiddenAt === undefined || r.lastActivityAt > hiddenAt;
+  });
 }
 
-/** Name to show for a client: the assistant's own name, or what it registered with. */
-export function appLabel(clientName: string): string {
-  if (isTerminalClient(clientName)) return "Claude Code";
-  const provider = providerOf(clientName);
-  if (provider === "claude") return "Claude";
-  if (provider === "chatgpt") return "ChatGPT";
-  return clientName;
+export function connectionKey(row: { actorEmail: string; clientId: string }): string {
+  return `${row.actorEmail}\n${row.clientId}`;
 }

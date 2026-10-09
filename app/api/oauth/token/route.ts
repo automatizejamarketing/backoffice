@@ -7,7 +7,25 @@ import {
 } from "@/lib/mcp-oauth/http";
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
 
+/** Another grant of the same person + app held the lock past `lock_timeout`. */
+function isLockTimeout(error: unknown): boolean {
+  const code = (e: unknown) => (e && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined);
+  return code(error) === "55P03" || code(error && typeof error === "object" && "cause" in error ? error.cause : undefined) === "55P03";
+}
+
 export async function POST(request: Request) {
+  try {
+    return await grant(request);
+  } catch (error) {
+    if (!isLockTimeout(error)) throw error;
+    return oauthJson(
+      { error: "temporarily_unavailable", error_description: "Try again in a few seconds." },
+      { status: 503, headers: { "Retry-After": "2" } },
+    );
+  }
+}
+
+async function grant(request: Request) {
   const form = await readFormBody(request);
   const credentials = clientCredentialsFrom(request, form);
 

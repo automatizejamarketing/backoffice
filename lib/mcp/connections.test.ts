@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { BACKOFFICE_ROLE_VALUES, hasBackofficePermission, type BackofficeActor } from "@/lib/auth/rbac-core";
-import { appLabel, canDisconnect, capabilitiesFor, claudeCodeCommand, claudeConnectorLink, consentItems, MCP_CAPABILITIES, MCP_PAGE_PERMISSION, mcpServerUrl, providerOf } from "./connections";
+import { canDisconnect, capabilitiesFor, claudeCodeCommand, claudeConnectorLink, connectionKey, consentItems, identifyClient, MCP_CAPABILITIES, MCP_PAGE_PERMISSION, mcpServerUrl, visibleConnections } from "./connections";
 
 const actor = (role: BackofficeActor["role"], email = `${role}@x.com`): BackofficeActor => ({ id: `${role}-id`, email, role, source: "database" });
 
@@ -44,16 +44,24 @@ describe("MCP connections page", () => {
     assert.deepEqual(consentItems(actor("finance_viewer"), true), []);
   });
 
-  it("recognizes the assistant from the registered client name", () => {
-    assert.equal(providerOf("Claude"), "claude");
-    assert.equal(providerOf("claude-code (backoffice-automatize)"), "claude");
-    assert.equal(providerOf("ChatGPT"), "chatgpt");
-    assert.equal(providerOf("OpenAI Connector"), "chatgpt");
-    assert.equal(providerOf("MCP Inspector"), null);
-    assert.equal(appLabel("claude-code (backoffice-automatize)"), "Claude Code");
-    assert.equal(appLabel("Claude Code"), "Claude Code");
-    assert.equal(appLabel("Claude"), "Claude");
-    assert.equal(appLabel("ChatGPT Connector"), "ChatGPT");
-    assert.equal(appLabel("MCP Inspector"), "MCP Inspector");
+  it("brands a client as Claude or ChatGPT only when its redirect goes to their domain", () => {
+    assert.deepEqual(identifyClient("Claude", ["https://claude.ai/api/mcp/auth_callback"]), { provider: "claude", label: "Claude", local: false });
+    assert.deepEqual(identifyClient("ChatGPT", ["https://chatgpt.com/connector_platform_oauth_redirect"]), { provider: "chatgpt", label: "ChatGPT", local: false });
+    // A self-registered name is a claim: another domain keeps its own name and no official mark.
+    assert.deepEqual(identifyClient("Untrusted third-party Claude bridge", ["https://attacker.example/callback"]), { provider: null, label: "Untrusted third-party Claude bridge", local: false });
+    assert.equal(identifyClient("Claude", ["https://claude.ai/cb", "https://attacker.example/cb"]).provider, null);
+    assert.equal(identifyClient("Claude", ["https://claude.ai.attacker.example/cb"]).provider, null);
+    assert.equal(identifyClient("Claude", ["not a url"]).provider, null);
+    assert.deepEqual(identifyClient("claude-code (backoffice-automatize)", ["http://localhost:53682/callback"]), { provider: null, label: "claude-code (backoffice-automatize)", local: true });
+  });
+
+  it("keeps a disconnected row hidden until that pair connects again", () => {
+    const row = { actorEmail: "a@x.com", clientId: "c1", lastActivityAt: "2026-10-09T15:00:00.000Z" };
+    const other = { ...row, clientId: "c2" };
+    const hidden = { [connectionKey(row)]: row.lastActivityAt };
+    assert.deepEqual(visibleConnections([row, other], hidden), [other]);
+    // Reconnected after the click: newer activity shows again on the next refresh.
+    const again = { ...row, lastActivityAt: "2026-10-09T16:00:00.000Z" };
+    assert.deepEqual(visibleConnections([again, other], hidden), [again, other]);
   });
 });

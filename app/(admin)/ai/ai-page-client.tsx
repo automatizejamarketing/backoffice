@@ -25,7 +25,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatShortDateTimeInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import { appLabel, isTerminalClient, providerOf, type McpCapability } from "@/lib/mcp/connections";
+import { connectionKey, identifyClient, visibleConnections, type McpCapability } from "@/lib/mcp/connections";
 import { ConnectGuide } from "./connect-guide";
 
 export type ConnectionRow = {
@@ -33,12 +33,13 @@ export type ConnectionRow = {
   actorName: string | null;
   clientId: string;
   clientName: string;
+  redirectUris: string[];
   firstConnectedAt: string;
   lastActivityAt: string;
 };
 
-const sameConnection = (a: ConnectionRow, b: ConnectionRow) =>
-  a.actorEmail === b.actorEmail && a.clientId === b.clientId;
+const identity = (row: ConnectionRow) => identifyClient(row.clientName, row.redirectUris);
+const appName = (row: ConnectionRow) => identity(row).label;
 
 
 function ConnectionsTable({
@@ -80,14 +81,16 @@ function ConnectionsTable({
                   <TableCell className="whitespace-normal">
                     <div className="font-medium break-all">{row.actorName ?? row.actorEmail}</div>
                     {row.actorName ? <div className="text-xs break-all text-muted-foreground">{row.actorEmail}</div> : null}
-                    <div className="text-xs text-muted-foreground sm:hidden">{appLabel(row.clientName)}</div>
+                    <div className="text-xs text-muted-foreground sm:hidden">
+                      {appName(row)} · {formatShortDateTimeInSaoPaulo(row.lastActivityAt)}
+                    </div>
                   </TableCell>
                 ) : null}
                 <TableCell className={showPerson ? "hidden sm:table-cell" : undefined}>
                   <span className="flex items-center gap-2.5 font-medium">
-                    <AiProviderMark provider={providerOf(row.clientName)} terminal={isTerminalClient(row.clientName)} className="size-7" />
-                    <span>
-                      {appLabel(row.clientName)}
+                    <AiProviderMark provider={identity(row).provider} terminal={identity(row).local} className="size-7" />
+                    <span className="break-all">
+                      {appName(row)}
                       <span className="block text-xs font-normal text-muted-foreground tabular-nums sm:hidden">
                         Última atividade: {formatShortDateTimeInSaoPaulo(row.lastActivityAt)}
                       </span>
@@ -101,7 +104,7 @@ function ConnectionsTable({
                     variant="outline"
                     size="sm"
                     onClick={() => onDisconnect(row)}
-                    aria-label={showPerson ? `Desconectar ${appLabel(row.clientName)} de ${row.actorName ?? row.actorEmail}` : `Desconectar ${appLabel(row.clientName)}`}
+                    aria-label={showPerson ? `Desconectar ${appName(row)} de ${row.actorName ?? row.actorEmail}` : `Desconectar ${appName(row)}`}
                   >
                     Desconectar
                   </Button>
@@ -126,8 +129,11 @@ export function AiPageClient({
   ownConnections: ConnectionRow[];
   teamConnections: ConnectionRow[] | null;
 }) {
-  const [mine, setMine] = useState(ownConnections);
-  const [team, setTeam] = useState(teamConnections);
+  // The lists come from the server (router.refresh brings new ones); a
+  // disconnect only hides that row here until the server stops sending it.
+  const [hidden, setHidden] = useState<Record<string, string>>({});
+  const mine = visibleConnections(ownConnections, hidden);
+  const team = teamConnections ? visibleConnections(teamConnections, hidden) : null;
   const [target, setTarget] = useState<{ row: ConnectionRow; own: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -152,10 +158,10 @@ export function AiPageClient({
         throw new Error(body?.error ?? "Não foi possível desconectar.");
       }
       const { revoked } = (await response.json()) as { revoked: number };
-      setMine((rows) => rows.filter((r) => !sameConnection(r, row)));
-      setTeam((rows) => rows?.filter((r) => !sameConnection(r, row)) ?? null);
-      if (revoked > 0) toast.success(`${appLabel(row.clientName)} desconectado.`);
-      else toast.info(`${appLabel(row.clientName)} já estava desconectado.`);
+      setHidden((current) => ({ ...current, [connectionKey(row)]: row.lastActivityAt }));
+      router.refresh();
+      if (revoked > 0) toast.success(`${appName(row)} desconectado.`);
+      else toast.info(`${appName(row)} já estava desconectado.`);
       setTarget(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível desconectar.");
@@ -247,11 +253,11 @@ export function AiPageClient({
       <AlertDialog open={target !== null} onOpenChange={(open) => (!open && !busy ? setTarget(null) : undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Desconectar o {target ? appLabel(target.row.clientName) : ""}?</AlertDialogTitle>
+            <AlertDialogTitle>Desconectar o {target ? appName(target.row) : ""}?</AlertDialogTitle>
             <AlertDialogDescription>
               {target?.own
-                ? `O ${appLabel(target.row.clientName)} perde o acesso ao backoffice na hora. Para voltar a usar, conecte de novo pelo app.`
-                : `O ${target ? appLabel(target.row.clientName) : ""} de ${target?.row.actorName ?? target?.row.actorEmail} perde o acesso ao backoffice na hora. A pessoa precisa conectar de novo para voltar a usar.`}
+                ? `O ${appName(target.row)} perde o acesso ao backoffice na hora. Para voltar a usar, conecte de novo pelo app.`
+                : `O ${target ? appName(target.row) : ""} de ${target?.row.actorName ?? target?.row.actorEmail} perde o acesso ao backoffice na hora. A pessoa precisa conectar de novo para voltar a usar.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
