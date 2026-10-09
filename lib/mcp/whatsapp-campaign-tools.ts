@@ -13,6 +13,7 @@ import {
 } from "@/lib/backoffice/whatsapp-campaigns";
 import { findCampaignTemplate, submitCampaignTemplate } from "@/lib/backoffice/whatsapp-meta";
 import { putMediaObject } from "@/lib/storage/media-r2";
+import { campaignMetricsFor } from "./finance-guard";
 import { sendConfirmationCode, verifySendConfirmation } from "./send-confirmation";
 import { defineTool, type McpTool } from "./tool";
 
@@ -101,13 +102,13 @@ export const WHATSAPP_CAMPAIGN_TOOLS: McpTool[] = [
   }),
   defineTool({
     name: "get_whatsapp_campaign", title: "Ver campanha de WhatsApp", permission: "whatsapp:campaigns", write: false,
-    description: "Mostra uma campanha: texto, botão, mídia, filtros de público, status do template na Meta (com motivo de rejeição) e resultados (entregas, leituras, cliques, trials e pagamentos na janela).",
+    description: "Mostra uma campanha: texto, botão, mídia, filtros de público, status do template na Meta (com motivo de rejeição) e resultados (entregas, leituras, cliques, trials e pagamentos na janela). A receita em reais só vem para quem tem acesso ao Financeiro.",
     input: z.object({ campaignId, days: z.union([z.literal(7), z.literal(14), z.literal(30)]).default(7).describe("Janela de conversão em dias.") }),
-    async run(_actor, { campaignId: id, days }) {
+    async run(actor, { campaignId: id, days }) {
       const campaign = await getCampaign(id);
       const [template, metrics] = await Promise.all([findCampaignTemplate(campaign.template_name).catch(() => null), campaignMetrics(id, days)]);
       return {
-        campaign: detail(campaign), metrics,
+        campaign: detail(campaign), metrics: campaignMetricsFor(actor, metrics),
         metaTemplate: template ? { status: template.status, category: template.category, rejectedReason: templateRejectionReason(template.status, template.rejected_reason) } : null,
       };
     },

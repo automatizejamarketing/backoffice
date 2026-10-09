@@ -20,6 +20,12 @@ Em todos, o app abre o login do backoffice (Google ou link por e-mail) e depois 
 - Cada pessoa vê e desconecta as próprias conexões; quem tem `team:manage` (admin) vê as da equipe inteira e desconecta qualquer uma.
 - Também dá para desconectar removendo o conector no Claude.
 
+### Dado financeiro
+
+O conector não traz o financeiro da Automatize (faturamento, MRR, pagamentos): isso fica na tela Financeiro. O único valor em reais de receita que passa pelo MCP é a receita atribuída a uma campanha de WhatsApp (`get_whatsapp_campaign`), e só para quem passa no mesmo portão da tela Financeiro (`hasFinanceAccess`: `finance:view` **e** e-mail em `lib/auth/finance-access.ts`); os demais recebem `revenue: "restrito ao Financeiro"`, com envios, cliques, trials e contagem de pagamentos. Receita/compras/ROAS de Meta Ads são vendas dos clientes, não faturamento da Automatize, e as instruções do servidor dizem isso ao modelo. Ferramenta nova que devolva dinheiro da Automatize passa pelo mesmo portão (`lib/mcp/finance-guard.ts`, que copia só campos conhecidos).
+
+A linha é dinheiro (decisão do JP em 09/10/2026): contagens e status (pagantes e trials por campanha, status de assinatura, público "assinante ativo", alertas de cobrança sem valor) continuam, como já aparecem no Painel, na Carteira e nos Alertas. A tela de campanhas de WhatsApp continua mostrando receita e ROAS para quem tem `whatsapp:campaigns`, também por decisão do JP. No alerta de falha de cartão (`account.card_payment_failed`), que cita o motivo em texto livre do provedor (pode trazer o valor, até por extenso), o motivo inteiro é trocado por "Motivo restrito ao Financeiro" para quem não tem acesso (`alertEvidenceFor`); provedor e status continuam.
+
 ## Ferramentas (campanhas de WhatsApp, permissão `whatsapp:campaigns`)
 
 | Ferramenta | O que faz |
