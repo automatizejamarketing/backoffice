@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { pixAutomaticLink } from "./pix-automatic-link";
 import { PLAN_DEFINITIONS, PLAN_TYPES } from "@/lib/stripe/plans";
+import { resolveFrontendAppUrl } from "@/lib/env/frontend-app-url";
 
 describe("links do Pix Automático no Backoffice", () => {
   it("usa o checkout automático e o preço integral em todos os períodos", () => {
@@ -19,5 +20,14 @@ describe("links do Pix Automático no Backoffice", () => {
   });
   it("preserva o ambiente de staging", () => {
     assert.equal(new URL(pixAutomaticLink("monthly_starter", "https://staging.automatizemarketing.com/").url).host, "staging.automatizemarketing.com");
+  });
+  it("resolve o link com a variável documentada e o ambiente de staging", () => {
+    for (const env of [
+      { FRONTEND_URL: "https://staging.automatizemarketing.com" },
+      { APP_ENV: "staging" },
+    ]) {
+      const result = pixAutomaticLink("monthly_starter", resolveFrontendAppUrl(env));
+      assert.equal(new URL(result.url).origin, "https://staging.automatizemarketing.com");
+    }
   });
 });
