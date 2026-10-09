@@ -38,7 +38,7 @@ export type ConnectionRow = {
   actorName: string | null;
   clientId: string;
   clientName: string;
-  connectedAt: string;
+  firstConnectedAt: string;
   lastActivityAt: string;
 };
 
@@ -77,6 +77,9 @@ function CopyField({ label, value, wrap = false }: { label: string; value: strin
         >
           {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
         </Button>
+        <span className="sr-only" aria-live="polite">
+          {copied ? `${label} copiado` : ""}
+        </span>
       </div>
     </div>
   );
@@ -184,7 +187,7 @@ function ConnectionsTable({
           <TableRow>
             {showPerson ? <TableHead>Pessoa</TableHead> : null}
             <TableHead className={showPerson ? "hidden sm:table-cell" : undefined}>App</TableHead>
-            <TableHead className="hidden md:table-cell">Conectado em</TableHead>
+            <TableHead className="hidden md:table-cell">Primeira conexão</TableHead>
             <TableHead className={showPerson ? "hidden sm:table-cell" : undefined}>Última atividade</TableHead>
             <TableHead className="w-0">
               <span className="sr-only">Ações</span>
@@ -209,10 +212,15 @@ function ConnectionsTable({
                   </TableCell>
                 ) : null}
                 <TableCell className={showPerson ? "hidden font-medium sm:table-cell" : "font-medium"}>{row.clientName}</TableCell>
-                <TableCell className="hidden tabular-nums md:table-cell">{formatShortDateTimeInSaoPaulo(row.connectedAt)}</TableCell>
+                <TableCell className="hidden tabular-nums md:table-cell">{formatShortDateTimeInSaoPaulo(row.firstConnectedAt)}</TableCell>
                 <TableCell className={showPerson ? "hidden tabular-nums sm:table-cell" : "tabular-nums"}>{formatShortDateTimeInSaoPaulo(row.lastActivityAt)}</TableCell>
                 <TableCell className="text-right">
-                  <Button variant="outline" size="sm" onClick={() => onDisconnect(row)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onDisconnect(row)}
+                    aria-label={showPerson ? `Desconectar ${row.clientName} de ${row.actorName ?? row.actorEmail}` : `Desconectar ${row.clientName}`}
+                  >
                     Desconectar
                   </Button>
                 </TableCell>
@@ -255,9 +263,11 @@ export function ClaudePageClient({
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? "Não foi possível desconectar.");
       }
+      const { revoked } = (await response.json()) as { revoked: number };
       setMine((rows) => rows.filter((r) => !sameConnection(r, row)));
       setTeam((rows) => rows?.filter((r) => !sameConnection(r, row)) ?? null);
-      toast.success(`${row.clientName} desconectado.`);
+      if (revoked > 0) toast.success(`${row.clientName} desconectado.`);
+      else toast.info(`${row.clientName} já estava desconectado.`);
       setTarget(null);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Não foi possível desconectar.");

@@ -9,7 +9,12 @@ export type McpConnection = {
   actorName: string | null;
   clientId: string;
   clientName: string;
-  connectedAt: Date;
+  /**
+   * First grant this person ever had on this app. Rows do not record whether a
+   * revocation was a refresh or a disconnect, so the start of the current
+   * connection is not recoverable; the page labels it "Primeira conexão".
+   */
+  firstConnectedAt: Date;
   /** Last time the app got or renewed its access: renewal happens on use, at most once an hour. */
   lastActivityAt: Date;
 };
@@ -27,7 +32,7 @@ export async function listMcpConnections(actorEmail: string | null): Promise<Mcp
       actorName: backofficeUser.name,
       clientId: t.clientId,
       clientName: backofficeMcpOauthClient.clientName,
-      connectedAt: sql<Date>`min(${t.createdAt})`.mapWith(t.createdAt),
+      firstConnectedAt: sql<Date>`min(${t.createdAt})`.mapWith(t.createdAt),
       lastActivityAt: sql<Date>`max(${t.createdAt})`.mapWith(t.createdAt),
     })
     .from(t)

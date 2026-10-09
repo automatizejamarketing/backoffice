@@ -51,6 +51,12 @@ export type NewTokenRow = Omit<TokenRow, "id" | "revokedAt"> & {
 };
 
 export interface McpOauthStore {
+  /**
+   * Runs `fn` in one database transaction. Consuming a code or refresh token
+   * locks that person + app until commit, and so does `revokeConnection`, so a
+   * grant being issued and a disconnect never interleave.
+   */
+  transaction<T>(fn: (store: McpOauthStore) => Promise<T>): Promise<T>;
   getClient(id: string): Promise<StoredClient | null>;
   insertClient(client: StoredClient & { grantTypes: string[] }): Promise<void>;
   insertCode(code: CodeRow): Promise<void>;
@@ -124,7 +130,7 @@ export function createMcpOauthService(
     return client;
   }
 
-  async function issueTokens(input: {
+  async function issueTokens(store: McpOauthStore, input: {
     clientId: string;
     actorEmail: string;
     scopes: string[];
@@ -226,28 +232,31 @@ export function createMcpOauthService(
       if (!input.code || !input.codeVerifier) {
         return tokenError("invalid_request", "code and code_verifier are required.");
       }
-      const current = now();
-      const code = await store.consumeCode(hashSecret(input.code), current);
-      if (!code || code.clientId !== client.id) {
-        return tokenError("invalid_grant", "Unknown, used or foreign authorization code.");
-      }
-      if (isExpired(code.expiresAt, current)) {
-        return tokenError("invalid_grant", "Authorization code expired.");
-      }
-      if (input.redirectUri !== null && input.redirectUri !== code.redirectUri) {
-        return tokenError("invalid_grant", "redirect_uri does not match the authorization request.");
-      }
-      if (!verifyPkceS256(input.codeVerifier, code.codeChallenge)) {
-        return tokenError("invalid_grant", "PKCE verification failed.");
-      }
-      if (input.resource && code.resource && !isSameResource(input.resource, code.resource)) {
-        return tokenError("invalid_grant", "resource does not match the authorization request.");
-      }
-      return issueTokens({
-        clientId: client.id,
-        actorEmail: code.actorEmail,
-        scopes: code.scope.split(" "),
-        resource: code.resource,
+      const { code: rawCode, codeVerifier } = input;
+      return store.transaction(async (tx) => {
+        const current = now();
+        const code = await tx.consumeCode(hashSecret(rawCode), current);
+        if (!code || code.clientId !== client.id) {
+          return tokenError("invalid_grant", "Unknown, used or foreign authorization code.");
+        }
+        if (isExpired(code.expiresAt, current)) {
+          return tokenError("invalid_grant", "Authorization code expired.");
+        }
+        if (input.redirectUri !== null && input.redirectUri !== code.redirectUri) {
+          return tokenError("invalid_grant", "redirect_uri does not match the authorization request.");
+        }
+        if (!verifyPkceS256(codeVerifier, code.codeChallenge)) {
+          return tokenError("invalid_grant", "PKCE verification failed.");
+        }
+        if (input.resource && code.resource && !isSameResource(input.resource, code.resource)) {
+          return tokenError("invalid_grant", "resource does not match the authorization request.");
+        }
+        return issueTokens(tx, {
+          clientId: client.id,
+          actorEmail: code.actorEmail,
+          scopes: code.scope.split(" "),
+          resource: code.resource,
+        });
       });
     },
 
@@ -264,37 +273,40 @@ export function createMcpOauthService(
       if (!input.refreshToken) {
         return tokenError("invalid_request", "refresh_token is required.");
       }
-      const current = now();
-      const previous = await store.consumeRefreshToken(
-        hashSecret(input.refreshToken),
-        current,
-      );
-      if (!previous || previous.clientId !== client.id) {
-        return tokenError("invalid_grant", "Unknown, rotated or foreign refresh token.");
-      }
-      if (isExpired(previous.refreshExpiresAt, current)) {
-        return tokenError("invalid_grant", "Refresh token expired.");
-      }
-      const granted = previous.scope.split(" ");
-      let scopes = granted;
-      if (input.scope) {
-        const requested = parseScopes(input.scope);
-        if (!requested.ok || requested.scopes.some((s) => !granted.includes(s))) {
-          return tokenError("invalid_scope", "Requested scope exceeds the grant.");
+      const { refreshToken, scope } = input;
+      return store.transaction(async (tx) => {
+        const current = now();
+        const previous = await tx.consumeRefreshToken(
+          hashSecret(refreshToken),
+          current,
+        );
+        if (!previous || previous.clientId !== client.id) {
+          return tokenError("invalid_grant", "Unknown, rotated or foreign refresh token.");
         }
-        scopes = requested.scopes;
-      }
-      return issueTokens({
-        clientId: client.id,
-        actorEmail: previous.actorEmail,
-        scopes,
-        resource: previous.resource,
+        if (isExpired(previous.refreshExpiresAt, current)) {
+          return tokenError("invalid_grant", "Refresh token expired.");
+        }
+        const granted = previous.scope.split(" ");
+        let scopes = granted;
+        if (scope) {
+          const requested = parseScopes(scope);
+          if (!requested.ok || requested.scopes.some((s) => !granted.includes(s))) {
+            return tokenError("invalid_scope", "Requested scope exceeds the grant.");
+          }
+          scopes = requested.scopes;
+        }
+        return issueTokens(tx, {
+          clientId: client.id,
+          actorEmail: previous.actorEmail,
+          scopes,
+          resource: previous.resource,
+        });
       });
     },
 
     /** "Desconectar": the client loses access at once and must ask for consent again. */
     disconnect(input: { actorEmail: string; clientId: string }): Promise<number> {
-      return store.revokeConnection(input.actorEmail, input.clientId, now());
+      return store.transaction((tx) => tx.revokeConnection(input.actorEmail, input.clientId, now()));
     },
 
     /** Bearer check for `/api/mcp`; null means 401. */

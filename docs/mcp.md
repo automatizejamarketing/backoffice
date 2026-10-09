@@ -16,8 +16,9 @@ O Claude age com as permissões de quem autorizou. Cada chamada relê o cargo pe
 
 ### Conexões ativas e Desconectar
 
-- Uma conexão é a dupla pessoa + app (`actor_email` + `client_id`) com algum token ainda utilizável (`revoked_at` nulo e refresh não vencido). Cada refresh revoga a linha anterior e cria outra, então as linhas da dupla são o histórico da conexão: "Conectado em" é a primeira, "Última atividade" a mais recente. O app renova ao usar, no máximo uma vez por hora (validade do access token), então a última atividade tem essa precisão.
+- Uma conexão é a dupla pessoa + app (`actor_email` + `client_id`) com algum token ainda utilizável (`revoked_at` nulo e refresh não vencido). Cada refresh revoga a linha anterior e cria outra, então as linhas da dupla são o histórico da conexão: "Primeira conexão" é a primeira linha (a tabela não distingue revogação por refresh de revogação por Desconectar, então o início da conexão atual não é recuperável), "Última atividade" a mais recente. O app renova ao usar, no máximo uma vez por hora (validade do access token), então a última atividade tem essa precisão.
 - Desconectar (`DELETE /api/backoffice/mcp-connections`) revoga todos os tokens vivos da dupla e queima os códigos de autorização não usados, para um consentimento dado segundos antes não virar token depois. Access e refresh param na hora.
+- Troca de código, refresh e Desconectar da mesma dupla rodam em transação com `pg_advisory_xact_lock` (`lib/mcp-oauth/store.ts`): sem isso, um refresh que já revogou a linha antiga e ainda não inseriu a nova passaria invisível pelo Desconectar e o token novo continuaria valendo.
 - Cada pessoa vê e desconecta as próprias conexões; quem tem `team:manage` (admin) vê as da equipe inteira e desconecta qualquer uma.
 - Também dá para desconectar removendo o conector no Claude.
 

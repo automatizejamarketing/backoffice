@@ -12,10 +12,12 @@ export async function DELETE(request: Request) {
   if (typeof body?.actorEmail !== "string" || typeof body.clientId !== "string" || !body.actorEmail || !body.clientId) {
     return NextResponse.json({ error: "Informe a pessoa e o app." }, { status: 400 });
   }
-  if (!canDisconnect(authz.actor, body.actorEmail)) {
+  // Grants store the actor's normalized (lowercase) e-mail.
+  const actorEmail = body.actorEmail.trim().toLowerCase();
+  if (!canDisconnect(authz.actor, actorEmail)) {
     return NextResponse.json({ error: "Só quem gerencia a equipe desconecta o app de outra pessoa." }, { status: 403 });
   }
 
-  const revoked = await mcpOauthService.disconnect({ actorEmail: body.actorEmail, clientId: body.clientId });
+  const revoked = await mcpOauthService.disconnect({ actorEmail, clientId: body.clientId });
   return NextResponse.json({ revoked });
 }

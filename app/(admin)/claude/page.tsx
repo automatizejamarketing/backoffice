@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const toRow = (c: McpConnection): ConnectionRow => ({
   ...c,
-  connectedAt: c.connectedAt.toISOString(),
+  firstConnectedAt: c.firstConnectedAt.toISOString(),
   lastActivityAt: c.lastActivityAt.toISOString(),
 });
 

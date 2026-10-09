@@ -9,12 +9,27 @@ import {
   type TokenRow,
 } from "./service";
 
-function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash: string; refreshTokenHash: string })[] } {
+type MemoryStore = McpOauthStore & {
+  tokens: (TokenRow & { accessTokenHash: string; refreshTokenHash: string })[];
+  /** Set to hold the next insertToken: `reached` fires there, it waits for `release`. */
+  pauseInsert: { reached: () => void; release: Promise<void> } | null;
+};
+
+function memoryStore(): MemoryStore {
   const clients = new Map<string, StoredClient>();
   const codes = new Map<string, CodeRow & { usedAt: Date | null }>();
   const tokens: (TokenRow & { accessTokenHash: string; refreshTokenHash: string })[] = [];
-  return {
+  // One transaction at a time: the database version locks per person + app,
+  // which is stricter than needed here but gives the same ordering.
+  let queue: Promise<unknown> = Promise.resolve();
+  const store: MemoryStore = {
     tokens,
+    pauseInsert: null,
+    transaction(fn) {
+      const run = queue.then(() => fn(store));
+      queue = run.catch(() => undefined);
+      return run;
+    },
     async getClient(id) {
       return clients.get(id) ?? null;
     },
@@ -31,6 +46,12 @@ function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash:
       return row;
     },
     async insertToken(token) {
+      const pause = store.pauseInsert;
+      if (pause) {
+        store.pauseInsert = null;
+        pause.reached();
+        await pause.release;
+      }
       const id = `token-${tokens.length + 1}`;
       tokens.push({ ...token, id, revokedAt: null });
       return { id };
@@ -53,6 +74,7 @@ function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash:
       return live.filter((t) => t.refreshExpiresAt > now).length;
     },
   };
+  return store;
 }
 
 const verifier = "v".repeat(50);
@@ -324,5 +346,49 @@ describe("disconnect", () => {
 
     // Already disconnected: nothing left to revoke.
     assert.equal(await ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId }), 0);
+  });
+});
+
+describe("disconnect during a grant", () => {
+  function deferred() {
+    let resolve = () => {};
+    const promise = new Promise<void>((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  /** Runs `grant` until it is about to insert the new token, disconnects, then lets it finish. */
+  async function disconnectMidGrant(ctx: Awaited<ReturnType<typeof setup>>, grant: () => Promise<Awaited<ReturnType<typeof ctx.service.refreshAccessToken>>>) {
+    const reached = deferred();
+    const release = deferred();
+    ctx.store.pauseInsert = { reached: reached.resolve, release: release.promise };
+    const granting = grant();
+    await reached.promise;
+    const disconnecting = ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId });
+    release.resolve();
+    const granted = await granting;
+    await disconnecting;
+    return granted;
+  }
+
+  it("does not let a refresh in flight outlive the disconnect", async () => {
+    const ctx = await setup();
+    const first = await ctx.service.exchangeAuthorizationCode({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, code: ctx.code, codeVerifier: verifier, redirectUri, resource: null,
+    });
+    assert.ok(first.ok);
+    const refreshed = await disconnectMidGrant(ctx, () => ctx.service.refreshAccessToken({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, refreshToken: first.body.refresh_token, scope: null,
+    }));
+    assert.ok(refreshed.ok);
+    assert.equal(await ctx.service.verifyAccessToken(refreshed.body.access_token), null);
+  });
+
+  it("does not let a code exchange in flight outlive the disconnect", async () => {
+    const ctx = await setup();
+    const exchanged = await disconnectMidGrant(ctx, () => ctx.service.exchangeAuthorizationCode({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, code: ctx.code, codeVerifier: verifier, redirectUri, resource: null,
+    }));
+    assert.ok(exchanged.ok);
+    assert.equal(await ctx.service.verifyAccessToken(exchanged.body.access_token), null);
   });
 });
