@@ -5,7 +5,7 @@
 -- instante do evento na origem; evento mais antigo que `last_event_at` do
 -- direito fica no histórico com `applied = false`. Códigos de Módulo, status e
 -- origem vivem no catálogo em TypeScript, sem CHECK no banco.
--- Shared FE 0135 / BO 0128, same `when` (1801500000000): first apply wins.
+-- Shared FE 0140 / BO 0131, same `when` (1802000000000): first apply wins.
 
 CREATE TABLE IF NOT EXISTS "company_module_entitlements" (
   "company_id" uuid NOT NULL REFERENCES "companies"("id") ON DELETE CASCADE,
