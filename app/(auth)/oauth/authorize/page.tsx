@@ -75,7 +75,7 @@ function Eyebrow({ children, caution = false }: { children: React.ReactNode; cau
 
 export default async function Page({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = toSearchParams(await searchParams);
-  const { parsed, clientName } = await resolveAuthorizeRequest(params, await headers());
+  const { parsed, clientName, redirectUris } = await resolveAuthorizeRequest(params, await headers());
 
   if (!parsed.ok && parsed.kind === "redirect") {
     redirect(buildRedirect(parsed.redirectUri, { error: parsed.error, error_description: parsed.description, state: parsed.state }));
@@ -99,8 +99,11 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
   const actor = await getCurrentBackofficeActor();
   if (!actor) redirect(loginUrlWithReturn(`/oauth/authorize?${params}`));
 
-  // Branded by where the code goes, not by the self-registered name.
-  const identity = identifyClient(clientName ?? parsed.request.clientId, [parsed.request.redirectUri]);
+  // Branded by where the client can send codes (all its registered redirects,
+  // same rule as the connections list), never by the self-registered name.
+  const identity = identifyClient(clientName ?? parsed.request.clientId, redirectUris);
+  // The warning is about this request: the code is about to go to this computer.
+  const returnsLocally = identifyClient("", [parsed.request.redirectUri]).local;
   const client = identity.label;
   const items = consentItems(actor, parsed.request.scopes.includes(MCP_SCOPE_WRITE));
   const redirectHost = new URL(parsed.request.redirectUri).host;
@@ -119,7 +122,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<Sea
           </p>
         </div>
 
-        {identity.local ? (
+        {returnsLocally ? (
           <p className="flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
             Este app roda no seu computador. Autorize só se foi você quem iniciou a conexão agora.

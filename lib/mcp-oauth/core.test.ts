@@ -81,6 +81,11 @@ describe("parseScopes", () => {
     assert.deepEqual(parseScopes("backoffice:read backoffice:read"), { ok: true, scopes: ["backoffice:read"] });
     assert.deepEqual(parseScopes("backoffice:read admin"), { ok: false });
   });
+
+  it("ignores offline_access: refresh tokens are always issued", () => {
+    assert.deepEqual(parseScopes("backoffice:read offline_access"), { ok: true, scopes: ["backoffice:read"] });
+    assert.deepEqual(parseScopes("offline_access"), { ok: true, scopes: ["backoffice:read", "backoffice:write"] });
+  });
 });
 
 describe("validateClientRegistration", () => {

@@ -76,18 +76,24 @@ function guides(serverUrl: string): Guide[] {
       steps: [
         {
           title: "Ative o modo desenvolvedor",
-          description: "No ChatGPT, abra o menu da sua conta → Configurações → Segurança e login → Modo desenvolvedor e ative a opção.",
+          description: "No ChatGPT pelo navegador, abra Configurações → Apps → Configurações avançadas (Advanced settings) e ative o Modo desenvolvedor (Developer mode).",
           link: { label: "Abrir ChatGPT", href: "https://chatgpt.com/" },
+          note: "Precisa do ChatGPT Pro, Business ou Enterprise. No Pro o conector só consulta; no Business só admins do workspace usam o modo desenvolvedor; no Enterprise o admin libera para você. Não funciona no app de celular.",
         },
         {
-          title: "Crie a conexão",
-          description: "Abra Plugins, clique em + para criar um plugin, preencha os campos abaixo, escolha OAuth como autenticação e clique em Criar.",
-          link: { label: "Abrir plugins do ChatGPT", href: "https://chatgpt.com/plugins" },
+          title: "Crie o app",
+          description: "Ainda em Configurações → Apps, clique em Criar (Create). Preencha nome e endereço abaixo, escolha OAuth como autenticação e clique em Scan Tools.",
           server: true,
-          note: "Se o botão de criar não aparecer, confira se o modo desenvolvedor está ativo.",
+          note: "Se Criar não aparecer, o modo desenvolvedor não está ativo ou o seu plano não permite.",
         },
-        authorizeStep("ChatGPT"),
-        readyStep("ChatGPT", "https://chatgpt.com/"),
+        {
+          ...authorizeStep("ChatGPT"),
+          description: `${authorizeStep("ChatGPT").description} Depois, espere a varredura de ferramentas terminar e clique em Criar (Create).`,
+        },
+        {
+          ...readyStep("ChatGPT", "https://chatgpt.com/"),
+          description: `Abra uma conversa nova, escolha o app ${CONNECTOR_NAME} no menu de ferramentas e envie:`,
+        },
       ],
     },
     {

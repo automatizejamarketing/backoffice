@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { canDisconnect, MCP_PAGE_PERMISSION } from "@/lib/mcp/connections";
+import { isLockTimeout } from "@/lib/mcp-oauth/http";
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
 
 /** "Desconectar" on the Claude page: revokes every live grant of that person on that app. */
@@ -18,6 +19,11 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Só quem gerencia a equipe desconecta o app de outra pessoa." }, { status: 403 });
   }
 
-  const revoked = await mcpOauthService.disconnect({ actorEmail, clientId: body.clientId });
-  return NextResponse.json({ revoked });
+  try {
+    const revoked = await mcpOauthService.disconnect({ actorEmail, clientId: body.clientId });
+    return NextResponse.json({ revoked });
+  } catch (error) {
+    if (!isLockTimeout(error)) throw error;
+    return NextResponse.json({ error: "O app está renovando o acesso agora. Tente desconectar de novo em alguns segundos." }, { status: 503 });
+  }
 }

@@ -7,7 +7,7 @@ Conector MCP para o colaborador usar o backoffice pelo Claude (claude.ai, Claude
 A página **Conectar IA** do backoffice (`/ai`, no rodapé do menu) tem o guia passo a passo para Claude, ChatGPT e Claude Code, as perguntas de exemplo por permissão e as conexões ativas. Aparece para quem tem alguma ferramenta (`marketing:read`, que todo cargo com `whatsapp:campaigns` também tem).
 
 - Claude: Configurações → Conectores → Adicionar conector personalizado (a página abre esse formulário já preenchido). Nome `Backoffice Automatize`, URL `https://backoffice.automatizemarketing.com/api/mcp`. Depois Connect.
-- ChatGPT: ativar o modo desenvolvedor (Configurações → Segurança e login), Plugins → + → nome, URL e autenticação OAuth → Criar.
+- ChatGPT (só no navegador; Pro só leitura, Business só admins do workspace, Enterprise/Edu com liberação do admin): Configurações → Apps → Advanced settings → Developer mode; depois Apps → Create → nome, URL e OAuth → Scan Tools → autorizar → Create. Caminho conferido na ajuda da OpenAI (artigo 12584461) em 09/10/2026. O ChatGPT pode pedir o escopo `offline_access`: ele é aceito e ignorado (todo grant já tem refresh token).
 - Claude Code: `claude mcp add --transport http backoffice-automatize https://backoffice.automatizemarketing.com/api/mcp` e depois `/mcp` → Authenticate.
 
 Em todos, o app abre o login do backoffice (Google ou link por e-mail) e depois a tela de autorização, que mostra só o que o cargo da pessoa pode fazer (`consentItems`), avisa quando o retorno é para o próprio computador (Claude Code) e recusa cargos sem ferramenta. O app age com as permissões de quem autorizou. Cada chamada relê o cargo pelo e-mail: tirar alguém do backoffice corta o conector na hora.

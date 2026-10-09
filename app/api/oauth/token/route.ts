@@ -1,17 +1,12 @@
 import {
   clientCredentialsFrom,
   corsPreflight,
+  isLockTimeout,
   oauthJson,
   readFormBody,
   tokenErrorResponse,
 } from "@/lib/mcp-oauth/http";
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
-
-/** Another grant of the same person + app held the lock past `lock_timeout`. */
-function isLockTimeout(error: unknown): boolean {
-  const code = (e: unknown) => (e && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined);
-  return code(error) === "55P03" || code(error && typeof error === "object" && "cause" in error ? error.cause : undefined) === "55P03";
-}
 
 export async function POST(request: Request) {
   try {

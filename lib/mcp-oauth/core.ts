@@ -89,7 +89,9 @@ export function verifyPkceS256(verifier: string, challenge: string): boolean {
 export function parseScopes(
   raw: string | null | undefined,
 ): { ok: true; scopes: string[] } | { ok: false } {
-  const requested = (raw ?? "").split(/\s+/).filter(Boolean);
+  // offline_access asks for refresh tokens, which every grant here gets anyway;
+  // ChatGPT may send it, and rejecting it would fail the whole connection.
+  const requested = (raw ?? "").split(/\s+/).filter((scope) => scope && scope !== "offline_access");
   if (requested.length === 0) {
     return { ok: true, scopes: [...MCP_SCOPES] };
   }
