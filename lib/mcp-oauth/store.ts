@@ -19,6 +19,8 @@ type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
  * "Desconectar", and its new token would outlive the disconnect.
  */
 async function lockConnection(tx: Executor, actorEmail: string, clientId: string) {
+  // A frozen function holding the lock must not hang refreshes and disconnects for long.
+  await tx.execute(sql`set local lock_timeout = '5s'`);
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`mcp-oauth:${actorEmail}:${clientId}`}, 0))`);
 }
 
