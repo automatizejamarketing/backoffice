@@ -12,6 +12,7 @@ type MetaAssetsLimitsFormProps = {
   canEdit: boolean;
   adAccounts: number;
   identities: number;
+  onSaved?: () => void;
 };
 
 export function MetaAssetsLimitsForm({
@@ -19,6 +20,7 @@ export function MetaAssetsLimitsForm({
   canEdit,
   adAccounts,
   identities,
+  onSaved,
 }: MetaAssetsLimitsFormProps) {
   const updateLimits = useUpdateMetaAssetLimits(userId);
   const [adAccountLimit, setAdAccountLimit] = useState(String(adAccounts));
@@ -39,6 +41,7 @@ export function MetaAssetsLimitsForm({
         identityLimit: Number.parseInt(identityLimit, 10),
       });
       toast.success("Limites salvos");
+      onSaved?.();
     } catch (error) {
       toast.error(
         error instanceof Error && error.message === "invalid_limits"
@@ -50,7 +53,7 @@ export function MetaAssetsLimitsForm({
 
   return (
     <form
-      className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
         void handleSave();
@@ -68,7 +71,7 @@ export function MetaAssetsLimitsForm({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="meta-identity-limit">Limite de Identidades</Label>
+        <Label htmlFor="meta-identity-limit">Limite de identidades</Label>
         <Input
           id="meta-identity-limit"
           type="number"

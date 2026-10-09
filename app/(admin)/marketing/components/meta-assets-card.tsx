@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -32,6 +39,7 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
   const query = useMetaAssets(userId);
   const [requestOpen, setRequestOpen] = useState(false);
   const [defineOpen, setDefineOpen] = useState(false);
+  const [limitsOpen, setLimitsOpen] = useState(false);
 
   if (query.isLoading) {
     return (
@@ -62,7 +70,7 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-2">
+        <div className="space-y-1">
           <CardTitle>Ativos Meta</CardTitle>
           <CardDescription>{selectionCopy(data)}</CardDescription>
         </div>
@@ -71,6 +79,8 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
+                size="sm"
+                variant="outline"
                 disabled={!canDefineSelection(data)}
                 onClick={() => setDefineOpen(true)}
               >
@@ -78,10 +88,19 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
               </Button>
               <Button
                 type="button"
+                size="sm"
                 variant="outline"
                 onClick={() => setRequestOpen(true)}
               >
                 Pedir nova seleção
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setLimitsOpen(true)}
+              >
+                Redefinir limite de ativos
               </Button>
             </div>
             {data.connection.status === "reconnect_required" ? (
@@ -92,7 +111,7 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
           </div>
         ) : null}
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4">
         {data.connection.status === "reconnect_required" ? (
           <MetaTokenIssue
             userId={userId}
@@ -103,24 +122,48 @@ export function MetaAssetsCard({ userId }: MetaAssetsCardProps) {
           />
         ) : null}
 
-        <MetaAssetsLimitsForm
-          key={`${data.limits.adAccounts}-${data.limits.identities}`}
-          userId={userId}
-          canEdit={data.canEdit}
-          adAccounts={data.limits.adAccounts}
-          identities={data.limits.identities}
-        />
-
         {data.connection.status === "active" && data.connection.listsError ? (
           <p className="text-sm text-muted-foreground">
             {data.connection.listsError}
           </p>
         ) : null}
 
-        {data.granted && data.enabled ? (
-          <MetaAssetsLists granted={data.granted} enabled={data.enabled} />
-        ) : null}
+        {data.enabled ? (
+          <MetaAssetsLists
+            granted={data.granted}
+            enabled={data.enabled}
+            limits={data.limits}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Limite de contas de anúncios: {data.limits.adAccounts}. Limite de
+            identidades: {data.limits.identities}.
+          </p>
+        )}
       </CardContent>
+
+      {data.canEdit ? (
+        <Sheet open={limitsOpen} onOpenChange={setLimitsOpen}>
+          <SheetContent className="flex w-full flex-col gap-6 overflow-y-auto sm:max-w-md">
+            <SheetHeader className="pr-6 text-left">
+              <SheetTitle>Redefinir limite de ativos</SheetTitle>
+              <SheetDescription>
+                Defina quantas contas de anúncios e identidades este usuário pode
+                habilitar. Ao alterar os limites, uma nova seleção de ativos será
+                solicitada.
+              </SheetDescription>
+            </SheetHeader>
+            <MetaAssetsLimitsForm
+              key={`${data.limits.adAccounts}-${data.limits.identities}`}
+              userId={userId}
+              canEdit={data.canEdit}
+              adAccounts={data.limits.adAccounts}
+              identities={data.limits.identities}
+              onSaved={() => setLimitsOpen(false)}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : null}
 
       {data.canEdit ? (
         <RequestMetaAssetSelectionDialog
@@ -166,9 +209,7 @@ function selectionCopy(data: MetaAssetsResponse): string {
     const since = data.selection.since
       ? ` desde ${formatShortDateTimeInSaoPaulo(data.selection.since)}`
       : "";
-    const mode = data.selection.mode === "implicit" ? "implícita" : "explícita";
-    const who = data.selection.selectedBy ? ` (${data.selection.selectedBy})` : "";
-    return `Fixa${since} — ${mode}${who}`;
+    return `Seleção confirmada${since}`;
   }
   if (data.connection.status === "reconnect_required") {
     return "Conexão Meta inválida — peça a reconexão antes de listar os ativos.";

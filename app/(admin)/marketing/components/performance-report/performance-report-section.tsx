@@ -62,9 +62,9 @@ export function PerformanceReportSection({
             />
             <CardTitle>Relatório consolidado</CardTitle>
           </button>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Dados atuais da Meta. Só consulta a API ao gerar ou ao abrir pelo
-            Slack. Reabrir o link pode alterar os números da mensagem.
+          <p className="mt-1 max-w-prose text-xs text-muted-foreground">
+            Desempenho das contas e campanhas no período selecionado. Os dados
+            são consultados ao gerar o relatório e podem mudar a cada atualização.
           </p>
           {query.data ? (
             <p className="mt-1 text-xs text-muted-foreground">

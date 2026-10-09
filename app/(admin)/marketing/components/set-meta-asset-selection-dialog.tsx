@@ -7,13 +7,13 @@ import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   metaAssetSelectionErrorCopy,
 } from "@/lib/backoffice/meta-asset-mutation-plan";
@@ -65,15 +65,14 @@ export function SetMetaAssetSelectionDialog({
   enabled,
 }: SetMetaAssetSelectionDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>Definir seleção</DialogTitle>
-          <DialogDescription>
-            As mesmas etapas do modal do usuário, validadas contra os
-            concedidos ao vivo.
-          </DialogDescription>
-        </DialogHeader>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="flex w-full flex-col gap-6 sm:max-w-md">
+        <SheetHeader className="shrink-0 pr-6 text-left">
+          <SheetTitle>Definir seleção</SheetTitle>
+          <SheetDescription>
+            Escolha as contas de anúncios e identidades que este usuário pode usar.
+          </SheetDescription>
+        </SheetHeader>
         {open ? (
           <SelectionWizard
             userId={userId}
@@ -83,8 +82,8 @@ export function SetMetaAssetSelectionDialog({
             onDone={() => onOpenChange(false)}
           />
         ) : null}
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -222,7 +221,7 @@ function SelectionWizard({
 
   return (
     <>
-      <div className="flex gap-1.5" role="progressbar" aria-valuenow={steps.indexOf(currentStep)}>
+      <div className="flex shrink-0 gap-1.5" role="progressbar" aria-valuenow={steps.indexOf(currentStep)}>
         {steps.map((step, index) => (
           <div
             key={step}
@@ -234,8 +233,8 @@ function SelectionWizard({
           />
         ))}
       </div>
-      <p className="text-sm text-muted-foreground">{hintCopy(currentStep, limits)}</p>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <p className="shrink-0 text-sm text-muted-foreground">{hintCopy(currentStep, limits)}</p>
+      <div className="min-h-0 overflow-y-auto">
         <StepBody
           currentStep={currentStep}
           draft={draft}
@@ -253,11 +252,11 @@ function SelectionWizard({
         />
       </div>
       {alert ?? stepAlert ? (
-        <p className="text-sm font-medium text-destructive" role="alert">
+        <p className="shrink-0 text-sm font-medium text-destructive" role="alert">
           {alert ?? stepAlert}
         </p>
       ) : null}
-      <DialogFooter className="sm:justify-between">
+      <SheetFooter className="shrink-0 gap-2 sm:justify-between sm:space-x-0">
         {stepIndex > 0 ? (
           <Button
             type="button"
@@ -267,11 +266,10 @@ function SelectionWizard({
           >
             Voltar
           </Button>
-        ) : (
-          <span />
-        )}
+        ) : null}
         <Button
           type="button"
+          className="flex-1"
           onClick={() => void handleNext()}
           disabled={!canAdvance || submit.isPending}
         >
@@ -281,7 +279,7 @@ function SelectionWizard({
               ? "Definir seleção"
               : "Continuar"}
         </Button>
-      </DialogFooter>
+      </SheetFooter>
     </>
   );
 }

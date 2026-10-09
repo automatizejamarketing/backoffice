@@ -44,15 +44,15 @@ export function ClientReportPanel({ userId }: { userId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Relatório do cliente</CardTitle>
+        <CardTitle>Relatórios do cliente</CardTitle>
         <p className="text-xs text-muted-foreground">
-          O mesmo snapshot que o cliente recebeu. Sem recálculo ao vivo.
+          Histórico de relatórios com os dados registrados na geração.
         </p>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {error ? <p className="text-destructive">{error}</p> : null}
         {snapshots.length === 0 && !error ? (
-          <p className="text-muted-foreground">Nenhum snapshot ainda.</p>
+          <p className="text-muted-foreground">Nenhum relatório disponível ainda.</p>
         ) : null}
         {snapshots.map((snapshot) => (
           <div key={snapshot.id} className="rounded-md border p-3 space-y-1">

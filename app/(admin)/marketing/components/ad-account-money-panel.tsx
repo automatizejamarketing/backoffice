@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +34,7 @@ const TONE_BADGE: Record<
 function MoneyView({ data }: { data: AdAccountMoneyResponse }) {
   const view = describeAdAccountMoney(data);
   return (
-    <div className="space-y-2">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       {(view.typeLabel || view.status) && (
         <div className="flex flex-wrap items-center gap-2">
           {view.typeLabel && (
@@ -56,7 +56,7 @@ function MoneyView({ data }: { data: AdAccountMoneyResponse }) {
           {view.main.label && (
             <span className="text-sm text-muted-foreground">{view.main.label}</span>
           )}
-          <span className="min-w-0 break-words text-lg font-semibold text-foreground">
+          <span className="min-w-0 break-words text-sm font-semibold text-foreground">
             {view.main.value}
           </span>
         </div>
@@ -82,9 +82,11 @@ function MoneyView({ data }: { data: AdAccountMoneyResponse }) {
 export function AdAccountMoneyPanel({
   userId,
   accountId,
+  accountSelector,
 }: {
   userId: string;
   accountId: string;
+  accountSelector: ReactNode;
 }) {
   const headingId = useId();
   const query = useAdAccountMoney(userId, accountId);
@@ -104,11 +106,14 @@ export function AdAccountMoneyPanel({
   }
 
   return (
-    <section className="space-y-2" aria-labelledby={headingId}>
-      <h3 id={headingId} className="text-sm font-medium text-foreground">
+    <section className="flex flex-col gap-3 rounded-md border border-border bg-muted/30 p-3 lg:flex-row lg:items-center" aria-labelledby={headingId}>
+      <h3 id={headingId} className="sr-only">
         Saldo / fatura na Meta
       </h3>
-      <div className="rounded-md border border-border bg-muted/30 p-4">
+      <div className="w-full min-w-0 shrink-0 lg:w-[320px]">
+        {accountSelector}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
         {query.isPending ? (
           <p className="text-sm text-muted-foreground">Consultando a Meta…</p>
         ) : query.isError ? (
@@ -131,9 +136,9 @@ export function AdAccountMoneyPanel({
             </Button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="contents">
             <MoneyView data={query.data} />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2">
               <span className="text-xs text-muted-foreground">
                 Atualizado às {formatTimeInSaoPaulo(query.data.fetchedAt)}
               </span>

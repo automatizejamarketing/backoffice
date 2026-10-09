@@ -52,7 +52,7 @@ export function AdAccountSelector({
         }
       }}
     >
-      <SelectTrigger className="w-full min-w-[200px] max-w-[400px] py-2 data-[size=default]:h-14 sm:min-w-[280px] [&>span]:line-clamp-none [&>span]:min-w-0">
+      <SelectTrigger aria-label="Conta de anúncios" className="w-full min-w-0 max-w-[400px] [&>span]:line-clamp-none [&>span]:min-w-0">
         {/* O conteúdo vai como children do Value: sem children, o Radix espelha aqui o item
             inteiro do menu (avatar, nome, ID, selos), e o Value ignora `className`, então não
             dá para escondê-lo com `sr-only` — era o nome duplicado no gatilho. */}

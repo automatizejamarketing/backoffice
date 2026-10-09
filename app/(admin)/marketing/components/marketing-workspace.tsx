@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { BarChart3, FileText, Settings2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
 import { MarketingUsersPicker } from "./marketing-users-picker";
+import { MarketingAccountStatus } from "./marketing-account-status";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
@@ -370,16 +371,6 @@ export function MarketingWorkspace({
     };
   }, [metaAccount, selectedUser, adAccountsRefreshKey]);
 
-  const handleClearSelection = () => {
-    setSelectedUser(null);
-    setMetaAccount(null);
-    setAdAccounts([]);
-    setAdAccountsError(null);
-    setSelectedAccountId(null);
-    setSelectedCampaign(null);
-    setIsCampaignDetailOpen(false);
-  };
-
   const handleCampaignClick = (campaign: Campaign) => {
     setSelectedCampaign(campaign);
     setIsCampaignDetailOpen(true);
@@ -395,14 +386,54 @@ export function MarketingWorkspace({
     setCampaignsRefreshKey((prev) => prev + 1);
   };
 
+  const accountSelector = (
+    <AdAccountSelector
+      accounts={adAccounts.map((acc) => ({
+        id: acc.id,
+        name: acc.name ?? `Conta ${acc.account_id}`,
+        accountId: acc.account_id,
+        enabled: acc.enabled,
+        primary: acc.primary,
+      }))}
+      selectedAccountId={selectedAccountId}
+      onSelectAccount={(accountId) => {
+        setSelectedAccountId(accountId);
+        setSelectedCampaign(null);
+        setIsCampaignDetailOpen(false);
+      }}
+    />
+  );
+
+
+  const reportSection = selectedUser ? (
+    <section id="marketing-reports" aria-labelledby="marketing-reports-title" className="scroll-mt-28 space-y-4 border-t border-border pt-6 sm:scroll-mt-16">
+      <div className="space-y-1">
+        <h2 id="marketing-reports-title" className="text-lg font-semibold tracking-tight">Relatórios</h2>
+        <p className="text-sm text-muted-foreground">Consulte os dados consolidados e os relatórios enviados ao cliente.</p>
+      </div>
+      <PerformanceReportSection
+        userId={selectedUser.id}
+        accountId={deepLink.accountId}
+        campaignId={deepLink.campaignId}
+        datePreset={customRange ? null : datePreset}
+        since={customRange?.since}
+        until={customRange?.until}
+        defaultOpen={openReportFromSlack}
+        onOpenCampaign={handleOpenReportCampaign}
+      />
+      <ClientReportPanel userId={selectedUser.id} />
+    </section>
+  ) : null;
+
   return (
-    <div ref={workspaceRef} className="space-y-8">
+    <div ref={workspaceRef} className="flex min-w-0 flex-col gap-6">
       {showHeader && (
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Marketing</h1>
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Marketing</h1>
           <p className="text-sm text-muted-foreground">
-            Selecione um usuário com conta de marketing do Facebook conectada
-            para visualizar suas campanhas
+            {selectedUser
+              ? "Acompanhe as campanhas, consulte relatórios e gerencie o acesso à Meta."
+              : "Selecione um usuário para acompanhar suas campanhas e contas da Meta."}
           </p>
         </div>
       )}
@@ -418,261 +449,244 @@ export function MarketingWorkspace({
         </Card>
       )}
 
-      {selectedUser ? <MetaAssetsCard userId={selectedUser.id} /> : null}
-
       {selectedUser && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle>Detalhes do usuário</CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push(buildAudienceLibraryHref({ userId: selectedUser.id, accountId: selectedAccountId, embedded }))}
-              >
-                Públicos
-              </Button>
-              {showUserPicker && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleClearSelection}
-                >
-                  Buscar outro usuário
-                </Button>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <div className="flex items-center gap-4">
-                {selectedUser.image_url ? (
-                  <Image
-                    src={selectedUser.image_url}
-                    alt={selectedUser.email}
-                    width={64}
-                    height={64}
-                    className="h-16 w-16 rounded-full"
-                  />
-                ) : (
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-2xl font-medium text-muted-foreground">
-                    {selectedUser.email.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <h2 className="truncate text-xl font-bold text-foreground">
-                    {selectedUser.email}
-                  </h2>
-                  <p className="truncate text-sm text-muted-foreground">
-                    ID: {selectedUser.id}
-                  </p>
+        <>
+          <section aria-label="Cliente selecionado" className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-5">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              {selectedUser.image_url ? (
+                <Image
+                  src={selectedUser.image_url}
+                  alt={selectedUser.email}
+                  width={40}
+                  height={40}
+                  className="size-10 shrink-0 rounded-full"
+                />
+              ) : (
+                <div aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-lg font-medium text-muted-foreground">
+                  {selectedUser.email.charAt(0).toUpperCase()}
                 </div>
+              )}
+              <div className="min-w-0 space-y-1">
+                <h2 className="break-all text-lg font-semibold text-foreground">
+                  {selectedUser.email || "Cliente selecionado"}
+                </h2>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  {isLoadingMeta ? (
+                    <span>Verificando conexão...</span>
+                  ) : metaAccount ? (
+                    <>
+                      <Badge variant="outline" className="gap-1.5">
+                        <span className="size-1.5 rounded-full bg-success" aria-hidden />
+                        Meta conectada
+                      </Badge>
+                      {metaAccount.name ? <span>{metaAccount.name}</span> : null}
+                    </>
+                  ) : (
+                    <Badge variant="outline">Meta não conectada</Badge>
+                  )}
+                  <span className="break-all">ID: {selectedUser.id}</span>
+                </div>
+                <MarketingAccountStatus key={selectedUser.id} userId={selectedUser.id} />
               </div>
-
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push(buildAudienceLibraryHref({ userId: selectedUser.id, accountId: selectedAccountId, embedded }))}
+            >
+              Públicos
+            </Button>
+          </section>
+          <nav aria-label="Seções do marketing" className="sticky top-0 z-20 flex flex-wrap items-center gap-1 border-b border-border bg-background py-2">
+            {[
+              { href: `#${MARKETING_METRICS_ANCHOR}`, label: "Campanhas", Icon: BarChart3 },
+              { href: "#marketing-reports", label: "Relatórios", Icon: FileText },
+              { href: "#marketing-settings", label: "Configurações Meta", Icon: Settings2 },
+            ].map(({ href, label, Icon }) => (
+              <a
+                key={href}
+                href={href}
+                onClick={(event) => {
+                  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                  const section = document.getElementById(href.slice(1));
+                  if (!section) return;
+                  event.preventDefault();
+                  if (window.location.hash !== href) {
+                    window.history.pushState(null, "", href);
+                  }
+                  section.scrollIntoView({
+                    block: "start",
+                    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                      ? "instant"
+                      : "smooth",
+                  });
+                }}
+                className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Icon className="size-4" aria-hidden />
+                {label}
+              </a>
+            ))}
+          </nav>
+          <div
+            id={MARKETING_METRICS_ANCHOR}
+            ref={metricsSectionRef}
+            tabIndex={-1}
+            className="scroll-mt-28 space-y-4 outline-none sm:scroll-mt-16"
+          >
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold tracking-tight">Conta e campanhas</h2>
+              <p className="text-sm text-muted-foreground">Selecione a conta de anúncios para consultar o saldo e o desempenho.</p>
+            </div>
+            {!isLoadingMeta && !metaAccount ? (
+              <p className="rounded-md border border-border p-4 text-sm text-muted-foreground">
+                Este usuário ainda não tem uma conta de marketing do Facebook conectada.
+              </p>
+            ) : null}
+            {metaAccount && (
               <div className="space-y-2">
-                <h3 className="text-sm font-medium text-foreground">
-                  Status da conta de marketing do Facebook
-                </h3>
-                {isLoadingMeta ? (
+                {isLoadingAdAccounts ? (
                   <p className="text-sm text-muted-foreground">
-                    Verificando conexão...
+                    Carregando contas de anúncios...
                   </p>
-                ) : metaAccount ? (
-                  <div className="rounded-md border border-border bg-muted/30 p-4">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="default">Conectado</Badge>
-                      <p className="text-sm text-foreground">
-                        Usuário conectado a conta de marketing do Facebook
-                      </p>
-                    </div>
-                    {metaAccount.name && (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Nome: {metaAccount.name}
-                      </p>
-                    )}
-                    {metaAccount.facebookUserId && (
-                      <p className="text-xs text-muted-foreground">
-                        Facebook User ID: {metaAccount.facebookUserId}
-                      </p>
-                    )}
-                  </div>
+                ) : adAccountsError ? (
+                  <MetaTokenIssue
+                    userId={selectedUser.id}
+                    error={adAccountsError}
+                    onRetried={() =>
+                      setAdAccountsRefreshKey((k) => k + 1)
+                    }
+                  />
+                ) : adAccounts.length > 0 ? (
+                  selectedAccountId ? (
+                    <AdAccountMoneyPanel
+                      userId={selectedUser.id}
+                      accountId={selectedAccountId}
+                      accountSelector={accountSelector}
+                    />
+                  ) : (
+                    accountSelector
+                  )
                 ) : (
-                  <div className="rounded-md border border-border bg-muted/30 p-4">
-                    <p className="text-sm text-foreground">
-                      Usuário não conectado a conta de marketing do Facebook
-                    </p>
-                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Nenhuma conta de anúncios encontrada
+                  </p>
                 )}
               </div>
+            )}
+            <div className="rounded-lg border border-border bg-card px-4 py-1">
+              <PlaybookInsightsPanel
+                key={selectedUser.id}
+                userId={selectedUser.id}
+                accountId={selectedAccountId}
+              />
+            </div>
+            {selectedAccountId && (
+              <Card className="gap-0">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
+                  <div className="flex items-center gap-1.5">
+                    <CardTitle className="text-base font-semibold">Campanhas</CardTitle>
+                    <MarketingSortPopover
+                      sortMetric={sortMetric}
+                      sortOrder={sortOrder}
+                      onSortMetricChange={setSortMetric}
+                      onSortOrderChange={setSortOrder}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Select
+                      value={objectiveFilter}
+                      onValueChange={(value) =>
+                        setObjectiveFilter(value as CampaignObjectiveFilter)
+                      }
+                    >
+                      <SelectTrigger aria-label="Objetivo da campanha" className="w-[160px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {OBJECTIVE_GROUP_ORDER.map((group) => (
+                          <SelectItem key={group} value={group}>
+                            {OBJECTIVE_GROUP_LABELS[group]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
 
+                    <MetricColumnsSelector
+                      selectedMetricIds={selectedMetricIds}
+                      onChange={setSelectedMetricIds}
+                      options={MARKETING_TABLE_METRIC_OPTIONS}
+                      getLabel={getMetricLabel}
+                    />
+
+                    <DateFilter
+                      datePreset={datePreset}
+                      onDatePresetChange={(preset) => {
+                        setDatePreset(preset);
+                        setCustomRange(null);
+                      }}
+                      customRange={customRange}
+                      onCustomRangeChange={(range) => {
+                        setCustomRange(range);
+                        setDatePreset(null);
+                      }}
+                    />
+                    <Button
+                      onClick={() =>
+                        router.push(
+                          `${embedded ? "/embed" : ""}/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
+                        )
+                      }
+                      size="sm"
+                    >
+                      <Sparkles className="size-4" />
+                      Criar campanha com IA
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-4">
+                  <CampaignsTable
+                    accountId={selectedAccountId}
+                    userId={selectedUser.id}
+                    onCampaignClick={handleCampaignClick}
+                    refreshKey={campaignsRefreshKey}
+                    datePreset={datePreset}
+                    customRange={customRange}
+                    objectiveFilter={objectiveFilter}
+                    sortMetric={sortMetric}
+                    sortOrder={sortOrder}
+                    selectedMetricIds={selectedMetricIds}
+                    focusCampaignId={focusCampaignId}
+                    onReady={scrollToMetrics}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {!openReportFromSlack ? reportSection : null}
+
+          <section id="marketing-settings" aria-labelledby="marketing-settings-title" className="scroll-mt-28 space-y-4 border-t border-border pt-6 sm:scroll-mt-16">
+            <div className="space-y-1">
+              <h2 id="marketing-settings-title" className="text-lg font-semibold tracking-tight">Configurações Meta</h2>
+              <p className="text-sm text-muted-foreground">Gerencie os ativos habilitados e os acessos usados para publicar.</p>
+            </div>
+            <MetaAssetsCard key={selectedUser.id} userId={selectedUser.id} />
+            <div className="grid items-start gap-4 xl:grid-cols-2">
               <PublishHoldAlert userId={selectedUser.id} />
-
               {metaAccount ? (
                 <PartnerAccessPanel
                   userId={selectedUser.id}
                   metaAccount={metaAccount}
-                  onRetried={() =>
-                    setAdAccountsRefreshKey((key) => key + 1)
-                  }
-                />
-              ) : null}
-
-              <PlaybookInsightsPanel
-                userId={selectedUser.id}
-                accountId={selectedAccountId}
-              />
-
-              <ClientReportPanel userId={selectedUser.id} />
-
-              {metaAccount && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-foreground">
-                    Conta de anúncios
-                  </h3>
-                  {isLoadingAdAccounts ? (
-                    <p className="text-sm text-muted-foreground">
-                      Carregando contas de anúncios...
-                    </p>
-                  ) : adAccountsError ? (
-                    <MetaTokenIssue
-                      userId={selectedUser.id}
-                      error={adAccountsError}
-                      onRetried={() =>
-                        setAdAccountsRefreshKey((k) => k + 1)
-                      }
-                    />
-                  ) : adAccounts.length > 0 ? (
-                    <AdAccountSelector
-                      accounts={adAccounts.map((acc) => ({
-                        id: acc.id,
-                        name: acc.name ?? `Conta ${acc.account_id}`,
-                        accountId: acc.account_id,
-                        enabled: acc.enabled,
-                        primary: acc.primary,
-                      }))}
-                      selectedAccountId={selectedAccountId}
-                      onSelectAccount={(accountId) => {
-                        setSelectedAccountId(accountId);
-                        setSelectedCampaign(null);
-                        setIsCampaignDetailOpen(false);
-                      }}
-                    />
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma conta de anúncios encontrada
-                    </p>
-                  )}
-                </div>
-              )}
-              {metaAccount && selectedAccountId && !adAccountsError ? (
-                <AdAccountMoneyPanel
-                  userId={selectedUser.id}
-                  accountId={selectedAccountId}
+                  onRetried={() => setAdAccountsRefreshKey((key) => key + 1)}
                 />
               ) : null}
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {selectedUser ? (
-        <PerformanceReportSection
-          userId={selectedUser.id}
-          accountId={deepLink.accountId}
-          campaignId={deepLink.campaignId}
-          datePreset={customRange ? null : datePreset}
-          since={customRange?.since}
-          until={customRange?.until}
-          defaultOpen={openReportFromSlack}
-          onOpenCampaign={handleOpenReportCampaign}
-        />
-      ) : null}
-
-      {selectedAccountId && selectedUser && (
-        <Card
-          id={MARKETING_METRICS_ANCHOR}
-          ref={metricsSectionRef}
-          tabIndex={-1}
-          className={deepLink.view === "metrics" ? "scroll-mt-6 min-h-[calc(100dvh-3rem)]" : "scroll-mt-6"}
-        >
-          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              <CardTitle>Campanhas</CardTitle>
-              <MarketingSortPopover
-                sortMetric={sortMetric}
-                sortOrder={sortOrder}
-                onSortMetricChange={setSortMetric}
-                onSortOrderChange={setSortOrder}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select
-                value={objectiveFilter}
-                onValueChange={(value) =>
-                  setObjectiveFilter(value as CampaignObjectiveFilter)
-                }
-              >
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {OBJECTIVE_GROUP_ORDER.map((group) => (
-                    <SelectItem key={group} value={group}>
-                      {OBJECTIVE_GROUP_LABELS[group]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <MetricColumnsSelector
-                selectedMetricIds={selectedMetricIds}
-                onChange={setSelectedMetricIds}
-                options={MARKETING_TABLE_METRIC_OPTIONS}
-                getLabel={getMetricLabel}
-              />
-
-              <DateFilter
-                datePreset={datePreset}
-                onDatePresetChange={(preset) => {
-                  setDatePreset(preset);
-                  setCustomRange(null);
-                }}
-                customRange={customRange}
-                onCustomRangeChange={(range) => {
-                  setCustomRange(range);
-                  setDatePreset(null);
-                }}
-              />
-              <Button
-                onClick={() =>
-                  router.push(
-                    `${embedded ? "/embed" : ""}/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
-                  )
-                }
-                size="sm"
-              >
-                <Sparkles className="size-4" />
-                Criar campanha com IA
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <CampaignsTable
-              accountId={selectedAccountId}
-              userId={selectedUser.id}
-              onCampaignClick={handleCampaignClick}
-              refreshKey={campaignsRefreshKey}
-              datePreset={datePreset}
-              customRange={customRange}
-              objectiveFilter={objectiveFilter}
-              sortMetric={sortMetric}
-              sortOrder={sortOrder}
-              selectedMetricIds={selectedMetricIds}
-              focusCampaignId={focusCampaignId}
-              onReady={scrollToMetrics}
-            />
-          </CardContent>
-        </Card>
+            {metaAccount?.facebookUserId ? (
+              <p className="break-all text-xs text-muted-foreground">Facebook User ID: {metaAccount.facebookUserId}</p>
+            ) : null}
+          </section>
+        </>
       )}
 
       {selectedCampaign && selectedAccountId && selectedUser && (

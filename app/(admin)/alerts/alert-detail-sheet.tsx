@@ -286,53 +286,54 @@ function AlertDetail({
           </dl>
         ) : null}
 
-        {canWrite && pending ? (
-          <div className="space-y-2">
-            {actions.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                Diagnóstico — não há alteração automática na Meta.
-              </p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              {actions.map((action) => (
+        <div className="space-y-2">
+          {canWrite && pending && actions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Diagnóstico — não há alteração automática na Meta.
+            </p>
+          ) : null}
+          <div className="flex items-center gap-2">
+            {canWrite && pending ? (
+              <div className="flex min-w-0 flex-wrap gap-2">
+                {actions.map((action) => (
+                  <Button
+                    key={action.id}
+                    type="button"
+                    size="sm"
+                    variant={action.variant}
+                    disabled={busy}
+                    onClick={() => setApplyAction(action)}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
                 <Button
-                  key={action.id}
                   type="button"
                   size="sm"
-                  variant={action.variant}
+                  variant="outline"
                   disabled={busy}
-                  onClick={() => setApplyAction(action)}
+                  onClick={() =>
+                    void patchStatus("done", PLAYBOOK_DASHBOARD_COMPLETION_NOTE)
+                  }
                 >
-                  {action.label}
+                  Concluir
                 </Button>
-              ))}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  void patchStatus("done", PLAYBOOK_DASHBOARD_COMPLETION_NOTE)
-                }
-              >
-                Concluir
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => void patchStatus("dismissed")}
-              >
-                Dispensar
-              </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => void patchStatus("dismissed")}
+                >
+                  Dispensar
+                </Button>
+              </div>
+            ) : null}
+            <div className="ml-auto shrink-0">
+              <AlertMarketingLink row={row} />
             </div>
           </div>
-        ) : null}
-      </div>
-
-      <div className="border-t border-border/60 px-4 py-3 sm:px-6">
-        <AlertMarketingLink row={row} />
+        </div>
       </div>
 
       <AlertDialog

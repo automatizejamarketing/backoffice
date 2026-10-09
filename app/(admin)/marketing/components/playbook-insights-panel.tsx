@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { Collapsible } from "radix-ui";
+import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,7 +61,15 @@ export function PlaybookInsightsPanel({
   const applyAction = useApplyPlaybookInsight(userId, accountId);
   const insights = query.data ?? [];
   const [pending, setPending] = useState<PendingApply | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const busy = updateStatus.isPending || applyAction.isPending;
+  const countLabel = query.isLoading
+    ? "Carregando…"
+    : query.isError
+      ? "Indisponíveis"
+      : insights.length === 1
+        ? "1 aberta"
+        : `${insights.length} abertas`;
 
   const runApply = () => {
     if (!pending) return;
@@ -83,117 +93,119 @@ export function PlaybookInsightsPanel({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-foreground">
+    <Collapsible.Root open={expanded} onOpenChange={setExpanded}>
+      <Collapsible.Trigger className="flex w-full items-center gap-2 rounded-md py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <ChevronDown
+          className={`size-4 shrink-0 text-muted-foreground ${expanded ? "" : "-rotate-90"}`}
+          aria-hidden
+        />
+        <span className="text-sm font-medium text-foreground">
           Sugestões do playbook
-        </h3>
-        {insights.length > 0 && (
-          <Badge variant="secondary" className="text-xs">
-            {insights.length === 1
-              ? "1 aberta"
-              : `${insights.length} abertas`}
-          </Badge>
-        )}
-      </div>
+        </span>
+        <Badge variant="secondary" className="shrink-0 border-transparent bg-amber-500/20 text-xs text-amber-900 dark:bg-amber-500/25 dark:text-amber-300">
+          {countLabel}
+        </Badge>
+      </Collapsible.Trigger>
 
-      {query.isLoading ? (
-        <p className="text-sm text-muted-foreground">
-          Carregando sugestões...
-        </p>
-      ) : query.isError ? (
-        <p className="text-sm text-red-600">
-          {query.error instanceof Error
-            ? query.error.message
-            : "Falha ao carregar sugestões"}
-        </p>
-      ) : insights.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Nenhuma sugestão aberta para este cliente.
-        </p>
-      ) : (
-        <ul className="space-y-3">
-          {insights.map((insight) => {
-            const actions = listPlaybookApplyActions(insight);
-            return (
-              <li key={insight.id}>
-                <Card className="border-border/80 shadow-none">
-                  <CardHeader className="space-y-2 p-4 pb-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={`text-xs ${severityBadgeClass(insight.severity)}`}
-                      >
-                        {severityLabel(insight.severity)}
-                      </Badge>
-                      <CardTitle className="text-sm font-medium">
-                        {insight.title}
-                      </CardTitle>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {insight.entityName}
-                    </p>
-                  </CardHeader>
-                  <CardContent className="space-y-3 p-4 pt-0">
-                    <p className="text-sm text-foreground">{insight.evidence}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {insight.recommendation}
-                    </p>
-                    {actions.length === 0 && (
+      <Collapsible.Content className="pt-2">
+        {query.isLoading ? (
+          <p className="text-sm text-muted-foreground">
+            Carregando sugestões...
+          </p>
+        ) : query.isError ? (
+          <p className="text-sm text-red-600">
+            {query.error instanceof Error
+              ? query.error.message
+              : "Falha ao carregar sugestões"}
+          </p>
+        ) : insights.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhuma sugestão aberta para este cliente.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {insights.map((insight) => {
+              const actions = listPlaybookApplyActions(insight);
+              return (
+                <li key={insight.id}>
+                  <Card className="border-border/80 shadow-none">
+                    <CardHeader className="space-y-2 p-4 pb-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${severityBadgeClass(insight.severity)}`}
+                        >
+                          {severityLabel(insight.severity)}
+                        </Badge>
+                        <CardTitle className="text-sm font-medium">
+                          {insight.title}
+                        </CardTitle>
+                      </div>
                       <p className="text-xs text-muted-foreground">
-                        Diagnóstico — não há alteração automática na Meta.
+                        {insight.entityName}
                       </p>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                      {actions.map((action) => (
+                    </CardHeader>
+                    <CardContent className="space-y-3 p-4 pt-0">
+                      <p className="text-sm text-foreground">{insight.evidence}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {insight.recommendation}
+                      </p>
+                      {actions.length === 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Diagnóstico — não há alteração automática na Meta.
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {actions.map((action) => (
+                          <Button
+                            key={action.id}
+                            type="button"
+                            size="sm"
+                            variant={action.variant}
+                            disabled={busy}
+                            onClick={() => setPending({ insight, action })}
+                          >
+                            {action.label}
+                          </Button>
+                        ))}
                         <Button
-                          key={action.id}
                           type="button"
                           size="sm"
-                          variant={action.variant}
+                          variant="outline"
                           disabled={busy}
-                          onClick={() => setPending({ insight, action })}
+                          onClick={() =>
+                            updateStatus.mutate({
+                              insightId: insight.id,
+                              status: "done",
+                              reviewNote: "Tratado fora do botão de aplicar",
+                            })
+                          }
                         >
-                          {action.label}
+                          Já tratei
                         </Button>
-                      ))}
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() =>
-                          updateStatus.mutate({
-                            insightId: insight.id,
-                            status: "done",
-                            reviewNote: "Tratado fora do botão de aplicar",
-                          })
-                        }
-                      >
-                        Já tratei
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() =>
-                          updateStatus.mutate({
-                            insightId: insight.id,
-                            status: "dismissed",
-                          })
-                        }
-                      >
-                        Dispensar
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            updateStatus.mutate({
+                              insightId: insight.id,
+                              status: "dismissed",
+                            })
+                          }
+                        >
+                          Dispensar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Collapsible.Content>
 
       <AlertDialog
         open={pending !== null}
@@ -234,6 +246,6 @@ export function PlaybookInsightsPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </Collapsible.Root>
   );
 }
