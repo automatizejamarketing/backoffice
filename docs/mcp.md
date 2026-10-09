@@ -20,6 +20,10 @@ Em todos, o app abre o login do backoffice (Google ou link por e-mail) e depois 
 - Cada pessoa vê e desconecta as próprias conexões; quem tem `team:manage` (admin) vê as da equipe inteira e desconecta qualquer uma.
 - Também dá para desconectar removendo o conector no Claude.
 
+### Dado financeiro
+
+O conector não traz o financeiro da Automatize (faturamento, MRR, pagamentos): isso fica na tela Financeiro. O único valor em reais de receita que passa pelo MCP é a receita atribuída a uma campanha de WhatsApp (`get_whatsapp_campaign`), e só para quem passa no mesmo portão da tela Financeiro (`hasFinanceAccess`: `finance:view` **e** e-mail em `lib/auth/finance-access.ts`); os demais recebem `revenue: "restrito ao Financeiro"`, com envios, cliques, trials e contagem de pagamentos. Receita/compras/ROAS de Meta Ads são vendas dos clientes, não faturamento da Automatize, e as instruções do servidor dizem isso ao modelo. Ferramenta nova que devolva dinheiro da Automatize passa pelo mesmo portão (`lib/mcp/finance-guard.ts`).
+
 ## Ferramentas (campanhas de WhatsApp, permissão `whatsapp:campaigns`)
 
 | Ferramenta | O que faz |

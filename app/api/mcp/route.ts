@@ -27,6 +27,9 @@ const INSTRUCTIONS =
   "Para perguntas sobre a carteira comece por portfolio_performance; abra um cliente com get_client_campaigns só quando precisar do detalhe. " +
   "Valores de WhatsApp em reais. Valores de Meta Ads na moeda da conta: BRL quando o campo currency não vem; nunca some nem converta moedas diferentes. " +
   "Horários de Brasília (-03:00). " +
+  "Este conector não traz o financeiro da Automatize (faturamento, receita, MRR, pagamentos): se perguntarem, diga que isso fica na tela Financeiro do backoffice, " +
+  "para quem tem acesso, e não estime a partir de outros dados. Receita, compras e ROAS de Meta Ads são vendas dos clientes atribuídas aos anúncios deles, não faturamento da Automatize. " +
+  "Quando um campo vier \"restrito ao Financeiro\", diga que a pessoa não tem acesso a esse dado. " +
   "Responda em português do Brasil.";
 
 function inputSchema(schema: z.ZodObject): JsonSchemaType {
