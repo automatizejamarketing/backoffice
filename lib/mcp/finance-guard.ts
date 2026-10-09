@@ -33,12 +33,14 @@ export function campaignMetricsFor(actor: BackofficeActor, m: CampaignMetrics) {
 
 /**
  * Account alerts come from Automatize subscriptions. All are fixed sentences
- * without amounts except the card failure, which quotes the provider's free-text
- * reason and may carry the charged value. Without Financeiro access its numbers
- * are masked; the alert (status, that the payment failed, the reason in words)
- * stays. Playbook and drop alerts are about the client's own ad money.
+ * without amounts except the card failure, whose evidence quotes the provider's
+ * free-text reason ("Falha na cobrança de R$ 199,00", or the amount spelled
+ * out). Without Financeiro access that reason is replaced as a whole, keeping
+ * provider and status (enum words from our own template). Recommendations are
+ * fixed text; playbook and drop alerts are about the client's own ad money.
  */
-export function alertTextFor(actor: BackofficeActor, ruleId: string, text: string): string {
-  if (ruleId !== ACCOUNT_RULE_CARD_PAYMENT_FAILED || hasFinanceAccess(actor)) return text;
-  return text.replace(/\d(?:[\d.,]*\d)?/g, "•••");
+export function alertEvidenceFor(actor: BackofficeActor, ruleId: string, evidence: string): string {
+  if (ruleId !== ACCOUNT_RULE_CARD_PAYMENT_FAILED || hasFinanceAccess(actor)) return evidence;
+  const head = /^Assinatura [A-Za-z]+ [a-z_]+/.exec(evidence)?.[0] ?? "Assinatura";
+  return `${head} com cobrança no cartão que não passou. Motivo restrito ao Financeiro.`;
 }

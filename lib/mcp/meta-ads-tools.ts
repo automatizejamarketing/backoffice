@@ -12,7 +12,7 @@ import {
   ALERT_FAMILIES, listPendingAlerts, loadAccountCurrencies, loadAdAccountsByUser, loadClientLabels, loadCollectionIssues, loadPortfolioWindows, loadSpendByAccount,
   loadScopedMetaClientIds, loadSpendByUser, resolveConsultantScope, type AlertFamily,
 } from "./meta-ads-queries";
-import { alertTextFor } from "./finance-guard";
+import { alertEvidenceFor } from "./finance-guard";
 import { defineTool, type McpTool } from "./tool";
 
 /** Calendar day in Brasília, like every date the consultant sees in the backoffice. */
@@ -196,7 +196,7 @@ export const META_ADS_TOOLS: McpTool[] = [
         const group = byClient.get(r.userId) ?? { userId: r.userId, client: label?.client ?? r.userId, consultant: label?.consultant ?? null, alerts: [] };
         group.alerts.push({
           id: r.id, rule: playbookAlertRuleTitle(r.ruleId), severity: r.severity, status: r.status, title: r.title,
-          evidence: clip(alertTextFor(actor, r.ruleId, r.evidence)), recommendation: clip(alertTextFor(actor, r.ruleId, r.recommendation)),
+          evidence: clip(alertEvidenceFor(actor, r.ruleId, r.evidence)), recommendation: clip(r.recommendation),
           entity: { level: r.entityLevel, id: r.entityId, name: r.entityName }, createdAt: ymd(r.createdAt),
         });
         byClient.set(r.userId, group);
