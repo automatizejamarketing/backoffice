@@ -813,6 +813,13 @@
       "when": 1802000000000,
       "tag": "0131_company_module_entitlements",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1802100000000,
+      "tag": "0132_meta_ads_batches",
+      "breakpoints": true
     }
   ]
 }

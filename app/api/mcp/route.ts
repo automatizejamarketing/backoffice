@@ -8,10 +8,11 @@ import type { McpAuthExtra } from "@/lib/mcp-oauth/service";
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
 import { toCallToolResult, toErrorResult, toolAnnotations } from "@/lib/mcp/tool";
 import { META_ADS_TOOLS } from "@/lib/mcp/meta-ads-tools";
+import { META_BATCH_TOOLS } from "@/lib/mcp/meta-batch-tools";
 import { WHATSAPP_CAMPAIGN_TOOLS } from "@/lib/mcp/whatsapp-campaign-tools";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 
-/** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta; a client read can hit 5 ad accounts. */
+/** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta; a client read can hit 5 ad accounts; a batch runs for up to 60 s. */
 export const maxDuration = 120;
 
 const TOOL_RATE_LIMIT = { limit: 60, windowSeconds: 60 } as const;
@@ -22,9 +23,11 @@ const INSTRUCTIONS =
   "get_whatsapp_campaign até o template ficar APPROVED → send_whatsapp_campaign_test → set_whatsapp_campaign_audience → " +
   "preview_whatsapp_campaign_send → mostre a prévia e espere o usuário aprovar → confirm_whatsapp_campaign_send. " +
   "Nunca confirme envio, nem escolha horário, sem aprovação explícita do usuário. " +
-  "Meta Ads dos clientes (só leitura): list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
+  "Meta Ads dos clientes: list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
   "list_portfolio_alerts (alertas pendentes) e get_client_campaigns (campanhas, conjuntos ou anúncios de um cliente, ao vivo). " +
   "Para perguntas sobre a carteira comece por portfolio_performance; abra um cliente com get_client_campaigns só quando precisar do detalhe. " +
+  "Ações em Meta Ads (pausar, ativar, orçamento diário), de um ou de muitos clientes: preview_meta_batch → mostre a prévia e espere aprovação explícita → confirm_meta_batch; " +
+  "get_meta_batch mostra o resultado. Nunca confirme um lote sem o usuário aprovar aquela prévia. " +
   "Valores de WhatsApp em reais. Valores de Meta Ads na moeda da conta: BRL quando o campo currency não vem; nunca some nem converta moedas diferentes. " +
   "Horários de Brasília (-03:00). " +
   "Este conector não traz o financeiro da Automatize (faturamento, receita, MRR, pagamentos): se perguntarem, diga que isso fica na tela Financeiro do backoffice, " +
@@ -40,7 +43,7 @@ function inputSchema(schema: z.ZodObject): JsonSchemaType {
 
 const handler = createMcpHandler(
   (server) => {
-    for (const tool of [...WHATSAPP_CAMPAIGN_TOOLS, ...META_ADS_TOOLS]) {
+    for (const tool of [...WHATSAPP_CAMPAIGN_TOOLS, ...META_ADS_TOOLS, ...META_BATCH_TOOLS]) {
       server.registerTool(
         tool.name,
         { title: tool.title, description: tool.description, inputSchema: fromJsonSchema(inputSchema(tool.input)), annotations: toolAnnotations(tool) },

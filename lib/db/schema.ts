@@ -2230,6 +2230,52 @@ export const companyModuleEvent = pgTable(
 
 export type CompanyModuleEvent = InferSelectModel<typeof companyModuleEvent>;
 
+/**
+ * Lote de ações em Meta Ads pedido pelo MCP do backoffice (pausar, ativar, orçamento
+ * diário) para vários clientes de uma vez. A prévia guarda aqui o plano exato, com o
+ * estado lido da Meta; a confirmação executa este plano uma vez, e o resultado de cada
+ * item volta para `items`. `lease_until` impede duas execuções do mesmo lote ao mesmo
+ * tempo; um lote `partial` (o tempo da chamada acabou) continua de onde parou.
+ */
+export const META_ADS_BATCH_STATUS_VALUES = [
+  "previewed",
+  "running",
+  "partial",
+  "done",
+] as const;
+export type MetaAdsBatchStatus = (typeof META_ADS_BATCH_STATUS_VALUES)[number];
+
+export const metaAdsBatch = pgTable(
+  "meta_ads_batches",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    actorId: uuid("actor_id")
+      .notNull()
+      .references(() => backofficeUser.id),
+    note: text("note").notNull(),
+    status: varchar("status", { length: 16 })
+      .$type<MetaAdsBatchStatus>()
+      .notNull()
+      .default("previewed"),
+    items: jsonb("items").$type<Record<string, unknown>[]>().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    actorCreatedIdx: index("meta_ads_batches_actor_created_idx").on(
+      table.actorId,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type MetaAdsBatch = InferSelectModel<typeof metaAdsBatch>;
+
 // Instagram Account table for storing Instagram account connections
 export const instagramAccount = pgTable(
   "instagram_accounts",

@@ -13,10 +13,12 @@ mock.module("@/lib/db", () => ({ db: forbidden, postgresClient: forbidden }));
 let resolveConsultantScope: typeof import("./meta-ads-queries").resolveConsultantScope;
 let tools: typeof import("./meta-ads-tools").META_ADS_TOOLS;
 let whatsappTools: typeof import("./whatsapp-campaign-tools").WHATSAPP_CAMPAIGN_TOOLS;
+let batchTools: typeof import("./meta-batch-tools").META_BATCH_TOOLS;
 before(async () => {
   ({ resolveConsultantScope } = await import("./meta-ads-queries"));
   ({ META_ADS_TOOLS: tools } = await import("./meta-ads-tools"));
   ({ WHATSAPP_CAMPAIGN_TOOLS: whatsappTools } = await import("./whatsapp-campaign-tools"));
+  ({ META_BATCH_TOOLS: batchTools } = await import("./meta-batch-tools"));
 });
 
 const actor = (role: BackofficeActor["role"], assignedUserIds?: string[]): BackofficeActor =>
@@ -48,7 +50,18 @@ describe("Meta Ads MCP scope", () => {
   });
 
   it("describes on the Claude page exactly the permissions the tools check", () => {
-    const toolPermissions = new Set([...tools, ...whatsappTools].map(t => t.permission));
+    const toolPermissions = new Set([...tools, ...whatsappTools, ...batchTools].map(t => t.permission));
     assert.deepEqual([...toolPermissions].sort(), MCP_CAPABILITIES.map(c => c.permission).sort());
+  });
+
+  it("refuses a batch with a client outside the portfolio before any IO, and only confirm writes", async () => {
+    const consultant = actor("marketing_consultant", [assigned]);
+    const preview = batchTools.find(t => t.name === "preview_meta_batch")!;
+    await assert.rejects(
+      preview.run(consultant, { note: "pausa geral", items: [{ userId: other, level: "campaign", id: "123", action: "pause" }] }),
+      /Fora da sua carteira/,
+    );
+    assert.deepEqual(batchTools.filter(t => t.write).map(t => [t.name, t.destructive]), [["confirm_meta_batch", true]]);
+    assert.ok(batchTools.every(t => t.permission === "marketing:write"));
   });
 });

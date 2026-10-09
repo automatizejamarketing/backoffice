@@ -54,8 +54,20 @@ export const MCP_CAPABILITIES: McpCapability[] = [
       "Quais alertas críticos estão abertos na minha carteira?",
       "Abra as campanhas do cliente X e mostre os anúncios que mais gastaram.",
     ],
-    limit: "Só leitura: a IA não pausa, não ativa e não muda orçamento na Meta.",
+    limit: "Leitura de todos os clientes que você acompanha, sem gastar cota da Meta na carteira.",
     consent: ["Consultar Meta Ads, resultados e alertas dos clientes que você acompanha"],
+  },
+  {
+    permission: "marketing:write",
+    title: "Ações em Meta Ads",
+    examples: [
+      "Pause as campanhas com custo por resultado 50% acima da semana passada em toda a carteira.",
+      "Suba em 20% o orçamento diário das campanhas com ROAS acima de 3.",
+      "Reative os conjuntos que pausei ontem do cliente X.",
+    ],
+    limit: "Pausar, ativar e orçamento diário, até 100 itens por vez, só depois que você aprova a prévia. Não cria campanhas nem mexe em criativos.",
+    consent: [],
+    consentWrite: ["Pausar, ativar e mudar o orçamento diário de campanhas, conjuntos e anúncios, sempre depois de mostrar a prévia e você confirmar"],
   },
   {
     permission: "whatsapp:campaigns",

@@ -42,7 +42,7 @@ A linha é dinheiro (decisão do JP em 09/10/2026): contagens e status (pagantes
 
 Envio real só acontece com `confirm_whatsapp_campaign_send`, que o Claude deve chamar apenas depois que o colaborador aprovar a prévia. A conexão pode ser só leitura (`backoffice:read`): ferramentas de escrita exigem `backoffice:write`.
 
-## Ferramentas de Meta Ads (só leitura, permissão `marketing:read`)
+## Ferramentas de Meta Ads: leitura (permissão `marketing:read`)
 
 Para o consultor analisar muitos clientes e campanhas de uma vez. Nenhuma escreve na Meta.
 
@@ -62,13 +62,31 @@ Limites e decisões:
 - `get_client_campaigns` lê as contas de anúncio que a conexão enxerga, as de maior gasto recente no histórico primeiro (até 5, as mesmas que a carteira soma; com mais de 5 contas, as que sobram vêm listadas em `notes`, com o id para `adAccountId`; o ranking usa o gasto do período ou dos últimos 30 dias, o que for maior), 2 contas por vez com 2 a 3 chamadas cada, com cache de 5 minutos por consulta (`lib/meta-business/read-cache.ts`). Uma conta com erro aparece em `accounts[].error` e as outras respondem. Até 200 linhas por período, ordenadas por gasto.
 - Moedas nunca são somadas: a carteira agrega por cliente e moeda (cliente com conta BRL e USD sai em duas linhas) e os totais vêm por moeda; em `get_client_campaigns` a linha de conta não BRL traz `currency`.
 - Respostas enxutas: `portfolio_performance` devolve 50 clientes por padrão (até 200); `list_portfolio_alerts` corta evidência e recomendação em 400 caracteres.
-- Ficou para a v2: ações (pausar, ativar, orçamento), detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série).
+- Ficou para depois: detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série).
+
+## Ferramentas de Meta Ads: ações em lote (permissão `marketing:write`)
+
+Pausar, ativar e mudar o orçamento diário de campanhas, conjuntos e anúncios de muitos clientes numa vez só, sempre com prévia e confirmação.
+
+| Ferramenta | O que faz |
+| --- | --- |
+| `preview_meta_batch` | Até 100 itens `{ userId, level, id, action, dailyBudget? }` e um motivo. Lê cada objeto na Meta (50 por chamada, com `?ids=`), confere que ele está numa conta de anúncio que a conexão do cliente enxerga e devolve antes → depois, avisos (orçamento mudando 50% ou mais; ativar sob um nível pausado) e itens pulados com o motivo. Guarda o plano em `meta_ads_batches` e devolve `batchId` (vale 15 minutos). Não escreve na Meta |
+| `confirm_meta_batch` | Executa o plano da prévia, uma vez. Relê cada objeto: se já está no alvo, `already_applied`; se mudou desde a prévia, `changed_since_preview` (não sobrescreve); senão escreve com o token do cliente (`metaWrite`, com retry de throttle) e registra no histórico com o motivo |
+| `get_meta_batch` | Situação e resultado item a item de um lote |
+
+Decisões:
+- O alvo é sempre absoluto (status X, orçamento Y em centavos). Percentual é calculado pela IA antes da prévia, e a prévia mostra o valor final. Repetir a execução de um item não muda nada.
+- Orçamento onde a Meta o guarda: campanha em CBO com orçamento diário, conjunto em ABO com orçamento diário. Orçamento total, troca CBO ↔ ABO e moedas sem centavos (só BRL, USD e EUR passam) ficam para a tela.
+- Só quem gerou a prévia confirma. A confirmação assume o lote numa única escrita (`status` + `lease_until`), então duas confirmações ao mesmo tempo nunca rodam o mesmo lote; uma execução abandonada pode ser retomada quando a `lease_until` vence.
+- Cada chamada executa por até 60 s, 3 clientes em paralelo e uma escrita por vez por cliente (um token). Se o tempo acabar, o lote fica `partial` e `confirm_meta_batch` com o mesmo `batchId` continua de onde parou, por até 1 hora depois da confirmação.
+- Registro: status vai para `backoffice_audit_logs` + `meta_tracking_change_events` (`recordStatusChangeAudit`, o mesmo da tela); orçamento vai para `meta_tracking_change_events` (`config_change`). O motivo leva `[lote <id> via MCP]`.
+- Teste de integração com Postgres local descartável e a Meta simulada: `META_BATCH_TEST_URL=postgres://postgres@localhost:55432/postgres bun test lib/mcp/meta-batch.integration.test.ts` (rode sozinho: ele substitui módulos com `mock.module`).
 
 ## Como funciona
 
 - OAuth 2.1 próprio (`lib/mcp-oauth`), portado do conector Mat do frontend: registro dinâmico, PKCE S256, refresh com rotação. Tabelas `backoffice_mcp_oauth_*` (migration 0130), separadas das do Mat: token de cliente nunca autentica o backoffice.
 - `/api/mcp` usa `mcp-handler`; as ferramentas ficam em `lib/mcp/` e chamam as mesmas funções da tela.
-- As ferramentas de Meta Ads ficam em `lib/mcp/meta-ads-*.ts`: `metrics` (períodos, variação e ordenação, puro), `queries` (banco, com o escopo do consultor), `live` (Graph) e `tools`.
+- As ferramentas de Meta Ads ficam em `lib/mcp/meta-ads-*.ts`: `metrics` (períodos, variação e ordenação, puro), `queries` (banco, com o escopo do consultor), `live` (Graph) e `tools`. As ações em lote ficam em `lib/mcp/meta-batch-core.ts` (regras puras), `meta-batch.ts` (Meta e banco) e `meta-batch-tools.ts`.
 - Para adicionar uma área nova, crie as ferramentas com `defineTool` e a permissão RBAC correspondente e registre em `app/api/mcp/route.ts`. Descreva a área em `MCP_CAPABILITIES` (`lib/mcp/connections.ts`): é o que a página Conectar IA e a tela de autorização mostram, e um teste falha se as permissões das ferramentas e as da página divergirem.
 
 ## Links rastreados
