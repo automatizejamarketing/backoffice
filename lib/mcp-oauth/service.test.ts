@@ -9,12 +9,27 @@ import {
   type TokenRow,
 } from "./service";
 
-function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash: string; refreshTokenHash: string })[] } {
+type MemoryStore = McpOauthStore & {
+  tokens: (TokenRow & { accessTokenHash: string; refreshTokenHash: string })[];
+  /** Set to hold the next insertToken: `reached` fires there, it waits for `release`. */
+  pauseInsert: { reached: () => void; release: Promise<void> } | null;
+};
+
+function memoryStore(): MemoryStore {
   const clients = new Map<string, StoredClient>();
   const codes = new Map<string, CodeRow & { usedAt: Date | null }>();
   const tokens: (TokenRow & { accessTokenHash: string; refreshTokenHash: string })[] = [];
-  return {
+  // One transaction at a time: the database version locks per person + app,
+  // which is stricter than needed here but gives the same ordering.
+  let queue: Promise<unknown> = Promise.resolve();
+  const store: MemoryStore = {
     tokens,
+    pauseInsert: null,
+    transaction(fn) {
+      const run = queue.then(() => fn(store));
+      queue = run.catch(() => undefined);
+      return run;
+    },
     async getClient(id) {
       return clients.get(id) ?? null;
     },
@@ -31,6 +46,12 @@ function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash:
       return row;
     },
     async insertToken(token) {
+      const pause = store.pauseInsert;
+      if (pause) {
+        store.pauseInsert = null;
+        pause.reached();
+        await pause.release;
+      }
       const id = `token-${tokens.length + 1}`;
       tokens.push({ ...token, id, revokedAt: null });
       return { id };
@@ -44,7 +65,16 @@ function memoryStore(): McpOauthStore & { tokens: (TokenRow & { accessTokenHash:
       row.revokedAt = now;
       return row;
     },
+    async revokeConnection(actorEmail, clientId, now) {
+      for (const code of codes.values()) {
+        if (code.actorEmail === actorEmail && code.clientId === clientId && !code.usedAt) code.usedAt = now;
+      }
+      const live = tokens.filter((t) => t.actorEmail === actorEmail && t.clientId === clientId && !t.revokedAt);
+      for (const t of live) t.revokedAt = now;
+      return live.filter((t) => t.refreshExpiresAt > now).length;
+    },
   };
+  return store;
 }
 
 const verifier = "v".repeat(50);
@@ -250,6 +280,19 @@ describe("refreshAccessToken", () => {
     assert.ok(!widened.ok && widened.error === "invalid_scope");
   });
 
+  it("keeps the grant's scopes when a refresh asks only for offline_access", async () => {
+    const { service, clientId, first } = await grant();
+    const narrowed = await service.refreshAccessToken({
+      credentials: { clientId, clientSecret: null }, refreshToken: first.refresh_token, scope: "backoffice:read",
+    });
+    assert.ok(narrowed.ok);
+    const kept = await service.refreshAccessToken({
+      credentials: { clientId, clientSecret: null }, refreshToken: narrowed.body.refresh_token, scope: "offline_access",
+    });
+    assert.ok(kept.ok);
+    assert.equal(kept.body.scope, "backoffice:read");
+  });
+
   it("rejects expired refresh tokens", async () => {
     const clock = { now: new Date("2026-09-13T12:00:00Z") };
     const ctx = await setup(clock);
@@ -286,5 +329,79 @@ describe("verifyAccessToken", () => {
     assert.ok(first.ok);
     clock.now = new Date("2026-09-13T13:01:00Z");
     assert.equal(await ctx.service.verifyAccessToken(first.body.access_token), null);
+  });
+});
+
+describe("disconnect", () => {
+  it("cuts the access and refresh tokens and burns a pending consent, only for that person and app", async () => {
+    const ctx = await setup();
+    const exchange = (clientId: string, code: string) => ctx.service.exchangeAuthorizationCode({
+      credentials: { clientId, clientSecret: null }, code, codeVerifier: verifier, redirectUri, resource: null,
+    });
+    const first = await exchange(ctx.clientId, ctx.code);
+    assert.ok(first.ok);
+    // Another colleague on the same app, and a consent given just before the click.
+    const colleagueCode = await ctx.service.issueAuthorizationCode({ request: ctx.request, actorEmail: "ana@example.com" });
+    const colleague = await exchange(ctx.clientId, colleagueCode);
+    assert.ok(colleague.ok);
+    const pending = await ctx.service.issueAuthorizationCode({ request: ctx.request, actorEmail: "bernardo@example.com" });
+
+    assert.equal(await ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId }), 1);
+
+    assert.equal(await ctx.service.verifyAccessToken(first.body.access_token), null);
+    const refresh = await ctx.service.refreshAccessToken({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, refreshToken: first.body.refresh_token, scope: null,
+    });
+    assert.ok(!refresh.ok && refresh.error === "invalid_grant");
+    const late = await exchange(ctx.clientId, pending);
+    assert.ok(!late.ok && late.error === "invalid_grant");
+    assert.equal((await ctx.service.verifyAccessToken(colleague.body.access_token))?.extra.actorEmail, "ana@example.com");
+
+    // Already disconnected: nothing left to revoke.
+    assert.equal(await ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId }), 0);
+  });
+});
+
+describe("disconnect during a grant", () => {
+  function deferred() {
+    let resolve = () => {};
+    const promise = new Promise<void>((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  /** Runs `grant` until it is about to insert the new token, disconnects, then lets it finish. */
+  async function disconnectMidGrant(ctx: Awaited<ReturnType<typeof setup>>, grant: () => Promise<Awaited<ReturnType<typeof ctx.service.refreshAccessToken>>>) {
+    const reached = deferred();
+    const release = deferred();
+    ctx.store.pauseInsert = { reached: reached.resolve, release: release.promise };
+    const granting = grant();
+    await reached.promise;
+    const disconnecting = ctx.service.disconnect({ actorEmail: "bernardo@example.com", clientId: ctx.clientId });
+    release.resolve();
+    const granted = await granting;
+    await disconnecting;
+    return granted;
+  }
+
+  it("does not let a refresh in flight outlive the disconnect", async () => {
+    const ctx = await setup();
+    const first = await ctx.service.exchangeAuthorizationCode({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, code: ctx.code, codeVerifier: verifier, redirectUri, resource: null,
+    });
+    assert.ok(first.ok);
+    const refreshed = await disconnectMidGrant(ctx, () => ctx.service.refreshAccessToken({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, refreshToken: first.body.refresh_token, scope: null,
+    }));
+    assert.ok(refreshed.ok);
+    assert.equal(await ctx.service.verifyAccessToken(refreshed.body.access_token), null);
+  });
+
+  it("does not let a code exchange in flight outlive the disconnect", async () => {
+    const ctx = await setup();
+    const exchanged = await disconnectMidGrant(ctx, () => ctx.service.exchangeAuthorizationCode({
+      credentials: { clientId: ctx.clientId, clientSecret: null }, code: ctx.code, codeVerifier: verifier, redirectUri, resource: null,
+    }));
+    assert.ok(exchanged.ok);
+    assert.equal(await ctx.service.verifyAccessToken(exchanged.body.access_token), null);
   });
 });

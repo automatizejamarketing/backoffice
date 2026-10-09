@@ -1,6 +1,7 @@
 import {
   clientCredentialsFrom,
   corsPreflight,
+  isLockTimeout,
   oauthJson,
   readFormBody,
   tokenErrorResponse,
@@ -8,6 +9,18 @@ import {
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
 
 export async function POST(request: Request) {
+  try {
+    return await grant(request);
+  } catch (error) {
+    if (!isLockTimeout(error)) throw error;
+    return oauthJson(
+      { error: "temporarily_unavailable", error_description: "Try again in a few seconds." },
+      { status: 503, headers: { "Retry-After": "2" } },
+    );
+  }
+}
+
+async function grant(request: Request) {
   const form = await readFormBody(request);
   const credentials = clientCredentialsFrom(request, form);
 

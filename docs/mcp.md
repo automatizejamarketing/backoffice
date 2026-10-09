@@ -4,11 +4,21 @@ Conector MCP para o colaborador usar o backoffice pelo Claude (claude.ai, Claude
 
 ## Conectar
 
-1. No Claude: Configurações → Conectores → Adicionar conector personalizado.
-2. URL: `https://backoffice.automatizemarketing.com/api/mcp`
-3. O Claude abre o login do backoffice (Google ou link por e-mail) e depois a tela "Conectar … ao backoffice". Clique em Autorizar.
+A página **Conectar IA** do backoffice (`/ai`, no rodapé do menu) tem o guia passo a passo para Claude, ChatGPT e Claude Code, as perguntas de exemplo por permissão e as conexões ativas. Aparece para quem tem alguma ferramenta (`marketing:read`, que todo cargo com `whatsapp:campaigns` também tem).
 
-O Claude age com as permissões de quem autorizou. Cada chamada relê o cargo pelo e-mail: tirar alguém do backoffice corta o conector na hora. Para desconectar, remova o conector no Claude.
+- Claude: Configurações → Conectores → Adicionar conector personalizado (a página abre esse formulário já preenchido). Nome `Backoffice Automatize`, URL `https://backoffice.automatizemarketing.com/api/mcp`. Depois Connect.
+- ChatGPT (só no navegador; Pro só leitura, Business só admins do workspace, Enterprise/Edu com liberação do admin): Configurações → Apps → Advanced settings → Developer mode; depois Apps → Create → nome, URL e OAuth → Scan Tools → autorizar → Create. Caminho conferido na ajuda da OpenAI (artigo 12584461) em 09/10/2026. `offline_access` é anunciado em `scopes_supported` e aceito sem dar acesso nenhum (todo grant já tem refresh token); pedido sozinho na autorização vale só leitura, e no refresh mantém os escopos do grant.
+- Claude Code: `claude mcp add --transport http backoffice-automatize https://backoffice.automatizemarketing.com/api/mcp` e depois `/mcp` → Authenticate.
+
+Em todos, o app abre o login do backoffice (Google ou link por e-mail) e depois a tela de autorização, que mostra só o que o cargo da pessoa pode fazer (`consentItems`), avisa quando o retorno é para o próprio computador (Claude Code) e recusa cargos sem ferramenta. O app age com as permissões de quem autorizou. Cada chamada relê o cargo pelo e-mail: tirar alguém do backoffice corta o conector na hora.
+
+### Conexões ativas e Desconectar
+
+- Uma conexão é a dupla pessoa + app (`actor_email` + `client_id`) com algum token ainda utilizável (`revoked_at` nulo e refresh não vencido). Cada refresh revoga a linha anterior e cria outra, então as linhas da dupla são o histórico da conexão: "Primeira conexão" é a primeira linha (a tabela não distingue revogação por refresh de revogação por Desconectar, então o início da conexão atual não é recuperável), "Última atividade" a mais recente. O app renova ao usar, no máximo uma vez por hora (validade do access token), então a última atividade tem essa precisão.
+- Desconectar (`DELETE /api/backoffice/mcp-connections`) revoga todos os tokens vivos da dupla e queima os códigos de autorização não usados, para um consentimento dado segundos antes não virar token depois. Access e refresh param na hora.
+- Troca de código, refresh e Desconectar da mesma dupla rodam em transação com `pg_advisory_xact_lock` (`lib/mcp-oauth/store.ts`): sem isso, um refresh que já revogou a linha antiga e ainda não inseriu a nova passaria invisível pelo Desconectar e o token novo continuaria valendo.
+- Cada pessoa vê e desconecta as próprias conexões; quem tem `team:manage` (admin) vê as da equipe inteira e desconecta qualquer uma.
+- Também dá para desconectar removendo o conector no Claude.
 
 ## Ferramentas (campanhas de WhatsApp, permissão `whatsapp:campaigns`)
 
@@ -53,7 +63,7 @@ Limites e decisões:
 - OAuth 2.1 próprio (`lib/mcp-oauth`), portado do conector Mat do frontend: registro dinâmico, PKCE S256, refresh com rotação. Tabelas `backoffice_mcp_oauth_*` (migration 0130), separadas das do Mat: token de cliente nunca autentica o backoffice.
 - `/api/mcp` usa `mcp-handler`; as ferramentas ficam em `lib/mcp/` e chamam as mesmas funções da tela.
 - As ferramentas de Meta Ads ficam em `lib/mcp/meta-ads-*.ts`: `metrics` (períodos, variação e ordenação, puro), `queries` (banco, com o escopo do consultor), `live` (Graph) e `tools`.
-- Para adicionar uma área nova, crie as ferramentas com `defineTool` e a permissão RBAC correspondente e registre em `app/api/mcp/route.ts`.
+- Para adicionar uma área nova, crie as ferramentas com `defineTool` e a permissão RBAC correspondente e registre em `app/api/mcp/route.ts`. Descreva a área em `MCP_CAPABILITIES` (`lib/mcp/connections.ts`): é o que a página Conectar IA e a tela de autorização mostram, e um teste falha se as permissões das ferramentas e as da página divergirem.
 
 ## Links rastreados
 

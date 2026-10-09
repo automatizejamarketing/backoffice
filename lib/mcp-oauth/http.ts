@@ -100,11 +100,18 @@ export function clientCredentialsFrom(
 export async function resolveAuthorizeRequest(
   params: URLSearchParams,
   headers: Headers,
-): Promise<{ parsed: AuthorizeParseResult; clientName: string | null }> {
+): Promise<{ parsed: AuthorizeParseResult; clientName: string | null; redirectUris: string[] }> {
   const clientId = params.get("client_id");
   const client = clientId ? await mcpOauthService.getClient(clientId) : null;
   return {
     parsed: parseAuthorizeRequest(params, client, resolveIssuer(headers)),
     clientName: client?.clientName ?? null,
+    redirectUris: client?.redirectUris ?? [],
   };
+}
+
+/** Another grant of the same person + app held the connection lock past `lock_timeout`. */
+export function isLockTimeout(error: unknown): boolean {
+  const code = (e: unknown) => (e && typeof e === "object" && "code" in e ? (e as { code: unknown }).code : undefined);
+  return code(error) === "55P03" || code(error && typeof error === "object" && "cause" in error ? error.cause : undefined) === "55P03";
 }
