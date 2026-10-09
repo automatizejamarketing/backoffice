@@ -280,6 +280,19 @@ describe("refreshAccessToken", () => {
     assert.ok(!widened.ok && widened.error === "invalid_scope");
   });
 
+  it("keeps the grant's scopes when a refresh asks only for offline_access", async () => {
+    const { service, clientId, first } = await grant();
+    const narrowed = await service.refreshAccessToken({
+      credentials: { clientId, clientSecret: null }, refreshToken: first.refresh_token, scope: "backoffice:read",
+    });
+    assert.ok(narrowed.ok);
+    const kept = await service.refreshAccessToken({
+      credentials: { clientId, clientSecret: null }, refreshToken: narrowed.body.refresh_token, scope: "offline_access",
+    });
+    assert.ok(kept.ok);
+    assert.equal(kept.body.scope, "backoffice:read");
+  });
+
   it("rejects expired refresh tokens", async () => {
     const clock = { now: new Date("2026-09-13T12:00:00Z") };
     const ctx = await setup(clock);

@@ -4,6 +4,11 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 export const MCP_SCOPE_READ = "backoffice:read";
 export const MCP_SCOPE_WRITE = "backoffice:write";
 export const MCP_SCOPES = [MCP_SCOPE_READ, MCP_SCOPE_WRITE] as const;
+/**
+ * Asks for refresh tokens, which every grant here gets anyway. Advertised and
+ * accepted (ChatGPT checks for it) but never stored: it grants no access.
+ */
+export const OFFLINE_ACCESS_SCOPE = "offline_access";
 
 /**
  * OAuth 2.1 authorization server for the backoffice MCP connector — the pure part.
@@ -49,7 +54,7 @@ export function buildAuthorizationServerMetadata(issuer: string) {
     grant_types_supported: [...GRANT_TYPES],
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: [...TOKEN_ENDPOINT_AUTH_METHODS],
-    scopes_supported: [...MCP_SCOPES],
+    scopes_supported: [...MCP_SCOPES, OFFLINE_ACCESS_SCOPE],
   };
 }
 
@@ -86,14 +91,22 @@ export function verifyPkceS256(verifier: string, challenge: string): boolean {
 
 // ───────────────────────── scopes ─────────────────────────
 
+/**
+ * No scope at all means everything (the original contract). A request with
+ * only `offline_access` asked for no access scope, so it gets `onlyOfflineAccess`:
+ * read-only on authorization, the grant's own scopes on refresh.
+ */
 export function parseScopes(
   raw: string | null | undefined,
+  onlyOfflineAccess: readonly string[] = [MCP_SCOPE_READ],
 ): { ok: true; scopes: string[] } | { ok: false } {
-  // offline_access asks for refresh tokens, which every grant here gets anyway;
-  // ChatGPT may send it, and rejecting it would fail the whole connection.
-  const requested = (raw ?? "").split(/\s+/).filter((scope) => scope && scope !== "offline_access");
-  if (requested.length === 0) {
+  const all = (raw ?? "").split(/\s+/).filter(Boolean);
+  if (all.length === 0) {
     return { ok: true, scopes: [...MCP_SCOPES] };
+  }
+  const requested = all.filter((scope) => scope !== OFFLINE_ACCESS_SCOPE);
+  if (requested.length === 0) {
+    return { ok: true, scopes: [...onlyOfflineAccess] };
   }
   const unique = [...new Set(requested)];
   const supported = new Set<string>(MCP_SCOPES);

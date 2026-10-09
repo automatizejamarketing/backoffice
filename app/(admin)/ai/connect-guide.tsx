@@ -78,7 +78,7 @@ function guides(serverUrl: string): Guide[] {
           title: "Ative o modo desenvolvedor",
           description: "No ChatGPT pelo navegador, abra Configurações → Apps → Configurações avançadas (Advanced settings) e ative o Modo desenvolvedor (Developer mode).",
           link: { label: "Abrir ChatGPT", href: "https://chatgpt.com/" },
-          note: "Precisa do ChatGPT Pro, Business ou Enterprise. No Pro o conector só consulta; no Business só admins do workspace usam o modo desenvolvedor; no Enterprise o admin libera para você. Não funciona no app de celular.",
+          note: "Precisa do ChatGPT Pro, Business ou Enterprise/Edu. No Pro o conector só consulta; no Business só admins do workspace usam o modo desenvolvedor; no Enterprise/Edu o admin libera para você. Não funciona no app de celular.",
         },
         {
           title: "Crie o app",

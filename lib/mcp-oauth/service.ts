@@ -289,7 +289,7 @@ export function createMcpOauthService(
         const granted = previous.scope.split(" ");
         let scopes = granted;
         if (scope) {
-          const requested = parseScopes(scope);
+          const requested = parseScopes(scope, granted);
           if (!requested.ok || requested.scopes.some((s) => !granted.includes(s))) {
             return tokenError("invalid_scope", "Requested scope exceeds the grant.");
           }

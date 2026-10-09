@@ -52,6 +52,7 @@ describe("metadata", () => {
     assert.equal(meta.token_endpoint, "https://app.example/api/oauth/token");
     assert.equal(meta.registration_endpoint, "https://app.example/api/oauth/register");
     assert.deepEqual(meta.code_challenge_methods_supported, ["S256"]);
+    assert.deepEqual(meta.scopes_supported, ["backoffice:read", "backoffice:write", "offline_access"]);
     assert.equal(mcpResourceUrl("https://app.example/"), "https://app.example/api/mcp");
   });
 });
@@ -82,9 +83,11 @@ describe("parseScopes", () => {
     assert.deepEqual(parseScopes("backoffice:read admin"), { ok: false });
   });
 
-  it("ignores offline_access: refresh tokens are always issued", () => {
+  it("accepts offline_access without granting anything for it", () => {
     assert.deepEqual(parseScopes("backoffice:read offline_access"), { ok: true, scopes: ["backoffice:read"] });
-    assert.deepEqual(parseScopes("offline_access"), { ok: true, scopes: ["backoffice:read", "backoffice:write"] });
+    assert.deepEqual(parseScopes("backoffice:read backoffice:write offline_access"), { ok: true, scopes: ["backoffice:read", "backoffice:write"] });
+    // Only offline_access asked for no access: read-only, never the write default.
+    assert.deepEqual(parseScopes("offline_access"), { ok: true, scopes: ["backoffice:read"] });
   });
 });
 
