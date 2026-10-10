@@ -2233,9 +2233,9 @@ export type CompanyModuleEvent = InferSelectModel<typeof companyModuleEvent>;
 /**
  * Lote de ações em Meta Ads pedido pelo MCP do backoffice (pausar, ativar, orçamento
  * diário) para vários clientes de uma vez. A prévia guarda aqui o plano exato, com o
- * estado lido da Meta; a confirmação executa este plano uma vez, e o resultado de cada
- * item volta para `items`. `lease_until` impede duas execuções do mesmo lote ao mesmo
- * tempo; um lote `partial` (o tempo da chamada acabou) continua de onde parou.
+ * estado lido da Meta; a aprovação no backoffice executa este plano uma vez, e o
+ * resultado de cada item volta para `items`. `run_id` + `lease_until` identificam a
+ * única execução que pode gravar; um lote `partial` continua de onde parou.
  */
 export const META_ADS_BATCH_STATUS_VALUES = [
   "previewed",
@@ -2259,6 +2259,7 @@ export const metaAdsBatch = pgTable(
       .default("previewed"),
     items: jsonb("items").$type<Record<string, unknown>[]>().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    runId: uuid("run_id"),
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),

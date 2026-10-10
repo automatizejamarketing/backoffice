@@ -1,40 +1,56 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
 import { db } from "@/lib/db";
+import { createAdSetEditLog, createCampaignEditLog } from "@/lib/db/admin-queries";
 import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
-import { metaAdsBatch, type MetaAdsBatch } from "@/lib/db/schema";
+import { metaAdsBatch, metaTrackingAccountCoverage, type MetaAdsBatch } from "@/lib/db/schema";
 import { metaApiCall } from "@/lib/meta-business/api";
+import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { mapErrorKind } from "@/lib/meta-business/insights/envelope";
-import { metaWrite } from "@/lib/meta-business/write-retry";
+import { isRetryableMetaThrottle } from "@/lib/meta-business/write-retry";
 import { buildInternalChangeEvent } from "@/lib/meta-tracking/internal-change-event";
+import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
 import { loadClientLabels } from "./meta-ads-queries";
 import {
-  actId, batchStatusAfterRun, decideAtConfirm, describeItem, objectKey, pendingItems, planItem, writeBody,
-  type BatchItemInput, type BatchLevel, type MetaObjectState, type PlannedItem,
+  actId, auditPendingItems, batchStatusAfterRun, decideAtRun, describeItem, objectKey, pendingItems, planItem, writeBody,
+  type BatchItemInput, type BatchLevel, type ClientAccounts, type MetaObjectState, type PlannedItem,
 } from "./meta-batch-core";
 
 /**
- * Lote de ações em Meta Ads pelo MCP: prévia (lê a Meta e guarda o plano) → confirmação
- * (executa o plano uma vez) → resultado. Escreve com o token do próprio cliente, como as
- * telas do backoffice, e registra cada mudança no mesmo stream de auditoria delas.
+ * Lote de ações em Meta Ads: o MCP prepara a prévia (lê a Meta e guarda o plano) e devolve
+ * um link; a pessoa abre o backoffice, revisa e aprova — e é essa aprovação, na sessão dela
+ * no navegador, que executa o plano. A IA nunca executa sozinha. Escreve com o token do
+ * próprio cliente, como as telas do backoffice, e registra cada mudança no mesmo histórico.
  */
 
-/** A prévia vale 15 minutos; um lote interrompido pelo tempo da chamada pode continuar por 1 hora. */
+/** A prévia vale 15 minutos; um lote interrompido pode continuar por 1 hora depois da aprovação. */
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
-/** Tempo de execução por chamada, abaixo do maxDuration da rota (120 s), com folga para um retry de throttle. */
-const RUN_BUDGET_MS = 60_000;
+/**
+ * Itens só começam até 150 s de execução. Um item pode levar ~75 s (retry de objeto ocupado da
+ * Meta), então a execução termina antes de 300 s, o maxDuration da rota de execução.
+ */
+const START_BUDGET_MS = 150_000;
+/** Maior que o maxDuration: uma execução viva nunca perde a vez; a morta libera em 330 s. */
+const LEASE_SQL = sql`now() + interval '330 seconds'`;
 /** Clientes em paralelo; dentro de um cliente (um token), uma escrita por vez. */
 const CLIENTS_IN_PARALLEL = 3;
+/** Contas vistas na coleta dos últimos 90 dias definem quem mais "é dono" de uma conta. */
+const OWNERSHIP_WINDOW_DAYS = 90;
 
+/**
+ * Campos por nível. Cada lista tem um campo que só existe naquele tipo de objeto (objective,
+ * optimization_goal, creative): um id de conjunto pedido como campanha falha na leitura e o
+ * item é pulado, em vez de ser tratado e auditado no nível errado.
+ */
 const FIELDS: Record<BatchLevel, string> = {
-  campaign: "id,name,status,effective_status,account_id,daily_budget,lifetime_budget",
-  adset: "id,name,status,effective_status,account_id,campaign_id,daily_budget,lifetime_budget,campaign{daily_budget,lifetime_budget}",
-  ad: "id,name,status,effective_status,account_id,campaign_id,adset_id",
+  campaign: "id,name,status,effective_status,account_id,daily_budget,lifetime_budget,objective",
+  adset: "id,name,status,effective_status,account_id,campaign_id,daily_budget,lifetime_budget,optimization_goal,campaign{daily_budget,lifetime_budget}",
+  ad: "id,name,status,effective_status,account_id,campaign_id,adset_id,creative{id}",
 };
 
 type RawObject = {
@@ -58,9 +74,20 @@ function errorText(error: unknown): string {
   return mapped.metaMessage ? `${mapped.message} (${mapped.metaMessage})` : mapped.message;
 }
 
+const graphCode = (error: unknown) => (error instanceof GraphApiError ? error.errorReturn.data?.code : undefined);
+
+/** Limite da Meta ou token inválido: vale para o cliente inteiro, não para um objeto. Pausa e deixa retomar. */
+const isClientWideError = (error: unknown) => isRetryableMetaThrottle(error) || graphCode(error) === 190;
+
+/** Erro de objeto (não existe, sem acesso, campo de outro tipo): só esse item. */
+const isObjectError = (error: unknown) => [100, 10, 200, 803].includes(graphCode(error) ?? -1);
+
+class ClientPaused extends Error {}
+
 /**
- * Lê objetos de um nível, 50 por chamada (`?ids=`). Um id sem acesso derruba a leitura
- * múltipla inteira, então nesse caso cai para um a um: o que falhar fica de fora do mapa.
+ * Lê objetos de um nível, 50 por chamada (`?ids=`). Um id sem acesso derruba a leitura múltipla
+ * inteira, então nesse caso (e só nesse) cai para um a um. Limite da Meta ou token inválido
+ * sobem como ClientPaused, sem disparar mais chamadas.
  */
 async function readObjects(accessToken: string, level: BatchLevel, ids: string[]): Promise<Map<string, MetaObjectState>> {
   const found = new Map<string, MetaObjectState>();
@@ -70,15 +97,24 @@ async function readObjects(accessToken: string, level: BatchLevel, ids: string[]
     try {
       const res = await metaApiCall<Record<string, RawObject>>({ method: "GET", path: "", params: `ids=${chunk.join(",")}&${fields}`, accessToken });
       for (const raw of Object.values(res)) if (raw?.id) found.set(raw.id, normalize(raw));
-    } catch {
+    } catch (error) {
+      if (!isObjectError(error)) throw isClientWideError(error) ? new ClientPaused(errorText(error)) : error;
       for (const id of chunk) {
-        try {
-          found.set(id, normalize(await metaApiCall<RawObject>({ method: "GET", path: id, params: fields, accessToken })));
-        } catch { /* sem acesso ou não existe: o item explica */ }
+        const object = await readOne(accessToken, level, id);
+        if (object) found.set(id, object);
       }
     }
   }
   return found;
+}
+
+async function readOne(accessToken: string, level: BatchLevel, id: string): Promise<MetaObjectState | undefined> {
+  try {
+    return normalize(await metaApiCall<RawObject>({ method: "GET", path: id, params: `fields=${encodeURIComponent(FIELDS[level])}`, accessToken }));
+  } catch (error) {
+    if (isObjectError(error)) return undefined;
+    throw isClientWideError(error) ? new ClientPaused(errorText(error)) : error;
+  }
 }
 
 async function readItems(accessToken: string, items: { level: BatchLevel; id: string }[]): Promise<Map<string, MetaObjectState>> {
@@ -91,6 +127,22 @@ async function readItems(accessToken: string, items: { level: BatchLevel; id: st
   return byKey;
 }
 
+/**
+ * Contas que também aparecem, na coleta recente, em algum cliente que quem pede não acompanha.
+ * Uma conexão de agência enxerga contas de outros negócios: sem isto, um consultor pausaria a
+ * campanha de um cliente fora da carteira passando o id de um cliente dele.
+ */
+async function sharedOutsidePortfolio(actor: BackofficeActor, accountIds: string[]): Promise<Set<string>> {
+  if (accountIds.length === 0) return new Set();
+  const c = metaTrackingAccountCoverage;
+  const since = new Date(Date.now() - OWNERSHIP_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const rows = await db
+    .selectDistinct({ accountId: c.accountId, userId: c.userId })
+    .from(c)
+    .where(and(inArray(c.accountId, accountIds), gte(c.businessDate, since)));
+  return new Set(rows.filter(r => !canAccessMarketingUser(actor, r.userId)).map(r => r.accountId));
+}
+
 async function inGroups<T>(items: T[], size: number, run: (item: T) => Promise<void>) {
   for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(run));
 }
@@ -101,7 +153,9 @@ function groupByClient<T extends { userId: string }>(items: T[]): [string, T[]][
   return [...groups];
 }
 
-async function describeBatch(row: Pick<MetaAdsBatch, "id" | "status" | "note" | "expiresAt" | "confirmedAt" | "finishedAt">, items: PlannedItem[]) {
+export const approvalUrl = (origin: string, batchId: string) => `${origin.replace(/\/$/, "")}/lotes/${batchId}`;
+
+export async function describeBatch(row: Pick<MetaAdsBatch, "id" | "status" | "note" | "expiresAt" | "confirmedAt" | "finishedAt">, items: PlannedItem[]) {
   const labels = await loadClientLabels([...new Set(items.map(i => i.userId))]);
   const count = (predicate: (i: PlannedItem) => boolean) => items.filter(predicate).length;
   return {
@@ -109,7 +163,7 @@ async function describeBatch(row: Pick<MetaAdsBatch, "id" | "status" | "note" | 
     status: row.status,
     note: row.note,
     expiresAt: row.status === "previewed" ? row.expiresAt.toISOString() : undefined,
-    confirmedAt: row.confirmedAt?.toISOString(),
+    approvedAt: row.confirmedAt?.toISOString(),
     finishedAt: row.finishedAt?.toISOString(),
     summary: {
       total: items.length,
@@ -120,12 +174,19 @@ async function describeBatch(row: Pick<MetaAdsBatch, "id" | "status" | "note" | 
       changedSincePreview: count(i => i.outcome === "changed_since_preview"),
       failed: count(i => i.outcome === "failed"),
       pending: pendingItems(items).length,
+      auditPending: auditPendingItems(items).length,
     },
     items: items.map((item, index) => describeItem(item, index, labels.get(item.userId)?.client ?? item.userId)),
   };
 }
 
-export async function previewMetaBatch(actor: BackofficeActor, input: { items: BatchItemInput[]; note: string }) {
+function requireDatabaseActor(actor: BackofficeActor) {
+  // Admin só da allowlist não tem linha em backoffice_users: o lote precisa de um dono real.
+  if (actor.source !== "database") throw new Error("Cadastre seu usuário na Equipe do backoffice para usar ações em lote.");
+}
+
+export async function previewMetaBatch(actor: BackofficeActor, input: { items: BatchItemInput[]; note: string }, origin: string) {
+  requireDatabaseActor(actor);
   const outside = [...new Set(input.items.map(i => i.userId))].filter(userId => !canAccessMarketingUser(actor, userId));
   if (outside.length) throw new Error(`Fora da sua carteira: ${outside.join(", ")}.`);
   const keys = input.items.map(objectKey);
@@ -136,7 +197,7 @@ export async function previewMetaBatch(actor: BackofficeActor, input: { items: B
   const indexed = input.items.map((item, index) => ({ ...item, index }));
   await inGroups(groupByClient(indexed), CLIENTS_IN_PARALLEL, async ([userId, entries]) => {
     let failure: string | null = null;
-    let accounts = new Map<string, string | null>();
+    let accounts: ClientAccounts = { allowed: new Map(), shared: new Set(), listed: false };
     let objects = new Map<string, MetaObjectState>();
     try {
       const token = await getUserAccessTokenByUserId(userId);
@@ -148,17 +209,25 @@ export async function previewMetaBatch(actor: BackofficeActor, input: { items: B
           tokenKind: connection.tokenKind, bisuAppScopedId: connection.bisuAppScopedId,
           clientBusinessId: connection.clientBusinessId, connectionName: connection.name,
         });
-        accounts = new Map((profile.adaccounts?.data ?? []).map(a => [actId(a.account_id ?? a.id)!, a.currency ?? null]));
+        const visible = new Map((profile.adaccounts?.data ?? []).map(a => [actId(a.account_id ?? a.id)!, a.currency ?? null]));
+        accounts = { allowed: visible, shared: await sharedOutsidePortfolio(actor, [...visible.keys()]), listed: visible.size > 0 };
         objects = await readItems(token.accessToken, entries);
       }
     } catch (error) {
-      failure = `Não foi possível ler a Meta deste cliente: ${errorText(error)}`;
+      failure = error instanceof ClientPaused
+        ? `A Meta limitou as chamadas deste cliente agora (${error.message}). Gere a prévia de novo em alguns minutos.`
+        : `Não foi possível ler a Meta deste cliente: ${errorText(error)}`;
     }
     for (const { index, ...item } of entries) {
       const plan = planItem(item, objects.get(objectKey(item)), accounts);
       planned[index] = failure ? { ...plan, plan: "skip", skipReason: failure, warning: undefined } : plan;
     }
   });
+
+  // Prévias vencidas há mais de um dia não servem para nada: limpa as desta pessoa.
+  await db.delete(metaAdsBatch).where(and(
+    eq(metaAdsBatch.actorId, actor.id), eq(metaAdsBatch.status, "previewed"), lt(metaAdsBatch.expiresAt, sql`now() - interval '1 day'`),
+  ));
 
   const runnable = planned.some(i => i.plan === "run");
   const [row] = runnable
@@ -171,51 +240,80 @@ export async function previewMetaBatch(actor: BackofficeActor, input: { items: B
     row ?? { id: "", status: "previewed", note: input.note.trim(), expiresAt: new Date(), confirmedAt: null, finishedAt: null },
     planned,
   );
-  return row
-    ? { ...described, next: "Mostre esta prévia ao usuário (itens, avisos e pulados) e só chame confirm_meta_batch com este batchId depois de aprovação explícita." }
-    : { ...described, batchId: null, expiresAt: undefined, next: "Nada a executar: todos os itens foram pulados (veja o motivo de cada um)." };
+  if (!row) return { ...described, batchId: null, expiresAt: undefined, next: "Nada a executar: todos os itens foram pulados (veja o motivo de cada um)." };
+  return {
+    ...described,
+    approvalUrl: approvalUrl(origin, row.id),
+    next:
+      "Nada mudou na Meta ainda. Mostre o resumo ao usuário (itens, avisos e pulados) e envie o approvalUrl: ele abre o backoffice, revisa e clica em Aprovar e executar. " +
+      "Depois use get_meta_batch com este batchId para ver o resultado. A prévia vale 15 minutos.",
+  };
 }
 
-async function audit(actor: BackofficeActor, batch: { id: string; note: string }, item: PlannedItem, appliedToMeta: boolean, errorMessage?: string) {
+async function audit(actor: BackofficeActor, batch: { id: string; note: string }, item: PlannedItem, appliedToMeta: boolean, errorMessage?: string): Promise<boolean> {
   const note = `${batch.note} [lote ${batch.id.slice(0, 8)} via MCP]`;
   const occurredAt = new Date();
+  const accountId = item.accountId!;
   try {
     if (item.target.status) {
-      await recordStatusChangeAudit({
-        entity: item.level, backofficeUserEmail: actor.email, targetUserId: item.userId, accountId: item.accountId!,
+      const result = await recordStatusChangeAudit({
+        entity: item.level, backofficeUserEmail: actor.email, targetUserId: item.userId, accountId,
         objectId: item.id, objectName: item.name, campaignId: item.campaignId, adsetId: item.adsetId,
         previousStatus: item.before.status, newStatus: item.target.status, note, occurredAt, appliedToMeta, errorMessage,
       });
-      return;
+      return !result.auditLogFailed;
     }
+    // Orçamento: o log legado (é o que as abas de histórico das telas leem) + o evento no stream, com a ponte.
+    const log = item.level === "campaign"
+      ? await createCampaignEditLog({
+        backofficeUserEmail: actor.email, targetUserId: item.userId, campaignId: item.id, accountId, campaignName: item.name ?? undefined,
+        previousBudgetMode: "CBO", newBudgetMode: "CBO", previousDailyBudget: item.before.dailyBudget, newDailyBudget: item.target.dailyBudget,
+        note, appliedToMeta, errorMessage,
+      })
+      : await createAdSetEditLog({
+        backofficeUserEmail: actor.email, targetUserId: item.userId, adsetId: item.id, accountId, campaignId: item.campaignId ?? undefined,
+        adsetName: item.name ?? undefined, previousDailyBudget: item.before.dailyBudget ?? undefined, newDailyBudget: item.target.dailyBudget,
+        note, appliedToMeta, errorMessage,
+      });
     const event = buildInternalChangeEvent({
-      source: "backoffice_admin", userId: item.userId, accountId: item.accountId!, entityLevel: item.level,
+      source: "backoffice_admin", userId: item.userId, accountId, entityLevel: item.level,
       entityId: item.id, entityName: item.name, campaignId: item.campaignId, adsetId: item.adsetId,
       changeKind: "config_change", changes: [{ field: "daily_budget", old: item.before.dailyBudget, new: item.target.dailyBudget }],
       actorEmail: actor.email, note, occurredAt, appliedToMeta, errorMessage,
+      legacy: log?.id ? { table: item.level === "campaign" ? "campaign_edit_logs" : "adset_edit_logs", id: log.id } : null,
     });
     if (event.ok && event.event) await recordInternalChangeEvent(event.event);
+    return Boolean(log?.id) && event.ok;
   } catch (error) {
-    // A mudança já está na conta do cliente; a falha de registro não pode esconder isso.
+    // A mudança já está na conta do cliente; a falha de registro fica marcada e é refeita na retomada.
     console.error("[meta-batch] falha ao registrar auditoria", item.level, item.id, error);
+    return false;
   }
 }
 
 /** Por que um lote não pôde ser assumido para execução. */
 function refusal(row: MetaAdsBatch | undefined, actor: BackofficeActor): string {
-  if (!row || row.actorId !== actor.id) return "Lote não encontrado (só quem gerou a prévia pode confirmar).";
-  if (row.status === "done") return "Este lote já foi executado. Use get_meta_batch para ver o resultado.";
-  if (row.status === "running") return "Este lote está em execução agora. Use get_meta_batch em instantes.";
-  if (row.status === "previewed") return "A prévia venceu (vale 15 minutos). Gere outra com preview_meta_batch.";
-  return "O lote ficou parado por mais de 1 hora. Gere outra prévia com preview_meta_batch.";
+  if (!row || row.actorId !== actor.id) return "Lote não encontrado (só quem gerou a prévia aprova).";
+  if (row.status === "done") return "Este lote já foi executado.";
+  const stale = row.confirmedAt && row.confirmedAt.getTime() < Date.now() - 60 * 60 * 1000;
+  if (stale) return "O lote ficou parado por mais de 1 hora. Gere outra prévia.";
+  if (row.status === "running") return "Este lote está em execução agora. Atualize em instantes.";
+  return "A prévia venceu (vale 15 minutos). Gere outra.";
 }
 
-export async function confirmMetaBatch(actor: BackofficeActor, batchId: string) {
+class LostLease extends Error {}
+
+/**
+ * Executa (ou continua) um lote. Chamado só pela aprovação no backoffice, com a sessão da
+ * pessoa no navegador. Cada execução assume o lote com um `run_id` novo; toda gravação é
+ * condicionada a ele, então uma execução antiga que perdeu a vez para antes da próxima escrita
+ * e não registra nada em duplicidade.
+ */
+export async function runMetaBatch(actor: BackofficeActor, batchId: string) {
+  requireDatabaseActor(actor);
   const b = metaAdsBatch;
-  // Assume o lote numa única escrita: prévia válida, lote parcial recente ou execução abandonada
-  // (lease vencida). Duas confirmações simultâneas nunca rodam o mesmo lote.
   const [claimed] = await db.update(b)
-    .set({ status: "running", leaseUntil: sql`now() + interval '150 seconds'`, confirmedAt: sql`coalesce(${b.confirmedAt}, now())` })
+    .set({ status: "running", runId: sql`gen_random_uuid()`, leaseUntil: LEASE_SQL, confirmedAt: sql`coalesce(${b.confirmedAt}, now())` })
     .where(and(eq(b.id, batchId), eq(b.actorId, actor.id), sql`(
       (${b.status} = 'previewed' AND ${b.expiresAt} > now())
       OR (${b.status} = 'partial' AND ${b.confirmedAt} > now() - interval '1 hour')
@@ -227,61 +325,117 @@ export async function confirmMetaBatch(actor: BackofficeActor, batchId: string) 
     throw new Error(refusal(row, actor));
   }
 
+  enterMetaMutationLog({ app: "backoffice", route: `POST /api/meta-batches/{id}/run (lote ${batchId})`, operationHint: "update" });
+
+  const runId = claimed.runId!;
   const items = claimed.items as unknown as PlannedItem[];
-  const deadline = Date.now() + RUN_BUDGET_MS;
-  const save = () => db.update(b).set({ items: items as unknown as Record<string, unknown>[] }).where(eq(b.id, batchId));
+  const startedAt = Date.now();
+  const notes: string[] = [];
+  let lost = false;
 
-  await inGroups(groupByClient(pendingItems(items)), CLIENTS_IN_PARALLEL, async ([userId, entries]) => {
-    if (Date.now() > deadline) return;
-    const failAll = async (error: string) => {
-      for (const item of entries) Object.assign(item, { outcome: "failed", error });
-      await save();
-    };
-    // A carteira pode ter mudado desde a prévia.
-    if (!canAccessMarketingUser(actor, userId)) return failAll("O cliente saiu da sua carteira.");
-    const token = await getUserAccessTokenByUserId(userId);
-    if (!token.success) return failAll(`Sem acesso à Meta deste cliente: ${token.error.message}`);
-    let current: Map<string, MetaObjectState>;
-    try {
-      current = await readItems(token.accessToken, entries);
-    } catch (error) {
-      return failAll(`Não foi possível reler a Meta deste cliente: ${errorText(error)}`);
+  /** Grava um item (só o índice dele) e renova a vez desta execução. */
+  const saveItem = async (index: number) => {
+    const updated = await db.update(b)
+      .set({ items: sql`jsonb_set(${b.items}, ${`{${index}}`}::text[], ${JSON.stringify(items[index])}::jsonb)`, leaseUntil: LEASE_SQL })
+      .where(and(eq(b.id, batchId), eq(b.runId, runId)))
+      .returning({ id: b.id });
+    if (updated.length === 0) {
+      lost = true;
+      throw new LostLease();
     }
+  };
 
-    for (const item of entries) {
-      if (Date.now() > deadline) break;
-      const decision = decideAtConfirm(item, current.get(objectKey(item)));
-      if (decision === "missing") {
-        Object.assign(item, { outcome: "failed", error: "Não encontrado na Meta na hora de executar." });
-      } else if (decision !== "write") {
-        item.outcome = decision;
-      } else {
-        try {
-          await metaWrite({ method: "POST", path: item.id, params: "", body: writeBody(item), accessToken: token.accessToken });
-          item.outcome = "applied";
-          await audit(actor, claimed, item, true);
-        } catch (error) {
-          Object.assign(item, { outcome: "failed", error: errorText(error) });
-          await audit(actor, claimed, item, false, item.error);
-        }
+  const work = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => (item.plan === "run" && !item.outcome) || (item.outcome === "applied" && item.audit !== "done"));
+
+  await inGroups(groupByClient(work.map(w => ({ ...w, userId: w.item.userId }))), CLIENTS_IN_PARALLEL, async ([userId, entries]) => {
+    try {
+      if (lost || Date.now() - startedAt > START_BUDGET_MS) return;
+      updateMetaMutationContext({ actor: { kind: "backoffice", id: actor.id, email: actor.email, role: actor.role, targetUserId: userId } });
+      // Registro que ficou para trás numa execução anterior: refaz antes de qualquer escrita nova.
+      for (const { item, index } of entries.filter(e => e.item.outcome === "applied")) {
+        item.audit = (await audit(actor, claimed, item, true)) ? "done" : "failed";
+        await saveItem(index);
       }
-      await save();
+      const toRun = entries.filter(e => !e.item.outcome);
+      if (toRun.length === 0) return;
+      // A carteira pode ter mudado desde a prévia.
+      if (!canAccessMarketingUser(actor, userId)) {
+        for (const { item, index } of toRun) { Object.assign(item, { outcome: "failed", error: "O cliente saiu da sua carteira." }); await saveItem(index); }
+        return;
+      }
+      const token = await getUserAccessTokenByUserId(userId);
+      if (!token.success) {
+        for (const { item, index } of toRun) { Object.assign(item, { outcome: "failed", error: `Sem acesso à Meta deste cliente: ${token.error.message}` }); await saveItem(index); }
+        return;
+      }
+      const shared = await sharedOutsidePortfolio(actor, [...new Set(toRun.map(e => e.item.accountId!))]);
+
+      for (const { item, index } of toRun) {
+        if (lost || Date.now() - startedAt > START_BUDGET_MS) return;
+        if (shared.has(item.accountId!)) {
+          Object.assign(item, { outcome: "failed", error: "A conta de anúncio passou a ser também de um cliente fora da sua carteira." });
+          await saveItem(index);
+          continue;
+        }
+        // Relê ESTE objeto agora, logo antes de escrever: nada lido no começo da execução vale aqui.
+        const decision = decideAtRun(item, await readOne(token.accessToken, item.level, item.id));
+        if (decision === "missing") {
+          Object.assign(item, { outcome: "failed", error: "Não encontrado na Meta na hora de executar." });
+        } else if (decision === "applied") {
+          item.outcome = "applied";
+          await saveItem(index);
+          item.audit = (await audit(actor, claimed, item, true)) ? "done" : "failed";
+        } else if (decision !== "write") {
+          item.outcome = decision;
+        } else {
+          item.attempt = "writing";
+          await saveItem(index);
+          try {
+            // Sem retry de throttle aqui: um limite da Meta pausa o cliente e o lote continua depois.
+            await metaApiCall({ method: "POST", path: item.id, params: "", body: writeBody(item), accessToken: token.accessToken });
+          } catch (error) {
+            if (isClientWideError(error)) {
+              item.attempt = undefined;
+              await saveItem(index);
+              throw new ClientPaused(errorText(error));
+            }
+            Object.assign(item, { outcome: "failed", error: errorText(error), attempt: undefined });
+            await saveItem(index);
+            await audit(actor, claimed, item, false, item.error);
+            continue;
+          }
+          item.outcome = "applied";
+          // Grava o resultado ANTES do registro: se esta execução perdeu a vez, para aqui e a
+          // que assumiu reconhece a escrita (attempt) e registra uma vez só.
+          await saveItem(index);
+          item.audit = (await audit(actor, claimed, item, true)) ? "done" : "failed";
+        }
+        await saveItem(index);
+      }
+    } catch (error) {
+      if (error instanceof LostLease) return;
+      const client = (await loadClientLabels([userId])).get(userId)?.client ?? userId;
+      notes.push(error instanceof ClientPaused
+        ? `${client}: a Meta limitou as chamadas agora (${error.message}). Os itens deste cliente ficaram pendentes; continue em alguns minutos.`
+        : `${client}: a execução parou por um erro (${errorText(error)}). Os itens restantes ficaram pendentes.`);
     }
   });
 
-  const status = batchStatusAfterRun(items);
+  if (lost) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
+  const status = batchStatusAfterRun(items) === "done" && auditPendingItems(items).length === 0 ? "done" : "partial";
   const [row] = await db.update(b)
-    .set({ items: items as unknown as Record<string, unknown>[], status, leaseUntil: null, finishedAt: status === "done" ? new Date() : null })
-    .where(eq(b.id, batchId))
+    .set({ status, leaseUntil: null, runId: null, finishedAt: status === "done" ? new Date() : null })
+    .where(and(eq(b.id, batchId), eq(b.runId, runId)))
     .returning();
-  const described = await describeBatch(row, items);
-  return status === "done"
-    ? described
-    : { ...described, next: `O tempo desta chamada acabou com ${described.summary.pending} item(ns) pendente(s). Chame confirm_meta_batch de novo com o mesmo batchId para continuar.` };
+  if (!row) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
+  const described = await describeBatch(row, row.items as unknown as PlannedItem[]);
+  return status === "done" ? { ...described, notes } : { ...described, notes: [...notes, "Ficaram itens pendentes: use Continuar para seguir de onde parou."] };
 }
 
 export async function getMetaBatch(actor: BackofficeActor, batchId: string) {
   const [row] = await db.select().from(metaAdsBatch).where(eq(metaAdsBatch.id, batchId)).limit(1);
   if (!row || (row.actorId !== actor.id && actor.role !== "admin")) throw new Error("Lote não encontrado.");
-  return describeBatch(row, row.items as unknown as PlannedItem[]);
+  return { row, described: await describeBatch(row, row.items as unknown as PlannedItem[]) };
 }

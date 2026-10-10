@@ -65,9 +65,8 @@ export const MCP_CAPABILITIES: McpCapability[] = [
       "Suba em 20% o orçamento diário das campanhas com ROAS acima de 3.",
       "Reative os conjuntos que pausei ontem do cliente X.",
     ],
-    limit: "Pausar, ativar e orçamento diário, até 100 itens por vez, só depois que você aprova a prévia. Não cria campanhas nem mexe em criativos.",
-    consent: [],
-    consentWrite: ["Pausar, ativar e mudar o orçamento diário de campanhas, conjuntos e anúncios, sempre depois de mostrar a prévia e você confirmar"],
+    limit: "A IA prepara até 100 pausas, ativações ou mudanças de orçamento diário; nada roda na Meta até você aprovar no backoffice. Não cria campanhas nem mexe em criativos.",
+    consent: ["Preparar pausas, ativações e mudanças de orçamento diário, que só rodam depois que você aprovar no backoffice"],
   },
   {
     permission: "whatsapp:campaigns",

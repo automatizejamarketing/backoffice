@@ -5,6 +5,7 @@ import { getBackofficeActorByEmail } from "@/lib/auth/backoffice-users";
 import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import { MCP_SCOPE_WRITE } from "@/lib/mcp-oauth/core";
 import type { McpAuthExtra } from "@/lib/mcp-oauth/service";
+import { resolveIssuer } from "@/lib/mcp-oauth/http";
 import { mcpOauthService } from "@/lib/mcp-oauth/store";
 import { toCallToolResult, toErrorResult, toolAnnotations } from "@/lib/mcp/tool";
 import { META_ADS_TOOLS } from "@/lib/mcp/meta-ads-tools";
@@ -12,7 +13,7 @@ import { META_BATCH_TOOLS } from "@/lib/mcp/meta-batch-tools";
 import { WHATSAPP_CAMPAIGN_TOOLS } from "@/lib/mcp/whatsapp-campaign-tools";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 
-/** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta; a client read can hit 5 ad accounts; a batch runs for up to 60 s. */
+/** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta; a client read can hit 5 ad accounts. */
 export const maxDuration = 120;
 
 const TOOL_RATE_LIMIT = { limit: 60, windowSeconds: 60 } as const;
@@ -26,8 +27,8 @@ const INSTRUCTIONS =
   "Meta Ads dos clientes: list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
   "list_portfolio_alerts (alertas pendentes) e get_client_campaigns (campanhas, conjuntos ou anúncios de um cliente, ao vivo). " +
   "Para perguntas sobre a carteira comece por portfolio_performance; abra um cliente com get_client_campaigns só quando precisar do detalhe. " +
-  "Ações em Meta Ads (pausar, ativar, orçamento diário), de um ou de muitos clientes: preview_meta_batch → mostre a prévia e espere aprovação explícita → confirm_meta_batch; " +
-  "get_meta_batch mostra o resultado. Nunca confirme um lote sem o usuário aprovar aquela prévia. " +
+  "Ações em Meta Ads (pausar, ativar, orçamento diário), de um ou de muitos clientes: preview_meta_batch prepara o lote e devolve um link; " +
+  "a pessoa revisa e aprova no backoffice, e só então o lote roda. Depois, get_meta_batch mostra o resultado. Nenhuma ferramenta muda a Meta sem essa aprovação. " +
   "Valores de WhatsApp em reais. Valores de Meta Ads na moeda da conta: BRL quando o campo currency não vem; nunca some nem converta moedas diferentes. " +
   "Horários de Brasília (-03:00). " +
   "Este conector não traz o financeiro da Automatize (faturamento, receita, MRR, pagamentos): se perguntarem, diga que isso fica na tela Financeiro do backoffice, " +
@@ -62,7 +63,7 @@ const handler = createMcpHandler(
           if (!limit.success) return toErrorResult(`Muitas chamadas em sequência. Tente de novo em ${limit.retryAfterSeconds}s.`);
 
           try {
-            return toCallToolResult(await tool.run(actor, args));
+            return toCallToolResult(await tool.run(actor, args, { origin: extra.origin ?? process.env.NEXTAUTH_URL ?? "" }));
           } catch (error) {
             return toErrorResult(error);
           }
@@ -81,7 +82,10 @@ const handler = createMcpHandler(
 
 const authedHandler = withMcpAuth(
   handler,
-  async (_request, bearerToken) => (bearerToken ? ((await mcpOauthService.verifyAccessToken(bearerToken)) ?? undefined) : undefined),
+  async (request, bearerToken) => {
+    const info = bearerToken ? await mcpOauthService.verifyAccessToken(bearerToken) : null;
+    return info ? { ...info, extra: { ...info.extra, origin: resolveIssuer(request.headers) } } : undefined;
+  },
   { required: true, resourceMetadataPath: "/.well-known/oauth-protected-resource" },
 );
 

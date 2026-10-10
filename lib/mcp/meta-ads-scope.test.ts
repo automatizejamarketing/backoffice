@@ -25,6 +25,7 @@ const actor = (role: BackofficeActor["role"], assignedUserIds?: string[]): Backo
   ({ id: `${role}-id`, email: `${role}@x.com`, role, source: "database", assignedUserIds });
 const tool = (name: string) => tools.find(t => t.name === name)!;
 const assigned = "11111111-1111-4111-8111-111111111111";
+const ctx = { origin: "https://backoffice.test" };
 const other = "22222222-2222-4222-8222-222222222222";
 
 describe("Meta Ads MCP scope", () => {
@@ -37,8 +38,8 @@ describe("Meta Ads MCP scope", () => {
 
   it("blocks a consultant from reading a client outside the portfolio", async () => {
     const consultant = actor("marketing_consultant", [assigned]);
-    await assert.rejects(tool("get_client_campaigns").run(consultant, { userId: other }), /não está na sua carteira/);
-    await assert.rejects(tool("list_portfolio_alerts").run(consultant, { userId: other }), /não está na sua carteira/);
+    await assert.rejects(tool("get_client_campaigns").run(consultant, { userId: other }, ctx), /não está na sua carteira/);
+    await assert.rejects(tool("list_portfolio_alerts").run(consultant, { userId: other }, ctx), /não está na sua carteira/);
   });
 
   it("exposes only read-only tools gated by marketing:read", () => {
@@ -54,14 +55,16 @@ describe("Meta Ads MCP scope", () => {
     assert.deepEqual([...toolPermissions].sort(), MCP_CAPABILITIES.map(c => c.permission).sort());
   });
 
-  it("refuses a batch with a client outside the portfolio before any IO, and only confirm writes", async () => {
+  it("refuses a batch with a client outside the portfolio before any IO; no tool executes a batch", async () => {
     const consultant = actor("marketing_consultant", [assigned]);
     const preview = batchTools.find(t => t.name === "preview_meta_batch")!;
     await assert.rejects(
-      preview.run(consultant, { note: "pausa geral", items: [{ userId: other, level: "campaign", id: "123", action: "pause" }] }),
+      preview.run(consultant, { note: "pausa geral", items: [{ userId: other, level: "campaign", id: "123", action: "pause" }] }, ctx),
       /Fora da sua carteira/,
     );
-    assert.deepEqual(batchTools.filter(t => t.write).map(t => [t.name, t.destructive]), [["confirm_meta_batch", true]]);
+    // Só a aprovação no backoffice, na sessão da pessoa, executa um lote.
+    assert.deepEqual(batchTools.map(t => t.name).sort(), ["get_meta_batch", "preview_meta_batch"]);
+    assert.ok(batchTools.every(t => !t.write));
     assert.ok(batchTools.every(t => t.permission === "marketing:write"));
   });
 });

@@ -333,6 +333,8 @@ export function createMcpOauthService(
 export type McpAuthExtra = {
   tokenId: string;
   actorEmail: string;
+  /** Origem pública desta implantação na chamada (para links de volta ao backoffice). */
+  origin?: string;
 };
 
 export type McpOauthService = ReturnType<typeof createMcpOauthService>;

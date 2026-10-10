@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { batchStatusAfterRun, decideAtConfirm, planItem, writeBody, type MetaObjectState, type PlannedItem } from "./meta-batch-core";
+import { auditPendingItems, batchStatusAfterRun, decideAtRun, planItem, writeBody, type ClientAccounts, type MetaObjectState, type PlannedItem } from "./meta-batch-core";
 
-const ACCOUNTS = new Map<string, string | null>([["act_111", "BRL"], ["act_222", "PYG"]]);
+const ACCOUNTS: ClientAccounts = { allowed: new Map([["act_111", "BRL"], ["act_222", "PYG"]]), shared: new Set(), listed: true };
 const USER = "00000000-0000-4000-8000-000000000001";
 
 function object(overrides: Partial<MetaObjectState> = {}): MetaObjectState {
@@ -32,6 +32,13 @@ describe("planItem", () => {
     const item = planItem({ userId: USER, level: "campaign", id: "c1", action: "pause" }, object({ accountId: "999" }), ACCOUNTS);
     assert.equal(item.plan, "skip");
     assert.match(item.skipReason!, /conta de anúncio deste cliente/);
+  });
+
+  it("refuses an account shared with a client outside the portfolio, and explains an empty account list", () => {
+    const shared = planItem({ userId: USER, level: "campaign", id: "c1", action: "pause" }, object(), { ...ACCOUNTS, shared: new Set(["act_111"]) });
+    assert.match(shared.skipReason!, /fora da sua carteira/);
+    const unlisted = planItem({ userId: USER, level: "campaign", id: "c1", action: "pause" }, object(), { allowed: new Map(), shared: new Set(), listed: false });
+    assert.match(unlisted.skipReason!, /Não consegui listar/);
   });
 
   it("refuses a missing object and archived ones", () => {
@@ -83,22 +90,27 @@ describe("planItem", () => {
   });
 });
 
-describe("decideAtConfirm", () => {
+describe("decideAtRun", () => {
   const planned = planItem({ userId: USER, level: "campaign", id: "c1", action: "pause" }, object(), ACCOUNTS) as PlannedItem;
 
   it("writes when the object is as the preview saw it", () => {
-    assert.equal(decideAtConfirm(planned, object()), "write");
+    assert.equal(decideAtRun(planned, object()), "write");
   });
 
   it("does nothing when it already reached the target (retry or someone did it)", () => {
-    assert.equal(decideAtConfirm(planned, object({ status: "PAUSED" })), "already_applied");
+    assert.equal(decideAtRun(planned, object({ status: "PAUSED" })), "already_applied");
   });
 
   it("does not overwrite a change made after the preview", () => {
     const budget = planItem({ userId: USER, level: "campaign", id: "c1", action: "set_daily_budget", dailyBudget: 60 }, object(), ACCOUNTS);
-    assert.equal(decideAtConfirm(budget, object({ dailyBudget: "7000" })), "changed_since_preview");
-    assert.equal(decideAtConfirm(budget, object({ dailyBudget: "6000" })), "already_applied");
-    assert.equal(decideAtConfirm(planned, undefined), "missing");
+    assert.equal(decideAtRun(budget, object({ dailyBudget: "7000" })), "changed_since_preview");
+    assert.equal(decideAtRun(budget, object({ dailyBudget: "6000" })), "already_applied");
+    assert.equal(decideAtRun(planned, undefined), "missing");
+  });
+
+  it("recognises our own write from an interrupted run, so it is audited as applied", () => {
+    assert.equal(decideAtRun({ ...planned, attempt: "writing" }, object({ status: "PAUSED" })), "applied");
+    assert.equal(decideAtRun({ ...planned, attempt: "writing" }, object()), "write");
   });
 
   it("builds the absolute write body", () => {
@@ -112,5 +124,7 @@ describe("batchStatusAfterRun", () => {
     const skipped = planItem({ userId: USER, level: "campaign", id: "c2", action: "pause" }, undefined, ACCOUNTS);
     assert.equal(batchStatusAfterRun([run, skipped]), "partial");
     assert.equal(batchStatusAfterRun([{ ...run, outcome: "applied" }, skipped]), "done");
+    assert.equal(auditPendingItems([{ ...run, outcome: "applied" }]).length, 1);
+    assert.equal(auditPendingItems([{ ...run, outcome: "applied", audit: "done" }]).length, 0);
   });
 });

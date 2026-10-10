@@ -1,7 +1,7 @@
 import "server-only";
 
 import * as z from "zod/v4";
-import { confirmMetaBatch, getMetaBatch, previewMetaBatch } from "./meta-batch";
+import { approvalUrl, getMetaBatch, previewMetaBatch } from "./meta-batch";
 import { BATCH_ACTIONS, BATCH_LEVELS, MAX_BATCH_ITEMS } from "./meta-batch-core";
 import { defineTool, type McpTool } from "./tool";
 
@@ -13,9 +13,9 @@ export const META_BATCH_TOOLS: McpTool[] = [
     description:
       `Prepara até ${MAX_BATCH_ITEMS} ações de uma vez em campanhas, conjuntos ou anúncios de vários clientes da carteira: pausar, ativar ou mudar o orçamento diário. ` +
       "Não muda nada na Meta: lê o estado atual de cada objeto, confere que ele é do cliente informado e devolve antes → depois, avisos e itens pulados com o motivo " +
-      "(ex.: já pausado; orçamento está nos conjuntos (ABO) ou na campanha (CBO); moeda sem centavos). " +
+      "(ex.: já pausado; orçamento está nos conjuntos (ABO) ou na campanha (CBO); moeda sem centavos; conta compartilhada com cliente fora da carteira). " +
       "Os ids vêm de get_client_campaigns (ou de list_portfolio_alerts). Orçamento em unidades da moeda da conta (50 = R$ 50,00), sempre o valor final, nunca percentual: calcule antes. " +
-      "Mostre a prévia ao usuário e espere aprovação explícita antes de confirm_meta_batch. A prévia vale 15 minutos.",
+      "Devolve approvalUrl: a pessoa abre o backoffice, revisa e aprova, e só então o lote roda. Mostre o resumo e envie o link. A prévia vale 15 minutos.",
     input: z.object({
       items: z.array(z.object({
         userId: z.string().uuid().describe("Cliente dono do objeto."),
@@ -26,21 +26,17 @@ export const META_BATCH_TOOLS: McpTool[] = [
       })).min(1).max(MAX_BATCH_ITEMS),
       note: z.string().trim().min(5).max(500).describe("Motivo da mudança, registrado no histórico de cada objeto (obrigatório)."),
     }),
-    run: (actor, input) => previewMetaBatch(actor, input),
-  }),
-  defineTool({
-    name: "confirm_meta_batch", title: "Executar ações em lote na Meta Ads", permission: "marketing:write", write: true, destructive: true,
-    description:
-      "Executa na Meta o lote de uma prévia, só depois de aprovação explícita do usuário. Relê cada objeto antes de escrever: se alguém mexeu nele depois da prévia, " +
-      "o item é pulado (changed_since_preview) em vez de sobrescrever. Cada mudança fica no histórico do objeto com o motivo. " +
-      "Se o tempo da chamada acabar, o lote fica parcial: chame de novo com o mesmo batchId para continuar.",
-    input: z.object({ batchId }),
-    run: (actor, input) => confirmMetaBatch(actor, input.batchId),
+    run: (actor, input, ctx) => previewMetaBatch(actor, input, ctx.origin),
   }),
   defineTool({
     name: "get_meta_batch", title: "Resultado de um lote", permission: "marketing:write", write: false,
-    description: "Situação e resultado item a item de um lote de ações na Meta Ads (prévia, em execução, parcial ou concluído).",
+    description:
+      "Situação e resultado item a item de um lote de ações na Meta Ads: previewed (esperando aprovação no backoffice), running, partial (a pessoa pode continuar pelo link) ou done. " +
+      "Itens: applied, already_applied, changed_since_preview (alguém mexeu depois da prévia; não sobrescrevemos) ou failed.",
     input: z.object({ batchId }),
-    run: (actor, input) => getMetaBatch(actor, input.batchId),
+    async run(actor, input, ctx) {
+      const { row, described } = await getMetaBatch(actor, input.batchId);
+      return row.status === "done" ? described : { ...described, approvalUrl: approvalUrl(ctx.origin, row.id) };
+    },
   }),
 ];

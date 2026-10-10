@@ -3,8 +3,8 @@
  *
  * A prévia lê cada objeto na Meta e decide o plano de cada item: rodar ou pular, com o
  * motivo. O plano guarda o estado lido ("antes") e o alvo, sempre ABSOLUTO (status X,
- * orçamento Y): repetir a execução de um item não muda nada, e a confirmação consegue
- * dizer se alguém mexeu no objeto desde a prévia.
+ * orçamento Y): repetir a execução de um item não muda nada, e a execução (aprovada no
+ * backoffice) consegue dizer se alguém mexeu no objeto desde a prévia.
  */
 
 export const BATCH_LEVELS = ["campaign", "adset", "ad"] as const;
@@ -47,6 +47,15 @@ export type MetaObjectState = {
 
 export type ItemOutcome = "applied" | "already_applied" | "changed_since_preview" | "failed";
 
+/** Contas de anúncio que o lote pode tocar: conta → moeda, mais o motivo das que ficaram de fora. */
+export type ClientAccounts = {
+  allowed: ReadonlyMap<string, string | null>;
+  /** Conta que a conexão enxerga, mas que também é de cliente fora da carteira de quem pede. */
+  shared: ReadonlySet<string>;
+  /** A conexão não devolveu conta nenhuma (falha ou nada concedido). */
+  listed: boolean;
+};
+
 export type PlannedItem = BatchItemInput & {
   name: string | null;
   accountId: string | null;
@@ -58,8 +67,12 @@ export type PlannedItem = BatchItemInput & {
   plan: "run" | "skip";
   skipReason?: string;
   warning?: string;
+  /** Marcado logo antes da escrita: se a execução morrer depois do POST, a retomada sabe que a mudança é nossa. */
+  attempt?: "writing";
   outcome?: ItemOutcome;
   error?: string;
+  /** Registro no histórico de um item aplicado; `failed` volta a ser tentado na retomada. */
+  audit?: "done" | "failed";
 };
 
 const positive = (minor: string | null | undefined) => Number.parseInt(minor ?? "", 10) > 0;
@@ -75,17 +88,20 @@ export const objectKey = (item: { level: BatchLevel; id: string }) => `${item.le
 
 const GONE = new Set(["ARCHIVED", "DELETED"]);
 
+const LEVEL_LABEL: Record<BatchLevel, string> = { campaign: "campanha", adset: "conjunto", ad: "anúncio" };
+
 /**
- * Plano de um item a partir do que a Meta devolveu. `accounts` são as contas de anúncio que a
- * conexão do cliente enxerga (conta → moeda): um objeto fora delas não é deste cliente.
+ * Plano de um item a partir do que a Meta devolveu. Um objeto só entra se a conta dele está
+ * entre as que a conexão do cliente enxerga E não é também de um cliente fora da carteira de
+ * quem pede (conexões de agência enxergam contas de outros negócios).
  */
-export function planItem(input: BatchItemInput, object: MetaObjectState | undefined, accounts: ReadonlyMap<string, string | null>): PlannedItem {
+export function planItem(input: BatchItemInput, object: MetaObjectState | undefined, accounts: ClientAccounts): PlannedItem {
   const accountId = actId(object?.accountId);
   const base: PlannedItem = {
     ...input,
     name: object?.name ?? null,
     accountId,
-    currency: accountId ? (accounts.get(accountId) ?? null) : null,
+    currency: accountId ? (accounts.allowed.get(accountId) ?? null) : null,
     campaignId: input.level === "campaign" ? input.id : (object?.campaignId ?? null),
     adsetId: input.level === "adset" ? input.id : (object?.adsetId ?? null),
     before: { status: object?.status ?? null, dailyBudget: object?.dailyBudget ?? null },
@@ -94,8 +110,10 @@ export function planItem(input: BatchItemInput, object: MetaObjectState | undefi
   };
   const skip = (skipReason: string): PlannedItem => ({ ...base, skipReason });
 
-  if (!object) return skip("Não encontrado, ou a conexão do cliente não tem acesso a ele.");
-  if (!accountId || !accounts.has(accountId)) return skip("Não pertence a uma conta de anúncio deste cliente.");
+  if (!accounts.listed) return skip("Não consegui listar as contas de anúncio deste cliente. Confira a conexão com a Meta.");
+  if (!object) return skip(`Não encontrado como ${LEVEL_LABEL[input.level]}, ou a conexão do cliente não tem acesso a ele.`);
+  if (accountId && accounts.shared.has(accountId)) return skip("Esta conta de anúncio também é de um cliente fora da sua carteira. Ajuste pela tela.");
+  if (!accountId || !accounts.allowed.has(accountId)) return skip("Não pertence a uma conta de anúncio deste cliente.");
   if (GONE.has(object.status ?? "")) return skip("Está arquivado ou excluído.");
 
   if (input.action === "pause" || input.action === "activate") {
@@ -136,17 +154,18 @@ export function planItem(input: BatchItemInput, object: MetaObjectState | undefi
 }
 
 /**
- * Na confirmação, com o objeto relido: escrever, já está no alvo (repetição ou alguém fez o
- * mesmo), ou mudou desde a prévia — aí não escrevemos por cima do que outra pessoa decidiu.
+ * Na execução, com o objeto relido logo antes de escrever: escrever; já está no alvo
+ * (`applied` se fomos nós numa execução interrompida depois do POST, senão
+ * `already_applied`); ou mudou desde a prévia — aí não escrevemos por cima do que outra
+ * pessoa decidiu.
  */
-export function decideAtConfirm(item: PlannedItem, current: MetaObjectState | undefined): "write" | "already_applied" | "changed_since_preview" | "missing" {
+export function decideAtRun(item: PlannedItem, current: MetaObjectState | undefined): "write" | "applied" | "already_applied" | "changed_since_preview" | "missing" {
   if (!current) return "missing";
-  if (item.target.status) {
-    if (current.status === item.target.status) return "already_applied";
-    return current.status === item.before.status ? "write" : "changed_since_preview";
-  }
-  if (current.dailyBudget === item.target.dailyBudget) return "already_applied";
-  return current.dailyBudget === item.before.dailyBudget ? "write" : "changed_since_preview";
+  const [now, before, target] = item.target.status
+    ? [current.status, item.before.status, item.target.status]
+    : [current.dailyBudget, item.before.dailyBudget, item.target.dailyBudget];
+  if (now === target) return item.attempt === "writing" ? "applied" : "already_applied";
+  return now === before ? "write" : "changed_since_preview";
 }
 
 /** Corpo da escrita na Meta para um item que vai rodar. */
@@ -158,6 +177,9 @@ export function writeBody(item: PlannedItem): URLSearchParams {
 
 /** Itens planejados para rodar que ainda não têm resultado. */
 export const pendingItems = (items: PlannedItem[]) => items.filter(i => i.plan === "run" && !i.outcome);
+
+/** Aplicados na Meta cujo registro no histórico ainda não foi gravado. */
+export const auditPendingItems = (items: PlannedItem[]) => items.filter(i => i.outcome === "applied" && i.audit !== "done");
 
 export function batchStatusAfterRun(items: PlannedItem[]): "done" | "partial" {
   return pendingItems(items).length === 0 ? "done" : "partial";
@@ -179,5 +201,6 @@ export function describeItem(item: PlannedItem, index: number, client: string) {
     ...(item.warning ? { warning: item.warning } : {}),
     ...(item.outcome ? { outcome: item.outcome } : {}),
     ...(item.error ? { error: item.error } : {}),
+    ...(item.outcome === "applied" && item.audit === "failed" ? { auditPending: true } : {}),
   };
 }
