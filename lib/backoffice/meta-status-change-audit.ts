@@ -106,6 +106,9 @@ export async function recordStatusChangeAudit(
     return result;
   }
 
-  if (event.event) await recordInternalChangeEvent(event.event);
+  if (event.event && !(await recordInternalChangeEvent(event.event))) {
+    result.auditLogFailed = true;
+    result.auditLogError = "Falha ao registrar o evento no histórico de ações";
+  }
   return result;
 }

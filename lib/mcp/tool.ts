@@ -1,6 +1,9 @@
 import * as z from "zod/v4";
 import type { BackofficeActor, BackofficePermission } from "@/lib/auth/rbac-core";
 
+/** O que a chamada sabe além do ator: a origem pública, para links de volta ao backoffice. */
+export type McpToolContext = { origin: string };
+
 /** One backoffice capability exposed over MCP; `permission` is the same RBAC check the screen uses. */
 export type McpTool = {
   name: string;
@@ -11,13 +14,13 @@ export type McpTool = {
   write: boolean;
   destructive?: boolean;
   input: z.ZodObject;
-  run(actor: BackofficeActor, input: unknown): Promise<unknown>;
+  run(actor: BackofficeActor, input: unknown, ctx: McpToolContext): Promise<unknown>;
 };
 
 export function defineTool<S extends z.ZodObject>(
-  tool: Omit<McpTool, "input" | "run"> & { input: S; run(actor: BackofficeActor, input: z.infer<S>): Promise<unknown> },
+  tool: Omit<McpTool, "input" | "run"> & { input: S; run(actor: BackofficeActor, input: z.infer<S>, ctx: McpToolContext): Promise<unknown> },
 ): McpTool {
-  return { ...tool, run: (actor, input) => tool.run(actor, tool.input.parse(input)) };
+  return { ...tool, run: (actor, input, ctx) => tool.run(actor, tool.input.parse(input), ctx) };
 }
 
 export function toolAnnotations(tool: McpTool) {

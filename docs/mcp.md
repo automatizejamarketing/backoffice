@@ -42,7 +42,7 @@ A linha é dinheiro (decisão do JP em 09/10/2026): contagens e status (pagantes
 
 Envio real só acontece com `confirm_whatsapp_campaign_send`, que o Claude deve chamar apenas depois que o colaborador aprovar a prévia. A conexão pode ser só leitura (`backoffice:read`): ferramentas de escrita exigem `backoffice:write`.
 
-## Ferramentas de Meta Ads (só leitura, permissão `marketing:read`)
+## Ferramentas de Meta Ads: leitura (permissão `marketing:read`)
 
 Para o consultor analisar muitos clientes e campanhas de uma vez. Nenhuma escreve na Meta.
 
@@ -62,13 +62,39 @@ Limites e decisões:
 - `get_client_campaigns` lê as contas de anúncio que a conexão enxerga, as de maior gasto recente no histórico primeiro (até 5, as mesmas que a carteira soma; com mais de 5 contas, as que sobram vêm listadas em `notes`, com o id para `adAccountId`; o ranking usa o gasto do período ou dos últimos 30 dias, o que for maior), 2 contas por vez com 2 a 3 chamadas cada, com cache de 5 minutos por consulta (`lib/meta-business/read-cache.ts`). Uma conta com erro aparece em `accounts[].error` e as outras respondem. Até 200 linhas por período, ordenadas por gasto.
 - Moedas nunca são somadas: a carteira agrega por cliente e moeda (cliente com conta BRL e USD sai em duas linhas) e os totais vêm por moeda; em `get_client_campaigns` a linha de conta não BRL traz `currency`.
 - Respostas enxutas: `portfolio_performance` devolve 50 clientes por padrão (até 200); `list_portfolio_alerts` corta evidência e recomendação em 400 caracteres.
-- Ficou para a v2: ações (pausar, ativar, orçamento), detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série).
+- Ficou para depois: detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série).
+
+## Ferramentas de Meta Ads: ações em lote (permissão `marketing:write`)
+
+Pausar, ativar e mudar o orçamento diário de campanhas, conjuntos e anúncios de muitos clientes numa vez só. **A IA prepara; só uma pessoa, no backoffice, executa.**
+
+| Ferramenta | O que faz |
+| --- | --- |
+| `preview_meta_batch` | Até 100 itens `{ userId, level, id, action, dailyBudget? }` e um motivo. Lê cada objeto na Meta (50 por chamada, com `?ids=`), confere que ele é do cliente e mostra antes → depois, avisos (orçamento mudando 50% ou mais; ativar sob um nível pausado) e itens pulados com o motivo. Guarda o plano em `meta_ads_batches` e devolve `approvalUrl` (`/lotes/<id>`, vale 15 minutos). Não escreve na Meta |
+| `get_meta_batch` | Situação e resultado item a item de um lote e `nextStep`: `approve` ou `resume` (com o link) ou `null` (concluído, em execução ou vencido) |
+
+A execução é `POST /api/meta-batches/[id]/run`, chamado pelo botão **Aprovar e executar** (ou **Continuar**) da tela `/lotes/[id]`, com a sessão da pessoa no navegador. A rota só aceita a própria origem (`Origin` igual ao host) e `Content-Type` exatamente `application/json`. Nenhuma ferramenta do MCP muda a Meta: o OAuth de escrita autoriza a conexão, não a aprovação de um plano, e a IA não tem a sessão do navegador. Só quem gerou a prévia aprova; admin vê o lote.
+
+Decisões:
+- **De quem é o objeto.** Entra só se a conta de anúncio dele está entre as que a conexão do cliente enxerga **e** não aparece, na coleta dos últimos 90 dias (`meta_tracking_account_coverage`), em cliente fora da carteira de quem pede. Conexões de agência enxergam contas de outros negócios (50 contas em mais de um cliente em prod, 10/10/2026). O nível também é conferido: cada leitura pede um campo que só existe naquele tipo (`objective`, `optimization_goal`, `creative`).
+- **Alvo absoluto** (status X, orçamento Y em centavos). Percentual é calculado pela IA antes, e a prévia mostra o valor final. Orçamento só onde a Meta o guarda (CBO diário na campanha, ABO diário no conjunto) e só BRL, USD e EUR; o resto fica para a tela.
+- **Releitura antes de cada escrita.** Cada objeto é relido logo antes do POST: já no alvo → `already_applied`; diferente da prévia → `changed_since_preview` (não sobrescreve); igual → escreve.
+- **Uma execução por vez.** A aprovação assume o lote numa única escrita com um `run_id` novo e `lease_until` (330 s, maior que os 300 s da rota). Toda gravação de item é `jsonb_set` condicionado ao `run_id`: uma execução antiga que perdeu a vez para antes da próxima escrita e não registra nada. A conclusão (`done`/`partial`) é calculada sobre o que está gravado, não sobre a memória.
+- **Tempo.** Itens começam só até 150 s; nenhuma escrita começa depois de 200 s; cada leitura tem 20 s e cada escrita 80 s (`metaApiCall` não aceita sinal, então o tempo esgotado devolve o controle sem cancelar a chamada). A tela oferece **Continuar** para lote parcial e para execução que morreu (lease vencida), até 1 hora depois da aprovação (`batchAction`).
+- **Execução interrompida ou resposta perdida.** Antes do POST o item ganha `attempt: "writing"`. Se a função morrer depois de a Meta aceitar, a retomada vê o objeto no alvo com a marca e conta como `applied`. Se a resposta se perder (conexão caída, 5xx, tempo esgotado), o resultado é desconhecido: o objeto é relido na hora; no alvo vira `applied`, senão o item fica pendente com a marca para **Continuar**. Só recusa explícita da Meta (4xx com código) vira `failed`.
+- **Registro uma vez por item.** A nota leva a marca `[lote <id> #<n> via MCP]`; antes de registrar, a execução procura essa marca em `meta_tracking_change_events` e não registra de novo. Registro que falhou (inclusive o evento do stream devolvendo `null`) fica `audit: "failed"`, o lote fica `partial` e **Continuar** refaz só o registro.
+- **Limite da Meta.** Throttle (4, 17, 613, 80000–80014…) ou token inválido (190) pausa o cliente: os itens ficam pendentes, o lote fica `partial` e **Continuar** segue depois. Só erro de objeto (100, 10, 200, 803) cai para leitura um a um ou marca o item como falho.
+- **Registro.** Status: `recordStatusChangeAudit` (log legado + `meta_tracking_change_events`), como a tela. Orçamento: `campaign_edit_logs`/`adset_edit_logs` (as abas de histórico das telas) + evento `config_change` com a ponte. O motivo leva a marca do lote e do item.
+- Recusas esperadas (lote de outra pessoa, vencido, em execução) voltam como 409 com a mensagem; falha interna volta 500 genérico e devolve o lote como `partial` para **Continuar**.
+- Limitação conhecida: se o log legado gravar e o evento do stream falhar, a retomada grava o log legado de novo (o evento, que leva a marca, sai uma vez só).
+- Prévias vencidas há mais de um dia são apagadas quando a mesma pessoa gera outra.
+- Teste de integração com Postgres local descartável e a Meta simulada: `META_BATCH_TEST_URL=postgres://postgres@localhost:55432/postgres bun test lib/mcp/meta-batch.integration.test.ts` (rode sozinho: ele substitui módulos com `mock.module`).
 
 ## Como funciona
 
 - OAuth 2.1 próprio (`lib/mcp-oauth`), portado do conector Mat do frontend: registro dinâmico, PKCE S256, refresh com rotação. Tabelas `backoffice_mcp_oauth_*` (migration 0130), separadas das do Mat: token de cliente nunca autentica o backoffice.
 - `/api/mcp` usa `mcp-handler`; as ferramentas ficam em `lib/mcp/` e chamam as mesmas funções da tela.
-- As ferramentas de Meta Ads ficam em `lib/mcp/meta-ads-*.ts`: `metrics` (períodos, variação e ordenação, puro), `queries` (banco, com o escopo do consultor), `live` (Graph) e `tools`.
+- As ferramentas de Meta Ads ficam em `lib/mcp/meta-ads-*.ts`: `metrics` (períodos, variação e ordenação, puro), `queries` (banco, com o escopo do consultor), `live` (Graph) e `tools`. As ações em lote ficam em `lib/mcp/meta-batch-core.ts` (regras puras), `meta-batch.ts` (Meta e banco), `meta-batch-tools.ts`, a tela `app/(admin)/lotes/[id]` e a rota `app/api/meta-batches/[id]/run`.
 - Para adicionar uma área nova, crie as ferramentas com `defineTool` e a permissão RBAC correspondente e registre em `app/api/mcp/route.ts`. Descreva a área em `MCP_CAPABILITIES` (`lib/mcp/connections.ts`): é o que a página Conectar IA e a tela de autorização mostram, e um teste falha se as permissões das ferramentas e as da página divergirem.
 
 ## Links rastreados

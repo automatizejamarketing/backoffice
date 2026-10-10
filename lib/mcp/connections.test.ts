@@ -22,8 +22,8 @@ describe("MCP connections page", () => {
   });
 
   it("shows only the capabilities the person has", () => {
-    assert.deepEqual(capabilitiesFor(actor("marketing_consultant")).map((c) => c.permission), ["marketing:read"]);
-    assert.deepEqual(capabilitiesFor(actor("admin")).map((c) => c.permission), ["marketing:read", "whatsapp:campaigns"]);
+    assert.deepEqual(capabilitiesFor(actor("marketing_consultant")).map((c) => c.permission), ["marketing:read", "marketing:write"]);
+    assert.deepEqual(capabilitiesFor(actor("admin")).map((c) => c.permission), ["marketing:read", "marketing:write", "whatsapp:campaigns"]);
   });
 
   it("builds the connector address, the Claude link and the Claude Code command", () => {
@@ -36,9 +36,12 @@ describe("MCP connections page", () => {
   });
 
   it("promises on the consent screen only what the role can do, and writes only with the write scope", () => {
-    assert.deepEqual(consentItems(actor("marketing_consultant"), true), ["Consultar Meta Ads, resultados e alertas dos clientes que você acompanha"]);
+    assert.deepEqual(consentItems(actor("marketing_consultant"), true), [
+      "Consultar Meta Ads, resultados e alertas dos clientes que você acompanha",
+      "Preparar pausas, ativações e mudanças de orçamento diário, que só rodam depois que você aprovar no backoffice",
+    ]);
     const adminRead = consentItems(actor("admin"), false);
-    assert.equal(adminRead.length, 2);
+    assert.equal(adminRead.length, 3);
     assert.ok(consentItems(actor("admin"), true).some((item) => item.startsWith("Agendar envios")));
     assert.ok(!adminRead.some((item) => item.startsWith("Agendar envios")));
     assert.deepEqual(consentItems(actor("finance_viewer"), true), []);
