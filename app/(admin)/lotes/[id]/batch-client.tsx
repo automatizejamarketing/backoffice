@@ -103,7 +103,7 @@ export function BatchClient({ initial, isOwner, initialMode }: { initial: BatchV
   const statusLine =
     batch.status === "previewed"
       ? mode ? `Esperando sua aprovação · vale até ${formatTimeInSaoPaulo(batch.expiresAt!)}` : "A prévia venceu. Peça uma nova à IA."
-      : batch.status === "running" ? (mode ? "A execução parou no meio · dá para continuar" : "Em execução")
+      : batch.status === "running" ? (mode ? "A execução anterior foi interrompida · dá para continuar" : "Em execução")
       : batch.status === "partial" ? (mode ? `Parcial · ${batch.summary.pending} pendente(s)` : "Parcial · passou de 1 hora; peça uma nova prévia à IA")
       : "Executado";
 
@@ -118,7 +118,7 @@ export function BatchClient({ initial, isOwner, initialMode }: { initial: BatchV
         {canRun ? (
           <div className="flex flex-col items-start gap-2 md:items-end">
             <p className="text-sm">{mode === "approve" ? plannedSentence(batch.items) : "Continua de onde parou, relendo cada item antes de escrever."}</p>
-            <Button disabled={running} onClick={run} size="lg">
+            <Button aria-busy={running} disabled={running} onClick={run} size="lg">
               {running ? <Loader2 className="size-4 animate-spin" /> : null}
               {running ? "Executando…" : mode === "approve" ? "Aprovar e executar" : "Continuar"}
             </Button>
@@ -171,7 +171,7 @@ function ClientRows({ client, items }: { client: string; items: Item[] }) {
           <TableCell className="whitespace-nowrap tabular-nums">
             {item.skipped ? "—" : (
               <span className="inline-flex items-center gap-1.5">
-                {value(item, item.from)} <ArrowRight aria-label="para" className="size-3.5 text-muted-foreground" /> {value(item, item.to)}
+                {value(item, item.from)} <ArrowRight aria-hidden className="size-3.5 text-muted-foreground" /><span className="sr-only">para</span> {value(item, item.to)}
               </span>
             )}
           </TableCell>

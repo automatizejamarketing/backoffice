@@ -1,7 +1,7 @@
 import "server-only";
 
 import * as z from "zod/v4";
-import { approvalUrl, getMetaBatch, previewMetaBatch } from "./meta-batch";
+import { approvalUrl, batchAction, getMetaBatch, previewMetaBatch } from "./meta-batch";
 import { BATCH_ACTIONS, BATCH_LEVELS, MAX_BATCH_ITEMS } from "./meta-batch-core";
 import { defineTool, type McpTool } from "./tool";
 
@@ -31,12 +31,14 @@ export const META_BATCH_TOOLS: McpTool[] = [
   defineTool({
     name: "get_meta_batch", title: "Resultado de um lote", permission: "marketing:write", write: false,
     description:
-      "Situação e resultado item a item de um lote de ações na Meta Ads: previewed (esperando aprovação no backoffice), running, partial (a pessoa pode continuar pelo link) ou done. " +
+      "Situação e resultado item a item de um lote de ações na Meta Ads: previewed (esperando aprovação no backoffice), running, partial ou done. " +
+      "nextStep diz o que a pessoa pode fazer agora: approve (aprovar pelo approvalUrl), resume (continuar pelo approvalUrl) ou nada (concluído, em execução ou vencido: gere outra prévia). " +
       "Itens: applied, already_applied, changed_since_preview (alguém mexeu depois da prévia; não sobrescrevemos) ou failed.",
     input: z.object({ batchId }),
     async run(actor, input, ctx) {
       const { row, described } = await getMetaBatch(actor, input.batchId);
-      return row.status === "done" ? described : { ...described, approvalUrl: approvalUrl(ctx.origin, row.id) };
+      const nextStep = batchAction(row);
+      return nextStep ? { ...described, nextStep, approvalUrl: approvalUrl(ctx.origin, row.id) } : { ...described, nextStep: null };
     },
   }),
 ];

@@ -329,6 +329,20 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
     assert.equal(after, before);
   });
 
+  it("tells the AI and the screen what can be done next, including a run that died", async () => {
+    resetMeta();
+    const p = await preview([{ userId: CLIENT_A, level: "campaign", id: "101", action: "pause" }], "pausa");
+    const next = async () => batch.batchAction((await batch.getMetaBatch(actor as never, p.batchId!)).row);
+    assert.equal(await next(), "approve");
+    await client`UPDATE meta_ads_batches SET status = 'running', confirmed_at = now(), lease_until = now() - interval '1 second' WHERE id = ${p.batchId!}`;
+    assert.equal(await next(), "resume");
+    await client`UPDATE meta_ads_batches SET lease_until = now() + interval '1 minute' WHERE id = ${p.batchId!}`;
+    assert.equal(await next(), null);
+    await assert.rejects(run(p.batchId!), /em execução agora/);
+    await client`UPDATE meta_ads_batches SET status = 'previewed', confirmed_at = NULL, lease_until = NULL, expires_at = now() - interval '1 minute' WHERE id = ${p.batchId!}`;
+    assert.equal(await next(), null);
+  });
+
   it("refuses clients outside the portfolio, someone else's batch, expired previews and allowlist-only admins", async () => {
     resetMeta();
     await assert.rejects(preview([{ userId: OUTSIDE, level: "campaign", id: "101", action: "pause" }]), /Fora da sua carteira/);

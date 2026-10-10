@@ -71,7 +71,7 @@ Pausar, ativar e mudar o orçamento diário de campanhas, conjuntos e anúncios 
 | Ferramenta | O que faz |
 | --- | --- |
 | `preview_meta_batch` | Até 100 itens `{ userId, level, id, action, dailyBudget? }` e um motivo. Lê cada objeto na Meta (50 por chamada, com `?ids=`), confere que ele é do cliente e mostra antes → depois, avisos (orçamento mudando 50% ou mais; ativar sob um nível pausado) e itens pulados com o motivo. Guarda o plano em `meta_ads_batches` e devolve `approvalUrl` (`/lotes/<id>`, vale 15 minutos). Não escreve na Meta |
-| `get_meta_batch` | Situação e resultado item a item de um lote, com o link enquanto ele não terminou |
+| `get_meta_batch` | Situação e resultado item a item de um lote e `nextStep`: `approve` ou `resume` (com o link) ou `null` (concluído, em execução ou vencido) |
 
 A execução é `POST /api/meta-batches/[id]/run`, chamado pelo botão **Aprovar e executar** (ou **Continuar**) da tela `/lotes/[id]`, com a sessão da pessoa no navegador. A rota só aceita a própria origem (`Origin` igual ao host) e `Content-Type` exatamente `application/json`. Nenhuma ferramenta do MCP muda a Meta: o OAuth de escrita autoriza a conexão, não a aprovação de um plano, e a IA não tem a sessão do navegador. Só quem gerou a prévia aprova; admin vê o lote.
 
@@ -85,6 +85,8 @@ Decisões:
 - **Registro uma vez por item.** A nota leva a marca `[lote <id> #<n> via MCP]`; antes de registrar, a execução procura essa marca em `meta_tracking_change_events` e não registra de novo. Registro que falhou (inclusive o evento do stream devolvendo `null`) fica `audit: "failed"`, o lote fica `partial` e **Continuar** refaz só o registro.
 - **Limite da Meta.** Throttle (4, 17, 613, 80000–80014…) ou token inválido (190) pausa o cliente: os itens ficam pendentes, o lote fica `partial` e **Continuar** segue depois. Só erro de objeto (100, 10, 200, 803) cai para leitura um a um ou marca o item como falho.
 - **Registro.** Status: `recordStatusChangeAudit` (log legado + `meta_tracking_change_events`), como a tela. Orçamento: `campaign_edit_logs`/`adset_edit_logs` (as abas de histórico das telas) + evento `config_change` com a ponte. O motivo leva a marca do lote e do item.
+- Recusas esperadas (lote de outra pessoa, vencido, em execução) voltam como 409 com a mensagem; falha interna volta 500 genérico e devolve o lote como `partial` para **Continuar**.
+- Limitação conhecida: se o log legado gravar e o evento do stream falhar, a retomada grava o log legado de novo (o evento, que leva a marca, sai uma vez só).
 - Prévias vencidas há mais de um dia são apagadas quando a mesma pessoa gera outra.
 - Teste de integração com Postgres local descartável e a Meta simulada: `META_BATCH_TEST_URL=postgres://postgres@localhost:55432/postgres bun test lib/mcp/meta-batch.integration.test.ts` (rode sozinho: ele substitui módulos com `mock.module`).
 

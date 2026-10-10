@@ -219,7 +219,7 @@ export async function describeBatch(row: Pick<MetaAdsBatch, "id" | "status" | "n
 
 function requireDatabaseActor(actor: BackofficeActor) {
   // Admin só da allowlist não tem linha em backoffice_users: o lote precisa de um dono real.
-  if (actor.source !== "database") throw new Error("Cadastre seu usuário na Equipe do backoffice para usar ações em lote.");
+  if (actor.source !== "database") throw new BatchRefused("Cadastre seu usuário na Equipe do backoffice para usar ações em lote.");
 }
 
 export async function previewMetaBatch(actor: BackofficeActor, input: { items: BatchItemInput[]; note: string }, origin: string) {
@@ -344,13 +344,15 @@ async function audit(actor: BackofficeActor, batch: { id: string; note: string }
 function refusal(row: MetaAdsBatch | undefined, actor: BackofficeActor): string {
   if (!row || row.actorId !== actor.id) return "Lote não encontrado (só quem gerou a prévia aprova).";
   if (row.status === "done") return "Este lote já foi executado.";
-  const stale = row.confirmedAt && row.confirmedAt.getTime() < Date.now() - 60 * 60 * 1000;
-  if (stale) return "O lote ficou parado por mais de 1 hora. Gere outra prévia.";
-  if (row.status === "running") return "Este lote está em execução agora. Atualize em instantes.";
-  return "A prévia venceu (vale 15 minutos). Gere outra.";
+  if (row.status === "running" && row.leaseUntil && row.leaseUntil.getTime() >= Date.now()) return "Este lote está em execução agora. Atualize em instantes.";
+  if (row.status === "previewed") return "A prévia venceu (vale 15 minutos). Gere outra.";
+  return "O lote ficou parado por mais de 1 hora. Gere outra prévia.";
 }
 
 class LostLease extends Error {}
+
+/** Recusa esperada (lote de outra pessoa, vencido, em execução…): a mensagem vai para a tela. */
+export class BatchRefused extends Error {}
 
 /**
  * Executa (ou continua) um lote. Chamado só pela aprovação no backoffice, com a sessão da
@@ -371,12 +373,27 @@ export async function runMetaBatch(actor: BackofficeActor, batchId: string) {
     .returning();
   if (!claimed) {
     const [row] = await db.select().from(b).where(eq(b.id, batchId)).limit(1);
-    throw new Error(refusal(row, actor));
+    throw new BatchRefused(refusal(row, actor));
   }
 
   enterMetaMutationLog({ app: "backoffice", route: `POST /api/meta-batches/{id}/run (lote ${batchId})`, operationHint: "update" });
 
   const runId = claimed.runId!;
+  try {
+    return await executeClaimed(actor, claimed, runId);
+  } catch (error) {
+    if (error instanceof BatchRefused) throw error;
+    // Falha fora dos clientes (banco, montagem da resposta): devolve o lote como parcial para
+    // Continuar, em vez de deixá-lo "em execução" até a lease vencer.
+    await db.update(b).set({ status: "partial", runId: null, leaseUntil: null })
+      .where(and(eq(b.id, batchId), eq(b.runId, runId))).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function executeClaimed(actor: BackofficeActor, claimed: MetaAdsBatch, runId: string) {
+  const b = metaAdsBatch;
+  const batchId = claimed.id;
   const items = claimed.items as unknown as PlannedItem[];
   const startedAt = Date.now();
   const notes: string[] = [];
@@ -487,17 +504,17 @@ export async function runMetaBatch(actor: BackofficeActor, batchId: string) {
     }
   });
 
-  if (lost) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
+  if (lost) throw new BatchRefused("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
   // A conclusão vem do que está gravado, não da memória: um item que falhou ao gravar continua pendente.
   const [persisted] = await db.select({ items: b.items }).from(b).where(and(eq(b.id, batchId), eq(b.runId, runId))).limit(1);
-  if (!persisted) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
+  if (!persisted) throw new BatchRefused("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
   const saved = persisted.items as unknown as PlannedItem[];
   const status = batchStatusAfterRun(saved) === "done" && auditPendingItems(saved).length === 0 ? "done" : "partial";
   const [row] = await db.update(b)
     .set({ status, leaseUntil: null, runId: null, finishedAt: status === "done" ? new Date() : null })
     .where(and(eq(b.id, batchId), eq(b.runId, runId)))
     .returning();
-  if (!row) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
+  if (!row) throw new BatchRefused("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
   const described = await describeBatch(row, row.items as unknown as PlannedItem[]);
   return status === "done" ? { ...described, notes } : { ...described, notes: [...notes, "Ficaram itens pendentes: use Continuar para seguir de onde parou."] };
 }

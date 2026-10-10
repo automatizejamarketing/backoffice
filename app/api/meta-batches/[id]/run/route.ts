@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { runMetaBatch } from "@/lib/mcp/meta-batch";
+import { BatchRefused, runMetaBatch } from "@/lib/mcp/meta-batch";
 import { resolveIssuer } from "@/lib/mcp-oauth/http";
 
 /** Um lote para de começar itens aos 150 s; um item pode levar ~75 s (retry de objeto ocupado da Meta). */
@@ -28,7 +28,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   try {
     return NextResponse.json(await runMetaBatch(authz.actor, id));
   } catch (error) {
-    console.error("[meta-batch] execução recusada ou interrompida", id, error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Não foi possível executar o lote." }, { status: 409 });
+    if (error instanceof BatchRefused) return NextResponse.json({ error: error.message }, { status: 409 });
+    console.error("[meta-batch] execução interrompida", id, error);
+    return NextResponse.json({ error: "A execução parou por um erro interno. O que já rodou ficou salvo: atualize a página e use Continuar." }, { status: 500 });
   }
 }
