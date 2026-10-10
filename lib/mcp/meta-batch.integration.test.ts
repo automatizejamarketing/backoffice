@@ -30,6 +30,9 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
   const audits: { kind: string; id: string; applied: boolean }[] = [];
   const meta = new Map<string, Obj>();
   let writeFailures = new Map<string, number>();
+  /** Escritas que a Meta aplica, mas cuja resposta se perde (conexão caída). */
+  let lostResponses = new Set<string>();
+  let streamDown = false;
   /** Chamado quando um POST chega, antes de aplicar: simula outra pessoa mexendo durante a execução. */
   let onWrite: (id: string) => Promise<void> | void = () => {};
   let actor: { id: string; email: string; role: "marketing_consultant"; source: "database"; assignedUserIds: string[] };
@@ -39,6 +42,8 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
   function resetMeta() {
     meta.clear();
     writeFailures = new Map();
+    lostResponses = new Set();
+    streamDown = false;
     onWrite = () => {};
     audits.length = 0;
     meta.set("101", { id: "101", kind: "campaign", name: "Vendas A", status: "ACTIVE", effective_status: "ACTIVE", account_id: "111", daily_budget: "5000" });
@@ -65,6 +70,7 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
     await client.unsafe(`
       CREATE TABLE backoffice_users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email varchar(100) NOT NULL);
       CREATE TABLE meta_tracking_account_coverage (user_id uuid NOT NULL, account_id text NOT NULL, business_date date NOT NULL);
+      CREATE TABLE meta_tracking_change_events (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), entity_id text NOT NULL, note text);
     `);
     const migration = readFileSync(new URL("../db/migrations/0132_meta_ads_batches.sql", import.meta.url), "utf8");
     for (const statement of migration.split("--> statement-breakpoint")) await client.unsafe(statement);
@@ -79,9 +85,12 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
     mock.module("./meta-ads-queries", () => ({
       loadClientLabels: async (ids: string[]) => new Map(ids.map(id => [id, { client: id === CLIENT_A ? "Cliente A" : "Cliente B", email: "x@y.com", consultant: null }])),
     }));
+    // The real status audit writes the legacy log and then the stream event; the stub does the same.
     mock.module("@/lib/backoffice/meta-status-change-audit", () => ({
-      recordStatusChangeAudit: async (input: { objectId: string; appliedToMeta: boolean }) => {
+      recordStatusChangeAudit: async (input: { objectId: string; appliedToMeta: boolean; note: string }) => {
         audits.push({ kind: "status", id: input.objectId, applied: input.appliedToMeta });
+        if (streamDown) return { auditLogFailed: true };
+        await client`INSERT INTO meta_tracking_change_events (entity_id, note) VALUES (${input.objectId}, ${input.note})`;
         return { auditLogFailed: false };
       },
     }));
@@ -97,7 +106,13 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
         return { id: `log-${data.adsetId}` };
       },
     }));
-    mock.module("@/lib/db/meta-tracking-event-queries", () => ({ recordInternalChangeEvent: async () => "event-id" }));
+    mock.module("@/lib/db/meta-tracking-event-queries", () => ({
+      recordInternalChangeEvent: async (draft: { entityId: string; note: string | null }) => {
+        if (streamDown) return null;
+        const [row] = await client`INSERT INTO meta_tracking_change_events (entity_id, note) VALUES (${draft.entityId}, ${draft.note}) RETURNING id`;
+        return row.id as string;
+      },
+    }));
 
     stub = installMetaFetchStub(async req => {
       if (req.path === "me") return { body: { id: "me" } };
@@ -118,6 +133,7 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
       const budget = req.params.get("daily_budget");
       if (status) Object.assign(object, { status, effective_status: status });
       if (budget) object.daily_budget = budget;
+      if (lostResponses.has(object.id)) throw new TypeError("fetch failed: ECONNRESET");
       return { body: { success: true } };
     });
     batch = await import("./meta-batch");
@@ -275,6 +291,42 @@ describeWithDatabase("Meta Ads batch (Postgres + Graph stub)", () => {
     assert.deepEqual(audits.map(a => a.id), ["101"], "only the run that owns the batch records it");
     const [row] = await client`SELECT status FROM meta_ads_batches WHERE id = ${p.batchId!}`;
     assert.equal(row.status, "done");
+  });
+
+  it("reconciles a write whose response was lost by rereading, instead of calling it a failure", async () => {
+    resetMeta();
+    const p = await preview([{ userId: CLIENT_A, level: "campaign", id: "101", action: "pause" }], "pausa");
+    lostResponses.add("101");
+    const result = await run(p.batchId!);
+    assert.deepEqual([result.status, result.summary.applied, result.summary.failed], ["done", 1, 0]);
+    assert.deepEqual(audits.map(a => [a.id, a.applied]), [["101", true]]);
+  });
+
+  it("keeps the batch open until the history really records the change", async () => {
+    resetMeta();
+    const p = await preview([{ userId: CLIENT_A, level: "campaign", id: "102", action: "set_daily_budget", dailyBudget: 40 }], "verba");
+    streamDown = true;
+    const partial = await run(p.batchId!);
+    assert.equal(partial.status, "partial");
+    assert.equal(partial.summary.auditPending, 1);
+    streamDown = false;
+    const before = writes().length;
+    const done = await run(p.batchId!);
+    assert.equal(done.status, "done");
+    assert.equal(writes().length, before, "the Meta change is not repeated, only the record");
+  });
+
+  it("does not record twice when a run dies between recording and marking it done", async () => {
+    resetMeta();
+    const p = await preview([{ userId: CLIENT_A, level: "campaign", id: "101", action: "pause" }], "pausa");
+    await run(p.batchId!);
+    // Simulate the crash window: the record exists but the item still says the record is pending.
+    await client`UPDATE meta_ads_batches SET status = 'partial', items = jsonb_set(items, '{0,audit}', '"failed"') WHERE id = ${p.batchId!}`;
+    const [{ count: before }] = await client`SELECT count(*)::int AS count FROM meta_tracking_change_events WHERE entity_id = '101'`;
+    const result = await run(p.batchId!);
+    assert.equal(result.status, "done");
+    const [{ count: after }] = await client`SELECT count(*)::int AS count FROM meta_tracking_change_events WHERE entity_id = '101'`;
+    assert.equal(after, before);
   });
 
   it("refuses clients outside the portfolio, someone else's batch, expired previews and allowlist-only admins", async () => {

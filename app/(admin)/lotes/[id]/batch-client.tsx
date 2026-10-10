@@ -68,12 +68,12 @@ function plannedSentence(items: Item[]) {
   return `Vai ${list} em ${clients} ${clients === 1 ? "cliente" : "clientes"}.`;
 }
 
-export function BatchClient({ initial, isOwner }: { initial: BatchView; isOwner: boolean }) {
+export function BatchClient({ initial, isOwner, initialMode }: { initial: BatchView; isOwner: boolean; initialMode: "approve" | "resume" | null }) {
   const router = useRouter();
   const [batch, setBatch] = useState(initial);
+  const [mode, setMode] = useState(initialMode);
   const [running, setRunning] = useState(false);
-  const expired = batch.status === "previewed" && batch.expiresAt != null && new Date(batch.expiresAt).getTime() < Date.now();
-  const canRun = isOwner && !expired && (batch.status === "previewed" || batch.status === "partial");
+  const canRun = isOwner && mode != null;
   const byClient = useMemo(() => {
     const groups = new Map<string, Item[]>();
     for (const item of batch.items) groups.set(item.client, [...(groups.get(item.client) ?? []), item]);
@@ -91,6 +91,7 @@ export function BatchClient({ initial, isOwner }: { initial: BatchView; isOwner:
         return;
       }
       setBatch(data);
+      setMode(data.status === "partial" ? "resume" : null);
       toast.success(data.status === "done" ? "Lote executado." : "Parte do lote foi executada. Use Continuar para o resto.");
     } catch {
       toast.error("A conexão caiu durante a execução. Atualize a página para ver o que já rodou.");
@@ -101,9 +102,9 @@ export function BatchClient({ initial, isOwner }: { initial: BatchView; isOwner:
 
   const statusLine =
     batch.status === "previewed"
-      ? expired ? "A prévia venceu. Peça uma nova à IA." : `Esperando sua aprovação · vale até ${formatTimeInSaoPaulo(batch.expiresAt!)}`
-      : batch.status === "running" ? "Em execução"
-      : batch.status === "partial" ? `Parcial · ${batch.summary.pending} pendente(s)`
+      ? mode ? `Esperando sua aprovação · vale até ${formatTimeInSaoPaulo(batch.expiresAt!)}` : "A prévia venceu. Peça uma nova à IA."
+      : batch.status === "running" ? (mode ? "A execução parou no meio · dá para continuar" : "Em execução")
+      : batch.status === "partial" ? (mode ? `Parcial · ${batch.summary.pending} pendente(s)` : "Parcial · passou de 1 hora; peça uma nova prévia à IA")
       : "Executado";
 
   return (
@@ -116,10 +117,10 @@ export function BatchClient({ initial, isOwner }: { initial: BatchView; isOwner:
         </div>
         {canRun ? (
           <div className="flex flex-col items-start gap-2 md:items-end">
-            <p className="text-sm">{batch.status === "previewed" ? plannedSentence(batch.items) : "Continua de onde parou, relendo cada item antes de escrever."}</p>
+            <p className="text-sm">{mode === "approve" ? plannedSentence(batch.items) : "Continua de onde parou, relendo cada item antes de escrever."}</p>
             <Button disabled={running} onClick={run} size="lg">
               {running ? <Loader2 className="size-4 animate-spin" /> : null}
-              {running ? "Executando…" : batch.status === "previewed" ? "Aprovar e executar" : "Continuar"}
+              {running ? "Executando…" : mode === "approve" ? "Aprovar e executar" : "Continuar"}
             </Button>
           </div>
         ) : !isOwner && batch.status !== "done" ? (

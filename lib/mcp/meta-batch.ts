@@ -1,14 +1,14 @@
 import "server-only";
 
-import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, like, lt, sql } from "drizzle-orm";
 import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
 import { db } from "@/lib/db";
 import { createAdSetEditLog, createCampaignEditLog } from "@/lib/db/admin-queries";
 import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
-import { metaAdsBatch, metaTrackingAccountCoverage, type MetaAdsBatch } from "@/lib/db/schema";
+import { metaAdsBatch, metaTrackingAccountCoverage, metaTrackingChangeEvent, type MetaAdsBatch } from "@/lib/db/schema";
 import { metaApiCall } from "@/lib/meta-business/api";
-import { GraphApiError } from "@/lib/meta-business/error";
+import { GraphApiError, MetaTokenInvalidError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
 import { mapErrorKind } from "@/lib/meta-business/insights/envelope";
@@ -31,10 +31,14 @@ import {
 /** A prévia vale 15 minutos; um lote interrompido pode continuar por 1 hora depois da aprovação. */
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
 /**
- * Itens só começam até 150 s de execução. Um item pode levar ~75 s (retry de objeto ocupado da
- * Meta), então a execução termina antes de 300 s, o maxDuration da rota de execução.
+ * Orçamento de tempo da execução, contra o maxDuration de 300 s da rota: itens só começam até
+ * 150 s; nenhuma escrita começa depois de 200 s; cada leitura tem 20 s e cada escrita até 80 s
+ * (o retry de objeto ocupado da Meta fica dentro disso). Sobra margem para gravar o resultado.
  */
 const START_BUDGET_MS = 150_000;
+const WRITE_BUDGET_MS = 200_000;
+const READ_TIMEOUT_MS = 20_000;
+const WRITE_TIMEOUT_MS = 80_000;
 /** Maior que o maxDuration: uma execução viva nunca perde a vez; a morta libera em 330 s. */
 const LEASE_SQL = sql`now() + interval '330 seconds'`;
 /** Clientes em paralelo; dentro de um cliente (um token), uma escrita por vez. */
@@ -77,12 +81,34 @@ function errorText(error: unknown): string {
 const graphCode = (error: unknown) => (error instanceof GraphApiError ? error.errorReturn.data?.code : undefined);
 
 /** Limite da Meta ou token inválido: vale para o cliente inteiro, não para um objeto. Pausa e deixa retomar. */
-const isClientWideError = (error: unknown) => isRetryableMetaThrottle(error) || graphCode(error) === 190;
+const isClientWideError = (error: unknown) =>
+  isRetryableMetaThrottle(error) || graphCode(error) === 190 || error instanceof MetaTokenInvalidError || error instanceof TimedOut;
+
+/**
+ * A Meta respondeu e recusou (4xx com código). Qualquer outra falha — conexão caída, 5xx, HTML,
+ * tempo esgotado — deixa o resultado de uma escrita DESCONHECIDO: a Meta pode ter aplicado.
+ */
+const isExplicitRefusal = (error: unknown) =>
+  error instanceof GraphApiError && graphCode(error) != null && error.errorReturn.statusCode >= 400 && error.errorReturn.statusCode < 500;
+
+class TimedOut extends Error {}
+
+/** Não cancela a chamada (metaApiCall não aceita sinal), mas devolve o controle a tempo. */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new TimedOut(`a Meta não respondeu em ${Math.round(ms / 1000)} s`)), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 /** Erro de objeto (não existe, sem acesso, campo de outro tipo): só esse item. */
 const isObjectError = (error: unknown) => [100, 10, 200, 803].includes(graphCode(error) ?? -1);
 
 class ClientPaused extends Error {}
+
+const pausedRead = (error: unknown) =>
+  `a Meta limitou ou não respondeu às leituras agora (${errorText(error)}). Os itens deste cliente ficaram pendentes; continue em alguns minutos.`;
 
 /**
  * Lê objetos de um nível, 50 por chamada (`?ids=`). Um id sem acesso derruba a leitura múltipla
@@ -95,10 +121,10 @@ async function readObjects(accessToken: string, level: BatchLevel, ids: string[]
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
     try {
-      const res = await metaApiCall<Record<string, RawObject>>({ method: "GET", path: "", params: `ids=${chunk.join(",")}&${fields}`, accessToken });
+      const res = await withTimeout(metaApiCall<Record<string, RawObject>>({ method: "GET", path: "", params: `ids=${chunk.join(",")}&${fields}`, accessToken }), READ_TIMEOUT_MS);
       for (const raw of Object.values(res)) if (raw?.id) found.set(raw.id, normalize(raw));
     } catch (error) {
-      if (!isObjectError(error)) throw isClientWideError(error) ? new ClientPaused(errorText(error)) : error;
+      if (!isObjectError(error)) throw isClientWideError(error) ? new ClientPaused(pausedRead(error)) : error;
       for (const id of chunk) {
         const object = await readOne(accessToken, level, id);
         if (object) found.set(id, object);
@@ -110,10 +136,10 @@ async function readObjects(accessToken: string, level: BatchLevel, ids: string[]
 
 async function readOne(accessToken: string, level: BatchLevel, id: string): Promise<MetaObjectState | undefined> {
   try {
-    return normalize(await metaApiCall<RawObject>({ method: "GET", path: id, params: `fields=${encodeURIComponent(FIELDS[level])}`, accessToken }));
+    return normalize(await withTimeout(metaApiCall<RawObject>({ method: "GET", path: id, params: `fields=${encodeURIComponent(FIELDS[level])}`, accessToken }), READ_TIMEOUT_MS));
   } catch (error) {
     if (isObjectError(error)) return undefined;
-    throw isClientWideError(error) ? new ClientPaused(errorText(error)) : error;
+    throw isClientWideError(error) ? new ClientPaused(pausedRead(error)) : error;
   }
 }
 
@@ -151,6 +177,17 @@ function groupByClient<T extends { userId: string }>(items: T[]): [string, T[]][
   const groups = new Map<string, T[]>();
   for (const item of items) groups.set(item.userId, [...(groups.get(item.userId) ?? []), item]);
   return [...groups];
+}
+
+/**
+ * O que a tela oferece para o lote, pelas mesmas regras com que runMetaBatch o assume: aprovar
+ * uma prévia válida, continuar um lote parcial (ou uma execução que morreu) de até 1 hora.
+ */
+export function batchAction(row: Pick<MetaAdsBatch, "status" | "expiresAt" | "confirmedAt" | "leaseUntil">, now = Date.now()): "approve" | "resume" | null {
+  if (row.status === "previewed") return row.expiresAt.getTime() > now ? "approve" : null;
+  const recent = row.confirmedAt != null && row.confirmedAt.getTime() > now - 60 * 60 * 1000;
+  const abandoned = row.status === "running" && row.leaseUntil != null && row.leaseUntil.getTime() < now;
+  return recent && (row.status === "partial" || abandoned) ? "resume" : null;
 }
 
 export const approvalUrl = (origin: string, batchId: string) => `${origin.replace(/\/$/, "")}/lotes/${batchId}`;
@@ -215,7 +252,7 @@ export async function previewMetaBatch(actor: BackofficeActor, input: { items: B
       }
     } catch (error) {
       failure = error instanceof ClientPaused
-        ? `A Meta limitou as chamadas deste cliente agora (${error.message}). Gere a prévia de novo em alguns minutos.`
+        ? `Não deu para ler este cliente: ${error.message.replace(/continue em alguns minutos\.$/, "gere a prévia de novo em alguns minutos.")}`
         : `Não foi possível ler a Meta deste cliente: ${errorText(error)}`;
     }
     for (const { index, ...item } of entries) {
@@ -250,11 +287,23 @@ export async function previewMetaBatch(actor: BackofficeActor, input: { items: B
   };
 }
 
-async function audit(actor: BackofficeActor, batch: { id: string; note: string }, item: PlannedItem, appliedToMeta: boolean, errorMessage?: string): Promise<boolean> {
-  const note = `${batch.note} [lote ${batch.id.slice(0, 8)} via MCP]`;
+/** Marca única de um item no histórico: é como a retomada sabe que o registro já foi feito. */
+const auditMarker = (batchId: string, index: number) => `[lote ${batchId} #${index + 1} via MCP]`;
+
+/**
+ * Registra a mudança no histórico, uma vez por item: se a execução morreu depois de registrar e
+ * antes de marcar `audit: "done"`, a retomada acha o evento pela marca e não registra de novo.
+ * O evento é o último registro gravado, então achá-lo significa que o resto também foi.
+ */
+async function audit(actor: BackofficeActor, batch: { id: string; note: string }, index: number, item: PlannedItem, appliedToMeta: boolean, errorMessage?: string): Promise<boolean> {
+  const marker = auditMarker(batch.id, index);
+  const note = `${batch.note} ${marker}`;
   const occurredAt = new Date();
   const accountId = item.accountId!;
   try {
+    const e = metaTrackingChangeEvent;
+    const [existing] = await db.select({ id: e.id }).from(e).where(and(eq(e.entityId, item.id), like(e.note, `%${marker}`))).limit(1);
+    if (existing) return true;
     if (item.target.status) {
       const result = await recordStatusChangeAudit({
         entity: item.level, backofficeUserEmail: actor.email, targetUserId: item.userId, accountId,
@@ -282,8 +331,8 @@ async function audit(actor: BackofficeActor, batch: { id: string; note: string }
       actorEmail: actor.email, note, occurredAt, appliedToMeta, errorMessage,
       legacy: log?.id ? { table: item.level === "campaign" ? "campaign_edit_logs" : "adset_edit_logs", id: log.id } : null,
     });
-    if (event.ok && event.event) await recordInternalChangeEvent(event.event);
-    return Boolean(log?.id) && event.ok;
+    const eventId = event.ok && event.event ? await recordInternalChangeEvent(event.event) : null;
+    return Boolean(log?.id) && Boolean(eventId);
   } catch (error) {
     // A mudança já está na conta do cliente; a falha de registro fica marcada e é refeita na retomada.
     console.error("[meta-batch] falha ao registrar auditoria", item.level, item.id, error);
@@ -355,7 +404,7 @@ export async function runMetaBatch(actor: BackofficeActor, batchId: string) {
       updateMetaMutationContext({ actor: { kind: "backoffice", id: actor.id, email: actor.email, role: actor.role, targetUserId: userId } });
       // Registro que ficou para trás numa execução anterior: refaz antes de qualquer escrita nova.
       for (const { item, index } of entries.filter(e => e.item.outcome === "applied")) {
-        item.audit = (await audit(actor, claimed, item, true)) ? "done" : "failed";
+        item.audit = (await audit(actor, claimed, index, item, true)) ? "done" : "failed";
         await saveItem(index);
       }
       const toRun = entries.filter(e => !e.item.outcome);
@@ -386,31 +435,46 @@ export async function runMetaBatch(actor: BackofficeActor, batchId: string) {
         } else if (decision === "applied") {
           item.outcome = "applied";
           await saveItem(index);
-          item.audit = (await audit(actor, claimed, item, true)) ? "done" : "failed";
+          item.audit = (await audit(actor, claimed, index, item, true)) ? "done" : "failed";
         } else if (decision !== "write") {
           item.outcome = decision;
         } else {
+          // A releitura pode ter demorado: sem tempo para escrever e gravar, o item fica para Continuar.
+          if (Date.now() - startedAt > WRITE_BUDGET_MS) return;
           item.attempt = "writing";
           await saveItem(index);
+          let uncertain: string | null = null;
           try {
             // Sem retry de throttle aqui: um limite da Meta pausa o cliente e o lote continua depois.
-            await metaApiCall({ method: "POST", path: item.id, params: "", body: writeBody(item), accessToken: token.accessToken });
+            await withTimeout(metaApiCall({ method: "POST", path: item.id, params: "", body: writeBody(item), accessToken: token.accessToken }), WRITE_TIMEOUT_MS);
           } catch (error) {
-            if (isClientWideError(error)) {
+            if (isClientWideError(error) && !(error instanceof TimedOut)) {
+              // Limite ou token: a Meta recusou, nada foi aplicado.
               item.attempt = undefined;
               await saveItem(index);
-              throw new ClientPaused(errorText(error));
+              throw new ClientPaused(`a Meta limitou as chamadas agora (${errorText(error)}). Os itens deste cliente ficaram pendentes; continue em alguns minutos.`);
             }
-            Object.assign(item, { outcome: "failed", error: errorText(error), attempt: undefined });
-            await saveItem(index);
-            await audit(actor, claimed, item, false, item.error);
-            continue;
+            if (isExplicitRefusal(error)) {
+              Object.assign(item, { outcome: "failed", error: errorText(error), attempt: undefined });
+              await saveItem(index);
+              await audit(actor, claimed, index, item, false, item.error);
+              continue;
+            }
+            uncertain = errorText(error);
+          }
+          if (uncertain) {
+            // Conexão caída ou tempo esgotado: a Meta pode ter aplicado. Relê para saber; se não der,
+            // o item fica pendente COM a marca e a retomada decide pela releitura.
+            const now = await readOne(token.accessToken, item.level, item.id).catch(() => undefined);
+            if (decideAtRun(item, now) !== "applied") {
+              throw new ClientPaused(`não deu para confirmar se a Meta aplicou a mudança em ${item.name ?? item.id} (${uncertain}). Continue para conferir e seguir.`);
+            }
           }
           item.outcome = "applied";
           // Grava o resultado ANTES do registro: se esta execução perdeu a vez, para aqui e a
           // que assumiu reconhece a escrita (attempt) e registra uma vez só.
           await saveItem(index);
-          item.audit = (await audit(actor, claimed, item, true)) ? "done" : "failed";
+          item.audit = (await audit(actor, claimed, index, item, true)) ? "done" : "failed";
         }
         await saveItem(index);
       }
@@ -418,13 +482,17 @@ export async function runMetaBatch(actor: BackofficeActor, batchId: string) {
       if (error instanceof LostLease) return;
       const client = (await loadClientLabels([userId])).get(userId)?.client ?? userId;
       notes.push(error instanceof ClientPaused
-        ? `${client}: a Meta limitou as chamadas agora (${error.message}). Os itens deste cliente ficaram pendentes; continue em alguns minutos.`
+        ? `${client}: ${error.message}`
         : `${client}: a execução parou por um erro (${errorText(error)}). Os itens restantes ficaram pendentes.`);
     }
   });
 
   if (lost) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
-  const status = batchStatusAfterRun(items) === "done" && auditPendingItems(items).length === 0 ? "done" : "partial";
+  // A conclusão vem do que está gravado, não da memória: um item que falhou ao gravar continua pendente.
+  const [persisted] = await db.select({ items: b.items }).from(b).where(and(eq(b.id, batchId), eq(b.runId, runId))).limit(1);
+  if (!persisted) throw new Error("Outra execução assumiu este lote. Atualize a página para ver o resultado.");
+  const saved = persisted.items as unknown as PlannedItem[];
+  const status = batchStatusAfterRun(saved) === "done" && auditPendingItems(saved).length === 0 ? "done" : "partial";
   const [row] = await db.update(b)
     .set({ status, leaseUntil: null, runId: null, finishedAt: status === "done" ? new Date() : null })
     .where(and(eq(b.id, batchId), eq(b.runId, runId)))

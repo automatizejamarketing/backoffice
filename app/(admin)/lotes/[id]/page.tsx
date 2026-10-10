@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requirePagePermission } from "@/lib/auth/rbac";
-import { getMetaBatch } from "@/lib/mcp/meta-batch";
+import { batchAction, getMetaBatch } from "@/lib/mcp/meta-batch";
 import { BatchClient } from "./batch-client";
 
 export const dynamic = "force-dynamic";
@@ -14,5 +14,5 @@ export default async function MetaBatchPage({ params }: { params: Promise<{ id: 
   if (!UUID.test(id)) notFound();
   const batch = await getMetaBatch(actor, id).catch(() => null);
   if (!batch) notFound();
-  return <BatchClient initial={batch.described} isOwner={batch.row.actorId === actor.id} />;
+  return <BatchClient initial={batch.described} isOwner={batch.row.actorId === actor.id} initialMode={batchAction(batch.row)} />;
 }
