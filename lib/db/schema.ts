@@ -4323,6 +4323,8 @@ export const REFERRAL_ADMIN_ACTION_VALUES = [
   "payout_denied",
   "balance_written_off",
   "tax_document_updated",
+  // Vínculo manual de Indicado pelo backoffice (spec 2026-10-11).
+  "customer_linked",
 ] as const;
 export type ReferralAdminActionType =
   (typeof REFERRAL_ADMIN_ACTION_VALUES)[number];
