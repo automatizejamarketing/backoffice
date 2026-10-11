@@ -428,6 +428,7 @@ export default function ReferralsPage() {
                               showCode:
                                 row.status === "approved" ||
                                 row.status === "blocked",
+                              status: row.status,
                               user: row.user,
                             });
                             setCustomersOpen(true);
@@ -686,6 +687,7 @@ export default function ReferralsPage() {
         target={customersTarget}
         open={customersOpen}
         onOpenChange={setCustomersOpen}
+        onCustomersChanged={fetchAffiliates}
       />
 
       {/* Aprovar um pedido da fila */}

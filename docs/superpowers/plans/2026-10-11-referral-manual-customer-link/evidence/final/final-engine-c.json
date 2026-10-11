@@ -1,0 +1,38 @@
+{
+  "ranAt": "2026-10-11T04:38:22.550Z",
+  "failures": 0,
+  "report": [
+    {
+      "userId": "d734becf-70be-4969-818a-4a91e7058829",
+      "paymentId": "81e87d33-4c49-4186-a997-e09e689758ba",
+      "pickedBySweep": true,
+      "existedBefore": false,
+      "net": null,
+      "expected": null,
+      "actual": null,
+      "first": {
+        "paymentId": "81e87d33-4c49-4186-a997-e09e689758ba",
+        "eventId": "597f7a6f-b45f-42c1-b28c-7047f2b608db",
+        "eventStatus": "awaiting_settlement",
+        "commissionId": null,
+        "amountCentavos": null,
+        "created": false,
+        "skipReason": "awaiting_settlement",
+        "reason": "Pagamento ainda sem líquido: comissão aguarda a liquidação"
+      },
+      "secondCreated": false,
+      "commission": {
+        "id": null,
+        "amount_centavos": null,
+        "status": null,
+        "releases_at": null,
+        "agreement_snapshot": null,
+        "event_status": "awaiting_settlement",
+        "net_centavos": null,
+        "kind": "sale",
+        "ledger_entries": 0
+      },
+      "pass": true
+    }
+  ]
+}

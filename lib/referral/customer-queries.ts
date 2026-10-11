@@ -6,10 +6,11 @@
 // renegociação deixou num acordo superado — para o "N indicados" da tabela e o
 // sheet nunca discordarem.
 
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { billingPaymentPurposeSql } from "@/lib/backoffice/finance-purpose";
 import {
+  referralAdminAction,
   referralAffiliate,
   referralCommission,
   referralCommissionableEvent,
@@ -28,6 +29,7 @@ import {
   type ReferralCustomerAccountStatus,
   type ReferralCustomerCommissionSummary,
 } from "./customers";
+import { indexManualLinks, type ReferralCustomerManualLink } from "./manual-link";
 
 export type ReferralAffiliateCustomerItem = {
   id: string;
@@ -40,6 +42,8 @@ export type ReferralAffiliateCustomerItem = {
   };
   account: StatusBadgeProps & { status: ReferralCustomerAccountStatus };
   commission: ReferralCustomerCommissionSummary;
+  /** Vínculo feito por um admin no backoffice (auditoria `customer_linked`). */
+  manualLink: ReferralCustomerManualLink | null;
 };
 
 export type ReferralAffiliateCustomers = {
@@ -74,7 +78,7 @@ export async function getReferralAffiliateCustomers(
     .limit(1);
   if (!affiliateRow) return null;
 
-  const [customerRows, commissionRows] = await Promise.all([
+  const [customerRows, commissionRows, manualLinkRows] = await Promise.all([
     db
       .select({
         id: referralCustomer.id,
@@ -133,6 +137,19 @@ export async function getReferralAffiliateCustomers(
       )
       .where(eq(referralCommission.affiliateId, affiliateId))
       .groupBy(referralCommissionableEvent.customerId, referralCommission.status),
+    db
+      .select({
+        details: referralAdminAction.details,
+        adminEmail: referralAdminAction.adminEmail,
+        createdAt: referralAdminAction.createdAt,
+      })
+      .from(referralAdminAction)
+      .where(
+        and(
+          eq(referralAdminAction.affiliateId, affiliateId),
+          eq(referralAdminAction.action, "customer_linked"),
+        ),
+      ),
   ]);
 
   const commissionsByCustomer = new Map<
@@ -149,6 +166,7 @@ export async function getReferralAffiliateCustomers(
     commissionsByCustomer.set(row.customerId, rows);
   }
 
+  const manualLinks = indexManualLinks(manualLinkRows);
   const customers = customerRows.map((row) => ({
     id: row.id,
     signedUpAt: row.signedUpAt.toISOString(),
@@ -166,6 +184,7 @@ export async function getReferralAffiliateCustomers(
     commission: summarizeReferralCustomerCommissions(
       commissionsByCustomer.get(row.id) ?? [],
     ),
+    manualLink: manualLinks.get(row.id) ?? null,
   }));
 
   return {

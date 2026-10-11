@@ -1,0 +1,84 @@
+{
+  "ranAt": "2026-10-11T04:11:42.018Z",
+  "failures": 0,
+  "report": [
+    {
+      "userId": "02b26403-9ce7-496d-b601-c7923ea88ea8",
+      "paymentId": "5420bd35-504e-44a6-8384-0eb0dbf31fce",
+      "pickedBySweep": true,
+      "existedBefore": false,
+      "net": 47678,
+      "expected": 9536,
+      "actual": 9536,
+      "first": {
+        "paymentId": "5420bd35-504e-44a6-8384-0eb0dbf31fce",
+        "eventId": "88b4cdbe-04cf-4d3f-aeee-7a3beb326806",
+        "eventStatus": "settled",
+        "commissionId": "140bed2b-bb58-4c9f-9aae-1b4836c8d1ee",
+        "amountCentavos": 9536,
+        "created": true,
+        "skipReason": null,
+        "reason": "Comissão prevista criada"
+      },
+      "secondCreated": false,
+      "commission": {
+        "id": "140bed2b-bb58-4c9f-9aae-1b4836c8d1ee",
+        "amount_centavos": 9536,
+        "status": "foreseen",
+        "releases_at": "2026-11-10 04:11:40.467",
+        "agreement_snapshot": {
+          "format": "percentage",
+          "duration": "lifetime",
+          "percentageBps": 2000,
+          "durationCycles": null,
+          "calculationBase": "net",
+          "fixedAmountCentavos": null
+        },
+        "event_status": "settled",
+        "net_centavos": 47678,
+        "kind": "sale",
+        "ledger_entries": 1
+      },
+      "pass": true
+    },
+    {
+      "userId": "0f0f625d-0c02-488a-b75b-fa647eb00ec4",
+      "paymentId": "fd98259c-0671-44ec-ac09-dff993ace043",
+      "pickedBySweep": true,
+      "existedBefore": false,
+      "net": 47678,
+      "expected": 9536,
+      "actual": 9536,
+      "first": {
+        "paymentId": "fd98259c-0671-44ec-ac09-dff993ace043",
+        "eventId": "f2f5d781-88b2-4458-a558-bdcc014d8ede",
+        "eventStatus": "settled",
+        "commissionId": "5bd687d6-45c6-4372-b744-260423b44bf0",
+        "amountCentavos": 9536,
+        "created": true,
+        "skipReason": null,
+        "reason": "Comissão prevista criada"
+      },
+      "secondCreated": false,
+      "commission": {
+        "id": "5bd687d6-45c6-4372-b744-260423b44bf0",
+        "amount_centavos": 9536,
+        "status": "foreseen",
+        "releases_at": "2026-11-10 04:11:41.367",
+        "agreement_snapshot": {
+          "format": "percentage",
+          "duration": "lifetime",
+          "percentageBps": 2000,
+          "durationCycles": null,
+          "calculationBase": "net",
+          "fixedAmountCentavos": null
+        },
+        "event_status": "settled",
+        "net_centavos": 47678,
+        "kind": "sale",
+        "ledger_entries": 1
+      },
+      "pass": true
+    }
+  ]
+}
