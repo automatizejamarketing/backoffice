@@ -1,0 +1,178 @@
+### 1 preview userId non-uuid -> 400
+{"error":"Usuário inválido"}
+HTTP 400
+
+### 2 preview userId missing -> 400
+{"error":"Usuário inválido"}
+HTTP 400
+
+### 3 preview affiliate non-uuid -> 404
+{"error":"Afiliado não encontrado"}
+HTTP 404
+
+### 4 preview affiliate well-formed nonexistent -> 404
+{"error":"Afiliado não encontrado"}
+HTTP 404
+
+### 5 preview user nonexistent -> 404
+{"error":"Usuário não encontrado"}
+HTTP 404
+
+### 6 POST affiliate non-uuid -> 404
+{"error":"Afiliado não encontrado"}
+HTTP 404
+
+### 7 POST non-JSON body -> 400
+{"error":"Usuário inválido"}
+HTTP 400
+
+### 8 POST userId not uuid -> 400
+{"error":"Usuário inválido"}
+HTTP 400
+
+### 9 POST empty reason -> 400
+{"error":"Informe o motivo do vínculo (até 500 caracteres)"}
+HTTP 400
+
+### 10 POST re-link A -> 409
+{"error":"Já é indicado deste afiliado desde 05/09/2026"}
+HTTP 409
+
+### 11 POST OWN -> 409
+{"error":"Esta é a conta do próprio afiliado"}
+HTTP 409
+
+### 12 POST EXISTING -> 409
+{"error":"Já é indicado deste afiliado desde 19/08/2026"}
+HTTP 409
+
+### 13 POST user nonexistent -> 404
+{"error":"Usuário não encontrado"}
+HTTP 404
+
+### 14 (INVALID: helper still sent the cookie; see redo at end) POST
+
+HTTP 400
+
+### 15 preview Z (zero charges)
+{"user":{"id":"da78cd5c-c578-4267-af88-b04d884a9ddb","email":"rafaeliffeng+r3k8@gmail.com","name":"R3 K8 Manual"},"blocked":null,"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":0,"netCentavos":0,"awaitingSettlementCount":0}}
+HTTP 200
+
+### 16 preview C (before link)
+{"user":{"id":"d734becf-70be-4969-818a-4a91e7058829","email":"rafaeliffeng+r2ul4b@gmail.com","name":"Teste r2ul4b"},"blocked":null,"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":1,"netCentavos":0,"awaitingSettlementCount":1}}
+HTTP 200
+
+### 17 preview EXISTING
+{"user":{"id":"bc81c244-2199-4172-b5d7-f79b39f93ef2","email":"rafaeliffeng+u9@gmail.com","name":"U9 Indicado"},"blocked":{"message":"Já é indicado deste afiliado desde 19/08/2026"},"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":0,"netCentavos":0,"awaitingSettlementCount":0}}
+HTTP 200
+
+### 18 preview OWN
+{"user":{"id":"dd662c01-1a84-45d9-978c-2bef41a4032e","email":"rafaeliffeng+u7@gmail.com","name":"U7 Expert Verificado"},"blocked":{"message":"Esta é a conta do próprio afiliado"},"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":0,"netCentavos":0,"awaitingSettlementCount":0}}
+HTTP 200
+
+### 19 preview A (already linked)
+{"user":{"id":"02b26403-9ce7-496d-b601-c7923ea88ea8","email":"rafaeliffeng+r1u1@gmail.com","name":"R1 U1 Novo"},"blocked":{"message":"Já é indicado deste afiliado desde 05/09/2026"},"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":1,"netCentavos":47678,"awaitingSettlementCount":0}}
+HTTP 200
+
+### 14 (redo) POST without cookie -> 307 /login
+HTTP 307 -> http://localhost:3006/login
+### 14b preview without cookie
+HTTP 307 -> http://localhost:3006/login
+### 20 POST re-link C after UI link -> 409
+{"error":"Já é indicado deste afiliado desde 22/08/2026"}
+HTTP 409
+### 21 list: C row manualLink + signedUpAt
+{
+ "summary": {
+  "total": 7,
+  "paying": 2,
+  "liveCommissionCentavos": 19072
+ },
+ "affiliateStatus": "approved",
+ "rows": [
+  {
+   "id": "530fa1a3-ed7b-4a48-bfe0-c7945b95d689",
+   "email": "educacaoleg+001@gmail.com",
+   "signedUpAt": "2026-09-09T19:35:34.157Z",
+   "manualLink": {
+    "linkedAt": "2026-10-11T04:05:59.991Z",
+    "adminEmail": "educacaoleg@gmail.com"
+   },
+   "commission": {
+    "liveCentavos": 9536,
+    "byStatus": {
+     "foreseen": 9536,
+     "approved": 0,
+     "paid": 0,
+     "reversed": 0,
+     "rejected": 0
+    }
+   }
+  },
+  {
+   "id": "a5a9a918-69c7-4854-875f-7d050dc390ec",
+   "email": "rafaeliffeng+r1u1@gmail.com",
+   "signedUpAt": "2026-09-05T21:44:50.635Z",
+   "manualLink": {
+    "linkedAt": "2026-10-11T03:52:30.494Z",
+    "adminEmail": "educacaoleg@gmail.com"
+   },
+   "commission": {
+    "liveCentavos": 9536,
+    "byStatus": {
+     "foreseen": 9536,
+     "approved": 0,
+     "paid": 0,
+     "reversed": 0,
+     "rejected": 0
+    }
+   }
+  },
+  {
+   "id": "fcf7cc74-5a05-4083-bfbd-e7b749a6c93d",
+   "email": "rafaeliffeng+r2ul4b@gmail.com",
+   "signedUpAt": "2026-08-22T13:34:58.159Z",
+   "manualLink": {
+    "linkedAt": "2026-10-11T04:37:32.917Z",
+    "adminEmail": "educacaoleg@gmail.com"
+   },
+   "commission": {
+    "liveCentavos": 0,
+    "byStatus": {
+     "foreseen": 0,
+     "approved": 0,
+     "paid": 0,
+     "reversed": 0,
+     "rejected": 0
+    }
+   }
+  },
+  {
+   "id": "c63cd6af-ce23-46bf-93df-0212361b5ebe",
+   "email": "rafaeliffeng+r2u9@gmail.com",
+   "signedUpAt": "2026-08-22T11:00:00.000Z",
+   "manualLink": null,
+   "commission": {
+    "liveCentavos": 0,
+    "byStatus": {
+     "foreseen": 0,
+     "approved": 0,
+     "paid": 0,
+     "reversed": 0,
+     "rejected": 0
+    }
+   }
+  },
+  {
+   "id": "b2f7cf6e-3d79-4d64-a38f-5b4158061d32",
+   "email": "rafaeliffeng+u9b@gmail.com",
+   "signedUpAt": "2026-08-19T17:31:14.301Z",
+   "manualLink": null,
+   "commission": {
+    "liveCentavos": 0,
+    "byStatus": {
+     "foreseen": 0,
+     "approved": 0,
+     "paid": 0,
+     "reversed": 0,
+     "r
