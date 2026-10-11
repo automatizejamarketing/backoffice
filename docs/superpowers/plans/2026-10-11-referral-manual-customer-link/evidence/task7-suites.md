@@ -26,7 +26,10 @@ abortado por um `# Unhandled error between tests` — `ReferenceError: window is
 timer `lodash.debounce` (de `useDebounceValue(searchTerm, 400)` do `usehooks-ts`, em
 `hooks/use-location-search.ts`) que sobra de
 `app/app/(main)/marketing/new/components/location-targeting-section.interaction.test.tsx` e dispara depois que
-o happy-dom daquele arquivo é liberado. Não é falha nova, é corrida de tempo pré-existente:
+o happy-dom daquele arquivo é liberado. Na branch isso se comporta como corrida de tempo (o resultado varia
+entre execuções idênticas). **A corrida não foi rodada de novo na base:** a base foi medida uma vez só, e nessa
+execução os 5 casos de `steps.test.ts` passaram. Portanto não está medido que ela exista na base; o que foi
+medido, todo na branch:
 
 - `steps.test.ts` sozinho na branch: **5 pass, 0 fail**.
 - Os 4 arquivos vizinhos juntos na branch (`location-targeting-section.interaction.test.tsx`,
@@ -63,17 +66,23 @@ eslint-exit 0
 
 ## Tipos
 
+Primeira medição (antes da correção): o script de apoio da Task 6, então versionado como
+`support/_rml-verify-commissions.ts`, entrava no `tsc -p .` do BO e dava 4 erros (TS2307 × 3 e TS2339 × 1,
+linhas 11, 43, 44, 45) — total 33. Esse script roda dentro do frontend (`FE/scripts/_rml-verify-commissions.ts`);
+foi renomeado com `git mv` para `support/_rml-verify-commissions.ts.txt`, com conteúdo idêntico
+(`cmp` contra `FE/scripts/_rml-verify-commissions.ts`: exit 0).
+
+Depois da correção:
+
 ```
-$ cd BO && bunx tsc --noEmit -p . 2>&1 | grep -E "manual-link|customer-queries|referrals/|referral-admin-action-parity|lib/db/schema.ts" ; echo "exit-grep $?"
-docs/superpowers/plans/2026-10-11-referral-manual-customer-link/evidence/support/_rml-verify-commissions.ts(44,9): error TS2339: Property 'findPaymentsPendingCommission' does not exist on type 'typeof import("D:/automatize-marketing/.worktrees/referral-manual-link/backoffice/lib/referral/queries")'.
-exit-grep 0
+$ cd BO && bunx tsc --noEmit -p . 2>&1 | grep -c "error TS"
+29
+$ cd BO && bunx tsc --noEmit -p . 2>&1 | grep -E "manual-link|customer-queries|referrals/|referral-admin-action-parity|lib/db/schema.ts|evidence/" ; echo "exit-grep $?"
+exit-grep 1
 ```
 
-Nenhum erro nos arquivos de código tocados. A linha casada é do script de apoio da Task 6 (casou pelo caminho
-absoluto da worktree, `.../referral-manual-link/...`). Esse script roda **dentro do frontend**
-(`scripts/_rml-verify-commissions.ts`) e foi guardado aqui só como evidência; o `tsc` do BO o resolve contra o
-BO e dá 4 erros (TS2307 × 3 e TS2339 × 1, linhas 11, 43, 44, 45). Total do `tsc` do BO: 33 erros = 29 da base
-(mesmo total medido na Task 1) + 4 desse script. Nenhum código de produção afetado.
+R14 (tipos), resultado literal: total do `tsc` do BO = 29, igual ao total medido na Task 1; nenhuma linha de
+erro casa com os arquivos tocados nem com `evidence/`.
 
 ```
 $ cd FE && bunx tsc --noEmit -p . 2>&1 | grep -E "lib/db/schema.ts" ; echo "exit-grep $?"
