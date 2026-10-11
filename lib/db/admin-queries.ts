@@ -2502,10 +2502,12 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
   };
 }
 
-// Search users by email
+// Search users by email. The result goes straight to the browser
+// (GET /api/users/search), so select only what the pickers render — never the
+// whole row, which carries the password hash, Stripe ids and credits.
 export async function searchUsersByEmail(query: string) {
   return db
-    .select()
+    .select({ id: user.id, email: user.email, name: user.name })
     .from(user)
     .where(ilike(user.email, `%${query}%`))
     .limit(10);
