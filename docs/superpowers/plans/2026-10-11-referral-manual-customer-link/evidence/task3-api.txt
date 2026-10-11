@@ -1,0 +1,122 @@
+# Task 3 — API do vínculo manual contra a staging (2026-10-11)
+# Dev server: bun run dev:staging (APP_ENV=staging, projeto wsbsnzgzqiehqnklzchm); log sem a ref de produção.
+# Cookie: backoffice_magic_session (P1) substituído por <cookie>.
+
+### #1
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=da78cd5c-c578-4267-af88-b04d884a9ddb"
+{"user":{"id":"da78cd5c-c578-4267-af88-b04d884a9ddb","email":"rafaeliffeng+r3k8@gmail.com","name":"R3 K8 Manual"},"blocked":null,"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":0,"netCentavos":0,"awaitingSettlementCount":0}}
+HTTP 200
+
+### #2
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=d734becf-70be-4969-818a-4a91e7058829"
+{"user":{"id":"d734becf-70be-4969-818a-4a91e7058829","email":"rafaeliffeng+r2ul4b@gmail.com","name":"Teste r2ul4b"},"blocked":null,"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":1,"netCentavos":0,"awaitingSettlementCount":1}}
+HTTP 200
+
+### #3
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=02b26403-9ce7-496d-b601-c7923ea88ea8"
+{"user":{"id":"02b26403-9ce7-496d-b601-c7923ea88ea8","email":"rafaeliffeng+r1u1@gmail.com","name":"R1 U1 Novo"},"blocked":null,"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":1,"netCentavos":47678,"awaitingSettlementCount":0}}
+HTTP 200
+
+### #4
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=dd662c01-1a84-45d9-978c-2bef41a4032e"
+{"user":{"id":"dd662c01-1a84-45d9-978c-2bef41a4032e","email":"rafaeliffeng+u7@gmail.com","name":"U7 Expert Verificado"},"blocked":{"message":"Esta é a conta do próprio afiliado"},"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":0,"netCentavos":0,"awaitingSettlementCount":0}}
+HTTP 200
+
+### #5
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=bc81c244-2199-4172-b5d7-f79b39f93ef2"
+{"user":{"id":"bc81c244-2199-4172-b5d7-f79b39f93ef2","email":"rafaeliffeng+u9@gmail.com","name":"U9 Indicado"},"blocked":{"message":"Já é indicado deste afiliado desde 19/08/2026"},"agreement":{"format":"percentage","percentageBps":2000,"fixedAmountCentavos":null,"duration":"lifetime","durationCycles":null},"charges":{"eligibleCount":0,"netCentavos":0,"awaitingSettlementCount":0}}
+HTTP 200
+
+### #6
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=nao-uuid"
+{"error":"Usuário inválido"}
+HTTP 400
+
+### #7
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=00000000-0000-4000-8000-000000000000"
+{"error":"Usuário não encontrado"}
+HTTP 404
+
+### #8
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/nao-uuid/customers/preview?userId=02b26403-9ce7-496d-b601-c7923ea88ea8"
+{"error":"Afiliado não encontrado"}
+HTTP 404
+
+### #9
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" "http://localhost:3006/api/referrals/00000000-0000-4000-8000-000000000000/customers/preview?userId=02b26403-9ce7-496d-b601-c7923ea88ea8"
+{"error":"Afiliado não encontrado"}
+HTTP 404
+
+### #10
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" -X POST -H "Content-Type: application/json" --data 'isto não é json' "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers"
+{"error":"Usuário inválido"}
+HTTP 400
+
+### #11
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" -X POST -H "Content-Type: application/json" --data '{"userId":"02b26403-9ce7-496d-b601-c7923ea88ea8","reason":"   "}' "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers"
+{"error":"Informe o motivo do vínculo (até 500 caracteres)"}
+HTTP 400
+
+### #12
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" -X POST -H "Content-Type: application/json" --data '{"userId":"dd662c01-1a84-45d9-978c-2bef41a4032e","reason":"teste"}' "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers"
+{"error":"Esta é a conta do próprio afiliado"}
+HTTP 409
+
+### #13
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" -X POST -H "Content-Type: application/json" --data '{"userId":"bc81c244-2199-4172-b5d7-f79b39f93ef2","reason":"teste"}' "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers"
+{"error":"Já é indicado deste afiliado desde 19/08/2026"}
+HTTP 409
+
+### #14
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" -X POST -H "Content-Type: application/json" --data '{"userId":"02b26403-9ce7-496d-b601-c7923ea88ea8","reason":"Verificação do vínculo manual (spec 2026-10-11) — Task 3"}' "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers"
+{"customerId":"a5a9a918-69c7-4854-875f-7d050dc390ec","agreementId":"303350de-84bf-4d05-aa1c-ceb9c090701f","signedUpAt":"2026-09-05T21:44:50.635Z"}
+HTTP 201
+
+### #15
+$ curl -s -b "<cookie>" -w "\nHTTP %{http_code}\n" -X POST -H "Content-Type: application/json" --data '{"userId":"02b26403-9ce7-496d-b601-c7923ea88ea8","reason":"Verificação do vínculo manual (spec 2026-10-11) — Task 3"}' "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers"
+{"error":"Já é indicado deste afiliado desde 05/09/2026"}
+HTTP 409
+
+### #16
+$ curl -s -o /dev/null -w "%{http_code}" "http://localhost:3006/api/referrals/26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f/customers/preview?userId=02b26403-9ce7-496d-b601-c7923ea88ea8"
+307
+
+### Step 6 — linhas gravadas pelo #14 (somente leitura)
+$ APP_ENV=staging bun scripts/with-env.ts bun .scratch/rml/show-link.ts 02b26403-9ce7-496d-b601-c7923ea88ea8
+{
+  "customers": [
+    {
+      "id": "a5a9a918-69c7-4854-875f-7d050dc390ec",
+      "affiliate_id": "26dcdc4f-4c07-4dd2-b8f9-4e255d52af1f",
+      "agreement_id": "303350de-84bf-4d05-aa1c-ceb9c090701f",
+      "signed_up_at": "2026-09-05 21:44:50.635",
+      "created_at": "2026-10-11 03:52:30.494"
+    }
+  ],
+  "actions": [
+    {
+      "admin_email": "educacaoleg@gmail.com",
+      "action": "customer_linked",
+      "reason": "Verifica��o do v�nculo manual (spec 2026-10-11) � Task 3",
+      "details": {
+        "userId": "02b26403-9ce7-496d-b601-c7923ea88ea8",
+        "userEmail": "rafaeliffeng+r1u1@gmail.com",
+        "customerId": "a5a9a918-69c7-4854-875f-7d050dc390ec",
+        "agreementId": "303350de-84bf-4d05-aa1c-ceb9c090701f"
+      },
+      "created_at": "2026-10-11 03:52:30.494"
+    }
+  ],
+  "userCreatedAt": [
+    {
+      "created_at": "2026-09-05 21:44:50.635206"
+    }
+  ]
+}
+
+### Nota — o motivo gravado no #14 contém U+FFFD
+No Git Bash do Windows, o curl nativo recebe os argumentos convertidos para a code page ANSI (CP1252):
+'ção —' via --data chega como bytes e7 e3 6f 20 97 (UTF-8 inválido) e o request.json() troca cada byte por U+FFFD.
+Com --data-binary @arquivo-utf8 os mesmos caracteres chegam como c3a7 c3a3 6f20 e28094 e são decodificados certos.
+Hex do motivo no banco: 5665726966696361efbfbdefbfbd6f20646f2076efbfbd6e63756c6f206d616e75616c20287370656320323032362d31302d31312920efbfbd205461736b2033 (56 caracteres).
+Artefato do cliente de teste, não da rota; a linha da staging não foi corrigida (nenhuma escrita além do #14 é permitida nesta tarefa).
