@@ -228,6 +228,9 @@ export function AffiliateCustomersSheet({
                   {customers.map((customer) => {
                     const whatsappUrl = getWhatsAppUrl(customer.user.phone);
                     const displayName = customer.user.name?.trim();
+                    const manualLinkDate = customer.manualLink
+                      ? formatNumericDateInSaoPaulo(customer.manualLink.linkedAt)
+                      : null;
 
                     return (
                       <TableRow key={customer.id}>
@@ -256,12 +259,10 @@ export function AffiliateCustomersSheet({
                             </div>
                             {customer.manualLink ? (
                               <p
-                                className="truncate text-[11px] text-muted-foreground"
-                                title={`Vinculado manualmente em ${formatNumericDateInSaoPaulo(customer.manualLink.linkedAt)} por ${customer.manualLink.adminEmail}`}
+                                className="mt-0.5 text-[11px] leading-tight text-muted-foreground [overflow-wrap:anywhere]"
                                 data-testid="manual-link-marker"
                               >
-                                Vinculado manualmente em{" "}
-                                {formatNumericDateInSaoPaulo(customer.manualLink.linkedAt)} por{" "}
+                                Vinculado manualmente em {manualLinkDate} por{" "}
                                 {customer.manualLink.adminEmail}
                               </p>
                             ) : null}
