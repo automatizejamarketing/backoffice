@@ -72,9 +72,10 @@ Cada requisito é verificável e vira uma linha da matriz de aceitação.
   | sem sessão | 401 | (padrão do RBAC: `Unauthorized`; pelo navegador o `proxy.ts` redireciona antes para `/login`) |
   | sem `affiliates:manage` | 403 | (padrão do RBAC: `Forbidden`) |
   | com `affiliates:manage` mas cargo ≠ `admin` | 403 | `Apenas administradores podem vincular indicados` |
-  | `affiliateId` não é uuid ou afiliado inexistente | 404 | `Afiliado não encontrado` |
-  | corpo inválido: `userId` não é uuid | 400 | `Usuário inválido` |
+  | `affiliateId` não é uuid | 404 | `Afiliado não encontrado` |
+  | corpo inválido: não é JSON ou `userId` não é uuid | 400 | `Usuário inválido` |
   | motivo vazio ou > 500 caracteres | 400 | `Informe o motivo do vínculo (até 500 caracteres)` |
+  | afiliado inexistente (conferido no banco) | 404 | `Afiliado não encontrado` |
   | usuário inexistente | 404 | `Usuário não encontrado` |
   | afiliado não `approved` | 409 | `Só afiliado aprovado pode receber indicado` |
   | afiliado sem acordo vigente | 409 | `Afiliado sem acordo vigente` |
@@ -92,6 +93,8 @@ Cada requisito é verificável e vira uma linha da matriz de aceitação.
   R7 e devolve, sem escrever nada:
   `{ user: {id,email,name}, blocked: null | { message }, agreement: {...} | null,
      charges: { eligibleCount, netCentavos, awaitingSettlementCount } }`.
+  `userId` ausente ou não-uuid → 400 `Usuário inválido`; afiliado ou usuário inexistente → 404 com as
+  mensagens de R7; as recusas 409 de R7 **não** viram erro HTTP aqui: voltam 200 com `blocked.message`.
   "Elegível" usa **exatamente os cortes da varredura do motor**
   (`automatize-frontend/lib/referral/queries.ts → findPaymentsPendingCommission`):
   `status = 'succeeded'`, `purpose IS NULL OR purpose = 'subscription'`, `external_id IS NOT NULL`,
