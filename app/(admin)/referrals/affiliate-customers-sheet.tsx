@@ -254,6 +254,17 @@ export function AffiliateCustomersSheet({
                                 className="size-6 shrink-0"
                               />
                             </div>
+                            {customer.manualLink ? (
+                              <p
+                                className="truncate text-[11px] text-muted-foreground"
+                                title={`Vinculado manualmente em ${formatNumericDateInSaoPaulo(customer.manualLink.linkedAt)} por ${customer.manualLink.adminEmail}`}
+                                data-testid="manual-link-marker"
+                              >
+                                Vinculado manualmente em{" "}
+                                {formatNumericDateInSaoPaulo(customer.manualLink.linkedAt)} por{" "}
+                                {customer.manualLink.adminEmail}
+                              </p>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">
