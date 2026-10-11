@@ -6,7 +6,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, UserPlus } from "lucide-react";
 import { CopyEmailButton } from "@/components/copy-email-button";
 import { StatusBadge } from "@/components/status-badge";
 import { WhatsAppIcon } from "@/components/whatsapp-icon";
@@ -33,7 +33,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatNumericDateInSaoPaulo } from "@/lib/backoffice/datetime-format";
-import type { ReferralCommissionStatus } from "@/lib/db/schema";
+import type {
+  ReferralAffiliateStatus,
+  ReferralCommissionStatus,
+} from "@/lib/db/schema";
 import type {
   ReferralAffiliateCustomerItem,
   ReferralAffiliateCustomers,
@@ -41,11 +44,13 @@ import type {
 import { REFERRAL_COMMISSION_STATUS_LABELS } from "@/lib/referral/metrics";
 import { formatCentavos } from "@/lib/referral/write-off";
 import { getWhatsAppUrl } from "@/lib/phone";
+import { LinkCustomerDialog } from "./link-customer-dialog";
 
 export type AffiliateCustomersTarget = {
   id: string;
   code: string;
   showCode: boolean;
+  status: ReferralAffiliateStatus;
   user: { email: string; name: string | null };
 };
 
@@ -128,14 +133,19 @@ export function AffiliateCustomersSheet({
   target,
   open,
   onOpenChange,
+  onCustomersChanged,
 }: {
   target: AffiliateCustomersTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCustomersChanged?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ReferralAffiliateCustomers | null>(null);
+  const [linkOpen, setLinkOpen] = useState(false);
+  // Muda depois de um vínculo para o efeito abaixo recarregar a lista.
+  const [reloadToken, setReloadToken] = useState(0);
 
   const affiliateId = target?.id ?? null;
 
@@ -171,10 +181,13 @@ export function AffiliateCustomersSheet({
     return () => {
       cancelled = true;
     };
-  }, [open, affiliateId]);
+  }, [open, affiliateId, reloadToken]);
 
   const title = target?.user.name?.trim() || target?.user.email || "Indicados";
   const customers = data?.customers ?? [];
+  // Só afiliado aprovado recebe indicado (spec D5). O status do servidor vence
+  // o da fila, que pode estar desatualizado.
+  const canLink = (data?.affiliate.status ?? target?.status) === "approved";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -183,13 +196,29 @@ export function AffiliateCustomersSheet({
         className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
       >
         <SheetHeader className="border-b border-border/60 px-4 py-3 sm:px-6">
-          <SheetTitle className="text-left text-base">
-            Indicados de {title}
-          </SheetTitle>
-          <SheetDescription className="text-left">
-            {target?.user.email}
-            {target?.showCode ? ` · código ${target.code}` : ""}
-          </SheetDescription>
+          <div className="flex items-start justify-between gap-3 pr-8">
+            <div className="min-w-0 space-y-1">
+              <SheetTitle className="text-left text-base">
+                Indicados de {title}
+              </SheetTitle>
+              <SheetDescription className="text-left">
+                {target?.user.email}
+                {target?.showCode ? ` · código ${target.code}` : ""}
+              </SheetDescription>
+            </div>
+            {canLink && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                data-testid="link-customer-open"
+                onClick={() => setLinkOpen(true)}
+              >
+                <UserPlus className="mr-2 h-4 w-4" />
+                Vincular indicado
+              </Button>
+            )}
+          </div>
           {data && (
             <p className="text-left text-xs text-muted-foreground tabular-nums">
               {plural(data.summary.total, "indicado", "indicados")} ·{" "}
@@ -344,6 +373,17 @@ export function AffiliateCustomersSheet({
               </Table>
             </div>
           </TooltipProvider>
+        )}
+        {target && (
+          <LinkCustomerDialog
+            affiliate={{ id: target.id, label: title }}
+            open={linkOpen}
+            onOpenChange={setLinkOpen}
+            onLinked={() => {
+              setReloadToken((token) => token + 1);
+              onCustomersChanged?.();
+            }}
+          />
         )}
       </SheetContent>
     </Sheet>
