@@ -151,7 +151,9 @@ export function useMediaLibraryUpload({
 }) {
   const [queue, setQueue] = useState<MediaLibraryUploadQueueItem[]>([]);
   const onUploadedRef = useRef(onUploaded);
-  onUploadedRef.current = onUploaded;
+  useEffect(() => {
+    onUploadedRef.current = onUploaded;
+  }, [onUploaded]);
 
   const update = useCallback((id: string, patch: Partial<MediaLibraryUploadQueueItem>) => {
     setQueue((previous) => previous.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)));
