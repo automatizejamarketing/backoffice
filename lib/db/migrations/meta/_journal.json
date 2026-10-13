@@ -820,6 +820,13 @@
       "when": 1802050000000,
       "tag": "0133_user_expiration_history",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1802100000000,
+      "tag": "0134_consultant_workspace",
+      "breakpoints": true
     }
   ]
 }

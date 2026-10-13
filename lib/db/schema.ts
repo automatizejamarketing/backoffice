@@ -5080,6 +5080,10 @@ export const performanceInsight = pgTable(
     reviewedByEmail: varchar("reviewed_by_email", { length: 100 }),
     reviewNote: text("review_note"),
     reviewedAt: timestamp("reviewed_at"),
+    /** O que o consultor fez ao concluir (ajustei_campanha, pausei, …). */
+    reviewOutcome: varchar("review_outcome", { length: 32 }),
+    /** Adiado pelo consultor até este momento (some da fila da área de Tráfego). */
+    snoozedUntil: timestamp("snoozed_until"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -10191,3 +10195,104 @@ export const backofficeMcpOauthToken = pgTable("backoffice_mcp_oauth_tokens", {
 }, (table) => ({
   actorIdx: index("backoffice_mcp_oauth_tokens_actor_idx").on(table.actorEmail),
 }));
+
+// ================================
+// Área de Tráfego do consultor (BO 0134 / FE 0143, mesmo `when` 1802100000000)
+// ================================
+
+/** Meta combinada com o cliente: o indicador e o alvo contra os quais a carteira é medida. */
+export const consultantClientGoal = pgTable("consultant_client_goals", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** cpa | cpl | custo_conversa | roas | custo_resultado */
+  kpi: varchar("kpi", { length: 24 }).notNull(),
+  /** Custo máximo em reais, ou ROAS mínimo. */
+  target: numeric("target").notNull(),
+  /** Verba mensal combinada, em reais. */
+  monthlyBudget: numeric("monthly_budget"),
+  updatedByEmail: varchar("updated_by_email", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConsultantClientGoal = InferSelectModel<typeof consultantClientGoal>;
+
+/** Linha do tempo do consultor por cliente: notas, contatos, reuniões, ações e mensagens. */
+export const consultantClientNote = pgTable(
+  "consultant_client_notes",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** nota | contato | reuniao | acao | mensagem | passagem */
+    kind: varchar("kind", { length: 16 }).notNull(),
+    body: text("body").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    authorEmail: varchar("author_email", { length: 100 }).notNull(),
+    /** backoffice | mcp */
+    source: varchar("source", { length: 16 }).notNull().default("backoffice"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userCreatedIdx: index("consultant_client_notes_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+export type ConsultantClientNote = InferSelectModel<typeof consultantClientNote>;
+
+/** Passagem de bastão do onboarding para o gestor de tráfego. */
+export const consultantOnboardingHandoff = pgTable("consultant_onboarding_handoffs", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  summary: text("summary").notNull(),
+  nextSteps: text("next_steps").notNull().default(""),
+  callDate: date("call_date"),
+  authorEmail: varchar("author_email", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConsultantOnboardingHandoff = InferSelectModel<typeof consultantOnboardingHandoff>;
+
+/**
+ * Tags de problema do cliente (catálogo em código). `active` = marcada à mão;
+ * `dismissed` = tag detectada pelos dados que alguém marcou como resolvida.
+ */
+export const consultantClientProblemTag = pgTable(
+  "consultant_client_problem_tags",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tagKey: varchar("tag_key", { length: 40 }).notNull(),
+    state: varchar("state", { length: 16 }).notNull(),
+    updatedByEmail: varchar("updated_by_email", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.tagKey] }),
+  }),
+);
+
+export type ConsultantClientProblemTag = InferSelectModel<typeof consultantClientProblemTag>;
+
+/** Última análise de IA do dossiê, por cliente. */
+export const consultantClientAiAnalysis = pgTable("consultant_client_ai_analyses", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  model: varchar("model", { length: 80 }).notNull(),
+  periodDays: integer("period_days").notNull(),
+  generatedByEmail: varchar("generated_by_email", { length: 100 }).notNull(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConsultantClientAiAnalysis = InferSelectModel<typeof consultantClientAiAnalysis>;

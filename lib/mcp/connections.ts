@@ -53,9 +53,17 @@ export const MCP_CAPABILITIES: McpCapability[] = [
       "Quem da carteira está sem gastar?",
       "Quais alertas críticos estão abertos na minha carteira?",
       "Abra as campanhas do cliente X e mostre os anúncios que mais gastaram.",
+      "Quem está travado no onboarding e o que falta para a primeira campanha?",
+      "Proponha os ajustes de orçamento dos clientes Premium fora da meta e aplique depois que eu aprovar.",
+      "Prepare o resumo da semana para os clientes que estão rodando.",
     ],
-    limit: "Só leitura: a IA não pausa, não ativa e não muda orçamento na Meta.",
-    consent: ["Consultar Meta Ads, resultados e alertas dos clientes que você acompanha"],
+    limit:
+      "Pausar, ativar, mudar orçamento ou duplicar na Meta só acontece depois que você aprova a prévia. Mensagens ao cliente saem do seu WhatsApp, não sozinhas.",
+    consent: ["Consultar Meta Ads, resultados, alertas e a jornada dos clientes que você acompanha"],
+    consentWrite: [
+      "Registrar metas, notas, tags de problema e a passagem de bastão; concluir e adiar alertas",
+      "Pausar, ativar, mudar orçamento diário ou duplicar na Meta, sempre depois de mostrar a prévia e você confirmar",
+    ],
   },
   {
     permission: "whatsapp:campaigns",

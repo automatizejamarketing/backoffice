@@ -8,6 +8,7 @@ import {
   Briefcase,
   ChevronRight,
   ChevronUp,
+  Gauge,
   Handshake,
   ImageIcon,
   KanbanSquare,
@@ -15,9 +16,9 @@ import {
   LayoutGrid,
   Link2,
   LogOut,
-  Plug,
   Mail,
   Package,
+  Plug,
   Radar,
   Settings2,
   Shield,
@@ -130,6 +131,14 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Painel",
         icon: LayoutDashboard,
         permission: "dashboard:view",
+      },
+      {
+        // Área do gestor de tráfego: Fila, Mesa e Jornada sobre a mesma carteira.
+        kind: "leaf",
+        href: "/trafego",
+        label: "Tráfego",
+        icon: Gauge,
+        permission: "marketing:read",
       },
       {
         kind: "leaf",
@@ -611,7 +620,7 @@ export function AppSidebar({
               className="flex items-center gap-1.5 overflow-hidden rounded-md p-2 transition-colors hover:bg-muted group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-1"
               href={
                 isMarketingConsultantRole(actor.role)
-                  ? "/portfolio"
+                  ? "/trafego"
                   : actor.role === "finance_viewer"
                     ? "/finance"
                     : "/"

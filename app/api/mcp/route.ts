@@ -9,6 +9,7 @@ import { mcpOauthService } from "@/lib/mcp-oauth/store";
 import { toCallToolResult, toErrorResult, toolAnnotations } from "@/lib/mcp/tool";
 import { META_ADS_TOOLS } from "@/lib/mcp/meta-ads-tools";
 import { WHATSAPP_CAMPAIGN_TOOLS } from "@/lib/mcp/whatsapp-campaign-tools";
+import { CONSULTANT_WORKSPACE_TOOLS } from "@/lib/mcp/consultant-workspace-tools";
 import { checkRateLimit } from "@/lib/security/rate-limit";
 
 /** Media import downloads up to 16 MB and uploads it to R2 and, on submission, to Meta; a client read can hit 5 ad accounts. */
@@ -22,9 +23,13 @@ const INSTRUCTIONS =
   "get_whatsapp_campaign até o template ficar APPROVED → send_whatsapp_campaign_test → set_whatsapp_campaign_audience → " +
   "preview_whatsapp_campaign_send → mostre a prévia e espere o usuário aprovar → confirm_whatsapp_campaign_send. " +
   "Nunca confirme envio, nem escolha horário, sem aprovação explícita do usuário. " +
-  "Meta Ads dos clientes (só leitura): list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
+  "Meta Ads dos clientes: list_my_clients (carteira e saúde), portfolio_performance (todos os clientes de uma vez, período vs anterior), " +
   "list_portfolio_alerts (alertas pendentes) e get_client_campaigns (campanhas, conjuntos ou anúncios de um cliente, ao vivo). " +
   "Para perguntas sobre a carteira comece por portfolio_performance; abra um cliente com get_client_campaigns só quando precisar do detalhe. " +
+  "Área de Tráfego (gestor): list_clients_by_stage dá a jornada (onboarding, rodando, parado) com o que trava e o que pede atenção; get_client_dossier abre um cliente com ids para agir. " +
+  "Para agir em várias contas: monte um lote em preview_meta_changes, MOSTRE a prévia em tabela curta, espere aprovação explícita e só então apply_meta_changes com as mesmas mudanças e o confirmationCode. Nunca aplique sem aprovação. " +
+  "Ao tratar alertas use resolve_alerts com o que foi feito e uma nota real; não conclua alertas só para limpar a fila. " +
+  "Mensagens ao cliente: prepare_client_messages devolve texto e link do WhatsApp para o consultor enviar; registre com record_client_messages_sent depois que ele confirmar. " +
   "Valores de WhatsApp em reais. Valores de Meta Ads na moeda da conta: BRL quando o campo currency não vem; nunca some nem converta moedas diferentes. " +
   "Horários de Brasília (-03:00). " +
   "Este conector não traz o financeiro da Automatize (faturamento, receita, MRR, pagamentos): se perguntarem, diga que isso fica na tela Financeiro do backoffice, " +
@@ -40,7 +45,7 @@ function inputSchema(schema: z.ZodObject): JsonSchemaType {
 
 const handler = createMcpHandler(
   (server) => {
-    for (const tool of [...WHATSAPP_CAMPAIGN_TOOLS, ...META_ADS_TOOLS]) {
+    for (const tool of [...WHATSAPP_CAMPAIGN_TOOLS, ...META_ADS_TOOLS, ...CONSULTANT_WORKSPACE_TOOLS]) {
       server.registerTool(
         tool.name,
         { title: tool.title, description: tool.description, inputSchema: fromJsonSchema(inputSchema(tool.input)), annotations: toolAnnotations(tool) },

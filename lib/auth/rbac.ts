@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/app/(auth)/auth";
 import { getBackofficeActorByEmail } from "@/lib/auth/backoffice-users";
+import { injectedBackofficeActor } from "@/lib/auth/actor-context";
 import {
   BACKOFFICE_MAGIC_SESSION_COOKIE,
   verifyBackofficeMagicSessionToken,
@@ -11,6 +12,7 @@ import {
 import {
   canAccessMarketingUser,
   hasBackofficePermission,
+  isMarketingConsultantRole,
   type BackofficeActor,
   type BackofficePermission,
 } from "@/lib/auth/rbac-core";
@@ -27,6 +29,10 @@ export class BackofficeAuthorizationError extends Error {
 
 export const getCurrentBackofficeActor = cache(
   async (): Promise<BackofficeActor | null> => {
+    // MCP: ator já verificado pelo token (ver lib/auth/actor-context.ts).
+    const injected = injectedBackofficeActor();
+    if (injected) return injected;
+
     const session = await auth();
     const sessionEmail = session?.user?.email;
 
@@ -79,7 +85,13 @@ export async function requirePagePermission(
   const actor = await getCurrentBackofficeActor();
   if (!actor) redirect("/login");
   if (!hasBackofficePermission(actor, permission)) {
-    redirect(actor.role === "finance_viewer" ? "/finance" : deniedRedirect);
+    redirect(
+      actor.role === "finance_viewer"
+        ? "/finance"
+        : isMarketingConsultantRole(actor.role) && hasBackofficePermission(actor, "marketing:read")
+          ? "/trafego"
+          : deniedRedirect,
+    );
   }
   return actor;
 }

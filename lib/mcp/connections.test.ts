@@ -36,7 +36,8 @@ describe("MCP connections page", () => {
   });
 
   it("promises on the consent screen only what the role can do, and writes only with the write scope", () => {
-    assert.deepEqual(consentItems(actor("marketing_consultant"), true), ["Consultar Meta Ads, resultados e alertas dos clientes que você acompanha"]);
+    assert.deepEqual(consentItems(actor("marketing_consultant"), false), ["Consultar Meta Ads, resultados, alertas e a jornada dos clientes que você acompanha"]);
+    assert.ok(consentItems(actor("marketing_consultant"), true).some((item) => item.startsWith("Pausar, ativar")));
     const adminRead = consentItems(actor("admin"), false);
     assert.equal(adminRead.length, 2);
     assert.ok(consentItems(actor("admin"), true).some((item) => item.startsWith("Agendar envios")));
