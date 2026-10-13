@@ -24,12 +24,12 @@ export type MediaLibraryRequestContext = {
 
 function respond<T>(result: MediaLibraryResult<T>, successStatus = 200): NextResponse {
   if (result.ok) return NextResponse.json(result.value, { status: successStatus });
-  return NextResponse.json({ error: result.message, code: result.code }, { status: result.status });
+  return NextResponse.json({ code: result.code, message: result.message }, { status: result.status });
 }
 
 function invalidPayload(): NextResponse {
   return NextResponse.json(
-    { error: MEDIA_LIBRARY_ERROR_MESSAGES.invalid_upload, code: "invalid_upload" },
+    { code: "invalid_upload", message: MEDIA_LIBRARY_ERROR_MESSAGES.invalid_upload },
     { status: 400 },
   );
 }

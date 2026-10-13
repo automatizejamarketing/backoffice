@@ -51,13 +51,13 @@ export function toMediaLibraryClientError(error: unknown): MediaLibraryClientErr
 }
 
 async function errorFromResponse(response: Response): Promise<MediaLibraryClientError> {
-  const data = (await response.json().catch(() => null)) as { code?: unknown; error?: unknown } | null;
+  const data = (await response.json().catch(() => null)) as { code?: unknown; message?: unknown } | null;
   const code = isMediaLibraryClientErrorCode(data?.code)
     ? data.code
     : response.status >= 500
       ? "storage_unavailable"
       : "upload_failed";
-  return new MediaLibraryClientError(code, typeof data?.error === "string" ? data.error : undefined);
+  return new MediaLibraryClientError(code, typeof data?.message === "string" ? data.message : undefined);
 }
 
 async function postJson(url: string, body: unknown): Promise<Response> {
