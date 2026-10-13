@@ -74,6 +74,12 @@ function formatNumber(value: number) {
   return numberFormatter.format(value);
 }
 
+function formatSignedNumber(value: number) {
+  if (value > 0) return `+${formatNumber(value)}`;
+  if (value < 0) return `−${formatNumber(-value)}`;
+  return "0";
+}
+
 function formatPercentage(value: number) {
   return `${percentageFormatter.format(value)}%`;
 }
@@ -486,9 +492,9 @@ export default async function DashboardPage({
                       {formatNumber(userActivity.summary.activeUsers)}
                     </dd>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {formatNumber(userActivity.summary.churn)} churn ·{" "}
-                      {formatNumber(userActivity.summary.returned)} voltaram no
-                      período
+                      {formatNumber(userActivity.summary.churn)} churn · saldo{" "}
+                      {formatSignedNumber(userActivity.summary.activeUsersChange)}{" "}
+                      no período
                     </p>
                   </div>
                 </dl>

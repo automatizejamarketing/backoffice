@@ -19,7 +19,6 @@ export const USER_ACTIVITY_DAY_SERIES_KEYS = [
   ...USER_ACTIVITY_SERIES_KEYS,
   "newUsersPaid",
   "newUsersTrial",
-  "returned",
 ] as const;
 
 export type UserActivityDaySeriesKey =
@@ -36,8 +35,8 @@ export type DailyUserActivity = {
   activeUsers: number;
   /** Paying customers on the previous day whose access ended on this day. */
   churn: number;
-  /** Customers who became paying again after an earlier paid period ended. */
-  returned: number;
+  /** Saldo: paying customers today minus paying customers the day before. */
+  activeUsersChange: number;
 };
 
 export type UserActivityCounts = {
@@ -52,7 +51,8 @@ export type UserActivitySummary = {
   totalUsers: number;
   activeUsers: number;
   churn: number;
-  returned: number;
+  /** Paying customers at the end of the window minus the day before it. */
+  activeUsersChange: number;
 };
 
 /** A customer's paid access periods, oldest first. */
@@ -94,8 +94,9 @@ export function fillDailyUserActivity(
     newUsersTrial?: UserActivityCounts[];
     activeUsers: UserActivityCounts[];
     churn?: UserActivityCounts[];
-    returned?: UserActivityCounts[];
     usersBeforeWindow: number;
+    /** Paying customers on the day before the window, base of the first saldo. */
+    activeUsersBeforeWindow?: number;
   },
   window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
 ): DailyUserActivity[] {
@@ -114,11 +115,9 @@ export function fillDailyUserActivity(
   const churnByDate = new Map(
     (input.churn ?? []).map((row) => [row.date, row.count]),
   );
-  const returnedByDate = new Map(
-    (input.returned ?? []).map((row) => [row.date, row.count]),
-  );
   const result: DailyUserActivity[] = [];
   let totalUsers = input.usersBeforeWindow;
+  let previousActiveUsers = input.activeUsersBeforeWindow;
 
   for (
     let date = window.fromDate;
@@ -131,6 +130,7 @@ export function fillDailyUserActivity(
       newUsersTrialByDate.get(date) ?? 0,
       newUsers - newUsersPaid,
     );
+    const activeUsers = activeUsersByDate.get(date) ?? 0;
     totalUsers += newUsers;
     result.push({
       date,
@@ -138,10 +138,11 @@ export function fillDailyUserActivity(
       newUsersPaid,
       newUsersTrial,
       totalUsers,
-      activeUsers: activeUsersByDate.get(date) ?? 0,
+      activeUsers,
       churn: churnByDate.get(date) ?? 0,
-      returned: returnedByDate.get(date) ?? 0,
+      activeUsersChange: activeUsers - (previousActiveUsers ?? activeUsers),
     });
+    previousActiveUsers = activeUsers;
   }
 
   return result;
@@ -159,7 +160,10 @@ export function summarizeUserActivity(
     totalUsers: last?.totalUsers ?? 0,
     activeUsers: last?.activeUsers ?? 0,
     churn: daily.reduce((sum, row) => sum + row.churn, 0),
-    returned: daily.reduce((sum, row) => sum + row.returned, 0),
+    activeUsersChange: daily.reduce(
+      (sum, row) => sum + row.activeUsersChange,
+      0,
+    ),
   };
 }
 
@@ -210,20 +214,6 @@ export function isChurnedOnDate(
   );
 }
 
-/** Became paying again on this day after an earlier paid period ended. */
-export function isReturnedOnDate(
-  customer: PaidAccessCustomer,
-  date: string,
-  now: Date,
-): boolean {
-  return (
-    !isActivePayingOnDate(customer, shiftCalendarDate(date, -1), now) &&
-    customer.periods
-      .slice(1)
-      .some((period) => periodCoversDate(period, date, now))
-  );
-}
-
 function countCustomersPerDay(
   customers: PaidAccessCustomer[],
   window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
@@ -262,12 +252,4 @@ export function buildChurnCounts(
   now: Date = new Date(),
 ): UserActivityCounts[] {
   return countCustomersPerDay(customers, window, now, isChurnedOnDate);
-}
-
-export function buildReturnCounts(
-  customers: PaidAccessCustomer[],
-  window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
-  now: Date = new Date(),
-): UserActivityCounts[] {
-  return countCustomersPerDay(customers, window, now, isReturnedOnDate);
 }

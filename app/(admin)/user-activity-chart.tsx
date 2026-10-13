@@ -83,10 +83,6 @@ const chartConfig = {
     label: "Clientes pagantes",
     color: "oklch(0.75 0.16 55)",
   },
-  returned: {
-    label: "Voltaram",
-    color: "oklch(0.66 0.17 300)",
-  },
   churnDown: {
     label: "Churn",
     color: "oklch(0.64 0.21 25)",
@@ -145,7 +141,6 @@ const TOOLTIP_SERIES = [
   "newUsersRest",
   "users",
   "activeUsers",
-  "returned",
   "churnDown",
 ] as const;
 
@@ -155,8 +150,16 @@ type TooltipPayloadItem = {
   payload?: {
     date?: string;
     newUsers?: number;
+    activeUsersChange?: number;
   };
 };
+
+function formatSaldo(value: number) {
+  const formatted = Math.abs(value).toLocaleString("pt-BR");
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `−${formatted}`;
+  return "0";
+}
 
 function tooltipValue(
   payload: TooltipPayloadItem[],
@@ -184,6 +187,9 @@ function UserActivityTooltip({
   const newUsersTotal =
     payload.find((item) => item.payload?.newUsers != null)?.payload?.newUsers ??
     0;
+  const saldo = payload.find(
+    (item) => item.payload?.activeUsersChange != null,
+  )?.payload?.activeUsersChange;
   const rows = [
     showsNewUsers
       ? {
@@ -245,6 +251,24 @@ function UserActivityTooltip({
           </div>
         ))}
       </div>
+      {saldo != null ? (
+        <div className="flex items-center justify-between gap-3 border-t border-border/50 pt-1.5">
+          <span className="text-muted-foreground">Saldo de pagantes</span>
+          <span
+            className="font-mono font-medium tabular-nums"
+            style={{
+              color:
+                saldo > 0
+                  ? NEW_USERS_REST_COLOR
+                  : saldo < 0
+                    ? chartConfig.churnDown.color
+                    : undefined,
+            }}
+          >
+            {formatSaldo(saldo)}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -294,7 +318,7 @@ export function UserActivityChart({
     writeStoredVisibility(visible);
   }, [hydrated, visible]);
 
-  // Bottom to top in the day's bar; returns sit on top of the signups.
+  // Bottom to top in the day's bar.
   const positiveBars = [
     ...(visible.newUsers
       ? ([
@@ -303,7 +327,6 @@ export function UserActivityChart({
           { key: "newUsersRest", series: "newUsers" },
         ] as const)
       : []),
-    ...(visible.churn ? ([{ key: "returned", series: "returned" }] as const) : []),
   ];
   const chartData = data.map((item) => {
     const values = {
@@ -313,7 +336,6 @@ export function UserActivityChart({
         item.newUsers - item.newUsersPaid - item.newUsersTrial,
         0,
       ),
-      returned: item.returned,
     };
     return {
       ...item,
@@ -328,15 +350,9 @@ export function UserActivityChart({
   const showDaily = visible.newUsers || visible.churn;
   const showStock = visible.users || visible.activeUsers;
   const axes = userActivityAxisScale({
-    dailyMax: Math.max(
-      0,
-      ...data.map((item) =>
-        Math.max(
-          visible.newUsers ? item.newUsers : 0,
-          visible.churn ? item.returned : 0,
-        ),
-      ),
-    ),
+    dailyMax: visible.newUsers
+      ? Math.max(0, ...data.map((item) => item.newUsers))
+      : 0,
     churnMax: visible.churn ? Math.max(0, ...data.map((item) => item.churn)) : 0,
     stockMax: Math.max(
       0,
@@ -536,7 +552,7 @@ export function UserActivityChart({
               ? "A barra divide os cadastros do dia pelo que eles fizeram depois: pagaram, só fizeram trial ou só se cadastraram."
               : null,
             visible.churn
-              ? `Abaixo do zero, o churn: pagantes cujo acesso acabou naquele dia. Ele fica no dia da saída mesmo se a pessoa voltar; quem renova em até ${PAID_ACCESS_GRACE_DAYS} dias não conta como saída. Em roxo, no topo da barra, quem voltou a pagar depois de sair.`
+              ? `Abaixo do zero, o churn: pagantes cujo acesso acabou naquele dia. Ele fica no dia da saída mesmo se a pessoa voltar; quem renova em até ${PAID_ACCESS_GRACE_DAYS} dias não conta como saída.`
               : null,
             splitAxes
               ? "O eixo da direita mostra o estoque do dia (total e pagantes)."
