@@ -5,13 +5,14 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 /**
@@ -92,10 +93,28 @@ function getConfig(): MediaR2Config {
   } as MediaR2Config;
 }
 
+/**
+ * Endpoint do S3 da Cloudflare. `MEDIA_R2_ENDPOINT` existe só para verificação
+ * local (S3 compatível, ex. LocalStack) e liga path-style; ausente = R2 real.
+ */
+export function resolveMediaR2ClientOptions(
+  accountId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { endpoint: string; forcePathStyle: boolean } {
+  const override = env.MEDIA_R2_ENDPOINT?.trim();
+  if (override) return { endpoint: override, forcePathStyle: true };
+  return {
+    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    forcePathStyle: false,
+  };
+}
+
 function getClient(config: MediaR2Config) {
+  const { endpoint, forcePathStyle } = resolveMediaR2ClientOptions(config.accountId);
   client ??= new S3Client({
     region: "auto",
-    endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+    endpoint,
+    forcePathStyle,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
@@ -494,4 +513,157 @@ export async function createMediaUploadUrl(input: {
     { expiresIn: 10 * 60 },
   );
   return { uploadUrl, pathname: finalPathname, url: getMediaPublicUrl(objectKey) };
+}
+
+function toMediaKey(objectKey: string): string {
+  return objectKey.startsWith(MEDIA_KEY_PREFIX) ? objectKey : `${MEDIA_KEY_PREFIX}${objectKey}`;
+}
+
+function encodeRfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/** `Content-Disposition` de download com nome original (RFC 6266/5987). */
+export function buildAttachmentContentDisposition(filename: string): string {
+  const original = filename.trim() || "midia";
+  const fallback =
+    original
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\x20-\x7e]/g, "_")
+      .replace(/["\\]/g, "_")
+      .trim() || "midia";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(original)}`;
+}
+
+/**
+ * URL assinada (GET) que baixa o objeto com o nome original — o navegador não
+ * navega, só baixa. Sem R2 no dev local, devolve a URL pública.
+ */
+export async function createMediaDownloadUrl(input: {
+  objectKey: string;
+  filename: string;
+  contentType: string | null;
+  expiresInSeconds?: number;
+}): Promise<string> {
+  const key = toMediaKey(input.objectKey);
+  if (key.includes("..")) throw new Error(`invalid_media_key: ${input.objectKey}`);
+  if (isMediaR2Configured()) {
+    const config = getConfig();
+    return getSignedUrl(
+      getClient(config),
+      new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+        ResponseContentDisposition: buildAttachmentContentDisposition(input.filename),
+        ...(input.contentType ? { ResponseContentType: input.contentType } : {}),
+      }),
+      { expiresIn: input.expiresInSeconds ?? 300 },
+    );
+  }
+  if (isMediaDevLocalStorageEnabled()) return getMediaPublicUrl(key);
+  throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
+}
+
+/**
+ * Como `delMediaObjectKeys`, mas devolve o que falhou chave a chave:
+ * `DeleteObjects` reporta erros por chave em `Errors` SEM lançar — ignorar isso
+ * marcava como apagado o que continuava no bucket. Chave ausente não é erro.
+ */
+export async function deleteMediaObjectKeysReportingErrors(
+  objectKeys: string[],
+): Promise<{ deletedKeys: string[]; failed: { key: string; message: string }[] }> {
+  const keys = [
+    ...new Set(
+      objectKeys
+        .map(toMediaKey)
+        .filter((key) => key !== MEDIA_KEY_PREFIX && !key.includes("..")),
+    ),
+  ];
+  if (keys.length === 0) return { deletedKeys: [], failed: [] };
+
+  if (isMediaR2Configured()) {
+    const config = getConfig();
+    const failed: { key: string; message: string }[] = [];
+    for (let i = 0; i < keys.length; i += 1000) {
+      const batch = keys.slice(i, i + 1000);
+      try {
+        const result = await getClient(config).send(
+          new DeleteObjectsCommand({
+            Bucket: config.bucket,
+            Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+          }),
+        );
+        for (const error of result.Errors ?? []) {
+          if (error.Key) {
+            failed.push({
+              key: error.Key,
+              message: error.Message ?? error.Code ?? "delete_failed",
+            });
+          }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "delete_failed";
+        for (const key of batch) failed.push({ key, message });
+      }
+    }
+    const failedKeys = new Set(failed.map((entry) => entry.key));
+    return { deletedKeys: keys.filter((key) => !failedKeys.has(key)), failed };
+  }
+
+  if (isMediaDevLocalStorageEnabled()) {
+    for (const key of keys) {
+      for (const root of getDevLocalStorageRoots()) {
+        const filePath = getLocalMediaPath(root, key);
+        await rm(filePath, { force: true });
+        await rm(`${filePath}.meta.json`, { force: true });
+      }
+    }
+    return { deletedKeys: keys, failed: [] };
+  }
+
+  throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
+}
+
+/** Todas as chaves sob um prefixo (`media/...`), paginando o ListObjectsV2. */
+export async function listMediaObjectKeys(prefix: string): Promise<string[]> {
+  const normalizedPrefix = toMediaKey(prefix);
+  if (normalizedPrefix.includes("..") || normalizedPrefix === MEDIA_KEY_PREFIX) {
+    throw new Error(`invalid_media_prefix: ${prefix}`);
+  }
+  if (isMediaR2Configured()) {
+    const config = getConfig();
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await getClient(config).send(
+        new ListObjectsV2Command({
+          Bucket: config.bucket,
+          Prefix: normalizedPrefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+      for (const object of page.Contents ?? []) {
+        if (object.Key) keys.push(object.Key);
+      }
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return keys;
+  }
+  if (isMediaDevLocalStorageEnabled()) {
+    const keys = new Set<string>();
+    for (const root of getDevLocalStorageRoots()) {
+      const directory = getLocalMediaPath(root, normalizedPrefix);
+      const entries = await readdir(directory, { recursive: true }).catch(() => []);
+      for (const entry of entries) {
+        const relative = String(entry).replace(/\\/g, "/");
+        if (!relative.endsWith(".meta.json")) keys.add(`${normalizedPrefix}${relative}`);
+      }
+    }
+    return [...keys];
+  }
+  throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
 }
