@@ -3,6 +3,7 @@ import {
   CreditCard,
   History,
   Landmark,
+  Repeat,
   TrendingUp,
 } from "lucide-react";
 import type { FinanceDashboardSummary } from "@/lib/backoffice/finance-dashboard";
@@ -28,7 +29,7 @@ type FinanceRailProps = {
   netCentavos: number;
   totalNetCentavos: number;
   icon: typeof CreditCard;
-  tone: "card" | "pix" | "manual";
+  tone: "card" | "pix" | "pix_automatic" | "manual";
 };
 
 function FinanceRail({
@@ -46,7 +47,9 @@ function FinanceRail({
   const barClass =
     tone === "pix"
       ? "bg-emerald-500/80"
-      : tone === "manual"
+      : tone === "pix_automatic"
+        ? "bg-violet-500/80"
+        : tone === "manual"
         ? "bg-amber-500/80"
         : "bg-chart-1";
 
@@ -106,6 +109,13 @@ export function FinanceOverview({
       tone: "pix" as const,
     },
     {
+      ...summary.receipts.providers.pix_automatic,
+      label: "Pix Automático",
+      description: "Efí",
+      icon: Repeat,
+      tone: "pix_automatic" as const,
+    },
+    {
       ...summary.receipts.providers.manual,
       label: "Manual",
       description: "Fora dos gateways",
@@ -149,7 +159,7 @@ export function FinanceOverview({
                 ativos, incluindo contratos anuais e acessos PIX vigentes.
               </p>
 
-              <dl className="mt-6 grid grid-cols-2 gap-4 border-t pt-4 sm:grid-cols-4 sm:divide-x">
+              <dl className="mt-6 grid grid-cols-2 gap-4 border-t pt-4 sm:grid-cols-5 sm:divide-x">
                 <div className="sm:pr-3">
                   <dt className="text-[10px] text-muted-foreground">Cartão</dt>
                   <dd className="mt-1 text-xs font-semibold tabular-nums sm:text-sm">
@@ -160,6 +170,14 @@ export function FinanceOverview({
                   <dt className="text-[10px] text-muted-foreground">PIX</dt>
                   <dd className="mt-1 text-xs font-semibold tabular-nums sm:text-sm">
                     {formatBRLFromCentavos(summary.mrrByProvider.pix)}
+                  </dd>
+                </div>
+                <div className="sm:px-3">
+                  <dt className="text-[10px] text-muted-foreground">
+                    Pix Automático
+                  </dt>
+                  <dd className="mt-1 text-xs font-semibold tabular-nums sm:text-sm">
+                    {formatBRLFromCentavos(summary.mrrByProvider.pix_automatic)}
                   </dd>
                 </div>
                 <div className="sm:px-3">

@@ -381,6 +381,20 @@ describe("finance payments summaries", () => {
     expect(amounts.missingNetReason).toBe("mercadopago_fees_pending");
   });
 
+  test("flags Pix Automático payments whose Efí fee is still missing", () => {
+    const amounts = resolveAutomatizePaymentAmounts({
+      amount: 29700,
+      grossAmount: 29700,
+      netAmount: null,
+      feeAmount: null,
+      provider: "efi",
+      stripeInvoiceId: null,
+    });
+
+    expect(amounts.net).toBeNull();
+    expect(amounts.missingNetReason).toBe("efi_fee_pending");
+  });
+
   test("lists automatize payment net gaps by provider", () => {
     const gaps = listAutomatizePaymentNetGaps(
       [

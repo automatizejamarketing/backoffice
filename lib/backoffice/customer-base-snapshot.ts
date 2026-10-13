@@ -25,7 +25,7 @@ export async function captureCustomerBaseDailySnapshot(
     churnTotal: status.churn.total,
     churnCard: status.churn.card,
     churnPix: status.churn.pix,
-    scheduledCancel: status.scheduledCancel,
+    scheduledCancel: status.scheduledCancel.total,
     updatedAt: new Date(),
   };
 
