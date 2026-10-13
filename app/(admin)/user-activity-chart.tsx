@@ -7,9 +7,11 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  Rectangle,
   ReferenceLine,
   XAxis,
   YAxis,
+  type RectangleProps,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import {
@@ -100,6 +102,12 @@ function NewUsersSwatch({ className }: { className: string }) {
     </span>
   );
 }
+
+// Recharts flips the corners of a negative bar, so the same radius rounds the
+// top of a positive segment and the bottom of the churn below zero.
+const BAR_TOP_RADIUS: [number, number, number, number] = [3, 3, 0, 0];
+
+type BarShapeProps = RectangleProps & { payload?: { topBar?: string } };
 
 const subscribeToClient = () => () => undefined;
 const getClientSnapshot = () => true;
@@ -286,16 +294,37 @@ export function UserActivityChart({
     writeStoredVisibility(visible);
   }, [hydrated, visible]);
 
-  const chartData = data.map((item) => ({
-    ...item,
-    users: item.totalUsers,
-    newUsersRest: Math.max(
-      item.newUsers - item.newUsersPaid - item.newUsersTrial,
-      0,
-    ),
-    churnDown: -item.churn,
-    dateLabel: formatShortDate(item.date),
-  }));
+  // Bottom to top in the day's bar; returns sit on top of the signups.
+  const positiveBars = [
+    ...(visible.newUsers
+      ? ([
+          { key: "newUsersPaid", series: "newUsersPaid" },
+          { key: "newUsersTrial", series: "newUsersTrial" },
+          { key: "newUsersRest", series: "newUsers" },
+        ] as const)
+      : []),
+    ...(visible.churn ? ([{ key: "returned", series: "returned" }] as const) : []),
+  ];
+  const chartData = data.map((item) => {
+    const values = {
+      newUsersPaid: item.newUsersPaid,
+      newUsersTrial: item.newUsersTrial,
+      newUsersRest: Math.max(
+        item.newUsers - item.newUsersPaid - item.newUsersTrial,
+        0,
+      ),
+      returned: item.returned,
+    };
+    return {
+      ...item,
+      ...values,
+      users: item.totalUsers,
+      churnDown: -item.churn,
+      // Only the highest non-empty segment gets rounded corners.
+      topBar: positiveBars.findLast((bar) => values[bar.key] > 0)?.key,
+      dateLabel: formatShortDate(item.date),
+    };
+  });
   const showDaily = visible.newUsers || visible.churn;
   const showStock = visible.users || visible.activeUsers;
   const axes = userActivityAxisScale({
@@ -436,56 +465,33 @@ export function UserActivityChart({
                 stroke="var(--border)"
               />
             ) : null}
-            {visible.newUsers ? (
+            {positiveBars.map((bar) => (
               <Bar
+                key={bar.key}
                 yAxisId="daily"
-                dataKey="newUsersPaid"
+                dataKey={bar.key}
                 stackId="daily"
-                fill="var(--color-newUsersPaid)"
+                fill={`var(--color-${bar.key})`}
                 maxBarSize={18}
-                onClick={(data) => openSeries("newUsersPaid", data)}
+                onClick={(data) => openSeries(bar.series, data)}
+                shape={(props: BarShapeProps) => (
+                  <Rectangle
+                    {...props}
+                    radius={
+                      props.payload?.topBar === bar.key ? BAR_TOP_RADIUS : 0
+                    }
+                  />
+                )}
               />
-            ) : null}
-            {visible.newUsers ? (
-              <Bar
-                yAxisId="daily"
-                dataKey="newUsersTrial"
-                stackId="daily"
-                fill="var(--color-newUsersTrial)"
-                maxBarSize={18}
-                onClick={(data) => openSeries("newUsersTrial", data)}
-              />
-            ) : null}
-            {visible.newUsers ? (
-              <Bar
-                yAxisId="daily"
-                dataKey="newUsersRest"
-                stackId="daily"
-                fill="var(--color-newUsersRest)"
-                maxBarSize={18}
-                radius={[3, 3, 0, 0]}
-                onClick={(data) => openSeries("newUsers", data)}
-              />
-            ) : null}
-            {visible.churn ? (
-              <Bar
-                yAxisId="daily"
-                dataKey="returned"
-                stackId="movement"
-                fill="var(--color-returned)"
-                maxBarSize={18}
-                radius={[3, 3, 0, 0]}
-                onClick={(data) => openSeries("returned", data)}
-              />
-            ) : null}
+            ))}
             {visible.churn ? (
               <Bar
                 yAxisId="daily"
                 dataKey="churnDown"
-                stackId="movement"
+                stackId="daily"
                 fill="var(--color-churnDown)"
                 maxBarSize={18}
-                radius={[0, 0, 3, 3]}
+                radius={BAR_TOP_RADIUS}
                 onClick={(data) => openSeries("churn", data)}
               />
             ) : null}
@@ -530,7 +536,7 @@ export function UserActivityChart({
               ? "A barra divide os cadastros do dia pelo que eles fizeram depois: pagaram, só fizeram trial ou só se cadastraram."
               : null,
             visible.churn
-              ? `Na barra ao lado, abaixo do zero, o churn: pagantes cujo acesso acabou naquele dia. Ele fica no dia da saída mesmo se a pessoa voltar; quem renova em até ${PAID_ACCESS_GRACE_DAYS} dias não conta como saída. Acima do zero, em roxo, quem voltou a pagar depois de sair.`
+              ? `Abaixo do zero, o churn: pagantes cujo acesso acabou naquele dia. Ele fica no dia da saída mesmo se a pessoa voltar; quem renova em até ${PAID_ACCESS_GRACE_DAYS} dias não conta como saída. Em roxo, no topo da barra, quem voltou a pagar depois de sair.`
               : null,
             splitAxes
               ? "O eixo da direita mostra o estoque do dia (total e pagantes)."
