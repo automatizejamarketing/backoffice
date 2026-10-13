@@ -76,13 +76,46 @@ async function lookupEntity(userId: string, entityId: string): Promise<EntityRef
       limit 1
     `)) as unknown as Array<Record<string, unknown>>,
   );
-  if (!row) return null;
-  return {
-    level: String(row.entity_level) as Level,
-    accountId: String(row.account_id),
-    name: (row.entity_name as string | null) ?? null,
-    campaignId: (row.campaign_id as string | null) ?? null,
-  };
+  if (row) {
+    return {
+      level: String(row.entity_level) as Level,
+      accountId: String(row.account_id),
+      name: (row.entity_name as string | null) ?? null,
+      campaignId: (row.campaign_id as string | null) ?? null,
+    };
+  }
+  // Criado depois da última coleta (ex.: hoje): pergunta à Meta o tipo e a conta.
+  return lookupEntityLive(userId, entityId);
+}
+
+/** Um campo que só existe naquele nível: a Meta recusa campo inexistente, então a primeira leitura que passar diz o nível. */
+const LEVEL_PROBES: Array<{ level: Level; field: string }> = [
+  { level: "ad", field: "adset_id" },
+  { level: "adset", field: "optimization_goal" },
+  { level: "campaign", field: "objective" },
+];
+
+async function lookupEntityLive(userId: string, entityId: string): Promise<EntityRef | null> {
+  if (!/^\d{5,25}$/.test(entityId)) return null;
+  const token = await getUserAccessTokenByUserId(userId);
+  if (!token.success) return null;
+  for (const probe of LEVEL_PROBES) {
+    try {
+      const node = await metaApiCall<{ name?: string; account_id?: string }>({
+        domain: "FACEBOOK",
+        method: "GET",
+        path: entityId,
+        params: `fields=name,account_id,${probe.field}`,
+        accessToken: token.accessToken,
+      });
+      if (!node.account_id) return null;
+      // O token do cliente só enxerga as contas dele: achar o nó já prova que é do cliente.
+      return { level: probe.level, accountId: `act_${node.account_id}`, name: node.name ?? null, campaignId: null };
+    } catch {
+      // campo não existe neste nível (ou sem acesso): tenta o próximo
+    }
+  }
+  return null;
 }
 
 type LiveState = { status: string | null; dailyBudget: number | null; lifetimeBudget: number | null; name: string | null };
