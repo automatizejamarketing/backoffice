@@ -27,10 +27,7 @@ import {
   ChartTooltip,
   type ChartConfig,
 } from "@/components/ui/chart";
-import type {
-  DailyUserActivity,
-  UserActivityDaySeriesKey,
-} from "@/lib/backoffice/user-activity-dashboard";
+import type { DailyUserActivity } from "@/lib/backoffice/user-activity-dashboard";
 import { formatCalendarWeekdayLabel } from "@/lib/backoffice/datetime-format";
 import {
   DEFAULT_USER_ACTIVITY_SERIES_VISIBILITY,
@@ -292,9 +289,9 @@ export function UserActivityChart({
   const positiveBars = [
     ...(visible.newUsers
       ? ([
-          { key: "payments", series: "payments" },
-          { key: "trials", series: "trials" },
-          { key: "newUsers", series: "newUsers" },
+          { key: "payments" },
+          { key: "trials" },
+          { key: "newUsers" },
         ] as const)
       : []),
   ];
@@ -337,7 +334,10 @@ export function UserActivityChart({
   const hasVisibleSeries = showDaily || showStock;
   const visibleCount = SERIES.filter((series) => visible[series.key]).length;
 
-  function openSeries(series: UserActivityDaySeriesKey, input: unknown) {
+  function openSeries(
+    series: UserActivityDaySelection["series"],
+    input: unknown,
+  ) {
     const date = dateFromChartPayload(input);
     if (!date) return;
     setSelection({ date, series });
@@ -458,7 +458,7 @@ export function UserActivityChart({
                 stackId="daily"
                 fill={`var(--color-${bar.key})`}
                 maxBarSize={18}
-                onClick={(data) => openSeries(bar.series, data)}
+                onClick={(data) => openSeries("day", data)}
                 shape={(props: BarShapeProps) => (
                   <Rectangle
                     {...props}
@@ -477,7 +477,7 @@ export function UserActivityChart({
                 fill="var(--color-churnDown)"
                 maxBarSize={18}
                 radius={BAR_TOP_RADIUS}
-                onClick={(data) => openSeries("churn", data)}
+                onClick={(data) => openSeries("day", data)}
               />
             ) : null}
             {visible.users ? (
@@ -526,7 +526,7 @@ export function UserActivityChart({
             splitAxes
               ? "O eixo da direita mostra o estoque do dia (total e pagantes)."
               : null,
-            "Clique numa barra ou ponto para ver a lista daquele dia.",
+            "Clique numa barra para ver as pessoas do dia separadas por evento, ou num ponto para ver a lista de pagantes ou do total.",
           ]
             .filter(Boolean)
             .join(" ")}
@@ -535,6 +535,12 @@ export function UserActivityChart({
 
       <UserActivityUsersSheet
         selection={selection}
+        groupColors={{
+          newUsers: SIGNUPS_COLOR,
+          trials: TRIALS_COLOR,
+          payments: PAYMENTS_COLOR,
+          churn: chartConfig.churnDown.color,
+        }}
         onClose={() => setSelection(null)}
       />
     </div>

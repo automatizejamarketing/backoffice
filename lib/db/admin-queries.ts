@@ -1790,10 +1790,14 @@ export async function getUserActivityDayUsers(
   switch (series) {
     case "trials":
     case "payments": {
-      const firstEvent =
-        series === "trials" ? firstTrialGrantSubquery() : firstPaymentSubquery();
-      const happenedAt =
-        "activatedAt" in firstEvent ? firstEvent.activatedAt : firstEvent.paidAt;
+      // Drizzle subqueries are proxies: `"field" in subquery` is always false,
+      // so the timestamp column is picked by series, not by inspection.
+      const firstTrial = firstTrialGrantSubquery();
+      const firstPayment = firstPaymentSubquery();
+      const [firstEvent, happenedAt] =
+        series === "trials"
+          ? [firstTrial, firstTrial.activatedAt]
+          : [firstPayment, firstPayment.paidAt];
       return db
         .select({
           id: user.id,
