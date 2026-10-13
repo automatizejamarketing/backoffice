@@ -146,7 +146,7 @@ export function MediaLibraryGrid({
                     event.stopPropagation();
                     onDelete(item);
                   }}
-                  className="absolute left-1.5 top-1.5 flex size-6 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+                  className="absolute left-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-background/80 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100"
                 >
                   <Trash2 className="size-3" />
                 </button>
