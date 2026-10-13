@@ -1,0 +1,15 @@
+# BO GET /api/users/384f3178-3946-4fe5-b686-7f30adf16999/media-library/a53a2dd2-d3ea-4c4a-87f2-92134481a03c/download (Accept: application/json) -> 200 application/json {url}
+# Signed GET on the returned URL (LocalStack), headers:
+HTTP/1.1 200 OK
+Server: TwistedWeb/24.3.0
+Date: Tue, 13 Oct 2026 23:37:21 GMT
+Content-Type: image/png
+accept-ranges: bytes
+Last-Modified: Tue, 13 Oct 2026 23:36:41 GMT
+Content-Length: 3711
+ETag: "67a077c3da683e1f0cd9b28deecdef46"
+Content-Disposition: attachment; filename="produto-roxo.png"; filename*=UTF-8''produto-roxo.png
+x-amz-server-side-encryption: AES256
+x-amz-request-id: 29039fd6-d74a-4562-a1ac-603f5a15c0be
+x-amz-id-2: s9lzHYrFp76ZVxRcpX9+5cjAnEH2ROuNkd2BHfIa6UkFVdtjf5mKR3/eTPFvsiP/XV/VLi31234=
+

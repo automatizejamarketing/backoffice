@@ -41,6 +41,7 @@ import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
 import { MarketingAccessSummary } from "./marketing-access-summary";
 import { MarketingUsersPicker } from "./marketing-users-picker";
+import { MediaLibraryCard } from "./media-library-card";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
@@ -581,6 +582,8 @@ export function MarketingWorkspace({
           </CardContent>
         </Card>
       )}
+
+      {selectedUser ? <MediaLibraryCard userId={selectedUser.id} /> : null}
 
       {selectedUser ? (
         <PerformanceReportSection
