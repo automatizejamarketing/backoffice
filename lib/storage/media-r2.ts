@@ -572,46 +572,25 @@ export async function createMediaDownloadUrl(input: {
  * Como `delMediaObjectKeys`, mas devolve o que falhou chave a chave:
  * `DeleteObjects` reporta erros por chave em `Errors` SEM lançar — ignorar isso
  * marcava como apagado o que continuava no bucket. Chave ausente não é erro.
+ * Chave inválida (`..` ou só o prefixo) não é apagada e volta em `failed`.
  */
 export async function deleteMediaObjectKeysReportingErrors(
   objectKeys: string[],
 ): Promise<{ deletedKeys: string[]; failed: { key: string; message: string }[] }> {
-  const keys = [
-    ...new Set(
-      objectKeys
-        .map(toMediaKey)
-        .filter((key) => key !== MEDIA_KEY_PREFIX && !key.includes("..")),
-    ),
-  ];
-  if (keys.length === 0) return { deletedKeys: [], failed: [] };
+  const { keys, invalid } = splitMediaDeleteKeys(objectKeys);
+  if (keys.length === 0) return { deletedKeys: [], failed: invalid };
 
   if (isMediaR2Configured()) {
     const config = getConfig();
-    const failed: { key: string; message: string }[] = [];
-    for (let i = 0; i < keys.length; i += 1000) {
-      const batch = keys.slice(i, i + 1000);
-      try {
-        const result = await getClient(config).send(
-          new DeleteObjectsCommand({
-            Bucket: config.bucket,
-            Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
-          }),
-        );
-        for (const error of result.Errors ?? []) {
-          if (error.Key) {
-            failed.push({
-              key: error.Key,
-              message: error.Message ?? error.Code ?? "delete_failed",
-            });
-          }
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "delete_failed";
-        for (const key of batch) failed.push({ key, message });
-      }
-    }
-    const failedKeys = new Set(failed.map((entry) => entry.key));
-    return { deletedKeys: keys.filter((key) => !failedKeys.has(key)), failed };
+    const result = await deleteKeysInBatches(keys, (batch) =>
+      getClient(config).send(
+        new DeleteObjectsCommand({
+          Bucket: config.bucket,
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        }),
+      ),
+    );
+    return { deletedKeys: result.deletedKeys, failed: [...invalid, ...result.failed] };
   }
 
   if (isMediaDevLocalStorageEnabled()) {
@@ -622,36 +601,117 @@ export async function deleteMediaObjectKeysReportingErrors(
         await rm(`${filePath}.meta.json`, { force: true });
       }
     }
-    return { deletedKeys: keys, failed: [] };
+    return { deletedKeys: keys, failed: invalid };
   }
 
   throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
 }
 
-/** Todas as chaves sob um prefixo (`media/...`), paginando o ListObjectsV2. */
-export async function listMediaObjectKeys(prefix: string): Promise<string[]> {
-  const normalizedPrefix = toMediaKey(prefix);
-  if (normalizedPrefix.includes("..") || normalizedPrefix === MEDIA_KEY_PREFIX) {
+/**
+ * Deduplica as chaves de exclusão e separa as inválidas (`..` ou só o prefixo),
+ * que vão para `invalid` com `invalid_media_key` em vez de sumirem das listas.
+ */
+export function splitMediaDeleteKeys(objectKeys: string[]): {
+  keys: string[];
+  invalid: { key: string; message: string }[];
+} {
+  const keys = new Set<string>();
+  const invalid = new Set<string>();
+  for (const objectKey of objectKeys) {
+    const key = toMediaKey(objectKey);
+    if (key === MEDIA_KEY_PREFIX || key.includes("..")) invalid.add(key);
+    else keys.add(key);
+  }
+  return {
+    keys: [...keys],
+    invalid: [...invalid].map((key) => ({ key, message: "invalid_media_key" })),
+  };
+}
+
+/**
+ * Núcleo de `deleteMediaObjectKeysReportingErrors` sem S3, em lotes de 1000.
+ * Erro com Key vai para `failed`; erro sem Key não pode ser atribuído a uma
+ * chave, então o lote inteiro falha; exceção do lote também falha o lote.
+ */
+export async function deleteKeysInBatches(
+  keys: string[],
+  sendBatch: (batch: string[]) => Promise<{
+    Errors?: { Key?: string; Code?: string; Message?: string }[];
+  }>,
+): Promise<{ deletedKeys: string[]; failed: { key: string; message: string }[] }> {
+  const failedByKey = new Map<string, string>();
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    try {
+      const result = await sendBatch(batch);
+      for (const error of result.Errors ?? []) {
+        const message = error.Message ?? error.Code ?? "delete_failed";
+        if (error.Key) {
+          failedByKey.set(error.Key, message);
+        } else {
+          for (const key of batch) failedByKey.set(key, message);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "delete_failed";
+      for (const key of batch) failedByKey.set(key, message);
+    }
+  }
+  return {
+    deletedKeys: keys.filter((key) => !failedByKey.has(key)),
+    failed: [...failedByKey].map(([key, message]) => ({ key, message })),
+  };
+}
+
+/**
+ * Junta as chaves de todas as páginas do ListObjectsV2, seguindo
+ * `NextContinuationToken` enquanto `IsTruncated`.
+ */
+export async function collectListedKeys(
+  fetchPage: (token: string | undefined) => Promise<{
+    Contents?: { Key?: string }[];
+    IsTruncated?: boolean;
+    NextContinuationToken?: string;
+  }>,
+): Promise<string[]> {
+  const keys: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await fetchPage(continuationToken);
+    for (const object of page.Contents ?? []) {
+      if (object.Key) keys.push(object.Key);
+    }
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return keys;
+}
+
+/**
+ * Prefixo de listagem com `media/` e `/` final. Sem a barra, `media/library/u1`
+ * casaria `media/library/u10/...` no R2 e geraria `...u1foo.png` no dev local.
+ */
+export function normalizeListPrefix(prefix: string): string {
+  const normalized = toMediaKey(prefix);
+  if (normalized.includes("..") || normalized === MEDIA_KEY_PREFIX) {
     throw new Error(`invalid_media_prefix: ${prefix}`);
   }
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+/** Todas as chaves sob um prefixo (`media/...`), paginando o ListObjectsV2. */
+export async function listMediaObjectKeys(prefix: string): Promise<string[]> {
+  const normalizedPrefix = normalizeListPrefix(prefix);
   if (isMediaR2Configured()) {
     const config = getConfig();
-    const keys: string[] = [];
-    let continuationToken: string | undefined;
-    do {
-      const page = await getClient(config).send(
+    return collectListedKeys((continuationToken) =>
+      getClient(config).send(
         new ListObjectsV2Command({
           Bucket: config.bucket,
           Prefix: normalizedPrefix,
           ContinuationToken: continuationToken,
         }),
-      );
-      for (const object of page.Contents ?? []) {
-        if (object.Key) keys.push(object.Key);
-      }
-      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
-    } while (continuationToken);
-    return keys;
+      ),
+    );
   }
   if (isMediaDevLocalStorageEnabled()) {
     const keys = new Set<string>();
