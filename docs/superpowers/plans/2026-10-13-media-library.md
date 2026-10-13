@@ -3139,7 +3139,7 @@ Run: `cd $FE && bun test tests/media-library-retention-contract.test.ts` → Exp
   1. Apague as constantes `STALE_UPLOAD_AGE_MS` e `CAMPAIGN_MEDIA_SOURCE` e troque o comentário do topo por:
      ```ts
      // Só limpa uploads abandonados do Post do Prato (24 h). A Biblioteca de mídias
-     // (`campaign_media`) saiu daqui: o único apagador automático dela é o cron
+     // (blob_uploads da biblioteca) saiu daqui: o único apagador automático dela é o cron
      // /api/cron-job/media-library/retention (ADR 0042, substitui o 0021).
      ```
   2. Apague a consulta `staleCampaignUploads` inteira e troque `const staleUploads = [...staleCampaignUploads, ...abandonedPostDoPratoUploads];` por `const staleUploads = abandonedPostDoPratoUploads;`.
