@@ -88,6 +88,7 @@ export function summarizeFinanceDashboard(
   const mrrByProvider: Record<FinanceProvider, number> = {
     card: 0,
     pix: 0,
+    pix_automatic: 0,
     manual: 0,
   };
   let mrrCentavos = 0;
@@ -102,6 +103,7 @@ export function summarizeFinanceDashboard(
   const providers: Record<FinanceProvider, FinanceProviderSummary> = {
     card: emptyProviderSummary("card"),
     pix: emptyProviderSummary("pix"),
+    pix_automatic: emptyProviderSummary("pix_automatic"),
     manual: emptyProviderSummary("manual"),
   };
   const settlementsByInvoice = new Map(

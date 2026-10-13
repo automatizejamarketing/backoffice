@@ -10,6 +10,7 @@ import type { ActiveSubscriptionSummary } from "@/lib/db/admin-queries";
 export const BILLING_PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
+  efi: "Pix Automático Efí",
   manual: "Manual",
 };
 

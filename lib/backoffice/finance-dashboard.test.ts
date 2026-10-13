@@ -50,7 +50,7 @@ describe("finance dashboard", () => {
       activeSubscriptions: 3,
       realizedLtvCentavos: 79_400,
       lifetimePayingCustomers: 3,
-      mrrByProvider: { card: 19_700, pix: 49_700, manual: 29_700 },
+      mrrByProvider: { card: 19_700, pix: 49_700, pix_automatic: 0, manual: 29_700 },
       receipts: {
         payments: 2,
         grossCentavos: 79_400,
@@ -74,6 +74,14 @@ describe("finance dashboard", () => {
             feeCentavos: 294,
             netCentavos: 29_406,
             netCoveragePayments: 1,
+          },
+          pix_automatic: {
+            provider: "pix_automatic",
+            payments: 0,
+            grossCentavos: 0,
+            feeCentavos: 0,
+            netCentavos: 0,
+            netCoveragePayments: 0,
           },
           manual: {
             provider: "manual",
@@ -162,6 +170,7 @@ describe("finance dashboard", () => {
     expect(result.mrrByProvider).toEqual({
       card: 0,
       pix: 0,
+      pix_automatic: 0,
       manual: 0,
     });
     expect(result.receipts.providers.card.payments).toBe(0);

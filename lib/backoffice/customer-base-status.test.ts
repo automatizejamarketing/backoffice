@@ -59,8 +59,8 @@ describe("summarizeCustomerBaseStatus", () => {
     ).toEqual({
       activePaying: 2,
       trial: 1,
-      churn: { total: 3, card: 2, pix: 1 },
-      scheduledCancel: 1,
+      churn: { total: 3, card: 2, pix: 1, pixAutomatic: 0 },
+      scheduledCancel: { total: 1, card: 1, pixAutomatic: 0 },
     });
   });
 
@@ -106,8 +106,8 @@ describe("summarizeCustomerBaseStatus", () => {
     expect(summarizeCustomerBaseStatus([pixPayer], now)).toEqual({
       activePaying: 1,
       trial: 0,
-      churn: { total: 0, card: 0, pix: 0 },
-      scheduledCancel: 0,
+      churn: { total: 0, card: 0, pix: 0, pixAutomatic: 0 },
+      scheduledCancel: { total: 0, card: 0, pixAutomatic: 0 },
     });
     expect(matchesCustomerBaseCategory(pixPayer, "scheduledCancel", now)).toBe(
       false,
@@ -131,7 +131,7 @@ describe("summarizeCustomerBaseStatus", () => {
           },
         ],
         now,
-      ).scheduledCancel,
+      ).scheduledCancel.total,
     ).toBe(0);
   });
 
@@ -235,6 +235,38 @@ describe("summarizeCustomerBaseStatus", () => {
         ],
         now,
       ).churn,
-    ).toEqual({ total: 2, card: 0, pix: 0 });
+    ).toEqual({ total: 2, card: 0, pix: 0, pixAutomatic: 0 });
+  });
+
+  test("counts a canceled Pix Automático as scheduled cancel and its churn apart from Pix", () => {
+    const now = new Date("2026-10-13T12:00:00.000Z");
+    const canceledAutomatic = {
+      expirationDate: new Date("2026-11-12T03:00:00.000Z"),
+      hasApprovedPayment: true,
+      scheduledCancel: true,
+      lastPaymentProvider: "efi" as const,
+      lastPaymentMethod: "pix" as const,
+    };
+
+    expect(
+      summarizeCustomerBaseStatus(
+        [
+          canceledAutomatic,
+          {
+            ...canceledAutomatic,
+            expirationDate: new Date("2026-10-12T03:00:00.000Z"),
+          },
+        ],
+        now,
+      ),
+    ).toEqual({
+      activePaying: 1,
+      trial: 0,
+      churn: { total: 1, card: 0, pix: 0, pixAutomatic: 1 },
+      scheduledCancel: { total: 1, card: 0, pixAutomatic: 1 },
+    });
+    expect(
+      matchesCustomerBaseCategory(canceledAutomatic, "scheduledCancel", now),
+    ).toBe(true);
   });
 });
