@@ -53,7 +53,7 @@ export function useConsultantScope() {
 
 export function ConsultantScopeSelect({ className }: { className?: string }) {
   const me = useWorkspaceMe();
-  const { scope, setScope } = useConsultantScope();
+  const { scope, setScope, label } = useConsultantScope();
   const consultants = useWorkspaceConsultants();
   const others = (consultants.data?.consultants ?? []).filter((consultant) => consultant.id !== me.id);
   return (
@@ -61,7 +61,8 @@ export function ConsultantScopeSelect({ className }: { className?: string }) {
       <span className="hidden text-xs whitespace-nowrap text-muted-foreground xl:inline">Carteira de</span>
       <Select value={scope} onValueChange={(value) => setScope(value)}>
         <SelectTrigger className="w-[170px] text-xs data-[size=default]:h-8" aria-label="Carteira de">
-          <SelectValue />
+          {/* Rótulo explícito: sem ele o Select só mostra o texto depois de abrir a lista uma vez. */}
+          <SelectValue>{label}</SelectValue>
         </SelectTrigger>
         <SelectContent align="end">
           <SelectItem value="meus" className="text-xs">

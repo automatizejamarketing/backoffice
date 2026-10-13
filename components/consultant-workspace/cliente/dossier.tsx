@@ -518,10 +518,16 @@ function entityDisplayName(name: string | null | undefined, id: string, kind: "C
 /** Ação na Meta: prévia ao vivo → confirmar. Ao fechar, relê a página (status e histórico). */
 function useMetaActionDialog() {
   const router = useRouter();
-  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [dialog, setDialogNow] = useState<DialogState | null>(null);
+  // Aberto a partir de um menu suspenso: o menu devolve o foco ao botão ao
+  // fechar e o diálogo entenderia isso como clique fora. Abre no próximo ciclo.
+  function setDialog(next: DialogState | null) {
+    if (next) setTimeout(() => setDialogNow(next), 0);
+    else setDialogNow(null);
+  }
   function close() {
     const changedMeta = dialog && !["otimizar", "trocar_criativo"].includes(dialog.action);
-    setDialog(null);
+    setDialogNow(null);
     if (changedMeta) router.refresh();
   }
   return { dialog, setDialog, close };
