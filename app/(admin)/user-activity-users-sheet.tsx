@@ -44,9 +44,12 @@ type UserActivityDayUser = {
 
 const SERIES_TITLES: Record<UserActivityDaySeriesKey, string> = {
   newUsers: "Usuários novos",
-  newUsersActivated: "Novos com trial ou pagamento",
+  newUsersPaid: "Novos que pagaram",
+  newUsersTrial: "Novos só com trial",
   users: "Total de usuários",
   activeUsers: "Clientes pagantes",
+  churn: "Churn · acesso expirou",
+  returned: "Voltaram a pagar",
 };
 
 export function UserActivityUsersSheet({

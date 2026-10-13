@@ -3926,6 +3926,38 @@ export const subscriptionEvent = pgTable("subscription_events", {
 
 export type SubscriptionEvent = InferSelectModel<typeof subscriptionEvent>;
 
+// Every change to users.expiration_date, one row each. Written by the
+// users_record_expiration_* triggers (user_expiration_history migration, twin
+// in both repos), so no write path can skip it. users.expiration_date keeps
+// only the latest value; this is what tells the dashboard that a customer
+// left and later came back.
+export const userExpirationHistory = pgTable(
+  "user_expiration_history",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    previousExpirationDate: timestamp("previous_expiration_date", {
+      withTimezone: true,
+    }),
+    expirationDate: timestamp("expiration_date", { withTimezone: true }),
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userChangedAtIdx: index("user_expiration_history_user_changed_at_idx").on(
+      table.userId,
+      table.changedAt,
+    ),
+  }),
+);
+
+export type UserExpirationHistory = InferSelectModel<
+  typeof userExpirationHistory
+>;
+
 // Processed webhook events - for idempotency
 export const processedWebhookEvent = pgTable(
   "processed_webhook_events",

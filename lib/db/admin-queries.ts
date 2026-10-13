@@ -48,6 +48,7 @@ import {
   referenceImage,
   subscription,
   subscriptionEvent,
+  userExpirationHistory,
   retentionFinancialBenefit,
   mercadopagoPaymentLink,
   user,
@@ -102,11 +103,20 @@ import {
 } from "@/lib/backoffice/conversion-dashboard";
 import {
   buildActiveUserStock,
+  buildChurnCounts,
+  buildReturnCounts,
   fillDailyUserActivity,
   isActivePayingOnDate,
+  isChurnedOnDate,
+  isReturnedOnDate,
   summarizeUserActivity,
+  type PaidAccessCustomer,
   type UserActivityDaySeriesKey,
 } from "@/lib/backoffice/user-activity-dashboard";
+import {
+  buildPaidAccessPeriods,
+  type ExpirationChange,
+} from "@/lib/backoffice/paid-access-periods";
 import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
 import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
 import {
@@ -1558,17 +1568,20 @@ export async function getDashboardStats() {
   };
 }
 
-type PayingAccessUserRow = {
+type PaidAccessUser = PaidAccessCustomer & {
   id: string;
   email: string;
   name: string | null;
   phone: string | null;
   expirationDate: Date | null;
-  firstPaidAt: Date | null;
 };
 
-async function fetchPayingAccessUsers(): Promise<PayingAccessUserRow[]> {
-  return db
+/**
+ * Customers with an approved subscription payment and their paid access
+ * periods, rebuilt from user_expiration_history (see buildPaidAccessPeriods).
+ */
+async function fetchPaidAccessUsers(): Promise<PaidAccessUser[]> {
+  const payers = await db
     .select({
       id: user.id,
       email: user.email,
@@ -1580,9 +1593,12 @@ async function fetchPayingAccessUsers(): Promise<PayingAccessUserRow[]> {
     .from(user)
     .innerJoin(
       payment,
-      and(eq(payment.userId, user.id), eq(payment.status, "succeeded")),
+      and(
+        eq(payment.userId, user.id),
+        eq(payment.status, "succeeded"),
+        billingPaymentPurposeSql(payment.purpose),
+      ),
     )
-    .where(isNotNull(user.expirationDate))
     .groupBy(
       user.id,
       user.email,
@@ -1590,49 +1606,91 @@ async function fetchPayingAccessUsers(): Promise<PayingAccessUserRow[]> {
       user.phone,
       user.expirationDate,
     );
+  if (payers.length === 0) return [];
+
+  const changes = await db
+    .select({
+      userId: userExpirationHistory.userId,
+      changedAt: userExpirationHistory.changedAt,
+      previousExpirationDate: userExpirationHistory.previousExpirationDate,
+      expirationDate: userExpirationHistory.expirationDate,
+    })
+    .from(userExpirationHistory)
+    .where(
+      inArray(
+        userExpirationHistory.userId,
+        payers.map((payer) => payer.id),
+      ),
+    )
+    .orderBy(asc(userExpirationHistory.changedAt));
+  const changesByUser = new Map<string, ExpirationChange[]>();
+  for (const { userId, ...change } of changes) {
+    const list = changesByUser.get(userId) ?? [];
+    list.push(change);
+    changesByUser.set(userId, list);
+  }
+
+  return payers.flatMap((payer) => {
+    if (!payer.firstPaidAt) return [];
+    const periods = buildPaidAccessPeriods({
+      firstPaidAt: new Date(payer.firstPaidAt),
+      currentExpirationDate: payer.expirationDate,
+      changes: changesByUser.get(payer.id) ?? [],
+    });
+    if (periods.length === 0) return [];
+    return [
+      {
+        id: payer.id,
+        email: payer.email,
+        name: payer.name,
+        phone: payer.phone,
+        expirationDate: payer.expirationDate,
+        periods,
+      },
+    ];
+  });
 }
 
-function toPayingAccessRow(row: PayingAccessUserRow) {
-  if (!row.expirationDate || !row.firstPaidAt) return null;
-  return {
-    id: row.id,
-    email: row.email,
-    name: row.name,
-    phone: row.phone,
-    firstPaidAt: new Date(row.firstPaidAt),
-    expirationDate: new Date(row.expirationDate),
-  };
+// Approved subscription payment, the same "virou cliente" rule as the base.
+function userHasPaidSql() {
+  const userId = sql.raw('"users"."id"');
+  return sql`EXISTS (
+    SELECT 1
+    FROM payments successful_payment
+    WHERE successful_payment.user_id = ${userId}
+      AND successful_payment.status = 'succeeded'
+      AND ${billingPaymentPurposeSql("successful_payment.purpose")}
+  )`;
 }
 
-function userHasActivatedAccessSql() {
+// Got access (trial credits or an expiration) without ever paying.
+function userHasOnlyTrialSql() {
   const userId = sql.raw('"users"."id"');
   return sql`(
-    ${user.expirationDate} IS NOT NULL
-    OR EXISTS (
-      SELECT 1
-      FROM credit_transactions trial_credit
-      WHERE trial_credit.user_id = ${userId}
-        AND trial_credit.type = 'trial_grant'
+    (
+      ${user.expirationDate} IS NOT NULL
+      OR EXISTS (
+        SELECT 1
+        FROM credit_transactions trial_credit
+        WHERE trial_credit.user_id = ${userId}
+          AND trial_credit.type = 'trial_grant'
+      )
     )
-    OR EXISTS (
-      SELECT 1
-      FROM payments successful_payment
-      WHERE successful_payment.user_id = ${userId}
-        AND successful_payment.status = 'succeeded'
-    )
+    AND NOT ${userHasPaidSql()}
   )`;
 }
 
 export async function getUserActivityDashboard(window: DashboardDateWindow) {
   const createdDate = sql<string>`to_char(${user.createdAt} - interval '3 hours', 'YYYY-MM-DD')`;
 
-  const [newUserRows, [baseline], payingUsers] = await Promise.all([
+  const [newUserRows, [baseline], paidAccessUsers] = await Promise.all([
     db
       .select({
         date: createdDate,
         count: sql<number>`COUNT(*)::integer`,
-        activated: sql<number>`COUNT(*) FILTER (
-          WHERE ${userHasActivatedAccessSql()}
+        paid: sql<number>`COUNT(*) FILTER (WHERE ${userHasPaidSql()})::integer`,
+        trial: sql<number>`COUNT(*) FILTER (
+          WHERE ${userHasOnlyTrialSql()}
         )::integer`,
       })
       .from(user)
@@ -1647,7 +1705,7 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
       })
       .from(user)
       .where(or(isNull(user.createdAt), lt(user.createdAt, window.gte))),
-    fetchPayingAccessUsers(),
+    fetchPaidAccessUsers(),
   ]);
 
   const daily = fillDailyUserActivity(
@@ -1656,24 +1714,17 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
         date: row.date,
         count: Number(row.count),
       })),
-      newUsersActivated: newUserRows.map((row) => ({
+      newUsersPaid: newUserRows.map((row) => ({
         date: row.date,
-        count: Number(row.activated),
+        count: Number(row.paid),
       })),
-      activeUsers: buildActiveUserStock(
-        payingUsers.flatMap((row) => {
-          const access = toPayingAccessRow(row);
-          return access
-            ? [
-                {
-                  firstPaidAt: access.firstPaidAt,
-                  expirationDate: access.expirationDate,
-                },
-              ]
-            : [];
-        }),
-        window,
-      ),
+      newUsersTrial: newUserRows.map((row) => ({
+        date: row.date,
+        count: Number(row.trial),
+      })),
+      activeUsers: buildActiveUserStock(paidAccessUsers, window),
+      churn: buildChurnCounts(paidAccessUsers, window),
+      returned: buildReturnCounts(paidAccessUsers, window),
       usersBeforeWindow: Number(baseline?.count ?? 0),
     },
     window,
@@ -1702,8 +1753,27 @@ export async function getUserActivityDayUsers(
   const dayStart = brtStartOfCalendarDate(date);
   const nextDayStart = brtStartOfCalendarDate(shiftCalendarDate(date, 1));
 
+  const listPaidAccessUsers = async (
+    matches: (customer: PaidAccessCustomer) => boolean,
+  ) =>
+    (await fetchPaidAccessUsers())
+      .filter(matches)
+      .map((access) => ({
+        id: access.id,
+        email: access.email,
+        name: access.name,
+        phone: access.phone,
+        expirationDate: access.expirationDate,
+      }))
+      .sort((left, right) =>
+        left.email.localeCompare(right.email, "pt-BR", {
+          sensitivity: "base",
+        }),
+      );
+
   switch (series) {
-    case "newUsersActivated": {
+    case "newUsersPaid":
+    case "newUsersTrial": {
       return db
         .select({
           id: user.id,
@@ -1717,32 +1787,27 @@ export async function getUserActivityDayUsers(
           and(
             gte(user.createdAt, dayStart),
             lt(user.createdAt, nextDayStart),
-            sql`${userHasActivatedAccessSql()}`,
+            series === "newUsersPaid"
+              ? userHasPaidSql()
+              : userHasOnlyTrialSql(),
           ),
         )
         .orderBy(asc(user.email));
     }
     case "activeUsers": {
-      const payingUsers = await fetchPayingAccessUsers();
-      return payingUsers
-        .flatMap((row) => {
-          const access = toPayingAccessRow(row);
-          if (!access || !isActivePayingOnDate(access, date, now)) return [];
-          return [
-            {
-              id: access.id,
-              email: access.email,
-              name: access.name,
-              phone: access.phone,
-              expirationDate: access.expirationDate,
-            },
-          ];
-        })
-        .sort((left, right) =>
-          left.email.localeCompare(right.email, "pt-BR", {
-            sensitivity: "base",
-          }),
-        );
+      return listPaidAccessUsers((customer) =>
+        isActivePayingOnDate(customer, date, now),
+      );
+    }
+    case "churn": {
+      return listPaidAccessUsers((customer) =>
+        isChurnedOnDate(customer, date, now),
+      );
+    }
+    case "returned": {
+      return listPaidAccessUsers((customer) =>
+        isReturnedOnDate(customer, date, now),
+      );
     }
     case "newUsers":
     case "users": {

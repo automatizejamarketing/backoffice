@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   XAxis,
   YAxis,
 } from "recharts";
@@ -36,27 +37,41 @@ import {
   serializeUserActivitySeriesVisibility,
   type UserActivitySeriesVisibility,
 } from "@/lib/backoffice/user-activity-series";
+import { PAID_ACCESS_GRACE_DAYS } from "@/lib/backoffice/paid-access-periods";
+import { userActivityAxisScale } from "@/lib/backoffice/user-activity-chart-scale";
 import {
   UserActivityUsersSheet,
   type UserActivityDaySelection,
 } from "./user-activity-users-sheet";
 
+const NEW_USERS_PAID_COLOR = "oklch(0.62 0.16 230)";
+const NEW_USERS_TRIAL_COLOR = "oklch(0.8 0.11 200)";
+const NEW_USERS_REST_COLOR = "oklch(0.72 0.16 155)";
+const NEW_USERS_COLORS = [
+  NEW_USERS_PAID_COLOR,
+  NEW_USERS_TRIAL_COLOR,
+  NEW_USERS_REST_COLOR,
+];
+
 const SERIES = [
-  { key: "newUsers", label: "Usuários novos", color: "oklch(0.72 0.16 155)" },
+  { key: "newUsers", label: "Usuários novos", color: NEW_USERS_REST_COLOR },
   { key: "users", label: "Total de usuários", color: "oklch(0.62 0.19 255)" },
   { key: "activeUsers", label: "Clientes pagantes", color: "oklch(0.75 0.16 55)" },
+  { key: "churn", label: "Churn e retornos", color: "oklch(0.64 0.21 25)" },
 ] as const;
 
-const NEW_USERS_ACTIVATED_COLOR = "oklch(0.62 0.16 230)";
-
 const chartConfig = {
-  newUsersActivated: {
-    label: "Trial ou pagamento",
-    color: NEW_USERS_ACTIVATED_COLOR,
+  newUsersPaid: {
+    label: "Pagou",
+    color: NEW_USERS_PAID_COLOR,
+  },
+  newUsersTrial: {
+    label: "Só trial",
+    color: NEW_USERS_TRIAL_COLOR,
   },
   newUsersRest: {
     label: "Só cadastro",
-    color: "oklch(0.72 0.16 155)",
+    color: NEW_USERS_REST_COLOR,
   },
   users: {
     label: "Total de usuários",
@@ -66,7 +81,25 @@ const chartConfig = {
     label: "Clientes pagantes",
     color: "oklch(0.75 0.16 55)",
   },
+  returned: {
+    label: "Voltaram",
+    color: "oklch(0.66 0.17 300)",
+  },
+  churnDown: {
+    label: "Churn",
+    color: "oklch(0.64 0.21 25)",
+  },
 } satisfies ChartConfig;
+
+function NewUsersSwatch({ className }: { className: string }) {
+  return (
+    <span className="flex shrink-0 overflow-hidden rounded-[2px]" aria-hidden>
+      {NEW_USERS_COLORS.map((color) => (
+        <span key={color} className={className} style={{ backgroundColor: color }} />
+      ))}
+    </span>
+  );
+}
 
 const subscribeToClient = () => () => undefined;
 const getClientSnapshot = () => true;
@@ -99,10 +132,13 @@ function writeStoredVisibility(visibility: UserActivitySeriesVisibility) {
 }
 
 const TOOLTIP_SERIES = [
-  "newUsersActivated",
+  "newUsersPaid",
+  "newUsersTrial",
   "newUsersRest",
   "users",
   "activeUsers",
+  "returned",
+  "churnDown",
 ] as const;
 
 type TooltipPayloadItem = {
@@ -111,8 +147,6 @@ type TooltipPayloadItem = {
   payload?: {
     date?: string;
     newUsers?: number;
-    newUsersActivated?: number;
-    newUsersRest?: number;
   };
 };
 
@@ -122,7 +156,8 @@ function tooltipValue(
 ) {
   const item = payload.find((entry) => entry.dataKey === key);
   if (!item || item.value == null) return null;
-  return Number(item.value);
+  // Churn is drawn below zero; the tooltip reads it as a count.
+  return Math.abs(Number(item.value));
 }
 
 function UserActivityTooltip({
@@ -135,13 +170,14 @@ function UserActivityTooltip({
   if (!active || !payload?.length) return null;
 
   const date = payload.find((item) => item.payload?.date)?.payload?.date;
-  const activated = tooltipValue(payload, "newUsersActivated");
-  const rest = tooltipValue(payload, "newUsersRest");
+  const showsNewUsers = payload.some(
+    (item) => item.dataKey === "newUsersRest",
+  );
   const newUsersTotal =
     payload.find((item) => item.payload?.newUsers != null)?.payload?.newUsers ??
-    (activated ?? 0) + (rest ?? 0);
+    0;
   const rows = [
-    activated != null || rest != null
+    showsNewUsers
       ? {
           key: "newUsers",
           value: newUsersTotal,
@@ -175,19 +211,7 @@ function UserActivityTooltip({
           <div key={row.key} className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2">
               {row.key === "newUsers" ? (
-                <span
-                  className="flex size-2.5 shrink-0 overflow-hidden rounded-[2px]"
-                  aria-hidden
-                >
-                  <span
-                    className="h-full w-1/2"
-                    style={{ backgroundColor: chartConfig.newUsersActivated.color }}
-                  />
-                  <span
-                    className="h-full w-1/2"
-                    style={{ backgroundColor: chartConfig.newUsersRest.color }}
-                  />
-                </span>
+                <NewUsersSwatch className="h-2.5 w-[5px]" />
               ) : (
                 <span
                   className="size-2.5 shrink-0 rounded-[2px]"
@@ -195,7 +219,17 @@ function UserActivityTooltip({
                   aria-hidden
                 />
               )}
-              <span className="text-muted-foreground">{row.label}</span>
+              <span
+                className={
+                  row.key === "newUsersPaid" ||
+                  row.key === "newUsersTrial" ||
+                  row.key === "newUsersRest"
+                    ? "pl-2 text-muted-foreground"
+                    : "text-muted-foreground"
+                }
+              >
+                {row.label}
+              </span>
             </span>
             <span className="font-mono font-medium tabular-nums text-foreground">
               {row.value.toLocaleString("pt-BR")}
@@ -255,11 +289,36 @@ export function UserActivityChart({
   const chartData = data.map((item) => ({
     ...item,
     users: item.totalUsers,
-    newUsersRest: Math.max(item.newUsers - item.newUsersActivated, 0),
+    newUsersRest: Math.max(
+      item.newUsers - item.newUsersPaid - item.newUsersTrial,
+      0,
+    ),
+    churnDown: -item.churn,
     dateLabel: formatShortDate(item.date),
   }));
-  const showDaily = visible.newUsers;
+  const showDaily = visible.newUsers || visible.churn;
   const showStock = visible.users || visible.activeUsers;
+  const axes = userActivityAxisScale({
+    dailyMax: Math.max(
+      0,
+      ...data.map((item) =>
+        Math.max(
+          visible.newUsers ? item.newUsers : 0,
+          visible.churn ? item.returned : 0,
+        ),
+      ),
+    ),
+    churnMax: visible.churn ? Math.max(0, ...data.map((item) => item.churn)) : 0,
+    stockMax: Math.max(
+      0,
+      ...data.map((item) =>
+        Math.max(
+          visible.users ? item.totalUsers : 0,
+          visible.activeUsers ? item.activeUsers : 0,
+        ),
+      ),
+    ),
+  });
   const splitAxes = showDaily && showStock;
   const hasVisibleSeries = showDaily || showStock;
   const visibleCount = SERIES.filter((series) => visible[series.key]).length;
@@ -286,7 +345,9 @@ export function UserActivityChart({
               >
                 <ChartColumn data-icon="inline-start" />
                 Séries
-                <span className="text-muted-foreground">{visibleCount}/3</span>
+                <span className="text-muted-foreground">
+                  {visibleCount}/{SERIES.length}
+                </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -306,16 +367,7 @@ export function UserActivityChart({
                 >
                   <span className="flex items-center gap-2">
                     {series.key === "newUsers" ? (
-                      <span className="flex overflow-hidden rounded-[2px]" aria-hidden>
-                        <span
-                          className="size-2.5"
-                          style={{ background: NEW_USERS_ACTIVATED_COLOR }}
-                        />
-                        <span
-                          className="size-2.5"
-                          style={{ background: series.color }}
-                        />
-                      </span>
+                      <NewUsersSwatch className="size-2.5" />
                     ) : (
                       <span
                         className="size-2.5 rounded-[2px]"
@@ -342,6 +394,7 @@ export function UserActivityChart({
           <ComposedChart
             accessibilityLayer
             data={chartData}
+            stackOffset="sign"
             margin={{ top: 12, right: 10, bottom: 4, left: -18 }}
           >
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -354,6 +407,8 @@ export function UserActivityChart({
             />
             <YAxis
               yAxisId="daily"
+              domain={axes.daily.domain}
+              ticks={axes.daily.ticks}
               allowDecimals={false}
               tickLine={false}
               axisLine={false}
@@ -364,6 +419,8 @@ export function UserActivityChart({
             <YAxis
               yAxisId="stock"
               orientation={splitAxes ? "right" : "left"}
+              domain={axes.stock.domain}
+              ticks={axes.stock.ticks}
               allowDecimals={false}
               tickLine={false}
               axisLine={false}
@@ -372,25 +429,64 @@ export function UserActivityChart({
               hide={!showStock}
             />
             <ChartTooltip content={<UserActivityTooltip />} />
+            {showDaily ? (
+              <ReferenceLine
+                yAxisId="daily"
+                y={0}
+                stroke="var(--border)"
+              />
+            ) : null}
             {visible.newUsers ? (
               <Bar
                 yAxisId="daily"
-                dataKey="newUsersActivated"
-                stackId="newUsers"
-                fill="var(--color-newUsersActivated)"
+                dataKey="newUsersPaid"
+                stackId="daily"
+                fill="var(--color-newUsersPaid)"
                 maxBarSize={18}
-                onClick={(data) => openSeries("newUsersActivated", data)}
+                onClick={(data) => openSeries("newUsersPaid", data)}
+              />
+            ) : null}
+            {visible.newUsers ? (
+              <Bar
+                yAxisId="daily"
+                dataKey="newUsersTrial"
+                stackId="daily"
+                fill="var(--color-newUsersTrial)"
+                maxBarSize={18}
+                onClick={(data) => openSeries("newUsersTrial", data)}
               />
             ) : null}
             {visible.newUsers ? (
               <Bar
                 yAxisId="daily"
                 dataKey="newUsersRest"
-                stackId="newUsers"
+                stackId="daily"
                 fill="var(--color-newUsersRest)"
                 maxBarSize={18}
                 radius={[3, 3, 0, 0]}
                 onClick={(data) => openSeries("newUsers", data)}
+              />
+            ) : null}
+            {visible.churn ? (
+              <Bar
+                yAxisId="daily"
+                dataKey="returned"
+                stackId="movement"
+                fill="var(--color-returned)"
+                maxBarSize={18}
+                radius={[3, 3, 0, 0]}
+                onClick={(data) => openSeries("returned", data)}
+              />
+            ) : null}
+            {visible.churn ? (
+              <Bar
+                yAxisId="daily"
+                dataKey="churnDown"
+                stackId="movement"
+                fill="var(--color-churnDown)"
+                maxBarSize={18}
+                radius={[0, 0, 3, 3]}
+                onClick={(data) => openSeries("churn", data)}
               />
             ) : null}
             {visible.users ? (
@@ -429,9 +525,20 @@ export function UserActivityChart({
 
       {hasVisibleSeries ? (
         <p className="text-[11px] text-muted-foreground">
-          {splitAxes
-            ? "A fatia mais escura da barra são cadastros que já entraram em trial ou pagaram — não há histórico de trial para todo mundo. O eixo da direita mostra o estoque do dia (total e pagantes). Clique numa barra ou ponto para ver a lista daquele dia."
-            : "A fatia mais escura da barra são cadastros que já entraram em trial ou pagaram. Clique numa barra ou ponto para ver a lista daquele dia."}
+          {[
+            visible.newUsers
+              ? "A barra divide os cadastros do dia pelo que eles fizeram depois: pagaram, só fizeram trial ou só se cadastraram."
+              : null,
+            visible.churn
+              ? `Na barra ao lado, abaixo do zero, o churn: pagantes cujo acesso acabou naquele dia. Ele fica no dia da saída mesmo se a pessoa voltar; quem renova em até ${PAID_ACCESS_GRACE_DAYS} dias não conta como saída. Acima do zero, em roxo, quem voltou a pagar depois de sair.`
+              : null,
+            splitAxes
+              ? "O eixo da direita mostra o estoque do dia (total e pagantes)."
+              : null,
+            "Clique numa barra ou ponto para ver a lista daquele dia.",
+          ]
+            .filter(Boolean)
+            .join(" ")}
         </p>
       ) : null}
 
