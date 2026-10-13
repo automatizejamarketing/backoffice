@@ -3501,6 +3501,7 @@ export type PlanType = (typeof PLAN_TYPE_VALUES)[number];
 export const BILLING_PROVIDER_VALUES = [
   "stripe",
   "mercadopago",
+  "efi",
   "manual",
 ] as const;
 

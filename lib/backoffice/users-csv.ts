@@ -15,6 +15,7 @@ import {
 const PROVIDER_LABELS: Record<BillingProvider, string> = {
   stripe: "Cartão",
   mercadopago: "Pix",
+  efi: "Pix Automático",
   manual: "Manual",
 };
 

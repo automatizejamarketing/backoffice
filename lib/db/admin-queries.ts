@@ -117,7 +117,10 @@ import {
   buildPaidAccessPeriods,
   type ExpirationChange,
 } from "@/lib/backoffice/paid-access-periods";
-import { summarizeFinanceDashboard } from "@/lib/backoffice/finance-dashboard";
+import {
+  latestActivePlanPerUser,
+  summarizeFinanceDashboard,
+} from "@/lib/backoffice/finance-dashboard";
 import { summarizePayerRetentionCohorts } from "@/lib/backoffice/payer-retention";
 import {
   RETENTION_REASON_KEYS,
@@ -2517,11 +2520,14 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
     await Promise.all([
       db
         .select({
+          userId: subscription.userId,
+          createdAt: subscription.createdAt,
           provider: subscription.provider,
           planType: subscription.planType,
         })
         .from(subscription)
-        .where(eq(subscription.status, "active")),
+        .where(eq(subscription.status, "active"))
+        .then(latestActivePlanPerUser),
       db
         .select({
           id: payment.id,
