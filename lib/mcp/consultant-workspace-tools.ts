@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
 import * as z from "zod/v4";
 import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { getWorkspaceClientDetail, getWorkspaceClients } from "@/lib/consultant-workspace/data";
@@ -11,6 +10,7 @@ import { applyWorkspaceOp, readWorkspaceState } from "@/lib/consultant-workspace
 import { applyMetaChange, previewMetaChange, type MetaChange } from "@/lib/consultant-workspace/meta-actions";
 import { getWhatsAppUrl } from "@/lib/phone";
 import { ALERT_OUTCOME_LABEL, type AlertOutcome, type GoalKpi, type WorkspaceOp } from "@/lib/consultant-workspace/types";
+import { batchConfirmationCode, verifyBatchConfirmation } from "./batch-confirmation";
 import { defineTool, type McpTool } from "./tool";
 
 /**
@@ -26,32 +26,14 @@ import { defineTool, type McpTool } from "./tool";
  *   sozinho. O envio é registrado quando o consultor confirma.
  */
 
-const CONFIRM_TTL_MS = 15 * 60 * 1000;
-
 function secret() {
   const value = process.env.AUTH_SECRET;
   if (!value) throw new Error("AUTH_SECRET ausente");
   return value;
 }
 
-function sign(payload: unknown, expiresAt: number) {
-  return createHmac("sha256", secret()).update(JSON.stringify([payload, expiresAt])).digest("base64url").slice(0, 22);
-}
-
-function confirmationCode(payload: unknown) {
-  const expiresAt = Date.now() + CONFIRM_TTL_MS;
-  return `${expiresAt.toString(36)}.${sign(payload, expiresAt)}`;
-}
-
-function verifyCode(code: string, payload: unknown): "ok" | "expired" | "mismatch" {
-  const [encoded, given] = code.split(".");
-  const expiresAt = Number.parseInt(encoded ?? "", 36);
-  if (!given || !Number.isFinite(expiresAt)) return "mismatch";
-  const expected = Buffer.from(sign(payload, expiresAt));
-  const received = Buffer.from(given);
-  if (expected.length !== received.length || !timingSafeEqual(expected, received)) return "mismatch";
-  return expiresAt <= Date.now() ? "expired" : "ok";
-}
+const confirmationCode = (payload: unknown) => batchConfirmationCode(payload, secret());
+const verifyCode = (code: string, payload: unknown) => verifyBatchConfirmation(code, payload, secret());
 
 function assertClientAccess(actor: BackofficeActor, userId: string) {
   if (!canAccessMarketingUser(actor, userId)) throw new Error("Este cliente não está na sua carteira.");
