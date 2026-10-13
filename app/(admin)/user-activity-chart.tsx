@@ -46,34 +46,34 @@ import {
   type UserActivityDaySelection,
 } from "./user-activity-users-sheet";
 
-const NEW_USERS_PAID_COLOR = "oklch(0.62 0.16 230)";
-const NEW_USERS_TRIAL_COLOR = "oklch(0.8 0.11 200)";
-const NEW_USERS_REST_COLOR = "oklch(0.72 0.16 155)";
-const NEW_USERS_COLORS = [
-  NEW_USERS_PAID_COLOR,
-  NEW_USERS_TRIAL_COLOR,
-  NEW_USERS_REST_COLOR,
-];
+const PAYMENTS_COLOR = "oklch(0.62 0.16 230)";
+const TRIALS_COLOR = "oklch(0.8 0.11 200)";
+const SIGNUPS_COLOR = "oklch(0.72 0.16 155)";
+const DAY_EVENT_COLORS = [PAYMENTS_COLOR, TRIALS_COLOR, SIGNUPS_COLOR];
 
 const SERIES = [
-  { key: "newUsers", label: "Usuários novos", color: NEW_USERS_REST_COLOR },
+  {
+    key: "newUsers",
+    label: "Cadastros, trials e pagamentos",
+    color: SIGNUPS_COLOR,
+  },
   { key: "users", label: "Total de usuários", color: "oklch(0.62 0.19 255)" },
   { key: "activeUsers", label: "Clientes pagantes", color: "oklch(0.75 0.16 55)" },
-  { key: "churn", label: "Churn e retornos", color: "oklch(0.64 0.21 25)" },
+  { key: "churn", label: "Churn", color: "oklch(0.64 0.21 25)" },
 ] as const;
 
 const chartConfig = {
-  newUsersPaid: {
-    label: "Pagou",
-    color: NEW_USERS_PAID_COLOR,
+  newUsers: {
+    label: "Cadastros",
+    color: SIGNUPS_COLOR,
   },
-  newUsersTrial: {
-    label: "Só trial",
-    color: NEW_USERS_TRIAL_COLOR,
+  trials: {
+    label: "Trials",
+    color: TRIALS_COLOR,
   },
-  newUsersRest: {
-    label: "Só cadastro",
-    color: NEW_USERS_REST_COLOR,
+  payments: {
+    label: "Pagamentos",
+    color: PAYMENTS_COLOR,
   },
   users: {
     label: "Total de usuários",
@@ -89,10 +89,10 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-function NewUsersSwatch({ className }: { className: string }) {
+function DayEventsSwatch({ className }: { className: string }) {
   return (
     <span className="flex shrink-0 overflow-hidden rounded-[2px]" aria-hidden>
-      {NEW_USERS_COLORS.map((color) => (
+      {DAY_EVENT_COLORS.map((color) => (
         <span key={color} className={className} style={{ backgroundColor: color }} />
       ))}
     </span>
@@ -136,9 +136,9 @@ function writeStoredVisibility(visibility: UserActivitySeriesVisibility) {
 }
 
 const TOOLTIP_SERIES = [
-  "newUsersPaid",
-  "newUsersTrial",
-  "newUsersRest",
+  "newUsers",
+  "trials",
+  "payments",
   "users",
   "activeUsers",
   "churnDown",
@@ -181,25 +181,10 @@ function UserActivityTooltip({
   if (!active || !payload?.length) return null;
 
   const date = payload.find((item) => item.payload?.date)?.payload?.date;
-  const showsNewUsers = payload.some(
-    (item) => item.dataKey === "newUsersRest",
-  );
-  const newUsersTotal =
-    payload.find((item) => item.payload?.newUsers != null)?.payload?.newUsers ??
-    0;
   const saldo = payload.find(
     (item) => item.payload?.activeUsersChange != null,
   )?.payload?.activeUsersChange;
-  const rows = [
-    showsNewUsers
-      ? {
-          key: "newUsers",
-          value: newUsersTotal,
-          label: "Usuários novos",
-          color: chartConfig.newUsersRest.color,
-        }
-      : null,
-    ...TOOLTIP_SERIES.flatMap((key) => {
+  const rows = TOOLTIP_SERIES.flatMap((key) => {
       const value = tooltipValue(payload, key);
       if (value == null) return [];
       return [
@@ -210,8 +195,7 @@ function UserActivityTooltip({
           color: chartConfig[key].color,
         },
       ];
-    }),
-  ].filter((row) => row !== null);
+  });
 
   if (!rows.length) return null;
 
@@ -224,26 +208,12 @@ function UserActivityTooltip({
         {rows.map((row) => (
           <div key={row.key} className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2">
-              {row.key === "newUsers" ? (
-                <NewUsersSwatch className="h-2.5 w-[5px]" />
-              ) : (
-                <span
-                  className="size-2.5 shrink-0 rounded-[2px]"
-                  style={{ backgroundColor: row.color }}
-                  aria-hidden
-                />
-              )}
               <span
-                className={
-                  row.key === "newUsersPaid" ||
-                  row.key === "newUsersTrial" ||
-                  row.key === "newUsersRest"
-                    ? "pl-2 text-muted-foreground"
-                    : "text-muted-foreground"
-                }
-              >
-                {row.label}
-              </span>
+                className="size-2.5 shrink-0 rounded-[2px]"
+                style={{ backgroundColor: row.color }}
+                aria-hidden
+              />
+              <span className="text-muted-foreground">{row.label}</span>
             </span>
             <span className="font-mono font-medium tabular-nums text-foreground">
               {row.value.toLocaleString("pt-BR")}
@@ -259,7 +229,7 @@ function UserActivityTooltip({
             style={{
               color:
                 saldo > 0
-                  ? NEW_USERS_REST_COLOR
+                  ? SIGNUPS_COLOR
                   : saldo < 0
                     ? chartConfig.churnDown.color
                     : undefined,
@@ -322,24 +292,20 @@ export function UserActivityChart({
   const positiveBars = [
     ...(visible.newUsers
       ? ([
-          { key: "newUsersPaid", series: "newUsersPaid" },
-          { key: "newUsersTrial", series: "newUsersTrial" },
-          { key: "newUsersRest", series: "newUsers" },
+          { key: "payments", series: "payments" },
+          { key: "trials", series: "trials" },
+          { key: "newUsers", series: "newUsers" },
         ] as const)
       : []),
   ];
   const chartData = data.map((item) => {
     const values = {
-      newUsersPaid: item.newUsersPaid,
-      newUsersTrial: item.newUsersTrial,
-      newUsersRest: Math.max(
-        item.newUsers - item.newUsersPaid - item.newUsersTrial,
-        0,
-      ),
+      payments: item.payments,
+      trials: item.trials,
+      newUsers: item.newUsers,
     };
     return {
       ...item,
-      ...values,
       users: item.totalUsers,
       churnDown: -item.churn,
       // Only the highest non-empty segment gets rounded corners.
@@ -351,7 +317,10 @@ export function UserActivityChart({
   const showStock = visible.users || visible.activeUsers;
   const axes = userActivityAxisScale({
     dailyMax: visible.newUsers
-      ? Math.max(0, ...data.map((item) => item.newUsers))
+      ? Math.max(
+          0,
+          ...data.map((item) => item.newUsers + item.trials + item.payments),
+        )
       : 0,
     churnMax: visible.churn ? Math.max(0, ...data.map((item) => item.churn)) : 0,
     stockMax: Math.max(
@@ -412,7 +381,7 @@ export function UserActivityChart({
                 >
                   <span className="flex items-center gap-2">
                     {series.key === "newUsers" ? (
-                      <NewUsersSwatch className="size-2.5" />
+                      <DayEventsSwatch className="size-2.5" />
                     ) : (
                       <span
                         className="size-2.5 rounded-[2px]"
@@ -549,7 +518,7 @@ export function UserActivityChart({
         <p className="text-[11px] text-muted-foreground">
           {[
             visible.newUsers
-              ? "A barra divide os cadastros do dia pelo que eles fizeram depois: pagaram, só fizeram trial ou só se cadastraram."
+              ? "A barra soma o que aconteceu no dia: cadastros, trials iniciados e primeiros pagamentos de assinatura. Cada pessoa aparece no dia em que fez cada coisa."
               : null,
             visible.churn
               ? `Abaixo do zero, o churn: pagantes cujo acesso acabou naquele dia. Ele fica no dia da saída mesmo se a pessoa voltar; quem renova em até ${PAID_ACCESS_GRACE_DAYS} dias não conta como saída.`

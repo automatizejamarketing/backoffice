@@ -14,6 +14,8 @@ import {
   lt,
   or,
   sql,
+  type SQL,
+  type SQLWrapper,
 } from "drizzle-orm";
 import { db } from "./index";
 import {
@@ -1649,47 +1651,64 @@ async function fetchPaidAccessUsers(): Promise<PaidAccessUser[]> {
   });
 }
 
-// Approved subscription payment, the same "virou cliente" rule as the base.
-function userHasPaidSql() {
-  const userId = sql.raw('"users"."id"');
-  return sql`EXISTS (
-    SELECT 1
-    FROM payments successful_payment
-    WHERE successful_payment.user_id = ${userId}
-      AND successful_payment.status = 'succeeded'
-      AND ${billingPaymentPurposeSql("successful_payment.purpose")}
-  )`;
+// A customer's first approved subscription payment: the day they became paying.
+function firstPaymentSubquery() {
+  return db
+    .select({
+      userId: payment.userId,
+      // Derived column: mapWith keeps the naive-UTC timestamp decoder.
+      paidAt: sql<Date>`min(coalesce(${payment.paidAt}, ${payment.createdAt}))`
+        .mapWith(payment.createdAt)
+        .as("first_paid_at"),
+    })
+    .from(payment)
+    .where(
+      and(
+        eq(payment.status, "succeeded"),
+        billingPaymentPurposeSql(payment.purpose),
+      ),
+    )
+    .groupBy(payment.userId)
+    .as("first_payment");
 }
 
-// Got access (trial credits or an expiration) without ever paying.
-function userHasOnlyTrialSql() {
-  const userId = sql.raw('"users"."id"');
-  return sql`(
-    (
-      ${user.expirationDate} IS NOT NULL
-      OR EXISTS (
-        SELECT 1
-        FROM credit_transactions trial_credit
-        WHERE trial_credit.user_id = ${userId}
-          AND trial_credit.type = 'trial_grant'
-      )
+function brtDateSql(column: SQL | SQLWrapper) {
+  return sql<string>`to_char(${column} - interval '3 hours', 'YYYY-MM-DD')`;
+}
+
+/** Events per BRT day: the first time each user did it, inside the window. */
+async function countFirstEventsPerDay(
+  source:
+    | ReturnType<typeof firstTrialGrantSubquery>
+    | ReturnType<typeof firstPaymentSubquery>,
+  happenedAt: SQL.Aliased<Date>,
+  window: DashboardDateWindow,
+) {
+  const day = brtDateSql(happenedAt);
+  const rows = await db
+    .select({ date: day, count: sql<number>`COUNT(*)::integer` })
+    .from(source)
+    .where(
+      and(
+        sql`${happenedAt} >= ${window.gte.toISOString()}`,
+        sql`${happenedAt} < ${window.lt.toISOString()}`,
+      ),
     )
-    AND NOT ${userHasPaidSql()}
-  )`;
+    .groupBy(day);
+  return rows.map((row) => ({ date: row.date, count: Number(row.count) }));
 }
 
 export async function getUserActivityDashboard(window: DashboardDateWindow) {
   const createdDate = sql<string>`to_char(${user.createdAt} - interval '3 hours', 'YYYY-MM-DD')`;
 
-  const [newUserRows, [baseline], paidAccessUsers] = await Promise.all([
+  const firstTrial = firstTrialGrantSubquery();
+  const firstPayment = firstPaymentSubquery();
+  const [newUserRows, [baseline], paidAccessUsers, trialRows, paymentRows] =
+    await Promise.all([
     db
       .select({
         date: createdDate,
         count: sql<number>`COUNT(*)::integer`,
-        paid: sql<number>`COUNT(*) FILTER (WHERE ${userHasPaidSql()})::integer`,
-        trial: sql<number>`COUNT(*) FILTER (
-          WHERE ${userHasOnlyTrialSql()}
-        )::integer`,
       })
       .from(user)
       .where(
@@ -1704,6 +1723,8 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
       .from(user)
       .where(or(isNull(user.createdAt), lt(user.createdAt, window.gte))),
     fetchPaidAccessUsers(),
+    countFirstEventsPerDay(firstTrial, firstTrial.activatedAt, window),
+    countFirstEventsPerDay(firstPayment, firstPayment.paidAt, window),
   ]);
 
   const daily = fillDailyUserActivity(
@@ -1712,14 +1733,8 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
         date: row.date,
         count: Number(row.count),
       })),
-      newUsersPaid: newUserRows.map((row) => ({
-        date: row.date,
-        count: Number(row.paid),
-      })),
-      newUsersTrial: newUserRows.map((row) => ({
-        date: row.date,
-        count: Number(row.trial),
-      })),
+      trials: trialRows,
+      payments: paymentRows,
       activeUsers: buildActiveUserStock(paidAccessUsers, window),
       churn: buildChurnCounts(paidAccessUsers, window),
       usersBeforeWindow: Number(baseline?.count ?? 0),
@@ -1773,8 +1788,12 @@ export async function getUserActivityDayUsers(
       );
 
   switch (series) {
-    case "newUsersPaid":
-    case "newUsersTrial": {
+    case "trials":
+    case "payments": {
+      const firstEvent =
+        series === "trials" ? firstTrialGrantSubquery() : firstPaymentSubquery();
+      const happenedAt =
+        "activatedAt" in firstEvent ? firstEvent.activatedAt : firstEvent.paidAt;
       return db
         .select({
           id: user.id,
@@ -1783,16 +1802,9 @@ export async function getUserActivityDayUsers(
           phone: user.phone,
           expirationDate: user.expirationDate,
         })
-        .from(user)
-        .where(
-          and(
-            gte(user.createdAt, dayStart),
-            lt(user.createdAt, nextDayStart),
-            series === "newUsersPaid"
-              ? userHasPaidSql()
-              : userHasOnlyTrialSql(),
-          ),
-        )
+        .from(firstEvent)
+        .innerJoin(user, eq(user.id, firstEvent.userId))
+        .where(sql`${brtDateSql(happenedAt)} = ${date}`)
         .orderBy(asc(user.email));
     }
     case "activeUsers": {
