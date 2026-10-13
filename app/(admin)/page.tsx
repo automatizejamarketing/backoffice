@@ -474,14 +474,14 @@ export default async function DashboardPage({
                   </div>
                   <div className="rounded-lg border bg-background px-4 py-3">
                     <dt className="text-xs text-muted-foreground">
-                      Novos no período
+                      Cadastros no período
                     </dt>
                     <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
                       {formatNumber(userActivity.summary.newUsers)}
                     </dd>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {formatNumber(userActivity.summary.newUsersPaid)} pagaram ·{" "}
-                      {formatNumber(userActivity.summary.newUsersTrial)} só trial
+                      {formatNumber(userActivity.summary.trials)} trials ·{" "}
+                      {formatNumber(userActivity.summary.payments)} pagamentos
                     </p>
                   </div>
                   <div className="rounded-lg border bg-background px-4 py-3">

@@ -43,9 +43,9 @@ type UserActivityDayUser = {
 };
 
 const SERIES_TITLES: Record<UserActivityDaySeriesKey, string> = {
-  newUsers: "Usuários novos",
-  newUsersPaid: "Novos que pagaram",
-  newUsersTrial: "Novos só com trial",
+  newUsers: "Cadastros",
+  trials: "Trials iniciados",
+  payments: "Primeiros pagamentos",
   users: "Total de usuários",
   activeUsers: "Clientes pagantes",
   churn: "Churn · acesso expirou",

@@ -26,8 +26,8 @@ describe("user activity dashboard", () => {
       fillDailyUserActivity(
         {
           newUsers: [{ date: "2026-08-02", count: 4 }],
-          newUsersPaid: [{ date: "2026-08-02", count: 1 }],
-          newUsersTrial: [{ date: "2026-08-02", count: 2 }],
+          payments: [{ date: "2026-08-02", count: 1 }],
+          trials: [{ date: "2026-08-02", count: 2 }],
           activeUsers: [
             { date: "2026-08-01", count: 2 },
             { date: "2026-08-02", count: 5 },
@@ -41,8 +41,8 @@ describe("user activity dashboard", () => {
       {
         date: "2026-08-01",
         newUsers: 0,
-        newUsersPaid: 0,
-        newUsersTrial: 0,
+        payments: 0,
+        trials: 0,
         totalUsers: 10,
         activeUsers: 2,
         churn: 0,
@@ -51,8 +51,8 @@ describe("user activity dashboard", () => {
       {
         date: "2026-08-02",
         newUsers: 4,
-        newUsersPaid: 1,
-        newUsersTrial: 2,
+        payments: 1,
+        trials: 2,
         totalUsers: 14,
         activeUsers: 5,
         churn: 0,
@@ -61,8 +61,8 @@ describe("user activity dashboard", () => {
       {
         date: "2026-08-03",
         newUsers: 0,
-        newUsersPaid: 0,
-        newUsersTrial: 0,
+        payments: 0,
+        trials: 0,
         totalUsers: 14,
         activeUsers: 0,
         churn: 1,
@@ -71,20 +71,21 @@ describe("user activity dashboard", () => {
     ]);
   });
 
-  test("never lets paid plus trial exceed the day's signups", () => {
+  test("counts trials and payments on their own day, apart from signups", () => {
     const [day] = fillDailyUserActivity(
       {
-        newUsers: [{ date: "2026-08-02", count: 3 }],
-        newUsersPaid: [{ date: "2026-08-02", count: 2 }],
-        newUsersTrial: [{ date: "2026-08-02", count: 9 }],
+        newUsers: [],
+        trials: [{ date: "2026-08-02", count: 3 }],
+        payments: [{ date: "2026-08-02", count: 2 }],
         activeUsers: [],
         usersBeforeWindow: 0,
       },
       { fromDate: "2026-08-02", throughDate: "2026-08-02" },
     );
 
-    expect(day?.newUsersPaid).toBe(2);
-    expect(day?.newUsersTrial).toBe(1);
+    expect(day?.newUsers).toBe(0);
+    expect(day?.trials).toBe(3);
+    expect(day?.payments).toBe(2);
   });
 
   test("summarizes new users and the ending stock totals", () => {
@@ -93,8 +94,8 @@ describe("user activity dashboard", () => {
         {
           date: "2026-08-01",
           newUsers: 0,
-          newUsersPaid: 0,
-          newUsersTrial: 0,
+          payments: 0,
+          trials: 0,
           totalUsers: 10,
           activeUsers: 2,
           churn: 1,
@@ -103,8 +104,8 @@ describe("user activity dashboard", () => {
         {
           date: "2026-08-02",
           newUsers: 4,
-          newUsersPaid: 1,
-          newUsersTrial: 2,
+          payments: 1,
+          trials: 2,
           totalUsers: 14,
           activeUsers: 5,
           churn: 2,
@@ -113,8 +114,8 @@ describe("user activity dashboard", () => {
       ]),
     ).toEqual({
       newUsers: 4,
-      newUsersPaid: 1,
-      newUsersTrial: 2,
+      payments: 1,
+      trials: 2,
       totalUsers: 14,
       activeUsers: 5,
       churn: 3,
@@ -125,8 +126,8 @@ describe("user activity dashboard", () => {
   test("summarizes an empty window from the baseline total", () => {
     expect(summarizeUserActivity([])).toEqual({
       newUsers: 0,
-      newUsersPaid: 0,
-      newUsersTrial: 0,
+      payments: 0,
+      trials: 0,
       totalUsers: 0,
       activeUsers: 0,
       churn: 0,
@@ -139,9 +140,10 @@ describe("user activity dashboard", () => {
     expect(isUserActivityCalendarDate("2026-08-32")).toBe(false);
     expect(isUserActivitySeriesKey("activeUsers")).toBe(true);
     expect(isUserActivitySeriesKey("churn")).toBe(true);
-    expect(isUserActivitySeriesKey("newUsersPaid")).toBe(false);
-    expect(isUserActivityDaySeriesKey("newUsersPaid")).toBe(true);
-    expect(isUserActivityDaySeriesKey("newUsersTrial")).toBe(true);
+    expect(isUserActivitySeriesKey("payments")).toBe(false);
+    expect(isUserActivityDaySeriesKey("payments")).toBe(true);
+    expect(isUserActivityDaySeriesKey("trials")).toBe(true);
+    expect(isUserActivityDaySeriesKey("newUsersPaid")).toBe(false);
     expect(isUserActivityDaySeriesKey("newUsersActivated")).toBe(false);
     expect(isUserActivitySeriesKey("pagantes")).toBe(false);
   });

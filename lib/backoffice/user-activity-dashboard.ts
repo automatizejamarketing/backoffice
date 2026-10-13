@@ -17,8 +17,8 @@ export type UserActivitySeriesKey = (typeof USER_ACTIVITY_SERIES_KEYS)[number];
 
 export const USER_ACTIVITY_DAY_SERIES_KEYS = [
   ...USER_ACTIVITY_SERIES_KEYS,
-  "newUsersPaid",
-  "newUsersTrial",
+  "trials",
+  "payments",
 ] as const;
 
 export type UserActivityDaySeriesKey =
@@ -27,10 +27,10 @@ export type UserActivityDaySeriesKey =
 export type DailyUserActivity = {
   date: string;
   newUsers: number;
-  /** Signups of the day that already have an approved subscription payment. */
-  newUsersPaid: number;
-  /** Signups of the day that got trial access but never paid. */
-  newUsersTrial: number;
+  /** Trials that started on the day (first trial_grant). */
+  trials: number;
+  /** First approved subscription payments made on the day. */
+  payments: number;
   totalUsers: number;
   activeUsers: number;
   /** Paying customers on the previous day whose access ended on this day. */
@@ -46,8 +46,8 @@ export type UserActivityCounts = {
 
 export type UserActivitySummary = {
   newUsers: number;
-  newUsersPaid: number;
-  newUsersTrial: number;
+  trials: number;
+  payments: number;
   totalUsers: number;
   activeUsers: number;
   churn: number;
@@ -90,8 +90,8 @@ export function isUserActivityCalendarDate(
 export function fillDailyUserActivity(
   input: {
     newUsers: UserActivityCounts[];
-    newUsersPaid?: UserActivityCounts[];
-    newUsersTrial?: UserActivityCounts[];
+    trials?: UserActivityCounts[];
+    payments?: UserActivityCounts[];
     activeUsers: UserActivityCounts[];
     churn?: UserActivityCounts[];
     usersBeforeWindow: number;
@@ -103,11 +103,11 @@ export function fillDailyUserActivity(
   const newUsersByDate = new Map(
     input.newUsers.map((row) => [row.date, row.count]),
   );
-  const newUsersPaidByDate = new Map(
-    (input.newUsersPaid ?? []).map((row) => [row.date, row.count]),
+  const trialsByDate = new Map(
+    (input.trials ?? []).map((row) => [row.date, row.count]),
   );
-  const newUsersTrialByDate = new Map(
-    (input.newUsersTrial ?? []).map((row) => [row.date, row.count]),
+  const paymentsByDate = new Map(
+    (input.payments ?? []).map((row) => [row.date, row.count]),
   );
   const activeUsersByDate = new Map(
     input.activeUsers.map((row) => [row.date, row.count]),
@@ -125,18 +125,13 @@ export function fillDailyUserActivity(
     date = shiftCalendarDate(date, 1)
   ) {
     const newUsers = newUsersByDate.get(date) ?? 0;
-    const newUsersPaid = Math.min(newUsersPaidByDate.get(date) ?? 0, newUsers);
-    const newUsersTrial = Math.min(
-      newUsersTrialByDate.get(date) ?? 0,
-      newUsers - newUsersPaid,
-    );
     const activeUsers = activeUsersByDate.get(date) ?? 0;
     totalUsers += newUsers;
     result.push({
       date,
       newUsers,
-      newUsersPaid,
-      newUsersTrial,
+      trials: trialsByDate.get(date) ?? 0,
+      payments: paymentsByDate.get(date) ?? 0,
       totalUsers,
       activeUsers,
       churn: churnByDate.get(date) ?? 0,
@@ -155,8 +150,8 @@ export function summarizeUserActivity(
 
   return {
     newUsers: daily.reduce((sum, row) => sum + row.newUsers, 0),
-    newUsersPaid: daily.reduce((sum, row) => sum + row.newUsersPaid, 0),
-    newUsersTrial: daily.reduce((sum, row) => sum + row.newUsersTrial, 0),
+    trials: daily.reduce((sum, row) => sum + row.trials, 0),
+    payments: daily.reduce((sum, row) => sum + row.payments, 0),
     totalUsers: last?.totalUsers ?? 0,
     activeUsers: last?.activeUsers ?? 0,
     churn: daily.reduce((sum, row) => sum + row.churn, 0),
