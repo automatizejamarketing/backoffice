@@ -192,7 +192,7 @@ async function loadLastTouch(userIds: string[]) {
         where source = 'backoffice_admin' and user_id in (${ids})
       union all
       select user_id, created_at as at from consultant_client_notes
-        where user_id in (${ids})
+        where user_id in (${ids}) and kind <> 'sinal'
     ) t group by user_id
   `);
   return new Map(result.map((row) => [String(row.user_id), iso(row.at) ?? ""]));

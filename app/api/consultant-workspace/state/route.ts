@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
+import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { applyWorkspaceOp, readWorkspaceState, WorkspaceOpError } from "@/lib/consultant-workspace/state";
 import type { WorkspaceOp } from "@/lib/consultant-workspace/types";
 
 export const dynamic = "force-dynamic";
 
+/** O consultor comum só recebe o estado dos clientes atribuídos a ele; os demais cargos veem a carteira toda. */
+function readFor(actor: BackofficeActor) {
+  return consultantSeesOnlyAssignedClients(actor.role)
+    ? readWorkspaceState({ userIds: actor.assignedUserIds ?? [] })
+    : readWorkspaceState();
+}
+
 /** Estado do consultor (metas, linha do tempo, tags, alertas tratados) para as telas de Tráfego. */
 export async function GET() {
   const authz = await requireBackofficePermissionResponse("marketing:read");
   if (!authz.ok) return authz.response;
-  return NextResponse.json(await readWorkspaceState());
+  return NextResponse.json(await readFor(authz.actor));
 }
 
 export async function POST(request: Request) {
@@ -33,5 +41,5 @@ export async function POST(request: Request) {
     console.error("[consultant-workspace] op failed", op.op, error);
     return NextResponse.json({ error: "Falha ao salvar" }, { status: 500 });
   }
-  return NextResponse.json(await readWorkspaceState());
+  return NextResponse.json(await readFor(authz.actor));
 }

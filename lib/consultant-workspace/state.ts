@@ -48,6 +48,33 @@ const consultantAlertScope = or(
   like(performanceInsight.ruleId, `${ACCOUNT_ALERTS_RULE_PREFIX}%`),
 );
 
+/**
+ * Sinais que a Fila calcula dos dados (`sinal:<tipo>:<userId>`: Meta
+ * desconectada, parou de entregar, fora da meta…) não existem em
+ * `performance_insights`. Concluir ou adiar um deles grava uma linha
+ * `kind = "sinal"` (fora da linha do tempo), lida de volta em `alertActions`.
+ */
+const SIGNAL_NOTE_KIND = "sinal";
+const SIGNAL_KEY = /^sinal:[a-z_]+:([0-9a-f-]{36})$/i;
+
+function splitAlertIds(ids: string[]) {
+  const insightIds: string[] = [];
+  const signals: Array<{ key: string; userId: string }> = [];
+  for (const id of ids) {
+    const match = SIGNAL_KEY.exec(id);
+    if (match) signals.push({ key: id, userId: match[1] });
+    else insightIds.push(id);
+  }
+  return { insightIds, signals };
+}
+
+type SignalNoteMetadata = {
+  signalKey?: string;
+  status?: WorkspaceAlertAction["status"] | "cleared";
+  outcome?: AlertOutcome | null;
+  snoozeUntil?: string | null;
+};
+
 export async function readWorkspaceState(options: { userIds?: string[] } = {}): Promise<WorkspaceState> {
   const userFilter = <T extends { userId: unknown }>(column: T["userId"]) =>
     options.userIds ? inArray(column as never, options.userIds) : undefined;
@@ -93,6 +120,7 @@ export async function readWorkspaceState(options: { userIds?: string[] } = {}): 
   ]);
 
   const state = emptyWorkspaceState();
+  const seenSignals = new Set<string>();
   for (const goal of goals) {
     state.goals[goal.userId] = {
       kpi: goal.kpi as GoalKpi,
@@ -103,6 +131,23 @@ export async function readWorkspaceState(options: { userIds?: string[] } = {}): 
     };
   }
   for (const note of notes) {
+    if (note.kind === SIGNAL_NOTE_KIND) {
+      // Mais recente primeiro: a primeira linha de cada sinal é o estado atual ("cleared" = voltou à fila).
+      const meta = (note.metadata ?? {}) as SignalNoteMetadata;
+      if (!meta.signalKey || seenSignals.has(meta.signalKey)) continue;
+      seenSignals.add(meta.signalKey);
+      if (meta.status === "done" || meta.status === "dismissed" || meta.status === "snoozed") {
+        state.alertActions[meta.signalKey] = {
+          status: meta.status,
+          outcome: meta.outcome ?? null,
+          note: null,
+          snoozeUntil: meta.snoozeUntil ?? null,
+          by: note.authorEmail,
+          at: toIso(note.createdAt)!,
+        };
+      }
+      continue;
+    }
     if (note.kind === "mensagem") {
       state.sentMessages.push({
         id: note.id,
@@ -260,58 +305,96 @@ export async function applyWorkspaceOp(
       return;
     }
     case "alertAction": {
-      if (!op.userId) throw new WorkspaceOpError("Cliente obrigatório.");
-      assertWrite(actor, op.userId);
+      const userId = op.userId;
+      if (!userId) throw new WorkspaceOpError("Cliente obrigatório.");
+      assertWrite(actor, userId);
       if (op.insightIds.length === 0) return;
-      const scope = and(
-        eq(performanceInsight.userId, op.userId),
-        inArray(performanceInsight.id, op.insightIds),
-        inArray(performanceInsight.status, ["open", "acknowledged"]),
-        consultantAlertScope,
-      );
-      if (op.status === "snoozed") {
-        if (!op.snoozeUntil) throw new WorkspaceOpError("Informe até quando adiar.");
-        await db
-          .update(performanceInsight)
-          .set({
-            snoozedUntil: new Date(op.snoozeUntil),
-            reviewedByEmail: actor.email,
-            reviewNote: op.note?.trim() || null,
-            updatedAt: now,
-          })
-          .where(scope);
-      } else {
-        // Mesmo UPDATE atômico da tela de Alertas: nunca sobrescreve o que outro consultor já finalizou.
-        await db
-          .update(performanceInsight)
-          .set({
-            status: op.status === "dismissed" ? "dismissed" : "done",
-            reviewOutcome: op.outcome ?? null,
-            reviewedByEmail: actor.email,
-            reviewNote: op.note?.trim() || null,
-            reviewedAt: now,
-            snoozedUntil: null,
-            updatedAt: now,
-          })
-          .where(scope);
+      if (op.status === "snoozed" && !op.snoozeUntil) throw new WorkspaceOpError("Informe até quando adiar.");
+      const { insightIds, signals } = splitAlertIds(op.insightIds);
+      if (signals.some((signal) => signal.userId !== userId)) throw new WorkspaceOpError("Sinal de outro cliente.");
+      if (insightIds.length > 0) {
+        const scope = and(
+          eq(performanceInsight.userId, userId),
+          inArray(performanceInsight.id, insightIds),
+          inArray(performanceInsight.status, ["open", "acknowledged"]),
+          consultantAlertScope,
+        );
+        if (op.status === "snoozed") {
+          await db
+            .update(performanceInsight)
+            .set({
+              snoozedUntil: new Date(op.snoozeUntil!),
+              reviewedByEmail: actor.email,
+              reviewNote: op.note?.trim() || null,
+              updatedAt: now,
+            })
+            .where(scope);
+        } else {
+          // Mesmo UPDATE atômico da tela de Alertas: nunca sobrescreve o que outro consultor já finalizou.
+          await db
+            .update(performanceInsight)
+            .set({
+              status: op.status === "dismissed" ? "dismissed" : "done",
+              reviewOutcome: op.outcome ?? null,
+              reviewedByEmail: actor.email,
+              reviewNote: op.note?.trim() || null,
+              reviewedAt: now,
+              snoozedUntil: null,
+              updatedAt: now,
+            })
+            .where(scope);
+        }
+      }
+      if (signals.length > 0) {
+        await db.insert(consultantClientNote).values(
+          signals.map((signal) => ({
+            userId,
+            kind: SIGNAL_NOTE_KIND,
+            body: op.status === "snoozed" ? "Sinal adiado" : op.status === "dismissed" ? "Sinal descartado" : "Sinal concluído",
+            metadata: {
+              signalKey: signal.key,
+              status: op.status,
+              outcome: op.status === "snoozed" ? null : (op.outcome ?? null),
+              snoozeUntil: op.status === "snoozed" ? op.snoozeUntil : null,
+            } satisfies SignalNoteMetadata,
+            authorEmail: actor.email,
+            source,
+          })),
+        );
       }
       if (op.note?.trim() && op.status !== "snoozed") {
-        await db.insert(consultantClientNote).values({ userId: op.userId, kind: "acao", body: op.note.trim().slice(0, 4000), authorEmail: actor.email, source });
+        await db.insert(consultantClientNote).values({ userId, kind: "acao", body: op.note.trim().slice(0, 4000), authorEmail: actor.email, source });
       }
       return;
     }
     case "clearAlertAction": {
       // Desfaz só o adiamento ("Trazer agora"); concluído não volta para a fila.
       if (op.insightIds.length === 0) return;
-      const rows = await db
-        .select({ userId: performanceInsight.userId })
-        .from(performanceInsight)
-        .where(inArray(performanceInsight.id, op.insightIds));
-      for (const userId of new Set(rows.map((row) => row.userId))) assertWrite(actor, userId);
-      await db
-        .update(performanceInsight)
-        .set({ snoozedUntil: null, updatedAt: now })
-        .where(and(inArray(performanceInsight.id, op.insightIds), inArray(performanceInsight.status, ["open", "acknowledged"])));
+      const { insightIds, signals } = splitAlertIds(op.insightIds);
+      for (const userId of new Set(signals.map((signal) => signal.userId))) assertWrite(actor, userId);
+      if (insightIds.length > 0) {
+        const rows = await db
+          .select({ userId: performanceInsight.userId })
+          .from(performanceInsight)
+          .where(inArray(performanceInsight.id, insightIds));
+        for (const userId of new Set(rows.map((row) => row.userId))) assertWrite(actor, userId);
+        await db
+          .update(performanceInsight)
+          .set({ snoozedUntil: null, updatedAt: now })
+          .where(and(inArray(performanceInsight.id, insightIds), inArray(performanceInsight.status, ["open", "acknowledged"])));
+      }
+      if (signals.length > 0) {
+        await db.insert(consultantClientNote).values(
+          signals.map((signal) => ({
+            userId: signal.userId,
+            kind: SIGNAL_NOTE_KIND,
+            body: "Sinal de volta à fila",
+            metadata: { signalKey: signal.key, status: "cleared" } satisfies SignalNoteMetadata,
+            authorEmail: actor.email,
+            source,
+          })),
+        );
+      }
       return;
     }
     case "assign": {
