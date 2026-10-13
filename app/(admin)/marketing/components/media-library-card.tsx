@@ -37,6 +37,9 @@ export function MediaLibraryCard({ userId }: { userId: string }) {
   const summary = library.library;
   const canWrite = library.viewer?.canWrite ?? false;
   const canAdd = canWrite && summary !== null && canBackofficeUpload(summary.state);
+  // "Encerrada" só é afirmado com o estado conhecido: enquanto carrega (ou se a
+  // primeira carga falhar) o botão fica desativado sem dizer por que.
+  const closed = summary?.state === "closed";
   const visibleItems = expanded ? library.items : library.items.slice(0, COMPACT_COUNT);
 
   const setBusy = (id: string, busy: boolean) =>
@@ -100,13 +103,13 @@ export function MediaLibraryCard({ userId }: { userId: string }) {
                 size="sm"
                 onClick={() => inputRef.current?.click()}
                 disabled={!canAdd}
-                title={canAdd ? undefined : labels.uploadDisabledClosed}
+                title={closed ? labels.uploadDisabledClosed : undefined}
               >
                 <UploadCloud className="size-4" />
                 {labels.upload}
               </Button>
               <span className="text-[11px] text-muted-foreground">
-                {canAdd ? labels.uploadHint : labels.uploadDisabledClosed}
+                {closed ? labels.uploadDisabledClosed : labels.uploadHint}
               </span>
               <input
                 ref={inputRef}
@@ -142,8 +145,8 @@ export function MediaLibraryCard({ userId }: { userId: string }) {
         ) : null}
         {library.status === "ready" && summary?.state === "closed" ? (
           <p className="text-sm text-muted-foreground">
-            O acesso do cliente expirou há mais de 1 mês: as mídias foram (ou serão, na próxima limpeza diária)
-            apagadas e nada pode ser adicionado.
+            O acesso do cliente está encerrado (expirou há mais de 1 mês ou nunca foi ativado): as mídias foram (ou
+            serão, na próxima limpeza diária) apagadas e nada pode ser adicionado.
           </p>
         ) : null}
         {library.status === "ready" && summary?.state !== "closed" && library.items.length === 0 ? (

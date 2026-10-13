@@ -583,7 +583,7 @@ export function MarketingWorkspace({
         </Card>
       )}
 
-      {selectedUser ? <MediaLibraryCard userId={selectedUser.id} /> : null}
+      {selectedUser ? <MediaLibraryCard key={selectedUser.id} userId={selectedUser.id} /> : null}
 
       {selectedUser ? (
         <PerformanceReportSection
