@@ -117,6 +117,8 @@ export type MediaLibraryDeps = {
   }): Promise<MediaLibraryRecord[]>;
   countRecords(query: { userId: string; type: MediaLibraryTypeFilter }): Promise<number>;
   findRecord(query: { userId: string; id: string }): Promise<MediaLibraryRecord | null>;
+  /** Só linhas vivas do próprio dono. Usado pela confirmação para nunca descartar o objeto de uma linha viva. */
+  findRecordByUrl(query: { userId: string; blobUrl: string }): Promise<MediaLibraryRecord | null>;
   /** Idempotente por `blobUrl`: confirmação repetida devolve o registro existente. */
   insertRecord(record: NewMediaLibraryRecord, actor: MediaLibraryActor): Promise<MediaLibraryRecord>;
   markDeleted(input: {
@@ -263,8 +265,20 @@ export async function confirmMediaLibraryUpload(
   // Nunca toque num objeto fora do prefixo do dono: ele pode ser de outro usuário.
   if (!isMediaLibraryKeyOwnedBy(input.key, input.userId)) return fail(400, "invalid_upload");
   const url = deps.storage.publicUrlForKey(input.key);
+  const state = statusOf(deps, owner).state;
 
-  const refusal = uploadRefusal(statusOf(deps, owner).state, input.actor);
+  // Confirmação repetida (ex.: cliente em carência reenviou o pedido): a linha viva já é dona deste
+  // objeto. Devolve a mesma mídia e NUNCA descarta o objeto; descartar apagaria a mídia de uma linha viva.
+  const existing = await deps.findRecordByUrl({ userId: input.userId, blobUrl: url });
+  if (existing) {
+    if (!canViewLibrary(state)) return fail(403, "library_closed");
+    return {
+      ok: true,
+      value: { item: toMediaLibraryItem(existing, { includeBackofficeEmail: input.actor.kind === "backoffice" }) },
+    };
+  }
+
+  const refusal = uploadRefusal(state, input.actor);
   if (refusal) {
     await discardObject(deps, url);
     return refusal;
