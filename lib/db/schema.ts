@@ -1,5 +1,6 @@
 import { sql, type InferSelectModel } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -370,20 +371,37 @@ export const backofficeMagicLink = pgTable(
 
 export type BackofficeMagicLink = InferSelectModel<typeof backofficeMagicLink>;
 
-export const blobUpload = pgTable("blob_uploads", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => user.id),
-  blobUrl: text("blob_url").notNull(),
-  pathname: text("pathname"),
-  filename: text("filename"),
-  contentType: text("content_type"),
-  source: varchar("source", { length: 50 }).notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at"),
-});
+export const blobUpload = pgTable(
+  "blob_uploads",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    blobUrl: text("blob_url").notNull(),
+    pathname: text("pathname"),
+    filename: text("filename"),
+    contentType: text("content_type"),
+    source: varchar("source", { length: 50 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at"),
+    /** Biblioteca de mídias: tamanho lido do HEAD do R2 na confirmação. */
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    /** Admin do backoffice que subiu a mídia; nulo = o próprio cliente. */
+    uploadedByBackofficeEmail: varchar("uploaded_by_backoffice_email", { length: 255 }),
+    /** `user` | `backoffice` | `retention` (ver lib/media-library/policy.ts). */
+    deletedReason: varchar("deleted_reason", { length: 20 }),
+  },
+  (table) => ({
+    blobUrlUnique: uniqueIndex("blob_uploads_blob_url_unique").on(
+      table.blobUrl,
+    ),
+    mediaLibraryIdx: index("blob_uploads_media_library_idx")
+      .on(table.userId, table.createdAt.desc(), table.id.desc())
+      .where(sql`${table.source} = 'campaign_media' AND ${table.deletedAt} IS NULL`),
+  }),
+);
 
 export type BlobUpload = InferSelectModel<typeof blobUpload>;
 
