@@ -49,7 +49,6 @@ const SERIES_TITLES: Record<UserActivityDaySeriesKey, string> = {
   users: "Total de usuários",
   activeUsers: "Clientes pagantes",
   churn: "Churn · acesso expirou",
-  returned: "Voltaram a pagar",
 };
 
 export function UserActivityUsersSheet({

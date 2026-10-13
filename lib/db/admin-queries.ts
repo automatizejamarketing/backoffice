@@ -104,11 +104,9 @@ import {
 import {
   buildActiveUserStock,
   buildChurnCounts,
-  buildReturnCounts,
   fillDailyUserActivity,
   isActivePayingOnDate,
   isChurnedOnDate,
-  isReturnedOnDate,
   summarizeUserActivity,
   type PaidAccessCustomer,
   type UserActivityDaySeriesKey,
@@ -1724,8 +1722,11 @@ export async function getUserActivityDashboard(window: DashboardDateWindow) {
       })),
       activeUsers: buildActiveUserStock(paidAccessUsers, window),
       churn: buildChurnCounts(paidAccessUsers, window),
-      returned: buildReturnCounts(paidAccessUsers, window),
       usersBeforeWindow: Number(baseline?.count ?? 0),
+      activeUsersBeforeWindow: buildActiveUserStock(paidAccessUsers, {
+        fromDate: shiftCalendarDate(window.fromDate, -1),
+        throughDate: shiftCalendarDate(window.fromDate, -1),
+      })[0]?.count,
     },
     window,
   );
@@ -1802,11 +1803,6 @@ export async function getUserActivityDayUsers(
     case "churn": {
       return listPaidAccessUsers((customer) =>
         isChurnedOnDate(customer, date, now),
-      );
-    }
-    case "returned": {
-      return listPaidAccessUsers((customer) =>
-        isReturnedOnDate(customer, date, now),
       );
     }
     case "newUsers":

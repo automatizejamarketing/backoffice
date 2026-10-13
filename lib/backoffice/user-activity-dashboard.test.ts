@@ -2,11 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   buildActiveUserStock,
   buildChurnCounts,
-  buildReturnCounts,
   fillDailyUserActivity,
   isActivePayingOnDate,
   isChurnedOnDate,
-  isReturnedOnDate,
   isUserActivityCalendarDate,
   isUserActivityDaySeriesKey,
   isUserActivitySeriesKey,
@@ -48,7 +46,7 @@ describe("user activity dashboard", () => {
         totalUsers: 10,
         activeUsers: 2,
         churn: 0,
-        returned: 0,
+        activeUsersChange: 0,
       },
       {
         date: "2026-08-02",
@@ -58,7 +56,7 @@ describe("user activity dashboard", () => {
         totalUsers: 14,
         activeUsers: 5,
         churn: 0,
-        returned: 0,
+        activeUsersChange: 3,
       },
       {
         date: "2026-08-03",
@@ -68,7 +66,7 @@ describe("user activity dashboard", () => {
         totalUsers: 14,
         activeUsers: 0,
         churn: 1,
-        returned: 0,
+        activeUsersChange: -5,
       },
     ]);
   });
@@ -100,7 +98,7 @@ describe("user activity dashboard", () => {
           totalUsers: 10,
           activeUsers: 2,
           churn: 1,
-          returned: 0,
+          activeUsersChange: -1,
         },
         {
           date: "2026-08-02",
@@ -110,7 +108,7 @@ describe("user activity dashboard", () => {
           totalUsers: 14,
           activeUsers: 5,
           churn: 2,
-          returned: 0,
+          activeUsersChange: 3,
         },
       ]),
     ).toEqual({
@@ -120,7 +118,7 @@ describe("user activity dashboard", () => {
       totalUsers: 14,
       activeUsers: 5,
       churn: 3,
-      returned: 0,
+      activeUsersChange: 2,
     });
   });
 
@@ -132,7 +130,7 @@ describe("user activity dashboard", () => {
       totalUsers: 0,
       activeUsers: 0,
       churn: 0,
-      returned: 0,
+      activeUsersChange: 0,
     });
   });
 
@@ -247,53 +245,49 @@ describe("user activity dashboard", () => {
   });
 });
 
-describe("user activity returns", () => {
-  const now = new Date("2026-08-19T18:00:00.000Z");
-  const leftAndCameBack = {
-    periods: [
+describe("user activity saldo", () => {
+  test("the first day's saldo is measured against the day before the window", () => {
+    const days = fillDailyUserActivity(
       {
-        startedAt: new Date("2026-07-01T12:00:00.000Z"),
-        endedAt: new Date("2026-08-10T12:00:00.000Z"),
+        newUsers: [],
+        activeUsers: [
+          { date: "2026-08-01", count: 10 },
+          { date: "2026-08-02", count: 8 },
+        ],
+        usersBeforeWindow: 0,
+        activeUsersBeforeWindow: 7,
       },
-      {
-        startedAt: new Date("2026-08-14T15:00:00.000Z"),
-        endedAt: new Date("2026-09-14T15:00:00.000Z"),
-      },
-    ],
-  };
+      { fromDate: "2026-08-01", throughDate: "2026-08-02" },
+    );
+
+    expect(days.map((day) => day.activeUsersChange)).toEqual([3, -2]);
+    expect(summarizeUserActivity(days).activeUsersChange).toBe(1);
+  });
 
   test("churn stays on the day the customer left after they come back", () => {
-    expect(isChurnedOnDate(leftAndCameBack, "2026-08-10", now)).toBe(true);
-    expect(isReturnedOnDate(leftAndCameBack, "2026-08-14", now)).toBe(true);
-  });
-
-  test("a first payment is not a return", () => {
-    expect(
-      isReturnedOnDate(
-        paying(
-          new Date("2026-08-14T15:00:00.000Z"),
-          new Date("2026-09-14T15:00:00.000Z"),
-        ),
-        "2026-08-14",
-        now,
-      ),
-    ).toBe(false);
-  });
-
-  test("the pagantes line moves by returns minus churn", () => {
+    const now = new Date("2026-08-19T18:00:00.000Z");
+    const leftAndCameBack = {
+      periods: [
+        {
+          startedAt: new Date("2026-07-01T12:00:00.000Z"),
+          endedAt: new Date("2026-08-10T12:00:00.000Z"),
+        },
+        {
+          startedAt: new Date("2026-08-14T15:00:00.000Z"),
+          endedAt: new Date("2026-09-14T15:00:00.000Z"),
+        },
+      ],
+    };
     const window = { fromDate: "2026-08-09", throughDate: "2026-08-15" };
-    const stock = buildActiveUserStock([leftAndCameBack], window, now);
-    const churn = buildChurnCounts([leftAndCameBack], window, now);
-    const returned = buildReturnCounts([leftAndCameBack], window, now);
 
-    expect(stock.map((day) => day.count)).toEqual([1, 0, 0, 0, 0, 1, 1]);
-    expect(churn.map((day) => day.count)).toEqual([0, 1, 0, 0, 0, 0, 0]);
-    expect(returned.map((day) => day.count)).toEqual([0, 0, 0, 0, 0, 1, 0]);
-    for (let index = 1; index < stock.length; index += 1) {
-      expect(stock[index].count - stock[index - 1].count).toBe(
-        returned[index].count - churn[index].count,
-      );
-    }
+    expect(
+      buildChurnCounts([leftAndCameBack], window, now).map((day) => day.count),
+    ).toEqual([0, 1, 0, 0, 0, 0, 0]);
+    expect(
+      buildActiveUserStock([leftAndCameBack], window, now).map(
+        (day) => day.count,
+      ),
+    ).toEqual([1, 0, 0, 0, 0, 1, 1]);
   });
 });
 
