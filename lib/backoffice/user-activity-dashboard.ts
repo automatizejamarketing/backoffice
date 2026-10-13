@@ -1,3 +1,4 @@
+import type { PaidAccessPeriod } from "./paid-access-periods";
 import {
   brtStartOfCalendarDate,
   formatBrtCalendarDate,
@@ -9,13 +10,16 @@ export const USER_ACTIVITY_SERIES_KEYS = [
   "newUsers",
   "users",
   "activeUsers",
+  "churn",
 ] as const;
 
 export type UserActivitySeriesKey = (typeof USER_ACTIVITY_SERIES_KEYS)[number];
 
 export const USER_ACTIVITY_DAY_SERIES_KEYS = [
   ...USER_ACTIVITY_SERIES_KEYS,
-  "newUsersActivated",
+  "newUsersPaid",
+  "newUsersTrial",
+  "returned",
 ] as const;
 
 export type UserActivityDaySeriesKey =
@@ -24,9 +28,16 @@ export type UserActivityDaySeriesKey =
 export type DailyUserActivity = {
   date: string;
   newUsers: number;
-  newUsersActivated: number;
+  /** Signups of the day that already have an approved subscription payment. */
+  newUsersPaid: number;
+  /** Signups of the day that got trial access but never paid. */
+  newUsersTrial: number;
   totalUsers: number;
   activeUsers: number;
+  /** Paying customers on the previous day whose access ended on this day. */
+  churn: number;
+  /** Customers who became paying again after an earlier paid period ended. */
+  returned: number;
 };
 
 export type UserActivityCounts = {
@@ -36,14 +47,17 @@ export type UserActivityCounts = {
 
 export type UserActivitySummary = {
   newUsers: number;
-  newUsersActivated: number;
+  newUsersPaid: number;
+  newUsersTrial: number;
   totalUsers: number;
   activeUsers: number;
+  churn: number;
+  returned: number;
 };
 
-export type PayingAccessRow = {
-  firstPaidAt: Date;
-  expirationDate: Date;
+/** A customer's paid access periods, oldest first. */
+export type PaidAccessCustomer = {
+  periods: PaidAccessPeriod[];
 };
 
 export function isUserActivitySeriesKey(
@@ -76,8 +90,11 @@ export function isUserActivityCalendarDate(
 export function fillDailyUserActivity(
   input: {
     newUsers: UserActivityCounts[];
-    newUsersActivated?: UserActivityCounts[];
+    newUsersPaid?: UserActivityCounts[];
+    newUsersTrial?: UserActivityCounts[];
     activeUsers: UserActivityCounts[];
+    churn?: UserActivityCounts[];
+    returned?: UserActivityCounts[];
     usersBeforeWindow: number;
   },
   window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
@@ -85,11 +102,20 @@ export function fillDailyUserActivity(
   const newUsersByDate = new Map(
     input.newUsers.map((row) => [row.date, row.count]),
   );
-  const newUsersActivatedByDate = new Map(
-    (input.newUsersActivated ?? []).map((row) => [row.date, row.count]),
+  const newUsersPaidByDate = new Map(
+    (input.newUsersPaid ?? []).map((row) => [row.date, row.count]),
+  );
+  const newUsersTrialByDate = new Map(
+    (input.newUsersTrial ?? []).map((row) => [row.date, row.count]),
   );
   const activeUsersByDate = new Map(
     input.activeUsers.map((row) => [row.date, row.count]),
+  );
+  const churnByDate = new Map(
+    (input.churn ?? []).map((row) => [row.date, row.count]),
+  );
+  const returnedByDate = new Map(
+    (input.returned ?? []).map((row) => [row.date, row.count]),
   );
   const result: DailyUserActivity[] = [];
   let totalUsers = input.usersBeforeWindow;
@@ -100,17 +126,21 @@ export function fillDailyUserActivity(
     date = shiftCalendarDate(date, 1)
   ) {
     const newUsers = newUsersByDate.get(date) ?? 0;
-    const newUsersActivated = Math.min(
-      newUsersActivatedByDate.get(date) ?? 0,
-      newUsers,
+    const newUsersPaid = Math.min(newUsersPaidByDate.get(date) ?? 0, newUsers);
+    const newUsersTrial = Math.min(
+      newUsersTrialByDate.get(date) ?? 0,
+      newUsers - newUsersPaid,
     );
     totalUsers += newUsers;
     result.push({
       date,
       newUsers,
-      newUsersActivated,
+      newUsersPaid,
+      newUsersTrial,
       totalUsers,
       activeUsers: activeUsersByDate.get(date) ?? 0,
+      churn: churnByDate.get(date) ?? 0,
+      returned: returnedByDate.get(date) ?? 0,
     });
   }
 
@@ -124,12 +154,12 @@ export function summarizeUserActivity(
 
   return {
     newUsers: daily.reduce((sum, row) => sum + row.newUsers, 0),
-    newUsersActivated: daily.reduce(
-      (sum, row) => sum + row.newUsersActivated,
-      0,
-    ),
+    newUsersPaid: daily.reduce((sum, row) => sum + row.newUsersPaid, 0),
+    newUsersTrial: daily.reduce((sum, row) => sum + row.newUsersTrial, 0),
     totalUsers: last?.totalUsers ?? 0,
     activeUsers: last?.activeUsers ?? 0,
+    churn: daily.reduce((sum, row) => sum + row.churn, 0),
+    returned: daily.reduce((sum, row) => sum + row.returned, 0),
   };
 }
 
@@ -143,25 +173,62 @@ export function activePayingReferenceTime(date: string, now: Date): Date {
   return brtStartOfCalendarDate(shiftCalendarDate(date, 1));
 }
 
-export function isActivePayingOnDate(
-  row: PayingAccessRow,
+function periodCoversDate(
+  period: PaidAccessPeriod,
   date: string,
   now: Date,
 ): boolean {
   return (
-    formatBrtCalendarDate(row.firstPaidAt) <= date &&
-    row.expirationDate.getTime() > activePayingReferenceTime(date, now).getTime()
+    formatBrtCalendarDate(period.startedAt) <= date &&
+    period.endedAt.getTime() > activePayingReferenceTime(date, now).getTime()
   );
 }
 
+/** Paid access had started and was still ahead of the day's reference instant. */
+export function isActivePayingOnDate(
+  customer: PaidAccessCustomer,
+  date: string,
+  now: Date,
+): boolean {
+  return customer.periods.some((period) => periodCoversDate(period, date, now));
+}
+
 /**
- * Paying customers on each BRT day: a succeeded payment already existed
- * and expiration was still ahead of the same instant the base card uses.
+ * Churn on a BRT day: paying on the previous day, not paying on this one, so
+ * the pagantes line drops by exactly this count. It stays on that day even if
+ * the customer comes back later; a return within the grace is not a period
+ * break, so it is never churn.
  */
-export function buildActiveUserStock(
-  users: PayingAccessRow[],
+export function isChurnedOnDate(
+  customer: PaidAccessCustomer,
+  date: string,
+  now: Date,
+): boolean {
+  return (
+    isActivePayingOnDate(customer, shiftCalendarDate(date, -1), now) &&
+    !isActivePayingOnDate(customer, date, now)
+  );
+}
+
+/** Became paying again on this day after an earlier paid period ended. */
+export function isReturnedOnDate(
+  customer: PaidAccessCustomer,
+  date: string,
+  now: Date,
+): boolean {
+  return (
+    !isActivePayingOnDate(customer, shiftCalendarDate(date, -1), now) &&
+    customer.periods
+      .slice(1)
+      .some((period) => periodCoversDate(period, date, now))
+  );
+}
+
+function countCustomersPerDay(
+  customers: PaidAccessCustomer[],
   window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
-  now: Date = new Date(),
+  now: Date,
+  matches: (customer: PaidAccessCustomer, date: string, now: Date) => boolean,
 ): UserActivityCounts[] {
   const result: UserActivityCounts[] = [];
 
@@ -171,11 +238,36 @@ export function buildActiveUserStock(
     date = shiftCalendarDate(date, 1)
   ) {
     let count = 0;
-    for (const row of users) {
-      if (isActivePayingOnDate(row, date, now)) count += 1;
+    for (const customer of customers) {
+      if (matches(customer, date, now)) count += 1;
     }
     result.push({ date, count });
   }
 
   return result;
+}
+
+/** Paying customers on each BRT day, at the same instant the base card uses. */
+export function buildActiveUserStock(
+  customers: PaidAccessCustomer[],
+  window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
+  now: Date = new Date(),
+): UserActivityCounts[] {
+  return countCustomersPerDay(customers, window, now, isActivePayingOnDate);
+}
+
+export function buildChurnCounts(
+  customers: PaidAccessCustomer[],
+  window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
+  now: Date = new Date(),
+): UserActivityCounts[] {
+  return countCustomersPerDay(customers, window, now, isChurnedOnDate);
+}
+
+export function buildReturnCounts(
+  customers: PaidAccessCustomer[],
+  window: Pick<DashboardDateWindow, "fromDate" | "throughDate">,
+  now: Date = new Date(),
+): UserActivityCounts[] {
+  return countCustomersPerDay(customers, window, now, isReturnedOnDate);
 }

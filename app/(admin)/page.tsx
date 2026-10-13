@@ -474,8 +474,8 @@ export default async function DashboardPage({
                       {formatNumber(userActivity.summary.newUsers)}
                     </dd>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {formatNumber(userActivity.summary.newUsersActivated)} com
-                      trial ou pagamento
+                      {formatNumber(userActivity.summary.newUsersPaid)} pagaram ·{" "}
+                      {formatNumber(userActivity.summary.newUsersTrial)} só trial
                     </p>
                   </div>
                   <div className="rounded-lg border bg-background px-4 py-3">
@@ -485,6 +485,11 @@ export default async function DashboardPage({
                     <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
                       {formatNumber(userActivity.summary.activeUsers)}
                     </dd>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {formatNumber(userActivity.summary.churn)} churn ·{" "}
+                      {formatNumber(userActivity.summary.returned)} voltaram no
+                      período
+                    </p>
                   </div>
                 </dl>
               </UserActivityChart>
