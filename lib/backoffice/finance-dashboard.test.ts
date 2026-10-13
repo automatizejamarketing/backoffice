@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { BillingProvider } from "@/lib/db/schema";
-import { summarizeFinanceDashboard } from "./finance-dashboard";
+import {
+  latestActivePlanPerUser,
+  summarizeFinanceDashboard,
+} from "./finance-dashboard";
 
 /** Provedor que o domínio não conhece mais: a coluna é varchar, não enum do banco,
  *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
@@ -227,5 +230,41 @@ describe("finance dashboard", () => {
     expect(result.receipts.grossCentavos).toBe(29_700);
     expect(result.receipts.providers.card.payments).toBe(1);
     expect(result.receipts.providers.pix.payments).toBe(0);
+  });
+});
+
+describe("latestActivePlanPerUser", () => {
+  test("counts a customer who moved from Pix avulso to Pix Automático once, as Pix Automático", () => {
+    const plans = latestActivePlanPerUser([
+      {
+        userId: "migrated",
+        createdAt: new Date("2026-09-09T12:00:00.000Z"),
+        provider: "mercadopago" as const,
+        planType: "monthly_starter" as const,
+      },
+      {
+        userId: "migrated",
+        createdAt: new Date("2026-10-12T12:00:00.000Z"),
+        provider: "efi" as const,
+        planType: "monthly_starter" as const,
+      },
+      {
+        userId: "card",
+        createdAt: new Date("2026-08-01T12:00:00.000Z"),
+        provider: "stripe" as const,
+        planType: "monthly_pro" as const,
+      },
+    ]);
+
+    expect(plans.map((plan) => [plan.userId, plan.provider])).toEqual([
+      ["migrated", "efi"],
+      ["card", "stripe"],
+    ]);
+    expect(
+      summarizeFinanceDashboard(plans, [], [], {
+        grossCentavos: 0,
+        payingCustomers: 0,
+      }).activeSubscriptions,
+    ).toBe(2);
   });
 });
