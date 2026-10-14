@@ -74,6 +74,12 @@ function formatNumber(value: number) {
   return numberFormatter.format(value);
 }
 
+function formatSignedNumber(value: number) {
+  if (value > 0) return `+${formatNumber(value)}`;
+  if (value < 0) return `−${formatNumber(-value)}`;
+  return "0";
+}
+
 function formatPercentage(value: number) {
   return `${percentageFormatter.format(value)}%`;
 }
@@ -468,14 +474,14 @@ export default async function DashboardPage({
                   </div>
                   <div className="rounded-lg border bg-background px-4 py-3">
                     <dt className="text-xs text-muted-foreground">
-                      Novos no período
+                      Cadastros no período
                     </dt>
                     <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
                       {formatNumber(userActivity.summary.newUsers)}
                     </dd>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      {formatNumber(userActivity.summary.newUsersActivated)} com
-                      trial ou pagamento
+                      {formatNumber(userActivity.summary.trials)} trials ·{" "}
+                      {formatNumber(userActivity.summary.payments)} pagamentos
                     </p>
                   </div>
                   <div className="rounded-lg border bg-background px-4 py-3">
@@ -485,6 +491,11 @@ export default async function DashboardPage({
                     <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
                       {formatNumber(userActivity.summary.activeUsers)}
                     </dd>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {formatNumber(userActivity.summary.churn)} churn · saldo{" "}
+                      {formatSignedNumber(userActivity.summary.activeUsersChange)}{" "}
+                      no período
+                    </p>
                   </div>
                 </dl>
               </UserActivityChart>

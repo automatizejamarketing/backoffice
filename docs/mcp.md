@@ -42,9 +42,9 @@ A linha é dinheiro (decisão do JP em 09/10/2026): contagens e status (pagantes
 
 Envio real só acontece com `confirm_whatsapp_campaign_send`, que o Claude deve chamar apenas depois que o colaborador aprovar a prévia. A conexão pode ser só leitura (`backoffice:read`): ferramentas de escrita exigem `backoffice:write`.
 
-## Ferramentas de Meta Ads (só leitura, permissão `marketing:read`)
+## Ferramentas de Meta Ads (leitura, permissão `marketing:read`)
 
-Para o consultor analisar muitos clientes e campanhas de uma vez. Nenhuma escreve na Meta.
+Para o consultor analisar muitos clientes e campanhas de uma vez. Nenhuma destas escreve; as ações estão na seção "Área de Tráfego" abaixo.
 
 | Ferramenta | O que faz | Fonte |
 | --- | --- | --- |
@@ -62,7 +62,28 @@ Limites e decisões:
 - `get_client_campaigns` lê as contas de anúncio que a conexão enxerga, as de maior gasto recente no histórico primeiro (até 5, as mesmas que a carteira soma; com mais de 5 contas, as que sobram vêm listadas em `notes`, com o id para `adAccountId`; o ranking usa o gasto do período ou dos últimos 30 dias, o que for maior), 2 contas por vez com 2 a 3 chamadas cada, com cache de 5 minutos por consulta (`lib/meta-business/read-cache.ts`). Uma conta com erro aparece em `accounts[].error` e as outras respondem. Até 200 linhas por período, ordenadas por gasto.
 - Moedas nunca são somadas: a carteira agrega por cliente e moeda (cliente com conta BRL e USD sai em duas linhas) e os totais vêm por moeda; em `get_client_campaigns` a linha de conta não BRL traz `currency`.
 - Respostas enxutas: `portfolio_performance` devolve 50 clientes por padrão (até 200); `list_portfolio_alerts` corta evidência e recomendação em 400 caracteres.
-- Ficou para a v2: ações (pausar, ativar, orçamento), detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série).
+- Ficou para depois: detalhe ao vivo de muitos clientes em paralelo e métricas por dia (série). As ações entraram na área de Tráfego (abaixo).
+
+## Área de Tráfego (gestor de tráfego, `marketing:read` / `marketing:write`)
+
+As mesmas regras das telas `/trafego` (Fila, Mesa e Jornada), em `lib/mcp/consultant-workspace-tools.ts`.
+
+| Ferramenta | Tipo | O que faz |
+| --- | --- | --- |
+| `list_clients_by_stage` | leitura | Carteira pela jornada: onboarding (com o passo que trava), rodando (com o que pede atenção) e parado; plano, tags de problema, meta e status vs meta, gasto e resultado do período |
+| `get_client_dossier` | leitura | Um cliente: jornada, tags com playbook, passagem de bastão, meta, campanhas e anúncios do período (com ids para agir), alertas abertos agrupados, histórico recente e última análise de IA |
+| `list_problem_tags`, `list_message_templates` | leitura | Catálogos de tags de problema (com playbook) e de mensagens prontas |
+| `set_client_goal`, `add_client_note`, `set_client_problem_tags`, `record_onboarding_handoff` | escrita | Meta combinada, linha do tempo, tags e passagem de bastão (`consultant_*`, `source = mcp`) |
+| `resolve_alerts`, `snooze_alerts` | escrita | Concluir com resultado + nota obrigatórios (`performance_insights.review_outcome`) ou adiar (`snoozed_until`) |
+| `preview_meta_changes` → `apply_meta_changes` | Meta | Lote de até 20: pausar, ativar, orçamento diário ou duplicar, em um ou vários clientes |
+| `prepare_client_messages` → `record_client_messages_sent` | — | Texto e link do WhatsApp do cliente; o consultor envia do próprio WhatsApp e o envio é registrado depois |
+
+Mudanças na Meta:
+- A prévia lê o estado AO VIVO na Meta (status, orçamento diário/total) e bloqueia o que a tela também não faria: orçamento no outro nível (CBO/ABO), orçamento total, Facebook desconectado, item não encontrado. Avisa aumentos acima de 50% e cortes acima de 50%.
+- O `confirmationCode` (HMAC com `AUTH_SECRET`, 15 min, `lib/mcp/batch-confirmation.ts`) amarra a aprovação ao lote exato. Mudou um item, expirou ou foi adulterado: recusa.
+- `apply_meta_changes` refaz a prévia de cada item e chama as MESMAS rotas da tela (`app/api/meta-marketing/...`) com o colaborador do token como ator (`lib/auth/actor-context.ts`): nota obrigatória com o sufixo "(via Claude)", log de auditoria e evento interno da coleta iguais aos da tela. Um item com erro não impede os outros. Itens em sequência, nunca em rajada.
+- Item criado depois da última coleta é encontrado perguntando à Meta o nível (campo característico de campanha, conjunto ou anúncio) com o token do cliente.
+- Trocar criativo não está no MCP: exige subir mídia; é feito no Marketing do cliente.
 
 ## Como funciona
 

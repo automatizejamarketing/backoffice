@@ -16,6 +16,24 @@ export type ActivePlanForMrr = {
   planType: PlanType;
 };
 
+/**
+ * Quem ativa o Pix Automático ganha uma assinatura efi nova sem encerrar a de
+ * Pix avulso (mercadopago). Para o MRR vale só a assinatura ativa mais recente
+ * de cada cliente.
+ */
+export function latestActivePlanPerUser<
+  T extends ActivePlanForMrr & { userId: string; createdAt: Date },
+>(plans: T[]): T[] {
+  const latest = new Map<string, T>();
+  for (const plan of plans) {
+    const current = latest.get(plan.userId);
+    if (!current || plan.createdAt > current.createdAt) {
+      latest.set(plan.userId, plan);
+    }
+  }
+  return [...latest.values()];
+}
+
 export type PaymentForFinance = {
   id: string;
   provider: BillingProvider;
@@ -88,6 +106,7 @@ export function summarizeFinanceDashboard(
   const mrrByProvider: Record<FinanceProvider, number> = {
     card: 0,
     pix: 0,
+    pix_automatic: 0,
     manual: 0,
   };
   let mrrCentavos = 0;
@@ -102,6 +121,7 @@ export function summarizeFinanceDashboard(
   const providers: Record<FinanceProvider, FinanceProviderSummary> = {
     card: emptyProviderSummary("card"),
     pix: emptyProviderSummary("pix"),
+    pix_automatic: emptyProviderSummary("pix_automatic"),
     manual: emptyProviderSummary("manual"),
   };
   const settlementsByInvoice = new Map(

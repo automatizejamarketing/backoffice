@@ -28,6 +28,7 @@ const SUBSCRIPTION_EVENT_TITLES: Record<SubscriptionEventType, string> = {
 const PROVIDER_LABELS: Record<string, string> = {
   stripe: "Stripe/cartão",
   mercadopago: "Mercado Pago Pix",
+  efi: "Pix Automático Efí",
   manual: "Manual",
 };
 

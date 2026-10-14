@@ -40,13 +40,21 @@ export type CustomerBaseChurn = {
   total: number;
   card: number;
   pix: number;
+  pixAutomatic: number;
+};
+
+/** Pix avulso não renova sozinho, então só cartão e Pix Automático têm o que cancelar. */
+export type CustomerBaseScheduledCancel = {
+  total: number;
+  card: number;
+  pixAutomatic: number;
 };
 
 export type CustomerBaseStatus = {
   activePaying: number;
   trial: number;
   churn: CustomerBaseChurn;
-  scheduledCancel: number;
+  scheduledCancel: CustomerBaseScheduledCancel;
 };
 
 export type CustomerBaseCategory =
@@ -126,10 +134,12 @@ export function listCustomerBaseStatusUsers(
 function churnProviderBucket(
   provider: BillingProvider | null,
   paymentMethod?: PaymentSettlementMethod | null,
-): keyof Pick<CustomerBaseChurn, "card" | "pix"> | null {
-  if (!provider || provider === "manual") return null;
+): keyof Omit<CustomerBaseChurn, "total"> | null {
+  if (!provider) return null;
   const bucket = financeProvider({ provider, paymentMethod });
-  return bucket === "card" || bucket === "pix" ? bucket : null;
+  if (bucket === "card" || bucket === "pix") return bucket;
+  if (bucket === "pix_automatic") return "pixAutomatic";
+  return null;
 }
 
 export function summarizeCustomerBaseStatus(
@@ -139,8 +149,8 @@ export function summarizeCustomerBaseStatus(
   const summary: CustomerBaseStatus = {
     activePaying: 0,
     trial: 0,
-    churn: { total: 0, card: 0, pix: 0 },
-    scheduledCancel: 0,
+    churn: { total: 0, card: 0, pix: 0, pixAutomatic: 0 },
+    scheduledCancel: { total: 0, card: 0, pixAutomatic: 0 },
   };
   for (const customer of customers) {
     const { hasActiveAccess, hasExpiredAccess } = accessFlags(
@@ -172,7 +182,14 @@ export function summarizeCustomerBaseStatus(
       hasActiveAccess &&
       customer.hasApprovedPayment
     ) {
-      summary.scheduledCancel += 1;
+      summary.scheduledCancel.total += 1;
+      const bucket = churnProviderBucket(
+        customer.lastPaymentProvider,
+        customer.lastPaymentMethod,
+      );
+      if (bucket === "card" || bucket === "pixAutomatic") {
+        summary.scheduledCancel[bucket] += 1;
+      }
     }
   }
 
