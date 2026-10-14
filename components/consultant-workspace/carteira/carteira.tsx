@@ -46,6 +46,7 @@ import {
 } from "@/components/consultant-workspace/common/model";
 import { useLocalPref } from "@/components/consultant-workspace/common/prefs";
 import { PERIOD_OPTIONS, clientHref } from "@/components/consultant-workspace/common/routes";
+import { useSwitchView } from "@/components/consultant-workspace/common/use-switch-view";
 import { Segmented } from "@/components/consultant-workspace/common/segmented";
 import { isSnoozed, syntheticUserOf } from "@/components/consultant-workspace/common/signal-helpers";
 import { SummaryStrip, computeStripCounts } from "@/components/consultant-workspace/common/summary-strip";
@@ -81,7 +82,6 @@ type Modal =
 
 const PAGE = 40;
 
-const MODE_ROUTE: Record<ViewMode, string> = { fila: "/trafego/fila", tabela: "/trafego/mesa" };
 
 /** Atalhos de teclado nunca disparam enquanto se digita ou com um menu/diálogo aberto. */
 function isTypingTarget(target: EventTarget | null) {
@@ -125,6 +125,7 @@ export function Carteira({
   const scope = useConsultantScope();
   const assignments = useAssignmentOverrides();
   const router = useRouter();
+  const switchView = useSwitchView();
   const pathname = usePathname();
   const params = useSearchParams();
   const filters = useMemo(() => parseFilters(params), [params]);
@@ -373,7 +374,7 @@ export function Carteira({
   /** Fila ↔ Mesa: outra rota, mesma query string (filtros, busca, ordem, período). */
   function switchMode(next: ViewMode) {
     if (next === mode) return;
-    router.push(`${MODE_ROUTE[next]}${window.location.search}`);
+    switchView(next === "tabela" ? "mesa" : "fila", window.location.search.replace(/^\?/, ""));
   }
 
   useEffect(() => {

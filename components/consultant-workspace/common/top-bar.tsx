@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { ConsultantScopeSelect } from "./consultant-scope";
 import { TRAFEGO_VIEWS, VIEW_COOKIE, type TrafegoView } from "./routes";
 import { usePrefetchView } from "./use-trafego-data";
+import { useSwitchView } from "./use-switch-view";
 
 const VIEW_ICON: Record<TrafegoView, typeof Route> = { fila: LayoutList, mesa: Table2, jornada: Route };
 
@@ -42,6 +43,7 @@ export function TrafegoTopBar({ defaultView }: { defaultView: TrafegoView | null
   // Passar o mouse (ou o foco) num link já aquece os dados da visão: o clique pinta do cache.
   const prefetchView = usePrefetchView();
   const router = useRouter();
+  const switchView = useSwitchView();
 
   function makeDefault(view: TrafegoView) {
     document.cookie = `${VIEW_COOKIE}=${view}; path=/; max-age=${ONE_YEAR}; samesite=lax`;
@@ -63,13 +65,19 @@ export function TrafegoTopBar({ defaultView }: { defaultView: TrafegoView | null
           const href = search ? `${view.href}?${search}` : view.href;
           const warm = () => {
             prefetchView(view.key, search);
-            // A página é fina (não lê nada no servidor): buscar a rota inteira no hover é barato.
-            if (!active) router.prefetch(href);
+            // Vindo de fora das visões (cliente, playbooks…), a rota ainda é navegada: aquece.
+            if (!current && !active) router.prefetch(href);
           };
           return (
             <Link
               key={view.key}
               href={href}
+              onClick={(event) => {
+                // Entre visões: troca só a URL, sem ida ao servidor (ver useSwitchView).
+                if (!current || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                event.preventDefault();
+                if (!active) switchView(view.key, search);
+              }}
               onMouseEnter={warm}
               onFocus={warm}
               title={view.hint}

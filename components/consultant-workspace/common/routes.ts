@@ -22,6 +22,12 @@ export function isTrafegoView(value: string | null | undefined): value is Trafeg
   return value === "fila" || value === "mesa" || value === "jornada";
 }
 
+/** "/trafego/mesa" → "mesa"; qualquer outra rota → null. */
+export function viewFromPathname(pathname: string | null | undefined): TrafegoView | null {
+  const segment = pathname?.match(/^\/trafego\/([^/?#]+)\/?$/)?.[1];
+  return isTrafegoView(segment) ? segment : null;
+}
+
 export function clientHref(userId: string, days = 7) {
   return `/trafego/clientes/${userId}${days !== 7 ? `?dias=${days}` : ""}`;
 }
