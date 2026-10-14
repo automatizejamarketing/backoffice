@@ -250,7 +250,7 @@ export function AgencyClient({
             <AlertDialogTitle>{removal?.kind === "client" ? `Tirar ${removal.label} da agência?` : `Tirar o acesso de ${removal?.label}?`}</AlertDialogTitle>
             <AlertDialogDescription>
               {removal?.kind === "client"
-                ? "A agência deixa de ver e operar este cliente. Nada da conta é apagado."
+                ? "A agência deixa de ver e operar este cliente, e os posts agendados pelo ClickUp que ainda não saíram são cancelados. Nada da conta é apagado."
                 : "A pessoa não entra mais no backoffice; os clientes atribuídos a ela ficam sem responsável."}
             </AlertDialogDescription>
           </AlertDialogHeader>
