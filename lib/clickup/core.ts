@@ -229,7 +229,7 @@ export const feedback = {
     `Automatize: ${format === "reels" ? "Reels agendado" : "post agendado"} para ${formatBrasilia(publishAt)} no @${username}.`,
   published: (permalink: string | null) => `Automatize: publicado${permalink ? `: ${permalink}` : "."}`,
   failed: (reason: string) => `Automatize: a publicação falhou. ${reason}`,
-  cancelled: () => "Automatize: agendamento cancelado porque a tarefa saiu do status de agendado.",
+  cancelled: () => "Automatize: agendamento cancelado porque a tarefa saiu do status de agendado ou de aprovação.",
   tooLateToCancel: () => "Automatize: não deu para cancelar, o post já está sendo publicado.",
   tooLateToChange: () => "Automatize: a tarefa foi aprovada de novo, mas o post já está sendo publicado; as mudanças não entram.",
 };

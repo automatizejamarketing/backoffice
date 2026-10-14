@@ -168,11 +168,13 @@ const RETRY_MS = 60_000;
  * Solta a trava para o cron tentar de novo daqui a pouco. `uncounted`: a falha não é do evento
  * (conexão a reconectar, limite do ClickUp), então a tentativa não conta e ele não se perde.
  */
-async function release(eventId: string, result: string, uncounted = false) {
+const EVENT_BACKOFF_MIN = [1, 2, 5, 15];
+
+async function release(eventId: string, result: string, uncounted = false, retryMs = RETRY_MS) {
   await db
     .update(clickupWebhookEvent)
     .set({
-      lockedUntil: new Date(Date.now() + RETRY_MS),
+      lockedUntil: new Date(Date.now() + retryMs),
       result,
       ...(uncounted ? { attempts: sql`greatest(${clickupWebhookEvent.attempts} - 1, 0)` } : {}),
     })
@@ -221,7 +223,8 @@ export async function processEvent(eventId: string, now = new Date()): Promise<s
       if (mapping) await refuse(event.agencyId, mapping, event.id, event.taskId, ["Erro interno do Automatize ao agendar. Mova a tarefa de novo para tentar outra vez."], event.actorClickupUserId);
       await finish(event.id, "falhou depois de várias tentativas");
     } else {
-      await release(event.id, error instanceof Error ? error.message.slice(0, 300) : "erro");
+      // Espera crescente (1, 2, 5, 15 min): uma instabilidade curta do ClickUp não mata o evento.
+      await release(event.id, error instanceof Error ? error.message.slice(0, 300) : "erro", false, EVENT_BACKOFF_MIN[Math.min(event.attempts - 1, EVENT_BACKOFF_MIN.length - 1)]! * 60_000);
     }
     return "erro; tenta de novo";
   }
@@ -585,14 +588,22 @@ export async function reviveWebhooks() {
   const connections = await db
     .select()
     .from(clickupConnection)
-    .where(and(eq(clickupConnection.status, "active"), isNotNull(clickupConnection.webhookId), isNotNull(clickupConnection.teamId)));
+    .where(and(eq(clickupConnection.status, "active"), isNotNull(clickupConnection.mapping), isNotNull(clickupConnection.teamId)));
   for (const connection of connections) {
     try {
       const token = tokenOf(connection);
-      const hooks = await getWebhooks(token, connection.teamId!);
+      const hooks = connection.webhookId ? await getWebhooks(token, connection.teamId!) : [];
       const hook = hooks.find((h) => h.id === connection.webhookId);
-      if (hook && hook.health?.status && hook.health.status !== "active") {
+      if (!connection.webhookId) {
+        // Sem webhook (criação falhou ou sumiu): só a reconciliação abaixo traz as aprovações.
+      } else if (hook && hook.health?.status && hook.health.status !== "active") {
         await reactivateWebhook(token, hook.id, hook.endpoint);
+      } else if (!hook) {
+        // Apagado no ClickUp: a tela volta a pedir o mapeamento (salvar recria o webhook).
+        await db
+          .update(clickupConnection)
+          .set({ webhookId: null, webhookSecretEncrypted: null, statusDetail: "O webhook sumiu do ClickUp. Salve o mapeamento de novo.", updatedAt: new Date() })
+          .where(eq(clickupConnection.agencyId, connection.agencyId));
       }
       await reconcileApprovals(connection, token);
     } catch (error) {
@@ -608,19 +619,23 @@ async function reconcileApprovals(connection: Connection, token: string) {
   if (!mapping) return 0;
   const taskIds = await getListTaskIdsInStatus(token, mapping.listId, mapping.statuses.approval);
   if (!taskIds.length) return 0;
-  const [seen, linked] = await Promise.all([
-    db
-      .select({ taskId: clickupWebhookEvent.taskId })
-      .from(clickupWebhookEvent)
-      .where(and(eq(clickupWebhookEvent.agencyId, connection.agencyId), inArray(clickupWebhookEvent.taskId, taskIds), isNotNull(clickupWebhookEvent.processedAt))),
-    db.select({ taskId: clickupTaskPost.taskId }).from(clickupTaskPost).where(inArray(clickupTaskPost.taskId, taskIds)),
-  ]);
-  const known = new Set([...seen, ...linked].map((r) => r.taskId));
+  const idList = sql.join(taskIds.map((id) => sql`${id}`), sql`, `);
+  // Conhecida = evento ainda pendente, agendamento vivo/publicado, ou evento tratado depois da última
+  // mudança do vínculo (uma reaprovação depois de falha ou cancelamento volta a ser candidata).
+  const known = await db.execute<{ task_id: string }>(sql`
+    select e.task_id from ${clickupWebhookEvent} e
+    left join ${clickupTaskPost} t on t.task_id = e.task_id
+    where e.agency_id = ${connection.agencyId} and e.task_id in (${idList})
+      and (e.processed_at is null or t.task_id is null or e.processed_at > t.updated_at)
+    union
+    select t.task_id from ${clickupTaskPost} t
+    where t.task_id in (${idList}) and t.state in ('scheduled', 'posted')
+  `).then((rows) => new Set(Array.from(rows as unknown as Array<{ task_id: string }>).map((r) => r.task_id)));
   const missing = taskIds.filter((id) => !known.has(id));
   if (!missing.length) return 0;
   await db
     .insert(clickupWebhookEvent)
-    .values(missing.map((taskId) => ({ id: `reconcile:${taskId}`, agencyId: connection.agencyId, taskId, intent: "schedule", actorClickupUserId: null })))
+    .values(missing.map((taskId) => ({ id: `reconcile:${taskId}:${Date.now()}`, agencyId: connection.agencyId, taskId, intent: "schedule", actorClickupUserId: null })))
     .onConflictDoNothing();
   return missing.length;
 }

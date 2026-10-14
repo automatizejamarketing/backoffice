@@ -389,6 +389,28 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     assert.equal((await sql`SELECT count(*)::int AS n FROM clickup_webhook_events`)[0]!.n, 1);
   });
 
+  it("reconciliação não duplica evento pendente e pega reaprovação depois de falha", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await approve("t1"); // evento ainda pendente
+    await service.reviveWebhooks();
+    assert.equal((await sql`SELECT count(*)::int AS n FROM clickup_webhook_events`)[0]!.n, 1);
+    // Processa, publica e falha; a agência corrige e reaprova com o webhook fora do ar.
+    const [{ id }] = await sql`SELECT id FROM clickup_webhook_events`;
+    await service.processEvent(id);
+    await sql`UPDATE scheduled_posts SET status = 'failed'`;
+    await service.syncPublishResults();
+    await service.reviveWebhooks();
+    const events = await sql`SELECT id FROM clickup_webhook_events WHERE id LIKE 'reconcile:%'`;
+    assert.equal(events.length, 1);
+    assert.match(String(await service.processEvent(events[0]!.id)), /^agendado/);
+    // Webhook sumido do ClickUp: a conexão para de dizer que recebe, e a reconciliação continua.
+    const [{ webhook_id }] = await sql`SELECT webhook_id FROM clickup_connections`;
+    assert.equal(webhook_id, null);
+    tasks.set("t2", taskWith("t2"));
+    await service.reviveWebhooks();
+    assert.equal((await sql`SELECT count(*)::int AS n FROM clickup_webhook_events WHERE task_id = 't2'`)[0]!.n, 1);
+  });
+
   it("status que o ClickUp recusa de vez não segura o comentário", async () => {
     await sql`UPDATE clickup_connections SET mapping = jsonb_set(mapping, '{statuses,error}', '"erro"')`;
     tasks.set("t1", taskWith("t1", { client: null }));

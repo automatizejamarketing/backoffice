@@ -170,7 +170,11 @@ export async function saveMapping(actor: BackofficeActor, agencyId: string, raw:
   if (Object.values(input.clientOptions).some((userId) => !allowed.has(userId))) throw new ClickupSetupError("Só dá para ligar opções a clientes desta agência.", 403);
 
   const { teamId, teamName, ...mapping } = input;
-  if (connection.webhookId) await deleteWebhook(token, connection.webhookId);
+  if (connection.webhookId) {
+    await deleteWebhook(token, connection.webhookId);
+    // Sem webhook até o novo existir: se a criação falhar, a tela não diz "recebendo tarefas".
+    await db.update(clickupConnection).set({ webhookId: null, webhookSecretEncrypted: null, updatedAt: new Date() }).where(eq(clickupConnection.agencyId, agencyId));
+  }
   const hook = await createListWebhook(token, teamId, input.listId, webhookEndpoint(origin, agencyId));
   await db
     .update(clickupConnection)

@@ -12,9 +12,11 @@ export const maxDuration = 300;
 export async function GET(request: Request) {
   const auth = assertCronAuthorized(request, "[clickup]");
   if (!auth.ok) return auth.response;
+  // Decide no começo: um minuto 0 demorado não pode pular a tarefa da hora.
+  const hourly = new Date().getUTCMinutes() === 0;
   const events = await processPendingEvents();
   const results = await syncPublishResults();
   const sent = await flushOutbox();
-  if (new Date().getUTCMinutes() === 0) await reviveWebhooks();
+  if (hourly) await reviveWebhooks();
   return NextResponse.json({ ok: true, events, results, sent });
 }
