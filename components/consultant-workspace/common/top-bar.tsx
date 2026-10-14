@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { BookOpenCheck, Check, LayoutList, MessagesSquare, Pin, Route, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -65,7 +64,7 @@ export function TrafegoTopBar({ defaultView }: { defaultView: TrafegoView | null
           const warm = () => {
             prefetchView(view.key, search);
             // A página é fina (não lê nada no servidor): buscar a rota inteira no hover é barato.
-            if (!active) router.prefetch(href, { kind: PrefetchKind.FULL });
+            if (!active) router.prefetch(href);
           };
           return (
             <Link
