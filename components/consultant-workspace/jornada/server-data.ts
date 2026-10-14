@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import { getWorkspaceClients } from "@/lib/consultant-workspace/data";
 import { getJourneyExtras } from "@/lib/consultant-workspace/journey-data";
 import { getTouchedAlertUsers, readStateFor } from "@/components/consultant-workspace/common/server-data";
-import { slimAlert } from "./lib";
+import { slimAlert, type BoardData, type StoppedSpend } from "./lib";
+
+export type { BoardData, StoppedSpend };
 
 /** Leituras da Jornada, dos Playbooks e das Mensagens (somente SELECT). */
 
@@ -14,13 +16,6 @@ type Row = Record<string, unknown>;
 async function rows(query: ReturnType<typeof sql>): Promise<Row[]> {
   return Array.from((await db.execute(query)) as unknown as Row[]);
 }
-
-export type StoppedSpend = {
-  /** Último dia com gasto. */
-  lastSpendDate: string;
-  /** Gasto nos 7 dias que terminam no último dia com gasto — o dinheiro que parou. */
-  weekSpend: number;
-};
 
 /** Para quem não gastou no período: quanto rodava por semana antes de parar. */
 export async function getStoppedSpend(userIds: string[]): Promise<Record<string, StoppedSpend>> {
@@ -54,7 +49,7 @@ export async function getStoppedSpend(userIds: string[]): Promise<Record<string,
  * Base do quadro, da biblioteca de playbooks e das contagens por tag. A etapa
  * é sempre medida em 7 dias.
  */
-export async function getBoardData(actor: BackofficeActor) {
+export async function getBoardData(actor: BackofficeActor): Promise<BoardData> {
   const [{ range, clients, alerts }, store] = await Promise.all([
     getWorkspaceClients(actor, { days: 7 }),
     readStateFor(actor),

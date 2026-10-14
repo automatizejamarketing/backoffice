@@ -72,7 +72,7 @@ function HandoffView({ handoff }: { handoff: WorkspaceHandoff }) {
           <p className="text-sm leading-relaxed whitespace-pre-line">{handoff.nextSteps}</p>
         </div>
       ) : null}
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[11px] text-muted-foreground" suppressHydrationWarning>
         Registrada por {handoff.by} {formatRelative(handoff.at)}
         {callDate ? ` · call em ${callDate}` : ""}
       </p>

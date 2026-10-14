@@ -32,8 +32,13 @@ import {
   tableClass,
   type Density,
 } from "@/components/consultant-workspace/common/grid";
-import { ProblemTagChip, StagePill, stageLine } from "@/components/consultant-workspace/common/journey-bits";
-import type { CarteiraRow } from "@/components/consultant-workspace/common/model";
+import {
+  NEXT_STEP_TONE,
+  PlanText,
+  StagePill,
+  stageLine,
+} from "@/components/consultant-workspace/common/journey-bits";
+import { daysInStageText, rowReason, type CarteiraRow } from "@/components/consultant-workspace/common/model";
 import { DEFAULT_DIR, type SortDir, type SortKey } from "./filters";
 import { MoreSentinel } from "./fila";
 
@@ -272,7 +277,7 @@ export function TabelaView({
                             >
                               {row.title}
                             </a>
-                            {hiddenCols.includes("plano") ? <PlanBadge tier={client.plan.tier} className="ml-auto shrink-0" /> : null}
+                            {hiddenCols.includes("plano") ? <PlanText tier={client.plan.tier} className="ml-auto" /> : null}
                           </span>
                           {density === "confortavel" ? (
                             <span className="block truncate text-[11px] text-muted-foreground">{client.email}</span>
@@ -282,20 +287,17 @@ export function TabelaView({
                     </td>
                     {visibleCols.map((column) => {
                       switch (column.key) {
-                        case "sinais":
+                        case "sinais": {
+                          const reason = rowReason(row);
                           return (
                             <td key={column.key} title={row.reason ? `${row.rank ? `#${row.rank} na fila · ` : ""}${row.reason}` : undefined}>
-                              {headline && row.worst ? (
-                                <div className={cn("flex max-w-60 items-center gap-1.5", row.bucket !== "fila" && "opacity-70")}>
-                                  <SeverityDot severity={row.worst} />
-                                  <span className="truncate">
-                                    {headline.title}
-                                    {headline.times > 1 ? <span className="text-muted-foreground"> × {headline.times}</span> : null}
+                              {reason ? (
+                                <div className={cn("flex max-w-64 items-center gap-1.5", row.bucket !== "fila" && "opacity-70")}>
+                                  <span className={cn("truncate", NEXT_STEP_TONE[reason.tone])} title={reason.text}>
+                                    {reason.text}
                                   </span>
-                                  {headline.others > 0 ? (
-                                    <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground tabular-nums">
-                                      +{headline.others}
-                                    </span>
+                                  {headline && headline.others > 0 ? (
+                                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">+{headline.others}</span>
                                   ) : null}
                                   {row.rank ? (
                                     <span className="ml-auto shrink-0 pl-1 text-[10px] text-muted-foreground tabular-nums">#{row.rank}</span>
@@ -310,31 +312,33 @@ export function TabelaView({
                               )}
                             </td>
                           );
-                        case "etapa":
+                        }
+                        case "etapa": {
+                          // Rodando: o "o que fazer" já está em Sinais; aqui só há quanto tempo.
+                          const etapaText =
+                            journey.stage === "rodando" ? (daysInStageText(journey) ?? "") : stageLine(journey);
                           return (
                             <td key={column.key}>
                               <div className="flex max-w-56 items-center gap-1.5">
                                 <StagePill stage={journey.stage} short />
-                                <span
-                                  className={cn(
-                                    "truncate text-[11px]",
-                                    journey.blocker ? "text-amber-800 dark:text-amber-300" : "text-muted-foreground",
-                                  )}
-                                  title={stageLine(journey)}
-                                >
-                                  {stageLine(journey)}
+                                <span className="truncate text-[11px] text-muted-foreground" title={etapaText}>
+                                  {etapaText}
                                 </span>
                               </div>
                             </td>
                           );
+                        }
                         case "problemas":
                           return (
                             <td key={column.key}>
                               {journey.tags.length ? (
-                                <div className="flex max-w-44 items-center gap-1" title={journey.tags.map((tag) => tag.label).join("\n")}>
-                                  <ProblemTagChip tag={journey.tags[0]} auto={false} className="min-w-0" />
+                                <div
+                                  className="flex max-w-44 items-center gap-1 text-[11px] text-muted-foreground"
+                                  title={journey.tags.map((tag) => tag.label).join("\n")}
+                                >
+                                  <span className="truncate">{journey.tags[0].label}</span>
                                   {journey.tags.length > 1 ? (
-                                    <span className="shrink-0 text-[10px] text-muted-foreground">+{journey.tags.length - 1}</span>
+                                    <span className="shrink-0 text-[10px] tabular-nums">+{journey.tags.length - 1}</span>
                                   ) : null}
                                 </div>
                               ) : (

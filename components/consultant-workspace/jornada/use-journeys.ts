@@ -34,7 +34,7 @@ export function useJourneyRows(
       return {
         client,
         alerts: clientAlerts,
-        journey: computeJourney(client, extras[client.userId], store, clientAlerts.map(fillAlert), goal),
+        journey: computeJourney(client, extras[client.userId], store, clientAlerts.map(fillAlert), goal, now),
       };
     });
   }, [clients, alerts, extras, store, now]);

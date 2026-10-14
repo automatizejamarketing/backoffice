@@ -5,6 +5,8 @@ import { Check, ChevronRight, Sparkles, TriangleAlert, Wallet } from "lucide-rea
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { STAGE_LABEL, type ClientJourney, type JourneyStage, type ProblemTag } from "@/lib/consultant-workspace/journey";
+import { PLAN_LABEL } from "@/lib/consultant-workspace/metrics";
+import type { PlanTier } from "@/lib/consultant-workspace/types";
 import { daysInStageText } from "./model";
 
 /** Peças da jornada usadas pelas três visões e pela página do cliente. */
@@ -237,3 +239,60 @@ export function FinanceChip({ text, className }: { text: string; className?: str
     </Tooltip>
   );
 }
+
+/**
+ * Ícone pequeno e apagado com dica: sinal secundário (sem passagem do Fred,
+ * cobrança, "+2" problemas). Focável pelo teclado; o leitor de tela lê o
+ * `label`. Fica acima do link "esticado" do cartão (`relative z-10`).
+ */
+export function HintIcon({
+  label,
+  tooltip,
+  children,
+  className,
+  side = "top",
+}: {
+  label: string;
+  tooltip?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+  side?: "top" | "bottom" | "left" | "right";
+}) {
+  return (
+    <Tooltip delayDuration={150}>
+      <TooltipTrigger asChild>
+        <span
+          role="img"
+          tabIndex={0}
+          aria-label={label}
+          className={cn(
+            "relative z-10 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded px-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+            className,
+          )}
+        >
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side={side} className="max-w-64 text-xs">
+        {tooltip ?? label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Plano em texto pequeno e apagado; Premium leva um ponto violeta discreto. */
+export function PlanText({ tier, className }: { tier: PlanTier; className?: string }) {
+  return (
+    <span className={cn("inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground", className)}>
+      {tier === "premium" ? <span className="size-1.5 rounded-full bg-violet-500" aria-hidden /> : null}
+      {PLAN_LABEL[tier]}
+    </span>
+  );
+}
+
+/** Cor da frase do próximo passo: vermelho só no crítico, âmbar (texto) na atenção. */
+export const NEXT_STEP_TONE: Record<"critical" | "attention" | "neutral", string> = {
+  critical: "font-medium text-red-700 dark:text-red-400",
+  attention: "text-amber-700 dark:text-amber-400",
+  neutral: "text-foreground",
+};

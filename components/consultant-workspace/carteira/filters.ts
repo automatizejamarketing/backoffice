@@ -4,7 +4,7 @@
  * history.replaceState (o Next sincroniza useSearchParams) e é aplicado no
  * navegador. A carteira (Meus/consultor/Todos) é preferência do navegador.
  */
-import type { JourneyStage } from "@/lib/consultant-workspace/journey";
+import { PROBLEM_TAG_BY_KEY, type ClientJourney, type JourneyStage } from "@/lib/consultant-workspace/journey";
 import { PLAN_RANK } from "@/lib/consultant-workspace/metrics";
 import type { MetaHealth } from "@/lib/consultant-workspace/types";
 import { parseDays } from "@/components/consultant-workspace/common/routes";
@@ -185,6 +185,31 @@ const SORT_KEYS = Object.keys(DEFAULT_DIR) as SortKey[];
 const STAGES: JourneyStage[] = ["onboarding", "rodando", "parado"];
 const PLANS: PlanGroup[] = ["premium", "pro", "starter"];
 
+/** Opção extra do filtro "Problema": onboarding sem a passagem de bastão do Fred. */
+export const NO_HANDOFF_TAG = "sem_fred";
+export const NO_HANDOFF_LABEL = "Sem passagem do Fred";
+
+export function isProblemFilter(value: string | null | undefined): value is string {
+  return !!value && (value === NO_HANDOFF_TAG || PROBLEM_TAG_BY_KEY.has(value));
+}
+
+/** O filtro "Problema" (tag de problema ou "sem passagem do Fred") vale para este cliente? */
+export function matchesProblem(journey: Pick<ClientJourney, "stage" | "handoff" | "tags">, tag: string | null) {
+  if (!tag) return true;
+  if (tag === NO_HANDOFF_TAG) return journey.stage === "onboarding" && !journey.handoff;
+  return journey.tags.some((entry) => entry.key === tag);
+}
+
+/** Contagem por opção do filtro "Problema" (inclui "sem passagem do Fred"). */
+export function problemCounts(journeys: Iterable<Pick<ClientJourney, "stage" | "handoff" | "tags">>) {
+  const counts: Record<string, number> = {};
+  for (const journey of journeys) {
+    for (const tag of journey.tags) counts[tag.key] = (counts[tag.key] ?? 0) + 1;
+    if (journey.stage === "onboarding" && !journey.handoff) counts[NO_HANDOFF_TAG] = (counts[NO_HANDOFF_TAG] ?? 0) + 1;
+  }
+  return counts;
+}
+
 export type Filters = {
   days: number;
   plan: PlanGroup | null;
@@ -213,11 +238,12 @@ export function parseFilters(params: ParamsLike): Filters {
     : view.sort.dir;
   const plan = params.get("plano") as PlanGroup | null;
   const stage = params.get("etapa") as JourneyStage | null;
+  const tag = params.get("tag");
   return {
     days: parseDays(params.get("dias")),
     plan: plan && PLANS.includes(plan) ? plan : null,
     stage: stage && STAGES.includes(stage) ? stage : null,
-    tag: params.get("tag") || null,
+    tag: isProblemFilter(tag) ? tag : null,
     view,
     q: params.get("q") ?? "",
     sortKey,

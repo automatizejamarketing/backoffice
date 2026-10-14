@@ -1,28 +1,17 @@
-import { requirePagePermission } from "@/lib/auth/rbac";
-import { JourneyBoard } from "@/components/consultant-workspace/jornada/board";
-import { getBoardData } from "@/components/consultant-workspace/jornada/server-data";
+import { Suspense } from "react";
+import { JourneyBoardScreen } from "@/components/consultant-workspace/jornada/board-screen";
+import { BoardSkeleton } from "@/components/consultant-workspace/jornada/skeletons";
 
+// O acesso é checado no layout de /trafego; a página não lê nada no servidor.
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Jornada · Tráfego" };
 
-function serverNow() {
-  return Date.now();
-}
-
-export default async function TrafegoJornadaPage() {
-  const actor = await requirePagePermission("marketing:read");
-  const data = await getBoardData(actor);
+/** Página fina: o quadro vem de /api/consultant-workspace/board pelo cache do navegador (react-query). */
+export default function TrafegoJornadaPage() {
   return (
-    <JourneyBoard
-      range={data.range}
-      clients={data.clients}
-      alerts={data.alerts}
-      extras={data.extras}
-      stopped={data.stopped}
-      touchedAlertUser={data.touchedAlertUser}
-      initialStore={data.store}
-      now={serverNow()}
-    />
+    <Suspense fallback={<BoardSkeleton />}>
+      <JourneyBoardScreen />
+    </Suspense>
   );
 }

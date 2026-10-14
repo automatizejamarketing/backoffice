@@ -403,7 +403,7 @@ export function AiAnalysisCard({
         <Sparkles className="size-4 text-violet-600 dark:text-violet-400" />
         <p className="text-sm font-semibold">Análise da IA</p>
         {analysis ? (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground" suppressHydrationWarning>
             gerada {formatRelative(analysis.generatedAt)} por {analysis.by} · período {analysis.periodDays} dias
           </p>
         ) : null}
@@ -1050,7 +1050,10 @@ function AlertGroupRow({
         <span className="min-w-0 flex-1 truncate text-sm">
           <span className="font-medium">{group.title}</span>
           <span className="text-muted-foreground tabular-nums"> ×{group.items.length}</span>
-          <span className="text-muted-foreground"> · {formatRelative(toIso(group.oldest))}</span>
+          <span className="text-muted-foreground" suppressHydrationWarning>
+            {" "}
+            · {formatRelative(toIso(group.oldest))}
+          </span>
         </span>
         <Icon className="size-4 shrink-0 text-muted-foreground" />
       </button>
@@ -1062,7 +1065,9 @@ function AlertGroupRow({
                 <p className="flex items-center gap-1.5">
                   <SeverityDot severity={alert.severity} />
                   <span className="font-medium">{alert.entityName ? `“${humanizeName(alert.entityName)}”` : alert.title}</span>
-                  <span className="text-muted-foreground">· {formatRelative(toIso(alert.createdAt))}</span>
+                  <span className="text-muted-foreground" suppressHydrationWarning>
+                    · {formatRelative(toIso(alert.createdAt))}
+                  </span>
                 </p>
                 {alert.evidence ? <p className="pl-3.5 text-muted-foreground">{humanize(alert.evidence)}</p> : null}
                 {alert.recommendation ? (

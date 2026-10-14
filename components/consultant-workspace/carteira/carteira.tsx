@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -58,6 +58,8 @@ import {
   DEFAULT_DIR,
   FILA_SORTS,
   SAVED_VIEWS,
+  matchesProblem,
+  problemCounts,
   SORT_LABEL,
   parseFilters,
   replaceParams,
@@ -103,7 +105,21 @@ function targetFor(row: CarteiraRow): ActionTarget {
  * inteira em números, com ações em lote. Resumo por plano no topo. Os dados
  * vêm uma vez do servidor por período; o resto é filtrado aqui.
  */
-export function Carteira({ data, now, mode }: { data: CarteiraData; now: number; mode: ViewMode }) {
+export function Carteira({
+  data,
+  now,
+  mode,
+  days: requestedDays,
+  periodPending = false,
+}: {
+  data: CarteiraData;
+  /** Relógio da leitura (servidor): base dos tempos relativos, nunca `Date.now()` no render. */
+  now: number;
+  mode: ViewMode;
+  /** Período pedido na URL; enquanto `periodPending`, `data` ainda é do período anterior. */
+  days: number;
+  periodPending?: boolean;
+}) {
   const me = useWorkspaceMe();
   const { store } = usePrimedWorkspaceState(data.store, now);
   const scope = useConsultantScope();
@@ -111,7 +127,6 @@ export function Carteira({ data, now, mode }: { data: CarteiraData; now: number;
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [periodPending, startPeriod] = useTransition();
   const filters = useMemo(() => parseFilters(params), [params]);
   const { range } = data;
   const days = range.days;
@@ -142,7 +157,7 @@ export function Carteira({ data, now, mode }: { data: CarteiraData; now: number;
     const base = rows.filter((row) => matchesScope(row.consultant) && (!term || row.searchText.includes(term)));
     const mPlan = (row: CarteiraRow) => !filters.plan || row.planGroup === filters.plan;
     const mStage = (row: CarteiraRow) => !filters.stage || row.journey.stage === filters.stage;
-    const mTag = (row: CarteiraRow) => !filters.tag || row.journey.tags.some((tag) => tag.key === filters.tag);
+    const mTag = (row: CarteiraRow) => matchesProblem(row.journey, filters.tag);
     const mView = filters.view.filter;
 
     const visible = sortRows(
@@ -158,11 +173,9 @@ export function Carteira({ data, now, mode }: { data: CarteiraData; now: number;
     const stageCounts: Record<JourneyStage, number> = { onboarding: 0, rodando: 0, parado: 0 };
     for (const row of base) if (mPlan(row) && mTag(row) && mView(row)) stageCounts[row.journey.stage] += 1;
 
-    const tagCounts: Record<string, number> = {};
-    for (const row of base) {
-      if (!(mPlan(row) && mStage(row) && mView(row))) continue;
-      for (const tag of row.journey.tags) tagCounts[tag.key] = (tagCounts[tag.key] ?? 0) + 1;
-    }
+    const tagCounts = problemCounts(
+      base.filter((row) => mPlan(row) && mStage(row) && mView(row)).map((row) => row.journey),
+    );
 
     // Resumo por plano: o que está "na fila", sem o filtro de plano e de visão.
     const strip = computeStripCounts(base.filter((row) => mStage(row) && mTag(row)));
@@ -216,12 +229,14 @@ export function Carteira({ data, now, mode }: { data: CarteiraData; now: number;
       query.set("dir", dir);
     });
   }
+  /** O período fica na URL (com entrada no histórico); a leitura vem do cache ou da API, sem ir à página. */
   function setDays(next: number) {
     const query = new URLSearchParams(window.location.search);
     if (next === 7) query.delete("dias");
     else query.set("dias", String(next));
     const qs = query.toString();
-    startPeriod(() => router.push(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false }));
+    // `null` (e não history.state): assim o Next sincroniza useSearchParams.
+    window.history.pushState(null, "", `${pathname}${qs ? `?${qs}` : ""}`);
   }
   function onSearch(value: string) {
     setSearch(value);
@@ -513,7 +528,7 @@ export function Carteira({ data, now, mode }: { data: CarteiraData; now: number;
           ) : null}
           <Segmented
             label="Período"
-            value={days}
+            value={requestedDays}
             onChange={setDays}
             options={PERIOD_OPTIONS.map((value) => ({
               value,
@@ -683,26 +698,27 @@ export function Carteira({ data, now, mode }: { data: CarteiraData; now: number;
           detail={current ? detailFor(current, "↵") : null}
           header={
             <div className="flex h-8 shrink-0 items-center gap-2 border-b px-3 text-xs text-muted-foreground">
-              <span className="tabular-nums">
+              <span className="whitespace-nowrap tabular-nums">
                 {visible.length} {visible.length === 1 ? "cliente" : "clientes"}
               </span>
               <Link
                 href="/trafego/adiados"
-                className="inline-flex items-center gap-1 rounded px-1 hover:bg-muted hover:text-foreground"
+                className="inline-flex items-center gap-1 rounded px-1 whitespace-nowrap hover:bg-muted hover:text-foreground"
                 title="Sinais adiados: voltam sozinhos às 8h do dia marcado"
               >
                 <Clock className="size-3" /> Adiados
                 {snoozedCount > 0 ? <span className="tabular-nums">({snoozedCount})</span> : null}
               </Link>
-              <label className="ml-auto flex items-center gap-1.5">
-                Ordem
+              <label className="ml-auto flex min-w-0 items-center gap-1.5">
+                <span className="hidden xl:inline">Ordem</span>
                 <select
+                  aria-label="Ordem"
                   value={filters.sortKey}
                   onChange={(event) => {
                     const key = event.target.value as SortKey;
                     setSort(key, DEFAULT_DIR[key]);
                   }}
-                  className="h-6 rounded border bg-background px-1 text-xs text-foreground"
+                  className="h-6 max-w-36 min-w-0 rounded border bg-background px-1 text-xs text-foreground"
                 >
                   {filaSorts.map((key) => (
                     <option key={key} value={key}>

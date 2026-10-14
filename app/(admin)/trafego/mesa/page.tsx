@@ -1,26 +1,21 @@
-import { requirePagePermission } from "@/lib/auth/rbac";
-import { Carteira } from "@/components/consultant-workspace/carteira/carteira";
-import { getCarteiraData } from "@/components/consultant-workspace/carteira/server-data";
-import { parseDays } from "@/components/consultant-workspace/common/routes";
+import { Suspense } from "react";
+import { CarteiraScreen } from "@/components/consultant-workspace/carteira/carteira-screen";
+import { CarteiraSkeleton } from "@/components/consultant-workspace/carteira/skeletons";
 
+// O acesso é checado no layout de /trafego; a página não lê nada no servidor.
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Mesa · Tráfego" };
 
-function serverNow() {
-  return Date.now();
-}
-
 /**
- * Uma leitura por período. Filtros, busca e ordem mudam só no navegador (a
- * URL guarda o estado); a Fila e a Mesa leem a mesma query string.
+ * Página fina: a carteira vem de /api/consultant-workspace/carteira pelo cache
+ * do navegador (react-query), então trocar de visão não recalcula nada no
+ * servidor. Filtros, busca, ordem e período ficam na URL.
  */
-export default async function TrafegoMesaPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const [actor, params] = await Promise.all([requirePagePermission("marketing:read"), searchParams]);
-  const data = await getCarteiraData(actor, parseDays(params.dias));
-  return <Carteira data={data} now={serverNow()} mode="tabela" />;
+export default function TrafegoMesaPage() {
+  return (
+    <Suspense fallback={<CarteiraSkeleton mode="tabela" />}>
+      <CarteiraScreen mode="tabela" />
+    </Suspense>
+  );
 }
