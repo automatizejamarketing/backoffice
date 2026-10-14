@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { hasBackofficePermission, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { cancelClickupPostsOfClient } from "@/lib/clickup/service";
 import { db } from "@/lib/db";
 import {
   agency,
@@ -222,4 +223,6 @@ export async function removeAgencyClient(actor: BackofficeActor, agencyId: strin
       newValue: "",
     });
   });
+  // Agendamentos vindos do ClickUp deste cliente saem junto (ticket 04: arquivar cancela pendentes).
+  await cancelClickupPostsOfClient(agencyId, userId);
 }

@@ -198,12 +198,16 @@ export function statusChanges(payload: { task_id?: unknown; history_items?: unkn
 
 const same = (a: string | null, b: string | null) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** O que uma mudança de status pede: agendar, cancelar ou nada. */
+/**
+ * O que uma mudança de status pede: agendar, cancelar ou nada. Tirar do Agendado ou da Aprovação
+ * para outro lugar (que não seja Agendado, Publicado ou Erro) cancela: cobre também a aprovação
+ * retirada enquanto o Automatize ainda processava.
+ */
 export function statusIntent(change: StatusChange, statuses: ClickupMapping["statuses"]): "schedule" | "cancel" | null {
   if (same(change.to, statuses.approval)) return "schedule";
-  // Uma pessoa tirou do Agendado para outro lugar que não seja Publicado/Erro: cancela.
-  if (same(change.from, statuses.scheduled) && !same(change.to, statuses.published) && !same(change.to, statuses.error)) return "cancel";
-  return null;
+  const leftOurs = same(change.from, statuses.scheduled) || same(change.from, statuses.approval);
+  const toOurs = [statuses.scheduled, statuses.published, statuses.error].some((s) => same(change.to, s));
+  return leftOurs && !toOurs ? "cancel" : null;
 }
 
 /** Eco de uma escrita nossa: mesmo status na mesma tarefa, até 2 min depois de escrevermos. */
@@ -226,4 +230,6 @@ export const feedback = {
   published: (permalink: string | null) => `Automatize: publicado${permalink ? `: ${permalink}` : "."}`,
   failed: (reason: string) => `Automatize: a publicação falhou. ${reason}`,
   cancelled: () => "Automatize: agendamento cancelado porque a tarefa saiu do status de agendado.",
+  tooLateToCancel: () => "Automatize: não deu para cancelar, o post já está sendo publicado.",
+  tooLateToChange: () => "Automatize: a tarefa foi aprovada de novo, mas o post já está sendo publicado; as mudanças não entram.",
 };

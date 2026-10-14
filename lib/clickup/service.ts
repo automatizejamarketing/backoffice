@@ -124,12 +124,23 @@ async function readinessFor(agencyId: string, userIds: string[]): Promise<(userI
   };
 }
 
+const OUTBOX_SUPERSEDED = "superado por uma escrita mais nova";
+
+/** Status ainda não enviado de uma tarefa deixa de valer: o mais novo manda. */
+async function supersedeStatusWrites(taskId: string) {
+  await db
+    .update(clickupOutbox)
+    .set({ attempts: MAX_OUTBOX_ATTEMPTS, lastError: OUTBOX_SUPERSEDED })
+    .where(and(eq(clickupOutbox.taskId, taskId), eq(clickupOutbox.kind, "status"), isNull(clickupOutbox.sentAt)));
+}
+
 async function enqueue(
   agencyId: string,
   taskId: string,
   items: Array<{ kind: "comment" | "status"; key: string; body: string; mention?: string | null }>,
 ) {
   if (!items.length) return;
+  if (items.some((i) => i.kind === "status")) await supersedeStatusWrites(taskId);
   await db
     .insert(clickupOutbox)
     .values(items.map((i) => ({ agencyId, taskId, kind: i.kind, dedupeKey: i.key, body: i.body, mentionClickupUserId: i.mention ?? null })))
@@ -206,6 +217,53 @@ async function finish(eventId: string, result: string) {
   await db.update(clickupWebhookEvent).set({ processedAt: new Date(), result }).where(eq(clickupWebhookEvent.id, eventId));
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Uma tarefa por vez: dois eventos da mesma tarefa não deixam dois agendamentos vivos. */
+async function lockTask(tx: Tx, taskId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`clickup-task:${taskId}`}))`);
+}
+
+/**
+ * Agendamento que ainda dá para cancelar ou trocar: o cron de publicação só pega posts com horário
+ * vencido e mantém `pending` enquanto chama a Meta, então o status sozinho não basta. Com o horário
+ * a 2 min ou mais, o cron não pegou e não vai pegar antes do commit.
+ */
+export const EDIT_MARGIN_MS = 2 * 60_000;
+function editable(scheduledPostId: string) {
+  return and(
+    eq(scheduledPost.id, scheduledPostId),
+    isNull(scheduledPost.deletedAt),
+    inArray(scheduledPost.status, ["pending", "retry"]),
+    gt(scheduledPost.scheduledAt, new Date(Date.now() + EDIT_MARGIN_MS)),
+  );
+}
+
+/**
+ * Cliente saiu da agência: cancela os agendamentos do ClickUp dele que ainda dá para cancelar. Roda
+ * depois de apagar a ligação; um agendamento em processamento termina antes (trava `for share`).
+ */
+export async function cancelClickupPostsOfClient(agencyId: string, userId: string, now = new Date()) {
+  const links = await db
+    .select({ taskId: clickupTaskPost.taskId, scheduledPostId: clickupTaskPost.scheduledPostId })
+    .from(clickupTaskPost)
+    .where(and(eq(clickupTaskPost.agencyId, agencyId), eq(clickupTaskPost.userId, userId), eq(clickupTaskPost.state, "scheduled")));
+  for (const link of links) {
+    if (!link.scheduledPostId) continue;
+    const cancelled = await db.transaction(async (tx) => {
+      await lockTask(tx, link.taskId);
+      const done = await tx.update(scheduledPost).set({ deletedAt: now, updatedAt: now }).where(editable(link.scheduledPostId!)).returning({ id: scheduledPost.id });
+      if (!done.length) return false;
+      await tx.update(clickupTaskPost).set({ state: "cancelled", reportedState: "cancelled", updatedAt: now }).where(eq(clickupTaskPost.taskId, link.taskId));
+      return true;
+    });
+    if (cancelled) {
+      await supersedeStatusWrites(link.taskId);
+      await enqueue(agencyId, link.taskId, [{ kind: "comment", key: `client-removed:${link.taskId}:${link.scheduledPostId}`, body: "Automatize: agendamento cancelado porque o cliente saiu da agência no Automatize." }]);
+    }
+  }
+}
+
 async function handleEvent(event: Event, now: Date): Promise<string> {
   const connection = await getConnection(event.agencyId);
   const mapping = connection && mappingOf(connection);
@@ -217,17 +275,31 @@ async function handleEvent(event: Event, now: Date): Promise<string> {
   const current = task.status.status.trim().toLowerCase();
 
   if (event.intent === "cancel") {
-    if (current === mapping.statuses.scheduled.trim().toLowerCase()) return "voltou para agendado";
-    if (!link?.scheduledPostId || link.state !== "scheduled") return "nada agendado";
-    const cancelled = await db
-      .update(scheduledPost)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(and(eq(scheduledPost.id, link.scheduledPostId), isNull(scheduledPost.deletedAt), inArray(scheduledPost.status, ["pending", "retry"])))
-      .returning({ id: scheduledPost.id });
-    if (!cancelled.length) return "já estava em publicação";
-    await db.update(clickupTaskPost).set({ state: "cancelled", reportedState: "cancelled", updatedAt: now }).where(eq(clickupTaskPost.taskId, event.taskId));
-    await enqueue(event.agencyId, event.taskId, [{ kind: "comment", key: `cancel:${event.id}`, body: feedback.cancelled() }]);
-    return "cancelado";
+    if (current === mapping.statuses.scheduled.trim().toLowerCase() || current === mapping.statuses.approval.trim().toLowerCase()) {
+      return "voltou para agendado ou aprovação";
+    }
+    const outcome = await db.transaction(async (tx) => {
+      await lockTask(tx, event.taskId);
+      const [locked] = await tx.select().from(clickupTaskPost).where(eq(clickupTaskPost.taskId, event.taskId)).limit(1);
+      if (!locked?.scheduledPostId || locked.state !== "scheduled") return "nada agendado";
+      const cancelled = await tx
+        .update(scheduledPost)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(editable(locked.scheduledPostId))
+        .returning({ id: scheduledPost.id });
+      if (!cancelled.length) return "tarde demais";
+      await tx.update(clickupTaskPost).set({ state: "cancelled", reportedState: "cancelled", updatedAt: now }).where(eq(clickupTaskPost.taskId, event.taskId));
+      return "cancelado";
+    });
+    if (outcome === "tarde demais") {
+      await enqueue(event.agencyId, event.taskId, [{ kind: "comment", key: `cancel-late:${event.id}`, body: feedback.tooLateToCancel(), mention: event.actorClickupUserId }]);
+      return "já estava em publicação";
+    }
+    if (outcome === "cancelado") {
+      await supersedeStatusWrites(event.taskId);
+      await enqueue(event.agencyId, event.taskId, [{ kind: "comment", key: `cancel:${event.id}`, body: feedback.cancelled() }]);
+    }
+    return outcome;
   }
 
   // schedule: a tarefa precisa continuar no Status de Aprovação (senão o evento ficou velho).
@@ -249,6 +321,12 @@ async function handleEvent(event: Event, now: Date): Promise<string> {
     if (!(error instanceof MediaError)) throw error;
     await refuse(event.agencyId, mapping, event.id, event.taskId, [error.message], event.actorClickupUserId);
     return `recusado: ${error.message}`;
+  }
+
+  // A cópia leva segundos: se a aprovação foi retirada nesse meio-tempo, não agenda.
+  const fresh = await getTask(token, event.taskId);
+  if (fresh.status.status.trim().toLowerCase() !== mapping.statuses.approval.trim().toLowerCase()) {
+    return "aprovação retirada durante o processamento";
   }
 
   const ready = readiness(decision.userId);
@@ -273,22 +351,25 @@ async function handleEvent(event: Event, now: Date): Promise<string> {
   };
 
   const outcome = await db.transaction(async (tx) => {
-    // Uma tarefa por vez: dois eventos da mesma tarefa não podem deixar dois agendamentos vivos.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`clickup-task:${event.taskId}`}))`);
+    await lockTask(tx, event.taskId);
+    // O cliente continua na agência até o fim da transação (a remoção espera e depois cancela).
+    const [stillClient] = await tx.execute<{ ok: number }>(
+      sql`select 1 as ok from ${agencyClient} where ${agencyClient.userId} = ${decision.userId} and ${agencyClient.agencyId} = ${event.agencyId} for share`,
+    );
+    if (!stillClient) return "cliente saiu da agência";
     const [current] = await tx.select().from(clickupTaskPost).where(eq(clickupTaskPost.taskId, event.taskId)).limit(1);
     if (current?.state === "posted") return "já publicado";
-    // Reaprovação de tarefa já agendada: substitui o agendamento pendente (mesma conta ou outra).
-    if (current?.scheduledPostId) {
+    // Reaprovação de tarefa já agendada: substitui o agendamento ainda fora do alcance do cron.
+    if (current?.scheduledPostId && current.state === "scheduled") {
       const [previous] = await tx
-        .select({ status: scheduledPost.status, deletedAt: scheduledPost.deletedAt })
+        .select({ deletedAt: scheduledPost.deletedAt })
         .from(scheduledPost)
         .where(eq(scheduledPost.id, current.scheduledPostId))
         .limit(1);
-      if (previous && !previous.deletedAt && !["pending", "retry"].includes(previous.status)) return "já em publicação";
-      await tx
-        .update(scheduledPost)
-        .set({ deletedAt: now, updatedAt: now })
-        .where(and(eq(scheduledPost.id, current.scheduledPostId), isNull(scheduledPost.deletedAt)));
+      if (previous && !previous.deletedAt) {
+        const replaced = await tx.update(scheduledPost).set({ deletedAt: now, updatedAt: now }).where(editable(current.scheduledPostId)).returning({ id: scheduledPost.id });
+        if (!replaced.length) return "tarde demais";
+      }
     }
     const [created] = await tx.insert(scheduledPost).values({ ...values, createdAt: now }).returning({ id: scheduledPost.id });
     await tx
@@ -300,6 +381,14 @@ async function handleEvent(event: Event, now: Date): Promise<string> {
       });
     return null;
   });
+  if (outcome === "tarde demais") {
+    await enqueue(event.agencyId, event.taskId, [{ kind: "comment", key: `change-late:${event.id}`, body: feedback.tooLateToChange(), mention: event.actorClickupUserId }]);
+    return "já em publicação";
+  }
+  if (outcome === "cliente saiu da agência") {
+    await refuse(event.agencyId, mapping, event.id, event.taskId, ["Este cliente não é mais da agência no Automatize."], event.actorClickupUserId);
+    return `recusado: ${outcome}`;
+  }
   if (outcome) return outcome;
   await enqueue(event.agencyId, event.taskId, [
     { kind: "status", key: `scheduled-status:${event.id}`, body: mapping.statuses.scheduled },
@@ -391,6 +480,13 @@ export async function flushOutbox(limit = 40) {
   let sent = 0;
   for (const item of due) {
     if (item.kind === "comment" && pendingStatus.some((s) => s.taskId === item.taskId && s.createdAt <= item.createdAt)) continue;
+    // Reivindica o item antes de chamar o ClickUp: duas execuções juntas não mandam duas vezes.
+    const [claimed] = await db
+      .update(clickupOutbox)
+      .set({ nextAttemptAt: new Date(Date.now() + 5 * 60_000) })
+      .where(and(eq(clickupOutbox.id, item.id), isNull(clickupOutbox.sentAt), lt(clickupOutbox.attempts, MAX_OUTBOX_ATTEMPTS), lte(clickupOutbox.nextAttemptAt, sql`now()`)))
+      .returning({ id: clickupOutbox.id });
+    if (!claimed) continue;
     if (!tokens.has(item.agencyId)) {
       const connection = await getConnection(item.agencyId);
       tokens.set(item.agencyId, connection?.status === "active" ? tokenOf(connection) : null);

@@ -56,12 +56,15 @@ mock.module("@/lib/clickup/api", () => ({
   reactivateWebhook: async () => ({}),
 }));
 let mediaCopies = 0;
+/** Roda no meio da cópia da mídia (para simular mudanças enquanto o download acontece). */
+let onCopy: (() => Promise<void>) | null = null;
 class MediaError extends Error {}
 mock.module("@/lib/clickup/media", () => ({
   MediaError,
   copyTaskMedia: async (input: { media: Array<{ kind: string }>; taskId: string }) => {
     mediaCopies++;
     await new Promise((r) => setTimeout(r, 30));
+    if (onCopy) await onCopy();
     return input.media.map((m, i) => ({ url: `https://media.test/${input.taskId}/${mediaCopies}-${i}`, kind: m.kind }));
   },
   sniffPostMedia: () => null,
@@ -163,6 +166,7 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     tasks.clear();
     writes.length = 0;
     failWrites = 0;
+    onCopy = null;
   });
 
   async function approve(taskId: string, historyId = `h-${taskId}`) {
@@ -255,6 +259,79 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     const [cancelId] = (await service.recordWebhook(AGENCY, raw, sign(raw))).newEventIds;
     assert.equal(await service.processEvent(cancelId!), "cancelado");
     assert.equal((await livePosts()).length, 0);
+  });
+
+  it("perto do horário (cron pode estar publicando) não cancela nem troca, e avisa na tarefa", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1", "h-1"))[0]!);
+    await service.flushOutbox();
+    writes.length = 0;
+    // O cron mantém "pending" enquanto chama a Meta; o que protege é o horário já na janela.
+    await sql`UPDATE scheduled_posts SET scheduled_at = now() AT TIME ZONE 'UTC' + interval '30 seconds'`;
+    tasks.get("t1")!.status.status = "em produção";
+    const raw = body("t1", "h-3", "agendado", "em produção");
+    assert.equal(await service.processEvent((await service.recordWebhook(AGENCY, raw, sign(raw))).newEventIds[0]!), "já estava em publicação");
+    assert.equal((await livePosts()).length, 1);
+    tasks.get("t1")!.status.status = "para agendar";
+    assert.equal(await service.processEvent((await approve("t1", "h-4"))[0]!), "já em publicação");
+    assert.equal((await livePosts()).length, 1);
+    await service.flushOutbox();
+    assert.ok(writes.some((w) => /não deu para cancelar/.test(w.body)));
+    assert.ok(writes.some((w) => /as mudanças não entram/.test(w.body)));
+  });
+
+  it("cliente removido da agência durante a cópia da mídia não ganha agendamento", async () => {
+    tasks.set("t1", taskWith("t1"));
+    onCopy = async () => {
+      await sql`DELETE FROM agency_clients WHERE user_id = ${CLIENT}`;
+    };
+    assert.match(String(await service.processEvent((await approve("t1"))[0]!)), /cliente saiu da agência/);
+    assert.equal((await livePosts()).length, 0);
+  });
+
+  it("aprovação retirada durante a cópia não agenda; a retirada vira cancelamento", async () => {
+    tasks.set("t1", taskWith("t1"));
+    onCopy = async () => {
+      tasks.get("t1")!.status.status = "em produção";
+    };
+    assert.equal(await service.processEvent((await approve("t1"))[0]!), "aprovação retirada durante o processamento");
+    assert.equal((await livePosts()).length, 0);
+    const raw = body("t1", "h-w", "para agendar", "em produção");
+    assert.equal((await service.recordWebhook(AGENCY, raw, sign(raw))).newEventIds.length, 1);
+  });
+
+  it("cliente que sai da agência tem os agendamentos do ClickUp cancelados", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1"))[0]!);
+    await sql`DELETE FROM agency_clients WHERE user_id = ${CLIENT}`;
+    await service.cancelClickupPostsOfClient(AGENCY, CLIENT);
+    assert.equal((await livePosts()).length, 0);
+    const [{ state }] = await sql`SELECT state FROM clickup_task_posts WHERE task_id = 't1'`;
+    assert.equal(state, "cancelled");
+  });
+
+  it("status antigo que falhou não volta a tarefa de publicado para agendado", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1"))[0]!);
+    failWrites = 1; // "agendado" falha
+    await service.flushOutbox();
+    await sql`UPDATE scheduled_posts SET status = 'posted'`;
+    await service.syncPublishResults();
+    await sql`UPDATE clickup_outbox SET next_attempt_at = now() - interval '1 second' WHERE sent_at IS NULL`;
+    await service.flushOutbox();
+    await sql`UPDATE clickup_outbox SET next_attempt_at = now() - interval '1 second' WHERE sent_at IS NULL`;
+    await service.flushOutbox();
+    const statuses = writes.filter((w) => w.kind === "status").map((w) => w.body);
+    assert.deepEqual(statuses, ["publicado"]);
+    assert.equal(tasks.get("t1")!.status.status, "publicado");
+  });
+
+  it("duas execuções da fila ao mesmo tempo não duplicam comentário", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1"))[0]!);
+    await Promise.all([service.flushOutbox(), service.flushOutbox()]);
+    assert.equal(writes.filter((w) => w.kind === "comment").length, 1);
+    assert.equal(writes.filter((w) => w.kind === "status").length, 1);
   });
 
   it("post já em publicação não é cancelado nem trocado", async () => {
