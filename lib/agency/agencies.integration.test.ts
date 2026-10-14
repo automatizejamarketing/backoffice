@@ -194,6 +194,12 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
   it("duas remoções de Dono ao mesmo tempo não deixam a agência sem Dono", async () => {
     await sql`INSERT INTO backoffice_users (email, role, agency_id) VALUES ('dono2@infinite.com', 'agency_owner', ${ids.agencyA})`;
     const [{ id: owner2 }] = await sql`SELECT id FROM backoffice_users WHERE email = 'dono2@infinite.com'`;
+    // Abre a janela da corrida: cada remoção leva 200 ms depois de contar os Donos.
+    await sql.unsafe(`
+      CREATE OR REPLACE FUNCTION slow_delete() RETURNS trigger AS $$ BEGIN PERFORM pg_sleep(0.2); RETURN OLD; END $$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS slow_delete ON backoffice_users;
+      CREATE TRIGGER slow_delete BEFORE DELETE ON backoffice_users FOR EACH ROW EXECUTE FUNCTION slow_delete();
+    `);
     const results = await Promise.allSettled([
       lib.removeAgencyPerson(admin, ids.agencyA, ids.ownerA),
       lib.removeAgencyPerson(admin, ids.agencyA, owner2),
@@ -201,6 +207,7 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
     assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
     const [{ n }] = await sql`SELECT count(*)::int AS n FROM backoffice_users WHERE agency_id = ${ids.agencyA} AND role = 'agency_owner'`;
     assert.equal(n, 1);
+    await sql.unsafe(`DROP TRIGGER slow_delete ON backoffice_users`);
   });
 
   it("tirar uma pessoa da agência tira o acesso e solta os clientes dela", async () => {
