@@ -182,7 +182,7 @@ function ComposerBody({ target, onClose }: { target: ComposerTarget; onClose: ()
           {lastSent ? (
             <span className="text-muted-foreground">
               · último envio registrado {formatRelative(lastSent.at)} (
-              {TEMPLATE_BY_KEY.get(lastSent.templateKey)?.label ?? "mensagem livre"})
+              {lastSent.channel === "mat" ? "pela Mat" : (TEMPLATE_BY_KEY.get(lastSent.templateKey)?.label ?? "mensagem livre")})
             </span>
           ) : null}
         </DialogDescription>

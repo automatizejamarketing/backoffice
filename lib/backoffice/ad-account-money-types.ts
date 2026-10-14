@@ -26,6 +26,12 @@ export type AdAccountMoneyRead = {
   accountStatus: number | null;
   /** null quando `accountStatus` é null. */
   accountStatusLabel: string | null;
+  /** `disable_reason` da Meta (0 = nenhum, 3 = pagamento); null quando não veio. */
+  disableReason: number | null;
+  /** Gasto acumulado da conta, em reais (unidade maior); null quando não veio. */
+  amountSpent: number | null;
+  /** Limite de gastos da conta, em reais; null quando não há limite. */
+  spendCap: number | null;
   /** ISO 8601 do momento da leitura real na Meta (um valor do cache mantém a hora original). */
   fetchedAt: string;
 };

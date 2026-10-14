@@ -11,8 +11,8 @@ import { resetMetaReadCacheForTests } from "./read-cache";
 import { readAdAccountMoney } from "./ad-account-money-read";
 
 const FULL_FIELDS =
-  "name,currency,account_status,balance,is_prepay_account,funding_source_details{display_string}";
-const IDENTITY_FIELDS = "name,currency,account_status";
+  "name,currency,account_status,disable_reason,balance,is_prepay_account,funding_source_details{display_string},amount_spent,spend_cap";
+const IDENTITY_FIELDS = "name,currency,account_status,disable_reason";
 
 ensureMetaTestEnv();
 let stub: MetaFetchStub | undefined;
@@ -56,6 +56,30 @@ describe("readAdAccountMoney", () => {
     expect(stub.calls[0].method).toBe("GET");
     expect(stub.calls[0].path).toBe("act_123");
     expect(stub.calls[0].params.get("fields")).toBe(FULL_FIELDS);
+  });
+
+  test("traz disable_reason e o limite de gastos em reais (spend_cap 0 = sem limite)", async () => {
+    stub = installMetaFetchStub(() => ({
+      body: {
+        name: "Loja",
+        currency: "BRL",
+        account_status: 2,
+        disable_reason: 3,
+        is_prepay_account: false,
+        balance: "0",
+        amount_spent: "123456",
+        spend_cap: "150000",
+      },
+    }));
+    const read = await readAdAccountMoney({ adAccountId: "123", accessToken: nextToken() });
+    expect(read).toMatchObject({ disableReason: 3, amountSpent: 1234.56, spendCap: 1500 });
+
+    stub.restore();
+    stub = installMetaFetchStub(() => ({
+      body: { name: "Loja", currency: "BRL", account_status: 1, is_prepay_account: false, balance: "0", spend_cap: "0" },
+    }));
+    const noCap = await readAdAccountMoney({ adAccountId: "456", accessToken: nextToken() });
+    expect(noCap).toMatchObject({ disableReason: null, amountSpent: null, spendCap: null });
   });
 
   test("pós-paga converte balance de centavos para reais", async () => {

@@ -21,6 +21,9 @@ const body: AdAccountMoneyResponse = {
   money: { kind: "owed", amountMajor: 10 },
   accountStatus: 1,
   accountStatusLabel: "Ativa",
+  disableReason: null,
+  amountSpent: null,
+  spendCap: null,
   fetchedAt: "2026-09-30T17:32:00.000Z",
   connectionKind: "user",
 };

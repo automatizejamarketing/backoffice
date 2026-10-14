@@ -17,6 +17,9 @@ const read: AdAccountMoneyRead = {
   money: { kind: "available", display: "R$ 15,63" },
   accountStatus: 1,
   accountStatusLabel: "Ativa",
+  disableReason: null,
+  amountSpent: null,
+  spendCap: null,
   fetchedAt: "2026-09-30T17:32:00.000Z",
 };
 

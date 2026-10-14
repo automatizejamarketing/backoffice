@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { isMatTemplateKey } from "@/lib/consultant-workspace/outreach-core";
 import { applyWorkspaceOp, readWorkspaceState, WorkspaceOpError } from "@/lib/consultant-workspace/state";
 import type { WorkspaceOp } from "@/lib/consultant-workspace/types";
 
@@ -28,6 +29,10 @@ export async function POST(request: Request) {
     op = (await request.json()) as WorkspaceOp;
   } catch {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
+  }
+  // "Mat enviou" só nasce de um envio real pela rota de outreach.
+  if (op?.op === "sendMessage" && isMatTemplateKey(op.templateKey)) {
+    return NextResponse.json({ error: "Mensagens da Mat são registradas pelo envio." }, { status: 400 });
   }
   try {
     await applyWorkspaceOp(authz.actor, op);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bell, MessageSquare, Pencil, Phone, Send, Users, Zap } from "lucide-react";
+import { Bell, Bot, MessageSquare, Pencil, Phone, Send, Users, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -94,13 +94,14 @@ export function ClientTimeline({
       });
     }
     for (const message of (store.sentMessages ?? []).filter((entry) => entry.userId === userId)) {
+      const byMat = message.channel === "mat";
       list.push({
         id: `msg-${message.id}`,
         at: message.at,
-        icon: Send,
-        title: "Mensagem ao cliente",
+        icon: byMat ? Bot : Send,
+        title: byMat ? "Mat enviou ao cliente" : "Mensagem ao cliente",
         body: message.text.length > 220 ? `${message.text.slice(0, 220)}…` : message.text,
-        who: message.by,
+        who: byMat ? `pedido por ${message.by}` : message.by,
         tone: "human",
       });
     }

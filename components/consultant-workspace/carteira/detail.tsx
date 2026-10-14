@@ -27,6 +27,7 @@ import { PacingBar } from "@/components/consultant-workspace/common/grid";
 import { JourneyStepper, StagePill } from "@/components/consultant-workspace/common/journey-bits";
 import type { CarteiraRow } from "@/components/consultant-workspace/common/model";
 import { plural } from "@/components/consultant-workspace/common/signal-helpers";
+import { SuggestedActionsCompact } from "@/components/consultant-workspace/shared/suggested-actions";
 import { ProblemTagsInline } from "./problem-tags";
 import { SignalList } from "./signal-list";
 
@@ -164,6 +165,13 @@ export function ClientDetail({
           </p>
         ) : null}
       </section>
+
+      <SuggestedActionsCompact
+        userId={client.userId}
+        clientName={row.title}
+        clientFullName={client.name}
+        days={range.days}
+      />
 
       <section className="space-y-2">
         <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Jornada</h3>

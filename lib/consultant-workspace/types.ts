@@ -83,6 +83,8 @@ export type WorkspaceSentMessage = {
   text: string;
   by: string;
   at: string;
+  /** `mat`: a Mat mandou pelo WhatsApp da Automatize; `manual`: o gestor mandou do WhatsApp dele. */
+  channel: "manual" | "mat";
 };
 
 export type WorkspaceAiAnalysis = {

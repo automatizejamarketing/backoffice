@@ -24,18 +24,23 @@ import { cachedMetaRead, tokenCacheId } from "@/lib/meta-business/read-cache";
 /** Mesmo frescor do app do cliente (read-cache de 5 min da listagem de contas). */
 const AD_ACCOUNT_MONEY_CACHE_TTL_MS = 5 * 60 * 1000;
 
-const IDENTITY_FIELDS = "name,currency,account_status";
+/** `disable_reason` diz POR QUE a conta foi desativada (3 = pagamento); lido com o status. */
+const IDENTITY_FIELDS = "name,currency,account_status,disable_reason";
 /**
  * A Meta gateia por tarefa na conta: `funding_source_details` exige MANAGE e
  * `is_prepay_account` exige MANAGE ou ADVERTISE; `balance` não exige nenhuma.
+ * `amount_spent`/`spend_cap` (centavos) mostram o limite de gastos da conta.
  */
-const MONEY_FIELDS = "balance,is_prepay_account,funding_source_details{display_string}";
+const MONEY_FIELDS = "balance,is_prepay_account,funding_source_details{display_string},amount_spent,spend_cap";
 
 type RawAdAccount = {
   name?: string;
   currency?: string;
   account_status?: number;
+  disable_reason?: number;
   balance?: string | number;
+  amount_spent?: string | number;
+  spend_cap?: string | number;
   is_prepay_account?: boolean;
   funding_source_details?: { display_string?: string };
 };
@@ -65,6 +70,13 @@ function fetchAdAccount(
     params: `fields=${fields}`,
     accessToken,
   });
+}
+
+/** Centavos da Graph (string ou número) → reais; null quando ausente ou ilegível. */
+function minorToMajor(value: string | number | undefined): number | null {
+  if (value == null || value === "") return null;
+  const major = Number(value) / 100;
+  return Number.isFinite(major) ? major : null;
 }
 
 function resolveMoneyState(
@@ -97,6 +109,7 @@ async function readAdAccountMoneyUncached(
   }
 
   const accountStatus = typeof raw.account_status === "number" ? raw.account_status : null;
+  const spendCap = minorToMajor(raw.spend_cap);
   return {
     adAccountId,
     name: raw.name ?? null,
@@ -108,6 +121,10 @@ async function readAdAccountMoneyUncached(
     money: resolveMoneyState(raw, moneyFieldsRejected),
     accountStatus,
     accountStatusLabel: accountStatus === null ? null : getAccountStatusLabel(accountStatus),
+    disableReason: typeof raw.disable_reason === "number" ? raw.disable_reason : null,
+    amountSpent: minorToMajor(raw.amount_spent),
+    // A Meta devolve "0" quando não há limite.
+    spendCap: spendCap && spendCap > 0 ? spendCap : null,
     fetchedAt: new Date().toISOString(),
   };
 }

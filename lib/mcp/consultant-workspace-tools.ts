@@ -10,7 +10,9 @@ import { applyWorkspaceOp, readWorkspaceState } from "@/lib/consultant-workspace
 import { applyMetaChange, previewMetaChange, type MetaChange } from "@/lib/consultant-workspace/meta-actions";
 import { getWhatsAppUrl } from "@/lib/phone";
 import { ALERT_OUTCOME_LABEL, type AlertOutcome, type GoalKpi, type WorkspaceOp } from "@/lib/consultant-workspace/types";
+import { isMatTemplateKey } from "@/lib/consultant-workspace/outreach-core";
 import { batchConfirmationCode, verifyBatchConfirmation } from "./batch-confirmation";
+import { CONSULTANT_OUTREACH_TOOLS } from "./consultant-outreach-tools";
 import { defineTool, type McpTool } from "./tool";
 
 /**
@@ -488,6 +490,9 @@ const messageTools: McpTool[] = [
     }),
     async run(actor, input) {
       for (const message of input.messages) assertClientAccess(actor, message.userId);
+      if (input.messages.some((message) => isMatTemplateKey(message.templateKey))) {
+        throw new Error("Mensagens da Mat são registradas sozinhas por send_mat_messages.");
+      }
       for (const message of input.messages) {
         await applyWorkspaceOp(actor, { op: "sendMessage", userId: message.userId, templateKey: message.templateKey, text: message.text }, "mcp");
       }
@@ -496,4 +501,10 @@ const messageTools: McpTool[] = [
   }),
 ];
 
-export const CONSULTANT_WORKSPACE_TOOLS: McpTool[] = [...journeyTools, ...localWriteTools, ...metaTools, ...messageTools];
+export const CONSULTANT_WORKSPACE_TOOLS: McpTool[] = [
+  ...journeyTools,
+  ...localWriteTools,
+  ...metaTools,
+  ...messageTools,
+  ...CONSULTANT_OUTREACH_TOOLS,
+];

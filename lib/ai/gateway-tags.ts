@@ -6,6 +6,8 @@ export const GATEWAY_TAG = {
   aiCampanhaCopy: "ai-campanha-copy",
   aiImagem: "ai-imagem",
   aiLegenda: "ai-legenda",
+  /** Área de Tráfego: oferta/combo sugerida para o criativo ruim. */
+  aiOfertaCombo: "ai-oferta-combo",
 } as const;
 
 export type GatewayTag = (typeof GATEWAY_TAG)[keyof typeof GATEWAY_TAG];
