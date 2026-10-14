@@ -9660,3 +9660,86 @@ export const efiWebhookInbox = pgTable("efi_webhook_inbox", {
   workIdx: index("efi_inbox_work_idx").on(table.environment, table.status, table.availableAt),
 }));
 export type EfiWebhookInbox = InferSelectModel<typeof efiWebhookInbox>;
+
+// ---------------------------------------------------------------------------
+// TikTok (Content Posting API). Tokens só cifrados (AES-256-GCM,
+// TIKTOK_TOKEN_ENCRYPTION_KEY) — nenhuma coluna guarda token em texto puro.
+// ---------------------------------------------------------------------------
+
+export const tiktokOauthAttempt = pgTable(
+  "tiktok_oauth_attempts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    stateHash: varchar("state_hash", { length: 64 }).notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    returnTo: text("return_to"),
+    expiresAt: timestamp("expires_at").notNull(),
+    consumedAt: timestamp("consumed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    stateUnique: unique("tiktok_oauth_attempts_state_hash_unique").on(table.stateHash),
+    userIdx: index("tiktok_oauth_attempts_user_idx").on(table.userId, table.expiresAt),
+  }),
+);
+
+export const tiktokAccount = pgTable(
+  "tiktok_accounts",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    openId: varchar("open_id", { length: 128 }).notNull(),
+    unionId: varchar("union_id", { length: 128 }),
+    username: varchar("username", { length: 128 }),
+    displayName: varchar("display_name", { length: 255 }),
+    avatarUrl: text("avatar_url"),
+    scopes: text("scopes").array().notNull().default(sql`ARRAY[]::text[]`),
+    accessTokenEncrypted: text("access_token_encrypted"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    refreshTokenEncrypted: text("refresh_token_encrypted"),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    needsReconnectAt: timestamp("needs_reconnect_at"),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    activeUserUnique: uniqueIndex("tiktok_accounts_active_user_unique")
+      .on(table.userId)
+      .where(sql`${table.revokedAt} is null`),
+  }),
+);
+
+export type TikTokAccountRow = InferSelectModel<typeof tiktokAccount>;
+
+export const tiktokPublication = pgTable(
+  "tiktok_publications",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    tiktokAccountId: uuid("tiktok_account_id").notNull().references(() => tiktokAccount.id),
+    postId: uuid("post_id").references(() => post.id, { onDelete: "set null" }),
+    publishId: varchar("publish_id", { length: 128 }).notNull(),
+    mediaKind: varchar("media_kind", { enum: ["video", "photo"] }).$type<"video" | "photo">().notNull(),
+    mediaUrl: text("media_url").notNull(),
+    privacyLevel: varchar("privacy_level", { length: 40 }).notNull(),
+    title: text("title"),
+    options: jsonb("options").$type<Record<string, unknown>>().notNull().default({}),
+    status: varchar("status", { enum: ["processing", "published", "failed"] })
+      .$type<"processing" | "published" | "failed">()
+      .notNull()
+      .default("processing"),
+    failReason: varchar("fail_reason", { length: 120 }),
+    tiktokPostIds: jsonb("tiktok_post_ids").$type<string[]>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    publishedAt: timestamp("published_at"),
+  },
+  (table) => ({
+    publishIdUnique: unique("tiktok_publications_publish_id_unique").on(table.publishId),
+    userCreatedIdx: index("tiktok_publications_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+export type TikTokPublicationRow = InferSelectModel<typeof tiktokPublication>;
