@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildBackofficeMediaLibraryContext } from "./backoffice-context";
+import { buildBackofficeMediaLibraryContext } from "./backoffice-context-core";
 
 const base = { id: "a1", source: "database" as const };
 

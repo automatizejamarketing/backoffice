@@ -1,25 +1,9 @@
 import type { NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
-import {
-  canAccessMarketingUser,
-  hasBackofficePermission,
-  type BackofficeActor,
-} from "@/lib/auth/rbac-core";
+import { buildBackofficeMediaLibraryContext } from "@/lib/media-library/backoffice-context-core";
 import type { MediaLibraryRequestContext } from "@/lib/media-library/handlers";
 
-/** Ator do backoffice como autor; `canWrite` decide os botões de adicionar/excluir na tela. */
-export function buildBackofficeMediaLibraryContext(
-  actor: BackofficeActor,
-  userId: string,
-): MediaLibraryRequestContext {
-  return {
-    userId,
-    actor: { kind: "backoffice", email: actor.email },
-    viewer: {
-      canWrite: hasBackofficePermission(actor, "marketing:write") && canAccessMarketingUser(actor, userId),
-    },
-  };
-}
+export { buildBackofficeMediaLibraryContext } from "@/lib/media-library/backoffice-context-core";
 
 export async function resolveBackofficeMediaLibraryContext(
   userId: string,
