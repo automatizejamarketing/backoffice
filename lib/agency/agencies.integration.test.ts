@@ -77,7 +77,7 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
         action varchar(50) NOT NULL, field_name varchar(50) NOT NULL, old_value text, new_value text NOT NULL, note text,
         created_at timestamp NOT NULL DEFAULT now());
     `);
-    const migration = readFileSync(join(import.meta.dir, "../db/migrations/0136_agencies.sql"), "utf8");
+    const migration = readFileSync(join(process.cwd(), "lib/db/migrations/0136_agencies.sql"), "utf8");
     for (const statement of migration.split("--> statement-breakpoint")) await sql.unsafe(statement);
 
     lib = await import("./agencies");
