@@ -1,0 +1,11 @@
+# BO download — item 1f011b15-9d8b-4183-847e-749104328315 (video-curto.mp4, enviado pelo admin), cliente de teste na staging, S3 local
+# 1) GET /api/users/384f3178-3946-4fe5-b686-7f30adf16999/media-library/1f011b15-9d8b-4183-847e-749104328315/download -> 302
+HTTP/1.1 302 Found
+location: http://localhost:4566/automatize-media-local/media/library/384f3178-3946-4fe5-b686-7f30adf16999/video-curto-wF99WcZ3AU.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=REDACTED&X-Amz-Date=20261014T030253Z&X-Amz-Expires=300&X-Amz-Signature=REDACTED&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3D%22video-curto.mp4%22%3B%20filename%2A%3DUTF-8%27%27video-curto.mp4&response-content-type=video%2Fmp4&x-amz-checksum-mode=ENABLED&x-id=GetObject
+# 2) GET na URL assinada
+HTTP/1.1 200 OK
+Content-Type: video/mp4
+Content-Length: 38567
+Content-Disposition: attachment; filename="video-curto.mp4"; filename*=UTF-8''video-curto.mp4
+# 3) sem sessão -> recusado
+307 (redirect: http://localhost:3006/login)

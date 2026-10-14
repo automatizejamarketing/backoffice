@@ -1,0 +1,4 @@
+# tsc do backoffice — compare-tsc.py contra evidence/baseline/bo-tsc.txt (Tarefa 13, fix round 1, commit a267688)
+# bunx tsc --noEmit -p . (saída bruta exit 1, igual à base)
+
+base: 29 erros | atual: 29 erros | novos: 0

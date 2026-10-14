@@ -1,0 +1,17 @@
+# BO download — item ea8177bd-f7e3-4a3d-94b2-f11ee4b92aaf (criado pelo cliente com nome foto\u202Egnp.exe, PNG real), cliente de teste na staging, S3 local — 2026-10-14T05:22:37Z
+# 1) GET /api/users/384f3178-3946-4fe5-b686-7f30adf16999/media-library/ea8177bd-f7e3-4a3d-94b2-f11ee4b92aaf/download (sessão admin) ->
+HTTP/1.1 302 Found
+location: http://localhost:4566/automatize-media-local/media/library/384f3178-3946-4fe5-b686-7f30adf16999/foto-gnp-wNjXTPwJvv.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=REDACTED&X-Amz-Date=20261014T052239Z&X-Amz-Expires=300&X-Amz-Signature=REDACTED&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3D%22fotognp.exe.png%22%3B%20filename%2A%3DUTF-8%27%27fotognp.exe.png&response-content-type=image%2Fpng&x-amz-checksum-mode=ENABLED&x-id=GetObject
+# 2) GET na URL assinada ->
+HTTP/1.1 200 OK
+Content-Type: image/png
+Content-Length: 3711
+Content-Disposition: attachment; filename="fotognp.exe.png"; filename*=UTF-8''fotognp.exe.png
+tem controle bidi: NAO
+tem %E2%80%AE: NAO
+filename termina em .png: SIM
+filename* termina em .png: SIM
+# 3) GET da lista do BO (sessão admin) — nome do item
+total=62 estado=active item=fotognp.exe.png enviadoPor=customer
+# 4) sem sessão ->
+307 (redirect: http://localhost:3006/login)

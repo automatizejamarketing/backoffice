@@ -21,7 +21,6 @@ import {
   resolvePageAndIg,
   type AdMediaInput,
 } from "@/lib/meta-business/marketing/build-ad-from-media";
-import { cleanupBlobAfterMetaIngestion } from "@/lib/meta-business/marketing/cleanup-blob-after-meta";
 import { getAdVideoStatus } from "@/lib/meta-business/marketing/upload-ad-video";
 
 type EditMediaInput =
@@ -226,7 +225,7 @@ export async function POST(
       | "automatize_media"
       | "device_image"
       | "device_video";
-    let blobUrlForCleanup: string | undefined;
+    let deviceBlobUrl: string | undefined;
 
     if (body.media.source === "instagram") {
       const eligibility = await metaApiCall<{
@@ -311,7 +310,7 @@ export async function POST(
           { status: 404 },
         );
       }
-      blobUrlForCleanup = blobUrl;
+      deviceBlobUrl = blobUrl;
       if (body.media.mediaType === "video") {
         media = { kind: "device_video", blobUrl };
         mediaSource = "device_video";
@@ -378,7 +377,7 @@ export async function POST(
       );
       confirmedVideo = {
         videoId: body.confirmVideoId,
-        thumbnailUrl: picture ?? (blobUrlForCleanup as string),
+        thumbnailUrl: picture ?? (deviceBlobUrl as string),
       };
     }
 
@@ -460,14 +459,6 @@ export async function POST(
       pausedAdId = adId;
       editMessage =
         "O anúncio original estava ativo/com engajamento, então um novo anúncio foi criado no mesmo conjunto com o novo criativo e o original foi pausado.";
-    }
-
-    if (blobUrlForCleanup) {
-      void cleanupBlobAfterMetaIngestion({
-        blobUrls: [blobUrlForCleanup],
-        adCreativeIds: [creativeId],
-        accessToken,
-      }).catch(() => {});
     }
 
     let auditLogFailed = false;

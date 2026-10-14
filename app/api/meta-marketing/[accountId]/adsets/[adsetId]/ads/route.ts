@@ -20,7 +20,6 @@ import {
   type AdMediaInput,
 } from "@/lib/meta-business/marketing/build-ad-from-media";
 import { createAd } from "@/lib/meta-business/marketing/creative-builders";
-import { cleanupBlobAfterMetaIngestion } from "@/lib/meta-business/marketing/cleanup-blob-after-meta";
 import { getAdVideoStatus } from "@/lib/meta-business/marketing/upload-ad-video";
 
 type CreateAdMediaInput =
@@ -191,7 +190,7 @@ export async function POST(
       | "automatize_media"
       | "device_image"
       | "device_video";
-    let blobUrlForCleanup: string | undefined;
+    let deviceBlobUrl: string | undefined;
 
     if (body.media.source === "instagram") {
       const eligibility = await metaApiCall<{
@@ -275,7 +274,7 @@ export async function POST(
           { status: 404 },
         );
       }
-      blobUrlForCleanup = blobUrl;
+      deviceBlobUrl = blobUrl;
       if (body.media.mediaType === "video") {
         media = { kind: "device_video", blobUrl };
         mediaSource = "device_video";
@@ -346,7 +345,7 @@ export async function POST(
       );
       confirmedVideo = {
         videoId: body.confirmVideoId,
-        thumbnailUrl: picture ?? (blobUrlForCleanup as string),
+        thumbnailUrl: picture ?? (deviceBlobUrl as string),
       };
     }
 
@@ -408,14 +407,6 @@ export async function POST(
       status: adStatus,
     });
 
-
-    if (blobUrlForCleanup) {
-      void cleanupBlobAfterMetaIngestion({
-        blobUrls: [blobUrlForCleanup],
-        adCreativeIds: [outcome.creativeId],
-        accessToken,
-      }).catch(() => {});
-    }
 
     let auditLogFailed = false;
     try {

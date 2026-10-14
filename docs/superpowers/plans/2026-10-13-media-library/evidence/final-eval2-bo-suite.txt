@@ -1,0 +1,18 @@
+# Suíte completa do BO — avaliação final rodada 2 (HEAD b3b0d8d), verification.md §6, sem dev server no ar
+# comando: POSTGRES_URL=$PG POSTGRES_URL_NON_POOLING=$PG FRONTEND_ROOT=$FE bun test --timeout 30000 --reporter=junit --reporter-outfile=<xml>
+## (2026-10-14T04:38:45Z → 2026-10-14T04:39:40Z):  1989 pass  32 fail  24 errors Ran 2021 tests across 271 files. [54.79s] exit=1 
+base: 1904 casos, 32 falhando | atual: 2021 casos, 32 falhando
+falhas novas: 0 | falhas da base que passaram: 0
+
+## bun test lib/media-library lib/storage
+ 32 pass
+ 0 fail
+Ran 32 tests across 5 files. [871.00ms]
+exit=0
+## bun test lib/media-library/backoffice-context.test.ts (isolado): 2 pass, 0 fail
+
+## bunx tsc --noEmit -p . + compare-tsc.py evidence/baseline/bo-tsc.txt
+base: 29 erros | atual: 29 erros | novos: 0
+
+## bunx eslint <9 arquivos .ts do fix wave 148a8bd..b3b0d8d>
+exit=0
