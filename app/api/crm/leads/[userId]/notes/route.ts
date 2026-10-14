@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { normalizeCrmNote } from "@/lib/backoffice/crm";
@@ -12,6 +13,7 @@ export async function POST(
   const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
   const { userId } = await params;
+  if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
   const payload = (await request.json().catch(() => null)) as
     | { body?: unknown }
     | null;

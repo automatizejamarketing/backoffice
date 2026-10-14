@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { getUserAccountHistory } from "@/lib/db/admin-queries";
@@ -12,6 +13,7 @@ export async function GET(
   if (!authz.ok) return authz.response;
 
   const { id: userId } = await params;
+  if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
   try {
     const items = await getUserAccountHistory(userId);
     return NextResponse.json({ items });

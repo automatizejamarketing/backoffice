@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
@@ -12,6 +13,7 @@ export async function PATCH(
     if (!authz.ok) return authz.response;
 
     const { id: userId } = await params;
+    if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
     const body = await request.json();
     const { amount, description } = body as {
       amount: unknown;

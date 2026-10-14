@@ -157,11 +157,16 @@ export async function removeAgencyPerson(actor: BackofficeActor, agencyId: strin
 }
 
 /**
- * Liga uma conta Automatize à agência pelo e-mail. Uma conta só pode estar numa agência; a
+ * Liga uma conta Automatize à agência pelo e-mail. Só o admin: ligar dá à agência acesso à Meta e
+ * ao Instagram da conta, então o Dono não pode puxar uma conta só por saber o e-mail (até existir o
+ * Link de Conexão, em que o dono da conta autoriza). Uma conta só pode estar numa agência; a
  * atribuição a um consultor da Automatize, se houver, sai (cliente de agência é atendido por ela).
  */
 export async function addAgencyClient(actor: BackofficeActor, agencyId: string, email: string) {
   assertManage(actor, agencyId);
+  if (!hasBackofficePermission(actor, "team:manage")) {
+    throw new AgencyError("Só a Automatize liga contas à agência. Peça ao seu contato na Automatize.", 403);
+  }
   const normalized = normalizeEmail(email);
   return db.transaction(async (tx) => {
     const [account] = await tx.select({ id: user.id, email: user.email }).from(user).where(eq(user.email, normalized)).limit(1);

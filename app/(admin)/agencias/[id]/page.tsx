@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
+import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import { AgencyError, getAgencyDetail } from "@/lib/agency/agencies";
 import { AgencyClient } from "./agency-client";
 
@@ -18,6 +19,7 @@ export default async function AgencyPage({ params }: { params: Promise<{ id: str
     <AgencyClient
       agency={detail.agency}
       meId={actor.id}
+      canAddClients={hasBackofficePermission(actor, "team:manage")}
       initialClients={detail.clients.map((c) => ({ ...c, addedAt: c.addedAt.toISOString() }))}
       initialPeople={detail.people}
     />

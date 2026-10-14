@@ -211,6 +211,8 @@ export type GetAllUsersWithUsageParams = {
   pageSize?: number;
   exportAll?: boolean;
   search?: string;
+  /** Clientes de agências externas, fora para a equipe que não é admin. */
+  exceptUserIds?: string[];
   filters?: Partial<
     Pick<
       UsersFilterParams,
@@ -446,6 +448,9 @@ export async function getAllUsersWithUsage(
 
   const trimmedSearch = params.search?.trim() ?? "";
   const conditions = [];
+  if (params.exceptUserIds?.length) {
+    conditions.push(notInArray(user.id, params.exceptUserIds));
+  }
 
   if (trimmedSearch.length >= MIN_SEARCH_LENGTH) {
     conditions.push(buildUserListSearchCondition(trimmedSearch));
@@ -2589,11 +2594,16 @@ export async function getFinanceDashboard(window: DashboardDateWindow) {
 // Search users by email. The result goes straight to the browser
 // (GET /api/users/search), so select only what the pickers render — never the
 // whole row, which carries the password hash, Stripe ids and credits.
-export async function searchUsersByEmail(query: string) {
+export async function searchUsersByEmail(query: string, exceptUserIds: string[] = []) {
   return db
     .select({ id: user.id, email: user.email, name: user.name })
     .from(user)
-    .where(ilike(user.email, `%${query}%`))
+    .where(
+      and(
+        ilike(user.email, `%${query}%`),
+        exceptUserIds.length ? notInArray(user.id, exceptUserIds) : undefined,
+      ),
+    )
     .limit(10);
 }
 

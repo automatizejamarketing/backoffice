@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
@@ -35,6 +36,7 @@ export async function GET(
   if (!environment) return disabledEnvironmentResponse();
 
   const { id: targetUserId } = await params;
+  if (isHiddenClient(authz.actor, targetUserId)) return hiddenClientResponse();
   const session = await getCurrentWhatsappSupportSession({
     targetUserId,
     environment,
@@ -88,6 +90,7 @@ export async function POST(
   }
 
   const { id: targetUserId } = await params;
+  if (isHiddenClient(authz.actor, targetUserId)) return hiddenClientResponse();
   const result = await createWhatsappSupportSession({
     operatorEmail: authz.actor.email,
     targetUserId,
@@ -141,6 +144,7 @@ export async function DELETE(
   }
 
   const { id: targetUserId } = await params;
+  if (isHiddenClient(authz.actor, targetUserId)) return hiddenClientResponse();
   const ended = await endWhatsappSupportSessionFromBackoffice({
     sessionId: body.sessionId,
     targetUserId,

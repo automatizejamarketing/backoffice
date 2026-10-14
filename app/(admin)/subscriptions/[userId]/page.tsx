@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { UserSubscriptionPanel } from "@/components/user-subscription-panel";
+import { isHiddenClient } from "@/lib/auth/hidden-clients";
+import { requirePagePermission } from "@/lib/auth/rbac";
 import { getUserSubscriptionDetails } from "@/lib/db/admin-queries";
 
 export default async function UserSubscriptionPage({
@@ -9,7 +11,9 @@ export default async function UserSubscriptionPage({
 }: {
   params: Promise<{ userId: string }>;
 }) {
+  const actor = await requirePagePermission("billing:manage");
   const { userId } = await params;
+  if (isHiddenClient(actor, userId)) notFound();
   const data = await getUserSubscriptionDetails(userId);
 
   if (!data) {

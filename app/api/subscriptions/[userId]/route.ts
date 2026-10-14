@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
@@ -50,6 +51,7 @@ export async function GET(
     if (!authz.ok) return authz.response;
 
     const { userId } = await params;
+    if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
 
     const [userData] = await db
       .select()
@@ -239,6 +241,7 @@ export async function PATCH(
     if (!authz.ok) return authz.response;
 
     const { userId } = await params;
+    if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
     const body = await request.json();
     const { expirationDate } = body as { expirationDate: string };
 
@@ -348,6 +351,7 @@ export async function POST(
     if (!authz.ok) return authz.response;
 
     const { userId } = await params;
+    if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
     const body = (await request.json()) as {
       action?: string;
       mode?: string;

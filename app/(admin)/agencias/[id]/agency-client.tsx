@@ -38,11 +38,13 @@ async function call(url: string, method: "POST" | "DELETE", body: unknown) {
 export function AgencyClient({
   agency,
   meId,
+  canAddClients,
   initialClients,
   initialPeople,
 }: {
   agency: { id: string; name: string };
   meId: string;
+  canAddClients: boolean;
   initialClients: Client[];
   initialPeople: Person[];
 }) {
@@ -107,6 +109,7 @@ export function AgencyClient({
 
       <section className="space-y-3" aria-labelledby="agency-clients">
         <h2 id="agency-clients" className="text-lg font-semibold">Clientes <span className="text-muted-foreground tabular-nums">{initialClients.length}</span></h2>
+        {canAddClients ? (
         <form className="rounded-lg border bg-card p-4" onSubmit={addClient}>
           <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
             <div className="space-y-1.5">
@@ -119,6 +122,11 @@ export function AgencyClient({
             </Button>
           </div>
         </form>
+        ) : (
+          <p className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
+            Para adicionar um cliente, mande à Automatize o e-mail da conta que ele usa no Automatize.
+          </p>
+        )}
         <div className="rounded-lg border bg-card">
           <Table>
             <TableHeader>
@@ -132,7 +140,9 @@ export function AgencyClient({
               {initialClients.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={3} className="py-8 text-center text-sm text-muted-foreground">
-                    Nenhum cliente ainda. Adicione pelo e-mail da conta que o cliente usa no Automatize.
+                    {canAddClients
+                      ? "Nenhum cliente ainda. Adicione pelo e-mail da conta que o cliente usa no Automatize."
+                      : "Nenhum cliente ainda. A Automatize liga as contas dos seus clientes a esta agência."}
                   </TableCell>
                 </TableRow>
               ) : (

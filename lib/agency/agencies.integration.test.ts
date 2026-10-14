@@ -158,18 +158,27 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
     assert.deepEqual([...((await actor("membro@infinite.com")).assignedUserIds ?? [])].sort(), [ids.client1, ids.client2]);
   });
 
+  const admin = { id: ids.admin, email: "admin@automatize.com", role: "admin", source: "database" } as const;
+
   it("Dono só gere a própria agência; conta não entra em duas agências", async () => {
     const owner = await actor("dono@infinite.com");
     const other = await actor("dono@outra.com");
     await assert.rejects(lib.getAgencyDetail(other, ids.agencyA), (e: Error & { status?: number }) => e.status === 403);
-    await assert.rejects(lib.addAgencyClient(owner, ids.agencyA, "c3@x.com"), /outra agência/);
+    await assert.rejects(lib.addAgencyClient(admin, ids.agencyA, "c3@x.com"), /outra agência/);
     await assert.rejects(lib.addAgencyClient(other, ids.agencyA, "casa@x.com"), (e: Error & { status?: number }) => e.status === 403);
     await assert.rejects(lib.addAgencyPerson(owner, ids.agencyA, { email: "dono@outra.com", role: "agency_member" }), /já tem acesso/);
   });
 
+  it("Dono não puxa conta para a agência só sabendo o e-mail; só o admin liga", async () => {
+    const owner = await actor("dono@infinite.com");
+    await assert.rejects(lib.addAgencyClient(owner, ids.agencyA, "casa@x.com"), (e: Error & { status?: number }) => e.status === 403);
+    const [linked] = await sql`SELECT 1 FROM agency_clients WHERE user_id = ${ids.houseClient}`;
+    assert.equal(linked, undefined);
+  });
+
   it("adicionar cliente da casa tira a atribuição ao consultor interno e audita; remover não apaga a conta", async () => {
     const owner = await actor("dono@infinite.com");
-    await lib.addAgencyClient(owner, ids.agencyA, "  CASA@x.com ");
+    await lib.addAgencyClient(admin, ids.agencyA, "  CASA@x.com ");
     const [assignment] = await sql`SELECT 1 FROM user_marketing_consultants WHERE user_id = ${ids.houseClient}`;
     assert.equal(assignment, undefined);
     assert.equal((await actor("consultor@automatize.com")).assignedUserIds?.length, 0);
