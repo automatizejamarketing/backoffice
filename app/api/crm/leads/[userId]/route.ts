@@ -2,7 +2,7 @@ import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients"
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { isCrmCommercialStatus } from "@/lib/backoffice/crm";
-import { getCrmLead, setCrmLeadStatus } from "@/lib/db/crm-queries";
+import { crmLeadAccountId, getCrmLead, setCrmLeadStatus } from "@/lib/db/crm-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,8 @@ export async function GET(_request: Request, { params }: Context) {
   const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
   const { userId } = await params;
-  if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
+  // A rota aceita o id do contato ou o da conta: checa a conta resolvida.
+  if (isHiddenClient(authz.actor, userId) || isHiddenClient(authz.actor, await crmLeadAccountId(userId))) return hiddenClientResponse();
   const detail = await getCrmLead(userId);
   if (!detail) {
     return NextResponse.json({ error: "Lead não encontrado" }, { status: 404 });
@@ -24,7 +25,8 @@ export async function PATCH(request: Request, { params }: Context) {
   const authz = await requireBackofficePermissionResponse("crm:manage");
   if (!authz.ok) return authz.response;
   const { userId } = await params;
-  if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
+  // A rota aceita o id do contato ou o da conta: checa a conta resolvida.
+  if (isHiddenClient(authz.actor, userId) || isHiddenClient(authz.actor, await crmLeadAccountId(userId))) return hiddenClientResponse();
   const body = (await request.json().catch(() => null)) as
     | { commercialStatus?: unknown }
     | null;

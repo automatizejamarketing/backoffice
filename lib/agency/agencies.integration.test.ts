@@ -191,6 +191,18 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
     assert.deepEqual((await actor("membro@infinite.com")).assignedUserIds, []);
   });
 
+  it("duas remoções de Dono ao mesmo tempo não deixam a agência sem Dono", async () => {
+    await sql`INSERT INTO backoffice_users (email, role, agency_id) VALUES ('dono2@infinite.com', 'agency_owner', ${ids.agencyA})`;
+    const [{ id: owner2 }] = await sql`SELECT id FROM backoffice_users WHERE email = 'dono2@infinite.com'`;
+    const results = await Promise.allSettled([
+      lib.removeAgencyPerson(admin, ids.agencyA, ids.ownerA),
+      lib.removeAgencyPerson(admin, ids.agencyA, owner2),
+    ]);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM backoffice_users WHERE agency_id = ${ids.agencyA} AND role = 'agency_owner'`;
+    assert.equal(n, 1);
+  });
+
   it("tirar uma pessoa da agência tira o acesso e solta os clientes dela", async () => {
     const owner = await actor("dono@infinite.com");
     await assert.rejects(lib.removeAgencyPerson(owner, ids.agencyA, ids.ownerA), /a si mesmo/);

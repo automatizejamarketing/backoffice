@@ -145,6 +145,8 @@ export async function removeAgencyPerson(actor: BackofficeActor, agencyId: strin
   assertManage(actor, agencyId, personId);
   if (personId === actor.id) throw new AgencyError("Você não pode remover a si mesmo.", 409);
   await db.transaction(async (tx) => {
+    // Trava a agência: duas remoções simultâneas não podem deixar a agência sem Dono.
+    await tx.execute(sql`select 1 from ${agency} where ${agency.id} = ${agencyId} for update`);
     const [person] = await tx
       .select({ id: backofficeUser.id })
       .from(backofficeUser)
