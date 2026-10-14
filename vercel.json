@@ -48,6 +48,10 @@
     {
       "path": "/api/cron-job/whatsapp-campaigns",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron-job/clickup",
+      "schedule": "* * * * *"
     }
   ]
 }

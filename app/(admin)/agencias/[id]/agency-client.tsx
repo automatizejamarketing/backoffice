@@ -105,6 +105,9 @@ export function AgencyClient({
           Clientes e pessoas da agência. Para dividir os clientes entre os Membros, troque o responsável na{" "}
           <Link className="underline underline-offset-4" href="/trafego/mesa">área de Tráfego</Link>.
         </p>
+        <Button asChild variant="outline" size="sm" className="mt-3">
+          <Link href={`/agencias/${agency.id}/clickup`}>Postagem pelo ClickUp</Link>
+        </Button>
       </div>
 
       <section className="space-y-3" aria-labelledby="agency-clients">

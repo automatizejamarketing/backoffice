@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentBackofficeActor } from "@/lib/auth/rbac";
 import { hasBackofficePermission, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { AgencyError } from "@/lib/agency/agencies";
+import { ClickupApiError, ClickupAuthError } from "@/lib/clickup/api";
+import { ClickupSetupError } from "@/lib/clickup/connect";
 
 /** Admin (equipe) ou Dono de agência; a agência certa é checada em `lib/agency/agencies`. */
 export async function agencyActor(): Promise<{ actor: BackofficeActor } | { response: NextResponse }> {
@@ -29,3 +31,12 @@ export async function readJson(request: Request): Promise<Record<string, unknown
 }
 
 export const str = (value: unknown) => (typeof value === "string" ? value : "");
+
+/** Erros da conexão com o ClickUp em respostas da API. */
+export function clickupError(error: unknown) {
+  if (error instanceof ClickupSetupError) return NextResponse.json({ error: error.message }, { status: error.status });
+  if (error instanceof ClickupAuthError) return NextResponse.json({ error: "O acesso ao ClickUp foi revogado. Conecte de novo." }, { status: 409 });
+  if (error instanceof ClickupApiError) return NextResponse.json({ error: `ClickUp: ${error.message}` }, { status: 502 });
+  console.error("[clickup] mapeamento", error);
+  return NextResponse.json({ error: "Não foi possível concluir. Tente de novo." }, { status: 500 });
+}
