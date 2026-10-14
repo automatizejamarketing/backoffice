@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   agencyClient,
@@ -95,9 +95,11 @@ export async function recordWebhook(agencyId: string, rawBody: string, signature
   const rows = changes.flatMap((change) => {
     const intent = statusIntent(change, mapping.statuses);
     if (!intent || isOwnEcho(change, writes)) return [];
-    return [{ id: `${connection.webhookId}:${change.historyId}`, agencyId, taskId: change.taskId, intent, actorClickupUserId: change.userId }];
+    return [{ id: `${connection.webhookId}:${change.historyId}`, agencyId, taskId: change.taskId, intent, actorClickupUserId: change.userId, toStatus: change.to }];
   });
   if (!rows.length) return { status: 200, newEventIds: [] };
+  // A pessoa tirou a tarefa da Aprovação/Agendado: um "Agendado" nosso ainda na fila não pode desfazer isso.
+  for (const row of rows) if (row.intent === "cancel") await supersedeStatusWrites(row.taskId);
   const inserted = await db.insert(clickupWebhookEvent).values(rows).onConflictDoNothing().returning({ id: clickupWebhookEvent.id });
   return { status: 200, newEventIds: inserted.map((r) => r.id) };
 }
@@ -288,9 +290,18 @@ async function handleEvent(event: Event, now: Date): Promise<string> {
   const current = task.status.status.trim().toLowerCase();
 
   if (event.intent === "cancel") {
-    if (current === mapping.statuses.scheduled.trim().toLowerCase() || current === mapping.statuses.approval.trim().toLowerCase()) {
-      return "voltou para agendado ou aprovação";
-    }
+    if (current === mapping.statuses.approval.trim().toLowerCase()) return "voltou para aprovação";
+    // "Agendado" agora pode ser a pessoa voltando atrás ou uma escrita nossa atrasada (enviada depois
+    // que a mudança dela chegou). Só a primeira desfaz o cancelamento.
+    const ownLateWrite = current === mapping.statuses.scheduled.trim().toLowerCase()
+      ? await db
+          .select({ id: clickupOutbox.id })
+          .from(clickupOutbox)
+          .where(and(eq(clickupOutbox.taskId, event.taskId), eq(clickupOutbox.kind, "status"), sql`lower(${clickupOutbox.body}) = ${current}`, gte(clickupOutbox.sentAt, event.receivedAt)))
+          .limit(1)
+          .then((rows) => rows.length > 0)
+      : false;
+    if (current === mapping.statuses.scheduled.trim().toLowerCase() && !ownLateWrite) return "voltou para agendado";
     const outcome = await db.transaction(async (tx) => {
       await lockTask(tx, event.taskId);
       const [locked] = await tx.select().from(clickupTaskPost).where(eq(clickupTaskPost.taskId, event.taskId)).limit(1);
@@ -310,7 +321,11 @@ async function handleEvent(event: Event, now: Date): Promise<string> {
     }
     if (outcome === "cancelado") {
       await supersedeStatusWrites(event.taskId);
-      await enqueue(event.agencyId, event.taskId, [{ kind: "comment", key: `cancel:${event.id}`, body: feedback.cancelled() }]);
+      await enqueue(event.agencyId, event.taskId, [
+        // Nossa escrita atrasada tinha posto a tarefa em "Agendado": devolve ao status que a pessoa escolheu.
+        ...(ownLateWrite && event.toStatus ? [{ kind: "status" as const, key: `restore:${event.id}`, body: event.toStatus }] : []),
+        { kind: "comment", key: `cancel:${event.id}`, body: feedback.cancelled() },
+      ]);
     }
     return outcome;
   }
@@ -475,6 +490,27 @@ export async function syncPublishResults(limit = 50) {
   return rows.length;
 }
 
+/**
+ * Um status antigo pode terminar de enviar depois de um mais novo (execuções sobrepostas). Se o
+ * mais novo da tarefa já foi enviado, manda de novo: o último status decidido é o que fica.
+ */
+async function reapplyNewestStatus(token: string, sentItem: typeof clickupOutbox.$inferSelect) {
+  const [newest] = await db
+    .select({ id: clickupOutbox.id, body: clickupOutbox.body, sentAt: clickupOutbox.sentAt })
+    .from(clickupOutbox)
+    // Compara com o created_at do banco (microssegundos), não com o Date do JS (milissegundos).
+    .where(
+      and(
+        eq(clickupOutbox.taskId, sentItem.taskId),
+        eq(clickupOutbox.kind, "status"),
+        gt(clickupOutbox.createdAt, sql`(select ${clickupOutbox.createdAt} from ${clickupOutbox} where ${clickupOutbox.id} = ${sentItem.id})`),
+      ),
+    )
+    .orderBy(desc(clickupOutbox.createdAt))
+    .limit(1);
+  if (newest?.sentAt) await setTaskStatus(token, sentItem.taskId, newest.body);
+}
+
 /** Manda o que está na fila. Falha do ClickUp só adia; nunca toca na publicação. */
 export async function flushOutbox(limit = 40) {
   const due = await db
@@ -510,6 +546,7 @@ export async function flushOutbox(limit = 40) {
       if (item.kind === "status") await setTaskStatus(token, item.taskId, item.body);
       else await postComment(token, item.taskId, item.body, item.mentionClickupUserId);
       await db.update(clickupOutbox).set({ sentAt: new Date(), lastError: null }).where(eq(clickupOutbox.id, item.id));
+      if (item.kind === "status") await reapplyNewestStatus(token, item);
       const index = pendingStatus.findIndex((s) => s.id === item.id);
       if (index >= 0) pendingStatus.splice(index, 1);
       sent++;
@@ -524,14 +561,15 @@ export async function flushOutbox(limit = 40) {
       const permanent = error instanceof ClickupApiError && error.status >= 400 && error.status < 500;
       const index = pendingStatus.findIndex((s) => s.id === item.id);
       if (permanent && index >= 0) pendingStatus.splice(index, 1);
+      // Item superado enquanto estava em voo continua superado (não volta à fila).
       await db
         .update(clickupOutbox)
         .set({
-          attempts: permanent ? MAX_OUTBOX_ATTEMPTS : item.attempts + 1,
+          attempts: permanent ? MAX_OUTBOX_ATTEMPTS : sql`${clickupOutbox.attempts} + 1`,
           nextAttemptAt: new Date(Date.now() + minutes * 60_000),
           lastError: error instanceof Error ? error.message : String(error),
         })
-        .where(eq(clickupOutbox.id, item.id));
+        .where(and(eq(clickupOutbox.id, item.id), lt(clickupOutbox.attempts, MAX_OUTBOX_ATTEMPTS)));
       if (error instanceof ClickupRateLimitError) break;
     }
   }

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS "clickup_webhook_events" (
   "task_id" varchar(32) NOT NULL,
   "intent" varchar(16) NOT NULL,
   "actor_clickup_user_id" varchar(32),
+  "to_status" varchar(100),
   "received_at" timestamp with time zone DEFAULT now() NOT NULL,
   "attempts" integer DEFAULT 0 NOT NULL,
   "locked_until" timestamp with time zone,

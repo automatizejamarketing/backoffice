@@ -26,6 +26,9 @@ const writes: Array<{ kind: string; taskId: string; body: string; mention?: stri
 let failWrites = 0;
 /** Status que o ClickUp recusa de vez (400), como um status renomeado. */
 let rejectStatus: string | null = null;
+/** Roda no meio do envio de um status (simula outra execução da fila em paralelo). */
+let duringStatus: ((status: string) => Promise<void>) | null = null;
+let failAfterHook = false;
 let authDown = false;
 class ClickupAuthError extends Error {}
 class ClickupRateLimitError extends Error {}
@@ -47,6 +50,15 @@ mock.module("@/lib/clickup/api", () => ({
   },
   setTaskStatus: async (_token: string, taskId: string, status: string) => {
     if (rejectStatus === status) throw new ClickupApiError("Status does not exist", 400);
+    if (duringStatus) {
+      const hook = duringStatus;
+      duringStatus = null;
+      await hook(status);
+      if (failAfterHook) {
+        failAfterHook = false;
+        throw new Error("timeout");
+      }
+    }
     if (failWrites > 0) {
       failWrites--;
       throw new Error("ClickUp fora do ar");
@@ -180,6 +192,8 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     onCopy = null;
     rejectStatus = null;
     authDown = false;
+    duringStatus = null;
+    failAfterHook = false;
   });
 
   async function approve(taskId: string, historyId = `h-${taskId}`) {
@@ -385,6 +399,70 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     assert.equal(writes.filter((w) => w.kind === "comment").length, 1);
     const [{ attempts }] = await sql`SELECT attempts FROM clickup_outbox WHERE kind = 'status'`;
     assert.equal(attempts, 8);
+  });
+
+  it("retirar a aprovação com o 'Agendado' ainda na fila: a escrita é descartada e o post cancelado", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1"))[0]!);
+    tasks.get("t1")!.status.status = "em produção";
+    const raw = body("t1", "h-w", "para agendar", "em produção");
+    const [cancelId] = (await service.recordWebhook(AGENCY, raw, sign(raw))).newEventIds;
+    await service.flushOutbox();
+    assert.ok(!writes.some((w) => w.kind === "status"));
+    assert.equal(await service.processEvent(cancelId!), "cancelado");
+    assert.equal((await livePosts()).length, 0);
+    assert.equal(tasks.get("t1")!.status.status, "em produção");
+  });
+
+  it("'Agendado' nosso enviado depois da retirada não desfaz o cancelamento; a tarefa volta ao status da pessoa", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1"))[0]!);
+    // A fila já estava mandando "Agendado" quando a pessoa tirou a tarefa da aprovação.
+    await sql`UPDATE clickup_outbox SET next_attempt_at = now() + interval '1 hour'`;
+    tasks.get("t1")!.status.status = "em produção";
+    const raw = body("t1", "h-w", "para agendar", "em produção");
+    const [cancelId] = (await service.recordWebhook(AGENCY, raw, sign(raw))).newEventIds;
+    await sql`UPDATE clickup_outbox SET sent_at = now() + interval '1 second' WHERE kind = 'status'`;
+    tasks.get("t1")!.status.status = "agendado";
+    assert.equal(await service.processEvent(cancelId!), "cancelado");
+    assert.equal((await livePosts()).length, 0);
+    await service.flushOutbox();
+    assert.equal(tasks.get("t1")!.status.status, "em produção");
+    // Já a pessoa voltando para "Agendado" por conta própria não cancela.
+    tasks.set("t2", taskWith("t2"));
+    await service.processEvent((await approve("t2"))[0]!);
+    await service.flushOutbox();
+    const raw2 = body("t2", "h-x", "agendado", "em produção");
+    const [cancel2] = (await service.recordWebhook(AGENCY, raw2, sign(raw2))).newEventIds;
+    tasks.get("t2")!.status.status = "agendado";
+    assert.equal(await service.processEvent(cancel2!), "voltou para agendado");
+    assert.equal((await livePosts("t2")).length, 1);
+  });
+
+  it("status antigo em voo que termina depois do novo não fica por cima; se falhar, não volta à fila", async () => {
+    tasks.set("t1", taskWith("t1"));
+    await service.processEvent((await approve("t1"))[0]!);
+    // Enquanto "agendado" está em voo, o post publica e outra execução manda "publicado".
+    duringStatus = async () => {
+      await sql`UPDATE scheduled_posts SET status = 'posted'`;
+      await service.syncPublishResults();
+      await service.flushOutbox();
+    };
+    await service.flushOutbox();
+    assert.equal(tasks.get("t1")!.status.status, "publicado");
+
+    tasks.set("t2", taskWith("t2"));
+    await service.processEvent((await approve("t2"))[0]!);
+    duringStatus = async () => {
+      await sql`UPDATE scheduled_posts sp SET status = 'posted' FROM clickup_task_posts t WHERE t.scheduled_post_id = sp.id AND t.task_id = 't2'`;
+      await service.syncPublishResults();
+      await service.flushOutbox();
+    };
+    failAfterHook = true;
+    await service.flushOutbox();
+    const [{ attempts }] = await sql`SELECT attempts FROM clickup_outbox WHERE task_id = 't2' AND kind = 'status' AND body = 'agendado'`;
+    assert.equal(attempts, 8);
+    assert.equal(tasks.get("t2")!.status.status, "publicado");
   });
 
   it("post já em publicação não é cancelado nem trocado", async () => {

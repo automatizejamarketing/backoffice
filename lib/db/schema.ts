@@ -10376,6 +10376,8 @@ export const clickupWebhookEvent = pgTable(
     intent: varchar("intent", { length: 16 }).notNull(),
     /** Quem mexeu no status (para a menção no Retorno na Tarefa). */
     actorClickupUserId: varchar("actor_clickup_user_id", { length: 32 }),
+    /** Status para onde a pessoa moveu a tarefa (para devolver a tarefa a ele num cancelamento). */
+    toStatus: varchar("to_status", { length: 100 }),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
     attempts: integer("attempts").notNull().default(0),
     /** Trava de quem está processando (webhook ou cron); vencida, outro pode pegar. */
