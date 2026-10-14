@@ -3,7 +3,7 @@
  *
  *   CLICKUP_TEST_URL=postgres://postgres@localhost:55433/postgres bun test lib/clickup/service.integration.test.ts
  *
- * Cria o banco `clickup_it`, as tabelas mínimas e aplica as migrations 0136 e 0137 de verdade.
+ * Cria o banco `clickup_it`, as tabelas mínimas e aplica as migrations 0136 a 0138 de verdade.
  */
 import assert from "node:assert/strict";
 import { createHmac, randomBytes } from "node:crypto";
@@ -164,7 +164,7 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
       CREATE FUNCTION slow_insert() RETURNS trigger AS $$ BEGIN PERFORM pg_sleep(0.15); RETURN NEW; END $$ LANGUAGE plpgsql;
       CREATE TRIGGER slow_insert BEFORE INSERT ON scheduled_posts FOR EACH ROW EXECUTE FUNCTION slow_insert();
     `);
-    for (const file of ["0136_agencies.sql", "0137_clickup_publishing.sql"]) {
+    for (const file of ["0136_agencies.sql", "0137_clickup_publishing.sql", "0138_agency_plan.sql"]) {
       const migration = readFileSync(join(process.cwd(), "lib/db/migrations", file), "utf8");
       for (const statement of migration.split("--> statement-breakpoint")) await sql.unsafe(statement);
     }
@@ -180,7 +180,8 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
   beforeEach(async () => {
     await sql.unsafe(`TRUNCATE clickup_outbox, clickup_task_posts, clickup_webhook_events, clickup_connections, scheduled_posts, instagram_accounts, agency_clients, agencies, users CASCADE`);
     const { encryptAccessToken } = await import("@/lib/meta-business/token-vault");
-    await sql`INSERT INTO agencies (id, name) VALUES (${AGENCY}, 'Infinite')`;
+    // Plano pago (ADR 0046): sem ele, nenhuma tarefa vira agendamento.
+    await sql`INSERT INTO agencies (id, name, plan_client_limit, plan_status, plan_paid_until) VALUES (${AGENCY}, 'Infinite', 4, 'active', now() + interval '20 days')`;
     await sql`INSERT INTO users (id, email) VALUES (${CLIENT}, 'alquimia@x.com')`;
     await sql`INSERT INTO agency_clients (user_id, agency_id, added_by_email) VALUES (${CLIENT}, ${AGENCY}, 't')`;
     await sql`INSERT INTO instagram_accounts (id, user_id, account_id, username) VALUES ('ig-1', ${CLIENT}, '1789', 'alquimiarj')`;
@@ -261,6 +262,18 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     assert.equal(writes.length, 1);
     assert.equal(writes[0]!.mention, "42");
     assert.match(writes[0]!.body, /campo Cliente[\s\S]*5 minutos/);
+  });
+
+  it("agência com o plano vencido (além da carência) tem a tarefa recusada", async () => {
+    await sql`UPDATE agencies SET plan_paid_until = now() - interval '4 days', plan_status = 'past_due'`;
+    tasks.set("t1", taskWith("t1"));
+    const [eventId] = await approve("t1");
+    assert.match(String(await service.processEvent(eventId!)), /plano da agência/);
+    assert.equal((await livePosts()).length, 0);
+    // Dentro da carência ainda agenda.
+    await sql`UPDATE agencies SET plan_paid_until = now() - interval '2 days'`;
+    const [again] = await approve("t1", "h-2");
+    assert.match(String(await service.processEvent(again!)), /^agendado/);
   });
 
   it("cliente sem Instagram ou fora da agência é recusado", async () => {

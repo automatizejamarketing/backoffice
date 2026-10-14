@@ -6,7 +6,7 @@ import { AgencyClient } from "./agency-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function AgencyPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AgencyPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ plano?: string }> }) {
   const actor = await getCurrentBackofficeActor();
   if (!actor) redirect("/login");
   const { id } = await params;
@@ -18,6 +18,8 @@ export default async function AgencyPage({ params }: { params: Promise<{ id: str
   return (
     <AgencyClient
       agency={detail.agency}
+      plan={{ ...detail.plan, paidUntil: detail.plan.paidUntil?.toISOString() ?? null }}
+      justPaid={(await searchParams).plano === "pago"}
       meId={actor.id}
       canAddClients={hasBackofficePermission(actor, "team:manage")}
       initialClients={detail.clients.map((c) => ({ ...c, addedAt: c.addedAt.toISOString() }))}

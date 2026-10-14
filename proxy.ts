@@ -18,6 +18,8 @@ export async function proxy(request: NextRequest) {
     pathname === "/api/mcp" ||
     // Webhook do ClickUp: público, cada POST prova a origem pela assinatura.
     pathname.startsWith("/api/clickup/webhook/") ||
+    // Webhook do Stripe do Plano da Agência: público, cada POST prova a origem pela assinatura.
+    pathname === "/api/stripe/agency-webhook" ||
     pathname.startsWith("/api/cron-job") ||
     pathname.startsWith("/api/internal/client-reports/") ||
     pathname === "/api/internal/mat-performance-report"

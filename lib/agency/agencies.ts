@@ -4,6 +4,8 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import { hasBackofficePermission, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { cancelClickupPostsOfClient } from "@/lib/clickup/service";
+import { applyAgencyCoverage } from "./coverage";
+import { seatRefusal } from "./plan-core";
 import { db } from "@/lib/db";
 import {
   agency,
@@ -43,7 +45,7 @@ export function canManageAgency(actor: BackofficeActor, agencyId: string): boole
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function assertManage(actor: BackofficeActor, agencyId: string, ...ids: string[]) {
+export function assertManage(actor: BackofficeActor, agencyId: string, ...ids: string[]) {
   if (![agencyId, ...ids].every((id) => UUID.test(id))) throw new AgencyError("Não encontrado.", 404);
   if (!canManageAgency(actor, agencyId)) throw new AgencyError("Sem acesso a esta agência.", 403);
 }
@@ -96,7 +98,17 @@ export async function getAgencyDetail(actor: BackofficeActor, agencyId: string) 
       .where(eq(backofficeUser.agencyId, agencyId))
       .orderBy(asc(backofficeUser.email)),
   ]);
-  return { agency: { id: row.id, name: row.name }, clients, people };
+  return {
+    agency: { id: row.id, name: row.name },
+    plan: {
+      status: row.planStatus,
+      clientLimit: row.planClientLimit,
+      unitAmountCents: row.planUnitAmountCents,
+      paidUntil: row.planPaidUntil,
+    },
+    clients,
+    people,
+  };
 }
 
 async function insertPerson(
@@ -179,6 +191,16 @@ export async function addAgencyClient(actor: BackofficeActor, agencyId: string, 
   }
   const normalized = normalizeEmail(email);
   return db.transaction(async (tx) => {
+    // Trava a agência: duas ligações simultâneas não passam juntas do limite do plano.
+    const [plan] = await tx
+      .select({ limit: agency.planClientLimit })
+      .from(agency)
+      .where(eq(agency.id, agencyId))
+      .for("update");
+    if (!plan) throw new AgencyError("Agência não encontrada.", 404);
+    const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(agencyClient).where(eq(agencyClient.agencyId, agencyId));
+    const refusal = seatRefusal(plan.limit, count);
+    if (refusal) throw new AgencyError(refusal, 409);
     const [account] = await tx.select({ id: user.id, email: user.email }).from(user).where(eq(user.email, normalized)).limit(1);
     if (!account) throw new AgencyError("Nenhuma conta Automatize com este e-mail. Peça ao cliente para criar a conta primeiro.", 404);
     const [current] = await tx.select({ agencyId: agencyClient.agencyId }).from(agencyClient).where(eq(agencyClient.userId, account.id)).limit(1);
@@ -200,6 +222,8 @@ export async function addAgencyClient(actor: BackofficeActor, agencyId: string, 
       oldValue: null,
       newValue: agencyId,
     });
+    // Plano pago: a conta passa a ter acesso até onde o plano cobre.
+    await applyAgencyCoverage(tx, agencyId, actor.email, account.id);
     return account;
   });
 }

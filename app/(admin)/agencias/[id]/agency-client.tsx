@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AgencyPlan, type AgencyPlanView } from "./agency-plan";
 
 type Client = { userId: string; email: string; name: string | null; companyName: string | null; memberId: string | null; addedAt: string };
 type Person = { id: string; email: string; name: string | null; role: string; active: boolean };
@@ -37,12 +38,16 @@ async function call(url: string, method: "POST" | "DELETE", body: unknown) {
 
 export function AgencyClient({
   agency,
+  plan,
+  justPaid,
   meId,
   canAddClients,
   initialClients,
   initialPeople,
 }: {
   agency: { id: string; name: string };
+  plan: AgencyPlanView;
+  justPaid: boolean;
   meId: string;
   canAddClients: boolean;
   initialClients: Client[];
@@ -57,6 +62,7 @@ export function AgencyClient({
   const [removal, setRemoval] = useState<Removal | null>(null);
   const base = `/api/agencies/${agency.id}`;
   const personById = new Map(initialPeople.map((p) => [p.id, p]));
+  const planFull = initialClients.length >= plan.clientLimit;
 
   async function run(key: string, action: () => Promise<unknown>, success: string) {
     setBusy(key);
@@ -110,6 +116,8 @@ export function AgencyClient({
         </Button>
       </div>
 
+      <AgencyPlan agencyId={agency.id} plan={plan} clientCount={initialClients.length} canEdit={canAddClients} justPaid={justPaid} />
+
       <section className="space-y-3" aria-labelledby="agency-clients">
         <h2 id="agency-clients" className="text-lg font-semibold">Clientes <span className="text-muted-foreground tabular-nums">{initialClients.length}</span></h2>
         {canAddClients ? (
@@ -119,11 +127,16 @@ export function AgencyClient({
               <Label htmlFor="client-email">E-mail da conta Automatize do cliente</Label>
               <Input id="client-email" type="email" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} placeholder="cliente@negocio.com" required />
             </div>
-            <Button type="submit" disabled={busy === "client"}>
+            <Button type="submit" disabled={busy === "client" || planFull}>
               {busy === "client" ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
               Adicionar cliente
             </Button>
           </div>
+          {planFull ? (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {plan.clientLimit === 0 ? "Defina o plano da agência antes de ligar clientes." : "O plano está completo. Aumente a quantidade de clientes no plano para ligar mais."}
+            </p>
+          ) : null}
         </form>
         ) : (
           <p className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">

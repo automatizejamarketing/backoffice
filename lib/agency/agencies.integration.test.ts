@@ -4,7 +4,8 @@
  *
  *   AGENCY_TEST_URL=postgres://postgres@localhost:55433/postgres bun test lib/agency/agencies.integration.test.ts
  *
- * Cria o banco `agency_it`, as tabelas mínimas e aplica a migration 0136 de verdade.
+ * Cria o banco `agency_it`, as tabelas mínimas e aplica as migrations 0136 a 0138 de verdade. O Stripe
+ * é um dublê em memória.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -18,6 +19,19 @@ const BASE_URL = process.env.AGENCY_TEST_URL;
 const DB_NAME = "agency_it";
 
 mock.module("server-only", () => ({}));
+// Dublê do Stripe: a assinatura que `retrieve` devolve é a de `stripeState.subscriptions`.
+const stripeState: { subscriptions: Record<string, unknown> } = { subscriptions: {} };
+mock.module("@/lib/stripe", () => ({
+  stripe: {
+    subscriptions: {
+      retrieve: async (id: string) => {
+        const found = stripeState.subscriptions[id];
+        if (!found) throw new Error(`assinatura ${id} não existe no dublê`);
+        return found;
+      },
+    },
+  },
+}));
 mock.module("next/cache", () => ({
   revalidateTag: () => {},
   revalidatePath: () => {},
@@ -25,6 +39,7 @@ mock.module("next/cache", () => ({
 }));
 
 type Lib = typeof import("./agencies");
+type Plan = typeof import("./plan");
 type Users = typeof import("@/lib/auth/backoffice-users");
 type Rbac = typeof import("@/lib/db/backoffice-rbac-queries");
 type Core = typeof import("@/lib/auth/rbac-core");
@@ -32,6 +47,7 @@ type Core = typeof import("@/lib/auth/rbac-core");
 describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
   let sql: ReturnType<typeof postgres>;
   let lib: Lib;
+  let plan: Plan;
   let users: Users;
   let rbac: Rbac;
   let core: Core;
@@ -61,7 +77,7 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
     process.env.POSTGRES_URL = url.toString();
     sql = postgres(url.toString(), { max: 1 });
     await sql.unsafe(`
-      CREATE TABLE users (id uuid PRIMARY KEY, email varchar(64) NOT NULL UNIQUE, name text);
+      CREATE TABLE users (id uuid PRIMARY KEY, email varchar(64) NOT NULL UNIQUE, name text, expiration_date timestamptz);
       CREATE TABLE companies (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text);
       CREATE TABLE user_companies (user_id uuid, company_id uuid, created_at timestamp DEFAULT now());
       CREATE TABLE backoffice_users (
@@ -77,10 +93,15 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
         action varchar(50) NOT NULL, field_name varchar(50) NOT NULL, old_value text, new_value text NOT NULL, note text,
         created_at timestamp NOT NULL DEFAULT now());
     `);
-    const migration = readFileSync(join(process.cwd(), "lib/db/migrations/0136_agencies.sql"), "utf8");
-    for (const statement of migration.split("--> statement-breakpoint")) await sql.unsafe(statement);
+    // 0137 (ClickUp): tirar um cliente cancela os posts dele vindos do ClickUp.
+    await sql.unsafe(`CREATE TABLE scheduled_posts (id uuid PRIMARY KEY DEFAULT gen_random_uuid())`);
+    for (const file of ["0136_agencies.sql", "0137_clickup_publishing.sql", "0138_agency_plan.sql"]) {
+      const migration = readFileSync(join(process.cwd(), "lib/db/migrations", file), "utf8");
+      for (const statement of migration.split("--> statement-breakpoint")) await sql.unsafe(statement);
+    }
 
     lib = await import("./agencies");
+    plan = await import("./plan");
     users = await import("@/lib/auth/backoffice-users");
     rbac = await import("@/lib/db/backoffice-rbac-queries");
     core = await import("@/lib/auth/rbac-core");
@@ -93,8 +114,9 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
   });
 
   beforeEach(async () => {
-    await sql.unsafe(`TRUNCATE backoffice_audit_logs, user_marketing_consultants, agency_clients, ambassador_members, backoffice_users, agencies, users CASCADE`);
-    await sql`INSERT INTO agencies (id, name) VALUES (${ids.agencyA}, 'Infinite'), (${ids.agencyB}, 'Outra')`;
+    await sql.unsafe(`TRUNCATE clickup_task_posts, backoffice_audit_logs, user_marketing_consultants, agency_clients, ambassador_members, backoffice_users, agencies, users CASCADE`);
+    stripeState.subscriptions = {};
+    await sql`INSERT INTO agencies (id, name, plan_client_limit) VALUES (${ids.agencyA}, 'Infinite', 5), (${ids.agencyB}, 'Outra', 5)`;
     await sql`INSERT INTO users (id, email) VALUES
       (${ids.client1}, 'c1@x.com'), (${ids.client2}, 'c2@x.com'), (${ids.client3}, 'c3@x.com'), (${ids.houseClient}, 'casa@x.com')`;
     await sql`INSERT INTO backoffice_users (id, email, role, agency_id) VALUES
@@ -219,5 +241,109 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
     assert.equal(await users.getBackofficeActorByEmail("membro@infinite.com"), null);
     const [left] = await sql`SELECT 1 FROM user_marketing_consultants WHERE user_id = ${ids.client1}`;
     assert.equal(left, undefined);
+  });
+
+  // ------------------------------------------------------------------ Plano da Agência (ADR 0046)
+
+  const subscription = (over: { id?: string; status?: string; quantity?: number; agencyId?: string } = {}) => ({
+    id: over.id ?? "sub_1",
+    status: over.status ?? "active",
+    customer: "cus_1",
+    metadata: { agency_id: over.agencyId ?? ids.agencyA },
+    items: { data: [{ id: "si_1", quantity: over.quantity ?? 4, price: { unit_amount: 24990, product: "prod_1" } }] },
+  });
+  const paidInvoice = (periodEnd: Date, subscriptionId = "sub_1") =>
+    ({
+      parent: { type: "subscription_details", subscription_details: { subscription: subscriptionId, metadata: { agency_id: ids.agencyA } } },
+      lines: { data: [{ period: { end: Math.floor(periodEnd.getTime() / 1000) } }] },
+    }) as unknown as Parameters<Plan["recordAgencyInvoicePaid"]>[0];
+  const days = (n: number) => new Date(Date.now() + n * 86_400_000);
+
+  it("plano cheio recusa ligar mais um cliente; sem plano, nenhum", async () => {
+    await sql`UPDATE agencies SET plan_client_limit = 2 WHERE id = ${ids.agencyA}`;
+    await assert.rejects(lib.addAgencyClient(admin, ids.agencyA, "casa@x.com"), /cobre 2 clientes/);
+    await sql`UPDATE agencies SET plan_client_limit = 0 WHERE id = ${ids.agencyA}`;
+    await assert.rejects(lib.addAgencyClient(admin, ids.agencyA, "casa@x.com"), /não tem plano/);
+    const [linked] = await sql`SELECT 1 FROM agency_clients WHERE user_id = ${ids.houseClient}`;
+    assert.equal(linked, undefined);
+  });
+
+  it("duas ligações ao mesmo tempo não passam juntas da última vaga", async () => {
+    await sql`UPDATE agencies SET plan_client_limit = 3 WHERE id = ${ids.agencyA}`;
+    await sql`INSERT INTO users (id, email) VALUES ('d0000000-0000-4000-8000-000000000005', 'c5@x.com')`;
+    // Abre a janela da corrida: cada ligação leva 200 ms depois de contar os clientes.
+    await sql.unsafe(`
+      CREATE OR REPLACE FUNCTION slow_link() RETURNS trigger AS $$ BEGIN PERFORM pg_sleep(0.2); RETURN NEW; END $$ LANGUAGE plpgsql;
+      DROP TRIGGER IF EXISTS slow_link ON agency_clients;
+      CREATE TRIGGER slow_link BEFORE INSERT ON agency_clients FOR EACH ROW EXECUTE FUNCTION slow_link();
+    `);
+    const results = await Promise.allSettled([lib.addAgencyClient(admin, ids.agencyA, "casa@x.com"), lib.addAgencyClient(admin, ids.agencyA, "c5@x.com")]);
+    await sql.unsafe(`DROP TRIGGER slow_link ON agency_clients`);
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM agency_clients WHERE agency_id = ${ids.agencyA}`;
+    assert.equal(n, 3);
+  });
+
+  it("fatura paga: pago até avança, contas dos clientes ganham acesso (nunca encurta) e o limite vem do Stripe", async () => {
+    const later = days(400);
+    await sql`UPDATE users SET expiration_date = ${later} WHERE id = ${ids.client2}`;
+    stripeState.subscriptions.sub_1 = subscription({ quantity: 4 });
+    const periodEnd = days(30);
+    assert.equal(await plan.recordAgencyInvoicePaid(paidInvoice(periodEnd)), true);
+
+    const [row] = await sql`SELECT plan_paid_until, plan_status, plan_client_limit, stripe_subscription_id FROM agencies WHERE id = ${ids.agencyA}`;
+    assert.equal(new Date(row.plan_paid_until).getTime(), Math.floor(periodEnd.getTime() / 1000) * 1000);
+    assert.equal(row.plan_status, "active");
+    assert.equal(row.plan_client_limit, 4);
+    assert.equal(row.stripe_subscription_id, "sub_1");
+
+    const expected = Math.floor(periodEnd.getTime() / 1000) * 1000 + 3 * 86_400_000;
+    const accounts = await sql`SELECT id, expiration_date FROM users WHERE id IN (${ids.client1}, ${ids.client2}, ${ids.client3}, ${ids.houseClient})`;
+    const exp = Object.fromEntries(accounts.map((a) => [a.id, a.expiration_date && new Date(a.expiration_date).getTime()]));
+    assert.equal(exp[ids.client1], expected);
+    assert.equal(exp[ids.client2], later.getTime(), "quem já tem acesso mais longo não perde dias");
+    assert.equal(exp[ids.client3], null, "cliente de outra agência não é tocado");
+    assert.equal(exp[ids.houseClient], null);
+    const audits = await sql`SELECT target_user_id, admin_email FROM backoffice_audit_logs WHERE action = 'agency_plan_coverage'`;
+    assert.deepEqual(audits.map((a) => a.target_user_id), [ids.client1]);
+
+    // Reentrega de uma fatura velha não puxa o pago até para trás.
+    await plan.recordAgencyInvoicePaid(paidInvoice(days(5)));
+    const [again] = await sql`SELECT plan_paid_until FROM agencies WHERE id = ${ids.agencyA}`;
+    assert.equal(new Date(again.plan_paid_until).getTime(), Math.floor(periodEnd.getTime() / 1000) * 1000);
+  });
+
+  it("fatura de assinatura de cliente (sem agency_id) passa reto", async () => {
+    const invoice = paidInvoice(days(30));
+    (invoice.parent as { subscription_details: { metadata: Record<string, string> } }).subscription_details.metadata = { app_user_id: ids.client1 };
+    assert.equal(await plan.recordAgencyInvoicePaid(invoice), false);
+    const [row] = await sql`SELECT plan_paid_until FROM agencies WHERE id = ${ids.agencyA}`;
+    assert.equal(row.plan_paid_until, null);
+  });
+
+  it("conta ligada com o plano pago já entra coberta", async () => {
+    stripeState.subscriptions.sub_1 = subscription();
+    await plan.recordAgencyInvoicePaid(paidInvoice(days(30)));
+    await lib.addAgencyClient(admin, ids.agencyA, "casa@x.com");
+    const [account] = await sql`SELECT expiration_date FROM users WHERE id = ${ids.houseClient}`;
+    assert.ok(account.expiration_date && new Date(account.expiration_date) > days(32));
+  });
+
+  it("evento atrasado de assinatura velha e cancelada não sobrescreve a atual", async () => {
+    stripeState.subscriptions.sub_new = subscription({ id: "sub_new", quantity: 5 });
+    stripeState.subscriptions.sub_old = subscription({ id: "sub_old", status: "canceled", quantity: 2 });
+    await plan.syncAgencySubscription("sub_new");
+    await plan.syncAgencySubscription("sub_old");
+    const [row] = await sql`SELECT stripe_subscription_id, plan_status, plan_client_limit FROM agencies WHERE id = ${ids.agencyA}`;
+    assert.deepEqual({ ...row }, { stripe_subscription_id: "sub_new", plan_status: "active", plan_client_limit: 5 });
+  });
+
+  it("só o admin define o plano, e não abaixo dos clientes já ligados", async () => {
+    const owner = await actor("dono@infinite.com");
+    await assert.rejects(plan.setAgencyPlan(owner, ids.agencyA, { unitAmount: "249,90", clientLimit: 4 }), (e: Error & { status?: number }) => e.status === 403);
+    await assert.rejects(plan.setAgencyPlan(admin, ids.agencyA, { unitAmount: "249,90", clientLimit: 1 }), /já tem 2 clientes/);
+    await plan.setAgencyPlan(admin, ids.agencyA, { unitAmount: "249,90", clientLimit: 4 });
+    const [row] = await sql`SELECT plan_unit_amount_cents, plan_client_limit, plan_status FROM agencies WHERE id = ${ids.agencyA}`;
+    assert.deepEqual({ ...row }, { plan_unit_amount_cents: 24990, plan_client_limit: 4, plan_status: "pending" });
   });
 });
