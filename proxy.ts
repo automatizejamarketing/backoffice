@@ -16,6 +16,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/.well-known/oauth-") ||
     pathname.startsWith("/api/oauth/") ||
     pathname === "/api/mcp" ||
+    // Webhook do ClickUp: público, cada POST prova a origem pela assinatura.
+    pathname.startsWith("/api/clickup/webhook/") ||
     pathname.startsWith("/api/cron-job") ||
     pathname.startsWith("/api/internal/client-reports/") ||
     pathname === "/api/internal/mat-performance-report"

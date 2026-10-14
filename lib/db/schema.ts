@@ -2878,6 +2878,10 @@ export const scheduledPost = pgTable(
     ),
     // For uploaded/external images, use mediaUrl (fallback)
     mediaUrl: text("media_url"),
+    // Carrossel (mesmo formato do frontend, `ScheduledCarouselItem[]`).
+    carouselItems: jsonb("carousel_items").$type<
+      Array<{ mediaUrl: string; mediaType: "IMAGE" | "VIDEO"; containerId: string | null; containerStatus: string | null }>
+    >(),
     mediaType: varchar("media_type", { length: 32 }),
     caption: text("caption"),
     locationId: text("location_id"),
@@ -10335,3 +10339,107 @@ export const consultantClientAiAnalysis = pgTable("consultant_client_ai_analyses
 });
 
 export type ConsultantClientAiAnalysis = InferSelectModel<typeof consultantClientAiAnalysis>;
+
+/** Conexão da agência com o ClickUp (OAuth) e o mapeamento da Lista de Publicação (ADR 0043). */
+export const clickupConnection = pgTable("clickup_connections", {
+  agencyId: uuid("agency_id")
+    .primaryKey()
+    .notNull()
+    .references(() => agency.id),
+  accessTokenEncrypted: text("access_token_encrypted").notNull(),
+  clickupUserId: varchar("clickup_user_id", { length: 32 }).notNull(),
+  clickupUserEmail: varchar("clickup_user_email", { length: 200 }),
+  teamId: varchar("team_id", { length: 32 }),
+  teamName: text("team_name"),
+  /** `ClickupMapping` de `lib/clickup/core.ts`; null até o Dono mapear. */
+  mapping: jsonb("mapping"),
+  webhookId: varchar("webhook_id", { length: 64 }),
+  webhookSecretEncrypted: text("webhook_secret_encrypted"),
+  /** active | needs_reconnect */
+  status: varchar("status", { length: 24 }).notNull().default("active"),
+  statusDetail: text("status_detail"),
+  connectedByEmail: varchar("connected_by_email", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Evento do webhook do ClickUp; id = `{webhook_id}:{history_item_id}` deduplica as retentativas. */
+export const clickupWebhookEvent = pgTable(
+  "clickup_webhook_events",
+  {
+    id: varchar("id", { length: 160 }).primaryKey().notNull(),
+    agencyId: uuid("agency_id")
+      .notNull()
+      .references(() => agency.id),
+    taskId: varchar("task_id", { length: 32 }).notNull(),
+    /** schedule | cancel */
+    intent: varchar("intent", { length: 16 }).notNull(),
+    /** Quem mexeu no status (para a menção no Retorno na Tarefa). */
+    actorClickupUserId: varchar("actor_clickup_user_id", { length: 32 }),
+    /** Status para onde a pessoa moveu a tarefa (para devolver a tarefa a ele num cancelamento). */
+    toStatus: varchar("to_status", { length: 100 }),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    attempts: integer("attempts").notNull().default(0),
+    /** Trava de quem está processando (webhook ou cron); vencida, outro pode pegar. */
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    result: text("result"),
+  },
+  (table) => ({
+    pendingIdx: index("clickup_webhook_events_pending_idx")
+      .on(table.receivedAt)
+      .where(sql`${table.processedAt} IS NULL`),
+  }),
+);
+
+/** Tarefa do ClickUp ligada ao Agendamento Sincronizado na conta do cliente. */
+export const clickupTaskPost = pgTable(
+  "clickup_task_posts",
+  {
+    taskId: varchar("task_id", { length: 32 }).primaryKey().notNull(),
+    agencyId: uuid("agency_id")
+      .notNull()
+      .references(() => agency.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    scheduledPostId: uuid("scheduled_post_id").references(() => scheduledPost.id, { onDelete: "set null" }),
+    /** scheduled | posted | failed | cancelled | refused */
+    state: varchar("state", { length: 16 }).notNull(),
+    /** Último estado já escrito na tarefa (Retorno na Tarefa). */
+    reportedState: varchar("reported_state", { length: 16 }),
+    approvedByClickupUserId: varchar("approved_by_clickup_user_id", { length: 32 }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    scheduledPostIdx: index("clickup_task_posts_scheduled_post_idx").on(table.scheduledPostId),
+  }),
+);
+
+/** Escritas de volta na tarefa (comentário ou status), com retentativa e sem duplicar por `dedupe_key`. */
+export const clickupOutbox = pgTable(
+  "clickup_outbox",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    agencyId: uuid("agency_id")
+      .notNull()
+      .references(() => agency.id),
+    taskId: varchar("task_id", { length: 32 }).notNull(),
+    /** comment | status */
+    kind: varchar("kind", { length: 16 }).notNull(),
+    dedupeKey: varchar("dedupe_key", { length: 200 }).notNull().unique(),
+    /** Texto do comentário ou nome do status. */
+    body: text("body").notNull(),
+    mentionClickupUserId: varchar("mention_clickup_user_id", { length: 32 }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pendingIdx: index("clickup_outbox_pending_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.sentAt} IS NULL`),
+  }),
+);
