@@ -1,7 +1,7 @@
 -- Biblioteca de mídias (spec 2026-10-13): quem subiu (admin do backoffice ou o
 -- próprio cliente), tamanho lido do R2 e motivo da exclusão. Só colunas novas e
 -- nulas — nenhuma linha existente é reescrita.
--- Shared FE 0141 / BO 0132, same `when` (1802100000000): first apply wins.
+-- Shared FE 0144 / BO 0135, same `when` (1802300000000): first apply wins.
 
 ALTER TABLE "blob_uploads" ADD COLUMN IF NOT EXISTS "size_bytes" bigint;--> statement-breakpoint
 ALTER TABLE "blob_uploads" ADD COLUMN IF NOT EXISTS "uploaded_by_backoffice_email" varchar(255);--> statement-breakpoint

@@ -131,6 +131,7 @@ IDs usados pela matriz de aceitação da avaliação final.
   entre statements, arquivos `.sql` com fim de linha LF e bytes idênticos nos dois repos; não
   introduz falha nova em `tests/migration-journal.test.ts` (BO) — as 2 falhas atuais desse
   arquivo (`0110`/`0116` e `0116`/`0121`) são dívida anterior, medida na base.
+  Renumerada para FE `0144` / BO `0135` e `when` 1802300000000 em 2026-10-13, depois que a main avançou (0143/0134 usam 1802100000000).
 - **N2 — Módulo de política espelhado** (`lib/media-library/policy.ts`) e o helper de bypass
   (`lib/access/billing-bypass.ts`) byte-idênticos nos dois repos, cobertos pelo teste de
   paridade e pelo `sync:meta` (lista em `tests/helpers/source-parity.ts`).
