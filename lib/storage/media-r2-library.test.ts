@@ -186,3 +186,12 @@ describe("normalizeListPrefix", () => {
     assert.throws(() => normalizeListPrefix("library/../x"), /invalid_media_prefix/);
   });
 });
+
+describe("buildAttachmentContentDisposition sem controles bidi", () => {
+  it("nunca leva U+202E para o cabeçalho, nem em filename nem em filename*", () => {
+    const header = buildAttachmentContentDisposition("foto\u202Egnp.exe");
+    assert.equal(header.includes("\u202E"), false);
+    assert.equal(header.includes("%E2%80%AE"), false);
+    assert.equal(header, "attachment; filename=\"fotognp.exe\"; filename*=UTF-8''fotognp.exe");
+  });
+});

@@ -17,7 +17,8 @@ export type MediaUploadResult = {
 export type MediaUploadOptions = {
   clientPayload?: string;
   contentType?: string;
-  endpoint?: string;
+  /** Rota de presign do chamador. Sem padrão: `/api/files/upload` do frontend não é mais chamada daqui. */
+  endpoint: string;
   onUploadProgress?: (event: { percentage: number }) => void;
 };
 
@@ -50,14 +51,15 @@ function putWithProgress(
 export async function uploadMedia(
   pathname: string,
   file: File | Blob,
-  options: MediaUploadOptions = {},
+  options: MediaUploadOptions,
 ): Promise<MediaUploadResult> {
+  if (!options?.endpoint) throw new Error("uploadMedia: endpoint é obrigatório");
   const contentType =
     options.contentType ??
     (file instanceof File ? file.type : file.type) ??
     "application/octet-stream";
 
-  const presignResponse = await fetch(options.endpoint ?? "/api/files/upload", {
+  const presignResponse = await fetch(options.endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

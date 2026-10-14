@@ -64,6 +64,19 @@ const EXTENSION_BY_TYPE: Record<MediaLibraryContentType, string> = {
   "video/webm": "webm",
 };
 
+/** Extensões que o nome pode manter para cada tipo validado (sem diferenciar maiúsculas). */
+const ALLOWED_EXTENSIONS_BY_TYPE: Record<MediaLibraryContentType, readonly string[]> = {
+  "image/jpeg": ["jpg", "jpeg"],
+  "image/png": ["png"],
+  "video/mp4": ["mp4", "m4v"],
+  "video/quicktime": ["mov", "qt"],
+  "video/webm": ["webm"],
+};
+
+const MEDIA_LIBRARY_FILENAME_MAX_LENGTH = 120;
+const INVISIBLE_FORMAT_CHARS = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -200,20 +213,47 @@ export function buildMediaLibraryPathname(
   return `library/${userId}/${slug}.${EXTENSION_BY_TYPE[contentType]}`;
 }
 
-/** Nome mostrado: só o arquivo, sem caracteres de controle, até 120 caracteres. */
+/**
+ * Remove controles bidi e outros caracteres invisíveis de formatação. Um U+202E
+ * no meio do nome faz `foto\u202Egnp.exe` aparecer como `fotoexe.png`: por isso sai.
+ */
+export function stripInvisibleFormatChars(text: string): string {
+  return text.replace(INVISIBLE_FORMAT_CHARS, "");
+}
+
+/** Invisíveis de formatação mais os controles C0 e DEL. */
+export function stripControlAndFormatChars(text: string): string {
+  return stripInvisibleFormatChars(text).replace(CONTROL_CHARS, "");
+}
+
+/**
+ * Nome mostrado e baixado: só o arquivo, sem controles, com extensão coerente
+ * com o tipo validado e até 120 caracteres. Se a extensão do nome não for uma
+ * do tipo, acrescenta a canônica (`foto.exe` + png → `foto.exe.png`), então o
+ * nome nunca termina numa extensão que o tipo não aceita.
+ */
 export function sanitizeMediaLibraryFilename(
   filename: string,
   contentType: MediaLibraryContentType,
 ): string {
-  const clean = lastPathSegment(filename)
-    .replace(/[\u0000-\u001f\u007f]/g, "")
+  const canonicalExtension = EXTENSION_BY_TYPE[contentType];
+  const clean = stripControlAndFormatChars(lastPathSegment(filename))
     .replace(/\s+/g, " ")
     .trim();
-  if (!clean) return `midia.${EXTENSION_BY_TYPE[contentType]}`;
-  if (clean.length <= 120) return clean;
+  if (!clean) return `midia.${canonicalExtension}`;
+
   const dot = clean.lastIndexOf(".");
-  const extension = dot > 0 && clean.length - dot <= 6 ? clean.slice(dot) : "";
-  return `${clean.slice(0, 120 - extension.length)}${extension}`;
+  const ownExtension = dot > 0 ? clean.slice(dot + 1).toLowerCase() : null;
+  const keepsOwnExtension =
+    ownExtension !== null && ALLOWED_EXTENSIONS_BY_TYPE[contentType].includes(ownExtension);
+  const base = keepsOwnExtension ? clean.slice(0, dot) : clean;
+  const extension = keepsOwnExtension ? clean.slice(dot) : `.${canonicalExtension}`;
+  if (base.length + extension.length <= MEDIA_LIBRARY_FILENAME_MAX_LENGTH) {
+    return `${base}${extension}`;
+  }
+  // Corta só a base: a extensão final (sempre do tipo) fica inteira.
+  const room = MEDIA_LIBRARY_FILENAME_MAX_LENGTH - extension.length;
+  return `${base.slice(0, room).trimEnd() || "midia"}${extension}`;
 }
 
 export function parseMediaLibraryTypeFilter(

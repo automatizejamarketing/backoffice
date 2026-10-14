@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { stripInvisibleFormatChars } from "@/lib/media-library/policy";
 
 /**
  * Armazenamento de mídia (imagens/vídeos de posts, criativos, uploads de
@@ -528,7 +529,8 @@ function encodeRfc5987(value: string): string {
 
 /** `Content-Disposition` de download com nome original (RFC 6266/5987). */
 export function buildAttachmentContentDisposition(filename: string): string {
-  const original = filename.trim() || "midia";
+  // Defesa em profundidade: controles bidi não entram nem no fallback nem no filename*.
+  const original = stripInvisibleFormatChars(filename).trim() || "midia";
   const fallback =
     original
       .normalize("NFD")

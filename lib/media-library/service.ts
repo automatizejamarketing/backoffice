@@ -15,8 +15,10 @@ import {
   isMediaLibraryKeyOwnedBy,
   isMediaLibraryVideo,
   isUuidLike,
+  normalizeMediaLibraryContentType,
   parseMediaLibraryCursor,
   sanitizeMediaLibraryFilename,
+  stripControlAndFormatChars,
   validateMediaLibraryUpload,
   type MediaLibraryContentType,
   type MediaLibraryCursor,
@@ -156,11 +158,17 @@ async function discardObject(deps: MediaLibraryDeps, url: string): Promise<void>
   }
 }
 
-export function mediaLibraryDisplayFilename(record: Pick<MediaLibraryRecord, "filename" | "pathname">): string {
-  const filename = record.filename?.trim();
-  if (filename) return filename;
-  const base = record.pathname?.split("/").pop();
-  return base || "mídia";
+/**
+ * Nome usado na grade, na prévia, na exclusão e no download. Também limpa linhas
+ * gravadas antes da correção (controles bidi, extensão que não bate com o tipo).
+ */
+export function mediaLibraryDisplayFilename(
+  record: Pick<MediaLibraryRecord, "filename" | "pathname" | "contentType">,
+): string {
+  const raw = record.filename?.trim() || record.pathname?.split("/").pop() || "mídia";
+  const contentType = normalizeMediaLibraryContentType(record.contentType);
+  if (contentType) return sanitizeMediaLibraryFilename(raw, contentType);
+  return stripControlAndFormatChars(raw).trim() || "mídia";
 }
 
 export function toMediaLibraryItem(
