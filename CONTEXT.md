@@ -246,7 +246,7 @@ somente de leitura. Ambos precisam de `CLOUDFLARE_R2_ACCOUNT_ID`,
 
 ## Biblioteca de mídias
 
-**Biblioteca de mídias** — o acervo permanente, por usuário, das linhas `campaign_media` de `blob_uploads` (uploads do app, do backoffice e do WhatsApp). Fica guardado enquanto o acesso estiver ativo; um mês depois da expiração tudo é apagado pelo cron de retenção do frontend (ADR 0042 do frontend). Estados: **Ativa** (bypass de cobrança ou `expiration_date` no futuro), **Carência** (expirou há menos de um mês: o admin ainda envia e exclui) e **Encerrada** (sem data, ou expirada há um mês ou mais: nada entra, a lista vem vazia e o download é recusado).
+**Biblioteca de mídias** — o acervo permanente, por usuário, das linhas `campaign_media` de `blob_uploads` (uploads do app, do backoffice e do WhatsApp). Fica guardado enquanto o acesso estiver ativo; um mês depois da expiração, o cron de retenção do frontend apaga as mídias registradas (ADR 0042 do frontend); objetos sem linha registrada não são descobertos. Estados: **Ativa** (bypass de cobrança ou `expiration_date` no futuro), **Carência** (expirou há menos de um mês: o admin ainda envia e exclui) e **Encerrada** (sem data, ou expirada há um mês ou mais: nada entra, a lista vem vazia e o download é recusado).
 
 O admin do backoffice vê, baixa, exclui e adiciona mídias, e fica registrado como autor. O card "Biblioteca de mídias" fica no Marketing do cliente, logo após "Detalhes do usuário", e a aba "Biblioteca" do seletor de mídia mostra a mesma biblioteca. As ações entram na Auditoria do cliente (`media_library_add`, `media_library_delete`).
 
