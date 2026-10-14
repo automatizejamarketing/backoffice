@@ -105,12 +105,13 @@ async function insertPerson(
 ) {
   const email = normalizeEmail(input.email);
   if (!email.includes("@")) throw new AgencyError("E-mail inválido.");
-  const [existing] = await tx.select({ id: backofficeUser.id }).from(backofficeUser).where(eq(backofficeUser.email, email)).limit(1);
-  if (existing) throw new AgencyError("Este e-mail já tem acesso ao backoffice.", 409);
+  // Mensagem única: não conta ao Dono quais e-mails são da equipe Automatize ou de outra agência.
   const [created] = await tx
     .insert(backofficeUser)
     .values({ email, name: input.name?.trim() || null, role: input.role, agencyId, active: true })
+    .onConflictDoNothing({ target: backofficeUser.email })
     .returning({ id: backofficeUser.id, email: backofficeUser.email, name: backofficeUser.name, role: backofficeUser.role });
+  if (!created) throw new AgencyError("Não foi possível dar acesso a este e-mail. Fale com a Automatize.", 409);
   return created;
 }
 
@@ -150,6 +151,12 @@ export async function removeAgencyPerson(actor: BackofficeActor, agencyId: strin
       .where(and(eq(backofficeUser.id, personId), eq(backofficeUser.agencyId, agencyId)))
       .limit(1);
     if (!person) throw new AgencyError("Pessoa não encontrada nesta agência.", 404);
+    // A agência nunca fica sem Dono: sem ele, ninguém da agência gere clientes e pessoas.
+    const owners = await tx
+      .select({ id: backofficeUser.id })
+      .from(backofficeUser)
+      .where(and(eq(backofficeUser.agencyId, agencyId), eq(backofficeUser.role, "agency_owner"), eq(backofficeUser.active, true)));
+    if (owners.length === 1 && owners[0]!.id === personId) throw new AgencyError("Esta é a única pessoa Dona da agência. Adicione outra pessoa como Dona antes de remover.", 409);
     await tx.delete(userMarketingConsultant).where(eq(userMarketingConsultant.consultantId, personId));
     await tx.delete(backofficeUser).where(eq(backofficeUser.id, personId));
   });
@@ -175,7 +182,12 @@ export async function addAgencyClient(actor: BackofficeActor, agencyId: string, 
     if (current) {
       throw new AgencyError(current.agencyId === agencyId ? "Esta conta já é cliente da agência." : "Esta conta já é cliente de outra agência.", 409);
     }
-    await tx.insert(agencyClient).values({ userId: account.id, agencyId, addedByEmail: actor.email });
+    const inserted = await tx
+      .insert(agencyClient)
+      .values({ userId: account.id, agencyId, addedByEmail: actor.email })
+      .onConflictDoNothing()
+      .returning({ userId: agencyClient.userId });
+    if (!inserted.length) throw new AgencyError("Esta conta acabou de ser ligada a uma agência. Atualize a página.", 409);
     await tx.delete(userMarketingConsultant).where(eq(userMarketingConsultant.userId, account.id));
     await tx.insert(backofficeAuditLog).values({
       adminEmail: actor.email,

@@ -78,21 +78,26 @@ export async function requireMarketingUserAccess(
   return actor;
 }
 
+/**
+ * Para onde vai quem não pode abrir a página: a "casa" do cargo. Nunca devolve uma página que o
+ * próprio cargo não abre (o comercial negado em /portfolio entrava em loop).
+ */
+function homeFor(actor: BackofficeActor, deniedRedirect: string): string {
+  if (actor.role === "finance_viewer") return "/finance";
+  if (canReceiveClients(actor.role) && hasBackofficePermission(actor, "marketing:read")) return "/trafego";
+  if (deniedRedirect === "/portfolio" && !hasBackofficePermission(actor, "marketing:read")) {
+    return hasBackofficePermission(actor, "dashboard:view") ? "/" : hasBackofficePermission(actor, "users:read") ? "/users" : "/ai";
+  }
+  return deniedRedirect;
+}
+
 export async function requirePagePermission(
   permission: BackofficePermission,
   deniedRedirect = "/portfolio",
 ): Promise<BackofficeActor> {
   const actor = await getCurrentBackofficeActor();
   if (!actor) redirect("/login");
-  if (!hasBackofficePermission(actor, permission)) {
-    redirect(
-      actor.role === "finance_viewer"
-        ? "/finance"
-        : canReceiveClients(actor.role) && hasBackofficePermission(actor, "marketing:read")
-          ? "/trafego"
-          : deniedRedirect,
-    );
-  }
+  if (!hasBackofficePermission(actor, permission)) redirect(homeFor(actor, deniedRedirect));
   return actor;
 }
 

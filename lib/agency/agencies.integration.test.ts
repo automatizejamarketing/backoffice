@@ -166,7 +166,7 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
     await assert.rejects(lib.getAgencyDetail(other, ids.agencyA), (e: Error & { status?: number }) => e.status === 403);
     await assert.rejects(lib.addAgencyClient(admin, ids.agencyA, "c3@x.com"), /outra agência/);
     await assert.rejects(lib.addAgencyClient(other, ids.agencyA, "casa@x.com"), (e: Error & { status?: number }) => e.status === 403);
-    await assert.rejects(lib.addAgencyPerson(owner, ids.agencyA, { email: "dono@outra.com", role: "agency_member" }), /já tem acesso/);
+    await assert.rejects(lib.addAgencyPerson(owner, ids.agencyA, { email: "dono@outra.com", role: "agency_member" }), /Não foi possível dar acesso/);
   });
 
   it("Dono não puxa conta para a agência só sabendo o e-mail; só o admin liga", async () => {
@@ -194,6 +194,7 @@ describe("agências: isolamento no banco", { skip: !BASE_URL }, () => {
   it("tirar uma pessoa da agência tira o acesso e solta os clientes dela", async () => {
     const owner = await actor("dono@infinite.com");
     await assert.rejects(lib.removeAgencyPerson(owner, ids.agencyA, ids.ownerA), /a si mesmo/);
+    await assert.rejects(lib.removeAgencyPerson(admin, ids.agencyA, ids.ownerA), /única pessoa Dona/);
     await assert.rejects(lib.removeAgencyPerson(owner, ids.agencyA, ids.ownerB), (e: Error & { status?: number }) => e.status === 404);
     await lib.removeAgencyPerson(owner, ids.agencyA, ids.memberA);
     assert.equal(await users.getBackofficeActorByEmail("membro@infinite.com"), null);

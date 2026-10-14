@@ -183,6 +183,8 @@ export async function UserHubPage({
   }
 
   const requestedTab = isUserHubTab(sp.tab) ? sp.tab : "marketing";
+  // Cliente de agência externa: para quem não é admin, a conta não existe (ADR 0044).
+  if (actor.hiddenUserIds?.includes(id)) notFound();
 
   if (consultantSeesOnlyAssignedClients(actor.role)) {
     if (!canAccessUserHubTab(actor, id, "business")) {
