@@ -2,7 +2,8 @@ import "server-only";
 
 import { and, between, desc, eq, gte, inArray, isNotNull, isNull, like, ne, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { clientScopeOf, type BackofficeActor, type ClientScope } from "@/lib/auth/rbac-core";
+import { clientScopeCondition } from "@/lib/db/client-scope";
 import { PLAYBOOK_PENDING_STATUSES } from "@/lib/backoffice/playbook-alert-dashboard";
 import { db } from "@/lib/db";
 import {
@@ -12,23 +13,26 @@ import {
 import { round2 } from "@/lib/meta-business/insights/currency";
 import { DEFAULT_CURRENCY, type Period, type WindowTotals } from "./meta-ads-metrics";
 
+/** Os clientes do ator (`ClientScope`) ou, só para admin, a carteira de um consultor. */
+export type PortfolioScope = ClientScope | { consultantId: string };
+
 /**
- * Whose clients a call may read. A plain consultant is pinned to their own portfolio; everyone
- * else with marketing:read sees all clients, and only an admin may narrow to one consultant —
- * the same split as the /portfolio screen.
+ * Whose clients a call may read. A plain consultant and agency people are pinned to their own
+ * list; everyone else with marketing:read sees all clients but the hidden ones (external agencies'),
+ * and only an admin may narrow to one consultant — the same split as the /portfolio screen.
  */
-export async function resolveConsultantScope(actor: BackofficeActor, consultantEmail?: string): Promise<string | null> {
-  if (consultantSeesOnlyAssignedClients(actor.role)) return actor.id;
-  if (!consultantEmail) return null;
+export async function resolveConsultantScope(actor: BackofficeActor, consultantEmail?: string): Promise<PortfolioScope> {
+  const own = clientScopeOf(actor);
+  if ("only" in own || !consultantEmail) return own;
   if (actor.role !== "admin") throw new Error("Só admin filtra por consultor.");
   const [row] = await db.select({ id: backofficeUser.id }).from(backofficeUser).where(eq(backofficeUser.email, consultantEmail.trim().toLowerCase())).limit(1);
   if (!row) throw new Error(`Consultor ${consultantEmail} não encontrado.`);
-  return row.id;
+  return { consultantId: row.id };
 }
 
-function inScope(userIdColumn: AnyPgColumn, consultantId: string | null): SQL | undefined {
-  if (!consultantId) return undefined;
-  return sql`${userIdColumn} IN (SELECT ${userMarketingConsultant.userId} FROM ${userMarketingConsultant} WHERE ${userMarketingConsultant.consultantId} = ${consultantId})`;
+function inScope(userIdColumn: AnyPgColumn, scope: PortfolioScope): SQL | undefined {
+  if (!("consultantId" in scope)) return clientScopeCondition(userIdColumn, scope);
+  return sql`${userIdColumn} IN (SELECT ${userMarketingConsultant.userId} FROM ${userMarketingConsultant} WHERE ${userMarketingConsultant.consultantId} = ${scope.consultantId})`;
 }
 
 const num = (value: unknown) => {
@@ -66,7 +70,7 @@ function toWindow(row: Record<keyof WindowTotals, unknown>): WindowTotals {
  * campaign-level rows only, so ad sets and ads are never counted twice. Per account, because
  * accounts of one client can be in different currencies.
  */
-export async function loadPortfolioWindows(args: { consultantId: string | null; current: Period; previous: Period; userIds?: string[] }) {
+export async function loadPortfolioWindows(args: { scope: PortfolioScope; current: Period; previous: Period; userIds?: string[] }) {
   const m = metaTrackingDailyMetric;
   const cur = windowSums(args.current);
   const prev = windowSums(args.previous);
@@ -81,7 +85,7 @@ export async function loadPortfolioWindows(args: { consultantId: string | null; 
     .where(and(
       eq(m.entityLevel, "campaign"),
       between(m.metricDate, args.previous.since, args.current.until),
-      inScope(m.userId, args.consultantId),
+      inScope(m.userId, args.scope),
       args.userIds ? inArray(m.userId, args.userIds) : undefined,
     ))
     .groupBy(m.userId, m.accountId);
@@ -109,11 +113,11 @@ export async function loadAccountCurrencies(accountIds: string[]): Promise<Map<s
 }
 
 /** Clients in scope with a live Meta connection: the denominator for "who is not spending". */
-export async function loadScopedMetaClientIds(consultantId: string | null, userIds?: string[]): Promise<string[]> {
+export async function loadScopedMetaClientIds(scope: PortfolioScope, userIds?: string[]): Promise<string[]> {
   const rows = await db
     .selectDistinct({ userId: metaBusinessAccount.userId })
     .from(metaBusinessAccount)
-    .where(and(isNull(metaBusinessAccount.deletedAt), inScope(metaBusinessAccount.userId, consultantId), userIds ? inArray(metaBusinessAccount.userId, userIds) : undefined));
+    .where(and(isNull(metaBusinessAccount.deletedAt), inScope(metaBusinessAccount.userId, scope), userIds ? inArray(metaBusinessAccount.userId, userIds) : undefined));
   return rows.map(r => r.userId);
 }
 
@@ -211,11 +215,11 @@ export type AlertFamily = keyof typeof ALERT_FAMILIES;
 const SEVERITY_RANK = sql`CASE ${performanceInsight.severity} WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END`;
 
 /** Pending alerts (open or in progress) the crons left for clients in scope, worst first. */
-export async function listPendingAlerts(args: { consultantId: string | null; family?: AlertFamily; severity?: string; userId?: string; limit: number }) {
+export async function listPendingAlerts(args: { scope: PortfolioScope; family?: AlertFamily; severity?: string; userId?: string; limit: number }) {
   const pi = performanceInsight;
   const where = and(
     inArray(pi.status, [...PLAYBOOK_PENDING_STATUSES]),
-    inScope(pi.userId, args.consultantId),
+    inScope(pi.userId, args.scope),
     args.family ? like(pi.ruleId, `${ALERT_FAMILIES[args.family]}%`) : undefined,
     args.severity ? eq(pi.severity, args.severity) : undefined,
     args.userId ? eq(pi.userId, args.userId) : undefined,

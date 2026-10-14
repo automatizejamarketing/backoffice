@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
+import { canAccessMarketingUser } from "@/lib/auth/rbac-core";
 import {
   getAssignedMarketingConsultant,
   setMarketingConsultantAssignment,
@@ -14,6 +15,10 @@ export async function GET(
   if (!authz.ok) return authz.response;
 
   const { id } = await params;
+  // Clientes de agências externas ficam fora para a equipe que não é admin.
+  if (!canAccessMarketingUser(authz.actor, id)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const assignment = await getAssignedMarketingConsultant(id);
   return NextResponse.json({ assignment });
 }
@@ -26,6 +31,10 @@ export async function PATCH(
   if (!authz.ok) return authz.response;
 
   const { id } = await params;
+  // Clientes de agências externas ficam fora para a equipe que não é admin.
+  if (!canAccessMarketingUser(authz.actor, id)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const body = (await request.json()) as { consultantId?: unknown };
   const consultantId =
     typeof body.consultantId === "string" && body.consultantId !== "none"

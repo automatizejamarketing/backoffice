@@ -57,16 +57,23 @@ export const MCP_CAPABILITIES: McpCapability[] = [
       "Proponha os ajustes de orçamento dos clientes Premium fora da meta e aplique depois que eu aprovar.",
       "Prepare o resumo da semana para os clientes que estão rodando.",
       "Quais ações sugeridas o cliente X tem hoje? Cheque pixel e saldo também.",
-      "Peça pela Mat a aprovação para escalar as campanhas que validaram, depois que eu ver a prévia.",
     ],
     limit:
-      "Pausar, ativar, mudar orçamento ou duplicar na Meta só acontece depois que você aprova a prévia. A Mat só manda mensagem ao cliente depois que você vê a prévia e confirma; as demais saem do seu WhatsApp.",
+      "Pausar, ativar, mudar orçamento ou duplicar na Meta só acontece depois que você aprova a prévia. As mensagens preparadas para o cliente saem do seu WhatsApp.",
     consent: ["Consultar Meta Ads, resultados, alertas e a jornada dos clientes que você acompanha"],
     consentWrite: [
       "Registrar metas, notas, tags de problema e a passagem de bastão; concluir e adiar alertas",
       "Pausar, ativar, mudar orçamento diário ou duplicar na Meta, sempre depois de mostrar a prévia e você confirmar",
-      "Pedir à Mat para mandar mensagens aos clientes, sempre depois de mostrar a prévia e você confirmar",
     ],
+  },
+  {
+    // A Mat é o WhatsApp da Automatize: só a equipe interna fala com o cliente por ela.
+    permission: "mat:outreach",
+    title: "Mensagens da Mat aos clientes",
+    examples: ["Peça pela Mat a aprovação para escalar as campanhas que validaram, depois que eu ver a prévia."],
+    limit: "A Mat só manda mensagem ao cliente depois que você vê a prévia e confirma.",
+    consent: [],
+    consentWrite: ["Pedir à Mat para mandar mensagens aos clientes, sempre depois de mostrar a prévia e você confirmar"],
   },
   {
     permission: "whatsapp:campaigns",

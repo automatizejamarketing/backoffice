@@ -2,7 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { playbookAlertRuleTitle } from "@/lib/backoffice/playbook-alert-dashboard";
-import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { readWorkspaceState } from "./state";
 import { emptyTotals, primaryKpi, workspaceRange } from "./metrics";
 import type {
@@ -102,7 +102,9 @@ async function loadActiveClientRows(onlyUserId?: string) {
       from business_managed_campaign_cache bc where bc.user_id = u.id
       order by bc.checked_at desc nulls last limit 1
     ) cache on true
-    where (u.expiration_date > now() or sub.status in ('active','trialing','past_due'))
+    -- Cliente de agência entra pela agência, mesmo sem assinatura própria (ADR 0045).
+    where (u.expiration_date > now() or sub.status in ('active','trialing','past_due')
+      or exists (select 1 from agency_clients ac where ac.user_id = u.id))
     ${filter}
   `);
 }
@@ -232,9 +234,9 @@ function loadPortfolio(range: WorkspaceRange): Promise<PortfolioLoad> {
   return promise;
 }
 
-/** O consultor comum só enxerga a carteira atribuída; premium, dev e admin veem todos. */
+/** O consultor comum e a agência só enxergam a própria lista; premium e dev, todos menos os de agências externas. */
 function visibleTo(actor: BackofficeActor, userId: string) {
-  return !consultantSeesOnlyAssignedClients(actor.role) || (actor.assignedUserIds ?? []).includes(userId);
+  return canAccessMarketingUser(actor, userId);
 }
 
 export async function getWorkspaceClients(

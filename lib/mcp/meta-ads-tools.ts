@@ -44,9 +44,9 @@ export const META_ADS_TOOLS: McpTool[] = [
       pageSize: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(50),
     }),
     async run(actor, input) {
-      const consultantId = await resolveConsultantScope(actor, input.consultantEmail);
+      const scope = await resolveConsultantScope(actor, input.consultantEmail);
       const result = await getBusinessPortfolioPage(actor, {
-        consultantId: consultantId ?? "all", subscriptionStatus: input.subscriptionStatus, campaignStatus: input.managedCampaigns,
+        consultantId: "consultantId" in scope ? scope.consultantId : "all", subscriptionStatus: input.subscriptionStatus, campaignStatus: input.managedCampaigns,
         search: input.search ?? "", page: input.page, pageSize: input.pageSize,
       });
       const ids = result.items.map(i => i.userId);
@@ -89,10 +89,10 @@ export const META_ADS_TOOLS: McpTool[] = [
     }),
     async run(actor, input) {
       const periods = resolvePeriods(input);
-      const consultantId = await resolveConsultantScope(actor, input.consultantEmail);
+      const scope = await resolveConsultantScope(actor, input.consultantEmail);
       const [windows, metaClientIds] = await Promise.all([
-        loadPortfolioWindows({ consultantId, current: periods.current, previous: periods.previous, userIds: input.userIds }),
-        loadScopedMetaClientIds(consultantId, input.userIds),
+        loadPortfolioWindows({ scope, current: periods.current, previous: periods.previous, userIds: input.userIds }),
+        loadScopedMetaClientIds(scope, input.userIds),
       ]);
       const currencies = await loadAccountCurrencies([...new Set(windows.map(w => w.accountId))]);
       const spending = rollUpByCurrency(windows, accountId => currencies.get(accountId))
@@ -187,8 +187,8 @@ export const META_ADS_TOOLS: McpTool[] = [
     }),
     async run(actor, input) {
       if (input.userId) assertClientAccess(actor, input.userId);
-      const consultantId = await resolveConsultantScope(actor, input.consultantEmail);
-      const { rows, total } = await listPendingAlerts({ consultantId, family: input.family, severity: input.severity, userId: input.userId, limit: input.limit });
+      const scope = await resolveConsultantScope(actor, input.consultantEmail);
+      const { rows, total } = await listPendingAlerts({ scope, family: input.family, severity: input.severity, userId: input.userId, limit: input.limit });
       const labels = await loadClientLabels([...new Set(rows.map(r => r.userId))]);
       const byClient = new Map<string, { userId: string; client: string; consultant: string | null; alerts: unknown[] }>();
       for (const r of rows) {

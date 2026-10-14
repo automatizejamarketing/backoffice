@@ -9,10 +9,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const authz = await requireBackofficePermissionResponse("marketing:read");
   if (!authz.ok) return authz.response;
-  const canAssign = hasBackofficePermission(authz.actor, "users:manage");
+  // A agência só vê e atribui gente dela; a equipe Automatize, só gente da Automatize.
+  const agencyId = authz.actor.agencyId ?? null;
+  const canAssign = hasBackofficePermission(authz.actor, agencyId ? "agency:manage" : "users:manage");
   const [filter, assignable] = await Promise.all([
-    listConsultantsForFilter(),
-    canAssign ? listActiveMarketingConsultants() : Promise.resolve([]),
+    listConsultantsForFilter(agencyId),
+    canAssign ? listActiveMarketingConsultants(agencyId) : Promise.resolve([]),
   ]);
   return NextResponse.json({
     me: { id: authz.actor.id, email: authz.actor.email, role: authz.actor.role },

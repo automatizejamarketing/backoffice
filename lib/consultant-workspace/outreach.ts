@@ -38,8 +38,8 @@ function fail(failure: OutreachFailure): never {
 }
 
 function assertCanSend(actor: BackofficeActor, userId: string) {
-  if (!hasBackofficePermission(actor, "marketing:write")) {
-    fail({ code: "forbidden", status: 403, message: "Seu cargo não pode mandar mensagens aos clientes." });
+  if (!hasBackofficePermission(actor, "mat:outreach")) {
+    fail({ code: "forbidden", status: 403, message: "Seu cargo não pode mandar mensagens aos clientes pela Mat." });
   }
   if (!canAccessMarketingUser(actor, userId)) {
     fail({ code: "forbidden", status: 403, message: "Este cliente não está na sua carteira." });

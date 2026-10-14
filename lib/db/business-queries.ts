@@ -29,8 +29,9 @@ import {
 } from "@/lib/db/schema";
 import {
   type BackofficeActor,
-  consultantSeesOnlyAssignedClients,
+  clientScopeOf,
 } from "@/lib/auth/rbac-core";
+import { clientScopeCondition } from "@/lib/db/client-scope";
 import {
   DEFAULT_BUSINESS_OPERATING_RULES,
   evaluateBusinessHealth,
@@ -421,10 +422,8 @@ function portfolioBaseQuery() {
 }
 
 function buildPortfolioAccessConditions(actor: BackofficeActor): SQL[] {
-  if (consultantSeesOnlyAssignedClients(actor.role)) {
-    return [eq(userMarketingConsultant.consultantId, actor.id)];
-  }
-  return [];
+  const condition = clientScopeCondition(user.id, clientScopeOf(actor));
+  return condition ? [condition] : [];
 }
 
 function buildPortfolioFilterConditions(

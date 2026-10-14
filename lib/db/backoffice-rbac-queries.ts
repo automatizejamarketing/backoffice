@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db";
 import {
+  agencyClient,
   backofficeUser,
   company,
   metaBusinessAccount,
@@ -13,6 +14,7 @@ import {
   type BackofficeActor,
   type BackofficeRole,
   consultantSeesOnlyAssignedClients,
+  isAgencyRole,
   isMarketingConsultantRole,
   type SalesRole,
 } from "@/lib/auth/rbac-core";
@@ -21,11 +23,22 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** Equipe Automatize (sem agência). Pessoas de agência são geridas na tela Agências. */
 export async function listBackofficeUsers() {
   return db
     .select()
     .from(backofficeUser)
+    .where(isNull(backofficeUser.agencyId))
     .orderBy(asc(backofficeUser.email));
+}
+
+export async function getBackofficeUserById(id: string) {
+  const [found] = await db
+    .select()
+    .from(backofficeUser)
+    .where(eq(backofficeUser.id, id))
+    .limit(1);
+  return found ?? null;
 }
 
 export async function getBackofficeUserByEmail(email: string) {
@@ -92,7 +105,11 @@ export async function deleteBackofficeUser(id: string) {
   return deleted ?? null;
 }
 
-export async function listActiveMarketingConsultants() {
+/**
+ * Quem pode receber clientes: consultores da Automatize (`agencyId` nulo) ou, numa agência, o Dono
+ * e os Membros dela.
+ */
+export async function listActiveMarketingConsultants(agencyId: string | null = null) {
   return db
     .select({
       id: backofficeUser.id,
@@ -102,10 +119,18 @@ export async function listActiveMarketingConsultants() {
     .from(backofficeUser)
     .where(
       and(
-        inArray(backofficeUser.role, [
-          "marketing_consultant",
-          "marketing_consultant_premium",
-        ]),
+        agencyId
+          ? and(
+              inArray(backofficeUser.role, ["agency_owner", "agency_member"]),
+              eq(backofficeUser.agencyId, agencyId),
+            )
+          : and(
+              inArray(backofficeUser.role, [
+                "marketing_consultant",
+                "marketing_consultant_premium",
+              ]),
+              isNull(backofficeUser.agencyId),
+            ),
         eq(backofficeUser.active, true),
       ),
     )
@@ -116,9 +141,9 @@ export async function listActiveMarketingConsultants() {
  * Options for admin consultant filters: active marketing consultants plus
  * anyone who already has clients assigned (e.g. admins with a carteira).
  */
-async function loadConsultantsForFilter() {
+async function loadConsultantsForFilter(agencyId: string | null) {
   const [roleConsultants, assignedConsultants] = await Promise.all([
-    listActiveMarketingConsultants(),
+    listActiveMarketingConsultants(agencyId),
     db
       .selectDistinct({
         id: backofficeUser.id,
@@ -129,6 +154,11 @@ async function loadConsultantsForFilter() {
       .innerJoin(
         backofficeUser,
         eq(userMarketingConsultant.consultantId, backofficeUser.id),
+      )
+      .where(
+        agencyId
+          ? eq(backofficeUser.agencyId, agencyId)
+          : isNull(backofficeUser.agencyId),
       )
       .orderBy(asc(backofficeUser.email)),
   ]);
@@ -141,10 +171,11 @@ async function loadConsultantsForFilter() {
   return [...byId.values()].sort((a, b) => a.email.localeCompare(b.email));
 }
 
-export async function listConsultantsForFilter() {
+/** Opções do filtro "Carteira de": a equipe Automatize ou, para uma agência, só a gente dela. */
+export async function listConsultantsForFilter(agencyId: string | null = null) {
   return unstable_cache(
-    loadConsultantsForFilter,
-    ["consultants-for-filter"],
+    () => loadConsultantsForFilter(agencyId),
+    ["consultants-for-filter", agencyId ?? "automatize"],
     { revalidate: 60, tags: ["consultants-for-filter"] },
   )();
 }
@@ -187,11 +218,20 @@ export async function setMarketingConsultantAssignment(data: {
     .where(eq(backofficeUser.id, data.consultantId))
     .limit(1);
 
-  if (
-    !consultant ||
-    !isMarketingConsultantRole(consultant.role) ||
-    !consultant.active
-  ) {
+  const [agencyLink] = await db
+    .select({ agencyId: agencyClient.agencyId })
+    .from(agencyClient)
+    .where(eq(agencyClient.userId, data.userId))
+    .limit(1);
+
+  // Cliente de agência só vai para gente da mesma agência; cliente da Automatize, só para consultor
+  // interno (ADR 0045).
+  const fits = agencyLink
+    ? isAgencyRole(consultant?.role ?? "admin") &&
+      consultant?.agencyId === agencyLink.agencyId
+    : isMarketingConsultantRole(consultant?.role ?? "admin") &&
+      !consultant?.agencyId;
+  if (!consultant || !fits || !consultant.active) {
     throw new Error("invalid_consultant");
   }
 

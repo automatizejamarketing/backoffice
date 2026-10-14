@@ -12,7 +12,7 @@ import {
 import {
   canAccessMarketingUser,
   hasBackofficePermission,
-  isMarketingConsultantRole,
+  canReceiveClients,
   type BackofficeActor,
   type BackofficePermission,
 } from "@/lib/auth/rbac-core";
@@ -88,7 +88,7 @@ export async function requirePagePermission(
     redirect(
       actor.role === "finance_viewer"
         ? "/finance"
-        : isMarketingConsultantRole(actor.role) && hasBackofficePermission(actor, "marketing:read")
+        : canReceiveClients(actor.role) && hasBackofficePermission(actor, "marketing:read")
           ? "/trafego"
           : deniedRedirect,
     );

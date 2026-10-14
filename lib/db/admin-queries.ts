@@ -8,6 +8,7 @@ import {
   gt,
   ilike,
   inArray,
+  notInArray,
   isNotNull,
   isNull,
   like,
@@ -2687,6 +2688,8 @@ export async function getUsersWithMetaBusinessAccount(options?: {
   page?: number;
   limit?: number;
   userIds?: string[];
+  /** Clientes de agências externas, fora para a equipe que não é admin. */
+  exceptUserIds?: string[];
 }): Promise<GetUsersWithMetaBusinessAccountResult> {
   const page = Math.max(1, Math.trunc(options?.page ?? 1));
   const limit = Math.max(1, Math.trunc(options?.limit ?? 20));
@@ -2702,6 +2705,9 @@ export async function getUsersWithMetaBusinessAccount(options?: {
   }
   if (options?.userIds) {
     conditions.push(inArray(user.id, options.userIds));
+  }
+  if (options?.exceptUserIds?.length) {
+    conditions.push(notInArray(user.id, options.exceptUserIds));
   }
 
   const rows = await db

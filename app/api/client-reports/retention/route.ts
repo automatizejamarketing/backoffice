@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/app/(auth)/auth";
+import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { queryReportRetentionCohort } from "@/lib/client-reports/retention";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // Números da base inteira: só quem vê as regras de negócio (a tela que consome).
+  const authz = await requireBackofficePermissionResponse("business:manage");
+  if (!authz.ok) return authz.response;
 
   const rows = await queryReportRetentionCohort();
   return NextResponse.json({ rows });

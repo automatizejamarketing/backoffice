@@ -6,7 +6,8 @@ import {
 import { firstSearchParam } from "@/lib/backoffice/filter-params";
 import {
   type BackofficeActor,
-  consultantSeesOnlyAssignedClients,
+  type ClientScope,
+  clientScopeOf,
 } from "@/lib/auth/rbac-core";
 import { PROACTIVITY_ALERT_DEFINITIONS } from "@/lib/proactivity/catalog";
 import { ACCOUNT_ALERT_RULE_IDS } from "@/lib/account-alerts/constants";
@@ -110,9 +111,7 @@ export type PlaybookAlertComparison = {
   deltaPercent: number | null;
 };
 
-export type PlaybookAlertAccessScope =
-  | { kind: "consultant"; consultantId: string }
-  | { kind: "all" };
+export type PlaybookAlertAccessScope = ClientScope;
 
 const RULE_TITLE_BY_ID = new Map(
   PROACTIVITY_ALERT_DEFINITIONS.filter(
@@ -246,13 +245,11 @@ export function emptyPlaybookAlertKpis(): PlaybookAlertKpis {
   return { created: 0, completed: 0, treatmentRate: 0 };
 }
 
+/** O consultor comum e a agência veem só a própria lista; o resto, todos menos os escondidos. */
 export function resolvePlaybookAlertAccessScope(
   actor: BackofficeActor,
 ): PlaybookAlertAccessScope {
-  if (consultantSeesOnlyAssignedClients(actor.role)) {
-    return { kind: "consultant", consultantId: actor.id };
-  }
-  return { kind: "all" };
+  return clientScopeOf(actor);
 }
 
 export function statusesForPlaybookAlertTab(
