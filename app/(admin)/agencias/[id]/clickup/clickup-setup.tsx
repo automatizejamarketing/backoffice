@@ -118,6 +118,18 @@ export function ClickupSetup({ agency, clients, initial, flash }: {
   const statusItems = (options?.statuses ?? []).map((s) => ({ value: s, label: s }));
   const taskTypes = [{ id: 0, name: "Tarefa" }, ...(options?.taskTypes ?? [])];
   const set = (patch: Partial<Mapping>) => setDraft((d) => ({ ...d, ...patch }));
+  const missing = [
+    !teamId && "workspace",
+    !draft.listId && "lista",
+    !draft.clientFieldId && "campo Cliente",
+    !draft.captionFieldId && "campo Legenda",
+    !draft.publishAtFieldId && "campo Horário",
+    !draft.statuses.approval && "status de Aprovação",
+    !draft.statuses.scheduled && "status Agendado",
+    !draft.statuses.published && "status Publicado",
+    Object.keys(draft.formats).length === 0 && "um tipo de tarefa",
+    Object.keys(draft.clientOptions).length === 0 && "um cliente ligado",
+  ].filter(Boolean) as string[];
 
   async function save() {
     setSaving(true);
@@ -207,7 +219,7 @@ export function ClickupSetup({ agency, clients, initial, flash }: {
                       <Picker id="cu-client" label="Cliente" value={draft.clientFieldId} onChange={(v) => set({ clientFieldId: v, clientOptions: {} })} items={ofType("drop_down")} hint="Campo de lista suspensa com um cliente por opção." />
                       <Picker id="cu-media" label="Arte" value={draft.mediaFieldId ?? TASK_ATTACHMENTS} onChange={(v) => set({ mediaFieldId: v === TASK_ATTACHMENTS ? null : v })} items={[{ value: TASK_ATTACHMENTS, label: "Anexos da tarefa" }, ...ofType("attachment")]} />
                       <Picker id="cu-caption" label="Legenda" value={draft.captionFieldId} onChange={(v) => set({ captionFieldId: v })} items={ofType("text", "short_text")} />
-                      <Picker id="cu-when" label="Horário de publicação" value={draft.publishAtFieldId} onChange={(v) => set({ publishAtFieldId: v })} items={ofType("date")} hint="Data com hora. Lida no horário de Brasília." />
+                      <Picker id="cu-when" label="Horário de publicação" value={draft.publishAtFieldId} onChange={(v) => set({ publishAtFieldId: v })} items={ofType("date")} hint="Preencha data e hora: sem hora, o ClickUp manda 4h da manhã." />
                     </div>
                   </fieldset>
 
@@ -266,8 +278,9 @@ export function ClickupSetup({ agency, clients, initial, flash }: {
                     </fieldset>
                   ) : null}
 
-                  <div className="flex justify-end">
-                    <Button type="button" onClick={save} disabled={saving}>
+                  <div className="flex flex-wrap items-center justify-end gap-3">
+                    {missing.length ? <p className="text-xs text-muted-foreground">Falta escolher: {missing.join(", ")}.</p> : null}
+                    <Button type="button" onClick={save} disabled={saving || missing.length > 0}>
                       {saving ? <Loader2 className="size-4 animate-spin" /> : null}
                       Salvar e ligar a lista
                     </Button>

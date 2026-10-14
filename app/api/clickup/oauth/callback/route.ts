@@ -12,7 +12,9 @@ export async function GET(request: NextRequest) {
   try {
     agencyId = readOauthState(state, actor.id);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Link inválido." }, { status: 403 });
+    const back = new URL("/agencias", request.url);
+    back.searchParams.set("erro", error instanceof Error ? error.message : "Link de conexão inválido.");
+    return NextResponse.redirect(back);
   }
   const back = new URL(`/agencias/${agencyId}/clickup`, request.url);
   if (!code) {

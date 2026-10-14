@@ -24,20 +24,29 @@ process.env.META_TOKEN_ENCRYPTION_KEYS = `v1:${randomBytes(32).toString("base64"
 const tasks = new Map<string, ClickupTask>();
 const writes: Array<{ kind: string; taskId: string; body: string; mention?: string | null }> = [];
 let failWrites = 0;
+/** Status que o ClickUp recusa de vez (400), como um status renomeado. */
+let rejectStatus: string | null = null;
+let authDown = false;
 class ClickupAuthError extends Error {}
 class ClickupRateLimitError extends Error {}
-class ClickupApiError extends Error {}
+class ClickupApiError extends Error {
+  constructor(message: string, readonly status = 404) {
+    super(message);
+  }
+}
 mock.module("server-only", () => ({}));
 mock.module("@/lib/clickup/api", () => ({
   ClickupAuthError,
   ClickupRateLimitError,
   ClickupApiError,
   getTask: async (_token: string, id: string) => {
+    if (authDown) throw new ClickupAuthError("Token not found");
     const task = tasks.get(id);
     if (!task) throw new ClickupApiError("not found");
     return structuredClone(task);
   },
   setTaskStatus: async (_token: string, taskId: string, status: string) => {
+    if (rejectStatus === status) throw new ClickupApiError("Status does not exist", 400);
     if (failWrites > 0) {
       failWrites--;
       throw new Error("ClickUp fora do ar");
@@ -53,6 +62,8 @@ mock.module("@/lib/clickup/api", () => ({
     writes.push({ kind: "comment", taskId, body: text, mention });
   },
   getWebhooks: async () => [],
+  getListTaskIdsInStatus: async (_token: string, _listId: string, status: string) =>
+    [...tasks.values()].filter((t) => t.status.status === status).map((t) => t.id),
   reactivateWebhook: async () => ({}),
 }));
 let mediaCopies = 0;
@@ -167,6 +178,8 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     writes.length = 0;
     failWrites = 0;
     onCopy = null;
+    rejectStatus = null;
+    authDown = false;
   });
 
   async function approve(taskId: string, historyId = `h-${taskId}`) {
@@ -332,6 +345,46 @@ describe("ClickUp → agendamento: fluxo no banco", { skip: !BASE_URL }, () => {
     await Promise.all([service.flushOutbox(), service.flushOutbox()]);
     assert.equal(writes.filter((w) => w.kind === "comment").length, 1);
     assert.equal(writes.filter((w) => w.kind === "status").length, 1);
+  });
+
+  it("token revogado não gasta as tentativas; reconectar reabre e o evento agenda", async () => {
+    tasks.set("t1", taskWith("t1"));
+    const [eventId] = await approve("t1");
+    authDown = true;
+    for (let i = 0; i < 7; i++) {
+      assert.equal(await service.processEvent(eventId!), "reconectar ClickUp");
+      await sql`UPDATE clickup_webhook_events SET locked_until = NULL`;
+      await sql`UPDATE clickup_connections SET status = 'active'`;
+    }
+    const [{ status }] = await sql`SELECT status FROM clickup_connections`;
+    assert.equal(status, "active");
+    authDown = false;
+    await service.reopenPendingEvents(AGENCY);
+    assert.match(String(await service.processEvent(eventId!)), /^agendado/);
+  });
+
+  it("tarefa aprovada que nunca virou evento (webhook suspenso) é achada pela reconciliação", async () => {
+    tasks.set("t9", taskWith("t9"));
+    tasks.set("t8", taskWith("t8", { status: "em produção" }));
+    await service.reviveWebhooks();
+    const events = await sql`SELECT id, task_id FROM clickup_webhook_events`;
+    assert.deepEqual(events.map((e) => e.task_id), ["t9"]);
+    assert.match(String(await service.processEvent(events[0]!.id)), /^agendado/);
+    // Tarefa já tratada (recusada ou agendada) não ganha evento de novo.
+    await service.reviveWebhooks();
+    assert.equal((await sql`SELECT count(*)::int AS n FROM clickup_webhook_events`)[0]!.n, 1);
+  });
+
+  it("status que o ClickUp recusa de vez não segura o comentário", async () => {
+    await sql`UPDATE clickup_connections SET mapping = jsonb_set(mapping, '{statuses,error}', '"erro"')`;
+    tasks.set("t1", taskWith("t1", { client: null }));
+    rejectStatus = "erro";
+    await service.processEvent((await approve("t1"))[0]!);
+    await service.flushOutbox();
+    await service.flushOutbox();
+    assert.equal(writes.filter((w) => w.kind === "comment").length, 1);
+    const [{ attempts }] = await sql`SELECT attempts FROM clickup_outbox WHERE kind = 'status'`;
+    assert.equal(attempts, 8);
   });
 
   it("post já em publicação não é cancelado nem trocado", async () => {

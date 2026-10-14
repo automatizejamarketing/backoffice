@@ -13,8 +13,10 @@ import {
 } from "@/lib/db/schema";
 import { decryptAccessToken } from "@/lib/meta-business/token-vault";
 import {
+  ClickupApiError,
   ClickupAuthError,
   ClickupRateLimitError,
+  getListTaskIdsInStatus,
   getTask,
   getWebhooks,
   postComment,
@@ -160,13 +162,22 @@ type Event = typeof clickupWebhookEvent.$inferSelect;
 const LOCK_MS = 5 * 60_000;
 const RETRY_MS = 60_000;
 
-/** Solta a trava para o cron tentar de novo daqui a pouco. */
-async function release(eventId: string, result: string) {
+/**
+ * Solta a trava para o cron tentar de novo daqui a pouco. `uncounted`: a falha não é do evento
+ * (conexão a reconectar, limite do ClickUp), então a tentativa não conta e ele não se perde.
+ */
+async function release(eventId: string, result: string, uncounted = false) {
   await db
     .update(clickupWebhookEvent)
-    .set({ lockedUntil: new Date(Date.now() + RETRY_MS), result })
+    .set({
+      lockedUntil: new Date(Date.now() + RETRY_MS),
+      result,
+      ...(uncounted ? { attempts: sql`greatest(${clickupWebhookEvent.attempts} - 1, 0)` } : {}),
+    })
     .where(eq(clickupWebhookEvent.id, eventId));
 }
+
+class ConnectionInactive extends Error {}
 
 /**
  * Reivindica o evento com trava (o `after()` do webhook e o cron podem chegar juntos) e o processa.
@@ -191,13 +202,14 @@ export async function processEvent(eventId: string, now = new Date()): Promise<s
     await finish(event.id, result);
     return result;
   } catch (error) {
-    if (error instanceof ClickupAuthError) {
-      await markNeedsReconnect(event.agencyId, error.message);
-      await release(event.id, "reconectar ClickUp");
+    if (error instanceof ClickupAuthError || error instanceof ConnectionInactive) {
+      if (error instanceof ClickupAuthError) await markNeedsReconnect(event.agencyId, error.message);
+      // Fica esperando a reconexão (que reabre os eventos); não gasta tentativa.
+      await release(event.id, "reconectar ClickUp", true);
       return "reconectar ClickUp";
     }
     if (error instanceof ClickupRateLimitError) {
-      await release(event.id, "limite do ClickUp");
+      await release(event.id, "limite do ClickUp", true);
       return "limite do ClickUp; tenta de novo";
     }
     console.error("[clickup] evento", event.id, error);
@@ -267,7 +279,8 @@ export async function cancelClickupPostsOfClient(agencyId: string, userId: strin
 async function handleEvent(event: Event, now: Date): Promise<string> {
   const connection = await getConnection(event.agencyId);
   const mapping = connection && mappingOf(connection);
-  if (!connection || !mapping || connection.status !== "active") return "sem conexão ativa";
+  if (!connection || !mapping) return "sem conexão";
+  if (connection.status !== "active") throw new ConnectionInactive();
   const token = tokenOf(connection);
   const task = await getTask(token, event.taskId);
   if (task.list?.id && task.list.id !== mapping.listId) return "tarefa fora da Lista de Publicação";
@@ -497,7 +510,8 @@ export async function flushOutbox(limit = 40) {
       if (item.kind === "status") await setTaskStatus(token, item.taskId, item.body);
       else await postComment(token, item.taskId, item.body, item.mentionClickupUserId);
       await db.update(clickupOutbox).set({ sentAt: new Date(), lastError: null }).where(eq(clickupOutbox.id, item.id));
-      if (item.kind === "status") pendingStatus.splice(pendingStatus.findIndex((s) => s.id === item.id), 1);
+      const index = pendingStatus.findIndex((s) => s.id === item.id);
+      if (index >= 0) pendingStatus.splice(index, 1);
       sent++;
     } catch (error) {
       if (error instanceof ClickupAuthError) {
@@ -505,9 +519,18 @@ export async function flushOutbox(limit = 40) {
         tokens.set(item.agencyId, null);
       }
       const minutes = OUTBOX_BACKOFF_MIN[Math.min(item.attempts, OUTBOX_BACKOFF_MIN.length - 1)]!;
+      // Recusa definitiva do ClickUp (status que não existe mais, tarefa apagada): não adianta
+      // insistir, e um status preso seguraria o comentário de recusa por horas.
+      const permanent = error instanceof ClickupApiError && error.status >= 400 && error.status < 500;
+      const index = pendingStatus.findIndex((s) => s.id === item.id);
+      if (permanent && index >= 0) pendingStatus.splice(index, 1);
       await db
         .update(clickupOutbox)
-        .set({ attempts: item.attempts + 1, nextAttemptAt: new Date(Date.now() + minutes * 60_000), lastError: error instanceof Error ? error.message : String(error) })
+        .set({
+          attempts: permanent ? MAX_OUTBOX_ATTEMPTS : item.attempts + 1,
+          nextAttemptAt: new Date(Date.now() + minutes * 60_000),
+          lastError: error instanceof Error ? error.message : String(error),
+        })
         .where(eq(clickupOutbox.id, item.id));
       if (error instanceof ClickupRateLimitError) break;
     }
@@ -515,8 +538,12 @@ export async function flushOutbox(limit = 40) {
   return sent;
 }
 
-/** Webhook suspenso no ClickUp (falhas seguidas) volta a ativo; sem isso, nada mais chega. */
-export async function reviveWebhooks(endpointFor: (agencyId: string) => string) {
+/**
+ * Webhook suspenso no ClickUp (falhas seguidas) volta a ativo no mesmo endereço; sem isso, nada mais
+ * chega. Depois, reconcilia: tarefa parada no Status de Aprovação que nunca virou evento (perdida
+ * enquanto o webhook estava suspenso ou a conexão caída) ganha um evento.
+ */
+export async function reviveWebhooks() {
   const connections = await db
     .select()
     .from(clickupConnection)
@@ -527,11 +554,43 @@ export async function reviveWebhooks(endpointFor: (agencyId: string) => string) 
       const hooks = await getWebhooks(token, connection.teamId!);
       const hook = hooks.find((h) => h.id === connection.webhookId);
       if (hook && hook.health?.status && hook.health.status !== "active") {
-        await reactivateWebhook(token, hook.id, endpointFor(connection.agencyId));
+        await reactivateWebhook(token, hook.id, hook.endpoint);
       }
+      await reconcileApprovals(connection, token);
     } catch (error) {
       if (error instanceof ClickupAuthError) await markNeedsReconnect(connection.agencyId, error.message);
       else console.error("[clickup] saúde do webhook", connection.agencyId, error);
     }
   }
+}
+
+/** Tarefas no Status de Aprovação sem evento tratado nem agendamento viram evento sintético. */
+async function reconcileApprovals(connection: Connection, token: string) {
+  const mapping = mappingOf(connection);
+  if (!mapping) return 0;
+  const taskIds = await getListTaskIdsInStatus(token, mapping.listId, mapping.statuses.approval);
+  if (!taskIds.length) return 0;
+  const [seen, linked] = await Promise.all([
+    db
+      .select({ taskId: clickupWebhookEvent.taskId })
+      .from(clickupWebhookEvent)
+      .where(and(eq(clickupWebhookEvent.agencyId, connection.agencyId), inArray(clickupWebhookEvent.taskId, taskIds), isNotNull(clickupWebhookEvent.processedAt))),
+    db.select({ taskId: clickupTaskPost.taskId }).from(clickupTaskPost).where(inArray(clickupTaskPost.taskId, taskIds)),
+  ]);
+  const known = new Set([...seen, ...linked].map((r) => r.taskId));
+  const missing = taskIds.filter((id) => !known.has(id));
+  if (!missing.length) return 0;
+  await db
+    .insert(clickupWebhookEvent)
+    .values(missing.map((taskId) => ({ id: `reconcile:${taskId}`, agencyId: connection.agencyId, taskId, intent: "schedule", actorClickupUserId: null })))
+    .onConflictDoNothing();
+  return missing.length;
+}
+
+/** Reconectar o ClickUp reabre os eventos que ficaram esperando (token revogado ou limite). */
+export async function reopenPendingEvents(agencyId: string) {
+  await db
+    .update(clickupWebhookEvent)
+    .set({ attempts: 0, lockedUntil: null })
+    .where(and(eq(clickupWebhookEvent.agencyId, agencyId), isNull(clickupWebhookEvent.processedAt)));
 }

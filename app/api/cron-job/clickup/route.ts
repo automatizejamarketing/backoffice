@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { assertCronAuthorized } from "@/lib/auth/cron-auth";
-import { webhookEndpoint } from "@/lib/clickup/connect";
 import { flushOutbox, processPendingEvents, reviveWebhooks, syncPublishResults } from "@/lib/clickup/service";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +15,6 @@ export async function GET(request: Request) {
   const events = await processPendingEvents();
   const results = await syncPublishResults();
   const sent = await flushOutbox();
-  if (new Date().getUTCMinutes() === 0) {
-    const origin = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
-    if (origin) await reviveWebhooks((agencyId) => webhookEndpoint(origin, agencyId));
-  }
+  if (new Date().getUTCMinutes() === 0) await reviveWebhooks();
   return NextResponse.json({ ok: true, events, results, sent });
 }

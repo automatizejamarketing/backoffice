@@ -86,6 +86,19 @@ export const getCustomTaskTypes = (token: string, teamId: string) =>
 
 export const getTask = (token: string, taskId: string) => call<ClickupTask>(token, `/task/${encodeURIComponent(taskId)}`);
 
+/** Tarefas da lista num status (para reconciliar eventos perdidos); até 3 páginas de 100. */
+export async function getListTaskIdsInStatus(token: string, listId: string, status: string): Promise<string[]> {
+  const ids: string[] = [];
+  for (let page = 0; page < 3; page++) {
+    const params = new URLSearchParams({ page: String(page), subtasks: "true" });
+    params.append("statuses[]", status);
+    const data = await call<{ tasks: Array<{ id: string }>; last_page?: boolean }>(token, `/list/${listId}/task?${params}`);
+    ids.push(...data.tasks.map((t) => t.id));
+    if (data.last_page !== false || data.tasks.length < 100) break;
+  }
+  return ids;
+}
+
 export async function createListWebhook(token: string, teamId: string, listId: string, endpoint: string) {
   const data = await call<{ id: string; webhook: { id: string; secret: string } }>(token, `/team/${teamId}/webhook`, {
     method: "POST",

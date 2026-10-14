@@ -21,7 +21,7 @@ import {
   getSpaces,
   getTeams,
 } from "./api";
-import { getConnection, tokenOf } from "./service";
+import { getConnection, reopenPendingEvents, tokenOf } from "./service";
 
 /** Conexão do Dono com o ClickUp: OAuth, opções para o mapeamento e registro do webhook. */
 
@@ -93,6 +93,7 @@ export async function completeOauth(actor: BackofficeActor, agencyId: string, co
     .insert(clickupConnection)
     .values({ agencyId, ...values })
     .onConflictDoUpdate({ target: clickupConnection.agencyId, set: values });
+  await reopenPendingEvents(agencyId);
 }
 
 async function requireConnection(actor: BackofficeActor, agencyId: string) {
@@ -131,18 +132,24 @@ export async function mappingOptions(actor: BackofficeActor, agencyId: string, q
   };
 }
 
+const required = (what: string) => z.string({ required_error: `Escolha ${what}.` }).min(1, `Escolha ${what}.`);
 const mappingSchema = z.object({
-  teamId: z.string().min(1),
-  teamName: z.string().min(1),
-  listId: z.string().min(1),
-  listName: z.string().min(1),
-  clientFieldId: z.string().min(1),
+  teamId: required("o workspace"),
+  teamName: z.string(),
+  listId: required("a Lista de Publicação"),
+  listName: z.string(),
+  clientFieldId: required("o campo Cliente"),
   mediaFieldId: z.string().min(1).nullable(),
-  captionFieldId: z.string().min(1),
-  publishAtFieldId: z.string().min(1),
+  captionFieldId: required("o campo Legenda"),
+  publishAtFieldId: required("o campo Horário de publicação"),
   formats: z.record(z.string(), z.enum(["post", "reels"])).refine((f) => Object.keys(f).length > 0, "Escolha ao menos um tipo de tarefa."),
-  statuses: z.object({ approval: z.string().min(1), scheduled: z.string().min(1), published: z.string().min(1), error: z.string().min(1).nullable() }),
-  clientOptions: z.record(z.string(), z.string().uuid()),
+  statuses: z.object({
+    approval: required("o status de Aprovação"),
+    scheduled: required("o status Agendado"),
+    published: required("o status Publicado"),
+    error: z.string().min(1).nullable(),
+  }),
+  clientOptions: z.record(z.string(), z.string().uuid()).refine((o) => Object.keys(o).length > 0, "Ligue ao menos uma opção do campo Cliente a um cliente."),
 });
 
 export type MappingInput = z.infer<typeof mappingSchema>;

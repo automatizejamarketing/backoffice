@@ -75,7 +75,7 @@ export async function copyTaskMedia(
     if (!sniffed) throw new MediaError("Formato da arte não aceito. Use JPG ou PNG (post) e MP4 ou MOV (Reels).");
     if (sniffed.kind !== item.kind) throw new MediaError(item.kind === "image" ? "Um dos arquivos do post não é imagem." : "O arquivo do Reels não é vídeo.");
     if (body.byteLength > LIMITS[sniffed.kind]) {
-      throw new MediaError(`A ${sniffed.kind === "image" ? "imagem" : "vídeo"} tem ${megabytes(body.byteLength)} MB; o limite é ${megabytes(LIMITS[sniffed.kind])} MB.`);
+      throw new MediaError(`${sniffed.kind === "image" ? "A imagem" : "O vídeo"} tem ${megabytes(body.byteLength)} MB; o limite é ${megabytes(LIMITS[sniffed.kind])} MB.`);
     }
     const saved = await store(`clickup/${input.agencyId}/${input.taskId}/${stamp}-${index + 1}.${sniffed.extension}`, body, {
       contentType: sniffed.contentType,
