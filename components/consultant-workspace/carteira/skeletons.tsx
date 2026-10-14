@@ -3,11 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 function TopSkeleton() {
   return (
     <>
-      <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="h-[50px] rounded-lg" />
-        ))}
-      </div>
+      <Skeleton className="h-10 rounded-lg" />
       <div className="flex gap-2">
         <Skeleton className="h-7 w-52" />
         <Skeleton className="h-7 w-72" />

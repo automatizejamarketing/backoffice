@@ -3,36 +3,21 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import {
-  ArrowRight,
-  ChevronDown,
-  ChevronRight,
-  CircleCheck,
-  Handshake,
-  MessageSquare,
-  Search,
-  Sparkles,
-  X,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronDown, ChevronRight, Handshake, Info, MessageSquare, Search, Wallet, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
-  PROBLEM_TAGS,
-  PROBLEM_TAG_BY_KEY,
   STAGE_DESCRIPTION,
   STAGE_LABEL,
   type JourneyExtras,
   type JourneyStage,
   type JourneyStepKey,
 } from "@/lib/consultant-workspace/journey";
-import { PLAN_RANK, delta, formatMoney } from "@/lib/consultant-workspace/metrics";
+import { PLAN_RANK, formatMoney } from "@/lib/consultant-workspace/metrics";
 import type { WorkspaceClient, WorkspaceRange, WorkspaceState } from "@/lib/consultant-workspace/types";
-import { Delta, PlanBadge } from "@/components/consultant-workspace/shared/primitives";
 import { useAssignmentOverrides } from "@/components/consultant-workspace/common/assignment";
 import { useConsultantScope } from "@/components/consultant-workspace/common/consultant-scope";
-import { FinanceChip, ProblemTagChip, StageDot } from "@/components/consultant-workspace/common/journey-bits";
+import { HintIcon, NEXT_STEP_TONE, PlanText, StageDot } from "@/components/consultant-workspace/common/journey-bits";
 import { useRememberView } from "@/components/consultant-workspace/common/last-view";
 import {
   buildRows,
@@ -41,22 +26,20 @@ import {
   planGroupOf,
   type PlanGroup,
 } from "@/components/consultant-workspace/common/model";
+import { extraTags, nextStep, type NextStep } from "@/components/consultant-workspace/common/next-step";
 import { clientHref } from "@/components/consultant-workspace/common/routes";
 import { SummaryStrip, computeStripCounts } from "@/components/consultant-workspace/common/summary-strip";
 import { usePrimedWorkspaceState } from "@/components/consultant-workspace/common/use-primed-state";
 import { useWorkspaceMe } from "@/components/consultant-workspace/common/workspace-context";
-import { replaceParams } from "@/components/consultant-workspace/carteira/filters";
-import { TemplateComposerDialog, type ComposerTarget } from "@/components/consultant-workspace/cliente/composer";
 import {
-  attentionLine,
-  consultantOf,
-  fillAlert,
-  formatPhone,
-  plural,
-  primaryTemplateKey,
-  type SlimAlert,
-} from "./lib";
-import type { StoppedSpend } from "./server-data";
+  isProblemFilter,
+  matchesProblem,
+  problemCounts,
+  replaceParams,
+} from "@/components/consultant-workspace/carteira/filters";
+import { TagFilter } from "@/components/consultant-workspace/carteira/strip-filters";
+import { TemplateComposerDialog, type ComposerTarget } from "@/components/consultant-workspace/cliente/composer";
+import { consultantOf, fillAlert, plural, primaryTemplateKey, type SlimAlert, type StoppedSpend } from "./lib";
 import { useJourneyRows, type JourneyRow } from "./use-journeys";
 
 const BLOCKER_ORDER: JourneyStepKey[] = ["acesso", "meta", "certificacao", "campanha", "veiculando"];
@@ -70,6 +53,14 @@ const BLOCKER_LABEL: Record<JourneyStepKey, string> = {
 };
 
 const PLAN_GROUPS: PlanGroup[] = ["premium", "pro", "starter"];
+const PLAN_NAME: Record<PlanGroup, string> = { premium: "Premium", pro: "Pro", starter: "Starter" };
+
+/** Cartões por grupo antes do "ver mais". */
+const GROUP_PREVIEW = 5;
+
+const TONE_RANK: Record<NextStep["tone"], number> = { critical: 0, attention: 1, neutral: 2 };
+
+type Card = JourneyRow & { step: NextStep | null };
 
 function normalize(value: string) {
   return value
@@ -87,9 +78,10 @@ function matchesSearch(client: WorkspaceClient, query: string) {
 }
 
 /**
- * Jornada: cada cliente na etapa em que está (onboarding, rodando, parado),
- * com o que fazer agora e a mensagem para mandar. O resumo por plano no topo
- * é o mesmo da Fila e da Mesa.
+ * Jornada: cada cliente na etapa em que está (onboarding, rodando, parado).
+ * Cada cartão diz UMA coisa — o próximo passo — e o contexto numa linha
+ * apagada; sinais secundários viram ícones com dica. O resumo por plano no
+ * topo é o mesmo da Fila e da Mesa.
  */
 export function JourneyBoard({
   range,
@@ -108,6 +100,7 @@ export function JourneyBoard({
   stopped: Record<string, StoppedSpend>;
   touchedAlertUser: Record<string, string>;
   initialStore: WorkspaceState;
+  /** Relógio da leitura (servidor): base de "há N dias", nunca `Date.now()` no render. */
   now: number;
 }) {
   const me = useWorkspaceMe();
@@ -116,11 +109,10 @@ export function JourneyBoard({
   const assignments = useAssignmentOverrides();
   const params = useSearchParams();
   const rawTag = params.get("tag");
-  const tagFilter = rawTag && PROBLEM_TAG_BY_KEY.has(rawTag) ? rawTag : null;
+  const tagFilter = isProblemFilter(rawTag) ? rawTag : null;
   const rawPlan = params.get("plano") as PlanGroup | null;
   const plan = rawPlan && PLAN_GROUPS.includes(rawPlan) ? rawPlan : null;
   const [search, setSearch] = useState("");
-  const [onlyNoHandoff, setOnlyNoHandoff] = useState(false);
   const [composer, setComposer] = useState<ComposerTarget | null>(null);
   useRememberView(params.toString());
 
@@ -140,12 +132,25 @@ export function JourneyBoard({
   }, [alerts, touchedAlertUser]);
   const handled = useMemo(() => handledTodayCount(store, alertUser, now, me.email), [store, alertUser, now, me.email]);
 
+  const cards = useMemo<Card[]>(
+    () =>
+      rows.map((row) => ({
+        ...row,
+        step: nextStep(row.client, row.journey, {
+          alerts: row.alerts,
+          stopped: stopped[row.client.userId] ?? null,
+          goal: store.goals[row.client.userId] ?? null,
+        }),
+      })),
+    [rows, stopped, store.goals],
+  );
+
   const inScope = useMemo(
     () =>
-      rows.filter(
+      cards.filter(
         ({ client }) => matchesScope(consultantOf(client, assignments)) && matchesSearch(client, search.trim()),
       ),
-    [rows, matchesScope, assignments, search],
+    [cards, matchesScope, assignments, search],
   );
   const scoped = useMemo(
     () => inScope.filter(({ client }) => !plan || planGroupOf(client.plan.tier) === plan),
@@ -154,31 +159,19 @@ export function JourneyBoard({
 
   const strip = useMemo(() => {
     const ids = new Set(
-      inScope
-        .filter(({ journey }) => !tagFilter || journey.tags.some((tag) => tag.key === tagFilter))
-        .map(({ client }) => client.userId),
+      inScope.filter(({ journey }) => matchesProblem(journey, tagFilter)).map(({ client }) => client.userId),
     );
     return computeStripCounts(carteiraRows.filter((row) => ids.has(row.userId)));
   }, [inScope, carteiraRows, tagFilter]);
 
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const { journey } of scoped) {
-      for (const tag of journey.tags) counts.set(tag.key, (counts.get(tag.key) ?? 0) + 1);
-    }
-    return counts;
-  }, [scoped]);
+  const tagCounts = useMemo(() => problemCounts(scoped.map((row) => row.journey)), [scoped]);
 
-  const visible = scoped.filter(
-    ({ journey }) =>
-      (!tagFilter || journey.tags.some((tag) => tag.key === tagFilter)) &&
-      (!onlyNoHandoff || (journey.stage === "onboarding" && !journey.handoff)),
-  );
+  const visible = scoped.filter(({ journey }) => matchesProblem(journey, tagFilter));
   const byStage = (stage: JourneyStage) => visible.filter((row) => row.journey.stage === stage);
   const onboarding = byStage("onboarding");
   const rodando = byStage("rodando");
   const parado = byStage("parado");
-  const noHandoff = scoped.filter((row) => row.journey.stage === "onboarding" && !row.journey.handoff).length;
+  const lost = parado.reduce((sum, row) => sum + (stopped[row.client.userId]?.weekSpend ?? 0), 0);
 
   function setParam(key: string, value: string | null) {
     replaceParams((query) => {
@@ -190,14 +183,14 @@ export function JourneyBoard({
   const openMessage = (row: JourneyRow) =>
     setComposer({ client: row.client, journey: row.journey, templateKey: primaryTemplateKey(row.journey, row.client) });
 
-  const filtersActive = Boolean(tagFilter || onlyNoHandoff || search.trim() || plan);
-  const tagChips = PROBLEM_TAGS.filter((tag) => (tagCounts.get(tag.key) ?? 0) > 0 || tag.key === tagFilter).sort(
-    (a, b) => (tagCounts.get(b.key) ?? 0) - (tagCounts.get(a.key) ?? 0),
+  const filtersActive = Boolean(tagFilter || search.trim() || plan);
+  const card = (row: Card) => (
+    <ClientCard key={row.client.userId} row={row} context={contextLine(row, range)} onMessage={openMessage} />
   );
 
   return (
     <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <div className="space-y-3 px-4 pt-3 pb-3 lg:px-6">
+      <div className="space-y-2 px-4 pt-3 pb-2 lg:px-6">
         <SummaryStrip
           counts={strip.counts}
           plan={plan}
@@ -206,104 +199,60 @@ export function JourneyBoard({
           remaining={strip.remaining}
         />
 
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight">Jornada dos clientes</h1>
-            <p className="text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <h1 className="text-base font-semibold tracking-tight whitespace-nowrap">Jornada dos clientes</h1>
+            <p className="truncate text-xs text-muted-foreground" title={`Gasto até ontem (${range.days} dias)`}>
               {plural(scoped.length, "cliente ativo", "clientes ativos")}
               {scope.filtered ? ` · carteira: ${scope.label}` : ""}
-              {plan ? ` · plano ${plan === "premium" ? "Premium" : plan === "pro" ? "Pro" : "Starter"}` : ""} · em que
-              etapa cada um está e o que fazer agora · gasto até ontem ({range.days} dias)
+              {plan ? ` · plano ${PLAN_NAME[plan]}` : ""}
             </p>
           </div>
-          <div className="relative w-full sm:w-72">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar cliente, e-mail ou telefone"
-              className="h-8 pl-8 text-sm"
-              aria-label="Buscar cliente"
-            />
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
+            <TagFilter counts={tagCounts} tag={tagFilter} onTag={(next) => setParam("tag", next)} />
+            {filtersActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  replaceParams((query) => {
+                    query.delete("tag");
+                    query.delete("plano");
+                  });
+                  setSearch("");
+                }}
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3" /> Limpar filtros
+              </button>
+            ) : null}
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar cliente, e-mail ou telefone"
+                className="h-7 pl-8 text-xs"
+                aria-label="Buscar cliente"
+              />
+            </div>
           </div>
-        </div>
-
-        {noHandoff > 0 ? (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-sky-200 bg-sky-50/70 px-3 py-2 text-sm text-sky-950 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
-            <Handshake className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
-            <span>
-              <strong className="font-semibold tabular-nums">{noHandoff}</strong>{" "}
-              {noHandoff === 1 ? "cliente em onboarding sem passagem de bastão" : "clientes em onboarding sem passagem de bastão"}{" "}
-              <span className="text-sky-800/80 dark:text-sky-200/70">— peça ao Fred o resumo da call antes de falar com eles.</span>
-            </span>
-            <Button
-              size="xs"
-              variant={onlyNoHandoff ? "default" : "outline"}
-              className="ml-auto"
-              onClick={() => setOnlyNoHandoff((value) => !value)}
-            >
-              {onlyNoHandoff ? "Mostrar todos" : "Mostrar só esses"}
-            </Button>
-          </div>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs text-muted-foreground">Problemas:</span>
-          {tagChips.length === 0 ? (
-            <span className="text-xs text-muted-foreground">nenhuma tag nos clientes filtrados</span>
-          ) : (
-            tagChips.map((tag) => {
-              const active = tagFilter === tag.key;
-              return (
-                <button
-                  key={tag.key}
-                  type="button"
-                  onClick={() => setParam("tag", active ? null : tag.key)}
-                  aria-pressed={active}
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors",
-                    active
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "bg-background text-foreground hover:border-primary/50",
-                  )}
-                >
-                  {tag.auto ? <Sparkles className={cn("size-3", active ? "opacity-90" : "text-amber-600 dark:text-amber-400")} /> : null}
-                  {tag.label}
-                  <span className={cn("tabular-nums", active ? "opacity-80" : "text-muted-foreground")}>
-                    {tagCounts.get(tag.key) ?? 0}
-                  </span>
-                </button>
-              );
-            })
-          )}
-          {filtersActive ? (
-            <button
-              type="button"
-              onClick={() => {
-                replaceParams((query) => {
-                  query.delete("tag");
-                  query.delete("plano");
-                });
-                setOnlyNoHandoff(false);
-                setSearch("");
-              }}
-              className="ml-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <X className="size-3" /> Limpar filtros
-            </button>
-          ) : null}
         </div>
       </div>
 
       <div className="grid gap-3 px-4 pb-4 lg:px-6 @3xl:min-h-[420px] @3xl:flex-1 @3xl:grid-cols-3">
         <StageColumn stage="onboarding" count={onboarding.length}>
-          <OnboardingColumn rows={onboarding} onMessage={openMessage} />
+          <OnboardingColumn rows={onboarding} render={card} />
         </StageColumn>
         <StageColumn stage="rodando" count={rodando.length}>
-          <RodandoColumn rows={rodando} range={range} onMessage={openMessage} forceOpen={filtersActive} />
+          <RodandoColumn rows={rodando} render={card} forceOpen={filtersActive} />
         </StageColumn>
-        <StageColumn stage="parado" count={parado.length}>
-          <ParadoColumn rows={parado} stopped={stopped} onMessage={openMessage} />
+        <StageColumn
+          stage="parado"
+          count={parado.length}
+          aside={lost > 0 ? `${formatMoney(lost, false)}/semana` : null}
+          asideHint={`Somados, estes clientes rodavam ${formatMoney(lost, false)} por semana antes de parar. Ordenados pelo dinheiro que parou.`}
+        >
+          <ParadoColumn rows={parado} stopped={stopped} render={card} />
         </StageColumn>
       </div>
 
@@ -312,26 +261,49 @@ export function JourneyBoard({
   );
 }
 
+/** Linha 3 do cartão: há quanto tempo na etapa e, rodando, o gasto do período. */
+function contextLine(row: Card, range: WorkspaceRange): string | null {
+  const days = daysInStageText(row.journey);
+  if (row.journey.stage === "onboarding") return days ?? "sem data de cadastro";
+  if (row.journey.stage === "parado") return days ?? "sem gasto no período";
+  const spend = `${formatMoney(row.client.perf.current.spend, false)} em ${range.days} dias`;
+  return days ? `${days} · ${spend}` : spend;
+}
+
 function StageColumn({
   stage,
   count,
+  aside,
+  asideHint,
   children,
 }: {
   stage: JourneyStage;
   count: number;
+  aside?: string | null;
+  asideHint?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex min-w-0 flex-col rounded-xl border bg-muted/30 @3xl:min-h-0" aria-label={STAGE_LABEL[stage]}>
-      <header className="border-b px-3 py-2.5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
+    <section
+      className="flex min-w-0 flex-col rounded-xl border bg-muted/30 @3xl:min-h-0"
+      aria-labelledby={`etapa-${stage}`}
+    >
+      <header className="flex min-w-0 items-center gap-1.5 border-b px-3 py-2">
+        <h2 id={`etapa-${stage}`} className="flex shrink-0 items-center gap-2 text-sm font-semibold">
           <StageDot stage={stage} />
           {STAGE_LABEL[stage]}
           <span className="rounded-full bg-background px-1.5 text-xs font-medium tabular-nums text-muted-foreground">
             {count}
           </span>
         </h2>
-        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{STAGE_DESCRIPTION[stage]}</p>
+        <HintIcon label={`Sobre a etapa ${STAGE_LABEL[stage]}`} tooltip={STAGE_DESCRIPTION[stage]} side="bottom">
+          <Info className="size-3.5" />
+        </HintIcon>
+        {aside ? (
+          <span className="ml-auto min-w-0 truncate text-[11px] text-muted-foreground tabular-nums" title={asideHint}>
+            {aside}
+          </span>
+        ) : null}
       </header>
       <div className="space-y-3 p-2 @3xl:min-h-0 @3xl:flex-1 @3xl:overflow-y-auto">{children}</div>
     </section>
@@ -351,46 +323,72 @@ function GroupHeader({
   onToggle,
   title,
   count,
+  note,
   hint,
-  tone = "default",
 }: {
   open: boolean;
   onToggle: () => void;
   title: React.ReactNode;
   count: number;
+  /** Texto curto apagado ao lado do título. */
+  note?: string;
+  /** Explicação do grupo, no ícone de dica. */
   hint?: string;
-  tone?: "default" | "attention" | "calm";
 }) {
   const Icon = open ? ChevronDown : ChevronRight;
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      className="flex w-full items-start gap-1.5 rounded-md px-1 py-1 text-left hover:bg-muted/60"
-    >
-      <Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1">
-        <span
-          className={cn(
-            "block text-xs font-semibold",
-            tone === "attention" && "text-red-700 dark:text-red-400",
-            tone === "calm" && "text-emerald-700 dark:text-emerald-400",
-          )}
-        >
-          {title} <span className="font-normal tabular-nums text-muted-foreground">({count})</span>
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-1 text-left text-xs hover:bg-muted/60"
+      >
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate">
+          <span className="font-semibold">{title}</span>{" "}
+          <span className="tabular-nums text-muted-foreground">({count})</span>
+          {note ? <span className="text-muted-foreground"> · {note}</span> : null}
         </span>
-        {hint ? <span className="block text-[11px] leading-snug text-muted-foreground">{hint}</span> : null}
-      </span>
-    </button>
+      </button>
+      {hint ? (
+        <HintIcon label={hint}>
+          <Info className="size-3.5" />
+        </HintIcon>
+      ) : null}
+    </div>
+  );
+}
+
+/** Os primeiros cartões do grupo e um "ver mais N" para o resto. */
+function CardList({ rows, render, label }: { rows: Card[]; render: (row: Card) => React.ReactNode; label: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? rows : rows.slice(0, GROUP_PREVIEW);
+  const rest = rows.length - GROUP_PREVIEW;
+  return (
+    <>
+      <ul className="space-y-1.5" aria-label={label}>
+        {shown.map(render)}
+      </ul>
+      {rest > 0 ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          className="w-full rounded-md py-1 text-center text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+        >
+          {expanded ? "ver menos" : `ver mais ${rest}`}
+        </button>
+      ) : null}
+    </>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* Onboarding                                                           */
+/* Onboarding: agrupado pelo passo que trava                            */
 /* ------------------------------------------------------------------ */
 
-function OnboardingColumn({ rows, onMessage }: { rows: JourneyRow[]; onMessage: (row: JourneyRow) => void }) {
+function OnboardingColumn({ rows, render }: { rows: Card[]; render: (row: Card) => React.ReactNode }) {
   const [closed, setClosed] = useState<Set<string>>(new Set());
   if (rows.length === 0) return <EmptyColumn />;
   const groups = BLOCKER_ORDER.map((key) => ({
@@ -419,24 +417,9 @@ function OnboardingColumn({ rows, onMessage }: { rows: JourneyRow[]; onMessage: 
               }
               title={<>Travado em: {BLOCKER_LABEL[group.key]}</>}
               count={group.rows.length}
-              hint={stale > 0 ? `${stale} há mais de 7 dias` : undefined}
+              note={stale > 0 ? `${stale} há mais de 7 dias` : undefined}
             />
-            {open ? (
-              <ul className="space-y-1.5">
-                {group.rows.map((row) => (
-                  <ClientCard key={row.client.userId} row={row} onMessage={onMessage}>
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
-                      <DaysText row={row} />
-                      {!row.journey.handoff ? (
-                        <span className="inline-flex items-center gap-1 rounded border border-sky-300 px-1.5 py-px text-[10.5px] font-medium text-sky-800 dark:border-sky-800 dark:text-sky-300">
-                          <Handshake className="size-3" /> Sem passagem do Fred
-                        </span>
-                      ) : null}
-                    </p>
-                  </ClientCard>
-                ))}
-              </ul>
-            ) : null}
+            {open ? <CardList rows={group.rows} render={render} label={`Travados em ${BLOCKER_LABEL[group.key]}`} /> : null}
           </div>
         );
       })}
@@ -444,55 +427,33 @@ function OnboardingColumn({ rows, onMessage }: { rows: JourneyRow[]; onMessage: 
   );
 }
 
-function DaysText({ row, className }: { row: JourneyRow; className?: string }) {
-  const text = daysInStageText(row.journey);
-  if (!text) {
-    return row.journey.stage === "onboarding" ? (
-      <span className={cn("text-muted-foreground/70", className)}>sem data de cadastro</span>
-    ) : null;
-  }
-  const stale = row.journey.stage === "onboarding" && (row.journey.daysInStage ?? 0) > 7;
-  return (
-    <span
-      className={cn(
-        "tabular-nums text-muted-foreground",
-        stale && "font-medium text-amber-700 dark:text-amber-400",
-        className,
-      )}
-    >
-      {text}
-    </span>
-  );
-}
-
 /* ------------------------------------------------------------------ */
-/* Rodando                                                              */
+/* Rodando: precisa de atenção / tudo certo                             */
 /* ------------------------------------------------------------------ */
 
 function RodandoColumn({
   rows,
-  range,
-  onMessage,
+  render,
   forceOpen,
 }: {
-  rows: JourneyRow[];
-  range: WorkspaceRange;
-  onMessage: (row: JourneyRow) => void;
+  rows: Card[];
+  render: (row: Card) => React.ReactNode;
   forceOpen: boolean;
 }) {
   const [attentionOpen, setAttentionOpen] = useState(true);
   const [calmOpen, setCalmOpen] = useState(false);
   if (rows.length === 0) return <EmptyColumn />;
+  const needsAction = (row: Card) => row.step != null && row.step.tone !== "neutral";
   const attention = rows
-    .filter((row) => row.journey.needsAttention)
+    .filter(needsAction)
     .sort(
       (a, b) =>
+        TONE_RANK[a.step!.tone] - TONE_RANK[b.step!.tone] ||
         PLAN_RANK[a.client.plan.tier] - PLAN_RANK[b.client.plan.tier] ||
-        b.journey.attentionReasons.length - a.journey.attentionReasons.length ||
         b.client.perf.current.spend - a.client.perf.current.spend,
     );
   const calm = rows
-    .filter((row) => !row.journey.needsAttention)
+    .filter((row) => !needsAction(row))
     .sort(
       (a, b) =>
         PLAN_RANK[a.client.plan.tier] - PLAN_RANK[b.client.plan.tier] ||
@@ -509,36 +470,9 @@ function RodandoColumn({
             onToggle={() => setAttentionOpen((value) => !value)}
             title="Precisa de atenção"
             count={attention.length}
-            tone="attention"
-            hint="Fora da meta, sem resultado ou com alerta de performance."
+            hint="Facebook desconectado, gasto sem resultado, fora da meta ou com alerta de performance. Mais grave primeiro."
           />
-          {attentionOpen ? (
-            <ul className="space-y-1.5">
-              {attention.map((row) => {
-                const { kpi, previousKpi, current } = row.client.perf;
-                const line = attentionLine(row.journey);
-                return (
-                  <ClientCard key={row.client.userId} row={row} onMessage={onMessage}>
-                    <p className="truncate text-xs font-medium text-red-700 dark:text-red-400" title={line}>
-                      {line}
-                    </p>
-                    <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
-                      <span className="tabular-nums">
-                        {formatMoney(current.spend, false)} em {range.days} dias
-                      </span>
-                      <span aria-hidden>·</span>
-                      <span className="inline-flex items-center gap-1 tabular-nums">
-                        {kpi.count > 0 ? `${kpi.costLabel} ${formatMoney(kpi.cost)}` : `0 ${kpi.label.toLowerCase()}`}
-                        {kpi.count > 0 ? <Delta value={delta(kpi.cost, previousKpi.cost)} goodWhenUp={false} className="text-[11px]" /> : null}
-                      </span>
-                      <span aria-hidden>·</span>
-                      <DaysText row={row} />
-                    </p>
-                  </ClientCard>
-                );
-              })}
-            </ul>
-          ) : null}
+          {attentionOpen ? <CardList rows={attention} render={render} label="Rodando, precisa de atenção" /> : null}
         </div>
       ) : null}
 
@@ -549,89 +483,27 @@ function RodandoColumn({
             onToggle={() => setCalmOpen((value) => !value)}
             title="Tudo certo"
             count={calm.length}
-            tone="calm"
-            hint={showCalm ? undefined : "Na meta ou sem meta definida, sem alerta de performance."}
+            hint="Na meta ou sem meta definida, sem alerta de performance."
           />
-          {showCalm ? (
-            <ul className="divide-y overflow-hidden rounded-lg border bg-card">
-              {calm.map((row) => (
-                <CompactRow key={row.client.userId} row={row} range={range} onMessage={onMessage} />
-              ))}
-            </ul>
-          ) : null}
+          {showCalm ? <CardList rows={calm} render={render} label="Rodando, tudo certo" /> : null}
         </div>
       ) : null}
     </>
   );
 }
 
-function CompactRow({
-  row,
-  range,
-  onMessage,
-}: {
-  row: JourneyRow;
-  range: WorkspaceRange;
-  onMessage: (row: JourneyRow) => void;
-}) {
-  const { client, journey } = row;
-  const href = clientHref(client.userId);
-  const days = daysInStageText(journey);
-  return (
-    <li className="flex items-center gap-2 px-2 py-1.5">
-      <CircleCheck className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      <Link
-        href={href}
-        className="min-w-0 flex-1 truncate text-[13px] hover:underline"
-        title={`${client.displayName}${days ? ` · ${days}` : ""}`}
-      >
-        {client.displayName}
-      </Link>
-      {journey.tags.length > 0 ? (
-        <Tooltip delayDuration={200}>
-          <TooltipTrigger asChild>
-            <span className="size-1.5 shrink-0 rounded-full bg-amber-500" aria-label={`${journey.tags.length} tag(s)`} />
-          </TooltipTrigger>
-          <TooltipContent className="text-xs">{journey.tags.map((tag) => tag.label).join(" · ")}</TooltipContent>
-        </Tooltip>
-      ) : null}
-      <PlanBadge tier={client.plan.tier} />
-      <span
-        className="w-16 shrink-0 text-right text-[11px] tabular-nums text-muted-foreground"
-        title={`Investido nos últimos ${range.days} dias`}
-      >
-        {formatMoney(client.perf.current.spend, false)}
-      </span>
-      <Button
-        size="icon-xs"
-        variant="ghost"
-        aria-label={`Mensagem para ${client.displayName}`}
-        title="Mensagem"
-        onClick={() => onMessage(row)}
-      >
-        <MessageSquare />
-      </Button>
-      <Button size="icon-xs" variant="ghost" asChild aria-label={`Abrir ${client.displayName}`} title="Abrir">
-        <Link href={href}>
-          <ArrowRight />
-        </Link>
-      </Button>
-    </li>
-  );
-}
-
 /* ------------------------------------------------------------------ */
-/* Parado                                                               */
+/* Parado: pelo dinheiro que parou                                      */
 /* ------------------------------------------------------------------ */
 
 function ParadoColumn({
   rows,
   stopped,
-  onMessage,
+  render,
 }: {
-  rows: JourneyRow[];
+  rows: Card[];
   stopped: Record<string, StoppedSpend>;
-  onMessage: (row: JourneyRow) => void;
+  render: (row: Card) => React.ReactNode;
 }) {
   if (rows.length === 0) return <EmptyColumn />;
   const sorted = [...rows].sort(
@@ -639,88 +511,84 @@ function ParadoColumn({
       (stopped[b.client.userId]?.weekSpend ?? 0) - (stopped[a.client.userId]?.weekSpend ?? 0) ||
       (a.journey.daysInStage ?? 999) - (b.journey.daysInStage ?? 999),
   );
-  const lost = sorted.reduce((sum, row) => sum + (stopped[row.client.userId]?.weekSpend ?? 0), 0);
-  return (
-    <>
-      <p className="px-1 text-[11px] text-muted-foreground">
-        Ordenado pelo dinheiro que parou: somados, rodavam{" "}
-        <span className="font-medium text-foreground tabular-nums">{formatMoney(lost, false)}/semana</span>.
-      </p>
-      <ul className="space-y-1.5">
-        {sorted.map((row) => {
-          const week = stopped[row.client.userId]?.weekSpend ?? 0;
-          return (
-            <ClientCard key={row.client.userId} row={row} onMessage={onMessage}>
-              <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
-                <DaysText row={row} />
-                {week > 0 ? (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span className="tabular-nums">
-                      rodava <span className="font-medium text-foreground">{formatMoney(week, false)}/semana</span>
-                    </span>
-                  </>
-                ) : null}
-              </p>
-            </ClientCard>
-          );
-        })}
-      </ul>
-    </>
-  );
+  return <CardList rows={sorted} render={render} label="Parados, pelo dinheiro que parou" />;
 }
 
 /* ------------------------------------------------------------------ */
-/* Cartão                                                               */
+/* Cartão: nome · próximo passo · contexto                              */
 /* ------------------------------------------------------------------ */
 
 function ClientCard({
   row,
+  context,
   onMessage,
-  children,
 }: {
-  row: JourneyRow;
+  row: Card;
+  context: string | null;
   onMessage: (row: JourneyRow) => void;
-  children?: React.ReactNode;
 }) {
-  const { client, journey } = row;
+  const { client, journey, step } = row;
   const href = clientHref(client.userId);
-  const autoTags = new Set(journey.autoTags);
-  const hasChips = journey.tags.length > 0 || journey.billingRisk;
+  const extra = extraTags(journey.tags, step);
+  const noHandoff = journey.stage === "onboarding" && !journey.handoff;
   return (
-    <li className="rounded-lg border bg-card p-2.5 shadow-xs transition-colors hover:border-primary/40">
-      <div className="flex items-start gap-2">
+    <li className="group relative rounded-lg border bg-card px-2.5 py-2 shadow-xs transition-colors hover:border-foreground/25">
+      <div className="flex min-w-0 items-center gap-1.5">
+        {/* O link cobre o cartão inteiro (::after); ícones e botão ficam por cima. */}
         <Link
           href={href}
-          className="min-w-0 flex-1 truncate text-sm leading-5 font-medium hover:underline"
           title={client.displayName}
+          className="min-w-0 truncate text-sm leading-5 font-medium outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring/60"
         >
           {client.displayName}
         </Link>
-        <PlanBadge tier={client.plan.tier} className="mt-0.5 shrink-0" />
+        <PlanText tier={client.plan.tier} />
+        <span className="ml-auto flex shrink-0 items-center gap-0.5">
+          {noHandoff ? (
+            <HintIcon
+              label="Sem passagem do Fred"
+              tooltip="Sem passagem de bastão do Fred — peça o resumo da call antes de falar com o cliente."
+            >
+              <Handshake className="size-3.5" />
+            </HintIcon>
+          ) : null}
+          {journey.billingRisk ? (
+            <HintIcon label={`Financeiro: ${journey.billingRisk.toLowerCase()}`}>
+              <Wallet className="size-3.5" />
+            </HintIcon>
+          ) : null}
+          {extra.length > 0 ? (
+            <HintIcon
+              label={`Mais ${plural(extra.length, "problema", "problemas")}: ${extra.map((tag) => tag.label).join(", ")}`}
+              tooltip={
+                <ul className="space-y-0.5">
+                  {extra.map((tag) => (
+                    <li key={tag.key}>{tag.label}</li>
+                  ))}
+                </ul>
+              }
+            >
+              <span className="text-[11px] tabular-nums">+{extra.length}</span>
+            </HintIcon>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onMessage(row)}
+            aria-label={`Mensagem para ${client.displayName}`}
+            title="Mensagem"
+            // Só aparece no hover/foco do cartão e não reserva espaço escondido: o nome usa a linha toda.
+            className="relative z-10 inline-flex h-6 w-0 items-center justify-center overflow-hidden rounded-md text-muted-foreground opacity-0 transition-[width,opacity] outline-none group-focus-within:w-6 group-focus-within:opacity-100 group-hover:w-6 group-hover:opacity-100 hover:bg-muted hover:text-foreground focus-visible:w-6 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <MessageSquare className="size-3.5" />
+          </button>
+        </span>
       </div>
-      <div className="mt-1 space-y-1">{children}</div>
-      {hasChips ? (
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {journey.tags.map((tag) => (
-            <ProblemTagChip key={tag.key} tag={tag} auto={autoTags.has(tag.key)} />
-          ))}
-          {journey.billingRisk ? <FinanceChip text={journey.billingRisk} /> : null}
-        </div>
+      {step ? (
+        <p className={cn("line-clamp-2 text-[13px] leading-snug", NEXT_STEP_TONE[step.tone])} title={step.text}>
+          {step.text}
+        </p>
       ) : null}
-      <div className="mt-2 flex items-center gap-1.5">
-        {client.phone ? (
-          <span className="min-w-0 truncate text-[11px] tabular-nums text-muted-foreground">{formatPhone(client.phone)}</span>
-        ) : (
-          <span className="text-[11px] text-muted-foreground/70">sem telefone</span>
-        )}
-        <Button size="xs" variant="outline" className="ml-auto" onClick={() => onMessage(row)}>
-          <MessageSquare /> Mensagem
-        </Button>
-        <Button size="xs" variant="secondary" asChild>
-          <Link href={href}>Abrir</Link>
-        </Button>
-      </div>
+      {context ? <p className="mt-0.5 truncate text-[11px] text-muted-foreground tabular-nums">{context}</p> : null}
     </li>
   );
 }

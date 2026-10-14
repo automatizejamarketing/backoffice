@@ -39,8 +39,10 @@ export function computeStripCounts(rows: CarteiraRow[]): { counts: StripCounts; 
 }
 
 /**
- * Resumo por plano, igual nas três visões: um cartão por plano, com o que o
- * plano promete. Clicar filtra pelo plano (clicar de novo limpa).
+ * Resumo por plano, igual nas três visões: uma faixa fina (40px) com o que
+ * cada plano promete e, no fim, quanto você já tratou hoje. Clicar num plano
+ * filtra por ele (clicar de novo limpa). Cor só no número: violeta para
+ * Premium esperando, vermelho para Pro com crítico.
  */
 export function SummaryStrip({
   counts,
@@ -90,7 +92,7 @@ export function SummaryStrip({
 
   return (
     <div className="@container">
-      <div className="grid grid-cols-2 gap-2 @4xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(180px,0.8fr)]">
+      <div className="flex h-10 min-w-0 items-stretch overflow-hidden rounded-lg border bg-card text-xs">
         {cards.map((card) => {
           const active = plan === card.key;
           return (
@@ -98,50 +100,44 @@ export function SummaryStrip({
               key={card.key}
               type="button"
               aria-pressed={active}
-              title={`${PLAN_SERVICE[card.key]}. ${active ? "Clique para ver todos os planos." : "Clique para filtrar."}`}
+              title={`${card.count} ${card.label} (${card.sub}). ${PLAN_SERVICE[card.key]}. ${active ? "Clique para ver todos os planos." : "Clique para filtrar."}`}
               onClick={() => onPlan(active ? null : card.key)}
               className={cn(
-                "group flex min-w-0 items-center gap-3 rounded-lg border bg-card px-3 py-2 text-left transition-colors hover:border-foreground/25",
-                card.tone === "red" && "border-red-300 dark:border-red-900",
-                card.tone === "violet" && "border-violet-300 dark:border-violet-900",
-                active && "border-foreground/60 bg-muted/60 ring-1 ring-foreground/30 dark:border-foreground/50",
+                "flex min-w-0 flex-[1_1_auto] items-center gap-2 border-r px-2.5 text-left transition-colors hover:bg-muted/50 focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none @3xl:px-3",
+                active && "bg-muted",
               )}
             >
               <span
                 className={cn(
-                  "text-2xl leading-none font-semibold tabular-nums",
+                  "text-base leading-none font-semibold tabular-nums",
                   card.tone === "red" && "text-red-600 dark:text-red-400",
-                  card.tone === "amber" && "text-amber-600 dark:text-amber-400",
                   card.tone === "violet" && "text-violet-700 dark:text-violet-300",
-                  card.tone === "ok" && "text-emerald-600 dark:text-emerald-400",
+                  card.tone === "ok" && "text-muted-foreground",
                 )}
               >
                 {card.count}
               </span>
-              <span className="min-w-0 flex-1 leading-tight">
-                <span className="block truncate text-[13px] font-medium">{card.label}</span>
-                <span className="block truncate text-xs text-muted-foreground">{card.sub}</span>
+              <span className="min-w-0 flex-1 truncate leading-tight">
+                <span className="font-medium">{card.label}</span>
+                <span className="hidden text-muted-foreground @5xl:inline"> · {card.sub}</span>
               </span>
-              {active ? (
-                <span className="flex shrink-0 items-center gap-0.5 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background">
-                  <Check className="size-3" /> filtro
-                </span>
-              ) : null}
+              {active ? <Check className="size-3.5 shrink-0" aria-label="filtro ativo" /> : null}
             </button>
           );
         })}
-        <div className="flex min-w-0 flex-col justify-center gap-1.5 rounded-lg border bg-card px-3 py-2">
-          <p className="flex items-baseline gap-1.5 text-[13px]">
-            <span className="text-muted-foreground">Você tratou</span>
-            <span className="text-lg leading-none font-semibold tabular-nums">{handled}</span>
-            <span className="text-muted-foreground">hoje</span>
-          </p>
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress * 100}%` }} />
-            </div>
-            <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">faltam {remaining}</span>
-          </div>
+        <div
+          className="flex shrink-0 items-center gap-2 px-2.5 @3xl:px-3"
+          title={`Você tratou ${handled} hoje; faltam ${remaining} na fila`}
+        >
+          <span className="whitespace-nowrap text-muted-foreground">
+            Você tratou <span className="text-sm font-semibold text-foreground tabular-nums">{handled}</span> hoje
+          </span>
+          <span className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-muted @4xl:block" aria-hidden>
+            <span className="block h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress * 100}%` }} />
+          </span>
+          <span className="hidden whitespace-nowrap text-[11px] text-muted-foreground tabular-nums @4xl:inline">
+            faltam {remaining}
+          </span>
         </div>
       </div>
     </div>

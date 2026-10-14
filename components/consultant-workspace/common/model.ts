@@ -30,6 +30,7 @@ import type {
   WorkspaceRange,
   WorkspaceState,
 } from "@/lib/consultant-workspace/types";
+import { cleanRuleTitle, nextStep, type NextStep, type NextStepTone } from "./next-step";
 import {
   humanize,
   isHidden,
@@ -93,6 +94,8 @@ export type CarteiraRow = {
   reason: string;
   bucket: Bucket | null;
   journey: ClientJourney;
+  /** A coisa mais importante a fazer agora (mesma regra do cartão da Jornada). */
+  step: NextStep | null;
   lastTouch: string | null;
   daysSinceTouch: number | null;
   touchOverdue: boolean;
@@ -407,7 +410,7 @@ export function buildRows({ clients, alerts, extras, store, range, now, assignme
     const goal = store.goals[userId];
     const goalInfo = goalStatus(client.perf.kpi, goal);
     const pacing = budgetPacing(client.perf.monthToDateSpend, goal?.monthlyBudget, range);
-    const journey = computeJourney(client, extras[userId], store, liveAlerts, goalInfo.status);
+    const journey = computeJourney(client, extras[userId], store, liveAlerts, goalInfo.status, now);
     const lastTouch = maxIso(client.lastConsultantTouchAt, lastHuman.get(userId) ?? null);
     const daysSinceTouch = daysBetween(lastTouch, now);
 
@@ -479,6 +482,7 @@ export function buildRows({ clients, alerts, extras, store, range, now, assignme
       reason: reasonParts.join(" · "),
       bucket,
       journey,
+      step: nextStep(client, journey, { alerts: liveAlerts, goal }),
       lastTouch,
       daysSinceTouch,
       touchOverdue: paid && (daysSinceTouch == null || daysSinceTouch > 14),
@@ -497,6 +501,17 @@ export function buildRows({ clients, alerts, extras, store, range, now, assignme
     row.rank = index + 1;
   });
   return rows;
+}
+
+/**
+ * O motivo da linha na Fila e na Mesa, em palavras: o próximo passo quando
+ * há; senão, o sinal principal (ex.: "Sem contato há 9 dias"). Vermelho só no
+ * crítico.
+ */
+export function rowReason(row: Pick<CarteiraRow, "step" | "headline" | "worst">): { text: string; tone: NextStepTone } | null {
+  if (row.step) return { text: row.step.text, tone: row.step.tone };
+  if (!row.headline) return null;
+  return { text: cleanRuleTitle(row.headline.title), tone: row.worst === "critical" ? "critical" : "neutral" };
 }
 
 /** Clientes que você tratou hoje (concluídos ou dispensados) — o contador do topo. */

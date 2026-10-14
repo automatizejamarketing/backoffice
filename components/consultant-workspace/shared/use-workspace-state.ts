@@ -35,6 +35,8 @@ export function useWorkspaceState() {
       return response.json();
     },
     staleTime: 30_000,
+    // Acompanha o cache das visões (30 min): voltar a uma visão não pinta com estado velho.
+    gcTime: 30 * 60_000,
   });
   const mutation = useMutation({
     mutationFn: async (op: WorkspaceOp) => {

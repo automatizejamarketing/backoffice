@@ -9,13 +9,20 @@ import {
   TEMPLATE_BY_KEY,
   renderTemplate,
   type ClientJourney,
+  type JourneyExtras,
   type JourneyStage,
   type JourneyStepKey,
   type MessageTemplate,
   type ProblemTag,
 } from "@/lib/consultant-workspace/journey";
 import { emptyTotals, primaryKpi } from "@/lib/consultant-workspace/metrics";
-import type { ConsultantKey, WorkspaceAlert, WorkspaceClient, WorkspaceState } from "@/lib/consultant-workspace/types";
+import type {
+  ConsultantKey,
+  WorkspaceAlert,
+  WorkspaceClient,
+  WorkspaceRange,
+  WorkspaceState,
+} from "@/lib/consultant-workspace/types";
 import type { AssignedConsultant } from "@/components/consultant-workspace/common/assignment";
 import { plural } from "@/components/consultant-workspace/common/signal-helpers";
 
@@ -39,6 +46,25 @@ export function slimAlert(alert: WorkspaceAlert): SlimAlert {
     entityName: alert.entityName,
   };
 }
+
+export type StoppedSpend = {
+  /** Último dia com gasto. */
+  lastSpendDate: string;
+  /** Gasto nos 7 dias que terminam no último dia com gasto — o dinheiro que parou. */
+  weekSpend: number;
+};
+
+/** O que a Jornada e os Playbooks leem (sempre 7 dias). Só strings e números: vai em JSON. */
+export type BoardData = {
+  range: WorkspaceRange;
+  clients: WorkspaceClient[];
+  alerts: SlimAlert[];
+  extras: Record<string, JourneyExtras>;
+  stopped: Record<string, StoppedSpend>;
+  store: WorkspaceState;
+  /** Alertas já tratados que não estão mais abertos: id → cliente (para "você tratou hoje"). */
+  touchedAlertUser: Record<string, string>;
+};
 
 /** `computeJourney` pede o alerta completo; os campos de texto não pesam na regra. */
 export function fillAlert(alert: SlimAlert): WorkspaceAlert {
@@ -120,17 +146,6 @@ export function toIso(value: string) {
 export function kpiUnit(count: number, label: string) {
   const lower = label.toLowerCase();
   return count === 1 ? lower.replace(/s$/, "") : lower;
-}
-
-/** "3 alerta(s) de performance" → "3 alertas de performance". */
-export function attentionLine(journey: ClientJourney) {
-  return journey.attentionReasons
-    .map((reason) =>
-      reason.replace(/^(\d+) alerta\(s\) de performance$/, (_, count: string) =>
-        plural(Number(count), "alerta de performance", "alertas de performance"),
-      ),
-    )
-    .join(" · ");
 }
 
 /* ------------------------------------------------------------------ */

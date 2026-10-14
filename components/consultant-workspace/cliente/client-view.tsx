@@ -86,8 +86,9 @@ export function ClientJourneyView({
         store,
         liveAlerts,
         goalStatus(stageClient.perf.kpi, store.goals[client.userId]).status,
+        now,
       ),
-    [stageClient, extras, store, liveAlerts, client.userId],
+    [stageClient, extras, store, liveAlerts, client.userId, now],
   );
 
   // Quem escreve a mensagem assina ("Aqui é o …").
@@ -256,7 +257,9 @@ function MetaHealthLine({ client }: { client: WorkspaceClient }) {
   return (
     <p className={cn("flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs")}>
       <MetaHealthBadge health={meta.health} />
-      <span className="text-muted-foreground">{text[meta.health]}</span>
+      <span className="text-muted-foreground" suppressHydrationWarning>
+        {text[meta.health]}
+      </span>
       {client.publishHolds > 0 ? (
         <span className="text-amber-700 dark:text-amber-400">
           · {client.publishHolds === 1 ? "1 publicação retida" : `${client.publishHolds} publicações retidas`}

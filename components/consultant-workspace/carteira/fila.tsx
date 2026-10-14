@@ -3,13 +3,13 @@
 import { useEffect, useRef } from "react";
 import { Bot, Check, ChevronDown, Inbox, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Delta, GoalBadge, PlanBadge, SeverityDot } from "@/components/consultant-workspace/shared/primitives";
-import { pacingText, pacingTone } from "@/components/consultant-workspace/common/grid";
+import { Delta } from "@/components/consultant-workspace/shared/primitives";
+import { pacingText } from "@/components/consultant-workspace/common/grid";
 import { cn } from "@/lib/utils";
 import { formatInt, formatMoney } from "@/lib/consultant-workspace/metrics";
 import { firstName } from "@/components/consultant-workspace/common/workspace-context";
-import { StageDot, STAGE_SHORT, stageLine } from "@/components/consultant-workspace/common/journey-bits";
-import type { CarteiraRow } from "@/components/consultant-workspace/common/model";
+import { NEXT_STEP_TONE, PlanText, STAGE_SHORT } from "@/components/consultant-workspace/common/journey-bits";
+import { daysInStageText, rowReason, type CarteiraRow } from "@/components/consultant-workspace/common/model";
 
 /**
  * Fila: duas colunas — lista à esquerda, painel do cliente à direita,
@@ -126,6 +126,16 @@ export function Shortcut({ k, label }: { k: string; label: string }) {
   );
 }
 
+const GOAL_TEXT: Partial<Record<CarteiraRow["goalInfo"]["status"], string>> = {
+  na_meta: "na meta",
+  perto: "perto da meta",
+  fora: "fora da meta",
+};
+
+/**
+ * Item da Fila em três linhas: nome e plano · o motivo em palavras (o próximo
+ * passo, vermelho só no crítico) · números do período apagados.
+ */
 function FilaItem({
   row,
   selected,
@@ -139,7 +149,11 @@ function FilaItem({
 }) {
   const { client, journey } = row;
   const perf = client.perf;
-  const headline = row.headline;
+  const reason = rowReason(row);
+  const others = row.headline?.others ?? 0;
+  const spent = perf.current.spend > 0 || perf.previous.spend > 0;
+  const goalText = row.goal ? GOAL_TEXT[row.goalInfo.status] : undefined;
+  const pacing = row.pacing && row.goal?.monthlyBudget ? `verba ${pacingText(row.pacing.ratio)}` : null;
   return (
     <button
       id={`e-row-${row.userId}`}
@@ -154,66 +168,50 @@ function FilaItem({
         muted && !selected && "opacity-75",
       )}
     >
-      <span className="w-2 shrink-0 pt-1.5">
-        {row.worst ? <SeverityDot severity={row.worst} /> : <span className="block size-2 rounded-full border" />}
+      <span className="w-2 shrink-0 pt-1.5" aria-hidden>
+        <span
+          className={cn(
+            "block size-2 rounded-full",
+            row.worst === "critical" ? "bg-red-500" : row.worst ? "bg-muted-foreground/40" : "border",
+          )}
+        />
       </span>
       <span className="min-w-0 flex-1 space-y-0.5">
-        <span className="flex items-center gap-1.5">
+        <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-medium">{row.title}</span>
-          <span className="ml-auto shrink-0">
-            <PlanBadge tier={client.plan.tier} />
-          </span>
-        </span>
-        <span className={cn("block truncate text-xs", headline ? "text-foreground/85" : "text-muted-foreground")}>
-          {headline ? headline.title : "Sem sinal aberto"}
-          {headline && headline.times > 1 ? <span className="text-muted-foreground"> × {headline.times}</span> : null}
-          {headline && headline.others > 0 ? <span className="text-muted-foreground"> · +{headline.others}</span> : null}
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground tabular-nums">
-          {perf.current.spend > 0 || perf.previous.spend > 0 ? (
-            <>
-              <span className="text-foreground/80">{formatMoney(perf.current.spend, false)}</span>
-              <Delta value={row.spendDelta} neutral className="text-[11px]" />
-              <span aria-hidden>·</span>
-              <span className="truncate">
-                {formatInt(perf.kpi.count)} {perf.kpi.label.toLowerCase()}
-                {perf.kpi.cost != null ? ` · ${perf.kpi.costLabel} ${formatMoney(perf.kpi.cost)}` : ""}
-              </span>
-            </>
-          ) : (
-            <span>sem gasto no período</span>
-          )}
-          {row.goal ? (
-            <span className="shrink-0">
-              <GoalBadge kpi={perf.kpi} goal={row.goal} />
-            </span>
-          ) : null}
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-          <StageDot stage={journey.stage} className="size-1.5" />
-          <span className="truncate">
-            {STAGE_SHORT[journey.stage]}
-            {stageLine(journey) ? ` · ${stageLine(journey)}` : ""}
-          </span>
-          {row.pacing && row.goal?.monthlyBudget ? (
-            <span
-              className={cn(
-                "shrink-0",
-                pacingTone(row.pacing.ratio) === "bad" && "text-red-700 dark:text-red-400",
-                pacingTone(row.pacing.ratio) === "warn" && "text-amber-700 dark:text-amber-400",
-              )}
-            >
-              · verba {pacingText(row.pacing.ratio)}
-            </span>
-          ) : null}
-          <span className="ml-auto flex shrink-0 items-center gap-1">
+          <PlanText tier={client.plan.tier} />
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
             {row.consultantName ? (
-              <span className="max-w-20 truncate rounded bg-muted px-1 text-[10px]" title={`Responsável: ${row.consultantName}`}>
+              <span className="max-w-20 truncate" title={`Responsável: ${row.consultantName}`}>
                 {firstName(row.consultantName) ?? row.consultantName}
               </span>
             ) : null}
-            {row.rank ? <span className="text-[10px] tabular-nums">#{row.rank}</span> : null}
+            {row.rank ? <span className="tabular-nums">#{row.rank}</span> : null}
           </span>
+        </span>
+        <span className="flex min-w-0 items-baseline gap-1 text-xs">
+          <span className={cn("truncate", reason ? NEXT_STEP_TONE[reason.tone] : "text-muted-foreground")}>
+            {reason ? reason.text : "Sem sinal aberto"}
+          </span>
+          {others > 0 ? <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">+{others}</span> : null}
+        </span>
+        <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
+          {spent ? (
+            <>
+              <span>{formatMoney(perf.current.spend, false)}</span>
+              <Delta value={row.spendDelta} neutral className="text-[11px]" />
+              <span className="truncate">
+                · {formatInt(perf.kpi.count)} {perf.kpi.label.toLowerCase()}
+                {perf.kpi.cost != null ? ` · ${perf.kpi.costLabel} ${formatMoney(perf.kpi.cost)}` : ""}
+                {goalText ? ` · ${goalText}` : ""}
+                {pacing ? ` · ${pacing}` : ""}
+              </span>
+            </>
+          ) : (
+            <span className="truncate">
+              {daysInStageText(journey) ?? `${STAGE_SHORT[journey.stage]} · sem gasto no período`}
+            </span>
+          )}
         </span>
       </span>
     </button>

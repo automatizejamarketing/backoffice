@@ -25,6 +25,8 @@ import {
   type WorkspaceGoal,
   type WorkspaceSimulatedAction,
 } from "@/lib/consultant-workspace/types";
+import { TRAFEGO_ROOT_KEY } from "@/components/consultant-workspace/common/trafego-query";
+import { invalidateTrafego } from "@/components/consultant-workspace/common/use-trafego-data";
 import { useWorkspaceState } from "./use-workspace-state";
 
 /** Meta do cliente: KPI-alvo + verba mensal combinada. */
@@ -329,7 +331,9 @@ export function MetaActionDialog({
     try {
       const body = await call("apply");
       toast.success(body.summary ?? `${ACTION_LABEL[action]} aplicado na Meta`);
-      await queryClient.invalidateQueries();
+      // As visões de Tráfego releem em segundo plano (a carteira é pesada: não segura o diálogo).
+      invalidateTrafego(queryClient);
+      await queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== TRAFEGO_ROOT_KEY[0] });
       setPreview(null);
       setNote("");
       onOpenChange(false);

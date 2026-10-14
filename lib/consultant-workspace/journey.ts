@@ -333,9 +333,9 @@ export type ClientJourney = {
   billingRisk: string | null;
 };
 
-function daysSince(date: string | null, today = new Date()): number | null {
+function daysSince(date: string | null, now: number): number | null {
   if (!date) return null;
-  const diff = today.getTime() - new Date(date.length === 10 ? `${date}T12:00:00Z` : date).getTime();
+  const diff = now - new Date(date.length === 10 ? `${date}T12:00:00Z` : date).getTime();
   return Math.max(0, Math.floor(diff / 86_400_000));
 }
 
@@ -345,6 +345,8 @@ export function computeJourney(
   store: WorkspaceState,
   alerts: WorkspaceAlert[],
   goalStatusValue: "sem_meta" | "sem_dados" | "na_meta" | "perto" | "fora",
+  /** Relógio da leitura (as telas passam o `now` do servidor, não o do render). */
+  now: number = Date.now(),
 ): ClientJourney {
   const health = client.meta.health;
   const metaOk = health !== "sem_meta" && health !== "token_invalido";
@@ -355,7 +357,7 @@ export function computeJourney(
   const handoff = store.handoffs[client.userId] ?? null;
   const accessOk =
     ["active", "trialing", "past_due"].includes(client.plan.status ?? "") ||
-    (client.accessUntil != null && new Date(client.accessUntil).getTime() > Date.now());
+    (client.accessUntil != null && new Date(client.accessUntil).getTime() > now);
 
   const steps: JourneyStep[] = [
     {
@@ -443,10 +445,10 @@ export function computeJourney(
     blocker,
     daysInStage:
       stage === "onboarding"
-        ? daysSince(extras?.signupAt ?? null)
+        ? daysSince(extras?.signupAt ?? null, now)
         : stage === "parado"
-          ? daysSince(extras?.lastSpendDate ?? null)
-          : daysSince(extras?.firstSpendDate ?? null),
+          ? daysSince(extras?.lastSpendDate ?? null, now)
+          : daysSince(extras?.firstSpendDate ?? null, now),
     autoTags: activeAuto,
     manualTags,
     tags,

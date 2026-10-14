@@ -225,7 +225,8 @@ export function ClientTimeline({
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-snug">{item.title}</p>
                 {item.body ? <p className="mt-0.5 text-xs text-muted-foreground">{item.body}</p> : null}
-                <p className="mt-0.5 text-[11px] text-muted-foreground/80">
+                {/* "há N min" muda entre o render do servidor e o do navegador. */}
+                <p className="mt-0.5 text-[11px] text-muted-foreground/80" suppressHydrationWarning>
                   {formatRelative(item.at)}
                   {item.who ? ` · ${item.who}` : ""}
                 </p>

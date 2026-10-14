@@ -27,6 +27,7 @@ import {
   type OutreachResult,
 } from "@/lib/consultant-workspace/outreach-core";
 import type { MatDraft } from "@/lib/consultant-workspace/playbook-actions";
+import { invalidateTrafego } from "@/components/consultant-workspace/common/use-trafego-data";
 import { WORKSPACE_STATE_KEY } from "./use-workspace-state";
 
 type Failure = { code: OutreachErrorCode | string; message: string; lastSentAt?: string | null };
@@ -155,6 +156,7 @@ function OutreachBody({
       const result = await callOutreach("send", body);
       toast.success(`Mat enviou para ${result.recipient.masked ?? clientName}`);
       await queryClient.invalidateQueries({ queryKey: WORKSPACE_STATE_KEY });
+      invalidateTrafego(queryClient);
       onClose();
     } catch (error) {
       setSendError(error as Failure);

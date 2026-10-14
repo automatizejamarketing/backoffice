@@ -2,18 +2,20 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BookOpenCheck, Check, LayoutList, MessagesSquare, Pin, Route, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ConsultantScopeSelect } from "./consultant-scope";
 import { TRAFEGO_VIEWS, VIEW_COOKIE, type TrafegoView } from "./routes";
+import { usePrefetchView } from "./use-trafego-data";
+import { useSwitchView } from "./use-switch-view";
 
 const VIEW_ICON: Record<TrafegoView, typeof Route> = { fila: LayoutList, mesa: Table2, jornada: Route };
 
-const SECONDARY = [
-  { href: "/trafego/playbooks", label: "Playbooks", icon: BookOpenCheck },
+const SECONDARY: Array<{ href: string; label: string; icon: typeof Route; readsBoard?: boolean }> = [
+  { href: "/trafego/playbooks", label: "Playbooks", icon: BookOpenCheck, readsBoard: true },
   { href: "/trafego/mensagens", label: "Mensagens", icon: MessagesSquare },
 ];
 
@@ -38,6 +40,10 @@ export function TrafegoTopBar({ defaultView }: { defaultView: TrafegoView | null
   const [savedDefault, setSavedDefault] = useState<TrafegoView | null>(defaultView);
   const query = params.toString();
   const scoped = SCOPED_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+  // Passar o mouse (ou o foco) num link já aquece os dados da visão: o clique pinta do cache.
+  const prefetchView = usePrefetchView();
+  const router = useRouter();
+  const switchView = useSwitchView();
 
   function makeDefault(view: TrafegoView) {
     document.cookie = `${VIEW_COOKIE}=${view}; path=/; max-age=${ONE_YEAR}; samesite=lax`;
@@ -55,10 +61,25 @@ export function TrafegoTopBar({ defaultView }: { defaultView: TrafegoView | null
         {TRAFEGO_VIEWS.map((view) => {
           const Icon = VIEW_ICON[view.key];
           const active = current === view.key;
+          const search = current && query ? query : "";
+          const href = search ? `${view.href}?${search}` : view.href;
+          const warm = () => {
+            prefetchView(view.key, search);
+            // Vindo de fora das visões (cliente, playbooks…), a rota ainda é navegada: aquece.
+            if (!current && !active) router.prefetch(href);
+          };
           return (
             <Link
               key={view.key}
-              href={current && query ? `${view.href}?${query}` : view.href}
+              href={href}
+              onClick={(event) => {
+                // Entre visões: troca só a URL, sem ida ao servidor (ver useSwitchView).
+                if (!current || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                event.preventDefault();
+                if (!active) switchView(view.key, search);
+              }}
+              onMouseEnter={warm}
+              onFocus={warm}
               title={view.hint}
               aria-current={active ? "page" : undefined}
               className={cn(
@@ -79,6 +100,8 @@ export function TrafegoTopBar({ defaultView }: { defaultView: TrafegoView | null
             <Link
               key={item.href}
               href={item.href}
+              onMouseEnter={item.readsBoard ? () => prefetchView("jornada", "") : undefined}
+              onFocus={item.readsBoard ? () => prefetchView("jornada", "") : undefined}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "inline-flex h-7 items-center gap-1.5 rounded-md px-2 whitespace-nowrap text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
