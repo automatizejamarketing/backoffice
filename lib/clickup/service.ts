@@ -3,6 +3,7 @@ import "server-only";
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  agency,
   agencyClient,
   clickupConnection,
   clickupOutbox,
@@ -34,6 +35,7 @@ import {
   type ClientReadiness,
 } from "./core";
 import { copyTaskMedia, MediaError } from "./media";
+import { planCovers } from "@/lib/agency/plan-core";
 
 /**
  * Postagem pelo ClickUp (ADR 0043/0045). O webhook só registra o evento (deduplicado) e responde;
@@ -106,20 +108,23 @@ export async function recordWebhook(agencyId: string, rawBody: string, signature
 
 // ---------------------------------------------------------------- processing
 
-/** Conta pronta: ainda é cliente desta agência e tem Instagram conectado sem reconexão pendente. */
+/** Conta pronta: ainda é cliente desta agência, o plano da agência está pago e o Instagram está conectado sem reconexão pendente. */
 async function readinessFor(agencyId: string, userIds: string[]): Promise<(userId: string) => ClientReadiness> {
   if (!userIds.length) return () => ({ ready: false, reason: "Cliente não encontrado." });
-  const [clients, accounts] = await Promise.all([
+  const [clients, accounts, [plan]] = await Promise.all([
     db.select({ userId: agencyClient.userId }).from(agencyClient).where(and(eq(agencyClient.agencyId, agencyId), inArray(agencyClient.userId, userIds))),
     db
       .select({ userId: instagramAccount.userId, username: instagramAccount.username, needsReconnectAt: instagramAccount.needsReconnectAt })
       .from(instagramAccount)
       .where(and(inArray(instagramAccount.userId, userIds), isNull(instagramAccount.deletedAt)))
       .orderBy(asc(instagramAccount.createdAt)),
+    db.select({ paidUntil: agency.planPaidUntil }).from(agency).where(eq(agency.id, agencyId)).limit(1),
   ]);
   const inAgency = new Set(clients.map((c) => c.userId));
+  const paid = planCovers(plan?.paidUntil ?? null);
   return (userId) => {
     if (!inAgency.has(userId)) return { ready: false, reason: "Este cliente não é mais da agência no Automatize." };
+    if (!paid) return { ready: false, reason: "O plano da agência no Automatize não está pago. Fale com a Automatize." };
     // O cron de publicação usa a primeira conta do cliente; a checagem olha a mesma.
     const account = accounts.find((a) => a.userId === userId);
     if (!account) return { ready: false, reason: "O cliente ainda não conectou o Instagram no Automatize." };

@@ -304,6 +304,14 @@ export const agency = pgTable("agencies", {
   name: varchar("name", { length: 120 }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  // Plano da Agência (ADR 0046): preço por cliente × quantidade no Stripe; a quantidade é o limite
+  // de clientes e o "pago até" cobre o acesso das contas deles.
+  planClientLimit: integer("plan_client_limit").notNull().default(0),
+  planUnitAmountCents: integer("plan_unit_amount_cents"),
+  planStatus: varchar("plan_status", { length: 32 }).notNull().default("none"),
+  planPaidUntil: timestamp("plan_paid_until", { withTimezone: true }),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
 });
 
 export type Agency = InferSelectModel<typeof agency>;
