@@ -166,6 +166,8 @@ app/
     posts/            # admin post queries
 ```
 
+Biblioteca de mídias (ADR 0042 do frontend): rotas `app/api/users/[id]/media-library/**` — `route.ts` (GET lista; POST confirma o upload feito pelo admin), `uploads/` (POST, URL assinada), `[mediaId]/route.ts` (DELETE) e `[mediaId]/download/` (GET). Todas passam por `resolveBackofficeMediaLibraryContext` → `requireMarketingUserAccessResponse(userId, …)`: leitura com `marketing:read`, adicionar e excluir com `marketing:write`. A UI fica em `app/(admin)/marketing/components/` (`media-library-card.tsx`, `media-source-picker.tsx` com a aba "Biblioteca", `media-library-state.ts`) e em `components/media-library/`. Espelhos byte a byte do frontend (rodar `sync:meta` lá): `lib/media-library/{policy,service,handlers,storage,client,hooks}.ts`, `components/media-library/*` e `lib/access/billing-bypass.ts`. Só do backoffice: `lib/media-library/{audit,backoffice-context,repository,server}.ts`. Saíram o apagador pós-Meta (`cleanupBlobAfterMetaIngestion`), `/api/files/upload` e a aba de upload do dispositivo: o único apagador automático da biblioteca é o cron `/api/cron-job/media-library/retention` do frontend.
+
 Ativos Meta (seleção fixa): schema gêmeo `0111_meta_asset_selection` (`when=1799900000000`, mesmas tabelas que o frontend `0117`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
 
 - `GET /api/meta-business/marketing/assets`
@@ -240,6 +242,8 @@ Noteworthy variables:
 - `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` — dedicated Google OAuth client for the backoffice (distinct from the frontend's client).
 - `AI_GATEWAY_API_KEY` — local/Portless fallback for AI Gateway (`app/api/posts/generate`). Must be scoped to this Vercel project. Leave unset on Vercel deploys so OIDC attributes spend here.
 - `BLOB_READ_WRITE_TOKEN` — Vercel Blob token (shared with frontend).
+- `BYPASS_STRIPE_EMAILS` — lista de e-mails com bypass de cobrança (mesma do frontend). A Biblioteca de mídias usa o bypass por e-mail nos dois apps; o backoffice não precisava dela antes. Igualar no projeto Vercel do backoffice.
+- `MEDIA_R2_ENDPOINT` — só para verificação local com S3 compatível (LocalStack); ausente = R2 real.
 - `REDIS_URL` — Upstash Redis (shared).
 - `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_AFFILIATE_COUPON_ID` — Stripe credentials.
 - `BACKOFFICE_EMAIL_FROM`, `RESEND_API_KEY` — transactional email via Resend.
@@ -258,6 +262,7 @@ Do not paste secrets from `.env*` files into commits or external docs.
 - Do NOT change `lib/db/schema.ts` without mirroring the edit in `../automatize-frontend/lib/db/schema.ts` and generating migrations in the owning project.
 - Do NOT edit `lib/meta-business/duplicate.ts` or `lib/meta-business/meta-asset-policy.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — these are byte-identical mirrors.
 - Do NOT edit the other mirrored Meta sources here either (`marketing/{creation,update}/*`, `marketing/create-adset-in-existing-campaign.ts`, `marketing/normalize-meta-error.ts`, `get-instagram-connected-page.ts`). Same rule: edit the frontend's copy, run `bun run sync:meta` there, commit both projects together.
+- Do NOT edit `lib/media-library/{policy,service,handlers,storage,client,hooks}.ts`, `components/media-library/*` or `lib/access/billing-bypass.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — these are byte-identical mirrors checked by `sync:meta:check`.
 - Do NOT use `npm`, `yarn`, or `pnpm`. Bun only.
 - Do NOT add an email to `ADMIN_EMAILS` without the user explicitly approving it — it is an access-control list.
 - Do NOT flip `postgres-js` back to `prepare: true` in `lib/db/index.ts`. It was set to `false` intentionally to fix a stale-row bug on repeated UPDATEs.

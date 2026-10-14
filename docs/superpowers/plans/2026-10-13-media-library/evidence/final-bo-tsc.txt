@@ -1,0 +1,4 @@
+# Task 13 — tsc do backoffice (compare-tsc.py contra evidence/baseline/bo-tsc.txt)
+# Comando: bunx tsc --noEmit -p . (saída bruta exit 1, igual à base)
+
+base: 29 erros | atual: 29 erros | novos: 0

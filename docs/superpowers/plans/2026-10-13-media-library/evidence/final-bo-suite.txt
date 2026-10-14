@@ -1,0 +1,15 @@
+# Task 13 — portão final, suíte completa do backoffice
+# Data: 2026-10-13. Banco de teste: localhost:55452/referral_test. FRONTEND_ROOT = worktree do frontend.
+# Comando:
+#   POSTGRES_URL=$PG POSTGRES_URL_NON_POOLING=$PG FRONTEND_ROOT=$FE bun test --timeout 30000 --reporter=junit --reporter-outfile=<bo-final.xml>
+#   python support/compare-junit.py <bo/.../evidence/baseline/bo.xml> <bo-final.xml>
+
+## Resultado final
+ 1902 pass
+ 32 fail
+ 24 errors
+Ran 1934 tests across 261 files. [15.02s]
+
+## compare-junit (base = evidence/baseline/bo.xml)
+base: 1904 casos, 32 falhando | atual: 1934 casos, 32 falhando
+falhas novas: 0 | falhas da base que passaram: 0
