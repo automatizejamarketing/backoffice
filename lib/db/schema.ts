@@ -1,5 +1,6 @@
 import { sql, type InferSelectModel } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -9,6 +10,7 @@ import {
   integer,
   jsonb,
   numeric,
+  pgSchema,
   pgTable,
   primaryKey,
   text,
@@ -9557,3 +9559,114 @@ export const pricingCostSettings = pgTable(
 
 export type PricingCostSetting = InferSelectModel<typeof pricingCostSettings>;
 // ===== END pricing_* =====
+
+// Cardápio Web onboarding and durable webhook inbox. Credential fields are never
+// part of public projections; historical purchases stay outside operational orders.
+const cwCrmSchema = pgSchema("crm");
+export const cardapioWebOauthAttempt = cwCrmSchema.table("cardapio_web_oauth_attempts", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  companyId: uuid("company_id").notNull().references(() => company.id, { onDelete: "cascade" }),
+  environment: text("environment").notNull(),
+  verifierEncrypted: text("verifier_encrypted").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  expiryIdx: index("cw_oauth_expiry_idx").on(t.expiresAt),
+  environmentCheck: check("cardapio_web_oauth_attempts_environment_check", sql`${t.environment} IN ('sandbox', 'production')`),
+}));
+export const cardapioWebConnection = cwCrmSchema.table("cardapio_web_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => company.id, { onDelete: "cascade" }),
+  connectedBy: uuid("connected_by").notNull().references(() => user.id),
+  environment: text("environment").notNull(),
+  merchantId: bigint("merchant_id", { mode: "number" }).notNull(),
+  merchantName: text("merchant_name").notNull(),
+  tokensEncrypted: text("tokens_encrypted").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("active"),
+  historyStart: timestamp("history_start", { withTimezone: true }),
+  historyEnd: timestamp("history_end", { withTimezone: true }),
+  historyUntil: timestamp("history_until", { withTimezone: true }),
+  historyPage: integer("history_page").notNull().default(1),
+  historyDone: boolean("history_done").notNull().default(false),
+  pollCursor: timestamp("poll_cursor", { withTimezone: true }),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }).notNull().defaultNow(),
+  nextHistoryAt: timestamp("next_history_at", { withTimezone: true }).notNull().defaultNow(),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  failures: integer("failures").notNull().default(0),
+  authRetry: boolean("auth_retry").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  merchantUnique: unique("cardapio_web_connections_environment_merchant_id_key").on(t.environment, t.merchantId),
+  syncIdx: index("cw_connection_sync_idx").on(t.environment,t.nextRunAt).where(sql`${t.status} IN ('active','disconnecting')`),
+  statusCheck: check("cardapio_web_connections_status_check", sql`${t.status} IN ('active','reauthorization_required','disconnecting','disconnected')`),
+  companyIdx: index("cw_connection_company_idx").on(t.companyId),
+  environmentCheck: check("cardapio_web_connections_environment_check", sql`${t.environment} IN ('sandbox', 'production')`),
+  merchantCheck: check("cardapio_web_connections_merchant_id_check", sql`${t.merchantId} > 0`),
+}));
+export const cardapioWebEvent = cwCrmSchema.table("cardapio_web_events", {
+  environment: text("environment").notNull(),
+  eventId: text("event_id").notNull(),
+  merchantId: bigint("merchant_id", { mode: "number" }).notNull(),
+  orderId: bigint("order_id", { mode: "number" }).notNull(),
+  eventType: text("event_type").notNull(),
+  orderStatus: text("order_status").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.environment, t.eventId] }),
+  pendingIdx: index("cw_events_pending_idx").on(t.environment,t.merchantId,t.receivedAt).where(sql`${t.processedAt} IS NULL`),
+  environmentCheck: check("cardapio_web_events_environment_check", sql`${t.environment} IN ('sandbox', 'production')`),
+  merchantCheck: check("cardapio_web_events_merchant_id_check", sql`${t.merchantId} > 0`),
+  orderCheck: check("cardapio_web_events_order_id_check", sql`${t.orderId} > 0`),
+  typeCheck: check("cardapio_web_events_event_type_check", sql`${t.eventType} IN ('ORDER_CREATED', 'ORDER_STATUS_UPDATED')`),
+}));
+
+export const cardapioWebJob = cwCrmSchema.table("cardapio_web_jobs", {
+  connectionId: uuid("connection_id").notNull().references(() => cardapioWebConnection.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  resourceId: bigint("resource_id", { mode: "number" }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  failed: boolean("failed").notNull().default(false),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => ({
+  pk: primaryKey({ columns: [t.connectionId,t.kind,t.resourceId] }),
+  kindCheck: check("cardapio_web_jobs_kind_check", sql`${t.kind} IN ('order','customer')`),
+  resourceCheck: check("cardapio_web_jobs_resource_id_check", sql`${t.resourceId} > 0`),
+}));
+export const cardapioWebCustomer = cwCrmSchema.table("cardapio_web_customers", {
+  connectionId: uuid("connection_id").notNull().references(() => cardapioWebConnection.id, { onDelete: "cascade" }),
+  externalId: bigint("external_id", { mode: "number" }).notNull(),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  ddi: text("ddi"),
+  email: text("email"),
+  birthDate: text("birth_date"),
+  notificationsEnabled: boolean("notifications_enabled").notNull().default(false),
+  enrichedAt: timestamp("enriched_at", { withTimezone: true }),
+}, t => ({ pk: primaryKey({ columns: [t.connectionId,t.externalId] }) }));
+export const cardapioWebOrder = cwCrmSchema.table("cardapio_web_orders", {
+  connectionId: uuid("connection_id").notNull().references(() => cardapioWebConnection.id, { onDelete: "cascade" }),
+  externalId: bigint("external_id", { mode: "number" }).notNull(),
+  customerId: bigint("customer_id", { mode: "number" }),
+  status: text("status").notNull(),
+  salesChannel: text("sales_channel").notNull(),
+  orderType: text("order_type").notNull(),
+  total: numeric("total", { precision: 18, scale: 2 }).notNull(),
+  items: jsonb("items").notNull(),
+  discounts: jsonb("discounts").notNull(),
+  payments: jsonb("payments").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => ({
+  pk: primaryKey({ columns: [t.connectionId,t.externalId] }),
+  customerIdx: index("cw_orders_customer_idx").on(t.connectionId,t.customerId,t.createdAt),
+  totalCheck: check("cardapio_web_orders_total_check", sql`${t.total} >= 0`),
+}));
