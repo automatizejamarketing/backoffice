@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MediaLibraryPanel } from "@/components/media-library/media-library-panel";
+import { backofficeMediaLibraryEndpoints } from "@/lib/media-library/client";
+import type { MediaLibraryItem } from "@/lib/media-library/service";
 import {
   InstagramPostPicker,
   type InstagramMediaItem,
@@ -10,10 +13,13 @@ import {
   AutomatizeMediaGrid,
   type AutomatizeMediaSelection,
 } from "./automatize-media-grid";
-import {
-  DeviceUploadTab,
-  type DeviceUploadSelection,
-} from "./device-upload-tab";
+import { BACKOFFICE_MEDIA_LIBRARY_LABELS } from "./media-library-state";
+
+type DeviceUploadSelection = {
+  blobUrl: string;
+  mediaType: "image" | "video";
+  previewUrl: string;
+};
 
 export type SelectedMedia =
   | {
@@ -144,6 +150,14 @@ export function MediaSourcePicker({
     const nextDevice = exclusive ? sel.slice(0, 1) : sel;
     const nextIg = exclusive ? [] : igSelected;
     const nextAutomatize = exclusive ? [] : automatizeSelected;
+    // Atualiza os refs já: dois envios que terminam no mesmo tick não podem
+    // sobrescrever a seleção um do outro antes do próximo render.
+    deviceSelectedRef.current = nextDevice;
+    remainingRef.current = Math.max(
+      0,
+      maxSelection -
+        (nextIg.length + nextAutomatize.length + nextDevice.length),
+    );
     setDeviceSelected(nextDevice);
     if (exclusive) {
       setIgSelected([]);
@@ -154,19 +168,71 @@ export function MediaSourcePicker({
 
   const remaining = Math.max(0, maxSelection - usedSlots);
 
+  const libraryEndpoints = useMemo(
+    () => backofficeMediaLibraryEndpoints(userId),
+    [userId],
+  );
+  const deviceSelectedUrls = useMemo(
+    () => new Set(deviceSelected.map((selection) => selection.blobUrl)),
+    [deviceSelected],
+  );
+  // Upload termina depois do clique: leia a seleção e as vagas mais novas.
+  const deviceSelectedRef = useRef(deviceSelected);
+  const remainingRef = useRef(remaining);
+  useEffect(() => {
+    deviceSelectedRef.current = deviceSelected;
+    remainingRef.current = remaining;
+  });
+
+  const toDeviceSelection = (
+    item: MediaLibraryItem,
+  ): DeviceUploadSelection => ({
+    blobUrl: item.url,
+    mediaType: item.isVideo ? "video" : "image",
+    previewUrl: item.url,
+  });
+
+  const selectLibraryItem = (item: MediaLibraryItem) => {
+    const current = deviceSelectedRef.current;
+    if (current.some((selection) => selection.blobUrl === item.url)) return;
+    if (exclusive) handleDevice([toDeviceSelection(item)]);
+    else if (remainingRef.current > 0)
+      handleDevice([...current, toDeviceSelection(item)]);
+  };
+
+  const handleLibraryToggle = (item: MediaLibraryItem) => {
+    const current = deviceSelectedRef.current;
+    if (current.some((selection) => selection.blobUrl === item.url)) {
+      handleDevice(
+        current.filter((selection) => selection.blobUrl !== item.url),
+      );
+      return;
+    }
+    selectLibraryItem(item);
+  };
+
+  const handleLibraryDeleted = (item: MediaLibraryItem) => {
+    const current = deviceSelectedRef.current;
+    if (current.some((selection) => selection.blobUrl === item.url)) {
+      handleDevice(
+        current.filter((selection) => selection.blobUrl !== item.url),
+      );
+    }
+  };
+
   return (
     <div className="space-y-3">
       {maxSelection > 1 ? (
         <p className="text-xs text-muted-foreground">
           {usedSlots}/{maxSelection} mídias selecionadas. Pode misturar
-          Instagram, Automatize e arquivos do dispositivo.
+          Instagram, Automatize e mídias da biblioteca.
         </p>
       ) : null}
       <Tabs defaultValue="instagram" className="w-full">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="instagram">Instagram</TabsTrigger>
           <TabsTrigger value="automatize">Automatize</TabsTrigger>
-          <TabsTrigger value="device">Upload</TabsTrigger>
+          <TabsTrigger value="device">Biblioteca</TabsTrigger>
         </TabsList>
 
         <TabsContent value="instagram" className="mt-4">
@@ -191,11 +257,17 @@ export function MediaSourcePicker({
         </TabsContent>
 
         <TabsContent value="device" className="mt-4">
-          <DeviceUploadTab
-            userId={userId}
-            selected={deviceSelected}
-            onSelect={handleDevice}
-            maxSelection={deviceSelected.length + remaining}
+          <MediaLibraryPanel
+            endpoints={libraryEndpoints}
+            labels={BACKOFFICE_MEDIA_LIBRARY_LABELS}
+            actor="backoffice"
+            uploaderDisplay="details"
+            multiple={!exclusive}
+            selectedUrls={deviceSelectedUrls}
+            disableNewSelection={!exclusive && remaining <= 0}
+            onToggle={handleLibraryToggle}
+            onUploaded={selectLibraryItem}
+            onDeleted={handleLibraryDeleted}
           />
         </TabsContent>
       </Tabs>
