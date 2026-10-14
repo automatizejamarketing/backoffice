@@ -268,6 +268,7 @@ export function MetaActionDialog({
   entityName,
   action,
   currentBudget,
+  defaultNote,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -276,11 +277,13 @@ export function MetaActionDialog({
   entityName: string | null;
   action: WorkspaceSimulatedAction["action"];
   currentBudget?: number | null;
+  /** Motivo já escrito (ex.: o porquê da ação sugerida); o gestor pode editar. */
+  defaultNote?: string;
 }) {
   const queryClient = useQueryClient();
   const { apply, isSaving } = useWorkspaceState();
   const [budget, setBudget] = useState(currentBudget && action === "orcamento" ? String(currentBudget) : "");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(defaultNote ?? "");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const metaAction = META_ACTION[action];

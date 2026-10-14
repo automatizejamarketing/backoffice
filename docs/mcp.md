@@ -77,6 +77,9 @@ As mesmas regras das telas `/trafego` (Fila, Mesa e Jornada), em `lib/mcp/consul
 | `resolve_alerts`, `snooze_alerts` | escrita | Concluir com resultado + nota obrigatórios (`performance_insights.review_outcome`) ou adiar (`snoozed_until`) |
 | `preview_meta_changes` → `apply_meta_changes` | Meta | Lote de até 20: pausar, ativar, orçamento diário ou duplicar, em um ou vários clientes |
 | `prepare_client_messages` → `record_client_messages_sent` | — | Texto e link do WhatsApp do cliente; o consultor envia do próprio WhatsApp e o envio é registrado depois |
+| `list_suggested_actions` | leitura | Ações sugeridas de UM cliente: campanha validou (escalar), criativo ruim (pausar, criativos novos, oferta); pixel e saldo ao vivo só com `includeLiveChecks` |
+| `suggest_offer` | IA | 3 ofertas/combos para o criativo ruim (empresa, texto dos anúncios, melhores anúncios, cardápio se houver). 20 por hora por pessoa |
+| `preview_mat_messages` → `send_mat_messages` | WhatsApp | Lote de até 20 mensagens que a Mat manda ao cliente (template `proactivity_alert_v1`), com prévia e código de confirmação |
 
 Mudanças na Meta:
 - A prévia lê o estado AO VIVO na Meta (status, orçamento diário/total) e bloqueia o que a tela também não faria: orçamento no outro nível (CBO/ABO), orçamento total, Facebook desconectado, item não encontrado. Avisa aumentos acima de 50% e cortes acima de 50%.
@@ -84,6 +87,12 @@ Mudanças na Meta:
 - `apply_meta_changes` refaz a prévia de cada item e chama as MESMAS rotas da tela (`app/api/meta-marketing/...`) com o colaborador do token como ator (`lib/auth/actor-context.ts`): nota obrigatória com o sufixo "(via Claude)", log de auditoria e evento interno da coleta iguais aos da tela. Um item com erro não impede os outros. Itens em sequência, nunca em rajada.
 - Item criado depois da última coleta é encontrado perguntando à Meta o nível (campo característico de campanha, conjunto ou anúncio) com o token do cliente.
 - Trocar criativo não está no MCP: exige subir mídia; é feito no Marketing do cliente.
+
+Ações sugeridas e mensagens da Mat (`lib/consultant-workspace/playbook-actions*.ts`, `outreach*.ts`, `lib/mcp/consultant-outreach-tools.ts`):
+- Regras (puras, testadas em `playbook-actions.test.ts`): **escalar** = insight aberto `playbook.roas_scale` de campanha (ROAS ≥ 5 e gasto ≥ R$ 50, constantes do playbook); **criativo ruim** = anúncio ativo com diagnóstico de criativo aberto (`playbook.creative_diagnosis` com `likelyContributor`), OU ≥ 20% da verba com custo por resultado ≥ 1,3× a meta de custo do cliente (CPA/CPL/custo por conversa do mesmo tipo de resultado) ou, sem essa meta, ≥ 1,3× a média da conta, OU ≥ R$ 50 sem nenhum resultado; até 3 por cliente.
+- **Pixel** e **saldo** são lidos AO VIVO (`act_X/adspixels` e o leitor `ad-account-money-read.ts`, agora com `disable_reason`, `amount_spent` e `spend_cap`), só para um cliente e só sob demanda, com cache de 5 min por conta. Pixel com problema: nenhum, indisponível, ou sem disparo há mais de 3 dias enquanto campanha de vendas gasta (e, com pixel ativo, campanha de vendas com ≥ R$ 50 e zero compras). Saldo com problema: pré-paga com menos de R$ 50 ou menos de 3 dias da média dos últimos 7, status 3 (não quitada) ou 9 (carência), `disable_reason` 3 (pagamento), ou limite de gastos atingido/perto. Checagem que falha mostra "não consegui checar agora".
+- Envio: o backoffice chama `POST {FRONTEND_URL}/api/internal/consultant-outreach` (Bearer `FRONTEND_CRON_SECRET ?? CRON_SECRET`, 20 s). O app escolhe o número, renderiza o template e deduplica (`409 recently_sent`). O e-mail do gestor vai da sessão/token, nunca do corpo. Teto de 60 envios por hora por pessoa. Envio confirmado vira nota `mensagem` com `templateKey = "mat:<kind>"`, mostrada como "Mat enviou ao cliente" — a rota de estado e `record_client_messages_sent` recusam `mat:` para ninguém forjar o registro.
+- O `confirmationCode` do lote (mesmo HMAC das mudanças na Meta) amarra cliente, tipo, título, texto e entidade. Mudou qualquer um, expirou ou foi adulterado: recusa.
 
 ## Como funciona
 

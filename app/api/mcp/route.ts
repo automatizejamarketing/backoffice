@@ -30,6 +30,9 @@ const INSTRUCTIONS =
   "Para agir em várias contas: monte um lote em preview_meta_changes, MOSTRE a prévia em tabela curta, espere aprovação explícita e só então apply_meta_changes com as mesmas mudanças e o confirmationCode. Nunca aplique sem aprovação. " +
   "Ao tratar alertas use resolve_alerts com o que foi feito e uma nota real; não conclua alertas só para limpar a fila. " +
   "Mensagens ao cliente: prepare_client_messages devolve texto e link do WhatsApp para o consultor enviar; registre com record_client_messages_sent depois que ele confirmar. " +
+  "Ações sugeridas: list_suggested_actions abre as situações de UM cliente (campanha validou, criativo ruim; pixel e saldo ao vivo só com includeLiveChecks) com rascunhos prontos; suggest_offer dá 3 ofertas/combos para o criativo ruim. " +
+  "Mensagens pela Mat (WhatsApp da Automatize, chegam ao cliente de verdade): SEMPRE preview_mat_messages primeiro, MOSTRE ao usuário cada mensagem (destinatário mascarado, título, texto, botão) " +
+  "e espere aprovação explícita; só então send_mat_messages com as MESMAS mensagens e o confirmationCode. Nunca mande sem aprovação nem troque o texto depois da prévia; se um item falhar por já ter sido mandado há pouco, não insista. " +
   "Valores de WhatsApp em reais. Valores de Meta Ads na moeda da conta: BRL quando o campo currency não vem; nunca some nem converta moedas diferentes. " +
   "Horários de Brasília (-03:00). " +
   "Este conector não traz o financeiro da Automatize (faturamento, receita, MRR, pagamentos): se perguntarem, diga que isso fica na tela Financeiro do backoffice, " +

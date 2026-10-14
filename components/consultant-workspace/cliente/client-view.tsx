@@ -15,6 +15,7 @@ import type {
 } from "@/lib/consultant-workspace/types";
 import { MetaHealthBadge, PlanBadge } from "@/components/consultant-workspace/shared/primitives";
 import { ClientTimeline } from "@/components/consultant-workspace/shared/client-timeline";
+import { SuggestedActionsSection } from "@/components/consultant-workspace/shared/suggested-actions";
 import { AssignConsultant, useAssignedConsultant } from "@/components/consultant-workspace/common/assignment";
 import { FinanceChip, JourneyStepper, StagePill } from "@/components/consultant-workspace/common/journey-bits";
 import { useLastView } from "@/components/consultant-workspace/common/last-view";
@@ -149,6 +150,12 @@ export function ClientJourneyView({
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-5">
+          <SuggestedActionsSection
+            userId={client.userId}
+            clientName={client.displayName}
+            clientFullName={client.name}
+            days={range.days}
+          />
           <ProblemTagsPanel userId={client.userId} journey={journey} store={store} onMessage={(key) => openComposer(key)} />
 
           {journey.stage === "onboarding" ? (

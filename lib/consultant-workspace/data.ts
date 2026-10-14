@@ -6,7 +6,6 @@ import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/a
 import { readWorkspaceState } from "./state";
 import { emptyTotals, primaryKpi, workspaceRange } from "./metrics";
 import type {
-  ConsultantKey,
   DailyPoint,
   MetaHealth,
   PerfTotals,
@@ -154,7 +153,7 @@ async function loadOpenAlerts(userIds: string[]): Promise<WorkspaceAlert[]> {
   return result.map(toAlert);
 }
 
-function toAlert(row: Row): WorkspaceAlert {
+export function toAlert(row: Row): WorkspaceAlert {
   const ruleId = String(row.rule_id);
   return {
     id: String(row.id),

@@ -18,6 +18,7 @@ import {
 import { ACCOUNT_ALERTS_RULE_PREFIX } from "@/lib/account-alerts/constants";
 import { PLAYBOOK_INSIGHTS_RULE_PREFIX } from "@/lib/playbook-insights/constants";
 import { PROBLEM_TAG_BY_KEY } from "./journey";
+import { isMatTemplateKey } from "./outreach-core";
 import type {
   AlertOutcome,
   GoalKpi,
@@ -149,13 +150,15 @@ export async function readWorkspaceState(options: { userIds?: string[] } = {}): 
       continue;
     }
     if (note.kind === "mensagem") {
+      const templateKey = String((note.metadata as { templateKey?: string } | null)?.templateKey ?? "");
       state.sentMessages.push({
         id: note.id,
         userId: note.userId,
-        templateKey: String((note.metadata as { templateKey?: string } | null)?.templateKey ?? ""),
+        templateKey,
         text: note.body,
         by: note.authorEmail,
         at: toIso(note.createdAt)!,
+        channel: isMatTemplateKey(templateKey) ? "mat" : "manual",
       });
       continue;
     }

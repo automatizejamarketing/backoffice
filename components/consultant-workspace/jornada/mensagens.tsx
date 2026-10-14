@@ -10,6 +10,7 @@ import { StageDot } from "@/components/consultant-workspace/common/journey-bits"
 import { useRememberView } from "@/components/consultant-workspace/common/last-view";
 import { clientHref } from "@/components/consultant-workspace/common/routes";
 import { usePrimedWorkspaceState } from "@/components/consultant-workspace/common/use-primed-state";
+import { matKindLabel } from "@/lib/consultant-workspace/outreach-core";
 import { VARIABLE_LABEL, plural } from "./lib";
 
 function TemplateBody({ body }: { body: string }) {
@@ -126,7 +127,10 @@ export function MensagensView({
                       {names[message.userId] ?? "Cliente"}
                     </Link>
                     <span className="text-xs text-muted-foreground">
-                      · {TEMPLATE_BY_KEY.get(message.templateKey)?.label ?? "Mensagem livre"}
+                      ·{" "}
+                      {message.channel === "mat"
+                        ? `Mat · ${matKindLabel(message.templateKey)}`
+                        : (TEMPLATE_BY_KEY.get(message.templateKey)?.label ?? "Mensagem livre")}
                     </span>
                     <span className="ml-auto text-[11px] text-muted-foreground">{formatRelative(message.at)}</span>
                   </div>
@@ -134,7 +138,7 @@ export function MensagensView({
                     {message.text}
                   </p>
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    registrado por {message.by}
+                    {message.channel === "mat" ? `a Mat enviou, a pedido de ${message.by}` : `registrado por ${message.by}`}
                   </p>
                 </li>
               ))}
