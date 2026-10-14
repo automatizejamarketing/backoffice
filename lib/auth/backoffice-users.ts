@@ -1,9 +1,11 @@
-import { isMarketingConsultantRole, isSalesRole } from "@/lib/auth/rbac-core";
-import { eq } from "drizzle-orm";
+import { isAgencyRole, isMarketingConsultantRole, isSalesRole } from "@/lib/auth/rbac-core";
+import { and, eq, isNull, notInArray } from "drizzle-orm";
 import { isAdminEmail } from "@/lib/config";
 import { canAccessFinance } from "@/lib/auth/finance-access";
 import { db } from "@/lib/db";
 import {
+  agency,
+  agencyClient,
   ambassadorMember,
   backofficeUser,
   userMarketingConsultant,
@@ -47,12 +49,57 @@ function isRecoverableDatabaseLookupError(error: unknown): boolean {
   );
 }
 
+const agencyClientIds = () => db.select({ userId: agencyClient.userId }).from(agencyClient);
+
+/** Carteira atribuída a um consultor da Automatize, sem clientes de agências externas. */
 async function getAssignedUserIds(consultantId: string): Promise<string[]> {
   const rows = await db
     .select({ userId: userMarketingConsultant.userId })
     .from(userMarketingConsultant)
-    .where(eq(userMarketingConsultant.consultantId, consultantId));
+    .where(
+      and(
+        eq(userMarketingConsultant.consultantId, consultantId),
+        notInArray(userMarketingConsultant.userId, agencyClientIds()),
+      ),
+    );
   return rows.map((row) => row.userId);
+}
+
+/**
+ * Clientes que uma pessoa de agência opera: o Dono, todos os da agência; o Membro, os atribuídos a
+ * ele que ainda são da agência (a atribuição não sobrevive à saída do cliente).
+ */
+async function getAgencyScopeUserIds(
+  actorId: string,
+  role: "agency_owner" | "agency_member",
+  agencyId: string,
+): Promise<string[]> {
+  const inAgency = eq(agencyClient.agencyId, agencyId);
+  const rows =
+    role === "agency_owner"
+      ? await db.select({ userId: agencyClient.userId }).from(agencyClient).where(inAgency)
+      : await db
+          .select({ userId: userMarketingConsultant.userId })
+          .from(userMarketingConsultant)
+          .innerJoin(agencyClient, eq(agencyClient.userId, userMarketingConsultant.userId))
+          .where(and(eq(userMarketingConsultant.consultantId, actorId), inAgency));
+  return rows.map((row) => row.userId);
+}
+
+async function getAllAgencyClientIds(): Promise<string[]> {
+  const rows = await agencyClientIds();
+  return rows.map((row) => row.userId);
+}
+
+/** A agência existe e está ativa; pessoa de agência arquivada ou sem agência não entra. */
+async function isActiveAgency(agencyId: string | null): Promise<boolean> {
+  if (!agencyId) return false;
+  const [row] = await db
+    .select({ id: agency.id })
+    .from(agency)
+    .where(and(eq(agency.id, agencyId), isNull(agency.archivedAt)))
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function getBackofficeActorByEmail(
@@ -96,6 +143,22 @@ export async function getBackofficeActorByEmail(
     if (role === "finance_viewer" && !canAccessFinance(normalizedEmail)) {
       return null;
     }
+    if (isAgencyRole(role)) {
+      if (!(await isActiveAgency(dbUser.agencyId))) return null;
+      return {
+        id: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        role,
+        source: "database",
+        agencyId: dbUser.agencyId,
+        assignedUserIds: await getAgencyScopeUserIds(
+          dbUser.id,
+          role as "agency_owner" | "agency_member",
+          dbUser.agencyId!,
+        ),
+      };
+    }
     const [membership] = await db
       .select()
       .from(ambassadorMember)
@@ -112,6 +175,8 @@ export async function getBackofficeActorByEmail(
       assignedUserIds: isMarketingConsultantRole(role)
         ? await getAssignedUserIds(dbUser.id)
         : undefined,
+      // Só o admin vê clientes de agências externas (suporte); o resto da equipe não.
+      hiddenUserIds: role === "admin" ? undefined : await getAllAgencyClientIds(),
     };
   } catch (error) {
     if (isFallbackAdmin && isRecoverableDatabaseLookupError(error)) {

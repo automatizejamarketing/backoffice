@@ -1,4 +1,4 @@
-import { and, count, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ilike, isNull, notInArray, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import {
@@ -202,7 +202,19 @@ type CrmLeadFilters = {
   signup?: CrmDateBounds;
   /** Data de expiração do acesso, dias de calendário BRT, inclusivo; qualquer ponta pode faltar. */
   expires?: CrmDateBounds;
+  /** Contas de clientes de agências externas, fora para quem não é admin. */
+  exceptUserIds?: string[];
 };
+
+/** O `userId` da conta de um lead, aceitando o id do contato ou o da conta (como as rotas aceitam). */
+export async function crmLeadAccountId(idOrUserId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ userId: contact.userId })
+    .from(contact)
+    .where(or(eq(contact.id, idOrUserId), eq(contact.userId, idOrUserId)))
+    .limit(1);
+  return row?.userId ?? null;
+}
 
 function dateBoundsCondition(
   column: AnyPgColumn | SQL,
@@ -223,6 +235,9 @@ function dateBoundsCondition(
 
 function buildConditions(input: CrmLeadFilters): SQL | undefined {
   const conditions: SQL[] = [];
+  if (input.exceptUserIds?.length) {
+    conditions.push(or(isNull(contact.userId), notInArray(contact.userId, input.exceptUserIds))!);
+  }
   if (input.captureSource)
     conditions.push(eq(contact.captureSource, input.captureSource));
   if (input.captureProfile)

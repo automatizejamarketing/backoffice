@@ -67,6 +67,7 @@ export default async function UsersPage({
         pageSize,
         search,
         filters,
+        exceptUserIds: actor.hiddenUserIds,
       }),
       listConsultantsForFilter(),
       getUserExpirationDayCounts(),

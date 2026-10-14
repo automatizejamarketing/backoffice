@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
 import {
   deleteBackofficeUser,
+  getBackofficeUserById,
   getBackofficeUserByEmail,
   updateBackofficeUser,
 } from "@/lib/db/backoffice-rbac-queries";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   BACKOFFICE_ROLE_VALUES,
+  isAgencyRole,
   isSalesRole,
   type BackofficeRole,
 } from "@/lib/auth/rbac-core";
 
+/** Cargos da equipe interna; Dono e Membro de agência são criados na tela Agências. */
 function isBackofficeRole(value: unknown): value is BackofficeRole {
   return (
     typeof value === "string" &&
-    (BACKOFFICE_ROLE_VALUES as readonly string[]).includes(value)
+    (BACKOFFICE_ROLE_VALUES as readonly string[]).includes(value) &&
+    !isAgencyRole(value as BackofficeRole)
   );
 }
 
@@ -26,6 +30,16 @@ export async function PATCH(
   if (!authz.ok) return authz.response;
 
   const { id } = await params;
+  const target = await getBackofficeUserById(id);
+  if (!target) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (target.agencyId) {
+    return NextResponse.json(
+      { error: "Esta pessoa é de uma agência: gerencie em Agências." },
+      { status: 409 },
+    );
+  }
   const body = (await request.json()) as {
     email?: unknown;
     name?: unknown;
@@ -92,6 +106,16 @@ export async function DELETE(
   if (!authz.ok) return authz.response;
 
   const { id } = await params;
+  const target = await getBackofficeUserById(id);
+  if (!target) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (target.agencyId) {
+    return NextResponse.json(
+      { error: "Esta pessoa é de uma agência: gerencie em Agências." },
+      { status: 409 },
+    );
+  }
   const user = await deleteBackofficeUser(id);
 
   if (!user) {

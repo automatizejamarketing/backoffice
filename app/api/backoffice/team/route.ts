@@ -7,14 +7,17 @@ import {
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import {
   BACKOFFICE_ROLE_VALUES,
+  isAgencyRole,
   isSalesRole,
   type BackofficeRole,
 } from "@/lib/auth/rbac-core";
 
+/** Cargos da equipe interna; Dono e Membro de agência são criados na tela Agências. */
 function isBackofficeRole(value: unknown): value is BackofficeRole {
   return (
     typeof value === "string" &&
-    (BACKOFFICE_ROLE_VALUES as readonly string[]).includes(value)
+    (BACKOFFICE_ROLE_VALUES as readonly string[]).includes(value) &&
+    !isAgencyRole(value as BackofficeRole)
   );
 }
 

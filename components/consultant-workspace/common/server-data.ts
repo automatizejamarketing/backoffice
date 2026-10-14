@@ -1,8 +1,8 @@
 import "server-only";
 import { sql } from "drizzle-orm";
-import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
+import type { BackofficeActor } from "@/lib/auth/rbac-core";
 import { db } from "@/lib/db";
-import { readWorkspaceState } from "@/lib/consultant-workspace/state";
+import { readWorkspaceStateFor } from "@/lib/consultant-workspace/state";
 import type { WorkspaceState } from "@/lib/consultant-workspace/types";
 
 /** Leituras compartilhadas pelas telas da área de Tráfego (somente SELECT). */
@@ -13,11 +13,9 @@ export function isUuid(value: string) {
   return UUID.test(value);
 }
 
-/** Estado do consultor; o consultor comum só recebe o da própria carteira. */
+/** Estado do consultor; o consultor comum e a agência só recebem o da própria lista. */
 export function readStateFor(actor: BackofficeActor): Promise<WorkspaceState> {
-  return consultantSeesOnlyAssignedClients(actor.role)
-    ? readWorkspaceState({ userIds: actor.assignedUserIds ?? [] })
-    : readWorkspaceState();
+  return readWorkspaceStateFor(actor);
 }
 
 /**

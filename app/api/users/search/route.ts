@@ -12,6 +12,6 @@ export async function GET(request: Request) {
     return Response.json([]);
   }
 
-  const users = await searchUsersByEmail(query);
+  const users = await searchUsersByEmail(query, authz.actor.hiddenUserIds);
   return Response.json(users);
 }

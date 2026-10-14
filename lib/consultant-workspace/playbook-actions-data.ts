@@ -1,6 +1,6 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
-import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { canAccessMarketingUser, hasBackofficePermission, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { db } from "@/lib/db";
 import { consultantClientGoal } from "@/lib/db/schema";
 import { readAdAccountMoney } from "@/lib/meta-business/ad-account-money-read";
@@ -48,6 +48,12 @@ const LIVE_MAX_ACCOUNTS = 2;
 
 export class SuggestedActionsError extends Error {}
 
+/** Sem a Mat (agência): tira os botões que mandam pelo WhatsApp da Automatize. */
+function withoutMatFor(actor: BackofficeActor, suggestions: SuggestedAction[]): SuggestedAction[] {
+  if (hasBackofficePermission(actor, "mat:outreach")) return suggestions;
+  return suggestions.map((s) => ({ ...s, actions: s.actions.filter((a) => a.type !== "mat" && a.type !== "offer_ai") }));
+}
+
 function assertRead(actor: BackofficeActor, userId: string) {
   if (!canAccessMarketingUser(actor, userId)) throw new SuggestedActionsError("Este cliente não está na sua carteira.");
 }
@@ -93,7 +99,7 @@ export async function loadSuggestedActions(
     ...scaleSuggestions({ alerts, accountByCampaign, ctx }),
     ...creativeBadSuggestions({ ads, alerts, goal, days, ctx }),
   ];
-  return { suggestions: sortSuggestions(suggestions), days };
+  return { suggestions: withoutMatFor(actor, sortSuggestions(suggestions)), days };
 }
 
 /** Contas do cliente para checar: maior gasto em 30 dias; sem gasto, a última conta coletada. */
@@ -281,5 +287,5 @@ export async function runLiveChecks(
     }),
   );
 
-  return { suggestions: sortSuggestions(suggestions), checks };
+  return { suggestions: withoutMatFor(actor, sortSuggestions(suggestions)), checks };
 }

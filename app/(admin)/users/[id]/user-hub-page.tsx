@@ -77,6 +77,7 @@ import { buildTranscript } from "@/lib/backoffice/conversation-transcript";
 import { getWhatsappSourceLabel } from "@/lib/backoffice/whatsapp-history-model";
 import {
   canAccessUserHubTab,
+  consultantSeesOnlyAssignedClients,
   hasBackofficePermission,
   USER_HUB_TAB_VALUES,
   type UserHubTab,
@@ -182,8 +183,10 @@ export async function UserHubPage({
   }
 
   const requestedTab = isUserHubTab(sp.tab) ? sp.tab : "marketing";
+  // Cliente de agência externa: para quem não é admin, a conta não existe (ADR 0044).
+  if (actor.hiddenUserIds?.includes(id)) notFound();
 
-  if (actor.role === "marketing_consultant") {
+  if (consultantSeesOnlyAssignedClients(actor.role)) {
     if (!canAccessUserHubTab(actor, id, "business")) {
       redirect("/portfolio");
     }

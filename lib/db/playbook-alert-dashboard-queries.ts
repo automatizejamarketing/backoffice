@@ -12,6 +12,7 @@ import {
   type SQL,
 } from "drizzle-orm";
 import type { BackofficeActor } from "@/lib/auth/rbac-core";
+import { clientScopeCondition } from "@/lib/db/client-scope";
 import {
   comparePlaybookAlertMetric,
   emptyPlaybookAlertKpis,
@@ -60,11 +61,8 @@ function insightRuleCondition(family: PlaybookAlertFilters["family"]) {
 }
 
 function accessConditions(actor: BackofficeActor): SQL[] {
-  const scope = resolvePlaybookAlertAccessScope(actor);
-  if (scope.kind === "consultant") {
-    return [eq(userMarketingConsultant.consultantId, scope.consultantId)];
-  }
-  return [];
+  const condition = clientScopeCondition(performanceInsight.userId, resolvePlaybookAlertAccessScope(actor));
+  return condition ? [condition] : [];
 }
 
 function attributeConditions(

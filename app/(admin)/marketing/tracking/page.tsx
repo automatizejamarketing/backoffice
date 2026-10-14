@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { requirePagePermission } from "@/lib/auth/rbac";
+import { isAgencyRole } from "@/lib/auth/rbac-core";
 import { BACKOFFICE_TIME_ZONE } from "@/lib/backoffice/datetime-format";
 import {
   listAccountCoverage,
@@ -24,6 +26,8 @@ const COVERAGE_DAYS = 14;
 
 export default async function MarketingTrackingPage() {
   const actor = await requirePagePermission("marketing:read");
+  // Execuções da coleta são da plataforma inteira: fora para agência.
+  if (isAgencyRole(actor.role)) redirect("/trafego");
 
   // O mesmo fuso que o coletor usa como dia de negócio para contas sem token —
   // a grade e a cobertura precisam concordar sobre onde "hoje" termina.

@@ -295,6 +295,19 @@ export type WhatsappTemplateClickEvent = InferSelectModel<
   typeof whatsappTemplateClickEvent
 >;
 
+/**
+ * Agência que opera clientes pelo backoffice (ADR 0044/0045). A Automatize não tem linha: a equipe
+ * dela é quem tem `backoffice_users.agency_id` nulo.
+ */
+export const agency = pgTable("agencies", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  name: varchar("name", { length: 120 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});
+
+export type Agency = InferSelectModel<typeof agency>;
+
 export const backofficeUser = pgTable("backoffice_users", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   email: varchar("email", { length: 100 }).notNull().unique(),
@@ -307,6 +320,8 @@ export const backofficeUser = pgTable("backoffice_users", {
       "marketing_consultant_premium",
       "finance_viewer",
       "comercial",
+      "agency_owner",
+      "agency_member",
     ],
   })
     .$type<BackofficeRole>()
@@ -318,12 +333,35 @@ export const backofficeUser = pgTable("backoffice_users", {
     length: 32,
     enum: ["gestor_comercial", "sdr", "consultor_comercial"],
   }).$type<SalesRole>(),
+  // Agência a que a pessoa pertence (Dono ou Membro); null = equipe Automatize.
+  agencyId: uuid("agency_id").references(() => agency.id),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export type BackofficeUser = InferSelectModel<typeof backofficeUser>;
+
+/** Conta Automatize operada por uma agência (Cliente da Agência). Uma conta, no máximo uma agência. */
+export const agencyClient = pgTable(
+  "agency_clients",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    agencyId: uuid("agency_id")
+      .notNull()
+      .references(() => agency.id),
+    addedByEmail: varchar("added_by_email", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    agencyIdx: index("agency_clients_agency_id_idx").on(table.agencyId),
+  }),
+);
+
+export type AgencyClient = InferSelectModel<typeof agencyClient>;
 
 export const userMarketingConsultant = pgTable(
   "user_marketing_consultants",

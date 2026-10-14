@@ -18,7 +18,7 @@ const STORAGE_KEY = "trafego:carteira-de";
 const KEYWORDS = new Set(["meus", "todos", "sem"]);
 
 export function defaultScopeFor(role: string): ConsultantScope {
-  return role === "marketing_consultant" ? "meus" : "todos";
+  return role === "marketing_consultant" || role === "agency_member" ? "meus" : "todos";
 }
 
 export function scopeMatches(scope: ConsultantScope, consultantKey: string | null, meId: string) {
@@ -55,6 +55,8 @@ export function ConsultantScopeSelect({ className }: { className?: string }) {
   const me = useWorkspaceMe();
   const { scope, setScope, label } = useConsultantScope();
   const consultants = useWorkspaceConsultants();
+  // O Membro da agência só recebe os próprios clientes: escolher a carteira de um colega daria vazio.
+  if (me.role === "agency_member") return null;
   const others = (consultants.data?.consultants ?? []).filter((consultant) => consultant.id !== me.id);
   return (
     <div className={cn("flex items-center gap-2", className)}>

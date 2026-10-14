@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
 import { isMatTemplateKey } from "@/lib/consultant-workspace/outreach-core";
-import { applyWorkspaceOp, readWorkspaceState, WorkspaceOpError } from "@/lib/consultant-workspace/state";
+import { applyWorkspaceOp, readWorkspaceStateFor, WorkspaceOpError } from "@/lib/consultant-workspace/state";
 import type { WorkspaceOp } from "@/lib/consultant-workspace/types";
 
 export const dynamic = "force-dynamic";
 
-/** O consultor comum só recebe o estado dos clientes atribuídos a ele; os demais cargos veem a carteira toda. */
-function readFor(actor: BackofficeActor) {
-  return consultantSeesOnlyAssignedClients(actor.role)
-    ? readWorkspaceState({ userIds: actor.assignedUserIds ?? [] })
-    : readWorkspaceState();
-}
+/** O consultor comum e a agência só recebem o estado da própria lista; os demais, todos menos os escondidos. */
+const readFor = readWorkspaceStateFor;
 
 /** Estado do consultor (metas, linha do tempo, tags, alertas tratados) para as telas de Tráfego. */
 export async function GET() {

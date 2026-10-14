@@ -73,6 +73,8 @@ const ROLE_LABEL: Record<BackofficeRole, string> = {
   marketing_consultant_premium: "Consultor de marketing premium",
   finance_viewer: "Somente financeiro",
   comercial: "Comercial",
+  agency_owner: "Dono da agência",
+  agency_member: "Membro da agência",
 };
 
 const NO_SALES_ROLE = "__none__";

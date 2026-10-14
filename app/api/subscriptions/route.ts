@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like, notInArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   PLAN_TYPE_VALUES,
@@ -39,6 +39,10 @@ export async function GET(request: Request) {
     const planTypeRaw = searchParams.get("planType");
 
     const conditions = [];
+    // Clientes de agências externas: só o admin vê (ADR 0044).
+    if (authz.actor.hiddenUserIds?.length) {
+      conditions.push(notInArray(subscription.userId, authz.actor.hiddenUserIds));
+    }
     if (status) {
       conditions.push(eq(subscription.status, status));
     }

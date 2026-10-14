@@ -22,8 +22,11 @@ describe("MCP connections page", () => {
   });
 
   it("shows only the capabilities the person has", () => {
-    assert.deepEqual(capabilitiesFor(actor("marketing_consultant")).map((c) => c.permission), ["marketing:read"]);
-    assert.deepEqual(capabilitiesFor(actor("admin")).map((c) => c.permission), ["marketing:read", "whatsapp:campaigns"]);
+    assert.deepEqual(capabilitiesFor(actor("marketing_consultant")).map((c) => c.permission), ["marketing:read", "mat:outreach"]);
+    assert.deepEqual(capabilitiesFor(actor("admin")).map((c) => c.permission), ["marketing:read", "mat:outreach", "whatsapp:campaigns"]);
+    // Agência: Meta Ads dos próprios clientes, sem a Mat (WhatsApp da Automatize).
+    assert.deepEqual(capabilitiesFor(actor("agency_member")).map((c) => c.permission), ["marketing:read"]);
+    assert.ok(!consentItems(actor("agency_owner"), true).some((item) => item.includes("Mat")));
   });
 
   it("builds the connector address, the Claude link and the Claude Code command", () => {

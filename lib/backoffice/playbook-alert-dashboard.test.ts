@@ -189,9 +189,20 @@ describe("playbook alert metrics", () => {
 describe("resolvePlaybookAlertAccessScope", () => {
   test("locks consultants to their own portfolio", () => {
     expect(resolvePlaybookAlertAccessScope(consultant)).toEqual({
-      kind: "consultant",
-      consultantId: "consultant-1",
+      only: consultant.assignedUserIds ?? [],
     });
+  });
+
+  test("locks agency people to their own list", () => {
+    expect(
+      resolvePlaybookAlertAccessScope({
+        ...consultant,
+        id: "owner-1",
+        role: "agency_owner",
+        agencyId: "agency-1",
+        assignedUserIds: ["client-a"],
+      }),
+    ).toEqual({ only: ["client-a"] });
   });
 
   test("lets premium consultants see every playbook alert", () => {
@@ -200,12 +211,13 @@ describe("resolvePlaybookAlertAccessScope", () => {
         ...consultant,
         id: "premium-1",
         role: "marketing_consultant_premium",
+        hiddenUserIds: ["client-a"],
       }),
-    ).toEqual({ kind: "all" });
+    ).toEqual({ except: ["client-a"] });
   });
 
   test("lets admins and other roles see every playbook alert", () => {
-    expect(resolvePlaybookAlertAccessScope(admin)).toEqual({ kind: "all" });
+    expect(resolvePlaybookAlertAccessScope(admin)).toEqual({ except: [] });
   });
 });
 

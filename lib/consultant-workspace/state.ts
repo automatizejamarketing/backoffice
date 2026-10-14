@@ -2,6 +2,7 @@ import "server-only";
 import { and, desc, eq, gt, inArray, isNotNull, like, notInArray, or, sql } from "drizzle-orm";
 import {
   canAccessMarketingUser,
+  clientScopeOf,
   hasBackofficePermission,
   type BackofficeActor,
 } from "@/lib/auth/rbac-core";
@@ -76,9 +77,22 @@ type SignalNoteMetadata = {
   snoozeUntil?: string | null;
 };
 
-export async function readWorkspaceState(options: { userIds?: string[] } = {}): Promise<WorkspaceState> {
+/** Estado dos clientes que o ator vê: a lista dele, ou todos menos os de agências externas. */
+export function readWorkspaceStateFor(actor: BackofficeActor): Promise<WorkspaceState> {
+  const scope = clientScopeOf(actor);
+  return "only" in scope
+    ? readWorkspaceState({ userIds: scope.only })
+    : readWorkspaceState({ exceptUserIds: scope.except });
+}
+
+export async function readWorkspaceState(
+  options: { userIds?: string[]; exceptUserIds?: string[] } = {},
+): Promise<WorkspaceState> {
   const userFilter = <T extends { userId: unknown }>(column: T["userId"]) =>
-    options.userIds ? inArray(column as never, options.userIds) : undefined;
+    and(
+      options.userIds ? inArray(column as never, options.userIds) : undefined,
+      options.exceptUserIds?.length ? notInArray(column as never, options.exceptUserIds) : undefined,
+    );
   if (options.userIds && options.userIds.length === 0) {
     return emptyWorkspaceState();
   }
@@ -401,7 +415,9 @@ export async function applyWorkspaceOp(
       return;
     }
     case "assign": {
-      if (!hasBackofficePermission(actor, "users:manage")) {
+      // Equipe Automatize com users:manage, ou o Dono da agência para os clientes dela.
+      const canAssign = hasBackofficePermission(actor, actor.agencyId ? "agency:manage" : "users:manage");
+      if (!canAssign || !canAccessMarketingUser(actor, op.userId)) {
         throw new WorkspaceOpError("Seu cargo não pode trocar o responsável.", 403);
       }
       // `consultant` aqui é o id do consultor no backoffice (ou null para remover).

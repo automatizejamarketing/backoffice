@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
@@ -30,6 +31,7 @@ export async function POST(
     if (!authz.ok) return authz.response;
 
     const { id: userId } = await params;
+    if (isHiddenClient(authz.actor, userId)) return hiddenClientResponse();
     const body = (await request.json()) as {
       planType?: unknown;
       sendEmail?: boolean;

@@ -101,7 +101,7 @@ export const CONSULTANT_OUTREACH_TOOLS: McpTool[] = [
   defineTool({
     name: "preview_mat_messages",
     title: "Prévia de mensagens da Mat (lote)",
-    permission: "marketing:write",
+    permission: "mat:outreach",
     write: false,
     description:
       `Prévia de até ${MAX_MESSAGES} mensagens que a Mat (WhatsApp da Automatize) mandaria a clientes: tipo (scale_approval, creative_refresh, offer_suggestion, pixel_setup, ad_balance), ` +
@@ -148,7 +148,7 @@ export const CONSULTANT_OUTREACH_TOOLS: McpTool[] = [
   defineTool({
     name: "send_mat_messages",
     title: "Mandar mensagens pela Mat (lote)",
-    permission: "marketing:write",
+    permission: "mat:outreach",
     write: true,
     destructive: true,
     description:

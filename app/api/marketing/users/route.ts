@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
-import { consultantSeesOnlyAssignedClients } from "@/lib/auth/rbac-core";
+import { clientScopeOf } from "@/lib/auth/rbac-core";
 import { getUsersWithMetaBusinessAccount } from "@/lib/db/admin-queries";
 
 export async function GET(request: NextRequest) {
@@ -19,10 +19,10 @@ export async function GET(request: NextRequest) {
       email,
       page,
       limit,
-      userIds:
-        consultantSeesOnlyAssignedClients(authz.actor.role)
-          ? (authz.actor.assignedUserIds ?? [])
-          : undefined,
+      ...(() => {
+        const scope = clientScopeOf(authz.actor);
+        return "only" in scope ? { userIds: scope.only } : { exceptUserIds: scope.except };
+      })(),
     });
     return NextResponse.json(result);
   } catch (error) {

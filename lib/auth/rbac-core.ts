@@ -5,6 +5,8 @@ export const BACKOFFICE_ROLE_VALUES = [
   "marketing_consultant_premium",
   "finance_viewer",
   "comercial",
+  "agency_owner",
+  "agency_member",
 ] as const;
 
 export type BackofficeRole = (typeof BACKOFFICE_ROLE_VALUES)[number];
@@ -17,12 +19,23 @@ export function isMarketingConsultantRole(role: BackofficeRole): boolean {
   return role === "marketing_consultant" || role === "marketing_consultant_premium";
 }
 
+/** Dono ou Membro de uma agência externa (ADR 0044/0045). */
+export function isAgencyRole(role: BackofficeRole): boolean {
+  return role === "agency_owner" || role === "agency_member";
+}
+
+/** Quem pode receber clientes atribuídos: consultores da Automatize e Membros/Donos de agência. */
+export function canReceiveClients(role: BackofficeRole): boolean {
+  return isMarketingConsultantRole(role) || isAgencyRole(role);
+}
+
 /**
- * Só o consultor comum fica preso à carteira atribuída.
+ * Quem fica preso à lista `assignedUserIds`: o consultor comum (carteira atribuída) e as pessoas de
+ * agência (o Dono recebe todos os clientes da agência; o Membro, os atribuídos a ele dentro dela).
  * O premium continua atribuível e vê alertas, carteira e marketing de todo mundo.
  */
 export function consultantSeesOnlyAssignedClients(role: BackofficeRole): boolean {
-  return role === "marketing_consultant";
+  return role === "marketing_consultant" || isAgencyRole(role);
 }
 
 export type BackofficePermission =
@@ -51,7 +64,11 @@ export type BackofficePermission =
   | "creative-analysis:manage"
   | "ambassadors:manage"
   | "ambassadors:grant"
-  | "team:manage";
+  | "team:manage"
+  /** Clientes e Membros da própria agência (Dono da Agência). */
+  | "agency:manage"
+  /** Mensagens ao cliente pela Mat, o WhatsApp da Automatize: só a equipe interna. */
+  | "mat:outreach";
 
 export type BackofficeActorSource =
   | "database"
@@ -66,7 +83,15 @@ export type BackofficeActor = {
   /** Cargo comercial (gestor, SDR, consultor); rótulo, não permissão. */
   salesRole?: SalesRole | null;
   source: BackofficeActorSource;
+  /** Clientes a que o ator se limita quando `consultantSeesOnlyAssignedClients(role)`. */
   assignedUserIds?: string[];
+  /** Agência da pessoa (Dono/Membro); ausente para a equipe Automatize. */
+  agencyId?: string | null;
+  /**
+   * Clientes de agências externas, escondidos da equipe interna que vê "todos" (premium, dev,
+   * comercial). Só o admin vê, para suporte (ADR 0044).
+   */
+  hiddenUserIds?: string[];
   ambassadorAccess?: boolean;
   ambassadorGrant?: boolean;
 };
@@ -138,6 +163,8 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "products:manage",
     "creative-analysis:manage",
     "team:manage",
+    "agency:manage",
+    "mat:outreach",
   ],
   dev: [
     "dashboard:view",
@@ -156,8 +183,9 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "masterclass:manage",
     "products:manage",
     "creative-analysis:manage",
+    "mat:outreach",
   ],
-  marketing_consultant: ["marketing:read", "marketing:write"],
+  marketing_consultant: ["marketing:read", "marketing:write", "mat:outreach"],
   // Consultor com carteira que, como admin, mexe em tudo do cliente: ficha,
   // acesso, créditos, cobrança, campanhas e WhatsApp. Sem áreas internas.
   marketing_consultant_premium: [
@@ -167,6 +195,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "billing:manage",
     "marketing:read",
     "marketing:write",
+    "mat:outreach",
     "whatsapp:view",
     "whatsapp:support-session",
   ],
@@ -174,6 +203,10 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   // Time comercial: CRM, painel, usuários em leitura, ativação e contato.
   // Sem dinheiro (billing), sem alterar acesso/créditos, sem equipe.
   comercial: ["dashboard:view", "crm:manage", "users:read", "users:activate"],
+  // Agência externa: só a camada de operação (Tráfego, Marketing, Alertas), presa aos clientes da
+  // agência. Nada da plataforma Automatize (Painel, Usuários, Financeiro, CRM, Mat).
+  agency_owner: ["marketing:read", "marketing:write", "agency:manage"],
+  agency_member: ["marketing:read", "marketing:write"],
 };
 
 function hasFullUserAccess(actor: BackofficeActor): boolean {
@@ -199,10 +232,32 @@ export function hasBackofficePermission(
   return ROLE_PERMISSIONS[actor.role].includes(permission);
 }
 
+/**
+ * Clientes que o ator vê, para filtros em SQL: só a lista dele (consultor comum, agência) ou todos
+ * menos os escondidos (clientes de agências externas, para a equipe interna que não é admin).
+ */
+export type ClientScope = { only: string[] } | { except: string[] };
+
+export function clientScopeOf(actor: BackofficeActor): ClientScope {
+  if (consultantSeesOnlyAssignedClients(actor.role)) return { only: actor.assignedUserIds ?? [] };
+  return { except: actor.hiddenUserIds ?? [] };
+}
+
+/** Remove da lista os clientes de agências externas que o ator não pode ver. */
+export function withoutHiddenClients<T extends { userId: string }>(
+  actor: BackofficeActor,
+  rows: T[],
+): T[] {
+  if (!actor.hiddenUserIds?.length) return rows;
+  const hidden = new Set(actor.hiddenUserIds);
+  return rows.filter((row) => !hidden.has(row.userId));
+}
+
 export function canAccessMarketingUser(
   actor: BackofficeActor,
   userId: string,
 ): boolean {
+  if (actor.hiddenUserIds?.includes(userId)) return false;
   if (hasFullUserAccess(actor)) return true;
   return actor.assignedUserIds?.includes(userId) ?? false;
 }
@@ -212,7 +267,10 @@ export function canAccessUserHubTab(
   userId: string,
   tab: UserHubTab,
 ): boolean {
+  if (actor.hiddenUserIds?.includes(userId)) return false;
   if (hasFullUserAccess(actor)) return true;
+  // A conversa com a Mat é do suporte da Automatize com a conta, não da agência.
+  if (isAgencyRole(actor.role) && tab === "conversations") return false;
   return (
     CONSULTANT_USER_HUB_TABS.includes(tab) &&
     canAccessMarketingUser(actor, userId)

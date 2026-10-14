@@ -208,3 +208,67 @@ describe("WhatsApp campaign permissions", () => {
       expect(hasBackofficePermission(actor, "whatsapp:campaigns")).toBe(false);
   });
 });
+
+describe("agência (ADR 0044/0045)", () => {
+  const owner: BackofficeActor = {
+    id: "owner-1",
+    email: "dono@agencia.com",
+    role: "agency_owner",
+    source: "database",
+    agencyId: "agency-1",
+    assignedUserIds: ["client-a", "client-b"],
+  };
+  const member: BackofficeActor = {
+    id: "member-1",
+    email: "membro@agencia.com",
+    role: "agency_member",
+    source: "database",
+    agencyId: "agency-1",
+    assignedUserIds: ["client-a"],
+  };
+  const premiumWithHidden: BackofficeActor = {
+    id: "premium-2",
+    email: "premium2@example.com",
+    role: "marketing_consultant_premium",
+    source: "database",
+    assignedUserIds: [],
+    hiddenUserIds: ["client-a"],
+  };
+
+  test("pessoas de agência ficam presas à lista do ator", () => {
+    expect(consultantSeesOnlyAssignedClients("agency_owner")).toBe(true);
+    expect(consultantSeesOnlyAssignedClients("agency_member")).toBe(true);
+    expect(canAccessMarketingUser(owner, "client-b")).toBe(true);
+    expect(canAccessMarketingUser(member, "client-b")).toBe(false);
+    expect(canAccessMarketingUser(owner, "automatize-client")).toBe(false);
+  });
+
+  test("só a camada de operação: nada de plataforma nem Mat", () => {
+    for (const actor of [owner, member]) {
+      expect(hasBackofficePermission(actor, "marketing:read")).toBe(true);
+      expect(hasBackofficePermission(actor, "marketing:write")).toBe(true);
+      for (const permission of ["dashboard:view", "finance:view", "users:read", "users:manage", "crm:manage", "whatsapp:campaigns", "team:manage", "mat:outreach"] as const) {
+        expect(hasBackofficePermission(actor, permission)).toBe(false);
+      }
+    }
+    expect(hasBackofficePermission(owner, "agency:manage")).toBe(true);
+    expect(hasBackofficePermission(member, "agency:manage")).toBe(false);
+  });
+
+  test("a equipe interna que vê todos não vê clientes de agências externas; o admin vê", () => {
+    expect(canAccessMarketingUser(premiumWithHidden, "client-a")).toBe(false);
+    expect(canAccessMarketingUser(premiumWithHidden, "client-z")).toBe(true);
+    expect(canAccessUserHubTab(premiumWithHidden, "client-a", "summary")).toBe(false);
+    expect(canAccessMarketingUser(admin, "client-a")).toBe(true);
+  });
+
+  test("agência não lê a conversa da Mat do cliente", () => {
+    expect(canAccessUserHubTab(owner, "client-a", "marketing")).toBe(true);
+    expect(canAccessUserHubTab(owner, "client-a", "conversations")).toBe(false);
+  });
+
+  test("a Mat continua com a equipe interna", () => {
+    expect(hasBackofficePermission(consultant, "mat:outreach")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "mat:outreach")).toBe(true);
+  });
+});

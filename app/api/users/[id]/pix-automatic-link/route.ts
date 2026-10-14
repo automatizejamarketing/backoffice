@@ -1,3 +1,4 @@
+import { hiddenClientResponse, isHiddenClient } from "@/lib/auth/hidden-clients";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -15,6 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!plan || !(PLAN_TYPE_VALUES as readonly string[]).includes(plan))
     return NextResponse.json({ error: "Plano inválido." }, { status: 400 });
   const { id } = await params;
+  if (isHiddenClient(authz.actor, id)) return hiddenClientResponse();
   if (!z.string().uuid().safeParse(id).success) return NextResponse.json({ error: "Usuário inválido." }, { status: 400 });
   const [owner] = await db.select({ id: user.id }).from(user).where(eq(user.id, id)).limit(1);
   if (!owner) return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });

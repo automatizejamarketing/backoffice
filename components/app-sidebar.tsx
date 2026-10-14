@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
   Bell,
   Briefcase,
+  Building2,
   ChevronRight,
   ChevronUp,
   Gauge,
@@ -55,7 +56,8 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   hasBackofficePermission,
-  isMarketingConsultantRole,
+  canReceiveClients,
+  isAgencyRole,
   type BackofficeActor,
   type BackofficePermission,
   type BackofficeRole,
@@ -196,6 +198,8 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Coleta Meta",
         icon: Radar,
         permission: "marketing:read",
+        // Execuções da coleta são da plataforma inteira, não de uma agência.
+        hideForRoles: ["agency_owner", "agency_member"],
       },
       {
         kind: "group",
@@ -309,6 +313,14 @@ const SETTINGS_ENTRIES: NavLeaf[] = [
     label: "Equipe",
     icon: Shield,
     permission: "team:manage",
+  },
+  {
+    // Admin cria agências; o Dono gere clientes e pessoas da dele.
+    kind: "leaf",
+    href: "/agencias",
+    label: "Agências",
+    icon: Building2,
+    permission: "agency:manage",
   },
 ];
 
@@ -619,7 +631,7 @@ export function AppSidebar({
               aria-label="AutomatizeJá Backoffice"
               className="flex items-center gap-1.5 overflow-hidden rounded-md p-2 transition-colors hover:bg-muted group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-1"
               href={
-                isMarketingConsultantRole(actor.role)
+                canReceiveClients(actor.role)
                   ? "/trafego"
                   : actor.role === "finance_viewer"
                     ? "/finance"
@@ -741,7 +753,9 @@ export function AppSidebar({
                           ? "Dev"
                           : actor.role === "finance_viewer"
                             ? "Financeiro"
-                            : "Consultor")}
+                            : isAgencyRole(actor.role)
+                              ? "Agência"
+                              : "Consultor")}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
                     {user.email}

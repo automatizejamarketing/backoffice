@@ -33,6 +33,7 @@ export async function GET(request: Request) {
 
   if (params.get("view") === "kanban") {
     const columns = await listCrmKanban({
+      exceptUserIds: authz.actor.hiddenUserIds,
       search,
       captureSource,
       captureProfile,
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
 
   const statusParam = params.get("commercialStatus");
   const result = await listCrmLeads({
+      exceptUserIds: authz.actor.hiddenUserIds,
     search,
     captureSource,
     captureProfile,

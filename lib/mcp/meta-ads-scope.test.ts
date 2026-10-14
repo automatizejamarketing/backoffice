@@ -13,7 +13,9 @@ mock.module("@/lib/db", () => ({ db: forbidden, postgresClient: forbidden }));
 let resolveConsultantScope: typeof import("./meta-ads-queries").resolveConsultantScope;
 let tools: typeof import("./meta-ads-tools").META_ADS_TOOLS;
 let whatsappTools: typeof import("./whatsapp-campaign-tools").WHATSAPP_CAMPAIGN_TOOLS;
+let workspaceTools: typeof import("./consultant-workspace-tools").CONSULTANT_WORKSPACE_TOOLS;
 before(async () => {
+  ({ CONSULTANT_WORKSPACE_TOOLS: workspaceTools } = await import("./consultant-workspace-tools"));
   ({ resolveConsultantScope } = await import("./meta-ads-queries"));
   ({ META_ADS_TOOLS: tools } = await import("./meta-ads-tools"));
   ({ WHATSAPP_CAMPAIGN_TOOLS: whatsappTools } = await import("./whatsapp-campaign-tools"));
@@ -27,9 +29,11 @@ const other = "22222222-2222-4222-8222-222222222222";
 
 describe("Meta Ads MCP scope", () => {
   it("pins a consultant to their own portfolio, even when asking for another consultant", async () => {
-    assert.equal(await resolveConsultantScope(actor("marketing_consultant"), "chefe@x.com"), "marketing_consultant-id");
-    assert.equal(await resolveConsultantScope(actor("marketing_consultant_premium")), null);
-    assert.equal(await resolveConsultantScope(actor("admin")), null);
+    assert.deepEqual(await resolveConsultantScope(actor("marketing_consultant", [assigned]), "chefe@x.com"), { only: [assigned] });
+    assert.deepEqual(await resolveConsultantScope(actor("marketing_consultant_premium")), { except: [] });
+    assert.deepEqual(await resolveConsultantScope(actor("admin")), { except: [] });
+    // Agência: presa à própria lista, mesmo pedindo a carteira de outra pessoa.
+    assert.deepEqual(await resolveConsultantScope(actor("agency_owner", [assigned]), "chefe@x.com"), { only: [assigned] });
     await assert.rejects(resolveConsultantScope(actor("dev"), "fulano@x.com"), /Só admin/);
   });
 
@@ -48,7 +52,8 @@ describe("Meta Ads MCP scope", () => {
   });
 
   it("describes on the Claude page exactly the permissions the tools check", () => {
-    const toolPermissions = new Set([...tools, ...whatsappTools].map(t => t.permission));
+    // marketing:write é a parte de escrita da capacidade marketing:read (consentWrite).
+    const toolPermissions = new Set([...tools, ...whatsappTools, ...workspaceTools].map(t => (t.permission === "marketing:write" ? "marketing:read" : t.permission)));
     assert.deepEqual([...toolPermissions].sort(), MCP_CAPABILITIES.map(c => c.permission).sort());
   });
 });

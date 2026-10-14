@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     search,
     filters,
     exportAll: true,
+    exceptUserIds: authz.actor.hiddenUserIds,
   });
 
   if (total > USER_EXPORT_MAX_ROWS) {
