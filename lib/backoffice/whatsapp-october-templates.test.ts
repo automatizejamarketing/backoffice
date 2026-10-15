@@ -22,4 +22,8 @@ describe("October campaign version association", () => {
   test("does not apply family matching to arbitrary custom campaigns", () => {
     expect(findOctoberCampaign([{template_name:"custom_v1"}], "custom_v2")).toBeUndefined();
   });
+  test("finds a pending message campaign saved under a newer version", () => {
+    const v2 = { id: "v2", template_name: "outubro_2026_1410_sem_tempo_v2" };
+    expect(findOctoberCampaign([v2], "outubro_2026_1410_sem_tempo_v1")).toBe(v2);
+  });
 });
