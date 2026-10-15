@@ -50,14 +50,15 @@ export const OCTOBER_WHATSAPP_TEMPLATES = [
   },
 ] satisfies Array<{ date: string; title: string; name: string; body: string; button: CampaignButton | null; headerMedia: CampaignHeaderMedia | null }>;
 
+/** Text still lives with Bernardo; each one is configured in the form, where the video and the button are added. */
 export const OCTOBER_PENDING_MESSAGES = [
-  { date: "2026-10-14", title: "Eu não tenho tempo para fazer meus anúncios", reason: "Aguardando vídeo e grupo" },
-  { date: "2026-10-15", title: "Veja o que mudou para um restaurante real", reason: "Aguardando vídeo, case e grupo" },
-  { date: "2026-10-19", title: "O que uma IA de tráfego faz no dia a dia?", reason: "Aguardando vídeo" },
-  { date: "2026-10-21", title: "Entre no grupo antes de decidir", reason: "Aguardando grupo" },
-  { date: "2026-10-22", title: "Aula prática: como anunciar sem ficar perdido", reason: "Aguardando grupo e detalhes da aula" },
-  { date: "2026-10-28", title: "O primeiro teste pode ser a sua próxima oferta", reason: "Aguardando vídeo, grupo e link do trial" },
-  { date: "2026-10-29", title: "Você não precisa decidir no escuro", reason: "Aguardando destino do segundo CTA (trial)" },
+  { date: "2026-10-14", title: "Eu não tenho tempo para fazer meus anúncios", name: "outubro_2026_1410_sem_tempo_v1", missing: "vídeo e link do grupo" },
+  { date: "2026-10-15", title: "Veja o que mudou para um restaurante real", name: "outubro_2026_1510_case_v1", missing: "vídeo, case e link do grupo" },
+  { date: "2026-10-19", title: "O que uma IA de tráfego faz no dia a dia?", name: "outubro_2026_1910_ia_trafego_v1", missing: "vídeo" },
+  { date: "2026-10-21", title: "Entre no grupo antes de decidir", name: "outubro_2026_2110_grupo_v1", missing: "link do grupo" },
+  { date: "2026-10-22", title: "Aula prática: como anunciar sem ficar perdido", name: "outubro_2026_2210_aula_v1", missing: "link do grupo e detalhes da aula" },
+  { date: "2026-10-28", title: "O primeiro teste pode ser a sua próxima oferta", name: "outubro_2026_2810_oferta_v1", missing: "vídeo, link do grupo e link do trial" },
+  { date: "2026-10-29", title: "Você não precisa decidir no escuro", name: "outubro_2026_2910_decidir_v1", missing: "destino do segundo botão (trial)" },
 ] as const;
 
 /** Resolve the saved campaign even when the suggested Meta template was versioned.

@@ -85,7 +85,6 @@ export function WhatsappCampaignsClient() {
   const filtersPanelId=useId();
   const [filtersApplied,setFiltersApplied]=useState(true);
   const [reportDays,setReportDays]=useState(7);
-  const [pendingExpanded,setPendingExpanded]=useState(false);
   const reload=useCallback(async()=>{
     setLoading(true);setError('');
     try {const data=await api();setPricing(data.pricing);setCampaigns(data.campaigns);setAudience(data.audience);setConfigured(data.configured);setEnabled(data.enabled);}
@@ -109,7 +108,7 @@ export function WhatsappCampaignsClient() {
     catch(e){toast.error((e as Error).message);return null;}
     finally{setBusy(false);}
   }
-  function draft(seed?:typeof OCTOBER_WHATSAPP_TEMPLATES[number]) {
+  function draft(seed?:{title:string;name:string;body:string;button:CampaignButton|null;headerMedia:CampaignHeaderMedia|null}) {
     setDetail(null);setForm({id:crypto.randomUUID(),title:seed?.title??'',templateName:seed?.name??'',body:seed?.body??'',budget:'',button:seed?seed.button:CAMPAIGN_CONTACT_BUTTON,headerMedia:seed?.headerMedia??null});
   }
   function edit(c:Campaign){setDetail(null);setForm({id:c.id,title:c.title,templateName:c.template_name,body:c.body,budget:currency(Number(c.budget_micros)),button:editableButton(c.button),headerMedia:c.header_media});}
@@ -184,8 +183,24 @@ export function WhatsappCampaignsClient() {
           );
         })}
       </div>
-      <button className="text-sm text-muted-foreground underline underline-offset-4" onClick={()=>setPendingExpanded(v=>!v)} aria-expanded={pendingExpanded}>{pendingExpanded?'Ocultar':'Ver'} 8 mensagens com conteúdo pendente</button>
-      {pendingExpanded&&<ul className="divide-y border-t">{OCTOBER_PENDING_MESSAGES.map(t=><li className="grid gap-1 py-3 text-sm sm:grid-cols-[60px_1fr_260px]" key={t.date}><span className="text-muted-foreground">{t.date.slice(8)}/10</span><span>{t.title}</span><span className="text-xs text-muted-foreground">{t.reason}</span></li>)}</ul>}
+    </section>
+    <section className="space-y-3"><div><h2 className="text-lg font-semibold">Outubro · conteúdo pendente</h2><p className="mt-1 text-sm text-muted-foreground">Configure a campanha para colar o texto, enviar o vídeo e definir o botão. Tudo vai junto para aprovação da Meta.</p></div>
+      <div className="divide-y rounded-lg border">
+        {OCTOBER_PENDING_MESSAGES.map(message => {
+          const campaign = campaigns.find(item => item.template_name === message.name);
+          return (
+            <div key={message.name} className="flex flex-wrap items-start gap-4 p-4">
+              <span className="w-12 shrink-0 pt-1 text-sm tabular-nums text-muted-foreground">{message.date.slice(8)}/10</span>
+              <div className="min-w-[180px] flex-1 space-y-2">
+                <p className="text-sm font-medium">{message.title}</p>
+                {campaign ? <Badge variant="outline">{campaign.state === 'scheduled' && campaign.dispatch_mode === 'manual' ? 'Envio iniciado' : CAMPAIGN_STATE_LABELS[campaign.state]}</Badge>
+                  : <p className="text-xs text-muted-foreground">Falta: {message.missing}</p>}
+              </div>
+              <Button className="shrink-0" variant="outline" size="sm" disabled={busy} onClick={()=>campaign ? inspect(campaign.id) : draft({title:message.title,name:message.name,body:'',button:CAMPAIGN_CONTACT_BUTTON,headerMedia:null})}>{campaign ? 'Abrir campanha' : 'Configurar campanha'}</Button>
+            </div>
+          );
+        })}
+      </div>
     </section>
     <Dialog open={Boolean(preview)} onOpenChange={open=>{if(!open)setPreview(null);}}>
       <DialogContent className="w-[calc(100%_-_2rem)] grid-cols-1 max-h-[90dvh] min-w-0 overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0 sm:max-w-lg">
