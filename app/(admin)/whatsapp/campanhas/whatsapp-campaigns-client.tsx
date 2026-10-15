@@ -187,16 +187,17 @@ export function WhatsappCampaignsClient() {
     <section className="space-y-3"><div><h2 className="text-lg font-semibold">Outubro · conteúdo pendente</h2><p className="mt-1 text-sm text-muted-foreground">Configure a campanha para colar o texto, enviar o vídeo e definir o botão. Tudo vai junto para aprovação da Meta.</p></div>
       <div className="divide-y rounded-lg border">
         {OCTOBER_PENDING_MESSAGES.map(message => {
-          const campaign = campaigns.find(item => item.template_name === message.name);
+          const campaign = findOctoberCampaign(campaigns, message.name);
           return (
             <div key={message.name} className="flex flex-wrap items-start gap-4 p-4">
               <span className="w-12 shrink-0 pt-1 text-sm tabular-nums text-muted-foreground">{message.date.slice(8)}/10</span>
               <div className="min-w-[180px] flex-1 space-y-2">
                 <p className="text-sm font-medium">{message.title}</p>
                 {campaign ? <Badge variant="outline">{campaign.state === 'scheduled' && campaign.dispatch_mode === 'manual' ? 'Envio iniciado' : CAMPAIGN_STATE_LABELS[campaign.state]}</Badge>
-                  : <p className="text-xs text-muted-foreground">Falta: {message.missing}</p>}
+                  : <><Badge variant="outline" className="border-amber-600/30 bg-amber-500/10 text-amber-800 dark:text-amber-300">Precisa de configuração</Badge><p className="text-xs text-muted-foreground">Pendente: {message.missing}</p></>}
               </div>
-              <Button className="shrink-0" variant="outline" size="sm" disabled={busy} onClick={()=>campaign ? inspect(campaign.id) : draft({title:message.title,name:message.name,body:'',button:CAMPAIGN_CONTACT_BUTTON,headerMedia:null})}>{campaign ? 'Abrir campanha' : 'Configurar campanha'}</Button>
+              {/* Messages waiting on a group or trial link start without the contact button, so the operator picks the link. */}
+              <Button className="shrink-0" variant="outline" size="sm" disabled={busy} onClick={()=>campaign ? inspect(campaign.id) : draft({title:message.title,name:message.name,body:'',button:message.missing.includes('link')?null:CAMPAIGN_CONTACT_BUTTON,headerMedia:null})}>{campaign ? 'Abrir campanha' : 'Configurar campanha'}</Button>
             </div>
           );
         })}

@@ -58,7 +58,7 @@ export const OCTOBER_PENDING_MESSAGES = [
   { date: "2026-10-21", title: "Entre no grupo antes de decidir", name: "outubro_2026_2110_grupo_v1", missing: "link do grupo" },
   { date: "2026-10-22", title: "Aula prática: como anunciar sem ficar perdido", name: "outubro_2026_2210_aula_v1", missing: "link do grupo e detalhes da aula" },
   { date: "2026-10-28", title: "O primeiro teste pode ser a sua próxima oferta", name: "outubro_2026_2810_oferta_v1", missing: "vídeo, link do grupo e link do trial" },
-  { date: "2026-10-29", title: "Você não precisa decidir no escuro", name: "outubro_2026_2910_decidir_v1", missing: "destino do segundo botão (trial)" },
+  { date: "2026-10-29", title: "Você não precisa decidir no escuro", name: "outubro_2026_2910_decidir_v1", missing: "link do trial" },
 ] as const;
 
 /** Resolve the saved campaign even when the suggested Meta template was versioned.
@@ -67,7 +67,8 @@ export const OCTOBER_PENDING_MESSAGES = [
 export function findOctoberCampaign<T extends { template_name: string }>(campaigns: readonly T[], templateName: string): T | undefined {
   const exact = campaigns.find(campaign => campaign.template_name === templateName);
   if (exact) return exact;
-  if (!OCTOBER_WHATSAPP_TEMPLATES.some(template => template.name === templateName)) return undefined;
+  const suggested = [...OCTOBER_WHATSAPP_TEMPLATES, ...OCTOBER_PENDING_MESSAGES].some(item => item.name === templateName);
+  if (!suggested) return undefined;
   const family = templateName.replace(/_v\d+$/, "");
   return campaigns.find(campaign => campaign.template_name.replace(/_v\d+$/, "") === family);
 }
