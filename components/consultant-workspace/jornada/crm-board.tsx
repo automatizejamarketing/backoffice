@@ -634,10 +634,10 @@ function ClientCard({
         </p>
       ) : null}
 
-      <div className="mt-1.5 flex items-center gap-1">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-1 gap-y-0.5">
         <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11px]" onClick={onPass}>
           {openTask ? <ClipboardCheck className="size-3" /> : <ArrowRightLeft className="size-3" />}
-          {openTask ? "Concluir tarefa" : "Registrar / passar"}
+          {openTask ? "Concluir tarefa" : "Passar"}
         </Button>
         {card.mat ? (
           <Button
@@ -645,9 +645,9 @@ function ClientCard({
             variant="ghost"
             className="h-6 px-1.5 text-[11px] text-violet-700 dark:text-violet-300"
             onClick={onMat}
-            title={`Mat manda: ${card.mat.title}`}
+            title={`Mandar pela Mat: ${card.mat.title}`}
           >
-            <Bot className="size-3" /> Mandar pela Mat
+            <Bot className="size-3" /> Pela Mat
           </Button>
         ) : null}
         <Button size="sm" variant="ghost" className="ml-auto h-6 px-1.5 text-[11px]" onClick={() => onMessage(card)}>
