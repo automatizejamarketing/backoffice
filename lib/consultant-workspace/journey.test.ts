@@ -19,7 +19,7 @@ function client(overrides: { spend?: number; purchases?: number; health?: Worksp
     companyName: "Burger da Ana",
     displayName: "Burger da Ana",
     phone: "11999998888",
-    plan: { tier: "premium", period: "monthly", status: "active", provider: "stripe", renewalAt: null },
+    plan: { tier: "premium", period: "monthly", status: "active", provider: "stripe", renewalAt: null, startedAt: null, customerSince: null },
     accessUntil: null,
     access: "pagante",
     consultant: { key: null, name: null, email: null },
@@ -42,6 +42,7 @@ function client(overrides: { spend?: number; purchases?: number; health?: Worksp
 const emptyState: WorkspaceState = {
   goals: {}, notes: [], alertActions: {}, simulatedActions: [], assignments: {},
   handoffs: {}, clientTags: {}, dismissedAutoTags: {}, sentMessages: [], aiAnalyses: {},
+  tasks: [],
 };
 
 const extras = (partial: Partial<JourneyExtras> = {}): JourneyExtras => ({

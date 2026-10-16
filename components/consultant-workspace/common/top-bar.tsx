@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BookOpenCheck, Check, LayoutList, MessagesSquare, Pin, Route, Table2 } from "lucide-react";
+import { BookOpenCheck, Check, KanbanSquare, MessagesSquare, Pin, Route, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,7 @@ import { TRAFEGO_VIEWS, VIEW_COOKIE, type TrafegoView } from "./routes";
 import { usePrefetchView } from "./use-trafego-data";
 import { useSwitchView } from "./use-switch-view";
 
-const VIEW_ICON: Record<TrafegoView, typeof Route> = { fila: LayoutList, mesa: Table2, jornada: Route };
+const VIEW_ICON: Record<TrafegoView, typeof Route> = { mesa: Table2, jornada: KanbanSquare };
 
 const SECONDARY: Array<{ href: string; label: string; icon: typeof Route; readsBoard?: boolean }> = [
   { href: "/trafego/playbooks", label: "Playbooks", icon: BookOpenCheck, readsBoard: true },
@@ -20,7 +20,8 @@ const SECONDARY: Array<{ href: string; label: string; icon: typeof Route; readsB
 ];
 
 /** Telas em que "Carteira de" muda o que aparece. */
-const SCOPED_PATHS = ["/trafego/fila", "/trafego/mesa", "/trafego/jornada", "/trafego/playbooks", "/trafego/adiados"];
+// No CRM as colunas já são os responsáveis: o filtro de carteira não aparece lá.
+const SCOPED_PATHS = ["/trafego/mesa", "/trafego/playbooks", "/trafego/adiados"];
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
@@ -29,7 +30,7 @@ function viewOf(pathname: string): TrafegoView | null {
 }
 
 /**
- * Barra da área de Tráfego: a visão (Fila, Mesa, Jornada — cada consultor usa
+ * Barra da área de Tráfego: a visão (Mesa ou CRM — cada consultor usa
  * a que preferir), Playbooks e Mensagens, a visão padrão e a carteira.
  * Trocar de visão mantém os filtros da URL.
  */

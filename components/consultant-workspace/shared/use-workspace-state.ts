@@ -17,6 +17,7 @@ const EMPTY: WorkspaceState = {
   dismissedAutoTags: {},
   sentMessages: [],
   aiAnalyses: {},
+  tasks: [],
 };
 
 async function readError(response: Response, fallback: string) {

@@ -34,8 +34,8 @@ describe("chaves do cache de Tráfego", () => {
 });
 
 describe("o que cada visão lê", () => {
-  it("Fila e Mesa leem a carteira do período da URL; Jornada, o quadro", () => {
-    assert.deepEqual(datasetOfView("fila", "dias=14&plano=pro"), { kind: "carteira", days: 14 });
+  it("a Mesa lê a carteira do período da URL; o CRM, o quadro", () => {
+    assert.deepEqual(datasetOfView("mesa", "dias=14&plano=pro"), { kind: "carteira", days: 14 });
     assert.deepEqual(datasetOfView("mesa", ""), { kind: "carteira", days: 7 });
     assert.deepEqual(datasetOfView("jornada", "dias=30"), { kind: "board" });
     assert.equal(BOARD_URL, "/api/consultant-workspace/board");

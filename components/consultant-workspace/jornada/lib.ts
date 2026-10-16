@@ -355,7 +355,7 @@ export const SAMPLE_CLIENT: WorkspaceClient = {
   companyName: "Hamburgueria da Marina",
   displayName: "Hamburgueria da Marina",
   phone: "11999990000",
-  plan: { tier: "pro", period: "monthly", status: "active", provider: "stripe", renewalAt: null },
+  plan: { tier: "pro", period: "monthly", status: "active", provider: "stripe", renewalAt: null, startedAt: null, customerSince: null },
   accessUntil: null,
   access: "pagante",
   consultant: { key: null, name: null, email: null },

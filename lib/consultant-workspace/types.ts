@@ -78,6 +78,25 @@ export type WorkspaceHandoff = {
   at: string;
 };
 
+/**
+ * Tarefa do card no CRM: quem passou registra o que fez e o que o próximo
+ * responsável deve fazer; o card vai para ele. Fica em `consultant_client_notes`
+ * (kind `tarefa`; a conclusão é outra linha, kind `tarefa_ok`).
+ */
+export type WorkspaceTask = {
+  id: string;
+  userId: string;
+  /** O que quem passou acabou de fazer. */
+  done: string;
+  /** O que o destinatário deve fazer. */
+  todo: string;
+  /** Responsável do CRM que recebeu (ver `crm.ts`). */
+  to: string;
+  by: string;
+  at: string;
+  closed: { by: string; at: string; note: string } | null;
+};
+
 export type WorkspaceSentMessage = {
   id: string;
   userId: string;
@@ -111,6 +130,8 @@ export type WorkspaceState = {
   dismissedAutoTags: Record<string, string[]>;
   sentMessages: WorkspaceSentMessage[];
   aiAnalyses: Record<string, WorkspaceAiAnalysis>;
+  /** Tarefas do CRM, mais recente primeiro. */
+  tasks: WorkspaceTask[];
 };
 
 export type WorkspaceOp =
@@ -138,6 +159,9 @@ export type WorkspaceOp =
       note?: string | null;
     }
   | { op: "assign"; userId: string; consultant: ConsultantKey | null }
+  /** Move o card no CRM para um responsável (arrastar, ou passar com tarefa). */
+  | { op: "moveCard"; userId: string; to: string; done?: string; todo?: string }
+  | { op: "completeTask"; userId: string; taskId: string; note?: string }
   | {
       op: "setHandoff";
       userId: string;
@@ -215,6 +239,10 @@ export type WorkspaceClient = {
     status: string | null;
     provider: string | null;
     renewalAt: string | null;
+    /** Início da assinatura atual (no trial, quando o trial começou). */
+    startedAt: string | null;
+    /** Primeira assinatura do cliente: cliente desde. */
+    customerSince: string | null;
   };
   accessUntil: string | null;
   /** Grupo de acesso (pagante, trial, cancelado com acesso…); ver `access.ts`. */

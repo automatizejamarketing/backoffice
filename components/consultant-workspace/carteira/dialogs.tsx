@@ -401,7 +401,6 @@ const HELP_COMMON: Array<[string, string]> = [
   ["n", "Registrar nota, contato ou reunião"],
   ["m", "Definir ou editar a meta"],
   ["/", "Buscar"],
-  ["v", "Trocar Fila ↔ Mesa (mantém os filtros)"],
   ["?", "Esta lista"],
 ];
 

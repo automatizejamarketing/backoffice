@@ -16,6 +16,9 @@ export const OUTREACH_KINDS = [
   "offer_suggestion",
   "pixel_setup",
   "ad_balance",
+  "plan_reactivation",
+  "plan_regularization",
+  "meta_discrimination",
 ] as const;
 
 export type OutreachKind = (typeof OUTREACH_KINDS)[number];
@@ -26,6 +29,9 @@ export const OUTREACH_KIND_LABEL: Record<OutreachKind, string> = {
   offer_suggestion: "Sugestão de oferta/combo",
   pixel_setup: "Instruções do pixel",
   ad_balance: "Saldo / pagamento na Meta",
+  plan_reactivation: "Reativar o plano",
+  plan_regularization: "Regularizar o pagamento do plano",
+  meta_discrimination: "Liberação da Meta (não discriminação)",
 };
 
 export const OUTREACH_TITLE_MAX = 60;

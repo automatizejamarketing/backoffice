@@ -2,30 +2,30 @@
 
 import { LoadError } from "@/components/consultant-workspace/common/load-error";
 import { useBoardData, usePrefetchSibling } from "@/components/consultant-workspace/common/use-trafego-data";
-import { JourneyBoard } from "./board";
+import { isCoreSegment } from "@/lib/consultant-workspace/access";
+import { CrmBoard } from "./crm-board";
 import { PlaybooksView } from "./playbooks";
 import { BoardSkeleton, ListSkeleton } from "./skeletons";
 
-/** Jornada a partir do cache do quadro; esqueleto só na primeira leitura. */
+/** CRM a partir do cache do quadro; esqueleto só na primeira leitura. */
 export function JourneyBoardScreen() {
   const query = useBoardData();
   usePrefetchSibling("board", query.isSuccess);
   if (!query.data) {
     return query.isError ? (
-      <LoadError what="a Jornada" error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />
+      <LoadError what="o CRM" error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />
     ) : (
       <BoardSkeleton />
     );
   }
   const data = query.data;
   return (
-    <JourneyBoard
+    <CrmBoard
       range={data.range}
       clients={data.clients}
       alerts={data.alerts}
       extras={data.extras}
       stopped={data.stopped}
-      touchedAlertUser={data.touchedAlertUser}
       initialStore={data.store}
       now={data.now}
     />
@@ -43,9 +43,10 @@ export function PlaybooksScreen() {
     );
   }
   const data = query.data;
+  // Playbooks são do tráfego: só os pagantes (o CRM também carrega trial, vencidos…).
   return (
     <PlaybooksView
-      clients={data.clients}
+      clients={data.clients.filter((client) => isCoreSegment(client.access))}
       alerts={data.alerts}
       extras={data.extras}
       initialStore={data.store}

@@ -2,7 +2,6 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import type { BackofficeActor } from "@/lib/auth/rbac-core";
 import { db } from "@/lib/db";
-import { isCoreSegment } from "@/lib/consultant-workspace/access";
 import { getWorkspaceClients } from "@/lib/consultant-workspace/data";
 import { getJourneyExtras } from "@/lib/consultant-workspace/journey-data";
 import { getTouchedAlertUsers, readStateFor } from "@/components/consultant-workspace/common/server-data";
@@ -52,11 +51,9 @@ export async function getStoppedSpend(userIds: string[]): Promise<Record<string,
  */
 export async function getBoardData(actor: BackofficeActor): Promise<BoardData> {
   const [workspace, store] = await Promise.all([getWorkspaceClients(actor, { days: 7 }), readStateFor(actor)]);
-  // Mesmo universo do "Todos ativos" da Fila/Mesa: os pagantes em dia.
-  const { range } = workspace;
-  const clients = workspace.clients.filter((client) => isCoreSegment(client.access));
-  const coreIds = new Set(clients.map((client) => client.userId));
-  const alerts = workspace.alerts.filter((alert) => coreIds.has(alert.userId));
+  // O CRM mostra todo mundo que carrega (pagantes, trial, cancelados, vencidos há
+  // poucos dias — esses vão para o Gui); Playbooks filtram os pagantes no navegador.
+  const { range, clients, alerts } = workspace;
   const userIds = clients.map((client) => client.userId);
   const idle = clients.filter((client) => client.perf.current.spend === 0).map((client) => client.userId);
   const [extras, stopped, touchedAlertUser] = await Promise.all([

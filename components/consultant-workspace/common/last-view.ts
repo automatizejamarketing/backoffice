@@ -32,9 +32,8 @@ export function useRememberView(query: string) {
 }
 
 const VIEW_LABEL: Array<[string, string]> = [
-  ["/trafego/fila", "Fila"],
   ["/trafego/mesa", "Mesa"],
-  ["/trafego/jornada", "Jornada"],
+  ["/trafego/crm", "CRM"],
   ["/trafego/playbooks", "Playbooks"],
   ["/trafego/mensagens", "Mensagens"],
   ["/trafego/adiados", "Adiados"],

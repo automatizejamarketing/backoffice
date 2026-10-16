@@ -112,7 +112,7 @@ export function PlaybooksView({
                     : null}
                   {total > 0 ? (
                     <Link
-                      href={`/trafego/jornada?tag=${tag.key}`}
+                      href={`/trafego/mesa?tag=${tag.key}`}
                       className="ml-auto inline-flex items-center gap-1 font-medium text-primary hover:underline"
                     >
                       Ver clientes <ArrowRight className="size-3.5" />

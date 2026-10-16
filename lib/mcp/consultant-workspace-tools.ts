@@ -71,14 +71,14 @@ const journeyTools: McpTool[] = [
     description:
       "Carteira pela etapa do processo: onboarding (do trial até a 1ª campanha veicular, com o passo que trava), rodando (com motivos de atenção) e parado. " +
       "Inclui plano, tags de problema (marcadas pelo Fred ou detectadas), meta combinada e status vs meta, gasto e resultado do período, alertas abertos e dias na etapa. " +
-      "Por padrão lista só os ativos (pagantes em dia, o mesmo número do \"Todos ativos\"); use `access` para ver trial, cancelados ainda com acesso, pagamento atrasado ou acesso manual. " +
+      "Por padrão lista só os ativos (pagantes em dia, o mesmo número do \"Todos ativos\"); use `access` para ver trial, cancelados ainda com acesso, pagamento atrasado, acesso manual ou expirados há até 60 dias. " +
       "Use para planejar o dia e para escolher em quais clientes agir em lote.",
     input: z.object({
       stage: z.enum(["onboarding", "rodando", "parado"]).optional(),
       tag: z.string().optional().describe("Chave de tag de problema (ver list_problem_tags)."),
       plan: z.enum(["premium", "pro", "starter", "sem_plano"]).optional(),
       access: z
-        .enum(["ativos", "trial", "cancelado", "inadimplente", "manual", "todos"])
+        .enum(["ativos", "trial", "cancelado", "inadimplente", "manual", "expirado", "todos"])
         .optional()
         .describe("Grupo de acesso. Padrão \"ativos\" (pagantes em dia). \"todos\" junta todos os grupos."),
       onlyNeedsAttention: z.boolean().optional().describe("Só quem precisa de ação humana."),

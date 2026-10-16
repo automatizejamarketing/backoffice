@@ -16,6 +16,7 @@ import { TRAFEGO_VIEWS, viewFromPathname } from "./routes";
 export function TrafegoViews() {
   const pathname = usePathname();
   const view = viewFromPathname(pathname) ?? "jornada";
+  const mode = "tabela" as const;
 
   useEffect(() => {
     const label = TRAFEGO_VIEWS.find((entry) => entry.key === view)?.label ?? "Tráfego";
@@ -30,8 +31,8 @@ export function TrafegoViews() {
     );
   }
   return (
-    <Suspense fallback={<CarteiraSkeleton mode={view === "mesa" ? "tabela" : "fila"} />}>
-      <CarteiraScreen key={view} mode={view === "mesa" ? "tabela" : "fila"} />
+    <Suspense fallback={<CarteiraSkeleton mode={mode} />}>
+      <CarteiraScreen key={view} mode={mode} />
     </Suspense>
   );
 }

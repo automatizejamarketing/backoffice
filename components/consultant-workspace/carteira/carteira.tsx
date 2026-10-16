@@ -46,7 +46,6 @@ import {
 } from "@/components/consultant-workspace/common/model";
 import { useLocalPref } from "@/components/consultant-workspace/common/prefs";
 import { PERIOD_OPTIONS, clientHref } from "@/components/consultant-workspace/common/routes";
-import { useSwitchView } from "@/components/consultant-workspace/common/use-switch-view";
 import { Segmented } from "@/components/consultant-workspace/common/segmented";
 import { isSnoozed, syntheticUserOf } from "@/components/consultant-workspace/common/signal-helpers";
 import { SummaryStrip, computeStripCounts } from "@/components/consultant-workspace/common/summary-strip";
@@ -126,7 +125,6 @@ export function Carteira({
   const scope = useConsultantScope();
   const assignments = useAssignmentOverrides();
   const router = useRouter();
-  const switchView = useSwitchView();
   const pathname = usePathname();
   const params = useSearchParams();
   const filters = useMemo(() => parseFilters(params), [params]);
@@ -377,11 +375,6 @@ export function Carteira({
     setFocus({ id: row.userId, index: Math.max(0, index) });
     if (mode === "tabela") setSheetOpen(true);
   }
-  /** Fila ↔ Mesa: outra rota, mesma query string (filtros, busca, ordem, período). */
-  function switchMode(next: ViewMode) {
-    if (next === mode) return;
-    switchView(next === "tabela" ? "mesa" : "fila", window.location.search.replace(/^\?/, ""));
-  }
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -423,8 +416,6 @@ export function Carteira({
         toggleCheck(current, false);
       } else if (key === "a" && mode === "fila") {
         setShowExtra((value) => !value);
-      } else if (key === "v") {
-        switchMode(mode === "fila" ? "tabela" : "fila");
       } else if (key === "/") {
         event.preventDefault();
         searchRef.current?.focus();

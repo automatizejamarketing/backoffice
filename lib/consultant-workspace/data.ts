@@ -3,7 +3,8 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { playbookAlertRuleTitle } from "@/lib/backoffice/playbook-alert-dashboard";
 import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
-import { accessSegmentOf, PAST_DUE_GRACE_DAYS, type AccessSegment } from "./access";
+import { accessSegmentOf, EXPIRED_WINDOW_DAYS, type AccessSegment } from "./access";
+import { crmOwnerByAccess, crmOwnerByEmail } from "./crm";
 import { readWorkspaceState } from "./state";
 import { emptyTotals, primaryKpi, workspaceRange } from "./metrics";
 import type {
@@ -70,21 +71,24 @@ function buildSeries(range: WorkspaceRange, byDate: Map<string, DailyPoint>): Da
 }
 
 /**
- * Clientes com acesso válido de fato, mais os inadimplentes que venceram há
- * poucos dias (ver `access.ts`). O status sozinho não basta: há assinaturas
- * Mercado Pago `active` com acesso vencido há meses.
+ * Clientes com acesso válido de fato e os que venceram há até
+ * EXPIRED_WINDOW_DAYS dias (ver `access.ts`; os vencidos só aparecem no CRM).
+ * O status sozinho não basta: há assinaturas Mercado Pago `active` com acesso
+ * vencido há meses.
  */
 async function loadActiveClientRows(onlyUserId?: string) {
   const filter = onlyUserId ? sql`and u.id = ${onlyUserId}` : sql``;
   return rows(sql`
     with sub as (
-      select distinct on (user_id) user_id, plan_type, status, provider, current_period_end
+      select distinct on (user_id) user_id, plan_type, status, provider, current_period_end, created_at
       from subscriptions
       order by user_id, (status in ('active','trialing','past_due')) desc, current_period_end desc nulls last
     )
     select u.id, u.email, u.name, u.phone, u.expiration_date,
       co.name as company_name,
       sub.plan_type, sub.status as sub_status, sub.provider, sub.current_period_end,
+      sub.created_at as sub_created_at,
+      (select min(s0.created_at) from subscriptions s0 where s0.user_id = u.id) as first_sub_at,
       b.id::text as consultant_id, b.name as consultant_name, b.email as consultant_email,
       mba.connection_status, mba.last_validation_error, mba.name as meta_name,
       cache.ad_account_name, cache.has_active_managed_campaign, cache.checked_at, cache.error_message,
@@ -107,10 +111,7 @@ async function loadActiveClientRows(onlyUserId?: string) {
       from business_managed_campaign_cache bc where bc.user_id = u.id
       order by bc.checked_at desc nulls last limit 1
     ) cache on true
-    where (
-      u.expiration_date > now()
-      or (sub.status = 'past_due' and u.expiration_date > now() - make_interval(days => ${PAST_DUE_GRACE_DAYS}::int))
-    )
+    where u.expiration_date > now() - make_interval(days => ${EXPIRED_WINDOW_DAYS}::int)
     ${filter}
   `);
 }
@@ -240,9 +241,16 @@ function loadPortfolio(range: WorkspaceRange): Promise<PortfolioLoad> {
   return promise;
 }
 
-/** O consultor comum só enxerga a carteira atribuída; premium, dev e admin veem todos. */
-function visibleTo(actor: BackofficeActor, userId: string) {
-  return !consultantSeesOnlyAssignedClients(actor.role) || (actor.assignedUserIds ?? []).includes(userId);
+/**
+ * O consultor comum só enxerga a carteira atribuída — e, se for responsável
+ * do CRM, os clientes que a regra manda para ele pelo acesso (o Gui recebe os
+ * vencidos sem ninguém precisar atribuir). Premium, dev e admin veem todos.
+ */
+function visibleTo(actor: BackofficeActor, userId: string, access: AccessSegment | undefined) {
+  if (!consultantSeesOnlyAssignedClients(actor.role)) return true;
+  if ((actor.assignedUserIds ?? []).includes(userId)) return true;
+  const owner = crmOwnerByEmail(actor.email);
+  return !!owner && !!access && crmOwnerByAccess(access) === owner.key;
 }
 
 export async function getWorkspaceClients(
@@ -262,7 +270,10 @@ export async function getWorkspaceClients(
     if (access) accessOf.set(String(row.id), access);
   }
   const baseRows = load.baseRows.filter(
-    (row) => accessOf.has(String(row.id)) && (!only || String(row.id) === only) && visibleTo(actor, String(row.id)),
+    (row) =>
+      accessOf.has(String(row.id)) &&
+      (!only || String(row.id) === only) &&
+      visibleTo(actor, String(row.id), accessOf.get(String(row.id))),
   );
   const visibleIds = new Set(baseRows.map((row) => String(row.id)));
   const daily = load.daily.filter((row) => visibleIds.has(String(row.user_id)));
@@ -339,6 +350,8 @@ export async function getWorkspaceClients(
         status: (row.sub_status as string | null) ?? null,
         provider: (row.provider as string | null) ?? null,
         renewalAt: iso(row.current_period_end),
+        startedAt: iso(row.sub_created_at),
+        customerSince: iso(row.first_sub_at),
       },
       accessUntil: iso(row.expiration_date),
       access: accessOf.get(userId)!,

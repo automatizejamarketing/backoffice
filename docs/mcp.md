@@ -66,7 +66,7 @@ Limites e decisões:
 
 ## Área de Tráfego (gestor de tráfego, `marketing:read` / `marketing:write`)
 
-As mesmas regras das telas `/trafego` (Fila, Mesa e Jornada), em `lib/mcp/consultant-workspace-tools.ts`.
+As mesmas regras das telas `/trafego` (Mesa e CRM), em `lib/mcp/consultant-workspace-tools.ts`.
 
 | Ferramenta | Tipo | O que faz |
 | --- | --- | --- |

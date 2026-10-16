@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { unstable_cache } from "next/cache";
 import { db } from "@/lib/db";
+import { isCrmOwnerEmail } from "@/lib/consultant-workspace/crm";
 import {
   backofficeUser,
   company,
@@ -187,9 +188,10 @@ export async function setMarketingConsultantAssignment(data: {
     .where(eq(backofficeUser.id, data.consultantId))
     .limit(1);
 
+  // Responsável do CRM (ver `crm.ts`) vale mesmo sem cargo de consultor — o Lucas é admin.
   if (
     !consultant ||
-    !isMarketingConsultantRole(consultant.role) ||
+    !(isMarketingConsultantRole(consultant.role) || isCrmOwnerEmail(consultant.email)) ||
     !consultant.active
   ) {
     throw new Error("invalid_consultant");

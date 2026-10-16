@@ -8,6 +8,7 @@ import {
 import { db } from "@/lib/db";
 import { setMarketingConsultantAssignment } from "@/lib/db/backoffice-rbac-queries";
 import {
+  backofficeUser,
   consultantClientAiAnalysis,
   consultantClientGoal,
   consultantClientNote,
@@ -17,6 +18,8 @@ import {
 } from "@/lib/db/schema";
 import { ACCOUNT_ALERTS_RULE_PREFIX } from "@/lib/account-alerts/constants";
 import { PLAYBOOK_INSIGHTS_RULE_PREFIX } from "@/lib/playbook-insights/constants";
+import { crmOwner, crmOwnerByEmail, canMoveTo } from "./crm";
+import { accessSegmentOf } from "./access";
 import { PROBLEM_TAG_BY_KEY } from "./journey";
 import { isMatTemplateKey } from "./outreach-core";
 import type {
@@ -56,6 +59,11 @@ const consultantAlertScope = or(
  * `kind = "sinal"` (fora da linha do tempo), lida de volta em `alertActions`.
  */
 const SIGNAL_NOTE_KIND = "sinal";
+
+/** Tarefa do card no CRM (body = o que o destinatário deve fazer) e a conclusão dela. */
+const TASK_NOTE_KIND = "tarefa";
+const TASK_DONE_NOTE_KIND = "tarefa_ok";
+type TaskNoteMetadata = { done?: string; to?: string };
 const SIGNAL_KEY = /^sinal:[a-z_]+:([0-9a-f-]{36})$/i;
 
 function splitAlertIds(ids: string[]) {
@@ -122,6 +130,7 @@ export async function readWorkspaceState(options: { userIds?: string[] } = {}): 
 
   const state = emptyWorkspaceState();
   const seenSignals = new Set<string>();
+  const closedTasks = new Map<string, NonNullable<WorkspaceState["tasks"][number]["closed"]>>();
   for (const goal of goals) {
     state.goals[goal.userId] = {
       kpi: goal.kpi as GoalKpi,
@@ -149,6 +158,27 @@ export async function readWorkspaceState(options: { userIds?: string[] } = {}): 
       }
       continue;
     }
+    if (note.kind === TASK_NOTE_KIND) {
+      const meta = (note.metadata ?? {}) as TaskNoteMetadata;
+      state.tasks.push({
+        id: note.id,
+        userId: note.userId,
+        done: meta.done ?? "",
+        todo: note.body,
+        to: meta.to ?? "",
+        by: note.authorEmail,
+        at: toIso(note.createdAt)!,
+        closed: null,
+      });
+      continue;
+    }
+    if (note.kind === TASK_DONE_NOTE_KIND) {
+      const meta = (note.metadata ?? {}) as { taskId?: string };
+      if (meta.taskId && !closedTasks.has(meta.taskId)) {
+        closedTasks.set(meta.taskId, { by: note.authorEmail, at: toIso(note.createdAt)!, note: note.body });
+      }
+      continue;
+    }
     if (note.kind === "mensagem") {
       const templateKey = String((note.metadata as { templateKey?: string } | null)?.templateKey ?? "");
       state.sentMessages.push({
@@ -170,6 +200,9 @@ export async function readWorkspaceState(options: { userIds?: string[] } = {}): 
       author: note.authorEmail,
       createdAt: toIso(note.createdAt)!,
     });
+  }
+  for (const task of state.tasks) {
+    task.closed = closedTasks.get(task.id) ?? (task.todo ? null : { by: task.by, at: task.at, note: task.done });
   }
   for (const handoff of handoffs) {
     state.handoffs[handoff.userId] = {
@@ -231,6 +264,7 @@ export function emptyWorkspaceState(): WorkspaceState {
     dismissedAutoTags: {},
     sentMessages: [],
     aiAnalyses: {},
+    tasks: [],
   };
 }
 
@@ -250,6 +284,28 @@ function assertWrite(actor: BackofficeActor, userId: string) {
   if (!canAccessMarketingUser(actor, userId)) {
     throw new WorkspaceOpError("Este cliente não está na sua carteira.", 403);
   }
+}
+
+/**
+ * Mexer no card do CRM: quem pode escrever no cliente, ou qualquer responsável
+ * do CRM (o Gui recebe os vencidos pela regra, sem estar atribuído).
+ */
+function assertCrmWrite(actor: BackofficeActor, userId: string) {
+  if (crmOwnerByEmail(actor.email) && hasBackofficePermission(actor, "marketing:write")) return;
+  assertWrite(actor, userId);
+}
+
+async function clientAccess(userId: string) {
+  const [row] = (await db.execute(sql`
+    select u.expiration_date, s.status from users u
+    left join lateral (
+      select status from subscriptions where user_id = u.id
+      order by (status in ('active','trialing','past_due')) desc, current_period_end desc nulls last limit 1
+    ) s on true
+    where u.id = ${userId}::uuid
+  `)) as unknown as Array<{ expiration_date: Date | string | null; status: string | null }>;
+  if (!row) return null;
+  return accessSegmentOf({ status: row.status ?? null, accessUntil: row.expiration_date ?? null });
 }
 
 function assertKnownTags(tags: string[]) {
@@ -409,6 +465,54 @@ export async function applyWorkspaceOp(
         userId: op.userId,
         consultantId: op.consultant,
         assignedByEmail: actor.email,
+      });
+      return;
+    }
+    case "moveCard": {
+      assertCrmWrite(actor, op.userId);
+      const target = crmOwner(op.to);
+      if (!target) throw new WorkspaceOpError("Responsável desconhecido.");
+      const access = await clientAccess(op.userId);
+      if (access && !canMoveTo(access, target.key)) {
+        throw new WorkspaceOpError("Plano vencido ou atrasado fica com o Gui até regularizar.");
+      }
+      const [consultant] = await db
+        .select({ id: backofficeUser.id })
+        .from(backofficeUser)
+        .where(and(eq(backofficeUser.email, target.email), eq(backofficeUser.active, true)))
+        .limit(1);
+      if (!consultant) throw new WorkspaceOpError(`${target.label} não tem login ativo no backoffice.`);
+      await setMarketingConsultantAssignment({ userId: op.userId, consultantId: consultant.id, assignedByEmail: actor.email });
+      const todo = op.todo?.trim() ?? "";
+      const done = op.done?.trim() ?? "";
+      if (todo || done) {
+        await db.insert(consultantClientNote).values({
+          userId: op.userId,
+          kind: TASK_NOTE_KIND,
+          // Sem "o que fazer" é só registro do que foi feito: já nasce concluída (body vazio).
+          body: todo.slice(0, 4000),
+          metadata: { done: done.slice(0, 4000), to: target.key } satisfies TaskNoteMetadata,
+          authorEmail: actor.email,
+          source,
+        });
+      }
+      return;
+    }
+    case "completeTask": {
+      assertCrmWrite(actor, op.userId);
+      const [task] = await db
+        .select({ id: consultantClientNote.id, userId: consultantClientNote.userId, kind: consultantClientNote.kind })
+        .from(consultantClientNote)
+        .where(eq(consultantClientNote.id, op.taskId))
+        .limit(1);
+      if (!task || task.kind !== TASK_NOTE_KIND || task.userId !== op.userId) throw new WorkspaceOpError("Tarefa não encontrada.");
+      await db.insert(consultantClientNote).values({
+        userId: op.userId,
+        kind: TASK_DONE_NOTE_KIND,
+        body: (op.note?.trim() || "Feito.").slice(0, 4000),
+        metadata: { taskId: op.taskId },
+        authorEmail: actor.email,
+        source,
       });
       return;
     }

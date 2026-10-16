@@ -106,7 +106,7 @@ export function SnoozedView({
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-5 lg:px-6">
-      <Link href="/trafego/fila" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+      <Link href="/trafego/mesa" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
         <ArrowLeft className="size-3.5" /> Fila
       </Link>
       <header>
