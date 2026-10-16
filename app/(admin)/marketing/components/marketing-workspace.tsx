@@ -36,6 +36,7 @@ import { MetaAssetsCard } from "./meta-assets-card";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { PartnerAccessPanel } from "./partner-access-panel";
 import { PublishHoldAlert } from "./publish-hold-alert";
+import { PortfolioConnect } from "@/components/portfolio-connect";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
@@ -512,6 +513,13 @@ export function MarketingWorkspace({
                   </div>
                 )}
               </div>
+
+              {!isLoadingMeta &&
+              (!metaAccount ||
+                metaAccount.connectionStatus !== "active" ||
+                metaAccount.tokenKind !== "bisu") ? (
+                <PortfolioConnect userId={selectedUser.id} />
+              ) : null}
 
               <PublishHoldAlert userId={selectedUser.id} />
 

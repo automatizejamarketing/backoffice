@@ -16,6 +16,7 @@ import type {
   WorkspaceState,
 } from "@/lib/consultant-workspace/types";
 import { MetaHealthBadge, PlanBadge } from "@/components/consultant-workspace/shared/primitives";
+import { PortfolioConnect } from "@/components/portfolio-connect";
 import { ClientTimeline } from "@/components/consultant-workspace/shared/client-timeline";
 import { SuggestedActionsSection } from "@/components/consultant-workspace/shared/suggested-actions";
 import { AssignConsultant, useAssignedConsultant } from "@/components/consultant-workspace/common/assignment";
@@ -132,6 +133,9 @@ export function ClientJourneyView({
               <span>{client.email}</span>
             </p>
             <MetaHealthLine client={client} />
+            {client.meta.health === "token_invalido" || client.meta.health === "sem_meta" ? (
+              <PortfolioConnect userId={client.userId} className="max-w-xl" />
+            ) : null}
           </div>
 
           <div className="flex flex-col items-end gap-2">
@@ -300,7 +304,7 @@ function MetaHealthLine({ client }: { client: WorkspaceClient }) {
   const account = meta.accountName ? `“${meta.accountName}”` : "de anúncios";
   const text: Record<typeof meta.health, string> = {
     ok: `Conta ${account} conectada${meta.checkedAt ? ` · lida ${formatRelative(toIso(meta.checkedAt))}` : ""}`,
-    token_invalido: "A conexão com a Meta caiu. O cliente precisa reconectar — até lá nada é acompanhado nem publicado.",
+    token_invalido: "A conexão com a Meta caiu — até lá nada é acompanhado nem publicado. Se o cliente já compartilhou o portfólio, conecte por aqui.",
     erro_checagem: "Conectada, mas a última leitura da conta falhou. Os números podem estar atrasados.",
     checagem_velha: "Conectada, mas a conta não é lida há mais de 2 dias. Os números podem estar atrasados.",
     sem_meta: "Ainda não conectou o Facebook de anúncios.",
