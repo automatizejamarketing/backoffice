@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, MessageSquare, Phone, TrendingDown } from "lucide-react";
+import { ArrowLeft, ExternalLink, Megaphone, MessageSquare, Phone, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,7 @@ import {
   Section,
 } from "./dossier";
 import { BlockerChecklist, HandoffCard } from "./handoff";
+import { MarketingSheetProvider, useMarketingSheet } from "./marketing-sheet";
 import { ProblemTagsPanel } from "./tags-panel";
 
 /**
@@ -102,121 +103,129 @@ export function ClientJourneyView({
     setComposer({ client, journey, templateKey: templateKey ?? primaryTemplateKey(journey, client), nextStep });
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-4 px-4 py-4 lg:px-6">
-      <Link href={back.href} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="size-3.5" /> {back.label}
-      </Link>
+    <MarketingSheetProvider userId={client.userId} clientName={client.displayName}>
+      <div className="mx-auto w-full max-w-[1440px] space-y-4 px-4 py-4 lg:px-6">
+        <Link href={back.href} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-3.5" /> {back.label}
+        </Link>
 
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">{client.displayName}</h1>
-            <PlanBadge tier={client.plan.tier} className="text-xs" />
-            <StagePill stage={journey.stage} size="md" />
-            {journey.billingRisk ? <FinanceChip text={journey.billingRisk} /> : null}
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-2xl font-semibold tracking-tight">{client.displayName}</h1>
+              <PlanBadge tier={client.plan.tier} className="text-xs" />
+              <StagePill stage={journey.stage} size="md" />
+              {journey.billingRisk ? <FinanceChip text={journey.billingRisk} /> : null}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              <span className="text-foreground">Prometido no plano:</span> {PLAN_SERVICE[client.plan.tier]}
+            </p>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+              {client.name && client.name !== client.displayName ? <span>{client.name}</span> : null}
+              {client.phone ? (
+                <span className="inline-flex items-center gap-1 tabular-nums">
+                  <Phone className="size-3" /> {formatPhone(client.phone)}
+                </span>
+              ) : (
+                <span className="text-amber-700 dark:text-amber-400">sem telefone cadastrado</span>
+              )}
+              <span>{client.email}</span>
+            </p>
+            <MetaHealthLine client={client} />
           </div>
-          <p className="text-sm text-muted-foreground">
-            <span className="text-foreground">Prometido no plano:</span> {PLAN_SERVICE[client.plan.tier]}
-          </p>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-            {client.name && client.name !== client.displayName ? <span>{client.name}</span> : null}
-            {client.phone ? (
-              <span className="inline-flex items-center gap-1 tabular-nums">
-                <Phone className="size-3" /> {formatPhone(client.phone)}
-              </span>
+
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Responsável</span>
+              <AssignConsultant userId={client.userId} clientName={client.displayName} current={assigned} />
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <MarketingButton />
+              <Button size="sm" onClick={() => openComposer()}>
+                <MessageSquare className="size-3.5" /> Mensagem
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+              <AdsManagerLinks campaigns={detail.campaigns} />
+            </div>
+          </div>
+        </header>
+
+        <JourneyStepper journey={journey} />
+
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="min-w-0 space-y-5">
+            <SuggestedActionsSection
+              userId={client.userId}
+              clientName={client.displayName}
+              clientFullName={client.name}
+              days={range.days}
+            />
+            <ProblemTagsPanel userId={client.userId} journey={journey} store={store} onMessage={(key) => openComposer(key)} />
+
+            {journey.stage === "onboarding" ? (
+              <>
+                <HandoffCard client={client} journey={journey} />
+                <BlockerChecklist client={client} journey={journey} onMessage={(key) => openComposer(key)} />
+                {liveAlerts.length > 0 ? <AlertsSummary userId={client.userId} alerts={detail.alerts} now={now} /> : null}
+              </>
             ) : (
-              <span className="text-amber-700 dark:text-amber-400">sem telefone cadastrado</span>
-            )}
-            <span>{client.email}</span>
-          </p>
-          <MetaHealthLine client={client} />
-        </div>
-
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Responsável</span>
-            <AssignConsultant userId={client.userId} clientName={client.displayName} current={assigned} />
-          </div>
-          <Button size="sm" onClick={() => openComposer()}>
-            <MessageSquare className="size-3.5" /> Mensagem
-          </Button>
-          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-            <AdsManagerLinks campaigns={detail.campaigns} />
-            <Link
-              href={`/users/${client.userId}?tab=marketing`}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-            >
-              Cadastro e Marketing do cliente <ExternalLink className="size-3" />
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <JourneyStepper journey={journey} />
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="min-w-0 space-y-5">
-          <SuggestedActionsSection
-            userId={client.userId}
-            clientName={client.displayName}
-            clientFullName={client.name}
-            days={range.days}
-          />
-          <ProblemTagsPanel userId={client.userId} journey={journey} store={store} onMessage={(key) => openComposer(key)} />
-
-          {journey.stage === "onboarding" ? (
-            <>
-              <HandoffCard client={client} journey={journey} />
-              <BlockerChecklist client={client} journey={journey} onMessage={(key) => openComposer(key)} />
-              {liveAlerts.length > 0 ? <AlertsSummary userId={client.userId} alerts={detail.alerts} now={now} /> : null}
-            </>
-          ) : (
-            <>
-              {journey.stage === "parado" ? (
-                <StoppedBanner
-                  days={journey.daysInStage}
-                  stopped={stopped}
-                  onMessage={() => openComposer("campanha_parada")}
+              <>
+                {journey.stage === "parado" ? (
+                  <StoppedBanner
+                    days={journey.daysInStage}
+                    stopped={stopped}
+                    onMessage={() => openComposer("campanha_parada")}
+                  />
+                ) : null}
+                <Section
+                  title="Dossiê"
+                  subtitle={`O que aconteceu, o que fazer e o que mandar · ${daysInStageText(journey) ?? STAGE_FALLBACK}`}
+                  right={<PeriodTabs days={range.days} />}
+                >
+                  <KpiStrip client={client} range={range} store={store} />
+                </Section>
+                <AiAnalysisCard
+                  userId={client.userId}
+                  days={range.days}
+                  analysis={analysis}
+                  onUseSentence={(sentence) => openComposer("resumo_semanal", sentence)}
                 />
-              ) : null}
-              <Section
-                title="Dossiê"
-                subtitle={`O que aconteceu, o que fazer e o que mandar · ${daysInStageText(journey) ?? STAGE_FALLBACK}`}
-                right={<PeriodTabs days={range.days} />}
-              >
-                <KpiStrip client={client} range={range} store={store} />
-              </Section>
-              <AiAnalysisCard
-                userId={client.userId}
-                days={range.days}
-                analysis={analysis}
-                onUseSentence={(sentence) => openComposer("resumo_semanal", sentence)}
-              />
-              <CampaignReport detail={detail} range={range} />
-              <CreativesSection userId={client.userId} days={range.days} />
-              <AlertsSummary userId={client.userId} alerts={detail.alerts} now={now} />
-              <MiniReport
-                client={client}
-                aiSentence={aiSentence}
-                consultantName={consultantName}
-                onCompose={() => openComposer("resumo_semanal", aiSentence)}
-              />
-            </>
-          )}
+                <CampaignReport detail={detail} range={range} />
+                <CreativesSection userId={client.userId} days={range.days} />
+                <AlertsSummary userId={client.userId} alerts={detail.alerts} now={now} />
+                <MiniReport
+                  client={client}
+                  aiSentence={aiSentence}
+                  consultantName={consultantName}
+                  onCompose={() => openComposer("resumo_semanal", aiSentence)}
+                />
+              </>
+            )}
+          </div>
+
+          <aside className="min-w-0 space-y-2 xl:sticky xl:top-4 xl:max-h-[calc(100svh-9rem)] xl:self-start xl:overflow-y-auto">
+            <h2 className="text-base font-semibold">Histórico</h2>
+            <ClientTimeline detail={detail} />
+          </aside>
         </div>
 
-        <aside className="min-w-0 space-y-2 xl:sticky xl:top-4 xl:max-h-[calc(100svh-9rem)] xl:self-start xl:overflow-y-auto">
-          <h2 className="text-base font-semibold">Histórico</h2>
-          <ClientTimeline detail={detail} />
-        </aside>
+        <TemplateComposerDialog target={composer} onClose={() => setComposer(null)} />
       </div>
-
-      <TemplateComposerDialog target={composer} onClose={() => setComposer(null)} />
-    </div>
+    </MarketingSheetProvider>
   );
 }
 
 const STAGE_FALLBACK = "etapa atual";
+
+function MarketingButton() {
+  const marketing = useMarketingSheet();
+  return (
+    <Button size="sm" variant="outline" onClick={marketing.open} title="Cadastro, campanhas e criativos do cliente numa janela lateral">
+      <Megaphone className="size-3.5" /> Marketing do cliente
+    </Button>
+  );
+}
 
 /** Uma entrada por conta de anúncios com campanha no período, a de maior gasto primeiro. */
 function AdsManagerLinks({ campaigns }: { campaigns: WorkspaceClientDetail["campaigns"] }) {

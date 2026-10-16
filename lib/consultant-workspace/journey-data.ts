@@ -111,6 +111,8 @@ async function loadJourneyExtras(userIds: string[]): Promise<Record<string, Jour
 export type DossierAd = {
   adId: string;
   name: string;
+  campaignId: string | null;
+  adsetId: string | null;
   campaignName: string | null;
   adsetName: string | null;
   /** "act_…" — para o link do Gerenciador. */
@@ -186,6 +188,8 @@ export async function getDossierAds(userId: string, days = 7): Promise<DossierAd
       return {
         adId,
         name: String(meta?.entity_name ?? adId),
+        campaignId: entry.campaignId || null,
+        adsetId: entry.adsetId || null,
         campaignName: (names.get(entry.campaignId)?.entity_name as string | null) ?? null,
         adsetName: (names.get(entry.adsetId)?.entity_name as string | null) ?? null,
         accountId: (meta?.account_id as string | null) ?? null,
@@ -200,5 +204,5 @@ export async function getDossierAds(userId: string, days = 7): Promise<DossierAd
       };
     })
     .sort((a, b) => b.current.spend - a.current.spend)
-    .slice(0, 30);
+    .slice(0, 60);
 }

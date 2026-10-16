@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,7 @@ import {
   Film,
   ImageIcon,
   Loader2,
+  Megaphone,
   MessageSquareText,
   MoreHorizontal,
   Pause,
@@ -41,7 +42,8 @@ import { cn } from "@/lib/utils";
 import { TEMPLATE_BY_KEY } from "@/lib/consultant-workspace/journey";
 import type { DossierAd } from "@/lib/consultant-workspace/journey-data";
 import type { AdPreview, AdPreviewFormat } from "@/lib/consultant-workspace/creative-previews";
-import { ADS_MANAGER_HINT, adsManagerAdUrl } from "@/lib/consultant-workspace/ads-manager";
+import { ADS_MANAGER_HINT, adsManagerAdUrl, adsManagerCampaignUrl } from "@/lib/consultant-workspace/ads-manager";
+import { OBJECTIVE_FAMILY_LABEL, objectiveFamily, type ObjectiveFamily } from "@/lib/consultant-workspace/objective";
 import {
   GOAL_KPI_LABEL,
   budgetPacing,
@@ -72,10 +74,10 @@ import {
 } from "@/components/consultant-workspace/shared/actions";
 import { WORKSPACE_STATE_KEY, useWorkspaceState } from "@/components/consultant-workspace/shared/use-workspace-state";
 import { PERIOD_OPTIONS } from "@/components/consultant-workspace/common/routes";
+import { useMarketingSheet } from "./marketing-sheet";
 import { humanize, humanizeName } from "@/components/consultant-workspace/common/signal-helpers";
 import {
   CAMPAIGN_STATUS_LABEL,
-  OBJECTIVE_LABEL,
   clientSentenceFrom,
   isAlertLive,
   isOtherAreaAlert,
@@ -538,11 +540,72 @@ function useMetaActionDialog() {
   return { dialog, setDialog, close };
 }
 
+/** Anúncios do período (banco). Mesma chave no relatório e nos criativos: uma leitura só. */
+function useDossierAds(userId: string, days: number) {
+  return useQuery<{ ads: DossierAd[] }>({
+    queryKey: ["consultant-workspace-ads", userId, days],
+    queryFn: async () => {
+      const response = await fetch(`/api/consultant-workspace/ads?userId=${encodeURIComponent(userId)}&days=${days}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Falha ao ler os anúncios");
+      return response.json();
+    },
+  });
+}
+
+/** Miniaturas e texto ao vivo da Meta; chegam depois da lista. */
+function useAdPreviews(userId: string, ads: DossierAd[]) {
+  const adIds = useMemo(() => ads.map((ad) => ad.adId).sort(), [ads]);
+  return useQuery<{ previews: Record<string, AdPreview>; error?: string }>({
+    queryKey: ["consultant-workspace-ad-previews", userId, adIds],
+    enabled: adIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/consultant-workspace/ads/previews?userId=${encodeURIComponent(userId)}&ids=${adIds.join(",")}`,
+      );
+      if (!response.ok) throw new Error("Falha ao ler as prévias");
+      return response.json();
+    },
+  });
+}
+
+const OBJECTIVE_TONE: Record<ObjectiveFamily, string> = {
+  vendas: "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
+  trafego: "border-sky-300 bg-sky-50 text-sky-800 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
+  cadastros: "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
+  mensagens: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+  reconhecimento: "border-zinc-300 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300",
+  app: "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300",
+  outro: "border-zinc-300 bg-zinc-50 text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300",
+};
+
+function ObjectiveBadge({ objective }: { objective: string | null }) {
+  const family = objectiveFamily(objective);
+  if (!family) return null;
+  return (
+    <span
+      className={cn("inline-flex shrink-0 items-center rounded border px-1.5 py-px text-[10px] leading-4 font-semibold", OBJECTIVE_TONE[family])}
+      title={objective ?? undefined}
+    >
+      {OBJECTIVE_FAMILY_LABEL[family]}
+    </span>
+  );
+}
+
 export function CampaignReport({ detail, range }: { detail: WorkspaceClientDetail; range: WorkspaceRange }) {
   const { dialog, setDialog, close } = useMetaActionDialog();
   const [showAll, setShowAll] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [opened, setOpened] = useState<DossierAd | null>(null);
   const campaigns = detail.campaigns;
   const { client } = detail;
+  const adsQuery = useDossierAds(client.userId, range.days);
+  const ads = useMemo(() => adsQuery.data?.ads ?? [], [adsQuery.data]);
+  const previews = useAdPreviews(client.userId, ads);
+  const openAdAction = (ad: DossierAd, action: WorkspaceSimulatedAction["action"]) =>
+    setDialog({ entityId: ad.adId, entityName: entityDisplayName(ad.name, ad.adId, "Anúncio"), action });
   const hasRoas = campaigns.some((campaign) => campaign.kpi.roas != null) || client.perf.kpi.roas != null;
   const list = showAll ? campaigns : campaigns.slice(0, 8);
 
@@ -550,7 +613,7 @@ export function CampaignReport({ detail, range }: { detail: WorkspaceClientDetai
     <Section
       title="Relatório padrão"
       icon={MessageSquareText}
-      subtitle={`Campanhas de ${formatDay(range.from)} a ${formatDay(range.to)} contra ${formatDay(range.prevFrom)} a ${formatDay(range.prevTo)}`}
+      subtitle={`Campanhas de ${formatDay(range.from)} a ${formatDay(range.to)} contra ${formatDay(range.prevFrom)} a ${formatDay(range.prevTo)} · clique na campanha para ver conjuntos e anúncios`}
     >
       {campaigns.length === 0 ? (
         <Empty title="Nenhuma campanha com dados">A coleta não achou veiculação neste período nem no anterior.</Empty>
@@ -569,19 +632,37 @@ export function CampaignReport({ detail, range }: { detail: WorkspaceClientDetai
             </thead>
             <tbody className="divide-y">
               {list.map((campaign) => (
-                <CampaignRow
-                  key={campaign.campaignId}
-                  campaign={campaign}
-                  hasRoas={hasRoas}
-                  onAction={(action) =>
-                    setDialog({
-                      entityId: campaign.campaignId,
-                      entityName: entityDisplayName(campaign.name, campaign.campaignId, "Campanha"),
-                      action,
-                      budget: campaign.dailyBudget,
-                    })
-                  }
-                />
+                <Fragment key={campaign.campaignId}>
+                  <CampaignRow
+                    campaign={campaign}
+                    hasRoas={hasRoas}
+                    expanded={expanded === campaign.campaignId}
+                    onToggle={() => setExpanded((current) => (current === campaign.campaignId ? null : campaign.campaignId))}
+                    onAction={(action) =>
+                      setDialog({
+                        entityId: campaign.campaignId,
+                        entityName: entityDisplayName(campaign.name, campaign.campaignId, "Campanha"),
+                        action,
+                        budget: campaign.dailyBudget,
+                      })
+                    }
+                  />
+                  {expanded === campaign.campaignId ? (
+                    <tr className="bg-muted/20">
+                      <td colSpan={hasRoas ? 6 : 5} className="px-3 py-2.5">
+                        <CampaignAds
+                          campaign={campaign}
+                          ads={ads.filter((ad) => ad.campaignId === campaign.campaignId)}
+                          loading={adsQuery.isLoading}
+                          previews={previews.data?.previews ?? {}}
+                          previewsLoading={previews.isLoading}
+                          onOpen={setOpened}
+                          onAction={openAdAction}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))}
             </tbody>
             <tfoot className="border-t bg-muted/30 text-xs">
@@ -622,6 +703,18 @@ export function CampaignReport({ detail, range }: { detail: WorkspaceClientDetai
           ) : null}
         </div>
       )}
+      {opened ? (
+        <AdPreviewDialog
+          userId={client.userId}
+          ad={opened}
+          preview={previews.data?.previews[opened.adId] ?? null}
+          onClose={() => setOpened(null)}
+          onAction={(action) => {
+            setOpened(null);
+            openAdAction(opened, action);
+          }}
+        />
+      ) : null}
       {dialog ? (
         <MetaActionDialog
           key={`${dialog.entityId}-${dialog.action}`}
@@ -641,34 +734,55 @@ export function CampaignReport({ detail, range }: { detail: WorkspaceClientDetai
 function CampaignRow({
   campaign,
   hasRoas,
+  expanded,
+  onToggle,
   onAction,
 }: {
   campaign: WorkspaceCampaign;
   hasRoas: boolean;
+  expanded: boolean;
+  onToggle: () => void;
   onAction: (action: WorkspaceSimulatedAction["action"]) => void;
 }) {
+  const marketing = useMarketingSheet();
+  const managerHref = adsManagerCampaignUrl(campaign.accountId, campaign.campaignId);
   const rawStatus = campaign.effectiveStatus ?? campaign.status ?? "";
   const status = CAMPAIGN_STATUS_LABEL[rawStatus] ?? (rawStatus ? "Outro status" : "—");
   const name = entityDisplayName(campaign.name, campaign.campaignId, "Campanha");
   const isActive = rawStatus === "ACTIVE";
-  const objective = campaign.objective ? (OBJECTIVE_LABEL[campaign.objective] ?? "Outro objetivo") : null;
   const budget = campaign.dailyBudget
     ? `${formatMoney(campaign.dailyBudget, false)}/dia`
     : campaign.lifetimeBudget
       ? `${formatMoney(campaign.lifetimeBudget, false)} total`
       : null;
   return (
-    <tr className="align-top">
-      <td className="max-w-[320px] px-3 py-2">
-        <p className="truncate font-medium" title={name}>
-          {name}
-        </p>
-        <p className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
-          <span className={cn("size-1.5 rounded-full", isActive ? "bg-emerald-500" : "bg-zinc-400")} />
-          {status}
-          {objective ? <span>· {objective}</span> : null}
-          {budget ? <span>· {budget}</span> : null}
-        </p>
+    <tr className={cn("align-top", expanded && "bg-muted/20")}>
+      <td className="max-w-[360px] px-3 py-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="flex w-full min-w-0 items-start gap-1 text-left"
+        >
+          {expanded ? (
+            <ChevronDown className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="min-w-0">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <ObjectiveBadge objective={campaign.objective} />
+              <span className="truncate font-medium hover:underline" title={name}>
+                {name}
+              </span>
+            </span>
+            <span className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground">
+              <span className={cn("size-1.5 rounded-full", isActive ? "bg-emerald-500" : "bg-zinc-400")} />
+              {status}
+              {budget ? <span>· {budget}</span> : null}
+            </span>
+          </span>
+        </button>
       </td>
       <td className="px-3 py-2 text-right tabular-nums">
         <span className="block">{formatMoney(campaign.current.spend, false)}</span>
@@ -718,10 +832,149 @@ function CampaignRow({
                 <Play className="size-3.5" /> Ativar
               </DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onToggle}>
+              <ChevronDown className="size-3.5" /> {expanded ? "Esconder anúncios" : "Ver conjuntos e anúncios"}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={marketing.open}>
+              <Megaphone className="size-3.5" /> Ver no Marketing do cliente
+            </DropdownMenuItem>
+            {managerHref ? (
+              <DropdownMenuItem asChild title={ADS_MANAGER_HINT}>
+                <a href={managerHref} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="size-3.5" /> Abrir no Gerenciador
+                </a>
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </td>
     </tr>
+  );
+}
+
+/** Conjuntos e anúncios de uma campanha, dentro da tabela. */
+function CampaignAds({
+  campaign,
+  ads,
+  loading,
+  previews,
+  previewsLoading,
+  onOpen,
+  onAction,
+}: {
+  campaign: WorkspaceCampaign;
+  ads: DossierAd[];
+  loading: boolean;
+  previews: Record<string, AdPreview>;
+  previewsLoading: boolean;
+  onOpen: (ad: DossierAd) => void;
+  onAction: (ad: DossierAd, action: WorkspaceSimulatedAction["action"]) => void;
+}) {
+  const marketing = useMarketingSheet();
+  const managerHref = adsManagerCampaignUrl(campaign.accountId, campaign.campaignId);
+  const groups = useMemo(() => {
+    const map = new Map<string, { name: string; ads: DossierAd[]; spend: number }>();
+    for (const ad of ads) {
+      const key = ad.adsetId ?? "sem-conjunto";
+      const group = map.get(key) ?? { name: ad.adsetName ? humanizeName(ad.adsetName) : "Conjunto sem nome", ads: [], spend: 0 };
+      group.ads.push(ad);
+      group.spend += ad.current.spend;
+      map.set(key, group);
+    }
+    return [...map.values()].sort((a, b) => b.spend - a.spend);
+  }, [ads]);
+
+  return (
+    <div className="space-y-2.5">
+      {loading ? (
+        <Skeleton className="h-16 w-full" />
+      ) : groups.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Nenhum anúncio desta campanha gastou neste período nem no anterior.</p>
+      ) : (
+        groups.map((group) => (
+          <div key={group.name + group.ads[0].adId} className="space-y-1">
+            <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              Conjunto · {group.name} <span className="font-normal normal-case">· {formatMoney(group.spend, false)}</span>
+            </p>
+            <div className="divide-y rounded-lg border bg-card">
+              {group.ads.map((ad) => (
+                <CampaignAdLine
+                  key={ad.adId}
+                  ad={ad}
+                  preview={previews[ad.adId] ?? null}
+                  previewLoading={previewsLoading}
+                  onOpen={() => onOpen(ad)}
+                  onAction={(action) => onAction(ad, action)}
+                />
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="xs" variant="outline" onClick={marketing.open}>
+          <Megaphone /> Ver no Marketing do cliente
+        </Button>
+        {managerHref ? (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button size="xs" variant="outline" asChild>
+                <a href={managerHref} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink /> Abrir campanha no Gerenciador
+                </a>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-60 text-xs">{ADS_MANAGER_HINT}</TooltipContent>
+          </Tooltip>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function CampaignAdLine({
+  ad,
+  preview,
+  previewLoading,
+  onOpen,
+  onAction,
+}: {
+  ad: DossierAd;
+  preview: AdPreview | null;
+  previewLoading: boolean;
+  onOpen: () => void;
+  onAction: (action: WorkspaceSimulatedAction["action"]) => void;
+}) {
+  const name = entityDisplayName(ad.name, ad.adId, "Anúncio");
+  const paused = ad.status === "PAUSED";
+  return (
+    <div className={cn("flex items-center gap-2.5 px-2 py-1.5", paused && "opacity-70")}>
+      <button type="button" onClick={onOpen} className="w-16 shrink-0 overflow-hidden rounded" aria-label={`Ver o anúncio ${name}`}>
+        <AdThumb
+          urls={[preview?.thumbnailUrl, preview?.imageUrl, ad.imageUrl]}
+          isVideo={preview ? Boolean(preview.videoId) : ad.isVideo}
+          loading={previewLoading}
+          compact
+        />
+      </button>
+      <div className="min-w-0 flex-1">
+        <button type="button" onClick={onOpen} className="block max-w-full truncate text-left text-[13px] font-medium hover:underline" title={name}>
+          {name}
+        </button>
+        <p className="text-[11px] text-muted-foreground tabular-nums">
+          {paused ? "Pausado · " : ""}
+          {formatMoney(ad.current.spend, false)} · {formatInt(ad.kpi.count)} {kpiUnit(ad.kpi.count, ad.kpi.label)}
+          {ad.kpi.cost != null ? ` · ${formatMoney(ad.kpi.cost)} cada` : ""}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button size="xs" variant="ghost" onClick={() => onAction(paused ? "ativar" : "pausar")}>
+          {paused ? <Play /> : <Pause />} {paused ? "Ativar" : "Pausar"}
+        </Button>
+        <AdsManagerLink ad={ad} />
+      </div>
+    </div>
   );
 }
 
@@ -762,31 +1015,10 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
   const { dialog, setDialog, close } = useMetaActionDialog();
   const [showAll, setShowAll] = useState(false);
   const [opened, setOpened] = useState<DossierAd | null>(null);
-  const query = useQuery<{ ads: DossierAd[] }>({
-    queryKey: ["consultant-workspace-ads", userId, days],
-    queryFn: async () => {
-      const response = await fetch(`/api/consultant-workspace/ads?userId=${encodeURIComponent(userId)}&days=${days}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error("Falha ao ler os anúncios");
-      return response.json();
-    },
-  });
+  const query = useDossierAds(userId, days);
   const ads = useMemo(() => query.data?.ads ?? [], [query.data]);
   // A lista vem do banco; as miniaturas chegam depois, ao vivo da Meta.
-  const adIds = useMemo(() => ads.map((ad) => ad.adId).sort(), [ads]);
-  const previewsQuery = useQuery<{ previews: Record<string, AdPreview>; error?: string }>({
-    queryKey: ["consultant-workspace-ad-previews", userId, adIds],
-    enabled: adIds.length > 0,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async () => {
-      const response = await fetch(
-        `/api/consultant-workspace/ads/previews?userId=${encodeURIComponent(userId)}&ids=${adIds.join(",")}`,
-      );
-      if (!response.ok) throw new Error("Falha ao ler as prévias");
-      return response.json();
-    },
-  });
+  const previewsQuery = useAdPreviews(userId, ads);
   const previews = previewsQuery.data?.previews ?? {};
   const candidate = useMemo(() => swapCandidate(ads), [ads]);
   const ordered = useMemo(() => {
@@ -876,24 +1108,35 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
 }
 
 /** Tenta as URLs em ordem (ao vivo primeiro; a guardada no banco costuma ter expirado). */
-function AdThumb({ urls, isVideo, loading }: { urls: Array<string | null | undefined>; isVideo: boolean; loading: boolean }) {
+function AdThumb({
+  urls,
+  isVideo,
+  loading,
+  compact = false,
+}: {
+  urls: Array<string | null | undefined>;
+  isVideo: boolean;
+  loading: boolean;
+  compact?: boolean;
+}) {
   const candidates = urls.filter((url): url is string => Boolean(url));
   const key = candidates.join("|");
   const [failed, setFailed] = useState<{ key: string; count: number }>({ key, count: 0 });
   const failedCount = failed.key === key ? failed.count : 0;
   const url = candidates[failedCount] ?? null;
   const Icon = isVideo ? Film : ImageIcon;
-  if (loading) return <Skeleton className="h-28 w-full rounded-none" />;
+  const height = compact ? "h-12" : "h-28";
+  if (loading) return <Skeleton className={cn(height, "w-full rounded-none")} />;
   if (!url) {
     return (
-      <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
+      <div className={cn(height, "flex w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground")}>
         <Icon className="size-5" />
-        <span className="text-[10px]">{isVideo ? "Vídeo" : "Imagem"} sem prévia</span>
+        {compact ? null : <span className="text-[10px]">{isVideo ? "Vídeo" : "Imagem"} sem prévia</span>}
       </div>
     );
   }
   return (
-    <div className="relative h-28 w-full bg-muted">
+    <div className={cn(height, "relative w-full bg-muted")}>
       {/* eslint-disable-next-line @next/next/no-img-element -- prévia da Meta, pode expirar; sem otimização do Next */}
       <img
         key={url}
@@ -905,8 +1148,8 @@ function AdThumb({ urls, isVideo, loading }: { urls: Array<string | null | undef
         onError={() => setFailed({ key, count: failedCount + 1 })}
       />
       {isVideo ? (
-        <span className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
-          <Film className="size-3" /> vídeo
+        <span className="absolute right-1 bottom-1 inline-flex items-center gap-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
+          <Film className="size-3" /> {compact ? null : "vídeo"}
         </span>
       ) : null}
     </div>

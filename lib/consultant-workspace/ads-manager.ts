@@ -17,6 +17,13 @@ export function adsManagerCampaignsUrl(accountId: string | null | undefined): st
   return act ? `${BASE}/campaigns?act=${act}` : null;
 }
 
+/** Conjuntos da campanha, com ela selecionada. */
+export function adsManagerCampaignUrl(accountId: string | null | undefined, campaignId: string): string | null {
+  const act = bareAccountId(accountId);
+  if (!act || !/^\d{3,25}$/.test(campaignId)) return null;
+  return `${BASE}/adsets?act=${act}&selected_campaign_ids=${campaignId}`;
+}
+
 export function adsManagerAdUrl(accountId: string | null | undefined, adId: string): string | null {
   const act = bareAccountId(accountId);
   if (!act || !/^\d{3,25}$/.test(adId)) return null;

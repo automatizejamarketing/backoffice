@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 // @ts-expect-error Bun's runtime mock API is absent from this repository's test declarations.
 import { mock } from "bun:test";
-import { adsManagerAdUrl, adsManagerCampaignsUrl, bareAccountId } from "./ads-manager";
+import { adsManagerAdUrl, adsManagerCampaignUrl, adsManagerCampaignsUrl, bareAccountId } from "./ads-manager";
 
 mock.module("server-only", () => ({}));
 const { frameSrc, toPreview } = await import("./creative-previews");
@@ -17,6 +17,13 @@ describe("links do Gerenciador", () => {
     assert.equal(
       adsManagerAdUrl("1237965104926610", "120249329863440575"),
       "https://adsmanager.facebook.com/adsmanager/manage/ads?act=1237965104926610&selected_ad_ids=120249329863440575",
+    );
+  });
+
+  it("campanha abre os conjuntos dela", () => {
+    assert.equal(
+      adsManagerCampaignUrl("act_1237965104926610", "120249329863300575"),
+      "https://adsmanager.facebook.com/adsmanager/manage/adsets?act=1237965104926610&selected_campaign_ids=120249329863300575",
     );
   });
 
