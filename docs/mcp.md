@@ -70,7 +70,7 @@ As mesmas regras das telas `/trafego` (Fila, Mesa e Jornada), em `lib/mcp/consul
 
 | Ferramenta | Tipo | O que faz |
 | --- | --- | --- |
-| `list_clients_by_stage` | leitura | Carteira pela jornada: onboarding (com o passo que trava), rodando (com o que pede atenção) e parado; plano, tags de problema, meta e status vs meta, gasto e resultado do período |
+| `list_clients_by_stage` | leitura | Carteira pela jornada: onboarding (com o passo que trava), rodando (com o que pede atenção) e parado; plano, tags de problema, meta e status vs meta, gasto e resultado do período. Por padrão só os ativos (pagantes em dia: assinatura ativa e `expiration_date` futura, o mesmo "Todos ativos" da tela); `access` lista trial, cancelados com acesso, pagamento atrasado (past_due vencido há até 15 dias) ou acesso manual |
 | `get_client_dossier` | leitura | Um cliente: jornada, tags com playbook, passagem de bastão, meta, campanhas e anúncios do período (com ids para agir), alertas abertos agrupados, histórico recente e última análise de IA |
 | `list_problem_tags`, `list_message_templates` | leitura | Catálogos de tags de problema (com playbook) e de mensagens prontas |
 | `set_client_goal`, `add_client_note`, `set_client_problem_tags`, `record_onboarding_handoff` | escrita | Meta combinada, linha do tempo, tags e passagem de bastão (`consultant_*`, `source = mcp`) |

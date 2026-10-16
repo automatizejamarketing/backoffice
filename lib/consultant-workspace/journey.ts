@@ -355,14 +355,15 @@ export function computeJourney(
   const everSpent = Boolean(extras?.firstSpendDate) || client.perf.current.spend > 0;
   const hasCampaign = Boolean(extras?.hasCampaign) || everSpent || client.meta.hasActiveManagedCampaign;
   const handoff = store.handoffs[client.userId] ?? null;
+  // Todo grupo de acesso tem acesso válido, menos o inadimplente que já venceu.
   const accessOk =
-    ["active", "trialing", "past_due"].includes(client.plan.status ?? "") ||
+    client.access !== "inadimplente" ||
     (client.accessUntil != null && new Date(client.accessUntil).getTime() > now);
 
   const steps: JourneyStep[] = [
     {
       key: "acesso",
-      label: client.plan.status === "trialing" ? "Trial ativo" : "Acesso ativo",
+      label: client.access === "trial" ? "Trial ativo" : "Acesso ativo",
       done: accessOk,
       hint: "Assinatura ou trial válido.",
     },

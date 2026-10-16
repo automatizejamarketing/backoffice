@@ -1,5 +1,7 @@
 /** Tipos da área de Tráfego do consultor (servidor e cliente). */
 
+import type { AccessSegment } from "./access";
+
 export type PlanTier = "premium" | "pro" | "starter" | "sem_plano";
 
 export type GoalKpi = "cpa" | "cpl" | "custo_conversa" | "roas" | "custo_resultado";
@@ -215,6 +217,8 @@ export type WorkspaceClient = {
     renewalAt: string | null;
   };
   accessUntil: string | null;
+  /** Grupo de acesso (pagante, trial, cancelado com acesso…); ver `access.ts`. */
+  access: AccessSegment;
   consultant: { key: ConsultantKey | null; name: string | null; email: string | null };
   meta: {
     health: MetaHealth;

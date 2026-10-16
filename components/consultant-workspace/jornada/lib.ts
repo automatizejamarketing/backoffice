@@ -357,6 +357,7 @@ export const SAMPLE_CLIENT: WorkspaceClient = {
   phone: "11999990000",
   plan: { tier: "pro", period: "monthly", status: "active", provider: "stripe", renewalAt: null },
   accessUntil: null,
+  access: "pagante",
   consultant: { key: null, name: null, email: null },
   meta: { health: "ok", detail: null, accountName: null, hasActiveManagedCampaign: true, checkedAt: null },
   publishHolds: 0,
