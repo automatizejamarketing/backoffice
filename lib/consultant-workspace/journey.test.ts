@@ -21,6 +21,7 @@ function client(overrides: { spend?: number; purchases?: number; health?: Worksp
     phone: "11999998888",
     plan: { tier: "premium", period: "monthly", status: "active", provider: "stripe", renewalAt: null },
     accessUntil: null,
+    access: "pagante",
     consultant: { key: null, name: null, email: null },
     meta: { health: overrides.health ?? "ok", detail: null, accountName: null, hasActiveManagedCampaign: false, checkedAt: null },
     publishHolds: overrides.holds ?? 0,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -59,6 +59,7 @@ import {
   DEFAULT_DIR,
   FILA_SORTS,
   SAVED_VIEWS,
+  inViewUniverse,
   matchesProblem,
   problemCounts,
   SORT_LABEL,
@@ -155,7 +156,10 @@ export function Carteira({
   const matchesScope = scope.matches;
 
   const facets = useMemo(() => {
-    const base = rows.filter((row) => matchesScope(row.consultant) && (!term || row.searchText.includes(term)));
+    const inScope = rows.filter((row) => matchesScope(row.consultant) && (!term || row.searchText.includes(term)));
+    // Cada visão olha o seu universo: os pagantes em dia, ou o grupo de acesso dela (trial, cancelado…).
+    const base = inScope.filter((row) => inViewUniverse(filters.view, row));
+    const core = inScope.filter((row) => inViewUniverse({}, row));
     const mPlan = (row: CarteiraRow) => !filters.plan || row.planGroup === filters.plan;
     const mStage = (row: CarteiraRow) => !filters.stage || row.journey.stage === filters.stage;
     const mTag = (row: CarteiraRow) => matchesProblem(row.journey, filters.tag);
@@ -168,8 +172,10 @@ export function Carteira({
     );
 
     const viewCounts = {} as Record<SavedViewKey, number>;
-    const forViews = base.filter((row) => mPlan(row) && mStage(row) && mTag(row));
-    for (const view of SAVED_VIEWS) viewCounts[view.key] = forViews.filter(view.filter).length;
+    const forViews = inScope.filter((row) => mPlan(row) && mStage(row) && mTag(row));
+    for (const view of SAVED_VIEWS) {
+      viewCounts[view.key] = forViews.filter((row) => inViewUniverse(view, row) && view.filter(row)).length;
+    }
 
     const stageCounts: Record<JourneyStage, number> = { onboarding: 0, rodando: 0, parado: 0 };
     for (const row of base) if (mPlan(row) && mTag(row) && mView(row)) stageCounts[row.journey.stage] += 1;
@@ -178,8 +184,8 @@ export function Carteira({
       base.filter((row) => mPlan(row) && mStage(row) && mView(row)).map((row) => row.journey),
     );
 
-    // Resumo por plano: o que está "na fila", sem o filtro de plano e de visão.
-    const strip = computeStripCounts(base.filter((row) => mStage(row) && mTag(row)));
+    // Resumo por plano: o que está "na fila" entre os ativos, sem o filtro de plano e de visão.
+    const strip = computeStripCounts(core.filter((row) => mStage(row) && mTag(row)));
 
     const extra =
       filters.view.key === "precisa"
@@ -608,38 +614,42 @@ export function Carteira({
             bulk && "invisible",
           )}
         >
-          {SAVED_VIEWS.map((entry) => {
+          {SAVED_VIEWS.map((entry, index) => {
             const active = entry.key === filters.view.key;
             const count = facets.viewCounts[entry.key];
+            // Os grupos de acesso (trial, cancelados…) vêm depois de um divisor: não são parte dos ativos.
+            const firstSegment = !!entry.segment && !SAVED_VIEWS[index - 1]?.segment;
             return (
-              <button
-                key={entry.key}
-                type="button"
-                title={entry.hint}
-                onClick={() => setView(entry.key)}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap transition-colors",
-                  active ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                {entry.label}
-                <span
+              <Fragment key={entry.key}>
+                {firstSegment ? <span aria-hidden className="mx-1.5 h-4 w-px shrink-0 bg-border" /> : null}
+                <button
+                  type="button"
+                  title={entry.hint}
+                  onClick={() => setView(entry.key)}
                   className={cn(
-                    "rounded px-1 text-[10px] tabular-nums",
-                    active
-                      ? "bg-background/20"
-                      : entry.tone === "primary" && count > 0
-                        ? "bg-primary text-primary-foreground"
-                        : entry.tone === "bad" && count > 0
-                          ? "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
-                          : entry.tone === "warn" && count > 0
-                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
-                            : "bg-muted text-muted-foreground",
+                    "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+                    active ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
-                  {count}
-                </span>
-              </button>
+                  {entry.label}
+                  <span
+                    className={cn(
+                      "rounded px-1 text-[10px] tabular-nums",
+                      active
+                        ? "bg-background/20"
+                        : entry.tone === "primary" && count > 0
+                          ? "bg-primary text-primary-foreground"
+                          : entry.tone === "bad" && count > 0
+                            ? "bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300"
+                            : entry.tone === "warn" && count > 0
+                              ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300"
+                              : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              </Fragment>
             );
           })}
         </nav>

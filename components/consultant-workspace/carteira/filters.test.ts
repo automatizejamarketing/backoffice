@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PROBLEM_TAG_BY_KEY, type ClientJourney } from "@/lib/consultant-workspace/journey";
-import { NO_HANDOFF_TAG, isProblemFilter, matchesProblem, parseFilters, problemCounts } from "./filters";
+import type { AccessSegment } from "@/lib/consultant-workspace/access";
+import { NO_HANDOFF_TAG, SAVED_VIEWS, inViewUniverse, isProblemFilter, matchesProblem, parseFilters, problemCounts } from "./filters";
 
 type Journey = Pick<ClientJourney, "stage" | "handoff" | "tags">;
 
@@ -41,5 +42,28 @@ describe('filtro "Problema"', () => {
       criativos: 1,
       [NO_HANDOFF_TAG]: 1,
     });
+  });
+});
+
+describe("universo das visões", () => {
+  const row = (access: AccessSegment) => ({ client: { access } });
+  const view = (key: string) => SAVED_VIEWS.find((entry) => entry.key === key)!;
+
+  it('"Todos ativos" e as visões de trabalho só olham os pagantes', () => {
+    for (const key of ["todos", "precisa", "fora_meta", "sem_toque"]) {
+      assert.equal(inViewUniverse(view(key), row("pagante")), true, key);
+      for (const other of ["trial", "cancelado", "inadimplente", "manual"] as const) {
+        assert.equal(inViewUniverse(view(key), row(other)), false, `${key} × ${other}`);
+      }
+    }
+  });
+
+  it("cada grupo de acesso tem a sua visão, sem misturar", () => {
+    for (const segment of ["trial", "cancelado", "inadimplente", "manual"] as const) {
+      const own = SAVED_VIEWS.filter((entry) => entry.segment === segment);
+      assert.equal(own.length, 1, segment);
+      assert.equal(inViewUniverse(own[0], row(segment)), true);
+      assert.equal(inViewUniverse(own[0], row("pagante")), false);
+    }
   });
 });

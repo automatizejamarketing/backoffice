@@ -2,6 +2,7 @@ import "server-only";
 
 import * as z from "zod/v4";
 import { canAccessMarketingUser, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { ACCESS_LABEL, isCoreSegment } from "@/lib/consultant-workspace/access";
 import { getWorkspaceClientDetail, getWorkspaceClients } from "@/lib/consultant-workspace/data";
 import { computeJourney, MESSAGE_TEMPLATES, PROBLEM_TAGS, PROBLEM_TAG_BY_KEY, renderTemplate, STAGE_LABEL, TEMPLATE_BY_KEY } from "@/lib/consultant-workspace/journey";
 import { getDossierAds, getJourneyExtras } from "@/lib/consultant-workspace/journey-data";
@@ -70,11 +71,16 @@ const journeyTools: McpTool[] = [
     description:
       "Carteira pela etapa do processo: onboarding (do trial até a 1ª campanha veicular, com o passo que trava), rodando (com motivos de atenção) e parado. " +
       "Inclui plano, tags de problema (marcadas pelo Fred ou detectadas), meta combinada e status vs meta, gasto e resultado do período, alertas abertos e dias na etapa. " +
+      "Por padrão lista só os ativos (pagantes em dia, o mesmo número do \"Todos ativos\"); use `access` para ver trial, cancelados ainda com acesso, pagamento atrasado ou acesso manual. " +
       "Use para planejar o dia e para escolher em quais clientes agir em lote.",
     input: z.object({
       stage: z.enum(["onboarding", "rodando", "parado"]).optional(),
       tag: z.string().optional().describe("Chave de tag de problema (ver list_problem_tags)."),
       plan: z.enum(["premium", "pro", "starter", "sem_plano"]).optional(),
+      access: z
+        .enum(["ativos", "trial", "cancelado", "inadimplente", "manual", "todos"])
+        .optional()
+        .describe("Grupo de acesso. Padrão \"ativos\" (pagantes em dia). \"todos\" junta todos os grupos."),
       onlyNeedsAttention: z.boolean().optional().describe("Só quem precisa de ação humana."),
       days: z.number().int().min(1).max(30).optional().describe("Período em dias completos (até ontem). Padrão 7."),
       limit: z.number().int().min(1).max(100).optional().describe("Padrão 40."),
@@ -82,7 +88,16 @@ const journeyTools: McpTool[] = [
     async run(actor, input) {
       const days = input.days ?? 7;
       const [{ clients, alerts, range }, store] = await Promise.all([getWorkspaceClients(actor, { days }), readWorkspaceState()]);
-      const visible = clients.filter((client) => canAccessMarketingUser(actor, client.userId));
+      const access = input.access ?? "ativos";
+      const accessCounts: Record<string, number> = {};
+      for (const client of clients) {
+        if (canAccessMarketingUser(actor, client.userId)) accessCounts[client.access] = (accessCounts[client.access] ?? 0) + 1;
+      }
+      const visible = clients.filter(
+        (client) =>
+          canAccessMarketingUser(actor, client.userId) &&
+          (access === "todos" || (access === "ativos" ? isCoreSegment(client.access) : client.access === access)),
+      );
       const extras = await getJourneyExtras(visible.map((client) => client.userId));
       const all = visible.map((client) => {
           const clientAlerts = alerts.filter((alert) => alert.userId === client.userId);
@@ -107,12 +122,16 @@ const journeyTools: McpTool[] = [
         });
       return {
         period: { from: range.from, to: range.to, comparedTo: { from: range.prevFrom, to: range.prevTo } },
+        access,
+        accessCounts,
         counts,
         total: rows.length,
         clients: rows.slice(0, input.limit ?? 40).map(({ client, journey, goal, status, alertCount }) => ({
           userId: client.userId,
           name: client.displayName,
           plan: PLAN_LABEL[client.plan.tier],
+          access: ACCESS_LABEL[client.access],
+          accessUntil: client.accessUntil,
           stage: STAGE_LABEL[journey.stage],
           daysInStage: journey.daysInStage,
           blocker: journey.blocker?.label ?? null,

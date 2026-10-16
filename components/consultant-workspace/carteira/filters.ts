@@ -4,6 +4,7 @@
  * history.replaceState (o Next sincroniza useSearchParams) e é aplicado no
  * navegador. A carteira (Meus/consultor/Todos) é preferência do navegador.
  */
+import { isCoreSegment, type AccessSegment } from "@/lib/consultant-workspace/access";
 import { PROBLEM_TAG_BY_KEY, type ClientJourney, type JourneyStage } from "@/lib/consultant-workspace/journey";
 import { PLAN_RANK } from "@/lib/consultant-workspace/metrics";
 import type { MetaHealth } from "@/lib/consultant-workspace/types";
@@ -22,7 +23,11 @@ export type SavedViewKey =
   | "sem_resultado"
   | "sem_entrega"
   | "conexao"
-  | "sem_toque";
+  | "sem_toque"
+  | "trial"
+  | "cancelado"
+  | "inadimplente"
+  | "manual";
 
 export type SortKey =
   | "prioridade"
@@ -97,6 +102,11 @@ export type SavedView = {
   filter: (row: CarteiraRow) => boolean;
   sort: { key: SortKey; dir: SortDir };
   tone?: "bad" | "warn" | "primary";
+  /**
+   * Grupo de acesso que a visão mostra. Sem isso, a visão trabalha no universo
+   * principal (os pagantes em dia, ver `CORE_SEGMENTS`).
+   */
+  segment?: AccessSegment;
 };
 
 export const SAVED_VIEWS: SavedView[] = [
@@ -112,7 +122,7 @@ export const SAVED_VIEWS: SavedView[] = [
   {
     key: "todos",
     label: "Todos ativos",
-    hint: "Todos os clientes com acesso ativo. Quem tem sinal aberto primeiro.",
+    hint: "Pagantes em dia: assinatura ativa e acesso válido. Trial, cancelados e pagamento atrasado ficam nas visões próprias. Quem tem sinal aberto primeiro.",
     empty: "Nenhum cliente ativo com esses filtros.",
     filter: () => true,
     sort: { key: "prioridade", dir: "desc" },
@@ -178,7 +188,49 @@ export const SAVED_VIEWS: SavedView[] = [
     sort: { key: "toque", dir: "asc" },
     tone: "warn",
   },
+  {
+    key: "trial",
+    label: "Em trial",
+    hint: "Em teste, com acesso válido. Fora do número de ativos até a primeira cobrança.",
+    empty: "Ninguém em trial com esses filtros.",
+    filter: () => true,
+    sort: { key: "etapa", dir: "asc" },
+    segment: "trial",
+  },
+  {
+    key: "cancelado",
+    label: "Cancelaram",
+    hint: "Cancelaram a assinatura e ainda estão dentro do período pago. Acesso acaba na data de vencimento.",
+    empty: "Nenhum cancelado ainda com acesso.",
+    filter: () => true,
+    sort: { key: "gasto", dir: "desc" },
+    segment: "cancelado",
+  },
+  {
+    key: "inadimplente",
+    label: "Pagamento atrasado",
+    hint: "A cobrança falhou e o acesso venceu há até 15 dias (ou vence logo). A Stripe ainda está tentando cobrar.",
+    empty: "Nenhum pagamento atrasado recente.",
+    filter: () => true,
+    sort: { key: "gasto", dir: "desc" },
+    tone: "warn",
+    segment: "inadimplente",
+  },
+  {
+    key: "manual",
+    label: "Acesso manual",
+    hint: "Acesso liberado à mão, sem assinatura viva.",
+    empty: "Ninguém com acesso manual.",
+    filter: () => true,
+    sort: { key: "cliente", dir: "asc" },
+    segment: "manual",
+  },
 ];
+
+/** O universo de onde a visão tira as linhas: o grupo dela ou o principal. */
+export function inViewUniverse(view: Pick<SavedView, "segment">, row: { client: { access: AccessSegment } }) {
+  return view.segment ? row.client.access === view.segment : isCoreSegment(row.client.access);
+}
 
 const VIEW_BY_KEY = new Map(SAVED_VIEWS.map((view) => [view.key, view]));
 const SORT_KEYS = Object.keys(DEFAULT_DIR) as SortKey[];

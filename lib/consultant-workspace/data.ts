@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { playbookAlertRuleTitle } from "@/lib/backoffice/playbook-alert-dashboard";
 import { consultantSeesOnlyAssignedClients, type BackofficeActor } from "@/lib/auth/rbac-core";
+import { accessSegmentOf, PAST_DUE_GRACE_DAYS, type AccessSegment } from "./access";
 import { readWorkspaceState } from "./state";
 import { emptyTotals, primaryKpi, workspaceRange } from "./metrics";
 import type {
@@ -68,7 +69,11 @@ function buildSeries(range: WorkspaceRange, byDate: Map<string, DailyPoint>): Da
   return points;
 }
 
-/** Clientes com acesso válido ou assinatura viva (ativa, trial, inadimplente). */
+/**
+ * Clientes com acesso válido de fato, mais os inadimplentes que venceram há
+ * poucos dias (ver `access.ts`). O status sozinho não basta: há assinaturas
+ * Mercado Pago `active` com acesso vencido há meses.
+ */
 async function loadActiveClientRows(onlyUserId?: string) {
   const filter = onlyUserId ? sql`and u.id = ${onlyUserId}` : sql``;
   return rows(sql`
@@ -102,7 +107,10 @@ async function loadActiveClientRows(onlyUserId?: string) {
       from business_managed_campaign_cache bc where bc.user_id = u.id
       order by bc.checked_at desc nulls last limit 1
     ) cache on true
-    where (u.expiration_date > now() or sub.status in ('active','trialing','past_due'))
+    where (
+      u.expiration_date > now()
+      or (sub.status = 'past_due' and u.expiration_date > now() - make_interval(days => ${PAST_DUE_GRACE_DAYS}::int))
+    )
     ${filter}
   `);
 }
@@ -244,8 +252,17 @@ export async function getWorkspaceClients(
   const range = workspaceRange(options.days ?? 7);
   const [load, store] = await Promise.all([loadPortfolio(range), readWorkspaceState()]);
   const only = options.onlyUserId;
+  const now = Date.now();
+  const accessOf = new Map<string, AccessSegment>();
+  for (const row of load.baseRows) {
+    const access = accessSegmentOf(
+      { status: (row.sub_status as string | null) ?? null, accessUntil: iso(row.expiration_date) },
+      now,
+    );
+    if (access) accessOf.set(String(row.id), access);
+  }
   const baseRows = load.baseRows.filter(
-    (row) => (!only || String(row.id) === only) && visibleTo(actor, String(row.id)),
+    (row) => accessOf.has(String(row.id)) && (!only || String(row.id) === only) && visibleTo(actor, String(row.id)),
   );
   const visibleIds = new Set(baseRows.map((row) => String(row.id)));
   const daily = load.daily.filter((row) => visibleIds.has(String(row.user_id)));
@@ -277,7 +294,6 @@ export async function getWorkspaceClients(
   }
 
   // Alertas tratados ou adiados depois do cache saem da contagem na hora.
-  const now = Date.now();
   const liveAlerts = alerts.filter((alert) => {
     const action = store.alertActions[alert.id];
     if (!action) return true;
@@ -325,6 +341,7 @@ export async function getWorkspaceClients(
         renewalAt: iso(row.current_period_end),
       },
       accessUntil: iso(row.expiration_date),
+      access: accessOf.get(userId)!,
       consultant: {
         key: consultantKey,
         name: (row.consultant_name as string | null) ?? (row.consultant_email as string | null) ?? null,

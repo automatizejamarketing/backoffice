@@ -33,6 +33,7 @@ function client(options: ClientOptions = {}): WorkspaceClient {
     phone: "11999998888",
     plan: { tier: "pro", period: "monthly", status: options.status ?? "active", provider: "stripe", renewalAt: null },
     accessUntil: null,
+    access: "pagante",
     consultant: { key: null, name: null, email: null },
     meta: { health: options.health ?? "ok", detail: null, accountName: null, hasActiveManagedCampaign: false, checkedAt: null },
     publishHolds: options.holds ?? 0,
