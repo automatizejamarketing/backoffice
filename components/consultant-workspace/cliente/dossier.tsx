@@ -8,6 +8,7 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Film,
   ImageIcon,
   Loader2,
@@ -25,6 +26,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +40,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { TEMPLATE_BY_KEY } from "@/lib/consultant-workspace/journey";
 import type { DossierAd } from "@/lib/consultant-workspace/journey-data";
+import type { AdPreview, AdPreviewFormat } from "@/lib/consultant-workspace/creative-previews";
+import { ADS_MANAGER_HINT, adsManagerAdUrl } from "@/lib/consultant-workspace/ads-manager";
 import {
   GOAL_KPI_LABEL,
   budgetPacing,
@@ -756,6 +761,7 @@ function swapCandidate(ads: DossierAd[]): { adId: string; reason: string } | nul
 export function CreativesSection({ userId, days }: { userId: string; days: number }) {
   const { dialog, setDialog, close } = useMetaActionDialog();
   const [showAll, setShowAll] = useState(false);
+  const [opened, setOpened] = useState<DossierAd | null>(null);
   const query = useQuery<{ ads: DossierAd[] }>({
     queryKey: ["consultant-workspace-ads", userId, days],
     queryFn: async () => {
@@ -767,6 +773,21 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
     },
   });
   const ads = useMemo(() => query.data?.ads ?? [], [query.data]);
+  // A lista vem do banco; as miniaturas chegam depois, ao vivo da Meta.
+  const adIds = useMemo(() => ads.map((ad) => ad.adId).sort(), [ads]);
+  const previewsQuery = useQuery<{ previews: Record<string, AdPreview>; error?: string }>({
+    queryKey: ["consultant-workspace-ad-previews", userId, adIds],
+    enabled: adIds.length > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/consultant-workspace/ads/previews?userId=${encodeURIComponent(userId)}&ids=${adIds.join(",")}`,
+      );
+      if (!response.ok) throw new Error("Falha ao ler as prévias");
+      return response.json();
+    },
+  });
+  const previews = previewsQuery.data?.previews ?? {};
   const candidate = useMemo(() => swapCandidate(ads), [ads]);
   const ordered = useMemo(() => {
     if (!candidate) return ads;
@@ -778,7 +799,12 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
     <Section
       title="Criativos"
       icon={ImageIcon}
-      subtitle="Anúncios com gasto, do maior para o menor. Pausar muda na Meta (com prévia); trocar abre o Marketing do cliente."
+      subtitle="Anúncios com gasto, do maior para o menor. Clique na imagem para ver o anúncio. Pausar muda na Meta (com prévia); trocar abre o Marketing do cliente."
+      right={
+        previewsQuery.data?.error ? (
+          <span className="text-[11px] text-amber-700 dark:text-amber-400">{previewsQuery.data.error}</span>
+        ) : undefined
+      }
     >
       {query.isLoading ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2.5">
@@ -801,7 +827,10 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
               <AdCard
                 key={ad.adId}
                 ad={ad}
+                preview={previews[ad.adId] ?? null}
+                previewLoading={previewsQuery.isLoading}
                 candidateReason={candidate?.adId === ad.adId ? candidate.reason : null}
+                onOpen={() => setOpened(ad)}
                 onAction={(action) =>
                   setDialog({ entityId: ad.adId, entityName: entityDisplayName(ad.name, ad.adId, "Anúncio"), action })
                 }
@@ -819,6 +848,18 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
           ) : null}
         </>
       )}
+      {opened ? (
+        <AdPreviewDialog
+          userId={userId}
+          ad={opened}
+          preview={previews[opened.adId] ?? null}
+          onClose={() => setOpened(null)}
+          onAction={(action) => {
+            setOpened(null);
+            setDialog({ entityId: opened.adId, entityName: entityDisplayName(opened.name, opened.adId, "Anúncio"), action });
+          }}
+        />
+      ) : null}
       {dialog ? (
         <MetaActionDialog
           key={`${dialog.entityId}-${dialog.action}`}
@@ -834,10 +875,16 @@ export function CreativesSection({ userId, days }: { userId: string; days: numbe
   );
 }
 
-function AdThumb({ url, isVideo }: { url: string | null; isVideo: boolean }) {
-  const [failed, setFailed] = useState(false);
+/** Tenta as URLs em ordem (ao vivo primeiro; a guardada no banco costuma ter expirado). */
+function AdThumb({ urls, isVideo, loading }: { urls: Array<string | null | undefined>; isVideo: boolean; loading: boolean }) {
+  const candidates = urls.filter((url): url is string => Boolean(url));
+  const key = candidates.join("|");
+  const [failed, setFailed] = useState<{ key: string; count: number }>({ key, count: 0 });
+  const failedCount = failed.key === key ? failed.count : 0;
+  const url = candidates[failedCount] ?? null;
   const Icon = isVideo ? Film : ImageIcon;
-  if (!url || failed) {
+  if (loading) return <Skeleton className="h-28 w-full rounded-none" />;
+  if (!url) {
     return (
       <div className="flex h-28 w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
         <Icon className="size-5" />
@@ -849,12 +896,13 @@ function AdThumb({ url, isVideo }: { url: string | null; isVideo: boolean }) {
     <div className="relative h-28 w-full bg-muted">
       {/* eslint-disable-next-line @next/next/no-img-element -- prévia da Meta, pode expirar; sem otimização do Next */}
       <img
+        key={url}
         src={url}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
         className="h-full w-full object-cover"
-        onError={() => setFailed(true)}
+        onError={() => setFailed({ key, count: failedCount + 1 })}
       />
       {isVideo ? (
         <span className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
@@ -865,13 +913,37 @@ function AdThumb({ url, isVideo }: { url: string | null; isVideo: boolean }) {
   );
 }
 
+function AdsManagerLink({ ad, label }: { ad: DossierAd; label?: string }) {
+  const href = adsManagerAdUrl(ad.accountId, ad.adId);
+  if (!href) return null;
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <Button size={label ? "sm" : "icon-xs"} variant="outline" asChild>
+          <a href={href} target="_blank" rel="noopener noreferrer" aria-label="Abrir no Gerenciador de Anúncios">
+            <ExternalLink />
+            {label}
+          </a>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-60 text-xs">{ADS_MANAGER_HINT}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function AdCard({
   ad,
+  preview,
+  previewLoading,
   candidateReason,
+  onOpen,
   onAction,
 }: {
   ad: DossierAd;
+  preview: AdPreview | null;
+  previewLoading: boolean;
   candidateReason: string | null;
+  onOpen: () => void;
   onAction: (action: WorkspaceSimulatedAction["action"]) => void;
 }) {
   const paused = ad.status === "PAUSED";
@@ -885,8 +957,12 @@ function AdCard({
         paused && "opacity-70",
       )}
     >
-      <div className="relative">
-        <AdThumb url={ad.imageUrl} isVideo={ad.isVideo} />
+      <button type="button" className="relative block text-left" onClick={onOpen} aria-label={`Ver o anúncio ${name}`}>
+        <AdThumb
+          urls={[preview?.thumbnailUrl, preview?.imageUrl, ad.imageUrl]}
+          isVideo={preview ? Boolean(preview.videoId) : ad.isVideo}
+          loading={previewLoading}
+        />
         {candidateReason ? (
           <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-sm">
             <Repeat2 className="size-3" /> Candidato a trocar
@@ -897,12 +973,17 @@ function AdCard({
             Pausado
           </span>
         ) : null}
-      </div>
+      </button>
       <div className="flex flex-1 flex-col gap-1.5 p-2.5">
         <div className="min-w-0">
-          <p className="line-clamp-2 text-[13px] leading-snug font-medium" title={name}>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="line-clamp-2 text-left text-[13px] leading-snug font-medium hover:underline"
+            title={name}
+          >
             {name}
-          </p>
+          </button>
           {campaignName ? (
             <p className="truncate text-[11px] text-muted-foreground" title={campaignName}>
               {campaignName}
@@ -947,9 +1028,184 @@ function AdCard({
           <Button size="xs" variant={candidateReason ? "default" : "outline"} className="flex-1" onClick={() => onAction("trocar_criativo")}>
             <Repeat2 /> Trocar
           </Button>
+          <AdsManagerLink ad={ad} />
         </div>
       </div>
     </div>
+  );
+}
+
+const CTA_LABEL: Record<string, string> = {
+  ORDER_NOW: "Pedir agora",
+  SHOP_NOW: "Comprar agora",
+  LEARN_MORE: "Saiba mais",
+  SIGN_UP: "Cadastre-se",
+  SUBSCRIBE: "Assinar",
+  GET_OFFER: "Ver oferta",
+  CONTACT_US: "Fale conosco",
+  BOOK_TRAVEL: "Reservar",
+  DOWNLOAD: "Baixar",
+  SEND_MESSAGE: "Enviar mensagem",
+  MESSAGE_PAGE: "Enviar mensagem",
+  WHATSAPP_MESSAGE: "Enviar mensagem no WhatsApp",
+  CALL_NOW: "Ligar agora",
+  GET_QUOTE: "Pedir orçamento",
+  APPLY_NOW: "Inscreva-se",
+};
+
+const PREVIEW_FORMATS: Array<{ value: AdPreviewFormat; label: string }> = [
+  { value: "MOBILE_FEED_STANDARD", label: "Feed Facebook" },
+  { value: "INSTAGRAM_STANDARD", label: "Feed Instagram" },
+  { value: "INSTAGRAM_STORY", label: "Stories" },
+];
+
+function AdPreviewDialog({
+  userId,
+  ad,
+  preview,
+  onClose,
+  onAction,
+}: {
+  userId: string;
+  ad: DossierAd;
+  preview: AdPreview | null;
+  onClose: () => void;
+  onAction: (action: WorkspaceSimulatedAction["action"]) => void;
+}) {
+  const [format, setFormat] = useState<AdPreviewFormat>("MOBILE_FEED_STANDARD");
+  const frame = useQuery<{ src: string | null; error?: string }>({
+    queryKey: ["consultant-workspace-ad-frame", userId, ad.adId, format],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/consultant-workspace/ads/preview-frame?userId=${encodeURIComponent(userId)}&adId=${ad.adId}&format=${format}`,
+      );
+      if (!response.ok) throw new Error("Falha ao gerar a prévia");
+      return response.json();
+    },
+  });
+  const name = entityDisplayName(ad.name, ad.adId, "Anúncio");
+  const paused = ad.status === "PAUSED";
+  const story = format === "INSTAGRAM_STORY";
+  const fallback = preview?.imageUrl ?? preview?.thumbnailUrl ?? ad.imageUrl;
+
+  return (
+    <Dialog open onOpenChange={(open) => (open ? null : onClose())}>
+      <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="pr-6 text-base leading-snug">{name}</DialogTitle>
+          <DialogDescription className="text-xs">
+            {[ad.campaignName ? humanizeName(ad.campaignName) : null, ad.adsetName ? humanizeName(ad.adsetName) : null]
+              .filter(Boolean)
+              .join(" · ") || "Anúncio"}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+          <div className="space-y-2">
+            <div className="inline-flex rounded-md border bg-muted/40 p-0.5" role="tablist" aria-label="Formato da prévia">
+              {PREVIEW_FORMATS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={option.value === format}
+                  onClick={() => setFormat(option.value)}
+                  className={cn(
+                    "rounded-[5px] px-2 py-0.5 text-[11px] transition-colors",
+                    option.value === format ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className={cn("overflow-hidden rounded-lg border bg-muted", story ? "h-[620px]" : "h-[520px]")}>
+              {frame.isLoading ? (
+                <Skeleton className="h-full w-full rounded-none" />
+              ) : frame.data?.src ? (
+                <iframe
+                  key={frame.data.src}
+                  src={frame.data.src}
+                  title={`Prévia do anúncio ${name}`}
+                  className="h-full w-full border-0 bg-white"
+                  allow="autoplay; encrypted-media"
+                />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground">
+                  {fallback ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- prévia da Meta, sem otimização do Next
+                    <img src={fallback} alt="" referrerPolicy="no-referrer" className="max-h-[400px] w-full rounded object-contain" />
+                  ) : (
+                    <ImageIcon className="size-6" />
+                  )}
+                  <span>{frame.data?.error ?? "A Meta não gerou a prévia neste formato."}</span>
+                </div>
+              )}
+            </div>
+            {frame.data?.src ? (
+              <a
+                href={frame.data.src}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                Prévia em branco? Abrir em nova aba <ExternalLink className="size-3" />
+              </a>
+            ) : null}
+          </div>
+          <div className="min-w-0 space-y-3 text-sm">
+            {preview?.title ? <p className="font-medium">{preview.title}</p> : null}
+            {preview?.body ? (
+              <p className="max-h-56 overflow-y-auto text-[13px] leading-relaxed whitespace-pre-line text-muted-foreground">{preview.body}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">Sem texto do anúncio disponível.</p>
+            )}
+            {preview?.link ? (
+              <p className="truncate text-xs">
+                <span className="text-muted-foreground">Destino </span>
+                <a href={preview.link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                  {preview.link}
+                </a>
+              </p>
+            ) : null}
+            {preview?.callToAction ? (
+              <p className="text-xs text-muted-foreground">
+                Botão: {CTA_LABEL[preview.callToAction] ?? preview.callToAction.toLowerCase().replace(/_/g, " ")}
+              </p>
+            ) : null}
+            <div className="grid grid-cols-3 gap-2 rounded-lg border bg-card px-3 py-2 text-xs tabular-nums">
+              <div>
+                <p className="text-muted-foreground">Investido</p>
+                <p className="font-medium">{formatMoney(ad.current.spend, false)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">{ad.kpi.label}</p>
+                <p className="font-medium">{formatInt(ad.kpi.count)}</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">{ad.kpi.costLabel}</p>
+                <p className="font-medium">{formatMoney(ad.kpi.cost)}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {paused ? (
+                <Button size="sm" variant="outline" onClick={() => onAction("ativar")}>
+                  <Play className="size-3.5" /> Ativar
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => onAction("pausar")}>
+                  <Pause className="size-3.5" /> Pausar
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={() => onAction("trocar_criativo")}>
+                <Repeat2 className="size-3.5" /> Trocar criativo
+              </Button>
+              <AdsManagerLink ad={ad} label="Abrir no Gerenciador" />
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -113,7 +113,10 @@ export type DossierAd = {
   name: string;
   campaignName: string | null;
   adsetName: string | null;
+  /** "act_…" — para o link do Gerenciador. */
+  accountId: string | null;
   status: string | null;
+  /** Só a URL guardada (assinada, pode ter expirado); a prévia ao vivo vem de /ads/previews. */
   imageUrl: string | null;
   isVideo: boolean;
   current: PerfTotals;
@@ -138,8 +141,8 @@ export async function getDossierAds(userId: string, days = 7): Promise<DossierAd
     `),
     rows(sql`
       select distinct on (v.entity_id) v.entity_id, v.entity_level, v.entity_name,
-        v.configured_status, v.creative_id,
-        cr.spec->>'image_url' as image_url, (cr.spec ? 'video_id') as is_video
+        v.configured_status, v.creative_id, v.account_id,
+        cr.spec->>'image_url' as image_url, (cr.spec ? 'video_id' or coalesce(cr.spec->'asset_feed_spec' ? 'videos', false)) as is_video
       from meta_tracking_config_versions v
       left join meta_tracking_creatives cr on cr.id = v.creative_id
       where v.user_id = ${userId}::uuid and v.entity_level in ('ad','adset','campaign')
@@ -185,6 +188,7 @@ export async function getDossierAds(userId: string, days = 7): Promise<DossierAd
         name: String(meta?.entity_name ?? adId),
         campaignName: (names.get(entry.campaignId)?.entity_name as string | null) ?? null,
         adsetName: (names.get(entry.adsetId)?.entity_name as string | null) ?? null,
+        accountId: (meta?.account_id as string | null) ?? null,
         status: (meta?.configured_status as string | null) ?? null,
         imageUrl: (meta?.image_url as string | null) ?? null,
         isVideo: Boolean(meta?.is_video),

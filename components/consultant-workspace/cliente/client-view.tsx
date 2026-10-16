@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, MessageSquare, Phone, TrendingDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { computeJourney, type JourneyExtras } from "@/lib/consultant-workspace/journey";
+import { ADS_MANAGER_HINT, adsManagerCampaignsUrl } from "@/lib/consultant-workspace/ads-manager";
 import { PLAN_SERVICE, formatMoney, formatRelative, goalStatus } from "@/lib/consultant-workspace/metrics";
 import type {
   WorkspaceClient,
@@ -138,12 +140,15 @@ export function ClientJourneyView({
           <Button size="sm" onClick={() => openComposer()}>
             <MessageSquare className="size-3.5" /> Mensagem
           </Button>
-          <Link
-            href={`/users/${client.userId}?tab=marketing`}
-            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-          >
-            Cadastro e Marketing do cliente <ExternalLink className="size-3" />
-          </Link>
+          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+            <AdsManagerLinks campaigns={detail.campaigns} />
+            <Link
+              href={`/users/${client.userId}?tab=marketing`}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Cadastro e Marketing do cliente <ExternalLink className="size-3" />
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -212,6 +217,43 @@ export function ClientJourneyView({
 }
 
 const STAGE_FALLBACK = "etapa atual";
+
+/** Uma entrada por conta de anúncios com campanha no período, a de maior gasto primeiro. */
+function AdsManagerLinks({ campaigns }: { campaigns: WorkspaceClientDetail["campaigns"] }) {
+  const accounts = useMemo(() => {
+    const spend = new Map<string, number>();
+    for (const campaign of campaigns) {
+      if (!adsManagerCampaignsUrl(campaign.accountId)) continue;
+      spend.set(campaign.accountId, (spend.get(campaign.accountId) ?? 0) + campaign.current.spend);
+    }
+    return [...spend.entries()].sort((a, b) => b[1] - a[1]).map(([accountId]) => accountId);
+  }, [campaigns]);
+  if (accounts.length === 0) return null;
+  return (
+    <>
+      {accounts.map((accountId, index) => (
+        <Tooltip key={accountId} delayDuration={300}>
+          <TooltipTrigger asChild>
+            <a
+              href={adsManagerCampaignsUrl(accountId)!}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              Abrir no Gerenciador
+              {accounts.length > 1 ? <span className="tabular-nums">({index + 1})</span> : null}
+              <ExternalLink className="size-3" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-60 text-xs">
+            {accounts.length > 1 ? `Conta ${accountId.replace(/^act_/, "")}. ` : ""}
+            {ADS_MANAGER_HINT}
+          </TooltipContent>
+        </Tooltip>
+      ))}
+    </>
+  );
+}
 
 function StoppedBanner({
   days,
