@@ -4,9 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { marketingKeys } from "../hooks/marketing-query-keys";
 
 /**
- * A Facebook Page (with its connected Instagram account) the admin can choose
- * as the ad identity. Only pages with a connected Instagram account are
- * returned by the API.
+ * An authorized Page/Instagram pair the admin can choose
+ * as the ad identity. Instagram profiles may be assigned directly to the ad account.
  */
 export type PageIdentity = {
   pageId: string;
@@ -15,6 +14,11 @@ export type PageIdentity = {
   instagramBusinessAccountId: string;
   instagramUsername?: string;
   instagramProfilePictureUrl?: string;
+  identityId?: string;
+  adAccountIds?: string[];
+  linkage?: "known_page" | "not_observed";
+  available?: boolean;
+  isPrimary?: boolean;
   enabled?: boolean;
   primary?: boolean;
 };
@@ -32,7 +36,7 @@ async function fetchPages(
     if (!response.ok) return [];
 
     const data: { pages?: PageIdentity[] } = await response.json();
-    return data.pages ?? [];
+    return (data.pages ?? []).map(p => ({ ...p, isPrimary: p.isPrimary ?? p.primary }));
   } catch {
     // Selector is best-effort; leave the list empty on failure.
     return [];

@@ -2,7 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { assertCronAuthorized } from "@/lib/auth/cron-auth";
 import { runClientReportMilestonesBatch } from "@/lib/client-reports/run-batch";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
+
+const SOFT_DEADLINE_MS = 740_000;
 
 export async function GET(request: NextRequest) {
   const auth = assertCronAuthorized(request, "[client-reports-milestones]");
@@ -13,6 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await runClientReportMilestonesBatch({
       userIds: userId ? [userId] : undefined,
+      softDeadlineAt: Date.now() + SOFT_DEADLINE_MS,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {

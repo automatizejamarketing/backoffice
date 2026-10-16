@@ -24,6 +24,31 @@ describe("expert admin input", () => {
     );
   });
 
+  it("parses default tracking pixels only when sent", () => {
+    const base = {
+      displayName: "Dudu Bastos",
+      pixKey: "contato@example.com",
+      status: "active",
+    };
+    assert.equal("defaultTrackingPixels" in parseExpertAdminInput(base), false);
+    assert.deepEqual(
+      parseExpertAdminInput({
+        ...base,
+        defaultTrackingPixels: [
+          { provider: "meta", pixelId: "25666150899674355" },
+        ],
+      }).defaultTrackingPixels,
+      [
+        {
+          provider: "meta",
+          pixelId: "25666150899674355",
+          conversionLabel: null,
+          purchaseOnPixGenerated: false,
+        },
+      ],
+    );
+  });
+
   it("accepts an empty profile image and rejects other asset prefixes", () => {
     assert.equal(
       parseExpertAdminInput({

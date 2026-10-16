@@ -3,6 +3,13 @@
  * Rule logic/copy stay in code; only match values + channels are DB-configurable.
  */
 
+import {
+  ACCOUNT_RULE_CARD_PAYMENT_FAILED,
+  ACCOUNT_RULE_NO_ACTIVE_CAMPAIGN,
+  ACCOUNT_RULE_PIX_EXPIRING,
+  ACCOUNT_RULE_RECENTLY_CANCELED,
+} from "@/lib/account-alerts/constants";
+
 export type ProactivityAudience = "client" | "consultant";
 
 export type ThresholdFieldDef = {
@@ -24,6 +31,8 @@ export type ProactivityAlertDefinition = {
   clientRuleId?: string;
   /** Consultant playbook rule id (playbook.*). */
   playbookRuleId?: string;
+  /** Consultant account-state rule id (account.*). */
+  accountRuleId?: string;
 };
 
 const numberField = (
@@ -131,6 +140,59 @@ export const PROACTIVITY_ALERT_DEFINITIONS: readonly ProactivityAlertDefinition[
       playbookRuleId: "playbook.creative_diagnosis",
       thresholdFields: [],
       defaultThresholds: {},
+    },
+    {
+      ruleKey: "no_active_campaign",
+      title: "Sem campanha ativa",
+      description:
+        "Cliente com acesso vigente, Meta conectado e nenhuma campanha [AM] ativa depois da checagem.",
+      audience: "consultant",
+      accountRuleId: ACCOUNT_RULE_NO_ACTIVE_CAMPAIGN,
+      thresholdFields: [],
+      defaultThresholds: {},
+    },
+    {
+      ruleKey: "pix_expiring",
+      title: "PIX perto de vencer",
+      description:
+        "Último pagamento aprovado foi PIX e o acesso vence dentro da janela. Cartão fica de fora.",
+      audience: "consultant",
+      accountRuleId: ACCOUNT_RULE_PIX_EXPIRING,
+      thresholdFields: [
+        numberField("pixAttentionDays", "Dias de atenção", { suffix: "dias", min: 1 }),
+        numberField("pixCriticalDays", "Dias críticos", { suffix: "dias", min: 1 }),
+      ],
+      defaultThresholds: { pixAttentionDays: 7, pixCriticalDays: 3 },
+    },
+    {
+      ruleKey: "card_payment_failed",
+      title: "Cartão com falha de pagamento",
+      description:
+        "Assinatura Stripe ou Vindi past_due, unpaid, incomplete, ou cobrança no cartão que falhou dentro da janela.",
+      audience: "consultant",
+      accountRuleId: ACCOUNT_RULE_CARD_PAYMENT_FAILED,
+      thresholdFields: [
+        numberField("cardFailureLookbackDays", "Dias da falha", {
+          suffix: "dias",
+          min: 1,
+        }),
+      ],
+      defaultThresholds: { cardFailureLookbackDays: 14 },
+    },
+    {
+      ruleKey: "recently_canceled",
+      title: "Assinatura cancelada recentemente",
+      description:
+        "Cancelamento agendado com acesso ainda vigente, ou assinatura cancelada dentro da janela.",
+      audience: "consultant",
+      accountRuleId: ACCOUNT_RULE_RECENTLY_CANCELED,
+      thresholdFields: [
+        numberField("canceledLookbackDays", "Dias desde o cancelamento", {
+          suffix: "dias",
+          min: 1,
+        }),
+      ],
+      defaultThresholds: { canceledLookbackDays: 14 },
     },
 
     // —— Client (proactive signals) ——
@@ -338,6 +400,6 @@ export function seedRowsFromCatalog(): Array<{
     enabled: true,
     thresholds: { ...def.defaultThresholds },
     deliverWhatsapp: false,
-    deliverSlack: false,
+    deliverSlack: Boolean(def.accountRuleId),
   }));
 }

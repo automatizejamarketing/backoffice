@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { loadAiCampaignDuration } from "@/lib/meta-business/marketing/ai-creation/duration-loader";
+import { resolveAiCampaignPeriod } from "@/lib/meta-business/ai-campaign-duration";
 import { getPrimaryCompanyForUser } from "@/lib/db/admin-queries";
 import { fetchAccountContext } from "@/lib/meta-business/insights";
 import {
@@ -75,16 +78,20 @@ export async function POST(
       getPrimaryCompanyForUser(auth.userId),
     ]);
 
+    const durationPolicy = await loadAiCampaignDuration(auth.userId, db, { bypassStripe: process.env.BYPASS_STRIPE === "true" });
+    const period = resolveAiCampaignPeriod({ period: body.answers.period, defaultDurationDays: durationPolicy.defaultDurationDays, defaultStartTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() });
     const result = await createPlannedCampaign(
       {
         adAccountId: auth.accountId,
         accessToken: auth.accessToken,
+        tokenKind: auth.connection?.tokenKind ?? "user",
+        bisuAppScopedId: auth.connection?.bisuAppScopedId,
         currency: account.currency,
         timezoneName: account.timezoneName,
         customerId: auth.userId,
       },
       body.mold,
-      { ...body.answers, niche: company?.niche ?? null },
+      { ...body.answers, period, niche: company?.niche ?? null },
       { minDailyBudgetCents: account.minDailyBudgetCents },
     );
 

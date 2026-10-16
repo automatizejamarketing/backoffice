@@ -1,3 +1,4 @@
+import { parseAdvertisingIdentityId } from "@/lib/meta-business/advertising-identity-key";
 import {
   validateSelection,
   withImplicitPrimaries,
@@ -391,21 +392,34 @@ function formatKindAuditIds(
 
 export type SelectionSubmitBody = {
   adAccounts: Array<{ id: string; isPrimary: boolean }>;
-  identities: Array<{ pageId: string; isPrimary: boolean }>;
+  identities: Array<{ pageId: string; identityId?: string; instagramBusinessAccountId?: string; isPrimary: boolean }>;
 };
 
 export function parseSelectionProposal(
   value: unknown,
+  identities?: readonly {identityId?: string;pageId:string;instagramBusinessAccountId:string;adAccountIds?:string[]}[],
 ): SelectionProposal | null {
   if (!isSelectionSubmitBody(value)) {
     return null;
   }
 
+  const selectedIdentities = [];
+  for (const item of value.identities) {
+    if (item.identityId) {
+      const pair = parseAdvertisingIdentityId(item.identityId);
+      if (!pair || pair.pageId !== item.pageId || (item.instagramBusinessAccountId && pair.instagramBusinessAccountId !== item.instagramBusinessAccountId)) return null;
+    }
+    if (identities) {
+      const candidates = identities.filter(live => live.pageId === item.pageId && (!item.identityId || (live.identityId ?? live.pageId) === item.identityId) && (!item.instagramBusinessAccountId || live.instagramBusinessAccountId === item.instagramBusinessAccountId) && (!live.adAccountIds || live.adAccountIds.some(id => value.adAccounts.some(account => account.id.replace(/^act_/, "") === id.replace(/^act_/, "")))));
+      if (candidates.length !== 1) return null;
+      selectedIdentities.push({ ...item, identityId: candidates[0].identityId ?? candidates[0].pageId });
+    } else selectedIdentities.push(item);
+  }
   return {
     adAccounts: kindFromChosen(value.adAccounts),
     identities: kindFromChosen(
-      value.identities.map((item) => ({
-        id: item.pageId,
+      selectedIdentities.map((item) => ({
+        id: item.identityId ?? item.pageId,
         isPrimary: item.isPrimary,
       })),
     ),
@@ -464,6 +478,8 @@ function isChosenIdentity(
     return false;
   }
   return (
-    typeof value.pageId === "string" && typeof value.isPrimary === "boolean"
+    typeof value.pageId === "string" && typeof value.isPrimary === "boolean" &&
+    (!("identityId" in value) || typeof value.identityId === "string") &&
+    (!("instagramBusinessAccountId" in value) || typeof value.instagramBusinessAccountId === "string")
   );
 }

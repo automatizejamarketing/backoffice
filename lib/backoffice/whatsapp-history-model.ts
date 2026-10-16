@@ -74,6 +74,7 @@ const TEMPLATE_LABELS: Record<string, string> = {
 };
 
 const SOURCE_LABELS: Record<string, string> = {
+  backoffice_campaign: "Campanha do backoffice",
   onboarding_notification: "Ativação",
   billing_notification: "Cobrança PIX",
 };

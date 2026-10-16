@@ -15,6 +15,7 @@
  * `/api/meta-marketing/[accountId]/tracking-history`.
  */
 import assert from "node:assert/strict";
+import { isPreservedMigrationPair } from "./helpers/preserved-migration-history";
 import { existsSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +43,7 @@ function siblingFrontendMigrations(backofficeRoot: string): string | null {
     ...(process.env.FRONTEND_ROOT
       ? [join(process.env.FRONTEND_ROOT, "lib", "db", "migrations")]
       : []),
+    join(backofficeRoot, "..", "frontend", "lib", "db", "migrations"),
     join(backofficeRoot, "..", `automatize-frontend${suffix}`, "lib", "db", "migrations"),
     join(backofficeRoot, "..", "automatize-frontend", "lib", "db", "migrations"),
   ];
@@ -114,6 +116,7 @@ describe("journal de migrations", () => {
 
   it("cresce estritamente — dois `when` iguais tornam o segundo inalcançável", () => {
     for (let i = 1; i < entries.length; i += 1) {
+      if (isPreservedMigrationPair(entries[i - 1], entries[i])) continue;
       assert.ok(
         entries[i].when > entries[i - 1].when,
         `${entries[i].tag} (when=${entries[i].when}) não é maior que ` +
@@ -145,7 +148,8 @@ describe("journal de migrations", () => {
       if (sameMigration) continue;
 
       assert.ok(
-        KNOWN_CROSS_REPO_COLLISIONS.has(pairKey(entry.tag, twin.tag)),
+        KNOWN_CROSS_REPO_COLLISIONS.has(pairKey(entry.tag, twin.tag)) ||
+          isPreservedMigrationPair(entry, twin),
         `when=${entry.when} está gasto por backoffice/${entry.tag} e por ` +
           `frontend/${twin.tag}, que são migrations diferentes. Escolha outro ` +
           `\`when\` — uma das duas jamais será aplicada.`,
@@ -175,7 +179,8 @@ describe("journal de migrations", () => {
 
       if (
         Math.abs(twin.when - entry.when) <= 1 ||
-        KNOWN_TWIN_WHEN_DRIFT.has(pairKey(entry.tag, twin.tag))
+        KNOWN_TWIN_WHEN_DRIFT.has(pairKey(entry.tag, twin.tag)) ||
+        isPreservedMigrationPair(entry, twin)
       ) {
         continue;
       }
@@ -250,6 +255,7 @@ describe("cancellation retention migration", () => {
       join(root, "lib", "db", "migrations"),
     ).find((candidate) => candidate.tag === "0117_cancellation_retention");
     assert.equal(entry?.tag, "0117_cancellation_retention");
+    // Preserve the timestamp already applied by both staging apps.
     assert.equal(entry?.when, 1800110000000);
     assert.match(entry?.sql ?? "", /CREATE TABLE IF NOT EXISTS "cancellation_attempts"/);
     assert.match(

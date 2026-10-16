@@ -297,420 +297,553 @@
       "breakpoints": true
     },
     {
-      "idx": 43,
+      "idx": 42,
       "version": "7",
       "when": 1794250000000,
       "tag": "0058_meta_tracking_insights_strategy",
       "breakpoints": true
     },
     {
-      "idx": 44,
+      "idx": 43,
       "version": "7",
       "when": 1794300000000,
       "tag": "0059_winning_creatives",
       "breakpoints": true
     },
     {
-      "idx": 45,
+      "idx": 44,
       "version": "7",
       "when": 1794400000000,
       "tag": "0060_conversations_unlinked_whatsapp",
       "breakpoints": true
     },
     {
-      "idx": 46,
+      "idx": 45,
       "version": "7",
       "when": 1794500000000,
       "tag": "0061_creative_diagnoses",
       "breakpoints": true
     },
     {
-      "idx": 42,
+      "idx": 46,
       "version": "7",
       "when": 1794510000000,
       "tag": "0057_food_service",
       "breakpoints": true
     },
     {
-      "idx": 42,
+      "idx": 47,
       "version": "7",
       "when": 1794530000000,
       "tag": "0048_vindi_expand",
       "breakpoints": true
     },
     {
-      "idx": 43,
+      "idx": 48,
       "version": "7",
       "when": 1794590000000,
       "tag": "0049_vindi_dunning",
       "breakpoints": true
     },
     {
-      "idx": 47,
+      "idx": 49,
       "version": "7",
       "when": 1794710000000,
       "tag": "0062_comment_automation_opt_in",
       "breakpoints": true
     },
     {
-      "idx": 48,
+      "idx": 50,
       "version": "7",
       "when": 1794810000000,
       "tag": "0063_radar_and_intel_tables",
       "breakpoints": true
     },
     {
-      "idx": 49,
+      "idx": 51,
       "version": "7",
       "when": 1794900000000,
       "tag": "0064_vindi_customer_links",
       "breakpoints": true
     },
     {
-      "idx": 50,
+      "idx": 52,
       "version": "7",
       "when": 1795000000000,
       "tag": "0065_stripe_connect_gateway_net",
       "breakpoints": true
     },
     {
-      "idx": 51,
+      "idx": 53,
       "version": "7",
       "when": 1795100000000,
       "tag": "0066_drop_vindi",
       "breakpoints": true
     },
     {
-      "idx": 67,
-      "version": "7",
-      "when": 1795200000000,
-      "tag": "0067_expiration_date_timestamptz",
-      "breakpoints": true
-    },
-    {
-      "idx": 68,
-      "version": "7",
-      "when": 1795300000000,
-      "tag": "0068_product_participation_bounds",
-      "breakpoints": true
-    },
-    {
-      "idx": 69,
-      "version": "7",
-      "when": 1795400000000,
-      "tag": "0069_mercadopago_expert_connections",
-      "breakpoints": true
-    },
-    {
-      "idx": 70,
-      "version": "7",
-      "when": 1795500000000,
-      "tag": "0070_product_card_disputes",
-      "breakpoints": true
-    },
-    {
-      "idx": 71,
-      "version": "7",
-      "when": 1795600000000,
-      "tag": "0071_mercadopago_receiver_switches",
-      "breakpoints": true
-    },
-    {
-      "idx": 72,
-      "version": "7",
-      "when": 1795700000001,
-      "tag": "0072_product_refund_requests",
-      "breakpoints": true
-    },
-    {
-      "idx": 73,
-      "version": "7",
-      "when": 1795800000001,
-      "tag": "0073_product_refund_operations",
-      "breakpoints": true
-    },
-    {
-      "idx": 74,
-      "version": "7",
-      "when": 1795900000001,
-      "tag": "0074_product_refund_balance_cases",
-      "breakpoints": true
-    },
-    {
-      "idx": 75,
-      "version": "7",
-      "when": 1796100000001,
-      "tag": "0075_product_dispute_defences",
-      "breakpoints": true
-    },
-    {
-      "idx": 76,
-      "version": "7",
-      "when": 1796300000000,
-      "tag": "0076_product_post_sale_costs",
-      "breakpoints": true
-    },
-    {
-      "idx": 77,
-      "version": "7",
-      "when": 1796400000000,
-      "tag": "0077_product_reconciliation_cases",
-      "breakpoints": true
-    },
-    {
-      "idx": 78,
-      "version": "7",
-      "when": 1796500000000,
-      "tag": "0078_expert_payout_no_minimum",
-      "breakpoints": true
-    },
-    {
-      "idx": 79,
-      "version": "7",
-      "when": 1796600000000,
-      "tag": "0079_product_schema_parity",
-      "breakpoints": true
-    },
-    {
-      "idx": 80,
-      "version": "7",
-      "when": 1796700000000,
-      "tag": "0080_product_participation_eligibility",
-      "breakpoints": true
-    },
-    {
-      "idx": 81,
-      "version": "7",
-      "when": 1796800000000,
-      "tag": "0081_expert_mercadopago_validation",
-      "breakpoints": true
-    },
-    {
-      "idx": 82,
-      "version": "7",
-      "when": 1796900000000,
-      "tag": "0082_expert_receiver_switch_candidate",
-      "breakpoints": true
-    },
-    {
-      "idx": 83,
-      "version": "7",
-      "when": 1797000000000,
-      "tag": "0083_product_pix_split_snapshot",
-      "breakpoints": true
-    },
-    {
-      "idx": 84,
-      "version": "7",
-      "when": 1797100000000,
-      "tag": "0084_product_card_mercadopago",
-      "breakpoints": true
-    },
-    {
-      "idx": 85,
-      "version": "7",
-      "when": 1797200000000,
-      "tag": "0085_product_refund_operation_audit",
-      "breakpoints": true
-    },
-    {
-      "idx": 86,
-      "version": "7",
-      "when": 1797300000000,
-      "tag": "0086_product_refund_balance_operations",
-      "breakpoints": true
-    },
-    {
-      "idx": 87,
-      "version": "7",
-      "when": 1797400000000,
-      "tag": "0087_product_card_dispute_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 88,
-      "version": "7",
-      "when": 1797500000000,
-      "tag": "0088_product_evidence_retention_audit",
-      "breakpoints": true
-    },
-    {
-      "idx": 89,
-      "version": "7",
-      "when": 1797600000000,
-      "tag": "0089_product_dispute_defence_flow",
-      "breakpoints": true
-    },
-    {
-      "idx": 90,
-      "version": "7",
-      "when": 1797700000000,
-      "tag": "0090_product_pix_fraud_events",
-      "breakpoints": true
-    },
-    {
-      "idx": 91,
-      "version": "7",
-      "when": 1797800000000,
-      "tag": "0091_product_post_sale_cost_operations",
-      "breakpoints": true
-    },
-    {
-      "idx": 92,
-      "version": "7",
-      "when": 1797900000000,
-      "tag": "0092_product_payment_attempts",
-      "breakpoints": true
-    },
-    {
-      "idx": 93,
-      "version": "7",
-      "when": 1798000000000,
-      "tag": "0093_reconcile_cases_by_root",
-      "breakpoints": true
-    },
-    {
-      "idx": 94,
-      "version": "7",
-      "when": 1798100000000,
-      "tag": "0094_product_dispute_defence_upload_grants",
-      "breakpoints": true
-    },
-    {
-      "idx": 95,
-      "version": "7",
-      "when": 1798200000000,
-      "tag": "0095_post_sale_settlement_snapshots",
-      "breakpoints": true
-    },
-    {
-      "idx": 96,
-      "version": "7",
-      "when": 1798300000000,
-      "tag": "0096_product_payment_attempt_resolutions",
-      "breakpoints": true
-    },
-    {
-      "idx": 97,
-      "version": "7",
-      "when": 1798400000000,
-      "tag": "0097_product_payment_attempt_environment",
-      "breakpoints": true
-    },
-    {
-      "idx": 98,
-      "version": "7",
-      "when": 1798500000000,
-      "tag": "0098_product_gateway_gross_v1",
-      "breakpoints": true
-    },
-    {
-      "idx": 99,
-      "version": "7",
-      "when": 1798600000000,
-      "tag": "0099_product_expert_transaction_fee",
-      "breakpoints": true
-    },
-    {
-      "idx": 100,
-      "version": "7",
-      "when": 1798700000000,
-      "tag": "0100_drop_product_post_sale_surface",
-      "breakpoints": true
-    },
-    {
-      "idx": 103,
-      "version": "7",
-      "when": 1799000000000,
-      "tag": "0103_crm_leads",
-      "breakpoints": true
-    },
-    {
-      "idx": 104,
-      "version": "7",
-      "when": 1799100000000,
-      "tag": "0104_customer_file_imports",
-      "breakpoints": true
-    },
-    {
-      "idx": 105,
-      "version": "7",
-      "when": 1799200000000,
-      "tag": "0105_meta_audience_commands",
-      "breakpoints": true
-    },
-    {
-      "idx": 106,
-      "version": "7",
-      "when": 1799300000000,
-      "tag": "0106_entitlement_legacy_column_parity",
-      "breakpoints": true
-    },
-    {
-      "idx": 107,
-      "version": "7",
-      "when": 1799400000000,
-      "tag": "0107_meta_partner_access",
-      "breakpoints": true
-    },
-    {
-      "idx": 108,
+      "idx": 54,
       "version": "7",
       "when": 1795100000000,
       "tag": "0108_client_reports",
       "breakpoints": true
     },
     {
-      "idx": 109,
+      "idx": 55,
+      "version": "7",
+      "when": 1795200000000,
+      "tag": "0067_expiration_date_timestamptz",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1795300000000,
+      "tag": "0068_product_participation_bounds",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1795400000000,
+      "tag": "0069_mercadopago_expert_connections",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1795500000000,
+      "tag": "0070_product_card_disputes",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1795600000000,
+      "tag": "0071_mercadopago_receiver_switches",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1795700000001,
+      "tag": "0072_product_refund_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1795800000001,
+      "tag": "0073_product_refund_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1795900000001,
+      "tag": "0074_product_refund_balance_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1796100000001,
+      "tag": "0075_product_dispute_defences",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1796300000000,
+      "tag": "0076_product_post_sale_costs",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1796400000000,
+      "tag": "0077_product_reconciliation_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1796500000000,
+      "tag": "0078_expert_payout_no_minimum",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1796600000000,
+      "tag": "0079_product_schema_parity",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1796700000000,
+      "tag": "0080_product_participation_eligibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1796800000000,
+      "tag": "0081_expert_mercadopago_validation",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1796900000000,
+      "tag": "0082_expert_receiver_switch_candidate",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1797000000000,
+      "tag": "0083_product_pix_split_snapshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1797100000000,
+      "tag": "0084_product_card_mercadopago",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1797200000000,
+      "tag": "0085_product_refund_operation_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1797300000000,
+      "tag": "0086_product_refund_balance_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1797400000000,
+      "tag": "0087_product_card_dispute_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1797500000000,
+      "tag": "0088_product_evidence_retention_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1797600000000,
+      "tag": "0089_product_dispute_defence_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1797700000000,
+      "tag": "0090_product_pix_fraud_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1797800000000,
+      "tag": "0091_product_post_sale_cost_operations",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1797900000000,
+      "tag": "0092_product_payment_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1798000000000,
+      "tag": "0093_reconcile_cases_by_root",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1798100000000,
+      "tag": "0094_product_dispute_defence_upload_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1798200000000,
+      "tag": "0095_post_sale_settlement_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1798300000000,
+      "tag": "0096_product_payment_attempt_resolutions",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1798400000000,
+      "tag": "0097_product_payment_attempt_environment",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1798500000000,
+      "tag": "0098_product_gateway_gross_v1",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1798600000000,
+      "tag": "0099_product_expert_transaction_fee",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1798700000000,
+      "tag": "0100_drop_product_post_sale_surface",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1799000000000,
+      "tag": "0103_crm_leads",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1799100000000,
+      "tag": "0104_customer_file_imports",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1799200000000,
+      "tag": "0105_meta_audience_commands",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1799300000000,
+      "tag": "0106_entitlement_legacy_column_parity",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1799400000000,
+      "tag": "0107_meta_partner_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
       "version": "7",
       "when": 1799600000000,
       "tag": "0109_crm_goals_sales_roles",
       "breakpoints": true
     },
     {
-      "idx": 110,
+      "idx": 95,
+      "version": "7",
+      "when": 1799600000001,
+      "tag": "0110_whatsapp_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
       "version": "7",
       "when": 1799900000000,
       "tag": "0110_meta_asset_selection",
       "breakpoints": true
     },
     {
-      "idx": 111,
+      "idx": 97,
       "version": "7",
       "when": 1800000000000,
       "tag": "0111_whatsapp_support_sessions",
       "breakpoints": true
     },
     {
-      "idx": 112,
+      "idx": 98,
+      "version": "7",
+      "when": 1800000000000,
+      "tag": "0112_campaign_destination_url",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
       "version": "7",
       "when": 1800100000000,
       "tag": "0112_playbook_alert_dashboard_indexes",
       "breakpoints": true
     },
     {
-      "idx": 113,
+      "idx": 100,
       "version": "7",
       "when": 1800110000000,
       "tag": "0117_cancellation_retention",
       "breakpoints": true
     },
     {
-      "idx": 114,
+      "idx": 101,
       "version": "7",
       "when": 1800120000000,
       "tag": "0118_pricing",
       "breakpoints": true
     },
     {
-      "idx": 115,
+      "idx": 102,
+      "version": "7",
+      "when": 1800400000000,
+      "tag": "0116_client_report_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1800900000000,
+      "tag": "0119_actionable_client_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1800900001000,
+      "tag": "0120_capture_ambassadors",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1800900002000,
+      "tag": "0121_crm_tag_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1801000000000,
+      "tag": "0122_signup_coupon_dudu20",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1801100000000,
+      "tag": "0123_whatsapp_account_choice",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1801200000000,
+      "tag": "0124_product_tracking_pixels",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1801300000000,
+      "tag": "0125_meta_publish_holds",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
       "version": "7",
       "when": 1801300000001,
       "tag": "0125_efi_pix_automatico",
       "breakpoints": true
     },
     {
-      "idx": 136,
+      "idx": 111,
+      "version": "7",
+      "when": 1801400000000,
+      "tag": "0126_meta_consultant_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1801400000001,
+      "tag": "0127_whatsapp_campaign_audience",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1801500000000,
+      "tag": "0128_meta_certification_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1801600000000,
+      "tag": "0129_whatsapp_campaign_button_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1801700000000,
+      "tag": "0130_backoffice_mcp_oauth",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1802000000000,
+      "tag": "0131_company_module_entitlements",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1802050000000,
+      "tag": "0133_user_expiration_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1802100000000,
+      "tag": "0134_consultant_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1802300000000,
+      "tag": "0135_media_library",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
       "version": "7",
       "when": 1802537000000,
       "tag": "0138_tiktok_posting",

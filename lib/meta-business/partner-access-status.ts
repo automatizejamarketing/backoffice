@@ -1,5 +1,11 @@
 export const DEFAULT_AUTOMATIZE_BUSINESS_ID = "397851937312613";
 
+/** Person the client invites in Business Settings → People. The guide copies this. */
+export const AUTOMATIZE_PEOPLE_EMAIL = "contato@automatizemarketing.com";
+
+export const META_BUSINESS_PEOPLE_URL =
+  "https://business.facebook.com/latest/settings/business_users";
+
 export type PartnerAccessStatus =
   | "missing"
   | "partial"
@@ -18,6 +24,13 @@ export function buildPartnersSettingsUrl(
 ): string | null {
   if (!clientBusinessId?.trim()) return null;
   return `https://business.facebook.com/latest/settings/partners?business_id=${encodeURIComponent(clientBusinessId.trim())}`;
+}
+
+export function buildPeopleSettingsUrl(
+  clientBusinessId: string | null | undefined,
+): string | null {
+  if (!clientBusinessId?.trim()) return null;
+  return `${META_BUSINESS_PEOPLE_URL}?business_id=${encodeURIComponent(clientBusinessId.trim())}`;
 }
 
 export function isPartnerAccessPending(

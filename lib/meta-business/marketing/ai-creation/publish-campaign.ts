@@ -7,7 +7,7 @@
  *
  * ONE approval publishes ACTIVE. A failure mid-tree rolls back everything created so far.
  */
-import type { MetaCtx } from "@/lib/meta-business/insights";
+import type { AdvertisingCampaignContext } from "./new-media-identity";
 import type { PlanAnswers } from "./build-tree";
 import { createDuplicatedCampaign } from "./duplicate-campaign";
 import type { AccountLimits } from "./plan-campaign";
@@ -35,7 +35,7 @@ export type PublishFailure = {
 export type PublishResult = PublishedCampaign | PublishFailure;
 
 export async function createPlannedCampaign(
-  ctx: MetaCtx,
+  ctx: AdvertisingCampaignContext,
   clientRef: MoldRef,
   answers: PlanAnswers,
   limits: AccountLimits = {},

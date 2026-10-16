@@ -14,6 +14,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { CustomAudienceView } from "@/lib/meta-business/marketing/audiences/types";
 
+type KnownUse = {
+  campaignId?: string;
+  campaignName?: string;
+  adSetId: string;
+  adSetName?: string;
+  placement: "include" | "exclude";
+};
+
 type Review = {
   ok: true;
   before: { name?: string; description?: string };
@@ -21,33 +29,35 @@ type Review = {
   confirmationToken: string;
   commandId: string;
   impact: {
-    knownUses: Array<{
-      campaignId?: string;
-      campaignName?: string;
-      adSetId: string;
-      adSetName?: string;
-      placement: "include" | "exclude";
-    }>;
+    knownUses: KnownUse[];
     dependentAudienceIds: string[];
     coverage: "complete" | "incomplete";
     limitations: string[];
   };
 };
 
-type AudienceMetadataEditorProps = {
-  audience: CustomAudienceView;
-  accountId: string;
-  userId: string;
-  onSaved: () => void;
+type MutationResponse = Partial<Review> & {
+  ok?: boolean;
+  error?: string;
+  message?: string;
+  issues?: Array<{ reason?: string; suggestion?: string }>;
+  state?: "reconciliation_required";
 };
 
 export function AudienceMetadataEditor({
   audience,
   accountId,
   userId,
+  chrome = "dialog",
   onSaved,
-}: AudienceMetadataEditorProps) {
-  const [open, setOpen] = useState(false);
+}: {
+  audience: CustomAudienceView;
+  accountId: string;
+  userId: string;
+  chrome?: "dialog" | "plain";
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(chrome === "plain");
   const [name, setName] = useState(audience.name ?? "");
   const [description, setDescription] = useState(audience.description ?? "");
   const [review, setReview] = useState<Review | null>(null);
@@ -89,27 +99,25 @@ export function AudienceMetadataEditor({
           }),
         },
       );
-      const result = (await response.json()) as Review & {
-        error?: string;
-        message?: string;
-        state?: "reconciliation_required";
-        issues?: Array<{ reason?: string; suggestion?: string }>;
-      };
+      const result = (await response.json()) as MutationResponse;
       if (!response.ok || !result.ok) {
+        const issue = result.issues?.[0];
         if (result.state === "reconciliation_required") setReconciliationRequired(true);
         setError(
           result.message ??
             result.error ??
-            result.issues?.[0]?.reason ??
-            "Não foi possível revisar a alteração.",
+            issue?.reason ??
+            (result.state === "reconciliation_required"
+              ? "A alteração exige reconciliação antes de nova ação."
+              : "Não foi possível revisar a alteração."),
         );
         return;
       }
       if (action === "review") {
-        setReview(result);
+        setReview(result as Review);
         setReconciliationRequired(false);
       } else {
-        setOpen(false);
+        if (chrome !== "plain") setOpen(false);
         setReview(null);
         onSaved();
       }
@@ -124,25 +132,7 @@ export function AudienceMetadataEditor({
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
-          Editar metadados
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {review ? "Revise a alteração" : "Editar metadados do público"}
-          </DialogTitle>
-          <DialogDescription>
-            {review
-              ? `Público ${audience.name ?? audience.id} na conta ${accountId}.`
-              : "A regra do público não será alterada."}
-          </DialogDescription>
-        </DialogHeader>
-        {!review ? (
+  const fields = !review ? (
           <div className="space-y-3">
             <label className="grid gap-1 text-sm">
               Nome
@@ -183,7 +173,9 @@ export function AudienceMetadataEditor({
                 <p>Nenhum uso conhecido nesta página.</p>
               )}
             </div>
-            <p>Dependências lookalike: {review.impact.dependentAudienceIds.length}.</p>
+            <p>
+              Dependências lookalike: {review.impact.dependentAudienceIds.length}
+            </p>
             <p role="status">
               Cobertura do inventário: {review.impact.coverage}. {" "}
               {review.impact.limitations.join(" ")}
@@ -198,12 +190,39 @@ export function AudienceMetadataEditor({
               </Button>
             )}
           </div>
-        )}
-        {error ? (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        ) : null}
+        );
+  const body = (
+    <>
+      {fields}
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
+
+  if (chrome === "plain") return <div className="space-y-3">{body}</div>;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" size="sm" variant="outline">
+          Editar metadados
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {review ? "Revise a alteração" : "Editar metadados do público"}
+          </DialogTitle>
+          <DialogDescription>
+            {review
+              ? `Público ${audience.name ?? audience.id} na conta ${accountId}.`
+              : "A regra do público não será alterada."}
+          </DialogDescription>
+        </DialogHeader>
+        {body}
       </DialogContent>
     </Dialog>
   );

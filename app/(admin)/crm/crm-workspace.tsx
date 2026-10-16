@@ -22,6 +22,11 @@ import {
   serializeCrmStoredFilters,
   type CrmView,
 } from "@/lib/backoffice/crm-filters-storage";
+import {
+  CrmTagsProvider,
+  CrmTagSettings,
+  useCrmTags,
+} from "./crm-tag-settings";
 import { CrmGoals } from "./crm-goals";
 import { CrmKanban } from "./crm-kanban";
 import { CrmLeadSheet } from "./crm-lead-sheet";
@@ -38,11 +43,24 @@ const COMMERCIAL_STATUS_OPTIONS = CRM_COMMERCIAL_STATUS_VALUES.map((value) => ({
 }));
 
 export function CrmWorkspace() {
+  return (
+    <CrmTagsProvider>
+      <CrmWorkspaceContent />
+    </CrmTagsProvider>
+  );
+}
+
+function CrmWorkspaceContent() {
+  const { tags } = useCrmTags();
   const queryClient = useQueryClient();
   const [view, setView] = useState<CrmView>("kanban");
+  const [captureSource, setCaptureSource] = useState<string | undefined>();
+  const [captureProfile, setCaptureProfile] = useState<string | undefined>();
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput.trim());
-  const [accountStage, setAccountStage] = useState<CrmAccountStage | undefined>();
+  const [accountStage, setAccountStage] = useState<
+    CrmAccountStage | undefined
+  >();
   const [commercialStatus, setCommercialStatus] = useState<
     CrmCommercialStatus | undefined
   >();
@@ -61,6 +79,8 @@ export function CrmWorkspace() {
         localStorage.getItem(CRM_FILTERS_STORAGE_KEY),
       );
       setView(stored.view);
+      setCaptureSource(stored.captureSource);
+      setCaptureProfile(stored.captureProfile);
       setAccountStage(stored.accountStage);
       setCommercialStatus(stored.commercialStatus);
       setSignup(stored.signup);
@@ -74,6 +94,8 @@ export function CrmWorkspace() {
 
   const storedFilters = serializeCrmStoredFilters({
     view,
+    captureSource,
+    captureProfile,
     accountStage,
     commercialStatus,
     signup,
@@ -89,6 +111,8 @@ export function CrmWorkspace() {
   }, [filtersLoaded, storedFilters]);
 
   const activeFilters =
+    Number(Boolean(captureSource)) +
+    Number(Boolean(captureProfile)) +
     Number(Boolean(accountStage)) +
     Number(Boolean(commercialStatus) && view === "list") +
     Number(Boolean(signup)) +
@@ -100,11 +124,16 @@ export function CrmWorkspace() {
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <CrmTagSettings />
+      </div>
       <CrmGoals onOpenLead={setSelectedUserId} />
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <FilterBar
           activeCount={activeFilters}
           onClear={() => {
+            setCaptureSource(undefined);
+            setCaptureProfile(undefined);
             setAccountStage(undefined);
             setCommercialStatus(undefined);
             setSignup(undefined);
@@ -121,12 +150,32 @@ export function CrmWorkspace() {
           <FilterSelect
             label="Conta"
             value={accountStage}
-            onValueChange={(value) => setAccountStage(value as CrmAccountStage | undefined)}
+            onValueChange={(value) =>
+              setAccountStage(value as CrmAccountStage | undefined)
+            }
             options={ACCOUNT_STAGE_OPTIONS}
             allLabel="Todas"
           />
+          <FilterSelect
+            label="Campanha"
+            value={captureSource}
+            onValueChange={setCaptureSource}
+            options={tags
+              .filter((tag) => tag.key.startsWith("source:"))
+              .map((tag) => ({ value: tag.key.slice(7), label: tag.name }))}
+            allLabel="Todas"
+          />
+          <FilterSelect
+            label="Perfil"
+            value={captureProfile}
+            onValueChange={setCaptureProfile}
+            options={tags
+              .filter((tag) => tag.key.startsWith("profile:"))
+              .map((tag) => ({ value: tag.key.slice(8), label: tag.name }))}
+            allLabel="Todos"
+          />
           <FilterDate
-            label="Cadastro"
+            label="Entrada no CRM"
             value={signup}
             onChange={setSignup}
             maxDate={new Date()}
@@ -173,6 +222,8 @@ export function CrmWorkspace() {
 
       {!filtersLoaded ? null : view === "kanban" ? (
         <CrmKanban
+          captureSource={captureSource}
+          captureProfile={captureProfile}
           search={search}
           accountStage={accountStage}
           signup={signupBounds}
@@ -181,6 +232,8 @@ export function CrmWorkspace() {
         />
       ) : (
         <CrmList
+          captureSource={captureSource}
+          captureProfile={captureProfile}
           search={search}
           accountStage={accountStage}
           commercialStatus={commercialStatus}

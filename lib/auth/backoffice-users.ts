@@ -1,13 +1,14 @@
-import { isSalesRole } from "@/lib/auth/rbac-core";
+import { isMarketingConsultantRole, isSalesRole } from "@/lib/auth/rbac-core";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "@/lib/config";
 import { canAccessFinance } from "@/lib/auth/finance-access";
 import { db } from "@/lib/db";
-import { backofficeUser, userMarketingConsultant } from "@/lib/db/schema";
-import type {
-  BackofficeActor,
-  BackofficeRole,
-} from "@/lib/auth/rbac-core";
+import {
+  ambassadorMember,
+  backofficeUser,
+  userMarketingConsultant,
+} from "@/lib/db/schema";
+import type { BackofficeActor, BackofficeRole } from "@/lib/auth/rbac-core";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -95,17 +96,22 @@ export async function getBackofficeActorByEmail(
     if (role === "finance_viewer" && !canAccessFinance(normalizedEmail)) {
       return null;
     }
+    const [membership] = await db
+      .select()
+      .from(ambassadorMember)
+      .where(eq(ambassadorMember.userId, dbUser.id));
     return {
+      ambassadorAccess: Boolean(membership),
+      ambassadorGrant: membership?.canGrantStarter ?? false,
       id: dbUser.id,
       email: dbUser.email,
       name: dbUser.name,
       role,
       salesRole: isSalesRole(dbUser.salesRole) ? dbUser.salesRole : null,
       source: "database",
-      assignedUserIds:
-        role === "marketing_consultant"
-          ? await getAssignedUserIds(dbUser.id)
-          : undefined,
+      assignedUserIds: isMarketingConsultantRole(role)
+        ? await getAssignedUserIds(dbUser.id)
+        : undefined,
     };
   } catch (error) {
     if (isFallbackAdmin && isRecoverableDatabaseLookupError(error)) {

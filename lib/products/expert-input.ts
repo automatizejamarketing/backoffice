@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeBrazilianPhone } from "@/lib/phone";
+import { parseTrackingPixels } from "./tracking-pixels";
 
 const schema = z.object({
   displayName: z.string().trim().min(2).max(120),
@@ -10,6 +11,8 @@ const schema = z.object({
   platformFeeFixedCentavos: z.number().int().min(0).optional(),
   marketplaceFeePercent: z.number().finite().min(0).max(100).optional(),
   status: z.enum(["active", "inactive"]).default("active"),
+  /** Ausente mantém os pixels padrão atuais. */
+  defaultTrackingPixels: z.unknown().optional(),
 });
 
 function parseProfileImageUrl(value: string | null | undefined) {
@@ -55,6 +58,13 @@ export function parseExpertAdminInput(input: unknown) {
       : {
           marketplaceFeeBasisPoints: Math.round(
             parsed.marketplaceFeePercent * 100,
+          ),
+        }),
+    ...(parsed.defaultTrackingPixels === undefined
+      ? {}
+      : {
+          defaultTrackingPixels: parseTrackingPixels(
+            parsed.defaultTrackingPixels,
           ),
         }),
   };

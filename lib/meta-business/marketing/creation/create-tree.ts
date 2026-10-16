@@ -8,6 +8,8 @@
  * deleted in reverse order; ids Meta refuses to delete are returned as orphans.
  */
 
+import { pacingIncludesDayParting } from "@/lib/meta-business/schedule-shape";
+
 import {
   createCampaign,
   previewCampaign,
@@ -41,6 +43,8 @@ export type TreeAdSetSpec = {
     | "objective"
     | "parentUsesCampaignBudget"
     | "parentHasLifetimeBudget"
+    | "parentUsesDayParting"
+    | "cboDaypartingReleased"
   >;
   ads: Array<
     Omit<CreateAdInput, "adAccountId" | "accessToken" | "adSetId" | "optimizationGoal">
@@ -52,6 +56,8 @@ export type CreateCampaignTreeInput = {
   accessToken: string;
   campaign: Omit<CreateCampaignInput, "adAccountId" | "accessToken">;
   adSets: TreeAdSetSpec[];
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`); decidido por quem chama a árvore. */
+  cboDaypartingReleased?: boolean;
 };
 
 export type CampaignTreeSuccess = {
@@ -217,6 +223,8 @@ export function deriveAdSetInput(
     objective: tree.campaign.objective,
     parentUsesCampaignBudget: parentUsesCampaignBudget(tree.campaign),
     parentHasLifetimeBudget: (tree.campaign.lifetimeBudgetCents ?? 0) > 0,
+    parentUsesDayParting: pacingIncludesDayParting(tree.campaign.pacingType),
+    cboDaypartingReleased: Boolean(tree.cboDaypartingReleased),
   };
 }
 
@@ -328,6 +336,8 @@ export type PreviewCampaignTreeInput = {
   accessToken: string;
   campaign: CreateCampaignTreeInput["campaign"];
   adSets: PreviewTreeAdSetSpec[];
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`); decidido por quem chama a árvore. */
+  cboDaypartingReleased?: boolean;
 };
 
 export type CampaignTreePlan = {
@@ -337,13 +347,97 @@ export type CampaignTreePlan = {
     budgetMode: "CBO" | "ABO";
     dailyBudgetCents?: number;
     lifetimeBudgetCents?: number;
+    startTime?: string;
+    stopTime?: string;
   };
   adSets: Array<{
     name: string;
     optimizationGoal: string;
+    startTime?: string;
+    endTime?: string;
+    /**
+     * The area that will actually be sent. The assistant describes this to
+     * the user — not the location it only meant to send.
+     */
+    location: string;
     ads: Array<{ name: string; creativeFormat: string }>;
   }>;
 };
+
+const KEYED_GEO_LABELS: Array<[string, string, string]> = [
+  ["cities", "cidade", "cidades"],
+  ["subcities", "área", "áreas"],
+  ["neighborhoods", "bairro", "bairros"],
+  ["regions", "estado", "estados"],
+  ["zips", "CEP", "CEPs"],
+  ["geo_markets", "mercado", "mercados"],
+  ["electoral_districts", "distrito", "distritos"],
+  ["places", "local", "locais"],
+];
+
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** Short text for the geo the preview will honor. No geo says so. */
+export function summarizeAdSetLocation(
+  geoLocations: Record<string, unknown> | null | undefined,
+): string {
+  const none = "nenhuma — não publicar";
+  if (!geoLocations) return none;
+  const parts: string[] = [];
+
+  for (const [key, one, many] of KEYED_GEO_LABELS) {
+    const list = geoLocations[key];
+    if (Array.isArray(list) && list.length > 0) {
+      parts.push(`${list.length} ${list.length === 1 ? one : many}`);
+    }
+  }
+
+  const custom = geoLocations.custom_locations;
+  if (Array.isArray(custom)) {
+    for (const point of custom) {
+      const spot = recordOf(point);
+      if (!spot) continue;
+      const where =
+        typeof spot.name === "string" && spot.name.trim()
+          ? spot.name.trim()
+          : typeof spot.address_string === "string" && spot.address_string.trim()
+            ? spot.address_string.trim()
+            : "ponto no mapa";
+      parts.push(
+        typeof spot.radius === "number"
+          ? `raio ${spot.radius} km a partir de ${where}`
+          : where,
+      );
+    }
+  }
+
+  const countries = geoLocations.countries;
+  if (Array.isArray(countries) && countries.length > 0) {
+    parts.push(`país inteiro: ${countries.join(", ")}`);
+  }
+  const groups = geoLocations.country_groups;
+  if (Array.isArray(groups) && groups.length > 0) {
+    parts.push(`grupo de países: ${groups.join(", ")}`);
+  }
+
+  return parts.join("; ") || none;
+}
+
+/** Geo from the same three inputs the ad-set payload merges. */
+function adSetGeoLocations(adSet: {
+  targeting?: { geoLocations?: Record<string, unknown>; raw?: Record<string, unknown> };
+  extraFields?: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  return (
+    adSet.targeting?.geoLocations ??
+    recordOf(adSet.targeting?.raw?.geo_locations) ??
+    recordOf(recordOf(adSet.extraFields?.targeting)?.geo_locations)
+  );
+}
 
 export type CampaignTreePreviewResult = {
   /** True when the whole tree passed local validation + the campaign validate_only. */
@@ -364,6 +458,8 @@ function buildTreePlan(tree: PreviewCampaignTreeInput): CampaignTreePlan {
       name: tree.campaign.name,
       objective: tree.campaign.objective,
       budgetMode: parentUsesCampaignBudget(tree.campaign) ? "CBO" : "ABO",
+      ...(tree.campaign.startTime ? { startTime: tree.campaign.startTime } : {}),
+      ...(tree.campaign.stopTime ? { stopTime: tree.campaign.stopTime } : {}),
       ...(tree.campaign.dailyBudgetCents != null
         ? { dailyBudgetCents: tree.campaign.dailyBudgetCents }
         : {}),
@@ -374,6 +470,9 @@ function buildTreePlan(tree: PreviewCampaignTreeInput): CampaignTreePlan {
     adSets: (tree.adSets ?? []).map((s) => ({
       name: s.adSet.name,
       optimizationGoal: s.adSet.optimizationGoal,
+      ...(s.adSet.startTime ? { startTime: s.adSet.startTime } : {}),
+      ...(s.adSet.endTime ? { endTime: s.adSet.endTime } : {}),
+      location: summarizeAdSetLocation(adSetGeoLocations(s.adSet)),
       ads: (s.ads ?? []).map((a) => ({
         name: a.name,
         creativeFormat: a.creative?.format ?? "(criativo pendente)",
@@ -434,6 +533,8 @@ export async function previewCampaignTree(
         objective: tree.campaign.objective,
         parentUsesCampaignBudget: cbo,
         parentHasLifetimeBudget,
+        parentUsesDayParting: pacingIncludesDayParting(tree.campaign.pacingType),
+        cboDaypartingReleased: Boolean(tree.cboDaypartingReleased),
       }),
     );
 

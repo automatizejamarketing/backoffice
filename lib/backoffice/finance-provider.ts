@@ -4,7 +4,7 @@ import {
   type PaymentSettlementMethod,
 } from "@/lib/db/schema";
 
-export type FinanceProvider = "card" | "pix" | "manual";
+export type FinanceProvider = "card" | "pix" | "pix_automatic" | "manual";
 
 export const UNCLASSIFIED_FINANCE_PROVIDER_LABEL = "sem classificação";
 
@@ -24,7 +24,8 @@ export function financeProvider(input: {
   paymentMethod?: PaymentSettlementMethod | null;
 }): FinanceProvider | null {
   if (input.provider === "stripe") return "card";
-  if ((input.provider === "mercadopago" || input.provider === "efi")) return "pix";
+  if (input.provider === "mercadopago") return "pix";
+  if (input.provider === "efi") return "pix_automatic";
   if (input.provider === "manual") return "manual";
   return null;
 }
@@ -35,6 +36,7 @@ export function financeProviderLabel(
   const bucket = financeProvider(input);
   if (bucket === "card") return "Cartão";
   if (bucket === "pix") return "PIX";
+  if (bucket === "pix_automatic") return "Pix Automático";
   if (bucket === "manual") return "Manual";
   return UNCLASSIFIED_FINANCE_PROVIDER_LABEL;
 }

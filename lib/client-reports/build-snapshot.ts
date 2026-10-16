@@ -1,10 +1,13 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { previewFromCreativeSpec } from "@/lib/creative-analysis/playground";
 import { db } from "@/lib/db";
 import {
   clientReportBenchmark,
   clientReportMission,
   clientReportSnapshot,
   metaTrackingChangeEvent,
+  metaBusinessAccount,
+  metaEnabledAsset,
   metaTrackingDailyMetric,
   payment,
   performanceInsight,
@@ -17,6 +20,7 @@ import {
   paymentAmountReais,
 } from "@/lib/performance-report/analysis";
 import { PLAN_DEFINITIONS } from "@/lib/stripe/plans";
+import { getMediaPublicUrl } from "@/lib/storage/media-r2";
 import {
   computeMonthsPaidBack,
   emptyPayload,
@@ -25,6 +29,7 @@ import {
   percentileRank,
   resolveHeadlineState,
   spendBucket,
+  type ClientReportAccountRow,
   type ClientReportAction,
   type ClientReportCampaignCard,
   type ClientReportCreativeCard,
@@ -33,6 +38,9 @@ import {
   type ClientReportPeriodType,
 } from "./payload-schema";
 import { inclusiveDays, previousWindow } from "./dates";
+import { platformAdjustmentWhere } from "./platform-adjustments";
+import { orderedEnabledAdAccountIds } from "@/lib/backoffice/enabled-ad-account-scope";
+import { accountRowsFromTotals, type AccountTotals } from "./account-breakdown";
 
 function toNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -41,6 +49,78 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function customerFacingCampaignName(value: string): string {
+  const tags = [...value.matchAll(/\[([^\]]+)\]/g)]
+    .map((match) => match[1]?.trim())
+    .filter((tag): tag is string => Boolean(tag));
+  const lowerTags = tags.map((tag) => tag.toLocaleLowerCase("pt-BR"));
+  const rawSuffix = value
+    .replace(/^(?:\s*\[[^\]]+\])+\s*/g, "")
+    .trim();
+  const variations = [...rawSuffix.matchAll(/\s*-\s*cópia(?:\s*\d+)?/gi)];
+  const suffix = rawSuffix
+    .replace(/\s*-\s*cópia(?:\s*\d+)?/gi, "")
+    .trim();
+  const kind = lowerTags.some((tag) => tag === "vendas")
+    ? "Campanha de vendas"
+    : lowerTags.some((tag) => tag === "conversão")
+      ? "Campanha de conversão"
+      : lowerTags.some((tag) => tag === "tráfego")
+      ? "Campanha de tráfego"
+      : "Campanha";
+  const dateTag = tags.find(
+    (tag) => /^\d{2}\/\d{2}$/.test(tag) || /^\d{4}-\d{2}-\d{2}/.test(tag),
+  );
+  const dateLabel = dateTag?.match(/^\d{4}-(\d{2})-(\d{2})/)
+    ? dateTag.replace(/^\d{4}-(\d{2})-(\d{2}).*$/, "$2/$1")
+    : dateTag;
+  const descriptors = [
+    suffix || null,
+    lowerTags.includes("info") ? "conteúdo informativo" : null,
+    dateLabel ?? null,
+    variations.length > 0
+      ? `variação ${variations.length}`
+      : suffix
+        ? "principal"
+        : null,
+  ].filter((item): item is string => Boolean(item));
+  return [kind, ...descriptors].join(" · ");
+}
+
+function customerFacingAdName(value: string): string {
+  const adNumber = value.match(/\bAd\s+(\d+)\b/i)?.[1];
+  if (adNumber) return `Criativo ${adNumber}`;
+  const cleaned = value.replace(/^(?:\s*\[[^\]]+\])+\s*/g, "").trim();
+  return cleaned || "Criativo com oportunidade de melhoria";
+}
+
+function localizeCreativeText(value: string): string {
+  return value
+    .replace(/chamada para ação\s*\(CTA\)/gi, "__CALL_TO_ACTION__")
+    .replace(/\bO CTA\b/g, "A chamada para ação")
+    .replace(/\bum CTA\b/gi, "uma chamada para ação")
+    .replace(/\bCTA direto\b/gi, "chamada para ação direta")
+    .replace(
+      /\b(?:cenas|imagens) de ['"]?food porn['"]?/gi,
+      "imagens apetitosas",
+    )
+    .replace(/\bfood porn\b/gi, "imagens apetitosas")
+    .replace(/\bhard sell\b/gi, "oferta direta")
+    .replace(/\bappetite appeal\b/gi, "apelo visual do produto")
+    .replace(/\bbold\b/gi, "negrito")
+    .replace(/\bLink na Bio\b/gi, "link do perfil")
+    .replace(/\bCTA\b/g, "chamada para ação")
+    .replace(
+      /\bchamada para ação voltado\b/gi,
+      "chamada para ação voltada",
+    )
+    .replaceAll("__CALL_TO_ACTION__", "chamada para ação")
+    .replace(/\s*\[[A-Z0-9_-]{2,}\]/g, "")
+    .replace(/\s+,/g, ",")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 type Totals = {
@@ -61,13 +141,91 @@ function emptyTotals(): Totals {
   };
 }
 
+type ReportAccountScope = {
+  /** `act_` ids the report is limited to, principal first; null = every collected account. */
+  accountIds: string[] | null;
+  names: Map<string, string>;
+};
+
+/**
+ * The client's enabled ad accounts when there is a selection — meta-tracking
+ * collects every account the token sees, which for a consultant's Facebook
+ * includes other companies. Names come from the selection, else the
+ * connection snapshot.
+ */
+async function loadReportAccountScope(userId: string): Promise<ReportAccountScope> {
+  const [enabledRows, connections] = await Promise.all([
+    db
+      .select({
+        assetId: metaEnabledAsset.assetId,
+        isPrimary: metaEnabledAsset.isPrimary,
+        displayName: metaEnabledAsset.displayName,
+      })
+      .from(metaEnabledAsset)
+      .where(
+        and(
+          eq(metaEnabledAsset.userId, userId),
+          eq(metaEnabledAsset.assetKind, "ad_account"),
+        ),
+      ),
+    db
+      .select({ assignedAssets: metaBusinessAccount.assignedAssets })
+      .from(metaBusinessAccount)
+      .where(
+        and(
+          eq(metaBusinessAccount.userId, userId),
+          isNull(metaBusinessAccount.deletedAt),
+        ),
+      )
+      .orderBy(desc(metaBusinessAccount.updatedAt))
+      .limit(1),
+  ]);
+
+  const names = new Map<string, string>();
+  for (const account of connections[0]?.assignedAssets?.adAccounts ?? []) {
+    const id = account.accountId ?? account.id.replace(/^act_/i, "");
+    if (account.name?.trim()) names.set(`act_${id}`, account.name.trim());
+  }
+  for (const row of enabledRows) {
+    const id = `act_${row.assetId.replace(/^act_/i, "")}`;
+    if (row.displayName?.trim()) names.set(id, row.displayName.trim());
+  }
+
+  const enabledIds = orderedEnabledAdAccountIds(enabledRows);
+  return {
+    accountIds: enabledIds.length > 0 ? enabledIds.map((id) => `act_${id}`) : null,
+    names,
+  };
+}
+
 async function aggregateCampaignMetrics(input: {
   userId: string;
   start: string;
   end: string;
-}): Promise<{ totals: Totals; campaigns: ClientReportCampaignCard[] }> {
+  campaignId?: string | null;
+  accountScope: ReportAccountScope;
+}): Promise<{
+  totals: Totals;
+  campaigns: ClientReportCampaignCard[];
+  accounts: ClientReportAccountRow[];
+}> {
+  const filters = [
+    eq(metaTrackingDailyMetric.userId, input.userId),
+    eq(metaTrackingDailyMetric.entityLevel, "campaign"),
+    gte(metaTrackingDailyMetric.metricDate, input.start),
+    lte(metaTrackingDailyMetric.metricDate, input.end),
+  ];
+  if (input.campaignId) {
+    filters.push(eq(metaTrackingDailyMetric.entityId, input.campaignId));
+  }
+  if (input.accountScope.accountIds) {
+    filters.push(
+      inArray(metaTrackingDailyMetric.accountId, input.accountScope.accountIds),
+    );
+  }
   const rows = await db
     .select({
+      accountId: metaTrackingDailyMetric.accountId,
       entityId: metaTrackingDailyMetric.entityId,
       spend: sql<string>`coalesce(sum(${metaTrackingDailyMetric.spend}::numeric), 0)`,
       purchaseValue: sql<string>`coalesce(sum(${metaTrackingDailyMetric.purchaseValue}::numeric), 0)`,
@@ -76,18 +234,13 @@ async function aggregateCampaignMetrics(input: {
       clicks: sql<string>`coalesce(sum(${metaTrackingDailyMetric.clicks}), 0)`,
     })
     .from(metaTrackingDailyMetric)
-    .where(
-      and(
-        eq(metaTrackingDailyMetric.userId, input.userId),
-        eq(metaTrackingDailyMetric.entityLevel, "campaign"),
-        gte(metaTrackingDailyMetric.metricDate, input.start),
-        lte(metaTrackingDailyMetric.metricDate, input.end),
-      ),
-    )
-    .groupBy(metaTrackingDailyMetric.entityId);
+    .where(and(...filters))
+    .groupBy(metaTrackingDailyMetric.accountId, metaTrackingDailyMetric.entityId);
 
   const totals = emptyTotals();
   const campaigns: ClientReportCampaignCard[] = [];
+  const byAccount = new Map<string, AccountTotals>();
+  const names = await loadCampaignNames(input.userId);
 
   for (const row of rows) {
     const spend = toNumber(row.spend);
@@ -98,9 +251,18 @@ async function aggregateCampaignMetrics(input: {
     totals.purchases += purchases;
     totals.impressions += toNumber(row.impressions);
     totals.clicks += toNumber(row.clicks);
+    const account = byAccount.get(row.accountId) ?? {
+      spend: 0,
+      purchaseValue: 0,
+      purchases: 0,
+    };
+    account.spend += spend;
+    account.purchaseValue += purchaseValue;
+    account.purchases += purchases;
+    byAccount.set(row.accountId, account);
     campaigns.push({
       id: row.entityId,
-      name: row.entityId,
+      name: names.get(row.entityId) ?? "Campanha sem nome",
       spend,
       purchaseValue,
       purchases,
@@ -109,7 +271,33 @@ async function aggregateCampaignMetrics(input: {
     });
   }
 
-  return { totals, campaigns };
+  return {
+    totals,
+    campaigns,
+    accounts: accountRowsFromTotals({
+      byAccount,
+      order: input.accountScope.accountIds,
+      names: input.accountScope.names,
+    }),
+  };
+}
+
+async function loadCampaignNames(userId: string): Promise<Map<string, string>> {
+  const rows = await db.execute(sql`
+    SELECT DISTINCT ON (entity_id) entity_id, entity_name
+    FROM meta_tracking_config_versions
+    WHERE user_id = ${userId}
+      AND entity_level = 'campaign'
+    ORDER BY entity_id, valid_to NULLS FIRST, valid_from DESC
+  `);
+  return new Map(
+    (rows as unknown as Array<{ entity_id: string; entity_name: string | null }>)
+      .filter((row) => Boolean(row.entity_name?.trim()))
+      .map((row) => [
+        row.entity_id,
+        customerFacingCampaignName(row.entity_name!.trim()),
+      ]),
+  );
 }
 
 async function loadPlan(userId: string): Promise<{
@@ -166,44 +354,163 @@ async function loadPlan(userId: string): Promise<{
 
 async function loadCreatives(
   userId: string,
-  start: string,
   end: string,
+  campaignId?: string | null,
 ): Promise<ClientReportCreativeCard[]> {
   const rows = await db.execute(sql`
     SELECT
-      ad_id,
-      COALESCE(diagnosis->>'summary', '') AS summary,
-      COALESCE(diagnosis->'craftGaps', '[]'::jsonb) AS craft_gaps,
-      COALESCE(likely_contributor, false) AS likely_contributor
-    FROM creative_diagnoses
-    WHERE user_id = ${userId}
-      AND created_at >= ${start}::date
-      AND created_at < (${end}::date + interval '1 day')
-      AND likely_contributor = true
+      recent.ad_id,
+      recent.creative_id,
+      recent.summary,
+      recent.craft_gaps,
+      recent.likely_contributor,
+      recent.media_items,
+      ad_config.entity_name AS ad_name,
+      creative.spec AS creative_spec
+    FROM (
+      SELECT DISTINCT ON (ad_id)
+        ad_id,
+        creative_id,
+        COALESCE(diagnosis->>'summary', '') AS summary,
+        COALESCE(diagnosis->'craftGaps', '[]'::jsonb) AS craft_gaps,
+        COALESCE(likely_contributor, false) AS likely_contributor,
+        media_items,
+        created_at
+      FROM creative_diagnoses
+      WHERE user_id = ${userId}
+        AND status = 'ready'
+        AND created_at >= (${end}::date - interval '30 days')
+        AND created_at < (${end}::date + interval '1 day')
+        AND likely_contributor = true
+        ${campaignId ? sql`AND campaign_id = ${campaignId}` : sql``}
+      ORDER BY ad_id, created_at DESC
+    ) AS recent
+    LEFT JOIN LATERAL (
+      SELECT entity_name
+      FROM meta_tracking_config_versions
+      WHERE user_id = ${userId}
+        AND entity_level = 'ad'
+        AND entity_id = recent.ad_id
+      ORDER BY valid_to NULLS FIRST, valid_from DESC
+      LIMIT 1
+    ) AS ad_config ON true
+    LEFT JOIN meta_tracking_creatives AS creative
+      ON creative.id = recent.creative_id
     ORDER BY created_at DESC
     LIMIT 5
   `);
 
   return (rows as unknown as Array<Record<string, unknown>>).map((row) => {
-    const gaps = Array.isArray(row.craft_gaps)
-      ? row.craft_gaps.map((gap) =>
-          typeof gap === "string"
-            ? gap
-            : String((gap as { dimension?: string }).dimension ?? ""),
-        )
+    const rawGaps = Array.isArray(row.craft_gaps) ? row.craft_gaps : [];
+    const findings = rawGaps.flatMap((gap) => {
+      if (!gap || typeof gap !== "object") return [];
+      const value = gap as Record<string, unknown>;
+      const dimension = String(value.dimension ?? "").trim();
+      const finding = localizeCreativeText(String(value.finding ?? "").trim());
+      const suggestion = localizeCreativeText(
+        String(value.suggestion ?? "").trim(),
+      );
+      if (!dimension || !finding || !suggestion) return [];
+      return [{ dimension, finding, suggestion }];
+    });
+    const gaps = rawGaps
+      .map((gap) =>
+        typeof gap === "string"
+          ? gap
+          : String((gap as { dimension?: string }).dimension ?? ""),
+      )
+      .filter(Boolean);
+    const persistedMedia: NonNullable<ClientReportCreativeCard["media"]> =
+      Array.isArray(row.media_items)
+      ? row.media_items.flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const value = item as Record<string, unknown>;
+          if (
+            typeof value.r2Key !== "string" ||
+            (value.type !== "image" && value.type !== "video")
+          ) {
+            return [];
+          }
+          try {
+            return [
+              {
+                type: value.type,
+                url: getMediaPublicUrl(value.r2Key),
+                r2Key: value.r2Key,
+              },
+            ];
+          } catch {
+            return [];
+          }
+        })
       : [];
+    const fallbackMedia: NonNullable<ClientReportCreativeCard["media"]> =
+      previewFromCreativeSpec(row.creative_spec).map(
+      ({ type, url }) => ({ type, url }),
+    );
     return {
       adId: String(row.ad_id ?? ""),
-      name: null,
-      summary: String(row.summary ?? ""),
-      craftGaps: gaps.filter(Boolean).slice(0, 4),
+      name:
+        typeof row.ad_name === "string" && row.ad_name.trim()
+          ? customerFacingAdName(row.ad_name.trim())
+          : "Criativo com oportunidade de melhoria",
+      summary: localizeCreativeText(String(row.summary ?? "")),
+      craftGaps: gaps.slice(0, 4),
+      findings: findings.slice(0, 4),
+      media: (persistedMedia.length > 0 ? persistedMedia : fallbackMedia).slice(
+        0,
+        4,
+      ),
       likelyContributor: true,
       purchaseValue: null,
     };
   });
 }
 
-async function loadActions(userId: string): Promise<ClientReportAction[]> {
+function localizeSignal(row: Record<string, unknown>): ClientReportAction | null {
+  const ruleId = String(row.rule_id ?? "");
+  const metrics =
+    row.metrics && typeof row.metrics === "object"
+      ? (row.metrics as Record<string, unknown>)
+      : {};
+
+  if (ruleId === "low_ad_balance") {
+    const accountName = String(metrics.adAccountName ?? row.entity_name ?? "")
+      .trim();
+    const display = String(metrics.display ?? "saldo baixo").trim();
+    return {
+      title: "Saldo da conta de anúncios está baixo",
+      message: `${display}${accountName ? ` na conta ${accountName}` : ""}. Recarregue o saldo para evitar que as campanhas parem automaticamente.`,
+      actionPrompt:
+        "Meu saldo da Meta está baixo. Ajude-me a conferir a conta e evitar que as campanhas parem.",
+      deepLink: "/app/marketing",
+      estimatedWeeklyRevenue: null,
+    };
+  }
+
+  const title = String(row.title ?? "").trim();
+  const message = String(row.message ?? "").trim();
+  const actionPrompt = String(row.action_prompt ?? "").trim();
+  if (!title || !message || !actionPrompt) return null;
+  if (/[A-Za-z]{4,}\s+[A-Za-z]{4,}/.test(title) && !/[áàâãéêíóôõúç]/i.test(title)) {
+    return null;
+  }
+  const weekly =
+    toNumber(metrics.weeklyPurchaseValue) ||
+    toNumber(metrics.estimatedWeeklyRevenue);
+  return {
+    title: localizeCreativeText(title),
+    message: localizeCreativeText(message),
+    actionPrompt: localizeCreativeText(actionPrompt),
+    deepLink: String(row.deep_link ?? "/app/mat"),
+    estimatedWeeklyRevenue: weekly > 0 ? weekly : null,
+  };
+}
+
+async function loadActions(
+  userId: string,
+  campaignId?: string | null,
+): Promise<ClientReportAction[]> {
   const insights = await db
     .select({
       title: performanceInsight.title,
@@ -221,42 +528,46 @@ async function loadActions(userId: string): Promise<ClientReportAction[]> {
     .limit(3);
 
   const signals = await db.execute(sql`
-    SELECT title, message, action_prompt, deep_link, metrics
+    SELECT rule_id, entity_id, entity_name, title, message, action_prompt,
+           deep_link, metrics
     FROM proactive_signals
     WHERE user_id = ${userId}
       AND status = 'open'
+      ${
+        campaignId
+          ? sql`AND (entity_id = ${campaignId} OR metrics->>'campaignId' = ${campaignId})`
+          : sql``
+      }
     ORDER BY last_detected_at DESC
     LIMIT 5
   `);
 
   const fromSignals = (
     signals as unknown as Array<Record<string, unknown>>
-  ).map((row) => {
-    const metrics =
-      row.metrics && typeof row.metrics === "object"
-        ? (row.metrics as Record<string, unknown>)
-        : {};
-    const weekly =
-      toNumber(metrics.weeklyPurchaseValue) ||
-      toNumber(metrics.estimatedWeeklyRevenue);
-    return {
-      title: String(row.title ?? "Ação"),
-      message: String(row.message ?? ""),
-      actionPrompt: row.action_prompt ? String(row.action_prompt) : null,
-      deepLink: String(row.deep_link ?? "/app/mat"),
-      estimatedWeeklyRevenue: weekly > 0 ? weekly : null,
-    };
+  ).flatMap((row) => {
+    const localized = localizeSignal(row);
+    return localized ? [localized] : [];
   });
 
   const fromInsights: ClientReportAction[] = insights.map((row) => ({
-    title: row.title,
-    message: row.recommendation,
-    actionPrompt: `Sobre ${row.entityName ?? "a conta"}: ${row.recommendation}`,
-    deepLink: "/app/mat",
+    title: localizeCreativeText(row.title),
+    message: localizeCreativeText(row.recommendation),
+    actionPrompt: localizeCreativeText(
+      `Sobre ${row.entityName ?? "a conta"}: ${row.recommendation}`,
+    ),
+    deepLink: "/app/marketing",
     estimatedWeeklyRevenue: null,
   }));
 
-  return [...fromSignals, ...fromInsights].slice(0, 3);
+  const seen = new Set<string>();
+  return [...fromSignals, ...fromInsights]
+    .filter((action) => {
+      const key = action.title.toLocaleLowerCase("pt-BR");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3);
 }
 
 async function loadWorkThisWeek(
@@ -269,13 +580,7 @@ async function loadWorkThisWeek(
       count: sql<number>`count(*)::int`,
     })
     .from(metaTrackingChangeEvent)
-    .where(
-      and(
-        eq(metaTrackingChangeEvent.userId, userId),
-        gte(metaTrackingChangeEvent.occurredAt, new Date(`${start}T00:00:00Z`)),
-        lte(metaTrackingChangeEvent.occurredAt, new Date(`${end}T23:59:59Z`)),
-      ),
-    );
+    .where(platformAdjustmentWhere(userId, start, end));
 
   const diagnoses = await db.execute(sql`
     SELECT count(*)::int AS count
@@ -362,6 +667,8 @@ export async function buildReportSnapshot(input: {
   periodType: ClientReportPeriodType;
   periodStart: string;
   periodEnd: string;
+  campaignId?: string | null;
+  generatedBy?: "automatic" | "user";
 }): Promise<{
   snapshotId: string;
   payload: ClientReportPayloadV1;
@@ -376,12 +683,15 @@ export async function buildReportSnapshot(input: {
     windowDays,
   };
   const payload = emptyPayload(period);
+  const accountScope = await loadReportAccountScope(input.userId);
 
-  const [{ totals, campaigns }, plan, prev] = await Promise.all([
+  const [{ totals, campaigns, accounts }, plan, prev] = await Promise.all([
     aggregateCampaignMetrics({
       userId: input.userId,
       start: input.periodStart,
       end: input.periodEnd,
+      campaignId: input.campaignId,
+      accountScope,
     }),
     loadPlan(input.userId),
     previousWindow(input.periodStart, input.periodEnd),
@@ -391,9 +701,22 @@ export async function buildReportSnapshot(input: {
     userId: input.userId,
     start: prev.start,
     end: prev.end,
+    campaignId: input.campaignId,
+    accountScope,
   });
+  const campaignName = input.campaignId
+    ? (campaigns[0]?.name ??
+      (await loadCampaignNames(input.userId)).get(input.campaignId) ??
+      "Campanha selecionada")
+    : null;
+  payload.scope = {
+    type: input.campaignId ? "campaign" : "account",
+    campaignId: input.campaignId ?? null,
+    campaignName,
+    generatedBy: input.generatedBy ?? "automatic",
+  };
 
-  const allocatedPlanCost = plan.planAmountReais
+  const allocatedPlanCost = !input.campaignId && plan.planAmountReais
     ? allocatePlanCost({
         planAmountReais: plan.planAmountReais,
         billingCycleDays: plan.billingCycleDays,
@@ -410,7 +733,7 @@ export async function buildReportSnapshot(input: {
     hasPayment: plan.hasPayment,
   });
 
-  const prevAllocated = plan.planAmountReais
+  const prevAllocated = !input.campaignId && plan.planAmountReais
     ? allocatePlanCost({
         planAmountReais: plan.planAmountReais,
         billingCycleDays: plan.billingCycleDays,
@@ -435,6 +758,7 @@ export async function buildReportSnapshot(input: {
     userId: input.userId,
     start: "2020-01-01",
     end: input.periodEnd,
+    accountScope,
   });
   const lifetimeDays = await db
     .select({
@@ -445,6 +769,9 @@ export async function buildReportSnapshot(input: {
       and(
         eq(metaTrackingDailyMetric.userId, input.userId),
         eq(metaTrackingDailyMetric.entityLevel, "campaign"),
+        ...(accountScope.accountIds
+          ? [inArray(metaTrackingDailyMetric.accountId, accountScope.accountIds)]
+          : []),
       ),
     );
   const firstDate = lifetimeDays[0]?.firstDate;
@@ -489,7 +816,9 @@ export async function buildReportSnapshot(input: {
     state: headlineState,
     purchaseValue: totals.purchaseValue,
     netReturn,
-    monthsPaidBack: paidBack.months,
+    monthsPaidBack: input.campaignId ? null : paidBack.months,
+    periodType: input.periodType,
+    campaignName,
   });
 
   const ranked = [...campaigns].sort(
@@ -503,8 +832,8 @@ export async function buildReportSnapshot(input: {
 
   const [creatives, actions, workThisWeek, previousSnapshots, benchmark] =
     await Promise.all([
-      loadCreatives(input.userId, input.periodStart, input.periodEnd),
-      loadActions(input.userId),
+      loadCreatives(input.userId, input.periodEnd, input.campaignId),
+      loadActions(input.userId, input.campaignId),
       loadWorkThisWeek(input.userId, input.periodStart, input.periodEnd),
       db
         .select()
@@ -513,6 +842,9 @@ export async function buildReportSnapshot(input: {
           and(
             eq(clientReportSnapshot.userId, input.userId),
             eq(clientReportSnapshot.periodType, input.periodType),
+            input.campaignId
+              ? eq(clientReportSnapshot.campaignId, input.campaignId)
+              : isNull(clientReportSnapshot.campaignId),
           ),
         )
         .orderBy(desc(clientReportSnapshot.periodStart))
@@ -574,13 +906,14 @@ export async function buildReportSnapshot(input: {
     },
   };
   payload.paidBack = {
-    ...paidBack,
+    ...(input.campaignId ? { months: null, visible: false } : paidBack),
     monthlyPlanPrice: plan.monthlyPlanPrice,
     cumulativeNetReturn: cumulativeNet,
     daysOfData,
     expirationDate: plan.expirationDate,
   };
   payload.campaigns = { best, needsAttention };
+  if (!input.campaignId && accounts.length > 1) payload.accounts = accounts;
   payload.creatives = creatives;
   payload.actions = actions;
   payload.workThisWeek = workThisWeek;
@@ -599,41 +932,48 @@ export async function buildReportSnapshot(input: {
         }
       : null;
 
-  const [upserted] = await db
-    .insert(clientReportSnapshot)
-    .values({
+  const snapshotWhere = and(
+    eq(clientReportSnapshot.userId, input.userId),
+    eq(clientReportSnapshot.periodType, input.periodType),
+    eq(clientReportSnapshot.periodStart, input.periodStart),
+    input.campaignId
+      ? eq(clientReportSnapshot.campaignId, input.campaignId)
+      : isNull(clientReportSnapshot.campaignId),
+  );
+  const [existing] = await db
+    .select({ id: clientReportSnapshot.id })
+    .from(clientReportSnapshot)
+    .where(snapshotWhere)
+    .limit(1);
+  const snapshotValues: typeof clientReportSnapshot.$inferInsert = {
       userId: input.userId,
       periodType: input.periodType,
       periodStart: input.periodStart,
       periodEnd: input.periodEnd,
+      scopeType: input.campaignId ? ("campaign" as const) : ("account" as const),
+      campaignId: input.campaignId ?? null,
+      generatedBy: input.generatedBy ?? ("automatic" as const),
       status: "built",
       headlineState,
       payload,
       monthsPaidBack:
-        paidBack.months !== null ? String(paidBack.months) : null,
+        !input.campaignId && paidBack.months !== null
+          ? String(paidBack.months)
+          : null,
       isPersonalBest,
       builtAt: new Date(),
       updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [
-        clientReportSnapshot.userId,
-        clientReportSnapshot.periodType,
-        clientReportSnapshot.periodStart,
-      ],
-      set: {
-        periodEnd: input.periodEnd,
-        status: "built",
-        headlineState,
-        payload,
-        monthsPaidBack:
-          paidBack.months !== null ? String(paidBack.months) : null,
-        isPersonalBest,
-        builtAt: new Date(),
-        updatedAt: new Date(),
-      },
-    })
-    .returning({ id: clientReportSnapshot.id });
+  };
+  const [upserted] = existing
+    ? await db
+        .update(clientReportSnapshot)
+        .set(snapshotValues)
+        .where(eq(clientReportSnapshot.id, existing.id))
+        .returning({ id: clientReportSnapshot.id })
+    : await db
+        .insert(clientReportSnapshot)
+        .values(snapshotValues)
+        .returning({ id: clientReportSnapshot.id });
 
   const snapshotId = upserted?.id;
   if (!snapshotId) {
@@ -650,13 +990,17 @@ export async function buildReportSnapshot(input: {
     .select({
       id: clientReportMission.id,
       title: clientReportMission.title,
+      message: clientReportMission.message,
       status: clientReportMission.status,
     })
     .from(clientReportMission)
-    .where(eq(clientReportMission.snapshotId, snapshotId));
+    .where(eq(clientReportMission.snapshotId, snapshotId))
+    .orderBy(asc(clientReportMission.createdAt))
+    .limit(actions.length);
   payload.missions = missions.map((row) => ({
     id: row.id,
     title: row.title,
+    message: row.message,
     status: row.status,
   }));
   await db
@@ -681,18 +1025,29 @@ async function seedMissions(input: {
     .select({ id: clientReportMission.id })
     .from(clientReportMission)
     .where(eq(clientReportMission.snapshotId, input.snapshotId))
-    .limit(1);
-  if (existing.length > 0) return;
+    .orderBy(asc(clientReportMission.createdAt));
 
-  for (const action of input.actions) {
-    await db.insert(clientReportMission).values({
-      userId: input.userId,
-      snapshotId: input.snapshotId,
+  for (const [index, action] of input.actions.entries()) {
+    const values = {
       title: action.title,
       message: action.message,
       actionPrompt: action.actionPrompt,
       deepLink: action.deepLink,
-      status: "suggested",
-    });
+      updatedAt: new Date(),
+    };
+    const current = existing[index];
+    if (current) {
+      await db
+        .update(clientReportMission)
+        .set(values)
+        .where(eq(clientReportMission.id, current.id));
+    } else {
+      await db.insert(clientReportMission).values({
+        userId: input.userId,
+        snapshotId: input.snapshotId,
+        ...values,
+        status: "suggested",
+      });
+    }
   }
 }

@@ -7,6 +7,7 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { checkAudienceSelectionAvailability } from "@/lib/meta-business/marketing/audiences/selection-guard";
+import { scheduleLockRouteBody } from "@/lib/meta-business/marketing/update/schedule-lock";
 import { createAdSetEditLog } from "@/lib/db/admin-queries";
 import { recordInternalChangeEvent } from "@/lib/db/meta-tracking-event-queries";
 import { buildInternalChangeEvent } from "@/lib/meta-tracking/internal-change-event";
@@ -37,6 +38,19 @@ import {
   type InterestTargetingValue,
 } from "@/lib/meta-business/interest-targeting-types";
 import { validateInterestTargetingForEdit } from "@/lib/meta-business/parse-interest-targeting-request";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
+import {
+  scheduleAndDatesChangedTogether,
+  scheduleWithDatesRouteBody,
+} from "@/lib/meta-business/schedule-dates-change";
+import {
+  adSetScheduleForEdit,
+  campaignScheduleShapeFromGraph,
+  cboScheduleEditable,
+  normalizePacingType,
+  type AdSetScheduleBlock,
+  type RequestedSchedule,
+} from "@/lib/meta-business/schedule-shape";
 import {
   INSTAGRAM_PLACEMENTS,
   isValidPlacementKey,
@@ -102,7 +116,8 @@ type EditAdSetResponse = {
       previousPacingType?: GraphApiAdSet["pacing_type"];
       newPacingType: string[];
       previousAdsetSchedule?: GraphApiAdSet["adset_schedule"];
-      newAdsetSchedule: ReturnType<typeof toMetaAdSetScheduleBlocks>;
+      /** Grade nova: blocos do diálogo (ABO) ou a grade da campanha programada (CBO liberada). */
+      newAdsetSchedule: ReturnType<typeof toMetaAdSetScheduleBlocks> | AdSetScheduleBlock[];
     };
     promotedObject?: {
       previous: Record<string, unknown> | null;
@@ -355,12 +370,13 @@ export async function PATCH(
     const previousLifetimeBudget = currentAdSet.lifetime_budget ?? null;
     const previousStartTime = currentAdSet.start_time ?? null;
     const previousEndTime = currentAdSet.end_time ?? null;
+    const previousPacingType = currentAdSet.pacing_type;
     const previousTargeting = currentAdSet.targeting ?? null;
     const currentCampaign = await metaApiCall<GraphApiCampaign>({
       domain: "FACEBOOK",
       method: "GET",
       path: currentAdSet.campaign_id ?? campaignId ?? "",
-      params: "fields=id,daily_budget,lifetime_budget",
+      params: "fields=id,daily_budget,lifetime_budget,pacing_type,bid_strategy",
       accessToken,
     });
     const usesCBO =
@@ -372,6 +388,29 @@ export async function PATCH(
       hasPositiveMinorUnits(currentCampaign.lifetime_budget) ||
       hasPositiveMinorUnits(previousLifetimeBudget) ||
       hasLifetimeBudgetChange;
+
+    // Horário de conjunto sob orçamento de campanha: só a grade muda, e só quando a campanha
+    // nasceu programada e a conta está liberada (lib/meta-business/schedule-shape.ts). Nos
+    // demais casos a Meta aceitaria e o conjunto pararia de veicular de vez
+    // (lib/meta-business/marketing/update/schedule-lock.ts).
+    const campaignScheduleShape = campaignScheduleShapeFromGraph(currentCampaign, currentAdSet);
+    const cboScheduleEdit =
+      usesCBO &&
+      cboScheduleEditable(campaignScheduleShape, isCboDaypartingReleased(accountId));
+    if (hasDeliveryScheduleChange && usesCBO && !cboScheduleEdit) {
+      return NextResponse.json(scheduleLockRouteBody(), { status: 400 });
+    }
+    if (
+      cboScheduleEdit &&
+      scheduleAndDatesChangedTogether({
+        hasDeliveryScheduleChange,
+        startTime,
+        endTime,
+        current: { startTime: previousStartTime, endTime: previousEndTime },
+      })
+    ) {
+      return NextResponse.json(scheduleWithDatesRouteBody(), { status: 400 });
+    }
 
     if (hasDailyBudgetChange && hasLifetimeBudgetChange) {
       return NextResponse.json(
@@ -543,33 +582,56 @@ export async function PATCH(
         );
       }
 
-      const nextMetaSchedule =
-        nextDeliveryMode === "specific_hours"
-          ? toMetaAdSetScheduleBlocks(scheduleBlocks)
-          : [];
-      const nextPacingType =
-        nextDeliveryMode === "specific_hours" ? ["day_parting"] : ["standard"];
+      if (cboScheduleEdit) {
+        // Etapa 2: campanha programada — só a grade. Datas mudadas pelo usuário seguem pelo
+        // bloco de datas acima; a troca de horário não acrescenta nada além da grade.
+        const requested: RequestedSchedule =
+          nextDeliveryMode === "specific_hours"
+            ? { mode: "specific_hours", blocks: toMetaAdSetScheduleBlocks(scheduleBlocks) }
+            : { mode: "all_day" };
+        const decision = adSetScheduleForEdit(campaignScheduleShape, requested, true);
+        if (!decision.ok) {
+          return NextResponse.json(
+            { error: decision.code, message: decision.message, solution: decision.solution },
+            { status: 400 },
+          );
+        }
+        updateParams.adset_schedule = JSON.stringify(decision.fields.adset_schedule ?? []);
+        changes.deliverySchedule = {
+          previousPacingType,
+          newPacingType: normalizePacingType(previousPacingType) ?? [],
+          previousAdsetSchedule: currentAdSet.adset_schedule,
+          newAdsetSchedule: decision.fields.adset_schedule ?? [],
+        };
+      } else {
+        const nextMetaSchedule =
+          nextDeliveryMode === "specific_hours"
+            ? toMetaAdSetScheduleBlocks(scheduleBlocks)
+            : [];
+        const nextPacingType =
+          nextDeliveryMode === "specific_hours" ? ["day_parting"] : ["standard"];
 
-      updateParams.pacing_type = JSON.stringify(nextPacingType);
-      updateParams.adset_schedule = JSON.stringify(nextMetaSchedule);
-      const currentLifetimeBudget = currentAdSet.lifetime_budget;
-      if (
-        nextDeliveryMode === "specific_hours" &&
-        hasPositiveMinorUnits(currentLifetimeBudget)
-      ) {
-        updateParams.lifetime_budget = currentLifetimeBudget;
-      }
-      const effectiveEndTime = endTime ?? currentAdSet.end_time;
-      if (nextDeliveryMode === "specific_hours" && effectiveEndTime) {
-        updateParams.end_time = new Date(effectiveEndTime).toISOString();
-      }
+        updateParams.pacing_type = JSON.stringify(nextPacingType);
+        updateParams.adset_schedule = JSON.stringify(nextMetaSchedule);
+        const currentLifetimeBudget = currentAdSet.lifetime_budget;
+        if (
+          nextDeliveryMode === "specific_hours" &&
+          hasPositiveMinorUnits(currentLifetimeBudget)
+        ) {
+          updateParams.lifetime_budget = currentLifetimeBudget;
+        }
+        const effectiveEndTime = endTime ?? currentAdSet.end_time;
+        if (nextDeliveryMode === "specific_hours" && effectiveEndTime) {
+          updateParams.end_time = new Date(effectiveEndTime).toISOString();
+        }
 
-      changes.deliverySchedule = {
-        previousPacingType: currentAdSet.pacing_type,
-        newPacingType: nextPacingType,
-        previousAdsetSchedule: currentAdSet.adset_schedule,
-        newAdsetSchedule: nextMetaSchedule,
-      };
+        changes.deliverySchedule = {
+          previousPacingType: currentAdSet.pacing_type,
+          newPacingType: nextPacingType,
+          previousAdsetSchedule: currentAdSet.adset_schedule,
+          newAdsetSchedule: nextMetaSchedule,
+        };
+      }
     }
 
     let newTargeting: AdSetTargeting | undefined;

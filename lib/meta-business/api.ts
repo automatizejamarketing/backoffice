@@ -12,6 +12,7 @@ import {
 } from "./error";
 import { appSecretProofParam, facebookAppSecret } from "./appsecret-proof";
 import { logMetaCall } from "@/lib/observability/meta-logger";
+import { withObjectBusyRetry } from "./object-busy";
 
 export type MetaApiCallParams = {
   domain?: "FACEBOOK" | "INSTAGRAM";
@@ -23,7 +24,15 @@ export type MetaApiCallParams = {
   accessToken: string;
 };
 
-export async function metaApiCall<T>({
+export function metaApiCall<T>(args: MetaApiCallParams): Promise<T> {
+  const isFacebookWrite = (args.domain ?? "FACEBOOK") === "FACEBOOK" &&
+    (args.method === "POST" || args.method === "DELETE" || args.method === "PATCH");
+  return isFacebookWrite
+    ? withObjectBusyRetry(() => metaApiCallOnce<T>(args))
+    : metaApiCallOnce<T>(args);
+}
+
+async function metaApiCallOnce<T>({
   domain = "FACEBOOK",
   method,
   path,
@@ -124,6 +133,18 @@ export async function metaApiCall<T>({
     }
 
     const json = (await response.json()) as T;
+    // Graph can reject a write in a JSON error envelope with HTTP 200.
+    const bodyError = parseGraphError(json);
+    if (bodyError.data) {
+      logMetaCall({
+        phase: "error", method, endpoint, requestParams,
+        httpStatus: response.status, durationMs, errorData: json,
+      });
+      throw new GraphApiError({
+        ...bodyError,
+        rateLimit: parseRateLimitHeaders(response.headers),
+      });
+    }
     logMetaCall({
       phase: "success",
       method,

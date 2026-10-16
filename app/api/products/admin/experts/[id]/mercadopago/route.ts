@@ -1,26 +1,19 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import {
+  getExpertMercadoPagoPanel,
+  selectedMercadoPagoEnvironment,
+} from "@/lib/products/expert-mercadopago-panel";
 import { requireBackofficePermissionResponse } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { mercadoPagoExpertConnection, mercadoPagoReceiverSwitch } from "@/lib/db/schema";
-
-function selectedEnvironment() {
-  return process.env.MERCADOPAGO_ENVIRONMENT === "sandbox"
-    ? ("sandbox" as const)
-    : ("production" as const);
-}
 
 /** Operational read model: deliberately excludes every OAuth credential. */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const authz = await requireBackofficePermissionResponse("products:manage");
   if (!authz.ok) return authz.response;
   const { id } = await params;
-  const env = selectedEnvironment();
-  const [[connection], [switchRequest]] = await Promise.all([
-    db.select({ environment: mercadoPagoExpertConnection.environment, mpUserId: mercadoPagoExpertConnection.mpUserId, pix: mercadoPagoExpertConnection.pixStatus, card: mercadoPagoExpertConnection.cardStatus, revokedAt: mercadoPagoExpertConnection.revokedAt, updatedAt: mercadoPagoExpertConnection.updatedAt, lastValidatedAt: mercadoPagoExpertConnection.lastValidatedAt, lastValidationError: mercadoPagoExpertConnection.lastValidationError }).from(mercadoPagoExpertConnection).where(and(eq(mercadoPagoExpertConnection.expertId, id), eq(mercadoPagoExpertConnection.environment, env))).limit(1),
-    db.select({ state: mercadoPagoReceiverSwitch.state, nextMpUserId: mercadoPagoReceiverSwitch.nextMpUserId, authorizationReason: mercadoPagoReceiverSwitch.authorizationReason, authorizedBy: mercadoPagoReceiverSwitch.authorizedBy, updatedAt: mercadoPagoReceiverSwitch.updatedAt }).from(mercadoPagoReceiverSwitch).where(and(eq(mercadoPagoReceiverSwitch.expertId, id), eq(mercadoPagoReceiverSwitch.environment, env))).limit(1),
-  ]);
-  return NextResponse.json(connection ? { connected: !connection.revokedAt, environment: connection.environment, accountId: connection.mpUserId, pix: connection.pix, card: connection.card, updatedAt: connection.updatedAt, lastValidatedAt: connection.lastValidatedAt, validationError: connection.lastValidationError, switch: switchRequest ?? null } : { connected: false, environment: env, pix: "unknown", card: "unknown", lastValidatedAt: null, validationError: null, switch: switchRequest ?? null });
+  return NextResponse.json(await getExpertMercadoPagoPanel(id));
 }
 
 /** Audited operator release. The Expert must still complete their own OAuth
@@ -36,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const reason = body.reason?.trim() ?? "";
   if (!reason) return NextResponse.json({ error: "receiver_switch_reason_required" }, { status: 422 });
   if (reason.length > 500) return NextResponse.json({ error: "receiver_switch_reason_too_long" }, { status: 422 });
-  const env = selectedEnvironment();
+  const env = selectedMercadoPagoEnvironment();
   if (body.environment && body.environment !== env) {
     return NextResponse.json({ error: "receiver_switch_environment_mismatch" }, { status: 422 });
   }

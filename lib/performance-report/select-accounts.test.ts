@@ -167,3 +167,47 @@ describe("account name and managed prefix helpers", () => {
     ).toBe(false);
   });
 });
+
+describe("selectReportAccounts — contas habilitadas pelo cliente", () => {
+  const ca01 = { id: "act_4282062908742907", name: "CA 01 - Alpina Burguer" };
+  const ca02 = { id: "act_1063291159876070", name: "CA 02 - Alpina Burguer" };
+  const outra = { id: "act_999", name: "Outra Empresa" };
+
+  test("Alpina: both enabled accounts, principal first, beat the managed heuristic", () => {
+    const selection = selectReportAccounts({
+      connected: [ca01, ca02, outra],
+      enabledAccountIds: ["1063291159876070", "4282062908742907"],
+      managedAccountIds: ["act_1063291159876070"],
+    });
+
+    expect(selection.mode).toBe("client_enabled");
+    expect(selection.selected.map((row) => row.id)).toEqual([ca02.id, ca01.id]);
+    expect(selection.skipped.map((row) => row.id)).toEqual([outra.id]);
+    expect(selection.summary).toContain("todas as contas habilitadas pelo cliente");
+    expect(selection.summary).toContain("separados por conta");
+    expect(selection.summary).toContain("Fora do escopo: Outra Empresa");
+  });
+
+  test("enabled account the token no longer sees falls back to the old rules", () => {
+    const selection = selectReportAccounts({
+      connected: [ca01],
+      enabledAccountIds: ["555"],
+      managedAccountIds: ["act_4282062908742907"],
+    });
+
+    expect(selection.mode).toBe("automatize_managed");
+    expect(selection.selected.map((row) => row.id)).toEqual([ca01.id]);
+  });
+
+  test("an explicit account still wins over the enabled set", () => {
+    const selection = selectReportAccounts({
+      connected: [ca01, ca02],
+      explicitAccountId: "4282062908742907",
+      enabledAccountIds: ["1063291159876070", "4282062908742907"],
+      managedAccountIds: [],
+    });
+
+    expect(selection.mode).toBe("explicit");
+    expect(selection.selected.map((row) => row.id)).toEqual([ca01.id]);
+  });
+});

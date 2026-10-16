@@ -21,7 +21,8 @@ class RouteDb {
 const routeDb = new RouteDb();
 let serviceMode: "conflict" | "success" = "conflict";
 
-mock.module("next/cache", () => ({ revalidatePath: () => undefined }));
+// Process-wide in bun: keep every export other suites import (revalidateTag, unstable_cache).
+mock.module("next/cache", () => ({ revalidatePath: () => undefined, revalidateTag: () => undefined, unstable_cache: <T>(fn: T) => fn }));
 mock.module("next/server", () => ({
   NextResponse: {
     json: (body: unknown, init?: { status?: number }) =>

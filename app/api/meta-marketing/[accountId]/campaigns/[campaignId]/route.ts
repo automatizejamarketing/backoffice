@@ -5,6 +5,7 @@ import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import type { Campaign, GraphApiCampaign } from "@/lib/meta-business/types";
 import { transformCampaign } from "@/lib/meta-business/transformers";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 
 type GetCampaignResponse = Partial<{
   campaign: Campaign;
@@ -27,6 +28,7 @@ function buildCampaignFields(): string {
     "lifetime_budget",
     "budget_remaining",
     "is_adset_budget_sharing_enabled",
+    "pacing_type",
     "start_time",
     "stop_time",
     "created_time",
@@ -42,7 +44,7 @@ export async function GET(
   }: { params: Promise<{ accountId: string; campaignId: string }> },
 ): Promise<NextResponse<GetCampaignResponse | CampaignErrorResponse>> {
   try {
-    const { campaignId } = await params;
+    const { accountId, campaignId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -82,7 +84,10 @@ export async function GET(
 
     return NextResponse.json(
       {
-        campaign: transformCampaign(campaign),
+        campaign: {
+          ...transformCampaign(campaign),
+          scheduleReleased: isCboDaypartingReleased(accountId),
+        },
       },
       { status: 200 },
     );

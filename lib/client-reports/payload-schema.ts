@@ -1,7 +1,11 @@
 export const CLIENT_REPORT_PAYLOAD_VERSION = "v1" as const;
 
 export type ClientReportHeadlineState = "good" | "neutral" | "bad";
-export type ClientReportPeriodType = "weekly" | "monthly" | "cycle";
+export type ClientReportPeriodType =
+  | "weekly"
+  | "monthly"
+  | "custom"
+  | "campaign";
 
 export type ClientReportDelta = {
   spend: number | null;
@@ -20,11 +24,31 @@ export type ClientReportCampaignCard = {
   cpa: number | null;
 };
 
+/** One row per ad account when the report covers more than one. */
+export type ClientReportAccountRow = {
+  accountId: string;
+  name: string;
+  spend: number;
+  purchaseValue: number;
+  purchases: number;
+  roas: number | null;
+};
+
 export type ClientReportCreativeCard = {
   adId: string;
   name: string | null;
   summary: string;
   craftGaps: string[];
+  findings?: Array<{
+    dimension: string;
+    finding: string;
+    suggestion: string;
+  }>;
+  media?: Array<{
+    type: "image" | "video";
+    url: string;
+    r2Key?: string;
+  }>;
   likelyContributor: boolean;
   purchaseValue: number | null;
 };
@@ -44,6 +68,12 @@ export type ClientReportOutcome = {
 
 export type ClientReportPayloadV1 = {
   schemaVersion: typeof CLIENT_REPORT_PAYLOAD_VERSION;
+  scope?: {
+    type: "account" | "campaign";
+    campaignId: string | null;
+    campaignName: string | null;
+    generatedBy: "automatic" | "user";
+  };
   period: {
     type: ClientReportPeriodType;
     start: string;
@@ -79,11 +109,14 @@ export type ClientReportPayloadV1 = {
     best: ClientReportCampaignCard[];
     needsAttention: ClientReportCampaignCard[];
   };
+  /** Present only when two or more accounts had data; the scorecard is their sum. */
+  accounts?: ClientReportAccountRow[];
   creatives: ClientReportCreativeCard[];
   actions: ClientReportAction[];
   missions: Array<{
     id: string;
     title: string;
+    message?: string | null;
     status: "suggested" | "started" | "done" | "skipped";
   }>;
   workThisWeek: {
@@ -121,6 +154,12 @@ export function emptyPayload(
 ): ClientReportPayloadV1 {
   return {
     schemaVersion: CLIENT_REPORT_PAYLOAD_VERSION,
+    scope: {
+      type: "account",
+      campaignId: null,
+      campaignName: null,
+      generatedBy: "automatic",
+    },
     period,
     headline: {
       state: "neutral",
@@ -162,7 +201,7 @@ export function emptyPayload(
     benchmark: null,
     methodology: {
       attributionLabel:
-        "Vendas atribuídas pela Meta aos anúncios (pixel de compra).",
+        "Vendas que a Meta atribuiu aos anúncios pelo rastreamento de compras.",
       windowLabel: `${period.start} a ${period.end}`,
     },
   };
@@ -173,24 +212,26 @@ export function headlineForState(input: {
   purchaseValue: number;
   netReturn: number | null;
   monthsPaidBack: number | null;
+  periodType?: ClientReportPeriodType;
+  campaignName?: string | null;
 }): { title: string; subtitle: string } {
   const sales = formatReais(input.purchaseValue);
+  const subject = input.campaignName
+    ? `A campanha ${input.campaignName}`
+    : input.periodType === "monthly"
+      ? "O mês"
+      : input.periodType === "weekly"
+        ? "A semana"
+        : "O período";
   if (input.state === "good") {
-    const months = input.monthsPaidBack;
-    const subtitle =
-      months !== null && months >= 1
-        ? `Esse retorno já cobriu cerca de ${months.toFixed(1)} ${
-            months >= 2 ? "meses" : "mês"
-          } de Automatize.`
-        : `Vendas atribuídas aos anúncios: ${sales}.`;
     return {
-      title: "Semana com retorno positivo",
-      subtitle,
+      title: `${subject} teve retorno positivo`,
+      subtitle: "Os anúncios renderam mais do que o investimento em mídia.",
     };
   }
   if (input.state === "bad") {
     return {
-      title: "Semana para ajustar",
+      title: `${subject} pede ajustes`,
       subtitle:
         "Os anúncios não pagaram o investimento. Abaixo está o que vale fazer agora.",
     };
@@ -210,6 +251,16 @@ export function formatReais(value: number): string {
     currency: "BRL",
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+export function formatPaidBackDuration(months: number): string {
+  if (months >= 24) return "mais de 2 anos";
+  if (months >= 12) {
+    return `${(months / 12).toFixed(1).replace(".", ",")} anos`;
+  }
+  return `${months.toFixed(1).replace(".", ",")} ${
+    months >= 2 ? "meses" : "mês"
+  }`;
 }
 
 export function resolveHeadlineState(input: {

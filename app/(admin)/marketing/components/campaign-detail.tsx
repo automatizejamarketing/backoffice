@@ -490,6 +490,8 @@ export function CampaignDetail({
         usesCampaignBudget={campaign.usesCampaignBudget}
         campaignDailyBudget={campaign.dailyBudget}
         campaignLifetimeBudget={campaign.lifetimeBudget}
+        campaignPacingType={campaign.pacingType}
+        scheduleReleased={campaign.scheduleReleased}
         accountId={accountId}
         userId={userId}
         isOpen={isCreateAdSetOpen}

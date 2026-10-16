@@ -1,0 +1,41 @@
+{
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/222/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\nConta sintética 222\nhabilitada\n\nBiblioteca do cliente e da conta selecionados. A consulta é reautorizada no servidor; listar um público não libera suas demais ações.\n\n6 públicos nesta página\n\nCriar público\nNome\nTipo\nTamanho\nStatus\nAções\n\nClientes com capacidade comprovada 222\n\nLista de clientes\n\n1.000–1.500\n\nPronto\n\nEditar\nExcluir na Meta\n\nInstagram engajamento 222\n\nInstagram\n\n2.500–3.500\n\nPronto\n\nEditar\nExcluir na Meta\n\nVisitantes do site 222\n\nSite\n\n0–0\n\nPronto\n\nEditar\nExcluir na Meta\n\nSemelhante Brasil 1% 222\n\nSemelhante\n\n—\n\nPronto\n\nEditar\nExcluir na Meta\n\nRegra externa composta 222\n\nWEBSITE\n\n—\n\nPronto\n\nEditar\nExcluir na Meta\n\nLista com importação pendente 222\n\nImportação com pendência\n\nLista de clientes\n\n—\n\nPronto\n\nEditar\nExcluir na Meta\nAnterior\nPágina 1 · consulta em 05/10/2026, 12:00:00 · 2 limitação(ões) da consulta\nPróxima\n\nFixture do navegador: consulta não comprova autorização Meta.\n\nNenhuma operação real foi executada.",
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=999"
+}

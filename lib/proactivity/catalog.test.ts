@@ -19,9 +19,12 @@ describe("proactivity catalog", () => {
     const seeds = seedRowsFromCatalog();
     expect(seeds.length).toBe(PROACTIVITY_ALERT_DEFINITIONS.length);
     for (const seed of seeds) {
+      const definition = PROACTIVITY_ALERT_DEFINITIONS.find(
+        (def) => def.ruleKey === seed.ruleKey && def.audience === seed.audience,
+      );
       expect(seed.enabled).toBe(true);
       expect(seed.deliverWhatsapp).toBe(false);
-      expect(seed.deliverSlack).toBe(false);
+      expect(seed.deliverSlack).toBe(Boolean(definition?.accountRuleId));
     }
   });
 

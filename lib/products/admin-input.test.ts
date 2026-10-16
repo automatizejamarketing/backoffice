@@ -214,4 +214,37 @@ describe("product admin input", () => {
       }),
     );
   });
+
+  it("keeps tracking pixels untouched when absent and validates them when sent", () => {
+    const base = {
+      ownerType: "automatize",
+      title: "Produto",
+      priceCentavos: 1000,
+    };
+    assert.equal("trackingPixels" in parseProductAdminInput(base), false);
+    assert.deepEqual(
+      parseProductAdminInput({
+        ...base,
+        trackingPixels: [
+          { provider: "tiktok", pixelId: "cabcd1234efgh5678ij0" },
+        ],
+      }).trackingPixels,
+      [
+        {
+          provider: "tiktok",
+          pixelId: "CABCD1234EFGH5678IJ0",
+          conversionLabel: null,
+          purchaseOnPixGenerated: false,
+        },
+      ],
+    );
+    assert.throws(
+      () =>
+        parseProductAdminInput({
+          ...base,
+          trackingPixels: [{ provider: "meta", pixelId: "abc" }],
+        }),
+      /não é um ID válido/,
+    );
+  });
 });

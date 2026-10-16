@@ -1,0 +1,19 @@
+Independent evaluator raw-log extract. Complete raw output retained in the ignored plan workspace.
+
+exit=1
+
+(fail) real draft publish route respects object cooldown: noop
+(fail) journal de migrations compartilhado > não estreia colisão de `when` com o repositório irmão
+(fail) journal de migrations compartilhado > gêmeas byte-idênticas compartilham o mesmo when
+(fail) retail sales drafts use the resolved authorized Page when pageId is omitted
+(fail) capture retries/concurrency, preserves status and answers, signup link and account email changes
+(fail) pool preserves transactions, queues work, releases idle clients and reconnects
+(fail) business location actions > the last location menu escapes the clipping settings card
+(fail) listagem ao vivo > forma completa lê a Graph (stub) e, com a flag desligada, devolve enabled = granted
+(fail) GET assets com listagem ao vivo > usa a listagem atual (Portfólio no token user) via stub da Graph
+
+ 4194 pass
+ 10 skip
+ 12 fail
+ 3 errors
+Ran 4216 tests across 609 files. [230.41s]

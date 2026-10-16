@@ -11,10 +11,10 @@ import {
  *  então uma linha antiga pode trazer qualquer string e a UI tem que degradar. */
 const HISTORICAL_PROVIDER = "legacy_gateway" as BillingProvider;
 
-test("financeProvider maps Stripe to card, Mercado Pago to pix, and manual to manual", () => {
+test("financeProvider maps Stripe to card, Mercado Pago to pix, Efí to pix_automatic, and manual to manual", () => {
   assert.equal(financeProvider({ provider: "stripe" }), "card");
   assert.equal(financeProvider({ provider: "mercadopago" }), "pix");
-  assert.equal(financeProvider({ provider: "efi" }), "pix");
+  assert.equal(financeProvider({ provider: "efi", paymentMethod: "pix" }), "pix_automatic");
   assert.equal(financeProvider({ provider: "manual" }), "manual");
 });
 
@@ -33,6 +33,7 @@ test("financeProvider leaves rows of an unknown provider unclassified so listing
 test("financeProviderLabel never names the raw provider", () => {
   assert.equal(financeProviderLabel({ provider: "stripe" }), "Cartão");
   assert.equal(financeProviderLabel({ provider: "mercadopago" }), "PIX");
+  assert.equal(financeProviderLabel({ provider: "efi" }), "Pix Automático");
   assert.equal(financeProviderLabel({ provider: "manual" }), "Manual");
   assert.equal(
     financeProviderLabel({ provider: HISTORICAL_PROVIDER, paymentMethod: "credit_card" }),

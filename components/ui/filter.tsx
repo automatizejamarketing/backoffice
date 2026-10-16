@@ -93,6 +93,8 @@ export type FilterDateProps = {
   onChange: (condition: DateCondition | undefined) => void;
   minDate?: Date;
   maxDate?: Date;
+  /** Texto do gatilho sem recorte. Padrão: "Selecionar". */
+  placeholder?: string;
   className?: string;
   disabled?: boolean;
 };
@@ -133,6 +135,7 @@ export function FilterDate({
   onChange,
   minDate,
   maxDate,
+  placeholder = "Selecionar",
   className,
   disabled,
 }: FilterDateProps) {
@@ -148,7 +151,7 @@ export function FilterDate({
     op === "between"
       ? validateDateRange(from, to, minDate, maxDate)
       : validateSingleDate(date, minDate, maxDate);
-  const display = value ? formatDateCondition(value) : "Selecionar";
+  const display = value ? formatDateCondition(value) : placeholder;
 
   function loadDraft(condition?: DateCondition) {
     setOp(condition?.op ?? "between");

@@ -2,16 +2,34 @@ export const BACKOFFICE_ROLE_VALUES = [
   "admin",
   "dev",
   "marketing_consultant",
+  "marketing_consultant_premium",
   "finance_viewer",
   "comercial",
 ] as const;
 
 export type BackofficeRole = (typeof BACKOFFICE_ROLE_VALUES)[number];
 
+/**
+ * Consultor de marketing, comum ou premium: pode receber clientes atribuídos.
+ * O premium também mexe em qualquer cliente, como admin.
+ */
+export function isMarketingConsultantRole(role: BackofficeRole): boolean {
+  return role === "marketing_consultant" || role === "marketing_consultant_premium";
+}
+
+/**
+ * Só o consultor comum fica preso à carteira atribuída.
+ * O premium continua atribuível e vê alertas, carteira e marketing de todo mundo.
+ */
+export function consultantSeesOnlyAssignedClients(role: BackofficeRole): boolean {
+  return role === "marketing_consultant";
+}
+
 export type BackofficePermission =
   | "dashboard:view"
   | "finance:view"
   | "emails:view"
+  | "whatsapp:campaigns"
   | "whatsapp:view"
   | "whatsapp:support-session"
   | "users:manage"
@@ -31,6 +49,8 @@ export type BackofficePermission =
   | "masterclass:manage"
   | "products:manage"
   | "creative-analysis:manage"
+  | "ambassadors:manage"
+  | "ambassadors:grant"
   | "team:manage";
 
 export type BackofficeActorSource =
@@ -47,6 +67,8 @@ export type BackofficeActor = {
   salesRole?: SalesRole | null;
   source: BackofficeActorSource;
   assignedUserIds?: string[];
+  ambassadorAccess?: boolean;
+  ambassadorGrant?: boolean;
 };
 
 export const SALES_ROLE_VALUES = [
@@ -98,6 +120,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "dashboard:view",
     "finance:view",
     "emails:view",
+    "whatsapp:campaigns",
     "whatsapp:view",
     "whatsapp:support-session",
     "users:manage",
@@ -119,6 +142,7 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
   dev: [
     "dashboard:view",
     "emails:view",
+    "whatsapp:campaigns",
     "whatsapp:view",
     "whatsapp:support-session",
     "users:manage",
@@ -134,6 +158,18 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
     "creative-analysis:manage",
   ],
   marketing_consultant: ["marketing:read", "marketing:write"],
+  // Consultor com carteira que, como admin, mexe em tudo do cliente: ficha,
+  // acesso, créditos, cobrança, campanhas e WhatsApp. Sem áreas internas.
+  marketing_consultant_premium: [
+    "users:manage",
+    "users:read",
+    "users:activate",
+    "billing:manage",
+    "marketing:read",
+    "marketing:write",
+    "whatsapp:view",
+    "whatsapp:support-session",
+  ],
   finance_viewer: ["finance:view"],
   // Time comercial: CRM, painel, usuários em leitura, ativação e contato.
   // Sem dinheiro (billing), sem alterar acesso/créditos, sem equipe.
@@ -142,7 +178,10 @@ const ROLE_PERMISSIONS: Record<BackofficeRole, BackofficePermission[]> = {
 
 function hasFullUserAccess(actor: BackofficeActor): boolean {
   return (
-    actor.role === "admin" || actor.role === "dev" || actor.role === "comercial"
+    actor.role === "admin" ||
+    actor.role === "dev" ||
+    actor.role === "comercial" ||
+    actor.role === "marketing_consultant_premium"
   );
 }
 
@@ -150,6 +189,13 @@ export function hasBackofficePermission(
   actor: BackofficeActor,
   permission: BackofficePermission,
 ): boolean {
+  if (permission === "ambassadors:manage")
+    return actor.role === "admin" || actor.ambassadorAccess === true;
+  if (permission === "ambassadors:grant")
+    return (
+      actor.role === "admin" ||
+      (actor.ambassadorAccess === true && actor.ambassadorGrant === true)
+    );
   return ROLE_PERMISSIONS[actor.role].includes(permission);
 }
 

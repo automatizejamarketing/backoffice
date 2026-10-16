@@ -1,0 +1,14 @@
+bun test v1.3.4 (5eb2145b)
+
+tests\meta-object-busy-publish.test.ts:
+(pass) real draft publish route respects object cooldown: noop [2031.00ms]
+(pass) real draft publish route respects object cooldown: changed [2266.00ms]
+(pass) real draft publish route respects object cooldown: external [3640.00ms]
+(pass) real draft publish route respects object cooldown: rollback [2094.00ms]
+
+tests\retail-sales-selected-identity.test.ts:
+(pass) retail sales drafts use the resolved authorized Page when pageId is omitted [969.00ms]
+
+ 5 pass
+ 0 fail
+Ran 5 tests across 2 files. [11.49s]

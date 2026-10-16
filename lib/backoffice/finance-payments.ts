@@ -189,7 +189,8 @@ export type FinancePaymentNetGapReason =
   | "stripe_settlement_unavailable"
   | "efi_fees_pending"
   | "mercadopago_fees_pending"
-  | "mercadopago_payment_not_found";
+  | "mercadopago_payment_not_found"
+  | "efi_fee_pending";
 
 export type FinancePaymentNetGap = {
   paymentId: string;
@@ -271,7 +272,7 @@ export function resolveAutomatizePaymentAmounts(
     } else if (payment.provider === "mercadopago") {
       missingNetReason = "mercadopago_fees_pending";
     } else if (payment.provider === "efi") {
-      missingNetReason = "efi_fees_pending";
+      missingNetReason = "efi_fee_pending";
     }
   }
 

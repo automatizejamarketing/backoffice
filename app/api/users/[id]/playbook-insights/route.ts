@@ -6,7 +6,9 @@ import {
 import {
   listOpenPlaybookInsightsForUser,
   updatePlaybookInsightStatus,
+  completePlaybookAlertGroup,
 } from "@/lib/db/playbook-insights-queries";
+import { parseAlertCompletionIds } from "@/lib/backoffice/playbook-alert-completion";
 import { applyPlaybookInsightAction } from "@/lib/playbook-insights/apply-action";
 import { isPlaybookApplyActionId } from "@/lib/playbook-insights/actions";
 import {
@@ -63,6 +65,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
 type PatchBody = {
   insightId?: string;
+  insightIds?: unknown;
   status?: "acknowledged" | "done" | "dismissed";
   reviewNote?: string | null;
 };
@@ -79,7 +82,30 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    if (!body.insightId) {
+    if (body?.insightIds !== undefined) {
+      const insightIds = parseAlertCompletionIds(body.insightIds);
+      if (!insightIds || body.status !== "done" || body.insightId) {
+        return NextResponse.json(
+          {
+            error:
+              "Provide a non-empty insightIds array and status done for group completion",
+          },
+          { status: 400 },
+        );
+      }
+      const updated = await completePlaybookAlertGroup({
+        insightIds,
+        userId,
+        reviewedByEmail: actor.email,
+        reviewNote: body.reviewNote ?? null,
+      });
+      return NextResponse.json({
+        completed: updated.length,
+        insights: updated,
+      });
+    }
+
+    if (!body?.insightId) {
       return NextResponse.json(
         { error: "insightId is required" },
         { status: 400 },
@@ -167,7 +193,10 @@ export async function POST(request: Request, context: RouteContext) {
     }
     if (!isPlaybookApplyActionId(body.action)) {
       return NextResponse.json(
-        { error: "action must be reactivate, archive, scale_budget, or duplicate" },
+        {
+          error:
+            "action must be reactivate, archive, scale_budget, or duplicate",
+        },
         { status: 400 },
       );
     }

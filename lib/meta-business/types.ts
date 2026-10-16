@@ -294,6 +294,9 @@ export type GraphApiCampaign = {
   lifetime_budget?: string;
   budget_remaining?: string;
   is_adset_budget_sharing_enabled?: boolean | string;
+  /** Contém `day_parting` quando a programação de horário é da campanha (etapa 2). */
+  pacing_type?: string[] | string;
+  bid_strategy?: string;
   start_time?: string;
   stop_time?: string;
   created_time?: string;
@@ -400,6 +403,10 @@ export type Campaign = {
   issues?: AdIssue[];
   /** Rolled-up counts of descendant ad sets / ads with issues. */
   issuesSummary?: DescendantIssuesSummary;
+  /** `pacing_type` da campanha, como lista (`day_parting` = campanha programada). */
+  pacingType?: string[];
+  /** A conta está liberada para a etapa 2 (`isCboDaypartingReleased`), calculado no servidor. */
+  scheduleReleased?: boolean;
 };
 
 export type CampaignAdSetBudgetInput = {

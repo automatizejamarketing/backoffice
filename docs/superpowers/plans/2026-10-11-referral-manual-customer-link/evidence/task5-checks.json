@@ -1,0 +1,137 @@
+[
+  {
+    "check": "1. Botão visível para afiliado aprovado (VINDITESTE): is visible [data-testid=link-customer-open]",
+    "expected": true,
+    "actual": true,
+    "pass": true,
+    "screenshot": "task5-button-approved.png"
+  },
+  {
+    "check": "2a. Botão oculto quando o servidor devolve o afiliado como blocked (fetch da página trocado, sheet reaberto): !!querySelector([data-testid=link-customer-open])",
+    "expected": false,
+    "actual": false,
+    "pass": true,
+    "screenshot": "task5-button-hidden-blocked.png"
+  },
+  {
+    "check": "2b. Depois de reload (troca desfeita) o botão volta: is visible [data-testid=link-customer-open]",
+    "expected": true,
+    "actual": true,
+    "pass": true
+  },
+  {
+    "check": "3a. Prévia de Z (rafaeliffeng+r3k8): texto de [data-testid=link-customer-charges]",
+    "expected": "Nenhuma cobrança paga até agora — só as próximas vão comissionar",
+    "actual": "Nenhuma cobrança paga até agora — só as próximas vão comissionar",
+    "pass": true,
+    "screenshot": "task5-preview-zero.png"
+  },
+  {
+    "check": "3b. Sem motivo, Vincular desabilitado: is enabled [data-testid=link-customer-submit]",
+    "expected": false,
+    "actual": false,
+    "pass": true
+  },
+  {
+    "check": "3c. (extra) Com motivo digitado, Vincular habilita para Z — sem clicar",
+    "expected": true,
+    "actual": true,
+    "pass": true
+  },
+  {
+    "check": "4. Prévia de C (rafaeliffeng+r2ul4b): texto de [data-testid=link-customer-charges]",
+    "expected": "1 cobrança de assinatura paga · R$ 0,00 de líquido · 1 aguardando liquidação",
+    "actual": "1 cobrança de assinatura paga · R$ 0,00 de líquido · 1 aguardando liquidação",
+    "pass": true,
+    "screenshot": "task5-preview-awaiting.png"
+  },
+  {
+    "check": "5a. EXISTING (rafaeliffeng+u9@): texto de [data-testid=link-customer-blocked]",
+    "expected": "Já é indicado deste afiliado desde 19/08/2026",
+    "actual": "Já é indicado deste afiliado desde 19/08/2026",
+    "pass": true,
+    "screenshot": "task5-blocked-existing.png"
+  },
+  {
+    "check": "5b. EXISTING com motivo preenchido: is enabled [data-testid=link-customer-submit]",
+    "expected": false,
+    "actual": false,
+    "pass": true
+  },
+  {
+    "check": "6. OWN (rafaeliffeng+u7@): texto de [data-testid=link-customer-blocked] (motivo preenchido, submit desabilitado)",
+    "expected": "Esta é a conta do próprio afiliado",
+    "actual": "Esta é a conta do próprio afiliado",
+    "pass": true,
+    "screenshot": "task5-blocked-own.png"
+  },
+  {
+    "check": "7a. Review Focus 2: B escolhido com motivo preenchido → submit habilitado antes de editar a busca",
+    "expected": true,
+    "actual": true,
+    "pass": true
+  },
+  {
+    "check": "7b. Review Focus 2: depois de type 'x' na busca, !!querySelector([data-testid=link-customer-preview])",
+    "expected": false,
+    "actual": false,
+    "pass": true
+  },
+  {
+    "check": "7c. Review Focus 2: depois de type 'x', is enabled [data-testid=link-customer-submit]",
+    "expected": false,
+    "actual": false,
+    "pass": true
+  },
+  {
+    "check": "8. Review Focus 1: resposta de q=rafaeliffeng%2Br1u atrasada 1500 ms; fill r1u e logo fill r3k8; resultados após 2500 ms",
+    "expected": "só entradas com r3k8, nenhuma com r1u1",
+    "actual": ["R3 K8 Manualrafaeliffeng+r3k8@gmail.com"],
+    "note": "window.__delayed confirmou que a resposta atrasada de r1u chegou dentro da espera: [\"/api/users/search?q=rafaeliffeng%2Br1u\"]",
+    "pass": true
+  },
+  {
+    "check": "9a. Prévia de B (educacaoleg+001) antes do vínculo",
+    "expected": "1 cobrança de assinatura paga · R$ 476,78 de líquido",
+    "actual": "1 cobrança de assinatura paga · R$ 476,78 de líquido",
+    "note": "B não estava vinculado: [data-testid=link-customer-blocked] ausente; vínculo novo nesta execução",
+    "pass": true,
+    "screenshot": "task5-preview-b.png"
+  },
+  {
+    "check": "9b. Clique em Vincular: diálogo fecha, toast aparece, sem erro (1,2 s depois do clique)",
+    "expected": { "dialogOpen": false, "toast": "Indicado vinculado", "err": null },
+    "actual": { "dialogOpen": false, "toast": "Indicado vinculado\nAs cobranças pagas dele entram no cálculo da comissão em até 1 hora.", "err": null },
+    "note": "Servidor: POST /api/referrals/26dcdc4f-…/customers 201, seguido de GET /api/referrals? (fetchAffiliates) e GET …/customers (reloadToken)",
+    "pass": true
+  },
+  {
+    "check": "9c. Sheet recarregado: resumo do cabeçalho e B com [data-testid=manual-link-marker]",
+    "expected": "6 indicados · B com marcador",
+    "actual": "6 indicados · 2 pagantes · R$ 0,00 em comissão; marcador de B: Vinculado manualmente em 11/10/2026 por educacaoleg@gmail.com",
+    "pass": true,
+    "screenshot": "task5-linked-b.png"
+  },
+  {
+    "check": "9d. Sheet fechado, sem reload: document.body.innerText.includes('6 indicados') (célula da fila)",
+    "expected": true,
+    "actual": true,
+    "note": "célula da fila: \"20% · Vitalícia · 6 indicados\"",
+    "pass": true
+  },
+  {
+    "check": "10a. Celular 375x812, diálogo com prévia de Z: document.documentElement.scrollWidth <= window.innerWidth",
+    "expected": true,
+    "actual": true,
+    "note": "scrollWidth 375, innerWidth 375",
+    "pass": true,
+    "screenshot": "task5-dialog-mobile.png"
+  },
+  {
+    "check": "10b. Celular: diálogo não estoura na horizontal (scrollWidth <= clientWidth)",
+    "expected": true,
+    "actual": true,
+    "note": "scrollWidth 373, clientWidth 373",
+    "pass": true
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    }
+  ],
+  "text": "Alternar tema\nPúblicos\n\nNenhuma conta de anúncios acessível para este cliente.",
+  "url": "http://127.0.0.1:3016/marketing/audiences?userId=fixture-user&accountId=222"
+}

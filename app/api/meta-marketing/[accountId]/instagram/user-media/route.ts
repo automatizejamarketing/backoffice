@@ -1,8 +1,10 @@
+import { requireMetaAccount } from "@/lib/backoffice/require-meta-account";
 import { NextRequest, NextResponse } from "next/server";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { metaApiCall } from "@/lib/meta-business/api";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
+import { getAdvertisingIdentities } from "@/lib/meta-business/get-instagram-connected-page";
 
 export type InstagramMediaType =
   | "IMAGE"
@@ -26,20 +28,6 @@ export type InstagramBusinessMediaItem = {
   like_count?: number;
   comments_count?: number;
   boost_eligibility_info?: BoostEligibilityInfo;
-};
-
-type GraphApiPage = {
-  id: string;
-  name?: string;
-  instagram_business_account?: {
-    id: string;
-    username?: string;
-    name?: string;
-  };
-};
-
-type GraphApiPagesResponse = {
-  data: GraphApiPage[];
 };
 
 type GraphApiMediaResponse = {
@@ -157,7 +145,7 @@ export async function GET(
   >
 > {
   try {
-    await params;
+    const { accountId } = await params;
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get("userId");
 
@@ -188,6 +176,8 @@ export async function GET(
       );
     }
 
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const after = searchParams.get("after");
@@ -203,45 +193,19 @@ export async function GET(
       }
     }
 
-    // Get Facebook Pages with connected Instagram Business Accounts
-    const pagesResponse = await metaApiCall<GraphApiPagesResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: "me/accounts",
-      params: "fields=id,name,instagram_business_account{id,username,name}",
-      accessToken,
+    // The identities the client can advertise with, Ads Manager semantics — the same list the
+    // pages route (and the app) shows. `me/accounts` alone hides a page shared through the
+    // Business Manager, and the old fallback then served ANOTHER profile's posts in silence.
+    const pagesResponse = await getAdvertisingIdentities(accessToken, {
+      adAccountId: accountId,
+      tokenKind: tokenResult.connection.tokenKind,
+      bisuAppScopedId: tokenResult.connection.bisuAppScopedId,
     });
 
-    const pagesWithInstagram = pagesResponse.data.filter(
-      (page) => page.instagram_business_account?.id,
-    );
-
-    if (pagesWithInstagram.length === 0) {
-      return NextResponse.json(
-        {
-          error: "No Instagram Business Account",
-          message:
-            "Nenhuma conta de Instagram Business conectada a esta conta Meta",
-          solution:
-            "Conecte uma conta de Instagram Business a uma Página do Facebook",
-        },
-        { status: 404 },
-      );
-    }
-
-    // Use the requested Instagram account when it belongs to one of the user's
-    // pages; otherwise fall back to the first connected account. This lets the
-    // caller switch identity (Facebook Page → Instagram account) and load that
-    // account's media.
-    const requestedPage = requestedInstagramAccountId
-      ? pagesWithInstagram.find(
-          (page) =>
-            page.instagram_business_account?.id === requestedInstagramAccountId,
-        )
-      : undefined;
-    const igAccount =
-      requestedPage?.instagram_business_account ??
-      pagesWithInstagram[0].instagram_business_account!;
+    if (!pagesResponse.length) return NextResponse.json({error:"instagram_account_not_found",message:"Nenhum Instagram publicitário disponível nesta conta."},{status:404});
+    const requestedPage = requestedInstagramAccountId ? pagesResponse.find(identity => identity.instagramBusinessAccountId === requestedInstagramAccountId) : pagesResponse.length === 1 ? pagesResponse[0] : undefined;
+    if (!requestedPage) return NextResponse.json({error:"instagram_account_not_found",message:"Selecione um Instagram autorizado nesta conta de anúncios."},{status:404});
+    const igAccount = {id:requestedPage.instagramBusinessAccountId,username:requestedPage.instagramUsername};
 
     const mediaResponse = await getBoostEligibleInstagramMedia({
       instagramBusinessAccountId: igAccount.id,

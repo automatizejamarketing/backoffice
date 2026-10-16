@@ -1,4 +1,5 @@
 import { Bell } from "lucide-react";
+import Link from "next/link";
 import { requirePagePermission } from "@/lib/auth/rbac";
 import { hasBackofficePermission } from "@/lib/auth/rbac-core";
 import {
@@ -6,6 +7,7 @@ import {
 } from "@/lib/backoffice/datetime-format";
 import {
   normalizePlaybookAlertFilters,
+  playbookAlertHrefWith,
   type PlaybookAlertSearchParams,
 } from "@/lib/backoffice/playbook-alert-dashboard";
 import { getPlaybookAlertDashboard } from "@/lib/db/playbook-alert-dashboard-queries";
@@ -19,6 +21,7 @@ import { AlertsTable } from "./alerts-table";
 import { AlertsTabsNav } from "./alerts-tabs-nav";
 import { AlertsTrendChart } from "./alerts-trend-chart";
 import { AlertsTypeChart } from "./alerts-type-chart";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -41,20 +44,43 @@ export default async function AlertsDashboardPage({
           <div>
             <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
               <span className="size-1.5 rounded-full bg-chart-1" />
-              Playbook de otimização
+              {filters.family === "account"
+                ? "Estado da conta"
+                : "Playbook de otimização"}
             </div>
             <div className="mt-2 flex items-center gap-2">
               <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                 <Bell className="size-6" />
-                Alertas
+                {filters.family === "account" ? "Alertas da conta" : "Alertas"}
               </h1>
               <DashboardFetchingIndicator />
             </div>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Os mesmos alertas de performance enviados ao Slack, com comparação
-              contra o período anterior equivalente e fila para o consultor
-              concluir o que já foi tratado.
+              {filters.family === "account"
+                ? "Fila do consultor responsável: sem campanha ativa, PIX perto de vencer, cartão com falha de pagamento e cancelamento recente. O mesmo aviso vai para o Slack."
+                : "Os mesmos alertas de performance enviados ao Slack, com comparação contra o período anterior equivalente e fila para o consultor concluir o que já foi tratado."}
             </p>
+            <div className="mt-4 flex gap-2">
+              {(
+                [
+                  ["playbook", "Performance"],
+                  ["account", "Conta"],
+                ] as const
+              ).map(([family, label]) => (
+                <Link
+                  key={family}
+                  href={playbookAlertHrefWith(filters, { family, page: 1 })}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-sm",
+                    filters.family === family
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
           </div>
 
           <AlertsTabsNav

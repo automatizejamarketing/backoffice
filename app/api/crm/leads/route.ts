@@ -14,24 +14,46 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   const params = new URL(request.url).searchParams;
+  const captureSource =
+    params.get("captureSource") === "isaac" ? "isaac" : undefined;
+  const profile = params.get("captureProfile");
+  const captureProfile =
+    profile === "dono" || profile === "gestor" ? profile : undefined;
   const search = params.get("q") ?? undefined;
   const stageParam = params.get("accountStage");
   const accountStage = isCrmAccountStage(stageParam) ? stageParam : undefined;
-  const signup = parseCrmDateBounds(params.get("signupFrom"), params.get("signupTo"));
-  const expires = parseCrmDateBounds(params.get("expiresFrom"), params.get("expiresTo"));
+  const signup = parseCrmDateBounds(
+    params.get("signupFrom"),
+    params.get("signupTo"),
+  );
+  const expires = parseCrmDateBounds(
+    params.get("expiresFrom"),
+    params.get("expiresTo"),
+  );
 
   if (params.get("view") === "kanban") {
-    const columns = await listCrmKanban({ search, accountStage, signup, expires });
+    const columns = await listCrmKanban({
+      search,
+      captureSource,
+      captureProfile,
+      accountStage,
+      signup,
+      expires,
+    });
     return NextResponse.json({ columns });
   }
 
   const statusParam = params.get("commercialStatus");
   const result = await listCrmLeads({
     search,
+    captureSource,
+    captureProfile,
     accountStage,
     signup,
     expires,
-    commercialStatus: isCrmCommercialStatus(statusParam) ? statusParam : undefined,
+    commercialStatus: isCrmCommercialStatus(statusParam)
+      ? statusParam
+      : undefined,
     page: Number(params.get("page") ?? 1) || 1,
     pageSize: Number(params.get("pageSize") ?? 25) || 25,
   });

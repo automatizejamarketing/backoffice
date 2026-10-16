@@ -5,6 +5,7 @@ import {
   crmGoalLeadsCsvFilename,
   canEditCrmGoalMonth,
   crmGoalStatus,
+  crmMeetingOutcome,
   crmMonthCalendarBounds,
   crmMonthOf,
   crmRate,
@@ -143,5 +144,30 @@ describe("exportação CSV dos leads", () => {
     expect(row).toBe('"Ana, Silva",,ana@ex.com,+5511999990001,Reunião agendada,05/09/2026 10:00,06/09/2026 12:00,Sim,Sim');
     expect(buildCrmGoalLeadsCsv("conversao_real", []).split("\r\n")[0]).toContain("Reunião em,Virou cliente");
     expect(crmGoalLeadsCsvFilename("conversao_trial", "2026-09")).toBe("metas-conversao_trial-2026-09.csv");
+  });
+});
+
+describe("resultado da reunião", () => {
+  test("assinatura anterior ao status do kanban conta como trial", () => {
+    // O consultor marca "Trial feito" depois do trial já ativado.
+    expect(
+      crmMeetingOutcome({ subscribedAt: new Date("2026-09-12T16:22:00Z"), paidAt: null }),
+    ).toEqual({ trial: true, customer: false });
+  });
+
+  test("pagamento aprovado conta como cliente", () => {
+    expect(
+      crmMeetingOutcome({
+        subscribedAt: new Date("2026-09-12T16:22:00Z"),
+        paidAt: new Date("2026-09-12T16:22:00Z"),
+      }),
+    ).toEqual({ trial: true, customer: true });
+  });
+
+  test("sem assinatura nem pagamento não converte", () => {
+    expect(crmMeetingOutcome({ subscribedAt: null, paidAt: null })).toEqual({
+      trial: false,
+      customer: false,
+    });
   });
 });

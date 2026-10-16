@@ -1,0 +1,42 @@
+lib/backoffice/portfolio-filters.test.ts(12,3): error TS2322: Type '{ userId: string; userEmail: string; userImageUrl: string | null; userPhone: string | null; credits: number; expirationDate: Date | null; companyName: string | null; onboardingCompleted: boolean; ... 17 more ...; health: BusinessHealthEvaluation; }' is not assignable to type 'BusinessPortfolioItem'.
+  Types of property 'playbookInsights' are incompatible.
+    Type 'BusinessPortfolioPlaybookInsights | undefined' is not assignable to type 'BusinessPortfolioPlaybookInsights'.
+      Type 'undefined' is not assignable to type 'BusinessPortfolioPlaybookInsights'.
+lib/backoffice/users-csv.test.ts(1,38): error TS2307: Cannot find module 'vitest' or its corresponding type declarations.
+lib/env/frontend-app-url.test.ts(7,29): error TS2345: Argument of type '{ FRONTEND_APP_URL: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ FRONTEND_APP_URL: string; }' but required in type 'ProcessEnv'.
+lib/env/frontend-app-url.test.ts(14,34): error TS2345: Argument of type '{ APP_ENV: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ APP_ENV: string; }' but required in type 'ProcessEnv'.
+lib/env/frontend-app-url.test.ts(21,29): error TS2345: Argument of type '{ APP_ENV: string; FRONTEND_APP_URL: string; FRONTEND_URL: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ APP_ENV: string; FRONTEND_APP_URL: string; FRONTEND_URL: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/admin-oauth.test.ts(1,28): error TS2305: Module '"bun:test"' has no exported member 'it'.
+lib/meta-business/admin-oauth.test.ts(9,38): error TS2345: Argument of type '{}' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{}' but required in type 'ProcessEnv'.
+lib/meta-business/admin-oauth.test.ts(11,33): error TS2345: Argument of type '{ META_ADMIN_RECONNECT_MODE: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ META_ADMIN_RECONNECT_MODE: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/audiences/release.test.ts(7,47): error TS2345: Argument of type '{}' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{}' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/audiences/release.test.ts(8,47): error TS2345: Argument of type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/audiences/release.test.ts(9,47): error TS2345: Argument of type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/creation/create-ad-generative-fallback.test.ts(2,31): error TS2305: Module '"bun:test"' has no exported member 'it'.
+lib/meta-business/partner-access-status.test.ts(1,28): error TS2305: Module '"bun:test"' has no exported member 'it'.
+lib/meta-business/sanitize.test.ts(6,51): error TS2345: Argument of type '{ id: string; userId: string; facebookUserId: string; bisuAppScopedId: null; clientBusinessId: null; name: string; pictureUrl: null; tokenKind: string; configId: null; grantedScopes: null; assignedAssets: null; ... 7 more ...; deletedAt: null; }' is not assignable to parameter of type '{ name: string | null; id: string; accessToken: string; createdAt: Date; userId: string; deletedAt: Date | null; updatedAt: Date; tokenExpiresAt: Date | null; lastValidatedAt: Date | null; ... 12 more ...; partnerAccessCheckedAt: Date | null; }'.
+  Type '{ id: string; userId: string; facebookUserId: string; bisuAppScopedId: null; clientBusinessId: null; name: string; pictureUrl: null; tokenKind: string; configId: null; grantedScopes: null; assignedAssets: null; ... 7 more ...; deletedAt: null; }' is missing the following properties from type '{ name: string | null; id: string; accessToken: string; createdAt: Date; userId: string; deletedAt: Date | null; updatedAt: Date; tokenExpiresAt: Date | null; lastValidatedAt: Date | null; ... 12 more ...; partnerAccessCheckedAt: Date | null; }': partnerAccessStatus, partnerAccessDiagnosis, partnerAccessCheckedAt
+lib/meta-business/sanitize.test.ts(36,51): error TS2345: Argument of type '{ id: string; userId: string; facebookUserId: null; bisuAppScopedId: string; clientBusinessId: string; name: string; pictureUrl: null; tokenKind: string; configId: string; grantedScopes: string[]; ... 8 more ...; deletedAt: null; }' is not assignable to parameter of type '{ name: string | null; id: string; accessToken: string; createdAt: Date; userId: string; deletedAt: Date | null; updatedAt: Date; tokenExpiresAt: Date | null; lastValidatedAt: Date | null; ... 12 more ...; partnerAccessCheckedAt: Date | null; }'.
+  Type '{ id: string; userId: string; facebookUserId: null; bisuAppScopedId: string; clientBusinessId: string; name: string; pictureUrl: null; tokenKind: string; configId: string; grantedScopes: string[]; ... 8 more ...; deletedAt: null; }' is missing the following properties from type '{ name: string | null; id: string; accessToken: string; createdAt: Date; userId: string; deletedAt: Date | null; updatedAt: Date; tokenExpiresAt: Date | null; lastValidatedAt: Date | null; ... 12 more ...; partnerAccessCheckedAt: Date | null; }': partnerAccessStatus, partnerAccessDiagnosis, partnerAccessCheckedAt
+lib/performance-report/analysis.test.ts(143,27): error TS2339: Property 'toBeCloseTo' does not exist on type 'Matchers'.
+lib/performance-report/analysis.test.ts(144,31): error TS2339: Property 'toBeCloseTo' does not exist on type 'Matchers'.
+lib/performance-report/analysis.test.ts(154,23): error TS2339: Property 'toBeCloseTo' does not exist on type 'Matchers'.
+lib/performance-report/analysis.test.ts(248,29): error TS2339: Property 'toBeCloseTo' does not exist on type 'Matchers'.
+lib/performance-report/analysis.test.ts(249,30): error TS2339: Property 'toBeCloseTo' does not exist on type 'Matchers'.
+lib/performance-report/metrics.test.ts(28,25): error TS2339: Property 'toBeCloseTo' does not exist on type 'Matchers'.
+tests/audience-period-copy.test.ts(6,31): error TS2339: Property 'dir' does not exist on type 'ImportMeta'.
+tests/audience-period-review.test.ts(3,10): error TS2305: Module '"bun:test"' has no exported member 'mock'.
+tests/customer-file-xlsx.test.ts(93,24): error TS2339: Property 'worksheet' does not exist on type 'CustomerFilePreview | CustomerFileXlsxSelection'.
+  Property 'worksheet' does not exist on type 'CustomerFileXlsxSelection'.
+tests/customer-file-xlsx.test.ts(94,28): error TS2339: Property 'rows' does not exist on type 'CustomerFilePreview | CustomerFileXlsxSelection'.
+  Property 'rows' does not exist on type 'CustomerFileXlsxSelection'.
+tests/customer-file-xlsx.test.ts(95,45): error TS2345: Argument of type 'CustomerFilePreview | CustomerFileXlsxSelection' is not assignable to parameter of type 'CustomerFilePreview'.
+  Type 'CustomerFileXlsxSelection' is missing the following properties from type 'CustomerFilePreview': context, mapping, referenceCountry, receivedAt, and 3 more.

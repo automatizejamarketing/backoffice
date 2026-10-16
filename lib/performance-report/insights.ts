@@ -10,6 +10,7 @@ import {
 } from "./analysis";
 import type { ReportClient } from "./client";
 import type { PerformanceDatePreset } from "./filters";
+import { listEnabledAdAccountIds } from "@/lib/backoffice/meta-enabled-assets";
 import { listAutomatizeManagedAdAccountIds } from "./managed-account-ids";
 import { metricsFromInsight, type InsightMetrics, type RawInsight } from "./metrics";
 import { trailingInclusiveRange } from "@/lib/playbook-insights/dates";
@@ -416,11 +417,25 @@ async function resolveAccounts(input: {
     }));
   }
 
-  const managedAccountIds = input.accountId
+  const enabledAccountIds = input.accountId
     ? []
-    : await listAutomatizeManagedAdAccountIds(input.client.userId);
+    : await listEnabledAdAccountIds(input.client.userId);
+  const usesEnabled =
+    enabledAccountIds.length > 0 &&
+    selectReportAccounts({ connected, enabledAccountIds, managedAccountIds: [] })
+      .mode === "client_enabled";
+
+  const managedAccountIds =
+    input.accountId || usesEnabled
+      ? []
+      : await listAutomatizeManagedAdAccountIds(input.client.userId);
   let liveManagedAccountIds: string[] = [];
-  if (!input.accountId && managedAccountIds.length === 0 && connected.length > 1) {
+  if (
+    !input.accountId &&
+    !usesEnabled &&
+    managedAccountIds.length === 0 &&
+    connected.length > 1
+  ) {
     liveManagedAccountIds = await listLiveManagedAccountIds({
       accessToken: tokenResult.accessToken,
       accounts: connected,
@@ -431,6 +446,7 @@ async function resolveAccounts(input: {
   const managedPreview = selectReportAccounts({
     connected,
     explicitAccountId: input.accountId,
+    enabledAccountIds,
     managedAccountIds,
     liveManagedAccountIds,
     clientName: input.client.name,
@@ -449,6 +465,7 @@ async function resolveAccounts(input: {
   const scope = selectReportAccounts({
     connected,
     explicitAccountId: input.accountId,
+    enabledAccountIds,
     managedAccountIds,
     liveManagedAccountIds,
     recentSpendAccountIds,

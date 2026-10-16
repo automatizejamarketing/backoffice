@@ -176,6 +176,7 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
       media: SelectedMedia;
       text: AdCreativeFormValue;
       pageId?: string | null;
+      instagramUserId?: string;
     }) => {
       setError(null);
       setResult(null);
@@ -203,6 +204,7 @@ export function useAdCreativeBuilder(target: BuilderTarget) {
       if (input.pageId) {
         body.pageId = input.pageId;
       }
+      if (input.instagramUserId) body.instagramUserId = input.instagramUserId;
       lastBodyRef.current = body;
 
       try {

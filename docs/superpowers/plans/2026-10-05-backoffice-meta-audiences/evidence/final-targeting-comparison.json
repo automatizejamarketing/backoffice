@@ -1,0 +1,25 @@
+{
+  "after": {
+    "planRequests": 1,
+    "text": "Revisar e publicar\n\nConfira o que vai ao ar. A campanha sobe ativa na Meta assim que você aprovar.\n\nCOM BASE NO ANÚNCIO VALIDADO\n\nAnúncio sintético validado · ROAS 8.0 · Gasto R$ 1.000,00\n\nCriativos\n\n1 anúncio(s) validado(s) copiado(s) e 1 mídia(s) nova(s).\n\nAnúncio sintético validado\n\nPost do Instagram\n\nOBJETIVO\nVendas no site\nBASE\nHistórico validado da conta\nORÇAMENTO DIÁRIO\nR$\n/dia\nR$ 210,00 estimados no período\nBOTÃO (CTA)\nSaiba mais\nEditar\nLINK DE DESTINO\nhttps://example.test/oferta\nEditar\nPERÍODO\n05/10/26 14:57 – 12/10/26 14:57\nEditar\nLOCALIZAÇÃO\nBrasil\nPOSICIONAMENTOS\nAdvantage+ (a Meta escolhe)\nEditar\n\nIDENTIDADE\n\nA Página e o Instagram que assinam o anúncio.\n\nPágina do Facebook\nP\nPágina sintética 222\nhabilitada\nprincipal\nConta do Instagram\nF\n@fixture_222\n\nPIXEL DE CONVERSÃO\n\nO pixel que registra as compras desta campanha.\n\nPixel sintético 222\nConfigurações avançadas de público\nIdade, gênero, inclusões, exclusões e biblioteca de públicos\n\nConfiguração efetiva em todos os novos conjuntos: 1 inclusão(ões) e 1 exclusão(ões) de públicos. O Advantage+ permanece no estado herdado.\n\nSegmentação efetiva por conjunto\n\nValores aplicados substituem somente o campo correspondente; os demais permanecem herdados.\n\nConjunto 1\n\nLocalização: Brasil\nExpansão: ativada (Advantage+)\nPúblicos personalizados: 1 (herdado)\nPúblicos excluídos: 1 (herdado)\nIdade: 18–65 (inherited)\nGênero: não especificado (inherited)\nPosicionamentos: automáticos (Advantage+)\nVoltar\nPublicar campanha\n\nA campanha sobe ativa na Meta assim que você aprovar.",
+    "values": [
+      {
+        "label": "Orçamento diário",
+        "value": "30"
+      }
+    ]
+  },
+  "before": {
+    "planRequests": 1,
+    "text": "Revisar e publicar\n\nConfira o que vai ao ar. A campanha sobe ativa na Meta assim que você aprovar.\n\nCOM BASE NO ANÚNCIO VALIDADO\n\nAnúncio sintético validado · ROAS 8.0 · Gasto R$ 1.000,00\n\nCriativos\n\n1 anúncio(s) validado(s) copiado(s) e 1 mídia(s) nova(s).\n\nAnúncio sintético validado\n\nPost do Instagram\n\nOBJETIVO\nVendas no site\nBASE\nHistórico validado da conta\nORÇAMENTO DIÁRIO\nR$\n/dia\nR$ 210,00 estimados no período\nBOTÃO (CTA)\nSaiba mais\nEditar\nLINK DE DESTINO\nhttps://example.test/oferta\nEditar\nPERÍODO\n05/10/26 14:57 – 12/10/26 14:57\nEditar\nLOCALIZAÇÃO\nBrasil\nPOSICIONAMENTOS\nAdvantage+ (a Meta escolhe)\nEditar\n\nIDENTIDADE\n\nA Página e o Instagram que assinam o anúncio.\n\nPágina do Facebook\nP\nPágina sintética 222\nhabilitada\nprincipal\nConta do Instagram\nF\n@fixture_222\n\nPIXEL DE CONVERSÃO\n\nO pixel que registra as compras desta campanha.\n\nPixel sintético 222\nConfigurações avançadas de público\nIdade, gênero, inclusões, exclusões e biblioteca de públicos\n\nConfiguração efetiva em todos os novos conjuntos: 1 inclusão(ões) e 1 exclusão(ões) de públicos. O Advantage+ permanece no estado herdado.\n\nSegmentação efetiva por conjunto\n\nValores aplicados substituem somente o campo correspondente; os demais permanecem herdados.\n\nConjunto 1\n\nLocalização: Brasil\nExpansão: ativada (Advantage+)\nPúblicos personalizados: 1 (herdado)\nPúblicos excluídos: 1 (herdado)\nIdade: 18–65 (inherited)\nGênero: não especificado (inherited)\nPosicionamentos: automáticos (Advantage+)\nVoltar\nPublicar campanha\n\nA campanha sobe ativa na Meta assim que você aprovar.",
+    "values": [
+      {
+        "label": "Orçamento diário",
+        "value": "30"
+      }
+    ]
+  },
+  "equalPlanCount": true,
+  "equalText": true,
+  "equalValues": true
+}

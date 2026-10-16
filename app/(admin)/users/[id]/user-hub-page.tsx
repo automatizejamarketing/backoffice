@@ -113,6 +113,7 @@ const FIELD_LABELS: Record<string, string> = {
   meta_asset_limits: "Limites de Ativos Meta",
   meta_asset_selection: "Seleção de Ativos Meta",
   whatsapp_support_session: "Sessão temporária do Mat",
+  media_library: "Biblioteca de mídias",
 };
 
 function isUserHubTab(value: string | undefined): value is UserHubTab {
@@ -210,7 +211,7 @@ export async function UserHubPage({
     notFound();
   }
 
-  const isAdminHub = actor.role === "admin" || actor.role === "dev";
+  const isAdminHub = canManageUsers;
   const visibleTabs = TAB_CONFIG.filter((tab) =>
     canAccessUserHubTab(actor, id, tab.value),
   );
@@ -505,6 +506,8 @@ export async function UserHubPage({
           }}
           showHeader={false}
           showUserPicker={false}
+          showAccessSummary={false}
+          embedded={embedded}
         />
       )}
 

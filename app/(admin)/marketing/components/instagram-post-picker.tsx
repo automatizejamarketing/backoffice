@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Check,
   Heart,
@@ -64,8 +64,11 @@ export function InstagramPostPicker({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const mediaRequestSequence = useRef(0);
+
   const fetchMedia = useCallback(
     async (cursor?: string) => {
+      const requestSequence = ++mediaRequestSequence.current;
       const isFirst = !cursor;
       if (isFirst) {
         setIsLoading(true);
@@ -101,6 +104,7 @@ export function InstagramPostPicker({
         }
 
         const data = await response.json();
+        if (requestSequence !== mediaRequestSequence.current) return;
 
         if (isFirst) {
           setMedia(data.media ?? []);
@@ -111,12 +115,14 @@ export function InstagramPostPicker({
         setNextCursor(data.pagination?.nextCursor);
         setHasNextPage(data.pagination?.hasNextPage ?? false);
       } catch (err) {
+        if (requestSequence !== mediaRequestSequence.current) return;
         setError(
           err instanceof Error
             ? err.message
             : "Falha ao buscar posts do Instagram",
         );
       } finally {
+        if (requestSequence !== mediaRequestSequence.current) return;
         setIsLoading(false);
         setIsLoadingMore(false);
       }
@@ -125,7 +131,9 @@ export function InstagramPostPicker({
   );
 
   useEffect(() => {
-    fetchMedia();
+    setMedia([]);
+    void fetchMedia();
+    return () => { mediaRequestSequence.current++; };
   }, [fetchMedia]);
 
   const handlePostSelect = (item: InstagramMediaItem) => {

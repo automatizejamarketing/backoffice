@@ -30,6 +30,7 @@ const REASON_LABELS: Record<FinancePaymentNetGap["reason"], string> = {
     "Mercado Pago ainda não informou taxas para este PIX",
   mercadopago_payment_not_found:
     "Pagamento PIX não encontrado na conta Mercado Pago configurada",
+  efi_fee_pending: "Efí ainda não informou a tarifa deste Pix Automático",
 };
 
 type FinancePaymentNetGapsProps = {

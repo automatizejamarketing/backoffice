@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppUrl } from "@/lib/auth/app-url";
+import { safeLoginReturn } from "@/lib/auth/login-return";
 import { canBackofficeEmailSignIn } from "@/lib/auth/backoffice-users";
 import {
   createBackofficeMagicLinkToken,
@@ -14,12 +15,13 @@ import { sendBackofficeMagicLinkEmail } from "@/lib/email/backoffice-magic-link-
 
 const magicLinkLoginSchema = z.object({
   email: z.string().email(),
+  next: z.string().nullish(),
 });
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { email } = magicLinkLoginSchema.parse(body);
+    const { email, next } = magicLinkLoginSchema.parse(body);
     const normalizedEmail = normalizeBackofficeEmail(email);
     const exposeMagicLinkInResponse = process.env.NODE_ENV !== "production";
 
@@ -42,6 +44,8 @@ export async function POST(request: Request) {
 
     const magicLinkUrl = new URL("/api/auth/magic-link/verify", getAppUrl(request));
     magicLinkUrl.searchParams.set("token", token);
+    const returnTo = safeLoginReturn(next);
+    if (returnTo) magicLinkUrl.searchParams.set("next", returnTo);
     const magicLink = magicLinkUrl.toString();
     const emailResult = await sendBackofficeMagicLinkEmail({
       email: normalizedEmail,

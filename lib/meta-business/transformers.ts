@@ -26,6 +26,7 @@ import {
   isMessagingCampaign,
   messagingInsightMetrics,
 } from "./messaging";
+import { normalizePacingType } from "@/lib/meta-business/schedule-shape";
 
 const PURCHASE_ACTION_TYPES = [
   "purchase",
@@ -270,6 +271,7 @@ export function transformCampaign(campaign: GraphApiCampaign): Campaign {
     insights: transformInsights(campaign.insights),
     issues: transformAdIssues(campaign.issues_info),
     issuesSummary,
+    pacingType: normalizePacingType(campaign.pacing_type),
   };
 }
 

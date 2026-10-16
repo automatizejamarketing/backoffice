@@ -10,7 +10,10 @@
  * Endpoints: POST /act_{id}/adcreatives then POST /act_{id}/ads.
  */
 
+import { fetchMetaGraph } from "@/lib/observability/meta-fetch";
+import { graphApiVersion, graphFacebookBaseUrl } from "@/lib/meta-business/constant";
 import { metaWrite } from "@/lib/meta-business/write-retry";
+import { adSetAlreadyHasVideo, applyOwnVideoThumbnail } from "./video-thumbnail";
 import { assertSafeFetchUrl } from "@/lib/security/safe-fetch-url";
 import { uploadImageToAdAccount } from "../upload-ad-image";
 import { uploadAdVideoFromUrl, waitForVideoReady } from "../upload-ad-video";
@@ -28,8 +31,10 @@ import { issuesFromError } from "./normalize";
 import { collect, subcodeSuggestion, validateCarouselCards } from "./validation";
 import { deleteMetaObject } from "./delete";
 import {
+  NO_PLACEMENT_ADAPTATION,
   type PlacementAdaptation,
   buildDegreesOfFreedomSpec,
+  isGenerativeIneligibleError,
 } from "@/lib/meta-business/creative-features";
 
 /** Disable multi-advertiser ads (don't show alongside other advertisers'). */
@@ -118,13 +123,10 @@ export type CreateAdInput = {
   /** Defaults to PAUSED. */
   status?: "ACTIVE" | "PAUSED";
   /**
-   * Como o Meta pode reenquadrar a mídia para os posicionamentos onde ela não
-   * cabe (quadrado → Stories/Reels e vice-versa). Omitido = o padrão do produto
-   * (reenquadra, não expande generativamente).
-   *
-   * Passar `{ enabled: false }` reproduz o comportamento anterior a esta feature:
-   * o criativo sai sem `degrees_of_freedom_spec` e, como o padrão do Meta é TUDO
-   * desligado, sem adaptação nenhuma.
+   * Como o Meta pode adaptar a mídia aos posicionamentos onde ela não cabe.
+   * Omitido = o padrão do produto: expansão sem corte (regra de 30/09/2026,
+   * `DEFAULT_PLACEMENT_ADAPTATION`). `{ enabled: false }` = sem
+   * `degrees_of_freedom_spec` (o padrão do Meta, tudo desligado).
    */
   placementAdaptation?: PlacementAdaptation;
   /** Escape hatch merged into the creative POST. */
@@ -398,6 +400,42 @@ function withValidateOnly(body: URLSearchParams): URLSearchParams {
   return v;
 }
 
+async function fetchVideoPicture(
+  videoId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const url = `${graphFacebookBaseUrl}/${graphApiVersion}/${videoId}?fields=picture&access_token=${encodeURIComponent(accessToken)}`;
+  try {
+    const { response, data } = await fetchMetaGraph(url, { method: "GET" });
+    if (!response.ok || !data || typeof data !== "object" || ("error" in data && data.error)) return null;
+    return "picture" in data && typeof data.picture === "string" && data.picture ? data.picture : null;
+  } catch {
+    return null;
+  }
+}
+
+async function duplicateVideoAdId(params: {
+  adSetId: string;
+  videoId: string;
+  accessToken: string;
+}): Promise<string | null> {
+  const url =
+    `${graphFacebookBaseUrl}/${graphApiVersion}/${params.adSetId}/ads` +
+    `?fields=id,creative{video_id,object_story_spec}&limit=50` +
+    `&access_token=${encodeURIComponent(params.accessToken)}`;
+  try {
+    const { response, data } = await fetchMetaGraph(url, { method: "GET" });
+    if (!response.ok || !data || typeof data !== "object" || ("error" in data && data.error)) return null;
+    const rows = "data" in data && Array.isArray(data.data) ? data.data : [];
+    return adSetAlreadyHasVideo(
+      rows as Array<{ id?: string; creative?: { video_id?: string; object_story_spec?: string } }>,
+      params.videoId,
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** Upload any imageUrl/videoUrl assets and return a creative with refs filled. */
 async function resolveAssets(
   account: string,
@@ -413,7 +451,12 @@ async function resolveAssets(
     await assertSafeFetchUrl(creative.videoUrl);
     const { id } = await uploadAdVideoFromUrl(account, accessToken, creative.videoUrl);
     await waitForVideoReady(id, accessToken);
-    return { ...creative, videoId: id };
+    const picture = await fetchVideoPicture(id, accessToken);
+    return applyOwnVideoThumbnail({ ...creative, videoId: id }, picture);
+  }
+  if (creative.format === "video" && creative.videoId) {
+    const picture = await fetchVideoPicture(creative.videoId, accessToken);
+    return applyOwnVideoThumbnail(creative, picture);
   }
   if (creative.format === "carousel") {
     const cards = await Promise.all(
@@ -454,8 +497,82 @@ export async function createCreative(
     return { issues: issuesFromError(error, "create", "creative", subcodeSuggestion) };
   }
 
-  const fields = buildAdCreativeFields({ ...input, creative: resolved });
-  if (!fields) return { issues: [] }; // creative_id path — unreachable here
+  const ready: CreateAdInput = { ...input, creative: resolved };
+  let attempt = await postCreative(account, accessToken, ready, skipRemoteValidation);
+
+  // Conta sem acesso à IA generativa (3858023): refaz UMA vez sem nenhum
+  // recurso de adaptação — nunca com o reenquadramento, que corta (regra de
+  // produto de 30/09/2026).
+  if (
+    attempt &&
+    "error" in attempt &&
+    requestsPlacementFeatures(ready) &&
+    isGenerativeIneligibleError(attempt.error)
+  ) {
+    attempt = await postCreative(
+      account,
+      accessToken,
+      withoutPlacementFeatures(ready),
+      skipRemoteValidation,
+    );
+  }
+
+  if (!attempt) return { issues: [] }; // creative_id path — unreachable here
+  if ("error" in attempt) {
+    return { issues: issuesFromError(attempt.error, attempt.stage, "creative", subcodeSuggestion) };
+  }
+  return { id: attempt.id };
+}
+
+/** O corpo do criativo leva `degrees_of_freedom_spec` (padrão ou via escape hatch)? */
+function requestsPlacementFeatures(input: CreateAdInput): boolean {
+  return buildAdCreativeFields(input)?.has("degrees_of_freedom_spec") ?? false;
+}
+
+/**
+ * O mesmo criativo sem nenhum `degrees_of_freedom_spec` — nem o do padrão, nem
+ * o que um chamador tenha posto em `creativeExtraFields` (senão o campo voltaria
+ * escondido na nova tentativa).
+ */
+function withoutPlacementFeatures(input: CreateAdInput): CreateAdInput {
+  const extra = { ...(input.creativeExtraFields ?? {}) };
+  delete extra.degrees_of_freedom_spec;
+  return { ...input, placementAdaptation: NO_PLACEMENT_ADAPTATION, creativeExtraFields: extra };
+}
+
+/** validate_only de um corpo de criativo; devolve o erro da Meta ou null. */
+async function validateCreativeFields(
+  account: string,
+  accessToken: string,
+  fields: URLSearchParams,
+): Promise<{ error: unknown } | null> {
+  try {
+    await metaWrite<{ success?: boolean }>({
+      method: "POST",
+      path: `${account}/adcreatives`,
+      params: "",
+      body: withValidateOnly(fields),
+      accessToken,
+    });
+    return null;
+  } catch (error) {
+    return { error };
+  }
+}
+
+type CreativeAttempt =
+  | { id: string }
+  | { error: unknown; stage: "validate_only" | "create" };
+
+/** validate_only (unless skipped) → real create of one creative; null for `creative_id`. */
+async function postCreative(
+  account: string,
+  accessToken: string,
+  input: CreateAdInput,
+  skipRemoteValidation: boolean,
+): Promise<CreativeAttempt | null> {
+  const fields = buildAdCreativeFields(input);
+  if (!fields) return null;
 
   if (!skipRemoteValidation) {
     try {
@@ -467,7 +584,7 @@ export async function createCreative(
         accessToken,
       });
     } catch (error) {
-      return { issues: issuesFromError(error, "validate_only", "creative", subcodeSuggestion) };
+      return { error, stage: "validate_only" };
     }
   }
 
@@ -481,7 +598,7 @@ export async function createCreative(
     });
     return { id: res.id };
   } catch (error) {
-    return { issues: issuesFromError(error, "create", "creative", subcodeSuggestion) };
+    return { error, stage: "create" };
   }
 }
 
@@ -530,16 +647,19 @@ export async function previewAd(input: CreateAdInput): Promise<PreviewResult> {
   if (!fields) return { ok: false, issues: localIssues };
   const ready = !specNeedsUpload(input.creative);
   if (ready) {
-    try {
-      await metaWrite<{ success?: boolean }>({
-        method: "POST",
-        path: `${account}/adcreatives`,
-        params: "",
-        body: withValidateOnly(fields),
-        accessToken: input.accessToken,
-      });
-    } catch (error) {
-      return { ok: false, issues: issuesFromError(error, "validate_only", "creative", subcodeSuggestion) };
+    const refused = await validateCreativeFields(account, input.accessToken, fields);
+    if (refused) {
+      // Mesmo plano B da criação real (createCreative): conta sem IA generativa
+      // valida o criativo sem nenhum recurso de adaptação.
+      if (!fields.has("degrees_of_freedom_spec") || !isGenerativeIneligibleError(refused.error)) {
+        return { ok: false, issues: issuesFromError(refused.error, "validate_only", "creative", subcodeSuggestion) };
+      }
+      const fallback = buildAdCreativeFields(withoutPlacementFeatures(input)) ?? fields;
+      const again = await validateCreativeFields(account, input.accessToken, fallback);
+      if (again) {
+        return { ok: false, issues: issuesFromError(again.error, "validate_only", "creative", subcodeSuggestion) };
+      }
+      return { ok: true, payload: Object.fromEntries(fallback) as Record<string, string> };
     }
   }
   return { ok: true, payload: Object.fromEntries(fields) as Record<string, string> };
@@ -558,6 +678,25 @@ export async function createAd(
 ): Promise<CreateResult<{ id: string; creativeId: string }>> {
   const localIssues = validateAdInput(input);
   if (localIssues.length) return fail(localIssues);
+
+  if (input.creative.format === "video" && input.creative.videoId) {
+    const existingAdId = await duplicateVideoAdId({
+      adSetId: input.adSetId,
+      videoId: input.creative.videoId,
+      accessToken: input.accessToken,
+    });
+    if (existingAdId) {
+      return fail([
+        localIssue(
+          "creative",
+          "DUPLICATE_VIDEO",
+          `Este vídeo já está no anúncio ${existingAdId} deste conjunto.`,
+          "Não crie outro anúncio com o mesmo videoId. Use o próximo vídeo que ainda não entrou na campanha e diga ao usuário qual já está ativo.",
+          ["video_id"],
+        ),
+      ]);
+    }
+  }
 
   const account = formatAccountId(input.adAccountId);
 

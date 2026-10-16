@@ -66,6 +66,8 @@ type CampaignsTableProps = {
   selectedMetricIds?: CampaignMetricId[] | null;
   /** After the list loads, open this campaign in the existing detail sheet. */
   focusCampaignId?: string | null;
+  /** Notify anchor navigation once loading has finished and metrics are mounted. */
+  onReady?: () => void;
 };
 
 const PAGE_SIZE = 25;
@@ -82,6 +84,7 @@ export function CampaignsTable({
   sortOrder,
   selectedMetricIds,
   focusCampaignId,
+  onReady,
 }: CampaignsTableProps) {
   const [page, setPage] = useState(0);
   const [togglingCampaignId, setTogglingCampaignId] = useState<string | null>(
@@ -104,6 +107,10 @@ export function CampaignsTable({
   const campaigns = data?.data ?? [];
   const isInitialLoading = isPending;
   const openedFocusId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isPending) onReady?.();
+  }, [isPending, onReady]);
 
   useEffect(() => {
     if (!focusCampaignId || campaigns.length === 0) return;

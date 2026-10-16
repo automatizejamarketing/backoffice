@@ -1,5 +1,6 @@
 "use client";
 
+import { PixAutomaticLink, PixPaymentMode } from "@/components/pix-automatic-link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, Loader2, Mail, QrCode } from "lucide-react";
@@ -71,6 +72,7 @@ export function MercadoPagoPixActions({
   disabledReason?: string | null;
 }) {
   const router = useRouter();
+  const [mode, setMode] = useState<"automatic" | "single">("automatic");
   const [planType, setPlanType] = useState<PlanType>(
     currentPlanType ?? "monthly_pro",
   );
@@ -133,6 +135,7 @@ export function MercadoPagoPixActions({
 
   return (
     <div className="space-y-4">
+      <PixPaymentMode value={mode} onChange={setMode} disabled={loadingMode !== null} />
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
         <Select
           value={planType}
@@ -150,6 +153,7 @@ export function MercadoPagoPixActions({
             ))}
           </SelectContent>
         </Select>
+        {mode === "single" && <>
         <Button
           variant="outline"
           onClick={() => createLink(false)}
@@ -173,13 +177,16 @@ export function MercadoPagoPixActions({
           )}
           Enviar email
         </Button>
+        </>}
       </div>
 
-      {disabledReason && (
+      {mode === "automatic" && <PixAutomaticLink key={`${userId}:${planType}`} userId={userId} planType={planType} disabledReason={disabledReason} />}
+
+      {mode === "single" && disabledReason && (
         <p className="text-sm text-muted-foreground">{disabledReason}</p>
       )}
 
-      {latestPending && (
+      {mode === "single" && latestPending && (
         <div className="rounded-md border bg-muted/40 p-3 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <QrCode className="size-4 text-primary" />
@@ -209,6 +216,7 @@ export function MercadoPagoPixActions({
 
       {links.length > 0 && (
         <div className="space-y-2">
+          <h3 className="text-sm font-medium">Histórico de Pix pontual</h3>
           {links.slice(0, 5).map((link) => (
             <div
               key={link.id}

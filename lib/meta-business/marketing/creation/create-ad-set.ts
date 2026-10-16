@@ -10,6 +10,10 @@
  * Endpoint: POST /act_{ad_account_id}/adsets (objeto "Ad Campaign" na doc).
  */
 
+import {
+  adSetScheduleForCreate,
+  type RequestedSchedule,
+} from "@/lib/meta-business/schedule-shape";
 import { metaWrite } from "@/lib/meta-business/write-retry";
 import {
   type CreateIssue,
@@ -28,6 +32,7 @@ import {
   validateBid,
   validateBillingForOptimization,
   validateDayparting,
+  validateGeoLocationsPresent,
   validateDestinationForObjective,
   validateOptimizationForObjective,
   validatePlacements,
@@ -35,7 +40,11 @@ import {
 } from "./validation";
 
 export type AdSetTargetingInput = {
-  /** Meta geo shape. Defaults to { countries: ["BR"] }. */
+  /**
+   * Meta geo shape. Required on create (here, in `raw` or in
+   * `extraFields.targeting`): there is no country default — omitting it used
+   * to publish all of Brazil.
+   */
   geoLocations?: Record<string, unknown>;
   excludedGeoLocations?: Record<string, unknown>;
   ageMin?: number;
@@ -82,6 +91,13 @@ export type CreateAdSetInput = {
   parentUsesCampaignBudget?: boolean;
   /** Whether the parent CBO budget is lifetime (enables dayparting under CBO). */
   parentHasLifetimeBudget?: boolean;
+  /**
+   * A campanha-mãe tem `day_parting` no `pacing_type` (programação na campanha). Com a
+   * liberação, o conjunto leva só a grade — 24h x 7 no contínuo.
+   */
+  parentUsesDayParting?: boolean;
+  /** Conta liberada para a etapa 2 (`isCboDaypartingReleased`), decidido pelo chamador. */
+  cboDaypartingReleased?: boolean;
 
   optimizationGoal: string;
   /** Defaults to IMPRESSIONS (universally accepted). */
@@ -155,9 +171,7 @@ function enforceIncludedAudienceRestriction(
 /** Compile the convenience targeting object into the Meta `targeting` payload. */
 export function buildTargeting(t?: AdSetTargetingInput): Record<string, unknown> {
   const tt: Record<string, unknown> = { ...(t?.raw ?? {}) };
-  if (t?.geoLocations !== undefined || !Object.hasOwn(tt, "geo_locations")) {
-    tt.geo_locations = t?.geoLocations ?? { countries: ["BR"] };
-  }
+  if (t?.geoLocations !== undefined) tt.geo_locations = t.geoLocations;
   if (t?.excludedGeoLocations) tt.excluded_geo_locations = t.excludedGeoLocations;
   if (t?.ageMin != null) tt.age_min = t.ageMin;
   if (t?.ageMax != null) tt.age_max = t.ageMax;
@@ -261,6 +275,41 @@ function effectiveLifetime(input: CreateAdSetInput): boolean {
     : (input.lifetimeBudgetCents ?? 0) > 0;
 }
 
+function requestedScheduleOf(input: CreateAdSetInput): RequestedSchedule {
+  if (input.schedule?.mode === "dayparting" && input.schedule.blocks?.length) {
+    return {
+      mode: "specific_hours",
+      blocks: input.schedule.blocks.map((b) => ({
+        days: b.days,
+        start_minute: b.startMinute,
+        end_minute: b.endMinute,
+        timezone_type: input.schedule?.timezoneType ?? "ADVERTISER",
+      })),
+    };
+  }
+  return { mode: "all_day" };
+}
+
+/**
+ * Etapa 2 (conta liberada, CBO): a programação é da campanha e a grade vem de `schedule`.
+ * `extraFields` não pode reintroduzir `pacing_type`/`adset_schedule` no conjunto.
+ */
+function scheduleExtraFieldsUnderCboIssues(input: CreateAdSetInput): CreateIssue[] {
+  if (!input.cboDaypartingReleased || !input.parentUsesCampaignBudget) return [];
+  const extra = input.extraFields ?? {};
+  return (["pacing_type", "adset_schedule"] as const)
+    .filter((key) => Object.prototype.hasOwnProperty.call(extra, key))
+    .map((key) =>
+      localIssue(
+        "adset",
+        "SCHEDULE_FIELDS_IN_EXTRA_FIELDS_UNDER_CBO",
+        "Sob orçamento de campanha a programação é da campanha e a grade vem de `schedule`; não passe pacing_type/adset_schedule em extraFields.",
+        "Use `schedule` no conjunto.",
+        ["extraFields", key],
+      ),
+    );
+}
+
 /** Pure local validation (collect-all). No Meta calls. */
 export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
   const billingEvent = input.billingEvent ?? "IMPRESSIONS";
@@ -303,13 +352,47 @@ export function validateAdSetInput(input: CreateAdSetInput): CreateIssue[] {
       hasEffectiveLifetimeBudget: effectiveLifetime(input),
       mode: input.schedule?.mode ?? "continuous",
       blocks: input.schedule?.blocks,
+      parentUsesCampaignBudget: input.parentUsesCampaignBudget,
+      parentUsesDayParting: input.parentUsesDayParting,
+      cboDaypartingReleased: input.cboDaypartingReleased,
     }),
+    scheduleExtraFieldsUnderCboIssues(input),
     validatePlacements({
       publisherPlatforms: input.targeting?.publisherPlatforms,
       facebookPositions: input.targeting?.facebookPositions,
       instagramPositions: input.targeting?.instagramPositions,
     }),
+    validateGeoLocationsPresent(
+      compileAdSetTargeting(input).geo_locations as
+        | Record<string, unknown>
+        | undefined,
+    ),
   );
+}
+
+/**
+ * The targeting Meta receives: the compiled convenience fields over
+ * `extraFields.targeting`. Validation reads geo from here so a location sent
+ * through any of the three inputs counts.
+ */
+function compileAdSetTargeting(
+  input: CreateAdSetInput,
+): Record<string, unknown> {
+  const compiledTargeting = buildTargeting(input.targeting);
+  const extraTargeting = input.extraFields?.targeting;
+  return input.targeting &&
+    extraTargeting &&
+    typeof extraTargeting === "object" &&
+    !Array.isArray(extraTargeting)
+    ? {
+        ...(extraTargeting as Record<string, unknown>),
+        ...compiledTargeting,
+      }
+    : extraTargeting &&
+        typeof extraTargeting === "object" &&
+        !Array.isArray(extraTargeting)
+      ? (extraTargeting as Record<string, unknown>)
+      : compiledTargeting;
 }
 
 /** Build the Meta POST body (no access_token — metaApiCall appends it). */
@@ -320,22 +403,7 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
   p.set("optimization_goal", input.optimizationGoal);
   p.set("billing_event", input.billingEvent ?? "IMPRESSIONS");
   p.set("status", input.status ?? "PAUSED");
-  const compiledTargeting = buildTargeting(input.targeting);
-  const extraTargeting = input.extraFields?.targeting;
-  const targeting =
-    input.targeting &&
-    extraTargeting &&
-    typeof extraTargeting === "object" &&
-    !Array.isArray(extraTargeting)
-      ? {
-          ...(extraTargeting as Record<string, unknown>),
-          ...compiledTargeting,
-        }
-      : extraTargeting &&
-          typeof extraTargeting === "object" &&
-          !Array.isArray(extraTargeting)
-        ? (extraTargeting as Record<string, unknown>)
-        : compiledTargeting;
+  const targeting = compileAdSetTargeting(input);
   enforceIncludedAudienceRestriction(targeting);
   p.set("targeting", JSON.stringify(targeting));
   if (input.destinationType) p.set("destination_type", input.destinationType);
@@ -364,7 +432,21 @@ export function buildAdSetPayload(input: CreateAdSetInput): URLSearchParams {
   if (input.startTime) p.set("start_time", input.startTime);
   if (input.endTime) p.set("end_time", input.endTime);
 
-  if (input.schedule?.mode === "dayparting" && input.schedule.blocks?.length) {
+  if (input.parentUsesCampaignBudget && input.cboDaypartingReleased) {
+    // Etapa 2: sob CBO liberada, a programação é da campanha e o conjunto leva só a grade.
+    const decision = adSetScheduleForCreate(
+      {
+        budgetLevel: "campaign",
+        budgetKind: input.parentHasLifetimeBudget ? "lifetime" : "daily",
+        dayParting: Boolean(input.parentUsesDayParting),
+      },
+      requestedScheduleOf(input),
+      true,
+    );
+    if (decision.ok && decision.fields.adset_schedule) {
+      p.set("adset_schedule", JSON.stringify(decision.fields.adset_schedule));
+    }
+  } else if (input.schedule?.mode === "dayparting" && input.schedule.blocks?.length) {
     p.set("pacing_type", JSON.stringify(["day_parting"]));
     p.set(
       "adset_schedule",

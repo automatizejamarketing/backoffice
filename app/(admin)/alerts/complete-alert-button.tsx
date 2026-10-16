@@ -18,14 +18,17 @@ export function CompleteAlertButton({
   userId,
   insightId,
   title,
+  insightIds,
 }: {
   userId: string;
-  insightId: string;
+  insightId?: string;
+  insightIds?: string[];
   title: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const grouped = insightIds !== undefined;
 
   async function complete() {
     setPending(true);
@@ -34,18 +37,23 @@ export function CompleteAlertButton({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          insightId,
+          ...(grouped ? { insightIds } : { insightId }),
           status: "done",
           reviewNote: PLAYBOOK_DASHBOARD_COMPLETION_NOTE,
         }),
       });
       const body = (await response.json().catch(() => null)) as {
         error?: string;
+        completed?: number;
       } | null;
       if (!response.ok) {
         throw new Error(body?.error ?? "Falha ao concluir o alerta");
       }
-      toast.success("Alerta marcado como concluído");
+      toast.success(
+        grouped
+          ? `${body?.completed ?? 0} alerta(s) concluído(s)`
+          : "Alerta marcado como concluído",
+      );
       setOpen(false);
       router.refresh();
     } catch (error) {
@@ -63,9 +71,10 @@ export function CompleteAlertButton({
         type="button"
         size="sm"
         variant="outline"
+        disabled={pending || (grouped && insightIds.length === 0)}
         onClick={() => setOpen(true)}
       >
-        Concluir
+        {grouped ? "Concluir todos" : "Concluir"}
       </Button>
       <AlertDialog
         open={open}
@@ -76,10 +85,16 @@ export function CompleteAlertButton({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Marcar como concluído?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {grouped
+                ? "Concluir todos os alertas deste grupo?"
+                : "Marcar como concluído?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              “{title}” sai da fila de pendentes e passa para Finalizados. Isso
-              não aplica alteração automática na Meta.
+              {grouped
+                ? `Os ${insightIds.length} alertas pendentes de “${title}” neste grupo saem da fila e passam para Finalizados.`
+                : `“${title}” sai da fila de pendentes e passa para Finalizados.`}{" "}
+              Isso não aplica alteração automática na Meta.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -91,8 +106,16 @@ export function CompleteAlertButton({
             >
               Cancelar
             </Button>
-            <Button type="button" disabled={pending} onClick={() => void complete()}>
-              {pending ? "Concluindo..." : "Concluir"}
+            <Button
+              type="button"
+              disabled={pending}
+              onClick={() => void complete()}
+            >
+              {pending
+                ? "Concluindo..."
+                : grouped
+                  ? "Concluir todos"
+                  : "Concluir"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

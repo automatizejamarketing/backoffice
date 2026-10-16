@@ -1,3 +1,5 @@
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
+import { flagsForGrantedAsset } from "./meta-asset-selection-flags";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
@@ -8,7 +10,7 @@ import {
 import { GraphApiError, graphErrorToClientError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
-import { getPagesWithInstagram } from "@/lib/meta-business/marketing/build-ad-from-media";
+import { getAdvertisingIdentities } from "@/lib/meta-business/get-instagram-connected-page";
 import { assetAvailability } from "@/lib/meta-business/meta-asset-policy";
 import { buildReconnectInfo } from "@/lib/meta-business/reconnect-link";
 import { META_ASSET_DEFAULT_LIMIT } from "./meta-asset-mutation-plan";
@@ -82,19 +84,23 @@ export async function loadMetaAssetsCard(input: {
   }
 
   try {
-    const [userWithAccounts, identities] = await Promise.all([
-      getUserWithAdAccounts(token.accessToken, {
-        tokenKind: token.connection.tokenKind,
-        bisuAppScopedId: token.connection.bisuAppScopedId,
-        clientBusinessId: token.connection.clientBusinessId,
-        connectionName: token.connection.name,
-      }),
-      getPagesWithInstagram(token.accessToken),
-    ]);
-
+    const userWithAccounts = await getUserWithAdAccounts(token.accessToken, {
+      tokenKind: token.connection.tokenKind,
+      bisuAppScopedId: token.connection.bisuAppScopedId,
+      clientBusinessId: token.connection.clientBusinessId,
+      connectionName: token.connection.name,
+    });
     const grantedAccounts = userWithAccounts.adaccounts?.data ?? [];
     const grantedAccountIds = grantedAccounts.map((account) => account.account_id);
-    const grantedIdentityIds = identities.map((page) => page.pageId);
+    // Same definition of "granted identity" as the app: promotable under any granted ad
+    // account or assigned to the BISU, not only the pages the user's own account manages.
+    const identities = await getAdvertisingIdentities(token.accessToken, {
+      adAccountIds: grantedAccountIds,
+      tokenKind: token.connection.tokenKind,
+      bisuAppScopedId: token.connection.bisuAppScopedId,
+    });
+    const grantedIdentityIds = identities.map(identityKey);
+    const legacyAvailableIdentityIds = enabledRows.filter(row => row.assetKind === "identity" && identities.some(live => live.pageId === row.assetId && live.instagramBusinessAccountId === row.instagramBusinessAccountId)).map(row => row.assetId);
     const enabledByKind = indexEnabled(enabledRows);
 
     return {
@@ -118,14 +124,16 @@ export async function loadMetaAssetsCard(input: {
           };
         }),
         identities: identities.map((page) => {
-          const enabled = enabledByKind.identities.get(page.pageId);
+          const flags = flagsForGrantedAsset(enabledRows, "identity", identityKey(page));
           return {
+            identityId: page.identityId,
+            instagramBusinessAccountId: page.instagramBusinessAccountId,
             pageId: page.pageId,
             pageName: page.pageName ?? page.pageId,
             instagramUsername: page.instagramUsername ?? null,
             pagePictureUrl: page.pagePictureUrl ?? null,
-            enabled: Boolean(enabled),
-            primary: enabled?.isPrimary ?? false,
+            enabled: flags.enabled,
+            primary: flags.primary,
           };
         }),
       },
@@ -138,8 +146,12 @@ export async function loadMetaAssetsCard(input: {
         identities: mapEnabled(
           enabledRows,
           "identity",
-          grantedIdentityIds,
-        ),
+          [...grantedIdentityIds, ...legacyAvailableIdentityIds],
+        ).map(item => {
+          const row = enabledRows.find(row => row.assetKind === "identity" && row.assetId === item.id);
+          const live = identities.find(identity => identity.pageId === item.id && identity.instagramBusinessAccountId === row?.instagramBusinessAccountId);
+          return live ? {...item,id:identityKey(live)} : item;
+        }),
       },
     };
   } catch (error) {

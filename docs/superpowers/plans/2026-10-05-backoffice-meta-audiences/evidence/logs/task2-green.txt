@@ -1,0 +1,55 @@
+bun test v1.3.4 (5eb2145b)
+
+tests\ai-audience-exclusions.test.ts:
+(pass) audience exclusions replace only the exclusion field [16.00ms]
+(pass) exclusion-only edits preserve existing expansion metadata
+(pass) undefined preserves inherited exclusions and an empty list clears them
+(pass) an explicit empty exclusion list survives the full targeting update
+(pass) only known integrity or permission failures block selection
+(pass) lookalike ineligibility does not block an available exclusion
+
+tests\ai-audience-inclusions.test.ts:
+(pass) inclusions replace only the include field and disable both expansions
+(pass) undefined preserves and [] clears inclusions without clearing exclusions
+(pass) clearing inclusions preserves the base expansion mode and flags
+(pass) clearing the last inclusion preserves an explicitly applied demographic limit
+(pass) only integrity, permission and missing references block inclusion
+(pass) inclusions use OR semantics while exclusions keep precedence
+(pass) audience facts report exclusion precedence without rejecting overlap
+(pass) verification rejects inherited individual expansion suggestions
+
+tests\audience-account-selection.test.ts:
+(pass) explicit second account is preserved
+(pass) Meta prefix represents the same accessible account
+(pass) inaccessible requested account never falls back silently
+(pass) absent request keeps the first-account default
+(pass) empty list has no default
+(pass) malformed explicit requests never become the default
+(pass) prefixed accessible account values resolve to their canonical digits
+(pass) malformed accessible values cannot authorize an account
+(pass) embed link carries both boundaries and encodes parameters
+(pass) ordinary link omits an absent account and encodes the client
+
+tests\audience-kind.test.ts:
+(pass) unknown or unavailable member capability stays metadata-only
+(pass) proven member capability opens the customer editor
+(pass) lookalike without a representable rule keeps metadata editing
+(pass) representable rules select their lossless editor before customer capability
+(pass) compound and external rules keep metadata editing
+(pass) missing estimates and statuses use source fallbacks and delivery has priority
+(pass) zero and bounded estimates remain visible in pt-BR [93.00ms]
+
+tests\audience-library-manager.test.ts:
+(pass) standalone library and AI campaign sheet share the operator audience manager
+(pass) shared workspace preserves administrative scope and resets editor defaults per target
+(pass) audience navigation preserves workspace boundaries and embedded page permission
+(pass) account page gates the manager on current loaded client and validates URL selection
+
+tests\audience-period-copy.test.ts:
+(pass) backoffice audience editors explain the period in plain language instead of internal evidence fields
+(pass) backoffice website sources guidance no longer claims periods are blocked
+(pass) period validation messages no longer cite evidence and the preserved period is explained
+
+ 38 pass
+ 0 fail
+Ran 38 tests across 6 files. [778.00ms]

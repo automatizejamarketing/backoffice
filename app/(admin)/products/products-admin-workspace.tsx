@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   BookOpen,
@@ -84,6 +85,7 @@ import { ProductSalesPanel } from "@/components/product-sales/product-sales-pane
 import { FilterBar, FilterSelect } from "@/components/ui/filter";
 import { resolveMarketplaceFeeCentavos } from "@/lib/backoffice/product-sales-dashboard";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
+import { HeldPaymentsPanel } from "./held-payments-panel";
 import { RecoveryPixPanel } from "./recovery-pix-panel";
 import {
   formatBrazilianPhone,
@@ -116,6 +118,17 @@ import {
 } from "@/lib/backoffice/datetime-format";
 import { buildProductCheckoutUrl } from "@/lib/products/checkout-url";
 import { buildProductAdminUpdatePayload } from "@/lib/products/admin-update-payload";
+import {
+  readStoredTrackingPixels,
+  type TrackingPixel,
+} from "@/lib/products/tracking-pixels";
+import { ExpertAvatar } from "./expert-avatar";
+import {
+  fromTrackingPixelDrafts,
+  toTrackingPixelDrafts,
+  TrackingPixelsEditor,
+  type TrackingPixelDraft,
+} from "./tracking-pixels-editor";
 import { isProductOfferedForSale } from "@/lib/products/sale-gate";
 import {
   formatGatewayFeeEstimateLabel,
@@ -152,6 +165,8 @@ type Expert = {
   stripePayoutsEnabled: boolean;
   stripeDetailsSubmitted: boolean;
   stripeAccountUpdatedAt: string | null;
+  defaultTrackingPixels: TrackingPixel[];
+  capiPixelIds: string[];
 };
 
 type MercadoPagoExpertPanel = {
@@ -189,6 +204,8 @@ type Product = {
   status: "draft" | "published" | "archived";
   salesEnabled: boolean;
   termsVersion: string;
+  trackingPixels: TrackingPixel[];
+  capiPixelIds: string[];
 };
 
 type Content = {
@@ -670,53 +687,6 @@ function paymentMethod(order: Order) {
   return order.paymentMethodId ?? "—";
 }
 
-function ExpertAvatar({
-  name,
-  src,
-  size = "sm",
-}: {
-  name: string;
-  src: string | null;
-  size?: "xs" | "sm" | "lg";
-}) {
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const sizeClass =
-    size === "lg"
-      ? "size-20 text-xl"
-      : size === "xs"
-        ? "size-8 text-xs"
-        : "size-10 text-sm";
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
-  const imageSrc = src && failedSrc !== src ? src : null;
-
-  return (
-    <div
-      className={`${sizeClass} shrink-0 overflow-hidden rounded-full border bg-muted`}
-      aria-label={imageSrc ? undefined : `Sem foto para ${name}`}
-    >
-      {imageSrc ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={imageSrc}
-          alt={`Foto de ${name}`}
-          className="size-full object-cover"
-          onError={() => setFailedSrc(imageSrc)}
-        />
-      ) : (
-        <span className="flex size-full items-center justify-center font-semibold text-muted-foreground">
-          {initials || "EX"}
-        </span>
-      )}
-    </div>
-  );
-}
-
 function AutomatizeAvatar() {
   return (
     <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-white p-1.5">
@@ -935,8 +905,13 @@ async function uploadProductAsset(
 
 export function ProductsAdminWorkspace({
   frontendAppUrl,
+  initialTab = "products",
+  openExpertId = null,
 }: {
   frontendAppUrl: string;
+  initialTab?: string;
+  /** Vindo de "Editar cadastro" na página do expert: abre o dialog dele. */
+  openExpertId?: string | null;
 }) {
   const [products, setProducts] = useState<Array<{
     product: Product;
@@ -953,6 +928,8 @@ export function ProductsAdminWorkspace({
   const [content, setContent] = useState<Content[]>([]);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [productForm, setProductForm] = useState(emptyProduct);
+  const [productPixels, setProductPixels] = useState<TrackingPixelDraft[]>([]);
+  const [productCapiPixelIds, setProductCapiPixelIds] = useState<string[]>([]);
   const [contentForm, setContentForm] = useState(emptyContent);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productDialogOpen, setProductDialogOpen] = useState(false);
@@ -966,6 +943,8 @@ export function ProductsAdminWorkspace({
   const [refunding, setRefunding] = useState(false);
   const [releasingBalance, setReleasingBalance] = useState(false);
   const [expertForm, setExpertForm] = useState<ExpertFormState>(emptyExpert);
+  const [expertPixels, setExpertPixels] = useState<TrackingPixelDraft[]>([]);
+  const [expertCapiPixelIds, setExpertCapiPixelIds] = useState<string[]>([]);
   const [expertImageFile, setExpertImageFile] = useState<File | null>(null);
   const [expertImagePreviewUrl, setExpertImagePreviewUrl] = useState<string | null>(null);
   const [expertImageInputKey, setExpertImageInputKey] = useState(0);
@@ -1040,6 +1019,17 @@ export function ProductsAdminWorkspace({
         owner.ownerType === "expert" ? current.coproducerSharePercent : "",
     }));
   }
+
+  const openedExpertIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openExpertId || openedExpertIdRef.current === openExpertId) return;
+    const expert = experts.find((row) => row.id === openExpertId);
+    if (!expert) return;
+    openedExpertIdRef.current = openExpertId;
+    editExpert(expert);
+    // `editExpert` é uma função do corpo do componente; abrir uma vez basta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experts, openExpertId]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -1171,6 +1161,7 @@ export function ProductsAdminWorkspace({
           productForm.expertParticipationPercent,
         ),
         minimumPlanTier: productForm.minimumPlanTier || null,
+        trackingPixels: fromTrackingPixelDrafts(productPixels),
       };
       const response = await fetch(
         editingProductId
@@ -1199,6 +1190,8 @@ export function ProductsAdminWorkspace({
     setProductDialogOpen(false);
     setEditingProductId(null);
     setProductForm(emptyProduct);
+    setProductPixels([]);
+    setProductCapiPixelIds([]);
     setCoverFile(null);
     if (coverPreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(coverPreviewUrl);
@@ -1212,6 +1205,8 @@ export function ProductsAdminWorkspace({
   function createProduct() {
     setEditingProductId(null);
     setProductForm(emptyProduct);
+    setProductPixels([]);
+    setProductCapiPixelIds([]);
     setCoverFile(null);
     if (coverPreviewUrl?.startsWith("blob:")) {
       URL.revokeObjectURL(coverPreviewUrl);
@@ -1258,6 +1253,10 @@ export function ProductsAdminWorkspace({
       salesEnabled: row.salesEnabled,
       termsVersion: row.termsVersion,
     });
+    setProductPixels(
+      toTrackingPixelDrafts(readStoredTrackingPixels(row.trackingPixels)),
+    );
+    setProductCapiPixelIds(row.capiPixelIds ?? []);
     setProductDialogOpen(true);
   }
 
@@ -1533,6 +1532,12 @@ export function ProductsAdminWorkspace({
       ),
       status: expert.status,
     });
+    setExpertPixels(
+      toTrackingPixelDrafts(
+        readStoredTrackingPixels(expert.defaultTrackingPixels),
+      ),
+    );
+    setExpertCapiPixelIds(expert.capiPixelIds ?? []);
     setMercadoPagoExpertPanel(null);
     setMercadoPagoSwitchReason("");
     void loadMercadoPagoExpertPanel(expert.id);
@@ -1543,6 +1548,7 @@ export function ProductsAdminWorkspace({
     setExpertDialogOpen(false);
     setEditingExpertId(null);
     setExpertForm(emptyExpert);
+    setExpertPixels([]);
     setMercadoPagoExpertPanel(null);
     setMercadoPagoSwitchReason("");
     setExpertImageFile(null);
@@ -1685,6 +1691,7 @@ export function ProductsAdminWorkspace({
               expertForm.marketplaceFeePercent,
             ),
             profileImageUrl,
+            defaultTrackingPixels: fromTrackingPixelDrafts(expertPixels),
           }),
         },
       );
@@ -1927,7 +1934,7 @@ export function ProductsAdminWorkspace({
         </Button>
       </header>
 
-      <Tabs defaultValue="products">
+      <Tabs defaultValue={initialTab}>
         <TabsList className="grid w-full grid-cols-5 lg:w-fit">
           <TabsTrigger value="dashboard">Painel</TabsTrigger>
           <TabsTrigger value="products">Produtos</TabsTrigger>
@@ -2239,7 +2246,12 @@ export function ProductsAdminWorkspace({
                         <div className="flex items-center gap-3">
                           <ExpertAvatar name={expert.displayName} src={expert.profileImageUrl} />
                           <div className="min-w-0">
-                            <p className="truncate font-medium">{expert.displayName}</p>
+                            <Link
+                              href={`/products/experts/${expert.id}`}
+                              className="block truncate font-medium underline-offset-4 hover:underline"
+                            >
+                              {expert.displayName}
+                            </Link>
                             <p className="truncate text-sm text-muted-foreground">{expert.email}</p>
                           </div>
                         </div>
@@ -2336,6 +2348,7 @@ export function ProductsAdminWorkspace({
         </TabsContent>
 
       <TabsContent value="orders" className="pt-4">
+          <HeldPaymentsPanel />
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4">
               <CardTitle>Vendas</CardTitle>
@@ -2709,6 +2722,22 @@ export function ProductsAdminWorkspace({
               </>
             ) : null}
             <label className="flex items-center gap-3 text-sm md:col-span-2"><input type="checkbox" checked={productForm.salesEnabled} onChange={(event) => setProductForm({ ...productForm, salesEnabled: event.target.checked })} /> Disponível para aquisição</label>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4 md:col-span-2">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Pixels de conversão</p>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Disparados no checkout deste produto. Produto novo de expert
+                  herda os pixels padrão dele nas plataformas sem pixel aqui.
+                </p>
+              </div>
+              <TrackingPixelsEditor
+                idPrefix="admin-product-pixel"
+                value={productPixels}
+                capiPixelIds={productCapiPixelIds}
+                onChange={setProductPixels}
+                disabled={loading}
+              />
+            </div>
             <DialogFooter className="md:col-span-2">
               <Button type="button" variant="outline" onClick={closeProductDialog}>Cancelar</Button>
               <Button type="submit" disabled={loading}>
@@ -2740,7 +2769,7 @@ export function ProductsAdminWorkspace({
           if (!open) closeExpertDialog();
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Editar expert</DialogTitle>
             <DialogDescription>
@@ -3000,6 +3029,23 @@ export function ProductsAdminWorkspace({
                 acontece por dentro do Automatize; vendas pelo link direto do
                 produto pagam só a taxa acima.
               </p>
+            </div>
+            <div className="space-y-3 rounded-lg border bg-muted/20 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Pixels padrão</p>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Ao salvar, entram nos produtos do expert sem pixel da
+                  plataforma (ou ainda no padrão anterior) e em todo produto
+                  novo. Pixel próprio do produto não é trocado.
+                </p>
+              </div>
+              <TrackingPixelsEditor
+                idPrefix="admin-expert-pixel"
+                value={expertPixels}
+                capiPixelIds={expertCapiPixelIds}
+                onChange={setExpertPixels}
+                disabled={loading}
+              />
             </div>
             <Field label="Status">
               <Select

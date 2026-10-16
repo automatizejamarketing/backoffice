@@ -18,6 +18,7 @@ class MemoryExecutor {
   user = { id: "user-1", email: "customer@example.com" };
   benefit: Benefit | null = null;
   links: Link[] = [];
+  efiAuthorizations: Array<{ id: string; userId: string; status: string }> = [];
   lockOrder: string[] = [];
   postCalls: Array<Record<string, unknown>> = [];
   linkPredicateSql = "";
@@ -70,6 +71,12 @@ class MemoryExecutor {
           rows = this.benefit ? [this.benefit] : [];
         }
         if (query.name === "subscriptions") rows = [];
+        if (query.name === "efi_recurring_authorizations") {
+          const { params } = new PgDialect().sqlToQuery(query.condition);
+          rows = this.efiAuthorizations.filter((row) =>
+            row.userId === params[0] && params.slice(1).includes(row.status),
+          );
+        }
         if (query.name === "mercadopago_payment_links") {
           const compiled = query.condition
             ? new PgDialect().sqlToQuery(query.condition)
@@ -174,6 +181,7 @@ function provider(overrides: {
 function reset() {
   memory.benefit = null;
   memory.links = [];
+  memory.efiAuthorizations = [];
   memory.lockOrder = [];
   memory.postCalls = [];
   memory.linkPredicateSql = "";
@@ -205,6 +213,30 @@ test("generator creates regular full price when there is no benefit", async () =
   assert.equal(result.amount, 120000);
   assert.equal(result.retentionBenefitId, null);
   assert.equal(memory.postCalls.length, 1);
+});
+
+test("pending Pix Automático authorization blocks a manual Pix before creating a payment", async () => {
+  reset();
+  const previous = process.env.EFI_PIX_AUTOMATIC_STORAGE_READY;
+  process.env.EFI_PIX_AUTOMATIC_STORAGE_READY = "true";
+  memory.efiAuthorizations = [{ id: "authorization-1", userId: "user-1", status: "pending" }];
+  try {
+    await assert.rejects(
+      createOrReuseBackofficePixLink({
+        userId: "user-1",
+        planType: "monthly_starter",
+        adminEmail: "admin@example.com",
+        executor: memory as any,
+        provider: provider({}),
+      }),
+      /autorização de Pix Automático/,
+    );
+    assert.equal(memory.postCalls.length, 0);
+    assert.equal(memory.links.length, 0);
+  } finally {
+    if (previous === undefined) delete process.env.EFI_PIX_AUTOMATIC_STORAGE_READY;
+    else process.env.EFI_PIX_AUTOMATIC_STORAGE_READY = previous;
+  }
 });
 
 test("reserved benefit creates one discounted payment with snapshot and idempotency metadata", async () => {

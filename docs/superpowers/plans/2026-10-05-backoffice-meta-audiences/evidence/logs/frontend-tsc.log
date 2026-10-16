@@ -1,0 +1,194 @@
+agent/lib/whatsapp-transcription.test.ts(103,28): error TS2339: Property 'modelId' does not exist on type 'never'.
+agent/lib/whatsapp-transcription.test.ts(104,28): error TS2339: Property 'mediaType' does not exist on type 'never'.
+agent/lib/whatsapp-transcription.test.ts(105,28): error TS2339: Property 'userId' does not exist on type 'never'.
+agent/lib/whatsapp-transcription.test.ts(107,21): error TS2339: Property 'audio' does not exist on type 'never'.
+app/api/meta-business/marketing/instagram/user-media/route.test.ts(19,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+app/api/pricing/purchase-suggestion/route.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+app/api/retention/attempts/[id]/events/route.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+app/app/(main)/marketing/new/components/location-targeting-section.interaction.test.tsx(2,79): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+app/app/(main)/marketing/new/components/location-targeting-section.interaction.test.tsx(192,47): error TS7006: Parameter 'context' implicitly has an 'any' type.
+components/app-sidebar-navigation.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/comment-automation/automations-page.test.tsx(2,73): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/comment-automation/automations-page.test.tsx(178,57): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Type '{ commentsOnPost: number; matched: number; openingDms: number; optIns: number; deliveries: number; clicks: number; ctr: number; failures: number; }' is not assignable to type 'AutomationInsights'.
+      Property 'failureBreakdown' is missing in type '{ commentsOnPost: number; matched: number; openingDms: number; optIns: number; deliveries: number; clicks: number; ctr: number; failures: number; }' but required in type '{ commentsOnPost: number; openingDms: number; optIns: number; failures: number; failureBreakdown: FailureBreakdown; }'.
+components/comment-automation/wizard-form.test.tsx(2,73): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/comment-automation/wizard-form.test.tsx(205,25): error TS2352: Conversion of type 'Element | null' to type 'HTMLTextAreaElement' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'Element' is missing the following properties from type 'HTMLTextAreaElement': autocomplete, cols, defaultValue, dirName, and 228 more.
+components/onboarding-dashboard/business-locations-manager.interaction.test.tsx(2,73): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/posts/instagram-feed-preview-items.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/posts/prepare-instagram-media.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/pricing/pricing-ui.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/pricing/purchase-suggestion-dialog.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/pricing/recipe-card-presentation.test.ts(1,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/scheduled-posts/scheduled-post-preview.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/import-dialog.interaction.test.tsx(2,77): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/import-dialog.interaction.test.tsx(68,39): error TS2307: Cannot find module './import-dialog?task11-isolated' or its corresponding type declarations.
+components/stock/import-dialog.interaction.test.tsx(106,30): error TS2345: Argument of type 'HTMLBodyElement' is not assignable to parameter of type 'HTMLElement'.
+  Type 'HTMLBodyElement' is missing the following properties from type 'HTMLElement': accessKeyLabel, autocapitalize, autocorrect, draggable, and 128 more.
+components/stock/import-dialog.test.tsx(4,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/import-dialog.test.tsx(10,110): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type '{ locale: string; messages: { aspectRatio: { title: string; description: string; feed: { label: string; description: string; }; story: { label: string; description: string; }; }; common: { cancel: string; ... 41 more ...; hidePassword: string; }; ... 28 more ...; pricing: { ...; }; }; }' is not assignable to parameter of type 'Attributes & Omit<IntlConfig & { children: ReactNode; }, "locale"> & { locale?: string | undefined; }'.
+      Property 'children' is missing in type '{ locale: string; messages: { aspectRatio: { title: string; description: string; feed: { label: string; description: string; }; story: { label: string; description: string; }; }; common: { cancel: string; ... 41 more ...; hidePassword: string; }; ... 28 more ...; pricing: { ...; }; }; }' but required in type 'Omit<IntlConfig & { children: ReactNode; }, "locale">'.
+components/stock/purchases-tab.test.tsx(4,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/report-tab.interaction.test.tsx(2,71): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/report-tab.interaction.test.tsx(30,30): error TS2345: Argument of type 'HTMLBodyElement' is not assignable to parameter of type 'HTMLElement'.
+  Type 'HTMLBodyElement' is missing the following properties from type 'HTMLElement': accessKeyLabel, autocapitalize, autocorrect, draggable, and 128 more.
+components/stock/report-tab.test.tsx(4,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/stock-action-visibility.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/stock-location-selection.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/stock-page.test.tsx(4,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+components/stock/stock-page.test.tsx(10,110): error TS2769: No overload matches this call.
+  The last overload gave the following error.
+    Argument of type '{ locale: string; messages: { aspectRatio: { title: string; description: string; feed: { label: string; description: string; }; story: { label: string; description: string; }; }; common: { cancel: string; ... 41 more ...; hidePassword: string; }; ... 28 more ...; pricing: { ...; }; }; }' is not assignable to parameter of type 'Attributes & Omit<IntlConfig & { children: ReactNode; }, "locale"> & { locale?: string | undefined; }'.
+      Property 'children' is missing in type '{ locale: string; messages: { aspectRatio: { title: string; description: string; feed: { label: string; description: string; }; story: { label: string; description: string; }; }; common: { cancel: string; ... 41 more ...; hidePassword: string; }; ... 28 more ...; pricing: { ...; }; }; }' but required in type 'Omit<IntlConfig & { children: ReactNode; }, "locale">'.
+lib/billing/signup-coupon-store.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/client-reports/config.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/client-reports/config.test.ts(20,38): error TS2345: Argument of type '{ CLIENT_REPORTS_DISPATCH_ENABLED: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ CLIENT_REPORTS_DISPATCH_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/config/models.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/creative-analysis/playground.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/creative-analysis/playground.test.ts(66,43): error TS2352: Conversion of type '{ CREATIVE_ANALYSIS_PLAYGROUND_ENABLED: string; }' to type 'ProcessEnv' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'NODE_ENV' is missing in type '{ CREATIVE_ANALYSIS_PLAYGROUND_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/date-range-selection.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/env/load-env.test.ts(47,11): error TS2741: Property 'NODE_ENV' is missing in type '{ NEXTAUTH_URL: string; NEXT_PUBLIC_APP_URL: string; }' but required in type 'ProcessEnv'.
+lib/env/load-env.test.ts(60,11): error TS2741: Property 'NODE_ENV' is missing in type '{ VERCEL: string; NEXTAUTH_URL: string; NEXT_PUBLIC_APP_URL: string; }' but required in type 'ProcessEnv'.
+lib/env/load-env.test.ts(75,11): error TS2741: Property 'NODE_ENV' is missing in type '{ NEXTAUTH_URL: string; NEXT_PUBLIC_APP_URL: string; }' but required in type 'ProcessEnv'.
+lib/env/load-env.test.ts(87,29): error TS2345: Argument of type '{ LOCAL_APP_URL: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ LOCAL_APP_URL: string; }' but required in type 'ProcessEnv'.
+lib/env/load-env.test.ts(90,40): error TS2345: Argument of type '{ PORT: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ PORT: string; }' but required in type 'ProcessEnv'.
+lib/i18n/locale-parity.test.ts(1,30): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/i18n/public-messages.test.ts(1,30): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/i18n/public-messages.test.ts(13,18): error TS2322: Type 'number' is not assignable to type 'string | AbstractIntlMessages'.
+lib/i18n/public-messages.test.ts(14,20): error TS2322: Type 'number' is not assignable to type 'string | AbstractIntlMessages'.
+lib/i18n/public-messages.test.ts(15,17): error TS2322: Type 'number' is not assignable to type 'string | AbstractIntlMessages'.
+lib/mercadopago/pix-fraud-event.test.ts(1,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/instagram-webhook-fields.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/instagram/carousel-publishing.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/instagram/private-reply-payload.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/instagram/scheduled-media-url.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/instagram/scheduled-post-input.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/marketing/admin-oauth.test.ts(13,44): error TS2345: Argument of type '{}' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{}' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/admin-oauth.test.ts(15,33): error TS2345: Argument of type '{ META_ADMIN_RECONNECT_MODE: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ META_ADMIN_RECONNECT_MODE: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/ai-creation/build-tree.test.ts(62,31): error TS2339: Property 'cta' does not exist on type 'AdCreativeInput'.
+  Property 'cta' does not exist on type '{ format: "creative_id"; creativeId: string; }'.
+lib/meta-business/marketing/ai-creation/build-tree.test.ts(74,31): error TS2339: Property 'cta' does not exist on type 'AdCreativeInput'.
+  Property 'cta' does not exist on type '{ format: "creative_id"; creativeId: string; }'.
+lib/meta-business/marketing/ai-creation/build-tree.test.ts(83,31): error TS2339: Property 'cta' does not exist on type 'AdCreativeInput'.
+  Property 'cta' does not exist on type '{ format: "creative_id"; creativeId: string; }'.
+lib/meta-business/marketing/ai-creation/build-tree.test.ts(88,27): error TS2339: Property 'cta' does not exist on type 'AdCreativeInput'.
+  Property 'cta' does not exist on type '{ format: "creative_id"; creativeId: string; }'.
+lib/meta-business/marketing/audiences/release.test.ts(7,47): error TS2345: Argument of type '{}' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{}' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/audiences/release.test.ts(8,47): error TS2345: Argument of type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/audiences/release.test.ts(9,47): error TS2345: Argument of type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ CUSTOMER_AUDIENCE_IMPORTS_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/connection-state.test.ts(17,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/marketing/creation/create-ad-generative-fallback.test.ts(2,41): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/marketing/creation/create-pixel.test.ts(2,41): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/marketing/creation/create-tree.test.ts(31,40): error TS2339: Property 'endTime' does not exist on type '{ startTime: string; }'.
+lib/meta-business/marketing/handle-admin-oauth-callback.test.ts(15,7): error TS2741: Property 'NODE_ENV' is missing in type '{ BACKOFFICE_URL: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/handle-admin-oauth-callback.test.ts(25,31): error TS2345: Argument of type '{ VERCEL_ENV: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ VERCEL_ENV: string; }' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/me-route.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/meta-business/marketing/partner-access-status.test.ts(135,44): error TS2345: Argument of type '{}' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{}' but required in type 'ProcessEnv'.
+lib/meta-business/marketing/partner-access-status.test.ts(137,33): error TS2345: Argument of type '{ META_PARTNER_AUTO_GRANT_ENABLED: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ META_PARTNER_AUTO_GRANT_ENABLED: string; }' but required in type 'ProcessEnv'.
+lib/pricing/calculate.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/pricing/confidence.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/pricing/pdf.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/pricing/purchase-suggestion.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/pricing/quantity.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/pricing/service.test.ts(1,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/pricing/service.test.ts(47,7): error TS2322: Type 'Promise<{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; } | null>' is not assignable to type 'Promise<PricingRecipeRecord | null>'.
+  Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; } | null' is not assignable to type 'PricingRecipeRecord | null'.
+    Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is not assignable to type 'PricingRecipeRecord'.
+      Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is missing the following properties from type '{ name: string; id: string; createdAt: Date; updatedAt: Date; deletedAt: Date | null; companyId: string; category: string | null; yieldDescription: string | null; preparationMinutes: number | null; salePriceCents: number; estimatedCostCents: number; packagingCents: number | null; }': createdAt, updatedAt
+lib/pricing/service.test.ts(48,31): error TS2322: Type 'Promise<{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }>' is not assignable to type 'Promise<PricingRecipeRecord | null>'.
+  Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is not assignable to type 'PricingRecipeRecord'.
+    Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is missing the following properties from type '{ name: string; id: string; createdAt: Date; updatedAt: Date; deletedAt: Date | null; companyId: string; category: string | null; yieldDescription: string | null; preparationMinutes: number | null; salePriceCents: number; estimatedCostCents: number; packagingCents: number | null; }': createdAt, updatedAt
+lib/pricing/service.test.ts(49,34): error TS2322: Type 'Promise<{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }>' is not assignable to type 'Promise<PricingRecipeRecord | null>'.
+  Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is not assignable to type 'PricingRecipeRecord'.
+    Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is missing the following properties from type '{ name: string; id: string; createdAt: Date; updatedAt: Date; deletedAt: Date | null; companyId: string; category: string | null; yieldDescription: string | null; preparationMinutes: number | null; salePriceCents: number; estimatedCostCents: number; packagingCents: number | null; }': createdAt, updatedAt
+lib/pricing/service.test.ts(52,30): error TS2322: Type 'Promise<{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }[]>' is not assignable to type 'Promise<PricingRecipeRecord[]>'.
+  Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }[]' is not assignable to type 'PricingRecipeRecord[]'.
+    Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is not assignable to type 'PricingRecipeRecord'.
+      Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is missing the following properties from type '{ name: string; id: string; createdAt: Date; updatedAt: Date; deletedAt: Date | null; companyId: string; category: string | null; yieldDescription: string | null; preparationMinutes: number | null; salePriceCents: number; estimatedCostCents: number; packagingCents: number | null; }': createdAt, updatedAt
+lib/pricing/service.test.ts(58,31): error TS2322: Type 'Promise<{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }>' is not assignable to type 'Promise<PricingRecipeRecord>'.
+  Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is not assignable to type 'PricingRecipeRecord'.
+    Type '{ id: string; companyId: string; name: string; category: string; yieldDescription: string; preparationMinutes: number; salePriceCents: number; estimatedCostCents: number; packagingCents: number; deletedAt: null; lines: { ...; }[]; steps: never[]; }' is missing the following properties from type '{ name: string; id: string; createdAt: Date; updatedAt: Date; deletedAt: Date | null; companyId: string; category: string | null; yieldDescription: string | null; preparationMinutes: number | null; salePriceCents: number; estimatedCostCents: number; packagingCents: number | null; }': createdAt, updatedAt
+lib/pricing/service.test.ts(60,33): error TS2322: Type 'Promise<null>' is not assignable to type 'Promise<{ id: string; createdAt: Date; updatedAt: Date; companyId: string; gasCents: number | null; energyCents: number | null; waterCents: number | null; rentCents: number | null; laborCents: number | null; }>'.
+  Type 'null' is not assignable to type '{ id: string; createdAt: Date; updatedAt: Date; companyId: string; gasCents: number | null; energyCents: number | null; waterCents: number | null; rentCents: number | null; laborCents: number | null; }'.
+lib/pricing/validation.test.ts(1,38): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/proactive/whatsapp-override.test.ts(16,40): error TS2345: Argument of type '{ WHATSAPP_PROACTIVITY_OVERRIDE_TO: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{ WHATSAPP_PROACTIVITY_OVERRIDE_TO: string; }' but required in type 'ProcessEnv'.
+lib/proactive/whatsapp-override.test.ts(21,51): error TS2345: Argument of type '{}' is not assignable to parameter of type 'ProcessEnv'.
+  Property 'NODE_ENV' is missing in type '{}' but required in type 'ProcessEnv'.
+lib/products/checkout-user-error.test.ts(1,30): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/products/financial-history.test.ts(33,7): error TS2353: Object literal may only specify known properties, and 'refundRequest' does not exist in type 'ProductChargeStates'.
+lib/products/financial-history.test.ts(136,11): error TS2353: Object literal may only specify known properties, and 'refundRequest' does not exist in type 'ProductChargeStates'.
+lib/products/financial-history.test.ts(146,37): error TS2339: Property 'reconciliation' does not exist on type 'ProductChargeStates'.
+lib/retention/attempts.test.ts(1,46): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/benefits.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/cancellation-errors.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/cancellation-preview.test.ts(1,46): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/cancellation-state.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/offers.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/pix-discount-concurrency.test.ts(1,46): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/pix-discount-webhook.test.ts(1,46): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/pix-discount.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/pix-discount.test.ts(2,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/preview.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/pricing-quote.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/reason-route.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/reasons.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/retention/stripe-discount.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+lib/storage/stock-import-r2.test.ts(74,48): error TS2345: Argument of type '{ NODE_ENV: string; CLOUDFLARE_R2_ACCOUNT_ID: string; STOCK_IMPORT_R2_BUCKET: string; STOCK_IMPORT_R2_ACCESS_KEY_ID: string; STOCK_IMPORT_R2_SECRET_ACCESS_KEY: string; }' is not assignable to parameter of type 'ProcessEnv'.
+  Types of property 'NODE_ENV' are incompatible.
+    Type 'string' is not assignable to type '"production" | "development" | "test"'.
+lib/stripe/recovery-state.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+proxy.test.ts(336,28): error TS2554: Expected 2 arguments, but got 1.
+proxy.test.ts(351,28): error TS2554: Expected 2 arguments, but got 1.
+proxy.test.ts(363,28): error TS2554: Expected 2 arguments, but got 1.
+proxy.test.ts(394,28): error TS2554: Expected 2 arguments, but got 1.
+proxy.test.ts(414,30): error TS2554: Expected 2 arguments, but got 1.
+tests/ai-create-envelope.test.ts(28,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/ai-creation-plan.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/ai-creation-publish.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/ai-fallback-publish.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/audience-period-copy.test.ts(6,31): error TS2339: Property 'dir' does not exist on type 'ImportMeta'.
+tests/cancellation-handlers.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/cancellation-route.test.ts(1,40): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/custom-audience-text-encoding.test.ts(8,39): error TS2339: Property 'dir' does not exist on type 'ImportMeta'.
+tests/customer-file-xlsx.test.ts(93,24): error TS2339: Property 'worksheet' does not exist on type 'CustomerFilePreview | CustomerFileXlsxSelection'.
+  Property 'worksheet' does not exist on type 'CustomerFileXlsxSelection'.
+tests/customer-file-xlsx.test.ts(94,28): error TS2339: Property 'rows' does not exist on type 'CustomerFilePreview | CustomerFileXlsxSelection'.
+  Property 'rows' does not exist on type 'CustomerFileXlsxSelection'.
+tests/customer-file-xlsx.test.ts(95,45): error TS2345: Argument of type 'CustomerFilePreview | CustomerFileXlsxSelection' is not assignable to parameter of type 'CustomerFilePreview'.
+  Type 'CustomerFileXlsxSelection' is missing the following properties from type 'CustomerFilePreview': context, mapping, referenceCountry, receivedAt, and 3 more.
+tests/draft-cleanup-rollback-log.test.ts(17,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/instagram-audience-review.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-ads-permission-denied.test.ts(26,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-adset-flight-ended.test.ts(36,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-adset-schedule-lock-route.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-budget-below-spent.test.ts(41,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-business-permission-denied.test.ts(32,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-campaign-create-publish-wrapper.test.ts(10,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-carousel-ad-limit.test.ts(30,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-certification-required.test.ts(33,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-graph-html-response.test.ts(27,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-instagram-post-ad-media.test.ts(36,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-object-unavailable.test.ts(25,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-payment-method-missing.test.ts(25,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-payment-method-required.test.ts(26,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-pixels-account-wrapper.test.ts(12,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-refresh-tokens-cron.test.ts(36,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/meta-token-invalid-reconnect.test.ts(21,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.
+tests/website-audience-review.test.ts(3,22): error TS2307: Cannot find module 'bun:test' or its corresponding type declarations.

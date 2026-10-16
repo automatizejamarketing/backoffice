@@ -236,11 +236,6 @@ async function createBackofficePixLinkInTransaction({
     .limit(1)
     .for("update");
   if (!targetUser) throw new Error("Usuário não encontrado.");
-  if (process.env.EFI_PIX_AUTOMATIC_STORAGE_READY === "true") {
-    const [authorization] = await executor.select({ id: efiRecurringAuthorization.id }).from(efiRecurringAuthorization)
-      .where(and(eq(efiRecurringAuthorization.userId, userId), inArray(efiRecurringAuthorization.status, ["creating", "pending", "approved", "review"]))).limit(1);
-    if (authorization) throw new BackofficePixStripeBlockError("Cancele a autorização de Pix Automático antes de gerar outro meio de assinatura.");
-  }
 
   const activeSubscriptions = await executor
     .select()
@@ -252,6 +247,22 @@ async function createBackofficePixLinkInTransaction({
       ),
     );
   assertPixRenewalAllowed(activeSubscriptions);
+
+  if (process.env.EFI_PIX_AUTOMATIC_STORAGE_READY === "true") {
+    const [authorization] = await executor
+      .select({ id: efiRecurringAuthorization.id })
+      .from(efiRecurringAuthorization)
+      .where(and(
+        eq(efiRecurringAuthorization.userId, userId),
+        inArray(efiRecurringAuthorization.status, ["creating", "pending", "approved", "review"]),
+      ))
+      .limit(1);
+    if (authorization) {
+      throw new BackofficePixStripeBlockError(
+        "Cancele a autorização de Pix Automático antes de gerar outro meio de assinatura.",
+      );
+    }
+  }
 
   const [benefit] = await executor
     .select()

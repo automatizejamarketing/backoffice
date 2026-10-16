@@ -14,6 +14,7 @@ type WhatsappDeliveryStatusProps = {
   clickedAt: Date | null;
   historicalStatusUntracked?: boolean;
   compact?: boolean;
+  trackClicks?: boolean;
 };
 
 const STATUS_PROGRESS: Partial<Record<WhatsappDeliveryStatus, number>> = {
@@ -30,6 +31,7 @@ export function WhatsappDeliveryStatus({
   clickedAt,
   historicalStatusUntracked = false,
   compact = false,
+  trackClicks = true,
 }: WhatsappDeliveryStatusProps) {
   if (status === "failed") {
     return (
@@ -58,7 +60,7 @@ export function WhatsappDeliveryStatus({
     readAt ? 3 : 0,
     clickedAt ? 4 : 0,
   );
-  const steps = ["Enviado", "Entregue", "Lido", "Clicado"];
+  const steps = trackClicks ? ["Enviado", "Entregue", "Lido", "Clicado"] : ["Enviado", "Entregue", "Lido"];
 
   return (
     <div
@@ -107,7 +109,8 @@ export function WhatsappDeliveryStatus({
       <div
         className={cn(
           "grid text-[10px] leading-none text-muted-foreground",
-          compact ? "min-w-64 grid-cols-4" : "min-w-72 grid-cols-4",
+          compact ? "min-w-64" : "min-w-72",
+          trackClicks ? "grid-cols-4" : "grid-cols-3",
         )}
       >
         {steps.map((label, index) => (

@@ -12,3 +12,4 @@ export * from "./update-campaign";
 export * from "./update-ad-set";
 export * from "./update-ad";
 export * from "./migrate-budget-mode";
+export * from "./schedule-lock";

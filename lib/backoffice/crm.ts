@@ -25,7 +25,7 @@ export const CRM_STATUS_META: Record<
 > = {
   novo_lead: {
     label: "Novo lead",
-    description: "Acabou de criar a conta e ninguém falou com ele ainda.",
+    description: "Entrou no CRM e ninguém falou com ele ainda.",
     tone: "neutral",
     icon: Sparkles,
   },
@@ -67,7 +67,9 @@ export const CRM_STATUS_META: Record<
   },
 };
 
-export function isCrmCommercialStatus(value: unknown): value is CrmCommercialStatus {
+export function isCrmCommercialStatus(
+  value: unknown,
+): value is CrmCommercialStatus {
   return CRM_COMMERCIAL_STATUS_VALUES.includes(value as CrmCommercialStatus);
 }
 
@@ -76,6 +78,8 @@ export function isCrmCommercialStatus(value: unknown): value is CrmCommercialSta
  * `users.expiration_date` e de existir pagamento aprovado.
  */
 export const CRM_ACCOUNT_STAGE_VALUES = [
+  "sem_conta",
+  "cortesia",
   "sem_trial",
   "trial_ativo",
   "trial_vencido",
@@ -90,6 +94,8 @@ export const CRM_ACCOUNT_STAGE_META: Record<
   CrmAccountStage,
   { label: string; tone: StatusTone }
 > = {
+  cortesia: { label: "Cortesia Starter", tone: "info" },
+  sem_conta: { label: "Sem conta", tone: "neutral" },
   sem_trial: { label: "Sem trial", tone: "neutral" },
   trial_ativo: { label: "Em trial", tone: "warning" },
   trial_vencido: { label: "Trial vencido", tone: "danger" },
@@ -114,11 +120,15 @@ export function deriveAccountStage(
   input: {
     expirationDate: Date | string | null | undefined;
     hasApprovedPayment: boolean;
+    ambassadorAccess?: boolean;
+    ambassadorOnly?: boolean;
     /** Status da última assinatura (Stripe) ou null se nunca teve. */
     subscriptionStatus?: string | null;
   },
   now: Date = new Date(),
 ): CrmAccountStage {
+  if (input.ambassadorAccess) return "cortesia";
+  if (input.ambassadorOnly) return "expirado";
   if (!input.expirationDate) return "sem_trial";
   const subscriptionStatus = input.subscriptionStatus ?? null;
   if (subscriptionStatus === "canceled") return "cancelado";
@@ -143,6 +153,11 @@ export function normalizeCrmNote(body: unknown): string | null {
 
 /** Linha do CRM: um usuário com o que o comercial precisa ver de relance. */
 export type CrmLeadSummary = {
+  userId?: string | null;
+  captureSource?: string | null;
+  captureProfile?: string | null;
+  revenueRange?: string | null;
+  objective?: string | null;
   id: string;
   email: string;
   name: string | null;
@@ -163,7 +178,7 @@ export type CrmLeadSummary = {
 
 export type CrmLeadEventView = {
   id: string;
-  kind: "note" | "status";
+  kind: "note" | "status" | "capture";
   body: string | null;
   statusFrom: CrmCommercialStatus | null;
   statusTo: CrmCommercialStatus | null;
@@ -177,7 +192,9 @@ export type CrmKanbanColumn = {
   leads: CrmLeadSummary[];
 };
 
-export function displayLeadName(lead: Pick<CrmLeadSummary, "name" | "companyName" | "email">) {
+export function displayLeadName(
+  lead: Pick<CrmLeadSummary, "name" | "companyName" | "email">,
+) {
   return lead.name?.trim() || lead.companyName?.trim() || lead.email;
 }
 
@@ -194,7 +211,9 @@ export { parseDateCondition as parseCrmDateCondition };
  * Traduz o operador do filtro (estilo Notion) em limites inclusivos. "Antes de"
  * e "Depois de" não incluem o próprio dia, como no Notion.
  */
-export function crmDateConditionToBounds(condition: CrmDateCondition): CrmDateBounds {
+export function crmDateConditionToBounds(
+  condition: CrmDateCondition,
+): CrmDateBounds {
   switch (condition.op) {
     case "between":
       return { from: condition.from, to: condition.to };
@@ -208,7 +227,8 @@ export function crmDateConditionToBounds(condition: CrmDateCondition): CrmDateBo
 }
 
 function isCalendarDate(value: unknown): value is string {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
   const [year, month, day] = value.split("-").map(Number);
   const parsed = new Date(Date.UTC(year, month - 1, day, 12));
   return (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
@@ -31,13 +31,18 @@ import {
 } from "@/lib/meta-business/campaign-sort";
 import type { CampaignMetricId } from "../utils/campaign-metrics";
 import { AdAccountSelector } from "./ad-account-selector";
+import { AdAccountMoneyPanel } from "./ad-account-money-panel";
 import { MetaAssetsCard } from "./meta-assets-card";
 import { MetaTokenIssue } from "./meta-token-issue";
 import { PartnerAccessPanel } from "./partner-access-panel";
+import { PublishHoldAlert } from "./publish-hold-alert";
+import { PortfolioConnect } from "@/components/portfolio-connect";
 import { CampaignDetail } from "./campaign-detail";
 import { CampaignsTable } from "./campaigns-table";
 import { DateFilter } from "./date-filter";
+import { MarketingAccessSummary } from "./marketing-access-summary";
 import { MarketingUsersPicker } from "./marketing-users-picker";
+import { MediaLibraryCard } from "./media-library-card";
 import { MetricColumnsSelector } from "./metric-columns-selector";
 import { MarketingSortPopover } from "./marketing-sort-popover";
 import { PlaybookInsightsPanel } from "./playbook-insights-panel";
@@ -49,9 +54,11 @@ import {
   accountDigits,
   matchAdAccountId,
   parseMarketingDeepLink,
+  MARKETING_METRICS_ANCHOR,
 } from "../utils/marketing-deep-link";
 import { MARKETING_TABLE_METRIC_OPTIONS } from "../utils/campaign-metrics";
 import { getMetricLabel } from "../utils/metric-formatters";
+import { buildAudienceLibraryHref } from "../audiences/audience-account-selection";
 
 export type MarketingWorkspaceUser = {
   id: string;
@@ -63,6 +70,13 @@ type MarketingWorkspaceProps = {
   initialUser?: MarketingWorkspaceUser | null;
   showHeader?: boolean;
   showUserPicker?: boolean;
+  /** The user hub turns it off: its header already shows the access date. */
+  showAccessSummary?: boolean;
+  /**
+   * Rendered inside the client drawer's iframe (`/embed/users/[id]`). Navigations must stay under
+   * `/embed`, or the whole admin shell renders inside the drawer.
+   */
+  embedded?: boolean;
 };
 
 function userFromSearchParams(
@@ -81,6 +95,8 @@ export function MarketingWorkspace({
   initialUser = null,
   showHeader = true,
   showUserPicker = true,
+  showAccessSummary = true,
+  embedded = false,
 }: MarketingWorkspaceProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -140,6 +156,61 @@ export function MarketingWorkspace({
   const reconnectToastKey = useRef<string | null>(null);
   const lastMetaUserId = useRef<string | null>(null);
   const selectedUserId = selectedUser?.id ?? null;
+  const metricsSectionRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const metricsAnchorInterrupted = useRef(false);
+  const metricsAnchorUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedAccountId || !selectedUserId || !workspaceRef.current) return;
+    if (window.location.hash !== `#${MARKETING_METRICS_ANCHOR}`) return;
+    if (metricsAnchorUserId.current !== selectedUserId) {
+      metricsAnchorUserId.current = selectedUserId;
+      metricsAnchorInterrupted.current = false;
+    }
+    if (metricsAnchorInterrupted.current) return;
+    let frame = 0;
+    let stopped = false;
+    const align = () => {
+      if (stopped) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        metricsSectionRef.current?.scrollIntoView({ block: "start" });
+      });
+    };
+    // Other account panels can finish after the metrics. Keep the anchor
+    // aligned across these layout changes, only until the user interacts.
+    const observer = new ResizeObserver(align);
+    observer.observe(workspaceRef.current);
+    const dispose = () => {
+      stopped = true;
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+    const stop = () => {
+      metricsAnchorInterrupted.current = true;
+      dispose();
+    };
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const event of events) window.addEventListener(event, stop, { passive: true });
+    return () => {
+      dispose();
+      for (const event of events) window.removeEventListener(event, stop);
+    };
+  }, [selectedAccountId, selectedUserId]);
+
+  const scrollToMetrics = useCallback(() => {
+    if (metricsAnchorInterrupted.current) return;
+    if (!selectedAccountId || !selectedUserId) return;
+    if (window.location.hash !== `#${MARKETING_METRICS_ANCHOR}`) return;
+    // Wait for the metrics rows: scrolling while the skeleton is mounted can
+    // hit the page's current bottom and leave the table below the viewport.
+    requestAnimationFrame(() => {
+      if (metricsAnchorInterrupted.current || window.location.hash !== `#${MARKETING_METRICS_ANCHOR}`) return;
+      metricsSectionRef.current?.scrollIntoView({ block: "start" });
+      metricsSectionRef.current?.focus({ preventScroll: true });
+    });
+  }, [selectedAccountId, selectedUserId]);
 
   useEffect(() => {
     if (initialUser) setSelectedUser(initialUser);
@@ -159,6 +230,18 @@ export function MarketingWorkspace({
         );
       } else if (result === "denied") {
         toast.error("A autorização na Meta foi recusada.");
+      } else if (result === "expired_state") {
+        toast.error(
+          "A sessão de reconexão expirou. Inicie de novo e conclua o seletor da Meta sem pausar.",
+        );
+      } else if (result === "invalid_state") {
+        toast.error(
+          "Não foi possível validar esta reconexão. Inicie o fluxo de novo.",
+        );
+      } else if (result === "validation_failed") {
+        toast.error(
+          "A Meta não devolveu um token válido. Tente a reconexão de novo.",
+        );
       } else {
         toast.error("A reconexão administrativa não foi concluída.");
       }
@@ -319,7 +402,7 @@ export function MarketingWorkspace({
   };
 
   return (
-    <div className="space-y-8">
+    <div ref={workspaceRef} className="space-y-8">
       {showHeader && (
         <div>
           <h1 className="text-2xl font-bold text-foreground">Marketing</h1>
@@ -351,7 +434,7 @@ export function MarketingWorkspace({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => router.push(`/marketing/audiences?userId=${selectedUser.id}`)}
+                onClick={() => router.push(buildAudienceLibraryHref({ userId: selectedUser.id, accountId: selectedAccountId, embedded }))}
               >
                 Públicos
               </Button>
@@ -382,13 +465,16 @@ export function MarketingWorkspace({
                     {selectedUser.email.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <h2 className="truncate text-xl font-bold text-foreground">
                     {selectedUser.email}
                   </h2>
                   <p className="truncate text-sm text-muted-foreground">
                     ID: {selectedUser.id}
                   </p>
+                  {showAccessSummary && (
+                    <MarketingAccessSummary userId={selectedUser.id} />
+                  )}
                 </div>
               </div>
 
@@ -440,6 +526,15 @@ export function MarketingWorkspace({
                   </div>
                 )}
               </div>
+
+              {!isLoadingMeta &&
+              (!metaAccount ||
+                metaAccount.connectionStatus !== "active" ||
+                metaAccount.tokenKind !== "bisu") ? (
+                <PortfolioConnect userId={selectedUser.id} />
+              ) : null}
+
+              <PublishHoldAlert userId={selectedUser.id} />
 
               {metaAccount ? (
                 <PartnerAccessPanel
@@ -498,10 +593,18 @@ export function MarketingWorkspace({
                   )}
                 </div>
               )}
+              {metaAccount && selectedAccountId && !adAccountsError ? (
+                <AdAccountMoneyPanel
+                  userId={selectedUser.id}
+                  accountId={selectedAccountId}
+                />
+              ) : null}
             </div>
           </CardContent>
         </Card>
       )}
+
+      {selectedUser ? <MediaLibraryCard key={selectedUser.id} userId={selectedUser.id} /> : null}
 
       {selectedUser ? (
         <PerformanceReportSection
@@ -517,7 +620,12 @@ export function MarketingWorkspace({
       ) : null}
 
       {selectedAccountId && selectedUser && (
-        <Card>
+        <Card
+          id={MARKETING_METRICS_ANCHOR}
+          ref={metricsSectionRef}
+          tabIndex={-1}
+          className={deepLink.view === "metrics" ? "scroll-mt-6 min-h-[calc(100dvh-3rem)]" : "scroll-mt-6"}
+        >
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <CardTitle>Campanhas</CardTitle>
@@ -569,7 +677,7 @@ export function MarketingWorkspace({
               <Button
                 onClick={() =>
                   router.push(
-                    `/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
+                    `${embedded ? "/embed" : ""}/marketing/ai?userId=${selectedUser.id}&accountId=${selectedAccountId}`,
                   )
                 }
                 size="sm"
@@ -592,6 +700,7 @@ export function MarketingWorkspace({
               sortOrder={sortOrder}
               selectedMetricIds={selectedMetricIds}
               focusCampaignId={focusCampaignId}
+              onReady={scrollToMetrics}
             />
           </CardContent>
         </Card>

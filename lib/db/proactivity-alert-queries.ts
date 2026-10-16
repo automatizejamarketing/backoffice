@@ -6,6 +6,7 @@ import {
   type ProactivityAlert,
   type ProactivityAudience,
 } from "@/lib/db/schema";
+import { DEFAULT_ACCOUNT_ALERT_THRESHOLDS, type AccountAlertThresholds } from "@/lib/account-alerts/evaluate";
 import {
   getAlertDefinition,
   PROACTIVITY_ALERT_DEFINITIONS,
@@ -333,6 +334,42 @@ export async function getConsultantPlaybookAlertConfig(): Promise<{
     thresholdsByPlaybookRuleId,
     deliverSlackByPlaybookRuleId,
   };
+}
+
+/** Account-state alerts (sem campanha, PIX, cartão, cancelamento). */
+export async function getConsultantAccountAlertConfig(): Promise<{
+  enabledRuleIds: Set<string>;
+  thresholds: AccountAlertThresholds;
+  deliverSlackByRuleId: Map<string, { alertId: string; enabled: boolean }>;
+}> {
+  const alerts = await getProactivityAlertsForAudience("consultant");
+  const enabledRuleIds = new Set<string>();
+  const thresholds = { ...DEFAULT_ACCOUNT_ALERT_THRESHOLDS };
+  const deliverSlackByRuleId = new Map<
+    string,
+    { alertId: string; enabled: boolean }
+  >();
+
+  for (const alert of alerts) {
+    const accountRuleId = alert.definition.accountRuleId;
+    if (!accountRuleId) continue;
+    Object.assign(thresholds, alert.definition.defaultThresholds, alert.thresholds);
+    deliverSlackByRuleId.set(accountRuleId, {
+      alertId: alert.id,
+      enabled: alert.enabled && alert.deliverSlack,
+    });
+    if (alert.enabled) enabledRuleIds.add(accountRuleId);
+  }
+
+  for (const def of PROACTIVITY_ALERT_DEFINITIONS) {
+    if (def.audience !== "consultant" || !def.accountRuleId) continue;
+    if (!deliverSlackByRuleId.has(def.accountRuleId)) {
+      Object.assign(thresholds, def.defaultThresholds);
+      enabledRuleIds.add(def.accountRuleId);
+    }
+  }
+
+  return { enabledRuleIds, thresholds, deliverSlackByRuleId };
 }
 
 export async function getAlertByRuleKeyAudience(

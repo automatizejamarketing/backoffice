@@ -18,7 +18,11 @@ Vocabulário: `CONTEXT.md`, seção "CRM comercial". Cálculo:
   recente; padrão em código quando nunca foi editada (60% agendamento, 75%
   trial, conversão real sem meta). Só mês corrente e futuros aceitam edição.
 - "Virou trial" e "virou cliente" vêm do produto (`subscriptions` e
-  `payments`), não do status manual do kanban.
+  `payments`), não do status manual do kanban. Sem comparar com a data do
+  status: a primeira versão exigia assinatura criada depois do status
+  Reunião realizada/Trial feito, mas o time marca o status depois do fato
+  (em 16/09/2026, 51 de 51 reuniões do mês tinham assinatura anterior ao
+  status), então as duas conversões apareciam como 0.
 - Denominador de agendamento exclui contas sem telefone e contas da equipe
   (`isInternalLeadEmail`). O kanban continua mostrando tudo.
 

@@ -1,0 +1,2 @@
+# Direção visual
+Usar a linguagem existente do backoffice: superfícies neutras, bordas discretas e estado legível. A lista serve para localizar pendências por responsável; a ficha concentra as duas trilhas independentes, vencimento e histórico. Prioridade: próxima tarefa, prazo e responsável. Datas reais e agendadas têm rótulos distintos. Ações bloqueadas explicam o pré-requisito. O modal Como funciona contém integralmente as regras aprovadas. Sem animações decorativas; formulários usam estado de envio, confirmação inline e foco nativo.

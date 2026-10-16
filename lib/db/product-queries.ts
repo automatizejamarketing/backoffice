@@ -22,6 +22,54 @@ import {
   getProductRefundRootOrderId,
 } from "@/lib/products/refund-scope";
 
+/** Estados em que o provedor aprovou e a conciliação segurou o Acesso. */
+export const HELD_PRODUCT_PAYMENT_STATUSES = [
+  "split_divergence",
+  "account_divergence",
+  "settlement_mismatch",
+] as const;
+
+/**
+ * Pagamentos retidos: um por cobrança (a linha do pedido principal, que guarda
+ * o id do provedor). Inclui o Pix aprovado sem líquido publicado há mais de
+ * uma hora, que normalmente se resolve sozinho em minutos.
+ */
+export async function listHeldProductPayments() {
+  return db
+    .select({
+      providerPaymentId: productPayment.providerPaymentId,
+      rawStatus: productPayment.rawStatus,
+      heldSince: productPayment.updatedAt,
+      grossAmountCentavos: productPayment.grossAmountCentavos,
+      paymentMethodId: productPayment.paymentMethodId,
+      installments: productPayment.mercadoPagoInstallments,
+      orderId: productOrder.id,
+      orderCreatedAt: productOrder.createdAt,
+      priceCentavos: productOrder.priceCentavos,
+      productTitle: productOrder.productTitleSnapshot,
+      buyerName: productOrder.buyerName,
+      buyerEmail: productOrder.buyerEmail,
+      expertName: expertProfile.displayName,
+    })
+    .from(productPayment)
+    .innerJoin(productOrder, eq(productOrder.id, productPayment.orderId))
+    .leftJoin(expertProfile, eq(expertProfile.id, productOrder.expertIdSnapshot))
+    .where(
+      and(
+        eq(productPayment.provider, "mercadopago"),
+        sql`${productPayment.providerPaymentId} is not null`,
+        or(
+          inArray(productPayment.rawStatus, [...HELD_PRODUCT_PAYMENT_STATUSES]),
+          and(
+            eq(productPayment.rawStatus, "approved_waiting_settlement"),
+            sql`${productPayment.updatedAt} < now() - interval '1 hour'`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(productPayment.updatedAt));
+}
+
 /** Fila de exceções de conciliação. A leitura não corrige nada: um caso só sai
  * daqui por revisão humana, nunca por decurso de prazo, e jamais por uma
  * transferência que conserte o Split Inicial ou complete um parcial. */
@@ -57,6 +105,18 @@ import { parseProductAdminInput } from "@/lib/products/admin-input";
 import { parseProductContentInput } from "@/lib/products/content-input";
 import { parseExpertAdminInput } from "@/lib/products/expert-input";
 import {
+  applyConversionsApiTokenChanges,
+  listConversionsApiPixelIdsByOwner,
+} from "@/lib/products/pixel-credentials";
+import {
+  applyDefaultTrackingPixels,
+  parseConversionsApiTokenChanges,
+  parseTrackingPixels,
+  readStoredTrackingPixels,
+  sameTrackingPixels,
+  type TrackingPixel,
+} from "@/lib/products/tracking-pixels";
+import {
   canTransitionPayout,
   type ExpertPayoutStatus,
 } from "@/lib/products/payout";
@@ -90,6 +150,17 @@ export async function updateProductFinancialSettings(input: unknown) {
 }
 
 export async function listExperts() {
+  const [experts, capiByOwner] = await Promise.all([
+    listExpertRows(),
+    listConversionsApiPixelIdsByOwner(),
+  ]);
+  return experts.map((expert) => ({
+    ...expert,
+    capiPixelIds: capiByOwner.get(expert.id) ?? [],
+  }));
+}
+
+function listExpertRows() {
   return db
     .select({
       id: expertProfile.id,
@@ -108,6 +179,7 @@ export async function listExperts() {
       stripePayoutsEnabled: expertProfile.stripePayoutsEnabled,
       stripeDetailsSubmitted: expertProfile.stripeDetailsSubmitted,
       stripeAccountUpdatedAt: expertProfile.stripeAccountUpdatedAt,
+      defaultTrackingPixels: expertProfile.defaultTrackingPixels,
     })
     .from(expertProfile)
     .innerJoin(user, eq(expertProfile.userId, user.id))
@@ -144,16 +216,164 @@ export async function createExpert(input: {
 
 export async function updateExpert(id: string, input: unknown) {
   const values = parseExpertAdminInput(input);
-  const [updated] = await db
-    .update(expertProfile)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(expertProfile.id, id))
-    .returning();
-  return updated ?? null;
+  const tokenChanges = parseConversionsApiTokenChanges(
+    (input as { defaultTrackingPixels?: unknown } | null)
+      ?.defaultTrackingPixels,
+  );
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, id))
+      .limit(1)
+      .for("update");
+    if (!current) return null;
+    await applyConversionsApiTokenChanges(tx, id, tokenChanges);
+    const now = new Date();
+    const [updated] = await tx
+      .update(expertProfile)
+      .set({ ...values, updatedAt: now })
+      .where(eq(expertProfile.id, id))
+      .returning();
+    if (updated && values.defaultTrackingPixels) {
+      await propagateExpertDefaultTrackingPixels(tx, {
+        expertId: id,
+        previousDefaults: readStoredTrackingPixels(
+          current.defaultTrackingPixels,
+        ),
+        defaults: values.defaultTrackingPixels,
+        now,
+      });
+    }
+    return updated ?? null;
+  });
+}
+
+/**
+ * Mesma regra do atalho do produtor no frontend
+ * (`frontend/lib/products/expert-tracking-pixels.ts`): produtos sem pixel da
+ * plataforma, ou ainda no padrão anterior, recebem o novo padrão.
+ */
+async function propagateExpertDefaultTrackingPixels(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  {
+    expertId,
+    previousDefaults,
+    defaults,
+    now,
+  }: {
+    expertId: string;
+    previousDefaults: TrackingPixel[];
+    defaults: TrackingPixel[];
+    now: Date;
+  },
+) {
+  const products = await tx
+    .select({ id: product.id, trackingPixels: product.trackingPixels })
+    .from(product)
+    .where(eq(product.expertId, expertId))
+    // Um save de pixel próprio concorrente espera: nada é sobrescrito com uma
+    // leitura velha.
+    .for("update");
+  let updatedProducts = 0;
+  for (const row of products) {
+    const current = readStoredTrackingPixels(row.trackingPixels);
+    const next = applyDefaultTrackingPixels(current, defaults, previousDefaults);
+    if (sameTrackingPixels(current, next)) continue;
+    await tx
+      .update(product)
+      .set({ trackingPixels: next, updatedAt: now })
+      .where(eq(product.id, row.id));
+    updatedProducts += 1;
+  }
+  return updatedProducts;
+}
+
+/**
+ * Só os pixels padrão do expert (página do expert). O PATCH do expert exige o
+ * cadastro inteiro e zera o que não vier, como o telefone.
+ */
+export async function saveExpertDefaultTrackingPixelsAdmin(
+  expertId: string,
+  input: unknown,
+) {
+  const rawPixels = (input as { trackingPixels?: unknown } | null)
+    ?.trackingPixels;
+  const defaults = parseTrackingPixels(rawPixels);
+  const tokenChanges = parseConversionsApiTokenChanges(rawPixels);
+  const saved = await db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+      .from(expertProfile)
+      .where(eq(expertProfile.id, expertId))
+      .limit(1)
+      .for("update");
+    if (!current) return null;
+    await applyConversionsApiTokenChanges(tx, expertId, tokenChanges);
+    const now = new Date();
+    await tx
+      .update(expertProfile)
+      .set({ defaultTrackingPixels: defaults, updatedAt: now })
+      .where(eq(expertProfile.id, expertId));
+    const updatedProducts = await propagateExpertDefaultTrackingPixels(tx, {
+      expertId,
+      previousDefaults: readStoredTrackingPixels(current.defaultTrackingPixels),
+      defaults,
+      now,
+    });
+    return { defaults, updatedProducts };
+  });
+  if (!saved) return null;
+  // Depois do commit: a lista usa outra conexão e não veria o token novo.
+  const capiByOwner = await listConversionsApiPixelIdsByOwner();
+  return { ...saved, capiPixelIds: capiByOwner.get(expertId) ?? [] };
+}
+
+/** Tudo que a página do expert mostra; nenhuma credencial sai daqui. */
+export async function getExpertAdminDetail(expertId: string) {
+  const expert = (await listExperts()).find((row) => row.id === expertId);
+  if (!expert) return null;
+  const [products, [sales]] = await Promise.all([
+    db
+      .select({
+        id: product.id,
+        slug: product.slug,
+        title: product.title,
+        coverUrl: product.coverUrl,
+        priceCentavos: product.priceCentavos,
+        status: product.status,
+        visibility: product.visibility,
+        salesEnabled: product.salesEnabled,
+        trackingPixels: product.trackingPixels,
+      })
+      .from(product)
+      .where(eq(product.expertId, expertId))
+      .orderBy(desc(product.createdAt)),
+    db
+      .select({
+        count: sql<number>`count(*)::int`,
+        grossCentavos: sql<number>`coalesce(sum(${productOrder.priceCentavos}), 0)::int`,
+      })
+      .from(productOrder)
+      .where(
+        and(
+          eq(productOrder.expertIdSnapshot, expertId),
+          eq(productOrder.status, "approved"),
+        ),
+      ),
+  ]);
+  return {
+    expert,
+    products: products.map((row) => ({
+      ...row,
+      trackingPixels: readStoredTrackingPixels(row.trackingPixels),
+    })),
+    sales: sales ?? { count: 0, grossCentavos: 0 },
+  };
 }
 
 export async function listProductsAdmin() {
-  const [products, paymentRows] = await Promise.all([
+  const [products, paymentRows, capiByOwner] = await Promise.all([
     db
       .select({
         product,
@@ -206,6 +426,7 @@ export async function listProductsAdmin() {
           eq(productPayment.status, "approved"),
         ),
       ),
+    listConversionsApiPixelIdsByOwner(),
   ]);
 
   const financialsByProduct = summarizeProductPaymentsByProduct(
@@ -218,6 +439,11 @@ export async function listProductsAdmin() {
 
   return products.map((row) => ({
     ...row,
+    // Só os IDs dos pixels com token; o token nunca sai do servidor.
+    product: {
+      ...row.product,
+      capiPixelIds: capiByOwner.get(row.product.expertId ?? "") ?? [],
+    },
     ...(financialsByProduct.get(row.product.id) ?? {
       grossRevenueCentavos: 0,
       automatizeNetRevenueCentavos: 0,
@@ -227,8 +453,36 @@ export async function listProductsAdmin() {
 
 export async function createProductAdmin(input: unknown) {
   const values = parseProductAdminInput(input);
-  const [created] = await db.insert(product).values(values).returning();
-  return created;
+  const tokenChanges = parseConversionsApiTokenChanges(
+    (input as { trackingPixels?: unknown } | null)?.trackingPixels,
+  );
+  return db.transaction(async (tx) => {
+    // Produto novo de expert já nasce com os pixels padrão dele. O lock
+    // compartilhado espera uma troca de padrão em andamento terminar.
+    let trackingPixels = values.trackingPixels ?? [];
+    if (values.expertId) {
+      const [owner] = await tx
+        .select({ defaultTrackingPixels: expertProfile.defaultTrackingPixels })
+        .from(expertProfile)
+        .where(eq(expertProfile.id, values.expertId))
+        .limit(1)
+        .for("share");
+      trackingPixels = applyDefaultTrackingPixels(
+        trackingPixels,
+        readStoredTrackingPixels(owner?.defaultTrackingPixels),
+      );
+    }
+    const [created] = await tx
+      .insert(product)
+      .values({ ...values, trackingPixels })
+      .returning();
+    await applyConversionsApiTokenChanges(
+      tx,
+      values.expertId ?? null,
+      tokenChanges,
+    );
+    return created;
+  });
 }
 
 export async function productExistsAdmin(id: string) {
@@ -242,12 +496,23 @@ export async function productExistsAdmin(id: string) {
 
 export async function updateProductAdmin(id: string, input: unknown) {
   const values = parseProductAdminInput(input);
-  const [updated] = await db
-    .update(product)
-    .set({ ...values, updatedAt: new Date() })
-    .where(eq(product.id, id))
-    .returning();
-  return updated ?? null;
+  const tokenChanges = parseConversionsApiTokenChanges(
+    (input as { trackingPixels?: unknown } | null)?.trackingPixels,
+  );
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(product)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(product.id, id))
+      .returning();
+    if (!updated) return null;
+    await applyConversionsApiTokenChanges(
+      tx,
+      updated.expertId,
+      tokenChanges,
+    );
+    return updated;
+  });
 }
 
 export async function archiveProductAdmin(id: string) {

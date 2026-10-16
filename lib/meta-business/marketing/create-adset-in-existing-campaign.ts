@@ -1,4 +1,5 @@
 import { metaApiCall } from "@/lib/meta-business/api";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { errorToGraphErrorReturn } from "@/lib/meta-business/error";
 import {
   toMetaAdSetScheduleBlocks,
@@ -6,6 +7,12 @@ import {
   type CampaignDeliveryMode,
   type CampaignScheduleBlock,
 } from "@/lib/meta-business/campaign-schedule";
+import {
+  adSetScheduleForCreate,
+  campaignScheduleShapeFromGraph,
+  type RequestedSchedule,
+  type ScheduleFieldsDecision,
+} from "@/lib/meta-business/schedule-shape";
 import type { GeoLocationsPayload } from "@/lib/meta-business/geo-targeting-types";
 import { sanitizeGeoLocationsForMeta } from "@/lib/meta-business/geo-locations";
 import type { InterestTargetingValue } from "@/lib/meta-business/interest-targeting-types";
@@ -33,6 +40,7 @@ import {
 } from "@/lib/meta-business/types";
 import {
   getPagesWithInstagramAccounts,
+  resolveAdvertisingIdentity,
   type FacebookPagesWithInstagramResponse,
 } from "@/lib/meta-business/get-instagram-connected-page";
 
@@ -107,6 +115,9 @@ export type CreateAdSetTargetingInput = {
 export type CreateAdSetInCampaignInput = {
   accountId: string;
   accessToken: string;
+  tokenKind?: "user" | "bisu";
+  bisuAppScopedId?: string | null;
+  instagramBusinessAccountId?: string;
   campaignId: string;
   adsetName: string;
   pageId?: string;
@@ -140,6 +151,8 @@ type GraphApiCampaign = {
   lifetime_budget?: string;
   start_time?: string;
   stop_time?: string;
+  pacing_type?: string[] | string;
+  bid_strategy?: string;
 };
 
 type GraphApiPixel = { id: string; name?: string };
@@ -339,6 +352,40 @@ async function resolvePixelId(params: {
   return pixelsResponse.data[0]?.id ?? null;
 }
 
+/**
+ * Campos de horário de um conjunto novo numa campanha existente (etapa 2). Liberada e sob
+ * CBO: segue a campanha — programada leva só a grade (24h x 7 no dia todo); sem programação
+ * só aceita o dia todo. ABO e conta não liberada: formato atual.
+ */
+export function scheduleFieldsForExistingCampaign(args: {
+  campaign: {
+    daily_budget?: string | null;
+    lifetime_budget?: string | null;
+    pacing_type?: string[] | string | null;
+    bid_strategy?: string | null;
+  };
+  deliveryMode?: CampaignDeliveryMode;
+  scheduleBlocks?: CampaignScheduleBlock[];
+  cboDaypartingReleased: boolean;
+}): ScheduleFieldsDecision {
+  const specific =
+    args.deliveryMode === "specific_hours" && (args.scheduleBlocks?.length ?? 0) > 0;
+  const requested: RequestedSchedule = specific
+    ? { mode: "specific_hours", blocks: toMetaAdSetScheduleBlocks(args.scheduleBlocks) }
+    : { mode: "all_day" };
+  const shape = campaignScheduleShapeFromGraph(args.campaign);
+  if (shape.budgetLevel !== "campaign" || !args.cboDaypartingReleased) {
+    return {
+      ok: true,
+      fields:
+        requested.mode === "specific_hours"
+          ? { pacing_type: ["day_parting"], adset_schedule: requested.blocks }
+          : {},
+    };
+  }
+  return adSetScheduleForCreate(shape, requested, true);
+}
+
 export async function createAdSetInExistingCampaign(
   input: CreateAdSetInCampaignInput,
 ): Promise<
@@ -415,7 +462,7 @@ export async function createAdSetInExistingCampaign(
       domain: "FACEBOOK",
       method: "GET",
       path: campaignId,
-      params: "fields=name,objective,daily_budget,lifetime_budget,start_time,stop_time",
+      params: "fields=name,objective,daily_budget,lifetime_budget,start_time,stop_time,pacing_type,bid_strategy",
       accessToken,
     });
   } catch (error) {
@@ -495,6 +542,16 @@ export async function createAdSetInExistingCampaign(
     }
   }
 
+  const scheduleDecision = scheduleFieldsForExistingCampaign({
+    campaign,
+    deliveryMode,
+    scheduleBlocks,
+    cboDaypartingReleased: isCboDaypartingReleased(accountId),
+  });
+  if (!scheduleDecision.ok) {
+    return fail(400, scheduleDecision.code, scheduleDecision.message, scheduleDecision.solution);
+  }
+
   const siblingDestinationType = await resolveSiblingDestinationType({
     accessToken,
     campaignId,
@@ -515,10 +572,25 @@ export async function createAdSetInExistingCampaign(
   );
 
   let pagesResponse: FacebookPagesWithInstagramResponse;
+  let selectedInstagramId: string | undefined;
   try {
-    pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
-      adAccountId: accountId,
-    });
+    if (promotedObjectType === "instagram_traffic") {
+      const selected = await resolveAdvertisingIdentity(accessToken, {
+        adAccountId: accountId,
+        pageId: pageId?.trim() || undefined,
+        instagramBusinessAccountId: input.instagramBusinessAccountId,
+        tokenKind: input.tokenKind,
+        bisuAppScopedId: input.bisuAppScopedId,
+      });
+      pagesResponse = { data: selected ? [selected.page] : [] };
+      selectedInstagramId = selected?.instagramBusinessAccountId;
+    } else {
+      pagesResponse = await getPagesWithInstagramAccounts(accessToken, {
+        adAccountId: accountId,
+        tokenKind: input.tokenKind,
+        bisuAppScopedId: input.bisuAppScopedId,
+      });
+    }
   } catch (error) {
     const graphError = errorToGraphErrorReturn(error);
     return fail(
@@ -546,7 +618,7 @@ export async function createAdSetInExistingCampaign(
   let promotedObject: Record<string, string>;
 
   if (promotedObjectType === "instagram_traffic") {
-    const igAccountId = connectedPage.instagram_business_account?.id;
+    const igAccountId = selectedInstagramId;
     if (!igAccountId) {
       return fail(
         400,
@@ -685,18 +757,24 @@ export async function createAdSetInExistingCampaign(
       adsetParams.set("daily_budget", budgetCents.toString());
       adsetParams.set("end_time", "0");
     }
+  } else if (hasEffectiveLifetimeBudget) {
+    // Orçamento total na campanha: a Meta ainda exige a janela no CONJUNTO (100/1487094
+    // "Nenhuma data de término inserida"), então ele segue as datas da campanha, como nos
+    // assistentes (campaign-budget.ts). Sonda de 02/10/2026 na campanha que falhou: sem
+    // datas, 1487094; com elas, aceito — inclusive com o início já no passado.
+    if (effectiveStartTime) adsetParams.set("start_time", effectiveStartTime);
+    if (effectiveEndTime) adsetParams.set("end_time", effectiveEndTime);
   }
 
   if (destinationType) {
     adsetParams.set("destination_type", destinationType);
   }
 
-  if (deliveryMode === "specific_hours" && scheduleBlocks?.length) {
-    adsetParams.set("pacing_type", JSON.stringify(["day_parting"]));
-    adsetParams.set(
-      "adset_schedule",
-      JSON.stringify(toMetaAdSetScheduleBlocks(scheduleBlocks)),
-    );
+  if (scheduleDecision.fields.pacing_type) {
+    adsetParams.set("pacing_type", JSON.stringify(scheduleDecision.fields.pacing_type));
+  }
+  if (scheduleDecision.fields.adset_schedule) {
+    adsetParams.set("adset_schedule", JSON.stringify(scheduleDecision.fields.adset_schedule));
   }
 
   let createdAdSet: CreateAdSetApiResponse;

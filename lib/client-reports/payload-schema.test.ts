@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   computeMonthsPaidBack,
+  formatPaidBackDuration,
   resolveHeadlineState,
   spendBucket,
 } from "./payload-schema";
@@ -64,5 +65,10 @@ describe("client report math", () => {
     assert.equal(spendBucket(120), "0-500");
     assert.equal(spendBucket(900), "500-1500");
     assert.equal(spendBucket(5000), "4000+");
+  });
+
+  it("keeps long payback periods understandable", () => {
+    assert.equal(formatPaidBackDuration(3.25), "3,3 meses");
+    assert.equal(formatPaidBackDuration(269.7), "mais de 2 anos");
   });
 });

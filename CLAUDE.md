@@ -109,7 +109,7 @@ cabeçalho: produção é `hosjqwtfjjtmphchsuqf`, staging é `wsbsnzgzqiehqnklzc
 8. Never run `bun run db:push` against shared or production databases — it bypasses the migrations table and corrupts the baseline contract that `scripts/drizzle-migrate-with-baseline.ts` depends on. `db:push` is for local scratch only.
 9. Any destructive operation (drop column, drop table, change PK, `TRUNCATE`, data backfill that rewrites rows): **stop and ask the user to confirm** before generating or running it. Existing user data is not recoverable.
 
-Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit an applied `when`. Latest twin with the frontend: `0110_meta_asset_selection` (`when=1799900000000`), same SQL as frontend `0118_meta_asset_selection` (`meta_asset_policies`, `meta_enabled_assets`, `meta_asset_events`).
+Current migrations in `lib/db/migrations/`: `0000_misty_multiple_man` (baseline), `0001_backoffice_audit_logs`, `0002_adset_edit_logs_backoffice_email`, `0003_polite_runaways`, `0004_old_maginty`, `0005_mean_nicolaos`, `0006_unique_carlie_cooper`. The `meta/_journal.json` is authoritative — do not hand-edit an applied `when`. Latest twin with the frontend: `0111_meta_asset_selection` (`when=1799900000000`), same SQL as frontend `0117_meta_asset_selection` (`meta_asset_policies`, `meta_enabled_assets`, `meta_asset_events`).
 
 The DB client in `lib/db/index.ts` uses `postgres-js` with `prepare: false` intentionally (prepared-statement reuse was returning stale rows on repeated identical UPDATEs — for example credit bumps). Don't flip it back to `prepare: true`.
 
@@ -166,7 +166,9 @@ app/
     posts/            # admin post queries
 ```
 
-Ativos Meta (seleção fixa): schema gêmeo `0110_meta_asset_selection` (`when=1799900000000`, mesmas tabelas que o frontend `0118`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
+Biblioteca de mídias (ADR 0042 do frontend): rotas `app/api/users/[id]/media-library/**` — `route.ts` (GET lista; POST confirma o upload feito pelo admin), `uploads/` (POST, URL assinada), `[mediaId]/route.ts` (DELETE) e `[mediaId]/download/` (GET). Todas passam por `resolveBackofficeMediaLibraryContext` → `requireMarketingUserAccessResponse(userId, …)`: leitura com `marketing:read`, adicionar e excluir com `marketing:write`. A UI fica em `app/(admin)/marketing/components/` (`media-library-card.tsx`, `media-source-picker.tsx` com a aba "Biblioteca", `media-library-state.ts`) e em `components/media-library/`. Espelhos byte a byte do frontend (rodar `sync:meta` lá; a lista exata está em `tests/helpers/source-parity.ts` do frontend): `lib/access/billing-bypass.ts`, `lib/media-library/{policy,service,handlers,storage,client,hooks}.ts` e os seis arquivos de `components/media-library/` que o frontend espelha (`labels.ts`, `media-library-grid.tsx`, `media-preview-dialog.tsx`, `media-library-delete-dialog.tsx`, `media-library-upload-queue.tsx`, `media-library-panel.tsx`). **Não espelhados** (cada repo tem o seu): `lib/media-library/{repository,server}.ts` (o frontend tem versões próprias) e `lib/media-library/{audit,backoffice-context}.ts` (só do backoffice). O frontend também tem `components/media-library/use-media-library-labels.ts` e dois testes, sem espelho aqui. Saíram o apagador pós-Meta (`cleanupBlobAfterMetaIngestion`), `/api/files/upload` e a aba de upload do dispositivo: o único apagador automático da biblioteca é o cron `/api/cron-job/media-library/retention` do frontend.
+
+Ativos Meta (seleção fixa): schema gêmeo `0111_meta_asset_selection` (`when=1799900000000`, mesmas tabelas que o frontend `0117`) e módulo puro `lib/meta-business/meta-asset-policy.ts`. A flag `META_ASSET_SELECTION_ENABLED` e estes contratos moram no **frontend**:
 
 - `GET /api/meta-business/marketing/assets`
 - `POST /api/meta-business/marketing/assets/selection`
@@ -240,6 +242,8 @@ Noteworthy variables:
 - `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` — dedicated Google OAuth client for the backoffice (distinct from the frontend's client).
 - `AI_GATEWAY_API_KEY` — local/Portless fallback for AI Gateway (`app/api/posts/generate`). Must be scoped to this Vercel project. Leave unset on Vercel deploys so OIDC attributes spend here.
 - `BLOB_READ_WRITE_TOKEN` — Vercel Blob token (shared with frontend).
+- `BYPASS_STRIPE_EMAILS` — lista de e-mails com bypass de cobrança (mesma do frontend). A Biblioteca de mídias usa o bypass por e-mail nos dois apps; o backoffice não precisava dela antes. Igualar no projeto Vercel do backoffice.
+- `MEDIA_R2_ENDPOINT` — só para verificação local com S3 compatível (LocalStack); ausente = R2 real.
 - `REDIS_URL` — Upstash Redis (shared).
 - `STRIPE_SECRET_KEY`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_AFFILIATE_COUPON_ID` — Stripe credentials.
 - `BACKOFFICE_EMAIL_FROM`, `RESEND_API_KEY` — transactional email via Resend.
@@ -258,6 +262,7 @@ Do not paste secrets from `.env*` files into commits or external docs.
 - Do NOT change `lib/db/schema.ts` without mirroring the edit in `../automatize-frontend/lib/db/schema.ts` and generating migrations in the owning project.
 - Do NOT edit `lib/meta-business/duplicate.ts` or `lib/meta-business/meta-asset-policy.ts` here. Edit the frontend's copy and run `bun run sync:meta` there — these are byte-identical mirrors.
 - Do NOT edit the other mirrored Meta sources here either (`marketing/{creation,update}/*`, `marketing/create-adset-in-existing-campaign.ts`, `marketing/normalize-meta-error.ts`, `get-instagram-connected-page.ts`). Same rule: edit the frontend's copy, run `bun run sync:meta` there, commit both projects together.
+- Do NOT edit `lib/access/billing-bypass.ts`, `lib/media-library/{policy,service,handlers,storage,client,hooks}.ts` or the six `components/media-library/` files that the frontend mirrors (exact list in `tests/helpers/source-parity.ts` there) here. Edit the frontend's copy and run `bun run sync:meta` there — these are byte-identical mirrors checked by `sync:meta:check`.
 - Do NOT use `npm`, `yarn`, or `pnpm`. Bun only.
 - Do NOT add an email to `ADMIN_EMAILS` without the user explicitly approving it — it is an access-control list.
 - Do NOT flip `postgres-js` back to `prepare: true` in `lib/db/index.ts`. It was set to `false` intentionally to fix a stale-row bug on repeated UPDATEs.

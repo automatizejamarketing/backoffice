@@ -18,6 +18,7 @@ export type MetaMutationEntity =
   | "adaccount"
   | "activity"
   | "insights_report"
+  | "pixel"
   | "unknown";
 
 export type MetaMutationOperation =
@@ -259,6 +260,13 @@ export function classifyMetaCall(
       : params instanceof URLSearchParams
         ? params
         : undefined;
+
+  // `act_X/adspixels` contains "/ads" — classify it before the ad branch swallows it.
+  if (path.endsWith("/adspixels")) {
+    const operation: MetaMutationOperation =
+      upperMethod === "GET" ? "list" : upperMethod === "POST" ? "create" : "unknown";
+    return { entity: "pixel", operation };
+  }
 
   if (path.includes("/activities")) {
     return { entity: "adaccount", operation: "activities" };

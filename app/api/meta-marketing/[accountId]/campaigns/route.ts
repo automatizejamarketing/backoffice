@@ -44,6 +44,7 @@ import {
   transformCampaign,
   transformPaging,
 } from "@/lib/meta-business/transformers";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import {
   type CampaignObjectiveFilter,
   getObjectivesForGroup,
@@ -196,6 +197,7 @@ function buildCampaignFields(options?: {
     "lifetime_budget",
     "budget_remaining",
     "is_adset_budget_sharing_enabled",
+    "pacing_type",
     "start_time",
     "stop_time",
     "created_time",
@@ -536,6 +538,11 @@ export async function GET(
     // reflect the date filter picked above the table.
     const fields = buildCampaignFields({ datePreset, since, until });
     const formattedAccountId = formatAccountId(accountId);
+    const scheduleReleased = isCboDaypartingReleased(accountId);
+    const toCampaign = (c: GraphApiCampaign) => ({
+      ...transformCampaign(c),
+      scheduleReleased,
+    });
 
     // Sort-by-metric mode. Meta only sorts metrics on the Insights edge, which
     // does not return campaign metadata. So the Insights edge defines the
@@ -579,7 +586,7 @@ export async function GET(
       const sortedCampaigns = finalOrder
         .map((id) => campaignMap.get(id))
         .filter((c): c is GraphApiCampaign => Boolean(c))
-        .map(transformCampaign);
+        .map(toCampaign);
 
       return NextResponse.json(
         {
@@ -615,7 +622,7 @@ export async function GET(
 
       return NextResponse.json(
         {
-          data: allCampaigns.map(transformCampaign),
+          data: allCampaigns.map(toCampaign),
           pagination: { hasNextPage: false, hasPreviousPage: false },
         },
         { status: 200 },
@@ -635,7 +642,7 @@ export async function GET(
       accessToken,
     });
 
-    const campaigns = response.data.map(transformCampaign);
+    const campaigns = response.data.map(toCampaign);
     const pagination = transformPaging(response.paging);
 
     return NextResponse.json(
@@ -1600,6 +1607,8 @@ export async function PATCH(
           usesCampaignBudget: updatedCampaign.usesCampaignBudget,
           startTime: updatedCampaign.startTime,
           stopTime: updatedCampaign.stopTime,
+          pacingType: updatedCampaign.pacingType,
+          scheduleReleased: isCboDaypartingReleased(accountId),
         },
       },
       { status: 200 },

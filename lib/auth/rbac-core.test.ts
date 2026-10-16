@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   canAccessMarketingUser,
   canAccessUserHubTab,
+  consultantSeesOnlyAssignedClients,
   hasBackofficePermission,
+  isMarketingConsultantRole,
   type BackofficeActor,
 } from "./rbac-core";
 
@@ -19,6 +21,14 @@ const consultant: BackofficeActor = {
   role: "marketing_consultant",
   source: "database",
   assignedUserIds: ["user-1", "user-2"],
+};
+
+const premiumConsultant: BackofficeActor = {
+  id: "premium-1",
+  email: "premium@example.com",
+  role: "marketing_consultant_premium",
+  source: "database",
+  assignedUserIds: ["user-1"],
 };
 
 const financeViewer: BackofficeActor = {
@@ -142,5 +152,59 @@ describe("canAccessUserHubTab", () => {
     expect(canAccessUserHubTab(dev, "any-user", "subscription")).toBe(true);
     expect(canAccessUserHubTab(dev, "any-user", "audit")).toBe(true);
     expect(canAccessUserHubTab(dev, "any-user", "whatsapp")).toBe(true);
+  });
+});
+
+describe("marketing_consultant_premium", () => {
+  test("stays a marketing consultant with a portfolio", () => {
+    expect(isMarketingConsultantRole("marketing_consultant")).toBe(true);
+    expect(isMarketingConsultantRole("marketing_consultant_premium")).toBe(true);
+    expect(isMarketingConsultantRole("admin")).toBe(false);
+    expect(isMarketingConsultantRole("comercial")).toBe(false);
+  });
+
+  test("sees every client while a regular consultant stays on the assigned portfolio", () => {
+    expect(consultantSeesOnlyAssignedClients("marketing_consultant")).toBe(true);
+    expect(consultantSeesOnlyAssignedClients("marketing_consultant_premium")).toBe(
+      false,
+    );
+    expect(consultantSeesOnlyAssignedClients("admin")).toBe(false);
+  });
+
+  test("manages every customer like an admin, without internal areas", () => {
+    expect(hasBackofficePermission(premiumConsultant, "users:read")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "users:manage")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "users:activate")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "billing:manage")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "marketing:read")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "marketing:write")).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "whatsapp:view")).toBe(true);
+    expect(
+      hasBackofficePermission(premiumConsultant, "whatsapp:support-session"),
+    ).toBe(true);
+    expect(hasBackofficePermission(premiumConsultant, "team:manage")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "finance:view")).toBe(false);
+    expect(hasBackofficePermission(premiumConsultant, "dashboard:view")).toBe(false);
+  });
+
+  test("opens every user and every hub tab, assigned or not", () => {
+    expect(canAccessMarketingUser(premiumConsultant, "user-1")).toBe(true);
+    expect(canAccessMarketingUser(premiumConsultant, "user-3")).toBe(true);
+    expect(canAccessUserHubTab(premiumConsultant, "user-3", "summary")).toBe(true);
+    expect(canAccessUserHubTab(premiumConsultant, "user-3", "subscription")).toBe(
+      true,
+    );
+    expect(canAccessUserHubTab(premiumConsultant, "user-3", "marketing")).toBe(
+      true,
+    );
+  });
+});
+
+
+describe("WhatsApp campaign permissions", () => {
+  test("restricts global campaign data and actions to admin and dev", () => {
+    for (const actor of [admin, dev]) expect(hasBackofficePermission(actor, "whatsapp:campaigns")).toBe(true);
+    for (const actor of [consultant, premiumConsultant, financeViewer, { ...admin, role: "comercial" as const }])
+      expect(hasBackofficePermission(actor, "whatsapp:campaigns")).toBe(false);
   });
 });

@@ -1,3 +1,5 @@
+import { hasBackofficePermission, type BackofficeActor } from "./rbac-core";
+
 const FINANCE_ACCESS_EMAILS = new Set([
   "joaopedro@layback.trade",
   "contato@infinitegrowth.com.br",
@@ -11,4 +13,12 @@ const FINANCE_ACCESS_EMAILS = new Set([
 export function canAccessFinance(email: string | null | undefined): boolean {
   if (!email) return false;
   return FINANCE_ACCESS_EMAILS.has(email.trim().toLowerCase());
+}
+
+/**
+ * Same gate as the Financeiro page: the role permission AND the e-mail list.
+ * Anything that reveals Automatize money (revenue, payments in reais) checks this.
+ */
+export function hasFinanceAccess(actor: BackofficeActor): boolean {
+  return hasBackofficePermission(actor, "finance:view") && canAccessFinance(actor.email);
 }

@@ -156,7 +156,7 @@ export function ProactivityAlertsSection({
 
       <AudienceGroup
         title="Consultor"
-        description="Sugestões do playbook no backoffice (e Slack opcional)."
+        description="Sugestões do playbook e alertas da conta no backoffice (e Slack opcional)."
         alerts={consultantAlerts}
         onUpdate={updateAlert}
       />

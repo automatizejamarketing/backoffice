@@ -1,0 +1,67 @@
+[
+  {
+    "case": "accounts-empty",
+    "text": "Públicos\n\nNenhuma conta de anúncios acessível para este cliente.",
+    "manager": false
+  },
+  {
+    "case": "missing-user",
+    "text": "Públicos\nEscolha um cliente no painel de marketing antes de abrir a biblioteca.",
+    "manager": false
+  },
+  {
+    "case": "loading",
+    "text": "Públicos\n\nCarregando contas de anúncios…",
+    "manager": false
+  },
+  {
+    "case": "slow-old-client-discarded",
+    "url": "http://127.0.0.1:3016/marketing/audiences?userId=other-user&accountId=222",
+    "text": "Públicos\n\nUnknown user or user mutation refused\n\nTentar novamente",
+    "manager": false,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/meta-marketing/222/audiences/customer-file",
+        "query": "?userId=fixture-user",
+        "fixture": true,
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/meta-marketing/222/audiences",
+        "query": "?detailed=1&userId=fixture-user",
+        "fixture": true,
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/meta-marketing/222/audiences/customer-file",
+        "query": "?userId=fixture-user",
+        "fixture": true,
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/users/fixture-user/ad-accounts",
+        "query": "",
+        "fixture": true,
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/users/fixture-user/ad-accounts",
+        "query": "",
+        "fixture": true,
+        "status": 200
+      },
+      {
+        "method": "GET",
+        "path": "/api/users/other-user/ad-accounts",
+        "query": "",
+        "fixture": true,
+        "status": 403
+      }
+    ]
+  }
+]

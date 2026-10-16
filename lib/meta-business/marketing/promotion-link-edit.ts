@@ -3,6 +3,7 @@ import { metaApiCall } from "@/lib/meta-business/api";
 import { duplicateAd } from "@/lib/meta-business/duplicate";
 import { GraphApiError } from "@/lib/meta-business/error";
 import type { CreativeWithLinks } from "@/lib/meta-business/types";
+import { withPlacementExpansion } from "@/lib/meta-business/creative-features";
 
 type GraphCallToAction = {
   type?: string;
@@ -79,6 +80,9 @@ export type PromotionLinkDetails = {
   campaignObjective?: string;
   promotionUrl?: string;
   ctaType?: string;
+  adsetId?: string;
+  instagramUserId?: string;
+  pageId?: string;
 };
 
 export type PromotionLinkUpdateResult = {
@@ -380,13 +384,19 @@ async function createCreativeWithPromotionUrl(args: {
     );
   }
 
-  const response = await metaApiCall<CreateCreativeResponse>({
-    domain: "FACEBOOK",
-    method: "POST",
-    path: `${normalizeAccountId(accountId)}/adcreatives`,
-    params: "",
-    body,
-    accessToken,
+  // Criativo novo pede a expansão sem corte (regra de 30/09/2026); conta sem IA
+  // (3858023) refaz uma vez sem nenhum recurso.
+  const response = await withPlacementExpansion((degreesOfFreedomSpec) => {
+    const attempt = new URLSearchParams(body);
+    if (degreesOfFreedomSpec) attempt.set("degrees_of_freedom_spec", degreesOfFreedomSpec);
+    return metaApiCall<CreateCreativeResponse>({
+      domain: "FACEBOOK",
+      method: "POST",
+      path: `${normalizeAccountId(accountId)}/adcreatives`,
+      params: "",
+      body: attempt,
+      accessToken,
+    });
   });
 
   return response.id;
@@ -431,14 +441,17 @@ export async function getPromotionLinkDetails(args: {
   accessToken: string;
 }): Promise<PromotionLinkDetails> {
   const { ad, creative } = await fetchAdAndCreative(args);
-  assertSalesCampaign(ad);
+  const identity = await resolveInstagramPostIdentity({ creative, accessToken: args.accessToken });
 
   return {
     adId: ad.id,
     creativeId: creative.id,
+    adsetId: ad.adset_id,
     campaignObjective: ad.campaign?.objective,
     promotionUrl: extractPromotionUrl(creative),
     ctaType: extractCtaType(creative),
+    pageId: identity.pageId,
+    instagramUserId: identity.instagramUserId ?? creative.instagram_user_id ?? creative.object_story_spec?.instagram_user_id,
   };
 }
 

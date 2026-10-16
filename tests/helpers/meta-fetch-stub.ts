@@ -73,6 +73,10 @@ export function installMetaFetchStub(handler: MetaHandler): MetaFetchStub {
     const bodyText =
       typeof init?.body === "string"
         ? init.body
+        : init?.body instanceof FormData
+          ? new URLSearchParams([...init.body.entries()].map(([key, value]) =>
+              [key, typeof value === "string" ? value : "[binary]"] as [string, string],
+            )).toString()
         : init?.body
           ? String(init.body)
           : "";
@@ -149,5 +153,7 @@ export function rateLimitHeaders(estimatedMinutes = 5): Record<string, string> {
 /** Tests that touch `metaApiCall` need a non-empty app secret for the appsecret_proof step. */
 export function ensureMetaTestEnv(): void {
   process.env.META_GENERAL_APP_SECRET ??= "test-app-secret";
+  // A liberação da etapa 2 é decidida por teste (definida e restaurada por quem precisa).
+  delete process.env.META_CBO_DAYPARTING_ACCOUNT_IDS;
 }
 

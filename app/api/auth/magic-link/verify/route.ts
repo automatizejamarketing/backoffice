@@ -1,3 +1,4 @@
+import { safeLoginReturn } from "@/lib/auth/login-return";
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getAppUrl } from "@/lib/auth/app-url";
@@ -58,7 +59,7 @@ export async function GET(request: Request) {
       .where(eq(backofficeMagicLink.id, storedToken.id));
 
     const sessionToken = createBackofficeMagicSessionToken(email);
-    const response = NextResponse.redirect(new URL("/", getAppUrl(request)));
+    const response = NextResponse.redirect(new URL(safeLoginReturn(searchParams.get("next")) ?? "/", getAppUrl(request)));
 
     response.cookies.set(BACKOFFICE_MAGIC_SESSION_COOKIE, sessionToken, {
       httpOnly: true,

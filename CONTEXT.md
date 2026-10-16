@@ -244,13 +244,54 @@ somente de leitura. Ambos precisam de `CLOUDFLARE_R2_ACCOUNT_ID`,
 `PRODUCT_ASSETS_R2_BUCKET`, `PRODUCT_ASSETS_R2_ACCESS_KEY_ID` e
 `PRODUCT_ASSETS_R2_SECRET_ACCESS_KEY`.
 
+## Biblioteca de mídias
+
+**Biblioteca de mídias** — o acervo permanente, por usuário, das linhas `campaign_media` de `blob_uploads` (uploads do app, do backoffice e do WhatsApp). Fica guardado enquanto o acesso estiver ativo; um mês depois da expiração, o cron de retenção do frontend apaga as mídias registradas (ADR 0042 do frontend); objetos sem linha registrada não são descobertos. Estados: **Ativa** (bypass de cobrança ou `expiration_date` no futuro), **Carência** (expirou há menos de um mês: o admin ainda envia e exclui) e **Encerrada** (sem data, ou expirada há um mês ou mais: nada entra, a lista vem vazia e o download é recusado).
+
+O admin do backoffice vê, baixa, exclui e adiciona mídias, e fica registrado como autor. O card "Biblioteca de mídias" fica no Marketing do cliente, logo após "Detalhes do usuário", e a aba "Biblioteca" do seletor de mídia mostra a mesma biblioteca. As ações entram na Auditoria do cliente (`media_library_add`, `media_library_delete`).
+
 # CRM comercial
 
-Funil do time comercial sobre as contas do Automatize. O status comercial é
-controlado à mão pelo time; o estado da conta (acesso, trial, pagamento) vem do
-produto e não é editável aqui.
+## Embaixadores
 
-- **Lead**: toda conta criada no produto. O funil lista todas, sem filtro.
+**Embaixador**: afiliado especial do Automatize com uma parceria de divulgação
+acompanhada pela equipe. A parceria pode incluir coprodução de infoprodutos.
+
+**Embaixador Coprodutor**: categoria de embaixador cuja parceria inclui também
+o desenvolvimento e lançamento de infoprodutos com o Automatize. Este nome
+designa a categoria da parceria, distinta do termo financeiro Coprodutor.
+
+A categoria Embaixador Coprodutor não equivale ao perfil de Expert; um parceiro
+pode estar em acompanhamento de coprodução antes de ter esse perfil cadastrado.
+
+**Start**: marco de lançamento do projeto de coprodução e início das vendas.
+
+**Trilha de publicidade**: acompanhamento da preparação e das publicações do
+embaixador. É independente da trilha de coprodução após a formalização.
+
+**Trilha de coprodução**: acompanhamento do desenvolvimento e lançamento de
+infoprodutos com um Embaixador Coprodutor.
+
+**Ciclo de publicação**: conjunto de compromissos de publicação de um mês,
+com data da publi, briefing e registro da publicação realizada. Cada ciclo
+preserva seu próprio histórico e suas pendências.
+
+**Gratuidade Starter do embaixador**: benefício de acesso Starter com vencimento
+escolhido na liberação e créditos mensais durante sua vigência.
+
+**Ciclo de créditos da gratuidade**: período mensal contado a partir da liberação
+do benefício, independente do mês calendário dos compromissos de publicação.
+
+## Funil e métricas
+
+Funil do time comercial sobre os contatos comerciais do Automatize, que podem
+ter ou não uma conta no produto. O status comercial é controlado à mão pelo
+time; quando há uma conta, seu estado (acesso, trial, pagamento) vem do produto.
+
+- **Contato comercial (Lead)**: pessoa registrada para acompanhamento pelo
+  time comercial, com ou sem conta de acesso ao Automatize.
+- **Conta de acesso**: cadastro que permite autenticação no Automatize,
+  distinto do contato comercial. O preenchimento de `/captura` não cria uma conta.
 - **Lead qualificável**: lead com telefone de contato preenchido e que não é
   da equipe. Só ele entra na base da taxa de agendamento.
 - **Conta da equipe**: conta cujo email, ignorando o `+alias`, pertence a
@@ -262,10 +303,10 @@ produto e não é editável aqui.
   estágio posterior. Reagendar o mesmo lead não é novo agendamento.
 - **Reunião realizada**: primeira entrada do lead, no mês, em Reunião
   realizada ou Trial feito.
-- **Virou trial**: a conta iniciou acesso depois da reunião realizada. Vem do
-  produto, não do status Trial feito.
-- **Virou cliente**: a conta teve o primeiro pagamento de assinatura aprovado
-  depois da reunião realizada. Compra de infoproduto não é cliente aqui.
+- **Virou trial**: a conta iniciou acesso (assinatura, em trial ou paga), em
+  qualquer data. Vem do produto, não do status Trial feito.
+- **Virou cliente**: a conta teve pagamento de assinatura aprovado, em
+  qualquer data. Compra de infoproduto não é cliente aqui.
 - **Meta comercial**: percentual alvo de uma métrica em um mês calendário.
   Vale do mês em que foi definida em diante, até ser redefinida. Mês fechado
   não muda de meta.

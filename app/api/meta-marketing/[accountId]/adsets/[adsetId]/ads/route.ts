@@ -1,3 +1,4 @@
+import { requireMetaAccount } from "@/lib/backoffice/require-meta-account";
 import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
 import { logMetaMutationError } from "@/lib/observability/meta-logger";
 import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
@@ -19,7 +20,6 @@ import {
   type AdMediaInput,
 } from "@/lib/meta-business/marketing/build-ad-from-media";
 import { createAd } from "@/lib/meta-business/marketing/creative-builders";
-import { cleanupBlobAfterMetaIngestion } from "@/lib/meta-business/marketing/cleanup-blob-after-meta";
 import { getAdVideoStatus } from "@/lib/meta-business/marketing/upload-ad-video";
 
 type CreateAdMediaInput =
@@ -40,6 +40,7 @@ type CreateAdRequestBody = {
   confirmVideoId?: string;
   /** Facebook Page chosen as the ad identity (page-first selection). */
   pageId?: string;
+  instagramUserId?: string;
 };
 
 type CreateAdSuccess =
@@ -142,6 +143,8 @@ export async function POST(
         { status: tokenResult.error.statusCode },
       );
     }
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const body = (await request.json()) as CreateAdRequestBody;
@@ -187,7 +190,7 @@ export async function POST(
       | "automatize_media"
       | "device_image"
       | "device_video";
-    let blobUrlForCleanup: string | undefined;
+    let deviceBlobUrl: string | undefined;
 
     if (body.media.source === "instagram") {
       const eligibility = await metaApiCall<{
@@ -271,7 +274,7 @@ export async function POST(
           { status: 404 },
         );
       }
-      blobUrlForCleanup = blobUrl;
+      deviceBlobUrl = blobUrl;
       if (body.media.mediaType === "video") {
         media = { kind: "device_video", blobUrl };
         mediaSource = "device_video";
@@ -304,6 +307,7 @@ export async function POST(
     const page = await resolvePageAndIg(
       accessToken,
       requestedPageId ?? adsetPageId,
+      { adAccountId: accountId, instagramBusinessAccountId: body.instagramUserId, tokenKind: tokenResult.connection.tokenKind, bisuAppScopedId: tokenResult.connection.bisuAppScopedId },
     );
     const name = body.adName?.trim() || `${adset.name ?? "Anúncio"} - Ad`;
     const adStatus = body.status === "ACTIVE" ? "ACTIVE" : "PAUSED";
@@ -341,7 +345,7 @@ export async function POST(
       );
       confirmedVideo = {
         videoId: body.confirmVideoId,
-        thumbnailUrl: picture ?? (blobUrlForCleanup as string),
+        thumbnailUrl: picture ?? (deviceBlobUrl as string),
       };
     }
 
@@ -403,14 +407,6 @@ export async function POST(
       status: adStatus,
     });
 
-
-    if (blobUrlForCleanup) {
-      void cleanupBlobAfterMetaIngestion({
-        blobUrls: [blobUrlForCleanup],
-        adCreativeIds: [outcome.creativeId],
-        accessToken,
-      }).catch(() => {});
-    }
 
     let auditLogFailed = false;
     try {

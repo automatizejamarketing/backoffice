@@ -1,9 +1,11 @@
+import { parseAdvertisingIdentityId } from "@/lib/meta-business/advertising-identity-key";
 import type { MetaAssetKind } from "@/lib/db/schema";
 
 export type EnabledAssetFlagRow = {
   assetKind: MetaAssetKind;
   assetId: string;
   isPrimary: boolean;
+  instagramBusinessAccountId?: string | null;
 };
 
 export type GrantedAssetSelectionFlags = {
@@ -16,9 +18,8 @@ export function flagsForGrantedAsset(
   kind: MetaAssetKind,
   assetId: string,
 ): GrantedAssetSelectionFlags {
-  const match = enabled.find(
-    (row) => row.assetKind === kind && row.assetId === assetId,
-  );
+  const pair = kind === "identity" ? parseAdvertisingIdentityId(assetId) : null;
+  const match = enabled.find(row => row.assetKind === kind && (row.assetId === assetId || (pair && row.assetId === pair.pageId && row.instagramBusinessAccountId === pair.instagramBusinessAccountId)));
   return {
     enabled: Boolean(match),
     primary: match?.isPrimary ?? false,

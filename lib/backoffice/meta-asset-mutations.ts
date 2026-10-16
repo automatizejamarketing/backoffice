@@ -1,10 +1,11 @@
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { getUserMetaBusinessAccount } from "@/lib/db/admin-queries";
 import { GraphApiError } from "@/lib/meta-business/error";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import { getUserWithAdAccounts } from "@/lib/meta-business/get-user-with-ad-accounts";
-import { getPagesWithInstagram } from "@/lib/meta-business/marketing/build-ad-from-media";
+import { getAdvertisingIdentities } from "@/lib/meta-business/get-instagram-connected-page";
 import {
   backofficeAuditLog,
   metaAssetEvent,
@@ -109,7 +110,7 @@ export async function setUserMetaAssetSelectionWithAudit(input: {
     return { ok: false as const, error: "User not found" as const };
   }
 
-  const proposal = parseSelectionProposal(input.body);
+  let proposal = parseSelectionProposal(input.body);
   if (!proposal) {
     return { ok: false as const, error: "invalid_body" as const };
   }
@@ -119,6 +120,8 @@ export async function setUserMetaAssetSelectionWithAudit(input: {
     return live;
   }
 
+  proposal = parseSelectionProposal(input.body, [...live.catalog.identities.entries()].map(([identityId, identity]) => ({...identity,identityId})));
+  if (!proposal) return {ok:false as const,error:"not_granted" as const};
   const current = await loadPolicySnapshot(input.userId);
   const previouslyEnabled = await loadEnabledAssets(input.userId);
   const at = new Date();
@@ -197,6 +200,8 @@ type LiveCatalog = {
   identities: Map<
     string,
     {
+      pageId: string;
+      adAccountIds?: string[];
       pageName: string;
       instagramBusinessAccountId: string;
       instagramUsername: string | null;
@@ -226,17 +231,20 @@ async function loadLiveGranted(userId: string): Promise<
   }
 
   try {
-    const [userWithAccounts, identities] = await Promise.all([
-      getUserWithAdAccounts(token.accessToken, {
-        tokenKind: token.connection.tokenKind,
-        bisuAppScopedId: token.connection.bisuAppScopedId,
-        clientBusinessId: token.connection.clientBusinessId,
-        connectionName: token.connection.name,
-      }),
-      getPagesWithInstagram(token.accessToken),
-    ]);
-
+    const userWithAccounts = await getUserWithAdAccounts(token.accessToken, {
+      tokenKind: token.connection.tokenKind,
+      bisuAppScopedId: token.connection.bisuAppScopedId,
+      clientBusinessId: token.connection.clientBusinessId,
+      connectionName: token.connection.name,
+    });
     const adAccounts = userWithAccounts.adaccounts?.data ?? [];
+    // Same definition of "granted identity" as the app (see meta-assets-card-data.ts): a
+    // selection is validated against what the client can really advertise with.
+    const identities = await getAdvertisingIdentities(token.accessToken, {
+      adAccountIds: adAccounts.map((account) => account.account_id),
+      tokenKind: token.connection.tokenKind,
+      bisuAppScopedId: token.connection.bisuAppScopedId,
+    });
     const catalog: LiveCatalog = {
       adAccounts: new Map(
         adAccounts.map((account) => [
@@ -246,8 +254,10 @@ async function loadLiveGranted(userId: string): Promise<
       ),
       identities: new Map(
         identities.map((page) => [
-          page.pageId,
+          identityKey(page),
           {
+            pageId: page.pageId,
+            adAccountIds: page.adAccountIds,
             pageName: page.pageName ?? page.pageId,
             instagramBusinessAccountId: page.instagramBusinessAccountId,
             instagramUsername: page.instagramUsername ?? null,

@@ -1,5 +1,6 @@
 import { sql, type InferSelectModel } from "drizzle-orm";
 import {
+  bigint,
   bigserial,
   boolean,
   check,
@@ -9,6 +10,7 @@ import {
   integer,
   jsonb,
   numeric,
+  pgSchema,
   pgTable,
   primaryKey,
   text,
@@ -21,6 +23,7 @@ import {
 import type { AppUsage } from "../usage";
 import type { Layer, PostStatus } from "../types";
 import type { BackofficeRole, SalesRole } from "@/lib/auth/rbac-core";
+import type { TrackingPixel } from "@/lib/products/tracking-pixels";
 import {
   COMPANY_CAPABILITIES,
   COMPANY_OFFER_CODES,
@@ -299,7 +302,14 @@ export const backofficeUser = pgTable("backoffice_users", {
   email: varchar("email", { length: 100 }).notNull().unique(),
   name: varchar("name", { length: 100 }),
   role: varchar("role", {
-    enum: ["admin", "dev", "marketing_consultant", "finance_viewer", "comercial"],
+    enum: [
+      "admin",
+      "dev",
+      "marketing_consultant",
+      "marketing_consultant_premium",
+      "finance_viewer",
+      "comercial",
+    ],
   })
     .$type<BackofficeRole>()
     .notNull()
@@ -362,20 +372,37 @@ export const backofficeMagicLink = pgTable(
 
 export type BackofficeMagicLink = InferSelectModel<typeof backofficeMagicLink>;
 
-export const blobUpload = pgTable("blob_uploads", {
-  id: uuid("id").primaryKey().notNull().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => user.id),
-  blobUrl: text("blob_url").notNull(),
-  pathname: text("pathname"),
-  filename: text("filename"),
-  contentType: text("content_type"),
-  source: varchar("source", { length: 50 }).notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at"),
-});
+export const blobUpload = pgTable(
+  "blob_uploads",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    blobUrl: text("blob_url").notNull(),
+    pathname: text("pathname"),
+    filename: text("filename"),
+    contentType: text("content_type"),
+    source: varchar("source", { length: 50 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at"),
+    /** Biblioteca de mídias: tamanho lido do HEAD do R2 na confirmação. */
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    /** Admin do backoffice que subiu a mídia; nulo = o próprio cliente. */
+    uploadedByBackofficeEmail: varchar("uploaded_by_backoffice_email", { length: 255 }),
+    /** `user` | `backoffice` | `retention` (ver lib/media-library/policy.ts). */
+    deletedReason: varchar("deleted_reason", { length: 20 }),
+  },
+  (table) => ({
+    blobUrlUnique: uniqueIndex("blob_uploads_blob_url_unique").on(
+      table.blobUrl,
+    ),
+    mediaLibraryIdx: index("blob_uploads_media_library_idx")
+      .on(table.userId, table.createdAt.desc(), table.id.desc())
+      .where(sql`${table.source} = 'campaign_media' AND ${table.deletedAt} IS NULL`),
+  }),
+);
 
 export type BlobUpload = InferSelectModel<typeof blobUpload>;
 
@@ -504,6 +531,12 @@ export const expertProfile = pgTable(
       .notNull()
       .default(false),
     stripeAccountUpdatedAt: timestamp("stripe_account_updated_at"),
+    /** Pixels padrão do produtor, copiados para produtos sem pixel daquele
+     * provedor e para produtos novos. O checkout não lê esta coluna. */
+    defaultTrackingPixels: jsonb("default_tracking_pixels")
+      .$type<TrackingPixel[]>()
+      .notNull()
+      .default([]),
     status: varchar("status", { enum: ["active", "inactive"] })
       .$type<"active" | "inactive">()
       .notNull()
@@ -691,6 +724,12 @@ export const product = pgTable(
       .notNull()
       .default("v1"),
     legacyMasterclassCourseId: text("legacy_masterclass_course_id"),
+    /** Pixels de conversão do checkout. Validados em
+     * `lib/products/tracking-pixels.ts`; nunca o script colado. */
+    trackingPixels: jsonb("tracking_pixels")
+      .$type<TrackingPixel[]>()
+      .notNull()
+      .default([]),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -729,6 +768,33 @@ export const product = pgTable(
 );
 
 export type Product = InferSelectModel<typeof product>;
+
+/** Tokens da API de Conversões por dono (expert, ou Automatize quando
+ * `expert_id` é nulo) e pixel. Separado de `products.tracking_pixels` porque
+ * aquele vai para o navegador; o token nunca sai do servidor. */
+export const productPixelCredential = pgTable(
+  "product_pixel_credentials",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    expertId: uuid("expert_id").references(() => expertProfile.id, {
+      onDelete: "cascade",
+    }),
+    provider: varchar("provider", { length: 30 }).notNull(),
+    pixelId: varchar("pixel_id", { length: 40 }).notNull(),
+    accessToken: text("access_token").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    ownerPixelUnique: unique("product_pixel_credentials_owner_pixel_unique")
+      .on(table.expertId, table.provider, table.pixelId)
+      .nullsNotDistinct(),
+  }),
+);
+
+export type ProductPixelCredential = InferSelectModel<
+  typeof productPixelCredential
+>;
 
 export const productContentItem = pgTable(
   "product_content_items",
@@ -1612,6 +1678,7 @@ export const company = pgTable("companies", {
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   websiteUrl: varchar("website_url", { length: 512 }),
+  campaignDestinationUrl: text("campaign_destination_url"),
   instagramHandle: varchar("instagram_handle", { length: 64 }),
   industry: varchar("industry", { length: 128 }),
   niche: varchar("niche", { length: 128 }),
@@ -2092,6 +2159,95 @@ export const userCompany = pgTable(
 );
 
 export type UserCompany = InferSelectModel<typeof userCompany>;
+// Módulos por empresa (ADR 0041). O direito de acesso é a autoridade; a
+// cobrança só alimenta este estado. Catálogo em código, sem CHECK no banco.
+export const COMPANY_MODULE_VALUES = ["postagem", "trafego"] as const;
+export type CompanyModule = (typeof COMPANY_MODULE_VALUES)[number];
+
+export const COMPANY_MODULE_STATUS_VALUES = [
+  "active",
+  "revoked",
+  "expired",
+] as const;
+export type CompanyModuleStatus = (typeof COMPANY_MODULE_STATUS_VALUES)[number];
+
+export const COMPANY_MODULE_SOURCE_VALUES = ["manual", "stripe"] as const;
+export type CompanyModuleSource = (typeof COMPANY_MODULE_SOURCE_VALUES)[number];
+
+export const COMPANY_MODULE_EVENT_TYPE_VALUES = [
+  "activated",
+  "revoked",
+  "expired",
+] as const;
+export type CompanyModuleEventType =
+  (typeof COMPANY_MODULE_EVENT_TYPE_VALUES)[number];
+
+export const companyModuleEntitlement = pgTable(
+  "company_module_entitlements",
+  {
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    module: varchar("module", { length: 32 }).$type<CompanyModule>().notNull(),
+    status: varchar("status", { length: 16 })
+      .$type<CompanyModuleStatus>()
+      .notNull(),
+    source: varchar("source", { length: 16 })
+      .$type<CompanyModuleSource>()
+      .notNull(),
+    sourceReference: varchar("source_reference", { length: 255 }),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }).notNull(),
+    updatedByUserId: uuid("updated_by_user_id").references(() => user.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.companyId, table.module] }),
+  }),
+);
+
+export type CompanyModuleEntitlement = InferSelectModel<
+  typeof companyModuleEntitlement
+>;
+
+export const companyModuleEvent = pgTable(
+  "company_module_events",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "cascade" }),
+    module: varchar("module", { length: 32 }).$type<CompanyModule>().notNull(),
+    eventType: varchar("event_type", { length: 16 })
+      .$type<CompanyModuleEventType>()
+      .notNull(),
+    source: varchar("source", { length: 16 })
+      .$type<CompanyModuleSource>()
+      .notNull(),
+    sourceReference: varchar("source_reference", { length: 255 }),
+    validUntil: timestamp("valid_until", { withTimezone: true }),
+    actorUserId: uuid("actor_user_id").references(() => user.id),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    applied: boolean("applied").notNull(),
+  },
+  (table) => ({
+    idempotencyKeyUnique: uniqueIndex(
+      "company_module_events_idempotency_key_unique",
+    ).on(table.companyId, table.module, table.idempotencyKey),
+    companyModuleIdx: index("company_module_events_company_module_idx").on(
+      table.companyId,
+      table.module,
+      table.occurredAt,
+    ),
+  }),
+);
+
+export type CompanyModuleEvent = InferSelectModel<typeof companyModuleEvent>;
 
 // Instagram Account table for storing Instagram account connections
 export const instagramAccount = pgTable(
@@ -2339,7 +2495,6 @@ export const metaBusinessAccount = pgTable(
       .default("active"),
     lastValidatedAt: timestamp("last_validated_at"),
     lastValidationError: text("last_validation_error"),
-    /** Last Automatize BM partner-access check: missing | partial | pending_admin_approval | complete | unsupported */
     partnerAccessStatus: varchar("partner_access_status", { length: 32 }),
     partnerAccessDiagnosis: jsonb("partner_access_diagnosis").$type<Record<string, unknown>>(),
     partnerAccessCheckedAt: timestamp("partner_access_checked_at"),
@@ -2378,7 +2533,7 @@ export const metaAdminOauthAttempt = pgTable(
     actorAdminId: text("actor_admin_id").notNull(),
     actorAdminEmail: text("actor_admin_email").notNull(),
     stateHash: text("state_hash").notNull().unique(),
-    authMode: varchar("auth_mode", { length: 16 }).notNull().default("user"),
+    authMode: varchar("auth_mode", { length: 16 }).notNull().default("bisu"),
     expiresAt: timestamp("expires_at").notNull(),
     consumedAt: timestamp("consumed_at"),
     result: varchar("result", { length: 32 }),
@@ -2396,6 +2551,142 @@ export const metaAdminOauthAttempt = pgTable(
 );
 
 export type MetaAdminOauthAttempt = InferSelectModel<typeof metaAdminOauthAttempt>;
+
+export const META_PUBLISH_HOLD_STATUSES = [
+  "held",
+  "publishing",
+  "published",
+  "failed",
+  "cancelled",
+] as const;
+export type MetaPublishHoldStatus = (typeof META_PUBLISH_HOLD_STATUSES)[number];
+
+export const META_PUBLISH_HOLD_FLOWS = ["draft", "ai"] as const;
+export type MetaPublishHoldFlow = (typeof META_PUBLISH_HOLD_FLOWS)[number];
+
+/**
+ * Publicações seguradas ("em preparação").
+ *
+ * Quando a Meta recusa o anúncio com 100/2859024 (um administrador do
+ * Gerenciador de Negócios do cliente ainda não aceitou a política de não
+ * discriminação para usuários do sistema), o pedido de publicação inteiro
+ * fica aqui, tal como chegou à rota, para ser refeito no servidor, sem o
+ * navegador, assim que uma conexão capaz de publicar existir: a reconexão do
+ * consultor hoje, a credencial de consultor da fase 2 depois.
+ *
+ * Enquanto a linha estiver `held`, o rascunho do lado da Meta (campanha e
+ * conjunto pausados, mídia já enviada) NÃO é apagado: é ele que a repetição
+ * reaproveita. `request` é o corpo da rota (`flow` diz qual), gravado antes de
+ * qualquer resposta ao cliente.
+ */
+export const metaPublishHold = pgTable(
+  "meta_publish_holds",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id),
+    /** `act_…` da conta que recusou. */
+    adAccountId: text("ad_account_id").notNull(),
+    /** Conexão (`meta_business_accounts.id`) que estava ativa na recusa. */
+    metaAccountId: text("meta_account_id"),
+    flow: varchar("flow", { length: 16 }).$type<MetaPublishHoldFlow>().notNull(),
+    /** Corpo do pedido de publicação, exatamente como a rota o recebeu. */
+    request: jsonb("request").$type<Record<string, unknown>>().notNull(),
+    /** Rascunho no lado da Meta que a repetição reaproveita (fluxo `draft`). */
+    draftCampaignId: text("draft_campaign_id"),
+    draftAdSetId: text("draft_ad_set_id"),
+    /** Nome mostrado na lista enquanto a campanha está em preparação. */
+    campaignName: text("campaign_name"),
+    /** Código estável da recusa, ex.: `meta_certification_required`. */
+    reasonCode: varchar("reason_code", { length: 64 }).notNull(),
+    /** Código, subcódigo e fbtrace_id da recusa original. */
+    reason: jsonb("reason").$type<Record<string, unknown>>(),
+    status: varchar("status", { length: 16 })
+      .$type<MetaPublishHoldStatus>()
+      .notNull()
+      .default("held"),
+    attempts: integer("attempts").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at"),
+    lastError: text("last_error"),
+    publishedCampaignId: text("published_campaign_id"),
+    /** Qual conexão publicou: `owner` (a do cliente) ou `consultant`. */
+    publishedVia: varchar("published_via", { length: 16 }),
+    publishedAt: timestamp("published_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    userStatusIdx: index("meta_publish_holds_user_status_idx").on(
+      table.userId,
+      table.status,
+    ),
+    statusCreatedIdx: index("meta_publish_holds_status_created_idx").on(
+      table.status,
+      table.createdAt,
+    ),
+  }),
+);
+
+export type MetaPublishHold = InferSelectModel<typeof metaPublishHold>;
+
+/**
+ * Personal Facebook token of a backoffice consultant. Twin of the frontend
+ * table: written when admin reconnect completes, read when a certification
+ * refusal retries the publish. Ciphertext uses the shared token envelope.
+ */
+export const metaConsultantCredential = pgTable(
+  "meta_consultant_credentials",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    facebookUserId: text("facebook_user_id").notNull().unique(),
+    actorAdminId: text("actor_admin_id").notNull(),
+    actorAdminEmail: text("actor_admin_email").notNull(),
+    name: text("name"),
+    accessToken: text("access_token").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+);
+
+export type MetaConsultantCredential = InferSelectModel<
+  typeof metaConsultantCredential
+>;
+
+/**
+ * Meta certification (100/2859024) per client: the validate_only test of the
+ * BISU run right after the connection, and the personal Facebook token the
+ * client connects as a fallback when the BISU is refused. One row per client;
+ * `connection_id` + `connection_updated_at` say which connection was tested,
+ * so a reconnect makes the BISU result stale and it is tested again.
+ */
+export const metaCertificationState = pgTable("meta_certification_states", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  connectionId: text("connection_id"),
+  connectionUpdatedAt: timestamp("connection_updated_at"),
+  /** checking | ok | certification_required | account_error | inconclusive */
+  bisuStatus: varchar("bisu_status", { length: 32 }),
+  bisuCheckedAt: timestamp("bisu_checked_at"),
+  bisuDetail: jsonb("bisu_detail").$type<Record<string, unknown>>(),
+  personalFacebookUserId: text("personal_facebook_user_id"),
+  /** Encrypted with the same envelope as `meta_business_accounts.access_token`. */
+  personalAccessToken: text("personal_access_token"),
+  personalTokenExpiresAt: timestamp("personal_token_expires_at"),
+  /** ok | certification_required | account_error | inconclusive */
+  personalStatus: varchar("personal_status", { length: 32 }),
+  personalCheckedAt: timestamp("personal_checked_at"),
+  personalDetail: jsonb("personal_detail").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type MetaCertificationState = InferSelectModel<
+  typeof metaCertificationState
+>;
 
 // AdSet targeting type for audit logs (subset + index for Meta targeting JSON)
 export type AdSetTargetingData = {
@@ -3603,10 +3894,6 @@ export const payment = pgTable(
     uniqueMercadopagoPaymentId: unique(
       "payments_mercadopago_payment_id_unique",
     ).on(table.mercadopagoPaymentId),
-    uniqueEfiExternalId: uniqueIndex("payments_efi_external_id_unique").on(table.externalId)
-      .where(sql`${table.provider} = 'efi'`),
-    efiExternalIdRequired: check("payments_efi_external_id_required",
-      sql`${table.provider} <> 'efi' OR ${table.externalId} IS NOT NULL`),
   }),
 );
 
@@ -3658,6 +3945,38 @@ export const subscriptionEvent = pgTable("subscription_events", {
 });
 
 export type SubscriptionEvent = InferSelectModel<typeof subscriptionEvent>;
+
+// Every change to users.expiration_date, one row each. Written by the
+// users_record_expiration_* triggers (user_expiration_history migration, twin
+// in both repos), so no write path can skip it. users.expiration_date keeps
+// only the latest value; this is what tells the dashboard that a customer
+// left and later came back.
+export const userExpirationHistory = pgTable(
+  "user_expiration_history",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    previousExpirationDate: timestamp("previous_expiration_date", {
+      withTimezone: true,
+    }),
+    expirationDate: timestamp("expiration_date", { withTimezone: true }),
+    changedAt: timestamp("changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    userChangedAtIdx: index("user_expiration_history_user_changed_at_idx").on(
+      table.userId,
+      table.changedAt,
+    ),
+  }),
+);
+
+export type UserExpirationHistory = InferSelectModel<
+  typeof userExpirationHistory
+>;
 
 // Processed webhook events - for idempotency
 export const processedWebhookEvent = pgTable(
@@ -4056,6 +4375,8 @@ export const REFERRAL_ADMIN_ACTION_VALUES = [
   "payout_denied",
   "balance_written_off",
   "tax_document_updated",
+  // Vínculo manual de Indicado pelo backoffice (spec 2026-10-11).
+  "customer_linked",
 ] as const;
 export type ReferralAdminActionType =
   (typeof REFERRAL_ADMIN_ACTION_VALUES)[number];
@@ -4779,6 +5100,10 @@ export const performanceInsight = pgTable(
     reviewedByEmail: varchar("reviewed_by_email", { length: 100 }),
     reviewNote: text("review_note"),
     reviewedAt: timestamp("reviewed_at"),
+    /** O que o consultor fez ao concluir (ajustei_campanha, pausei, …). */
+    reviewOutcome: varchar("review_outcome", { length: 32 }),
+    /** Adiado pelo consultor até este momento (some da fila da área de Tráfego). */
+    snoozedUntil: timestamp("snoozed_until"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
@@ -9027,8 +9352,20 @@ export type CustomerFileTemporaryMaterialRecord = InferSelectModel<
 
 // ===== client_report_* =====
 
-export const CLIENT_REPORT_PERIOD_TYPES = ["weekly", "monthly", "cycle"] as const;
+export const CLIENT_REPORT_PERIOD_TYPES = [
+  "weekly",
+  "monthly",
+  "custom",
+  "campaign",
+] as const;
 export type ClientReportPeriodType = (typeof CLIENT_REPORT_PERIOD_TYPES)[number];
+
+export const CLIENT_REPORT_SCOPE_TYPES = ["account", "campaign"] as const;
+export type ClientReportScopeType =
+  (typeof CLIENT_REPORT_SCOPE_TYPES)[number];
+
+export const CLIENT_REPORT_GENERATORS = ["automatic", "user"] as const;
+export type ClientReportGenerator = (typeof CLIENT_REPORT_GENERATORS)[number];
 
 export const CLIENT_REPORT_SNAPSHOT_STATUSES = [
   "built",
@@ -9075,6 +9412,15 @@ export const clientReportSnapshot = pgTable(
       .notNull(),
     periodStart: date("period_start").notNull(),
     periodEnd: date("period_end").notNull(),
+    scopeType: varchar("scope_type", { length: 16 })
+      .$type<ClientReportScopeType>()
+      .notNull()
+      .default("account"),
+    campaignId: text("campaign_id"),
+    generatedBy: varchar("generated_by", { length: 16 })
+      .$type<ClientReportGenerator>()
+      .notNull()
+      .default("automatic"),
     status: varchar("status", { length: 16 })
       .$type<ClientReportSnapshotStatus>()
       .notNull()
@@ -9094,9 +9440,21 @@ export const clientReportSnapshot = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => ({
-    userPeriodUnique: uniqueIndex(
-      "client_report_snapshots_user_period_unique",
-    ).on(table.userId, table.periodType, table.periodStart),
+    accountPeriodUnique: uniqueIndex(
+      "client_report_snapshots_account_period_unique",
+    )
+      .on(table.userId, table.periodType, table.periodStart)
+      .where(sql`${table.campaignId} IS NULL`),
+    campaignPeriodUnique: uniqueIndex(
+      "client_report_snapshots_campaign_period_unique",
+    )
+      .on(table.userId, table.periodType, table.periodStart, table.campaignId)
+      .where(sql`${table.campaignId} IS NOT NULL`),
+    campaignIdx: index("client_report_snapshots_campaign_idx").on(
+      table.userId,
+      table.campaignId,
+      table.periodStart,
+    ),
     userBuiltIdx: index("client_report_snapshots_user_built_idx").on(
       table.userId,
       table.builtAt,
@@ -9563,7 +9921,403 @@ export const pricingCostSettings = pgTable(
 export type PricingCostSetting = InferSelectModel<typeof pricingCostSettings>;
 // ===== END pricing_* =====
 
-// Pix Automático: consent, scheduled charges and received money have separate identities.
+// CRM contacts are commercial identities, independent from authentication accounts.
+export const crmContact = pgTable(
+  "crm_contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .unique()
+      .references(() => user.id, { onDelete: "set null" }),
+    email: varchar("email", { length: 100 }).notNull().unique(),
+    name: text("name"),
+    phone: text("phone"),
+    captureSource: text("capture_source"),
+    captureProfile: text("capture_profile"),
+    revenueRange: text("revenue_range"),
+    objective: text("objective"),
+    commercialStatus: varchar("commercial_status", { length: 32 })
+      .$type<CrmCommercialStatus>()
+      .notNull()
+      .default("novo_lead"),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    statusChangedBy: text("status_changed_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusIdx: index("crm_contacts_status_idx").on(
+      t.commercialStatus,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const crmContactEvent = pgTable(
+  "crm_contact_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => crmContact.id),
+    kind: text("kind").$type<"note" | "status" | "capture">().notNull(),
+    body: text("body"),
+    statusFrom: text("status_from"),
+    statusTo: text("status_to"),
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    authorEmail: text("author_email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    contactIdx: index("crm_contact_events_contact_idx").on(
+      t.contactId,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const ambassadorMember = pgTable("ambassador_members", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => backofficeUser.id),
+  canGrantStarter: boolean("can_grant_starter").notNull().default(false),
+});
+
+export const ambassador = pgTable("ambassadors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  affiliateId: uuid("affiliate_id")
+    .notNull()
+    .unique()
+    .references(() => referralAffiliate.id),
+  category: text("category").$type<"ambassador" | "coproducer">().notNull(),
+  publicityOwnerId: uuid("publicity_owner_id")
+    .notNull()
+    .references(() => backofficeUser.id),
+  coproductionOwnerId: uuid("coproduction_owner_id").references(
+    () => backofficeUser.id,
+  ),
+  active: boolean("active").notNull().default(true),
+  workflow: jsonb("workflow")
+    .$type<import("../ambassadors/workflow").AmbassadorWorkflow>()
+    .notNull(),
+  version: integer("version").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+});
+
+export const ambassadorEvent = pgTable(
+  "ambassador_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ambassadorId: uuid("ambassador_id")
+      .notNull()
+      .references(() => ambassador.id),
+    authorEmail: text("author_email").notNull(),
+    action: text("action").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    ambassadorIdx: index("ambassador_events_ambassador_idx").on(
+      t.ambassadorId,
+      t.createdAt,
+    ),
+  }),
+);
+
+export const ambassadorBenefit = pgTable("ambassador_benefits", {
+  ambassadorId: uuid("ambassador_id")
+    .primaryKey()
+    .references(() => ambassador.id),
+  userId: uuid("user_id")
+    .notNull()
+    .unique()
+    .references(() => user.id),
+  anchorOn: date("anchor_on").notNull(),
+  expiresOn: date("expires_on").notNull(),
+  nextCreditOn: date("next_credit_on").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const ambassadorCreditGrant = pgTable(
+  "ambassador_credit_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ambassadorId: uuid("ambassador_id")
+      .notNull()
+      .references(() => ambassador.id),
+    cycleOn: date("cycle_on").notNull(),
+    credits: integer("credits").notNull().default(250),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    cycleUnique: uniqueIndex("ambassador_credit_grants_cycle_unique").on(
+      t.ambassadorId,
+      t.cycleOn,
+    ),
+  }),
+);
+
+/** Display overrides; stable keys preserve capture attribution and filters. */
+export const crmTagSetting = pgTable("crm_tag_settings", {
+  key: varchar("key", { length: 40 }).primaryKey(),
+  name: varchar("name", { length: 60 }).notNull(),
+  color: varchar("color", { length: 7 }).notNull(),
+  updatedBy: varchar("updated_by", { length: 255 }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  validKey: check("crm_tag_settings_key_check", sql`${t.key} in ('source:isaac', 'profile:dono', 'profile:gestor')`),
+  validName: check("crm_tag_settings_name_check", sql`length(trim(${t.name})) > 0`),
+  validColor: check("crm_tag_settings_color_check", sql`${t.color} ~ '^#[0-9a-fA-F]{6}$'`),
+}));
+
+export type SignupCouponRedemptionStatus = "pending" | "consumed" | "released";
+export type SignupCouponProvider = "stripe" | "mercadopago";
+
+export const signupCouponRedemption = pgTable(
+  "signup_coupon_redemptions",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => user.id),
+    code: varchar("code", { length: 32 }).notNull(),
+    status: varchar("status", { enum: ["pending", "consumed", "released"] })
+      .$type<SignupCouponRedemptionStatus>()
+      .notNull(),
+    provider: varchar("provider", { enum: ["stripe", "mercadopago"] })
+      .$type<SignupCouponProvider>()
+      .notNull(),
+    planType: varchar("plan_type", { enum: [...PLAN_TYPE_VALUES] })
+      .$type<PlanType>()
+      .notNull(),
+    originalAmount: integer("original_amount").notNull(),
+    discountPercent: integer("discount_percent").notNull(),
+    discountAmount: integer("discount_amount").notNull(),
+    finalAmount: integer("final_amount").notNull(),
+    stripeSubscriptionId: varchar("stripe_subscription_id", { length: 255 }),
+    stripeInvoiceId: varchar("stripe_invoice_id", { length: 255 }),
+    mercadopagoPaymentLinkId: uuid("mercadopago_payment_link_id"),
+    reservedAt: timestamp("reserved_at").notNull().defaultNow(),
+    consumedAt: timestamp("consumed_at"),
+    releasedAt: timestamp("released_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => ({
+    pendingUserCode: uniqueIndex("signup_coupon_redemptions_pending_user_code")
+      .on(table.userId, table.code)
+      .where(sql`${table.status} = 'pending'`),
+    consumedUserCode: uniqueIndex("signup_coupon_redemptions_consumed_user_code")
+      .on(table.userId, table.code)
+      .where(sql`${table.status} = 'consumed'`),
+  }),
+);
+
+export type SignupCouponRedemption = InferSelectModel<typeof signupCouponRedemption>;
+
+/** Backoffice-owned WhatsApp campaigns. No recipient is sent while in draft. */
+export const whatsappCampaign = pgTable("whatsapp_campaigns", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: varchar("title", { length: 160 }).notNull(),
+  templateName: varchar("template_name", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  audienceFilters: jsonb("audience_filters").notNull().default({ statuses: ["never_started"], createdFrom: "", createdTo: "", expiresFrom: "", expiresTo: "", excludeContacted: true }),
+  state: varchar("state", { length: 24 }).$type<"draft" | "scheduled" | "paused" | "completed">().notNull().default("draft"),
+  dispatchMode: varchar("dispatch_mode", { length: 16 }).$type<"manual" | "scheduled">().notNull().default("manual"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  // Estimated BRL cost in millionths, preserving Meta's sub-cent prices.
+  unitCostMicros: integer("unit_cost_micros").notNull().default(0),
+  budgetMicros: numeric("budget_micros", { precision: 16, scale: 0 }).notNull().default("0"),
+  // Approved template shape: optional URL button and optional image/video header.
+  button: jsonb("button").$type<{ text: string; url: string }>(),
+  headerMedia: jsonb("header_media").$type<{ type: "image" | "video"; url: string }>(),
+  createdBy: varchar("created_by", { length: 100 }).notNull(),
+  updatedBy: varchar("updated_by", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  dueIdx: index("whatsapp_campaigns_due_idx").on(table.state, table.scheduledAt),
+  stateCheck: check("whatsapp_campaigns_state_check", sql`${table.state} in ('draft','scheduled','paused','completed')`),
+  dispatchModeCheck: check("whatsapp_campaigns_dispatch_mode_check", sql`${table.dispatchMode} in ('manual','scheduled')`),
+  unitCostCheck: check("whatsapp_campaigns_unit_cost_micros_check", sql`${table.unitCostMicros} >= 0`),
+  budgetCheck: check("whatsapp_campaigns_budget_micros_check", sql`${table.budgetMicros} >= 0`),
+}));
+
+export const whatsappCampaignRecipient = pgTable("whatsapp_campaign_recipients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  campaignId: uuid("campaign_id").notNull().references(() => whatsappCampaign.id),
+  userId: uuid("user_id").notNull().references(() => user.id),
+  phone: varchar("phone", { length: 16 }).notNull(),
+  state: varchar("state", { length: 24 }).$type<"pending" | "sending" | "sent" | "failed" | "skipped" | "unknown" | "excluded">().notNull().default("pending"),
+  reason: text("reason"),
+  deliveryId: uuid("delivery_id").references(() => whatsappTemplateDelivery.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  phoneUnique: unique("whatsapp_campaign_recipients_phone_unique").on(table.campaignId, table.phone),
+  userUnique: unique("whatsapp_campaign_recipients_user_unique").on(table.campaignId, table.userId),
+  pendingIdx: index("whatsapp_campaign_recipients_pending_idx").on(table.campaignId, table.state),
+  stateCheck: check("whatsapp_campaign_recipients_state_check", sql`${table.state} in ('pending','sending','sent','failed','skipped','unknown','excluded')`),
+}));
+
+// Backoffice MCP connector: OAuth 2.1 grants for team members (not customers).
+// The grant stores the actor e-mail; permissions are re-resolved on every call.
+export const backofficeMcpOauthClient = pgTable("backoffice_mcp_oauth_clients", {
+  id: varchar("id", { length: 64 }).primaryKey().notNull(),
+  clientName: varchar("client_name", { length: 200 }).notNull(),
+  clientSecretHash: varchar("client_secret_hash", { length: 64 }),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  tokenEndpointAuthMethod: varchar("token_endpoint_auth_method", { length: 32 }).notNull(),
+  grantTypes: jsonb("grant_types").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const backofficeMcpOauthAuthorizationCode = pgTable("backoffice_mcp_oauth_authorization_codes", {
+  codeHash: varchar("code_hash", { length: 64 }).primaryKey().notNull(),
+  clientId: varchar("client_id", { length: 64 }).notNull().references(() => backofficeMcpOauthClient.id, { onDelete: "cascade" }),
+  actorEmail: varchar("actor_email", { length: 100 }).notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  codeChallenge: varchar("code_challenge", { length: 128 }).notNull(),
+  scope: varchar("scope", { length: 200 }).notNull(),
+  resource: text("resource"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const backofficeMcpOauthToken = pgTable("backoffice_mcp_oauth_tokens", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  clientId: varchar("client_id", { length: 64 }).notNull().references(() => backofficeMcpOauthClient.id, { onDelete: "cascade" }),
+  actorEmail: varchar("actor_email", { length: 100 }).notNull(),
+  accessTokenHash: varchar("access_token_hash", { length: 64 }).notNull().unique(),
+  refreshTokenHash: varchar("refresh_token_hash", { length: 64 }).notNull().unique(),
+  scope: varchar("scope", { length: 200 }).notNull(),
+  resource: text("resource"),
+  accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }).notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  actorIdx: index("backoffice_mcp_oauth_tokens_actor_idx").on(table.actorEmail),
+}));
+
+// ================================
+// Área de Tráfego do consultor (BO 0134 / FE 0143, mesmo `when` 1802100000000)
+// ================================
+
+/** Meta combinada com o cliente: o indicador e o alvo contra os quais a carteira é medida. */
+export const consultantClientGoal = pgTable("consultant_client_goals", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** cpa | cpl | custo_conversa | roas | custo_resultado */
+  kpi: varchar("kpi", { length: 24 }).notNull(),
+  /** Custo máximo em reais, ou ROAS mínimo. */
+  target: numeric("target").notNull(),
+  /** Verba mensal combinada, em reais. */
+  monthlyBudget: numeric("monthly_budget"),
+  updatedByEmail: varchar("updated_by_email", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConsultantClientGoal = InferSelectModel<typeof consultantClientGoal>;
+
+/** Linha do tempo do consultor por cliente: notas, contatos, reuniões, ações e mensagens. */
+export const consultantClientNote = pgTable(
+  "consultant_client_notes",
+  {
+    id: uuid("id").primaryKey().notNull().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** nota | contato | reuniao | acao | mensagem | passagem */
+    kind: varchar("kind", { length: 16 }).notNull(),
+    body: text("body").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    authorEmail: varchar("author_email", { length: 100 }).notNull(),
+    /** backoffice | mcp */
+    source: varchar("source", { length: 16 }).notNull().default("backoffice"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userCreatedIdx: index("consultant_client_notes_user_created_idx").on(table.userId, table.createdAt),
+  }),
+);
+
+export type ConsultantClientNote = InferSelectModel<typeof consultantClientNote>;
+
+/** Passagem de bastão do onboarding para o gestor de tráfego. */
+export const consultantOnboardingHandoff = pgTable("consultant_onboarding_handoffs", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  summary: text("summary").notNull(),
+  nextSteps: text("next_steps").notNull().default(""),
+  callDate: date("call_date"),
+  authorEmail: varchar("author_email", { length: 100 }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConsultantOnboardingHandoff = InferSelectModel<typeof consultantOnboardingHandoff>;
+
+/**
+ * Tags de problema do cliente (catálogo em código). `active` = marcada à mão;
+ * `dismissed` = tag detectada pelos dados que alguém marcou como resolvida.
+ */
+export const consultantClientProblemTag = pgTable(
+  "consultant_client_problem_tags",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tagKey: varchar("tag_key", { length: 40 }).notNull(),
+    state: varchar("state", { length: 16 }).notNull(),
+    updatedByEmail: varchar("updated_by_email", { length: 100 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.tagKey] }),
+  }),
+);
+
+export type ConsultantClientProblemTag = InferSelectModel<typeof consultantClientProblemTag>;
+
+/** Última análise de IA do dossiê, por cliente. */
+export const consultantClientAiAnalysis = pgTable("consultant_client_ai_analyses", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  model: varchar("model", { length: 80 }).notNull(),
+  periodDays: integer("period_days").notNull(),
+  generatedByEmail: varchar("generated_by_email", { length: 100 }).notNull(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type ConsultantClientAiAnalysis = InferSelectModel<typeof consultantClientAiAnalysis>;
+
+// Shared staging integrations; mirror the frontend additive schema.
 export type EfiEnvironment = "homologacao" | "producao";
 export type EfiAuthorizationStatus = "creating" | "pending" | "approved" | "canceled" | "rejected" | "expired" | "failed" | "review";
 export type EfiCreationPhase = "reserved" | "location_created" | "charge_created" | "rec_creating" | "uncertain" | "ready";
@@ -9585,6 +10339,7 @@ export const efiRecurringAuthorization = pgTable("efi_recurring_authorizations",
   debtorDocument: varchar("debtor_document", { length: 14 }).notNull(),
   debtorAddress: jsonb("debtor_address").$type<{ cep: string; cidade: string; logradouro: string; uf: string; email?: string }>(),
   firstDueDate: date("first_due_date").notNull(),
+  billingPeriodMonths: integer("billing_period_months").notNull().default(1),
   anchorDay: integer("anchor_day").notNull(),
   nextCycle: integer("next_cycle").notNull(),
   trial: boolean("trial").notNull().default(false),
@@ -9607,6 +10362,7 @@ export const efiRecurringAuthorization = pgTable("efi_recurring_authorizations",
     .where(sql`${table.status} IN ('creating', 'pending', 'approved', 'review')`),
   syncIdx: index("efi_authorizations_sync_idx").on(table.environment, table.nextSyncAt),
   amountPositive: check("efi_authorizations_amount_positive", sql`${table.amount} > 0`),
+  billingPeriodValid: check("efi_authorizations_billing_period_valid", sql`${table.billingPeriodMonths} IN (1, 3, 6, 12)`),
   anchorValid: check("efi_authorizations_anchor_valid", sql`${table.anchorDay} BETWEEN 1 AND 31`),
 }));
 export type EfiRecurringAuthorization = InferSelectModel<typeof efiRecurringAuthorization>;
@@ -9627,6 +10383,7 @@ export const efiSubscriptionCharge = pgTable("efi_subscription_charges", {
   paymentId: uuid("payment_id").references(() => payment.id),
   retryDate: date("retry_date"),
   retryUncertain: boolean("retry_uncertain").notNull().default(false),
+  failure: jsonb("failure").$type<{ status: string; code: string | null; description: string | null }>(),
   lastSyncedAt: timestamp("last_synced_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -9660,11 +10417,6 @@ export const efiWebhookInbox = pgTable("efi_webhook_inbox", {
   workIdx: index("efi_inbox_work_idx").on(table.environment, table.status, table.availableAt),
 }));
 export type EfiWebhookInbox = InferSelectModel<typeof efiWebhookInbox>;
-
-// ---------------------------------------------------------------------------
-// TikTok (Content Posting API). Tokens só cifrados (AES-256-GCM,
-// TIKTOK_TOKEN_ENCRYPTION_KEY) — nenhuma coluna guarda token em texto puro.
-// ---------------------------------------------------------------------------
 
 export const tiktokOauthAttempt = pgTable(
   "tiktok_oauth_attempts",
@@ -9743,3 +10495,113 @@ export const tiktokPublication = pgTable(
 );
 
 export type TikTokPublicationRow = InferSelectModel<typeof tiktokPublication>;
+
+
+const cwCrmSchema = pgSchema("crm");
+export const cardapioWebOauthAttempt = cwCrmSchema.table("cardapio_web_oauth_attempts", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  companyId: uuid("company_id").notNull().references(() => company.id, { onDelete: "cascade" }),
+  environment: text("environment").notNull(),
+  verifierEncrypted: text("verifier_encrypted").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  expiryIdx: index("cw_oauth_expiry_idx").on(t.expiresAt),
+  environmentCheck: check("cardapio_web_oauth_attempts_environment_check", sql`${t.environment} IN ('sandbox', 'production')`),
+}));
+export const cardapioWebConnection = cwCrmSchema.table("cardapio_web_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: uuid("company_id").notNull().references(() => company.id, { onDelete: "cascade" }),
+  connectedBy: uuid("connected_by").notNull().references(() => user.id),
+  environment: text("environment").notNull(),
+  merchantId: bigint("merchant_id", { mode: "number" }).notNull(),
+  merchantName: text("merchant_name").notNull(),
+  tokensEncrypted: text("tokens_encrypted").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("active"),
+  historyStart: timestamp("history_start", { withTimezone: true }),
+  historyEnd: timestamp("history_end", { withTimezone: true }),
+  historyUntil: timestamp("history_until", { withTimezone: true }),
+  historyPage: integer("history_page").notNull().default(1),
+  historyDone: boolean("history_done").notNull().default(false),
+  pollCursor: timestamp("poll_cursor", { withTimezone: true }),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }).notNull().defaultNow(),
+  nextHistoryAt: timestamp("next_history_at", { withTimezone: true }).notNull().defaultNow(),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  failures: integer("failures").notNull().default(0),
+  authRetry: boolean("auth_retry").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  merchantUnique: unique("cardapio_web_connections_environment_merchant_id_key").on(t.environment, t.merchantId),
+  syncIdx: index("cw_connection_sync_idx").on(t.environment,t.nextRunAt).where(sql`${t.status} IN ('active','disconnecting')`),
+  statusCheck: check("cardapio_web_connections_status_check", sql`${t.status} IN ('active','reauthorization_required','disconnecting','disconnected')`),
+  companyIdx: index("cw_connection_company_idx").on(t.companyId),
+  environmentCheck: check("cardapio_web_connections_environment_check", sql`${t.environment} IN ('sandbox', 'production')`),
+  merchantCheck: check("cardapio_web_connections_merchant_id_check", sql`${t.merchantId} > 0`),
+}));
+export const cardapioWebEvent = cwCrmSchema.table("cardapio_web_events", {
+  environment: text("environment").notNull(),
+  eventId: text("event_id").notNull(),
+  merchantId: bigint("merchant_id", { mode: "number" }).notNull(),
+  orderId: bigint("order_id", { mode: "number" }).notNull(),
+  eventType: text("event_type").notNull(),
+  orderStatus: text("order_status").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.environment, t.eventId] }),
+  pendingIdx: index("cw_events_pending_idx").on(t.environment,t.merchantId,t.receivedAt).where(sql`${t.processedAt} IS NULL`),
+  environmentCheck: check("cardapio_web_events_environment_check", sql`${t.environment} IN ('sandbox', 'production')`),
+  merchantCheck: check("cardapio_web_events_merchant_id_check", sql`${t.merchantId} > 0`),
+  orderCheck: check("cardapio_web_events_order_id_check", sql`${t.orderId} > 0`),
+  typeCheck: check("cardapio_web_events_event_type_check", sql`${t.eventType} IN ('ORDER_CREATED', 'ORDER_STATUS_UPDATED')`),
+}));
+
+export const cardapioWebJob = cwCrmSchema.table("cardapio_web_jobs", {
+  connectionId: uuid("connection_id").notNull().references(() => cardapioWebConnection.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  resourceId: bigint("resource_id", { mode: "number" }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  failed: boolean("failed").notNull().default(false),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => ({
+  pk: primaryKey({ columns: [t.connectionId,t.kind,t.resourceId] }),
+  kindCheck: check("cardapio_web_jobs_kind_check", sql`${t.kind} IN ('order','customer')`),
+  resourceCheck: check("cardapio_web_jobs_resource_id_check", sql`${t.resourceId} > 0`),
+}));
+export const cardapioWebCustomer = cwCrmSchema.table("cardapio_web_customers", {
+  connectionId: uuid("connection_id").notNull().references(() => cardapioWebConnection.id, { onDelete: "cascade" }),
+  externalId: bigint("external_id", { mode: "number" }).notNull(),
+  name: text("name").notNull(),
+  phone: text("phone"),
+  ddi: text("ddi"),
+  email: text("email"),
+  birthDate: text("birth_date"),
+  notificationsEnabled: boolean("notifications_enabled").notNull().default(false),
+  enrichedAt: timestamp("enriched_at", { withTimezone: true }),
+}, t => ({ pk: primaryKey({ columns: [t.connectionId,t.externalId] }) }));
+export const cardapioWebOrder = cwCrmSchema.table("cardapio_web_orders", {
+  connectionId: uuid("connection_id").notNull().references(() => cardapioWebConnection.id, { onDelete: "cascade" }),
+  externalId: bigint("external_id", { mode: "number" }).notNull(),
+  customerId: bigint("customer_id", { mode: "number" }),
+  status: text("status").notNull(),
+  salesChannel: text("sales_channel").notNull(),
+  orderType: text("order_type").notNull(),
+  total: numeric("total", { precision: 18, scale: 2 }).notNull(),
+  items: jsonb("items").notNull(),
+  discounts: jsonb("discounts").notNull(),
+  payments: jsonb("payments").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => ({
+  pk: primaryKey({ columns: [t.connectionId,t.externalId] }),
+  customerIdx: index("cw_orders_customer_idx").on(t.connectionId,t.customerId,t.createdAt),
+  totalCheck: check("cardapio_web_orders_total_check", sql`${t.total} >= 0`),
+}));

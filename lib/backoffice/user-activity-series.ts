@@ -13,6 +13,7 @@ export const DEFAULT_USER_ACTIVITY_SERIES_VISIBILITY: UserActivitySeriesVisibili
     newUsers: true,
     users: true,
     activeUsers: true,
+    churn: true,
   };
 
 export function parseUserActivitySeriesVisibility(

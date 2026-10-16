@@ -8,6 +8,7 @@ import {
   Briefcase,
   ChevronRight,
   ChevronUp,
+  Gauge,
   Handshake,
   ImageIcon,
   KanbanSquare,
@@ -17,6 +18,7 @@ import {
   LogOut,
   Mail,
   Package,
+  Plug,
   Radar,
   Settings2,
   Shield,
@@ -53,11 +55,13 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   hasBackofficePermission,
+  isMarketingConsultantRole,
   type BackofficeActor,
   type BackofficePermission,
   type BackofficeRole,
 } from "@/lib/auth/rbac-core";
 import { canAccessFinance } from "@/lib/auth/finance-access";
+import { MCP_PAGE_PERMISSION } from "@/lib/mcp/connections";
 import { cn } from "@/lib/utils";
 
 type User = {
@@ -113,7 +117,7 @@ function WhatsappNavIcon({ className }: { className?: string }) {
  * 3. "Mensagens" — histórico de envios.
  *
  * Telas que são passos de um mesmo assunto viram um grupo expansível em vez
- * de um item cada (Criativos, Conteúdo). Regras e Equipe ficam no
+ * de um item cada (Criativos, Conteúdo). Conectar IA, Regras e Equipe ficam no
  * rodapé porque são configuração, não trabalho recorrente.
  *
  * `/masterclass` saiu daqui: a rota só redireciona para `/products`.
@@ -129,6 +133,14 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "dashboard:view",
       },
       {
+        // Área do gestor de tráfego: Fila, Mesa e Jornada sobre a mesma carteira.
+        kind: "leaf",
+        href: "/trafego",
+        label: "Tráfego",
+        icon: Gauge,
+        permission: "marketing:read",
+      },
+      {
         kind: "leaf",
         href: "/portfolio",
         label: "Carteira",
@@ -141,6 +153,13 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Usuários",
         icon: Users,
         permission: "users:read",
+      },
+      {
+        kind: "leaf",
+        href: "/ambassadors",
+        label: "Embaixadores",
+        icon: Handshake,
+        permission: "ambassadors:manage",
       },
       {
         kind: "leaf",
@@ -270,6 +289,13 @@ const NAV_SECTIONS: NavSection[] = [
 ];
 
 const SETTINGS_ENTRIES: NavLeaf[] = [
+  {
+    kind: "leaf",
+    href: "/ai",
+    label: "Conectar IA",
+    icon: Plug,
+    permission: MCP_PAGE_PERMISSION,
+  },
   {
     kind: "leaf",
     href: "/business-rules",
@@ -593,8 +619,8 @@ export function AppSidebar({
               aria-label="AutomatizeJá Backoffice"
               className="flex items-center gap-1.5 overflow-hidden rounded-md p-2 transition-colors hover:bg-muted group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:p-1"
               href={
-                actor.role === "marketing_consultant"
-                  ? "/portfolio"
+                isMarketingConsultantRole(actor.role)
+                  ? "/trafego"
                   : actor.role === "finance_viewer"
                     ? "/finance"
                     : "/"

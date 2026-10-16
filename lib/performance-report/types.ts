@@ -108,7 +108,12 @@ export type DiagnosticFacts = {
 };
 
 export type ReportAccountScope = {
-  mode: "explicit" | "automatize_managed" | "name_match" | "needs_choice";
+  mode:
+    | "explicit"
+    | "client_enabled"
+    | "automatize_managed"
+    | "name_match"
+    | "needs_choice";
   summary: string;
   selected: Array<{ accountId: string; name: string | null }>;
   skipped: Array<{ accountId: string; name: string | null }>;

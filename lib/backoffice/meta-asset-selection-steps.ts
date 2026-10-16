@@ -1,3 +1,4 @@
+import { parseAdvertisingIdentityId } from "@/lib/meta-business/advertising-identity-key";
 import {
   hasPrimariesStep,
   validateSelection,
@@ -109,10 +110,10 @@ export function toSelectionSubmitBody(
       id,
       isPrimary: filled.adAccounts.primaryIds.includes(id),
     })),
-    identities: filled.identities.chosenIds.map((pageId) => ({
-      pageId,
-      isPrimary: filled.identities.primaryIds.includes(pageId),
-    })),
+    identities: filled.identities.chosenIds.map(key => {
+      const pair = parseAdvertisingIdentityId(key);
+      return { pageId: pair?.pageId ?? key, ...(pair ? {identityId:key,instagramBusinessAccountId:pair.instagramBusinessAccountId} : {}), isPrimary: filled.identities.primaryIds.includes(key) };
+    }),
   };
 }
 

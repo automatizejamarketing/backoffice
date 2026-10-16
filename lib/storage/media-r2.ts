@@ -5,14 +5,16 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { stripInvisibleFormatChars } from "@/lib/media-library/policy";
 
 /**
  * Armazenamento de mídia (imagens/vídeos de posts, criativos, uploads de
@@ -92,10 +94,28 @@ function getConfig(): MediaR2Config {
   } as MediaR2Config;
 }
 
+/**
+ * Endpoint do S3 da Cloudflare. `MEDIA_R2_ENDPOINT` existe só para verificação
+ * local (S3 compatível, ex. LocalStack) e liga path-style; ausente = R2 real.
+ */
+export function resolveMediaR2ClientOptions(
+  accountId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { endpoint: string; forcePathStyle: boolean } {
+  const override = env.MEDIA_R2_ENDPOINT?.trim();
+  if (override) return { endpoint: override, forcePathStyle: true };
+  return {
+    endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+    forcePathStyle: false,
+  };
+}
+
 function getClient(config: MediaR2Config) {
+  const { endpoint, forcePathStyle } = resolveMediaR2ClientOptions(config.accountId);
   client ??= new S3Client({
     region: "auto",
-    endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
+    endpoint,
+    forcePathStyle,
     credentials: {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
@@ -494,4 +514,218 @@ export async function createMediaUploadUrl(input: {
     { expiresIn: 10 * 60 },
   );
   return { uploadUrl, pathname: finalPathname, url: getMediaPublicUrl(objectKey) };
+}
+
+function toMediaKey(objectKey: string): string {
+  return objectKey.startsWith(MEDIA_KEY_PREFIX) ? objectKey : `${MEDIA_KEY_PREFIX}${objectKey}`;
+}
+
+function encodeRfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/** `Content-Disposition` de download com nome original (RFC 6266/5987). */
+export function buildAttachmentContentDisposition(filename: string): string {
+  // Defesa em profundidade: controles bidi não entram nem no fallback nem no filename*.
+  const original = stripInvisibleFormatChars(filename).trim() || "midia";
+  const fallback =
+    original
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\x20-\x7e]/g, "_")
+      .replace(/["\\]/g, "_")
+      .trim() || "midia";
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(original)}`;
+}
+
+/**
+ * URL assinada (GET) que baixa o objeto com o nome original — o navegador não
+ * navega, só baixa. Sem R2 no dev local, devolve a URL pública.
+ */
+export async function createMediaDownloadUrl(input: {
+  objectKey: string;
+  filename: string;
+  contentType: string | null;
+  expiresInSeconds?: number;
+}): Promise<string> {
+  const key = toMediaKey(input.objectKey);
+  if (key.includes("..")) throw new Error(`invalid_media_key: ${input.objectKey}`);
+  if (isMediaR2Configured()) {
+    const config = getConfig();
+    return getSignedUrl(
+      getClient(config),
+      new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+        ResponseContentDisposition: buildAttachmentContentDisposition(input.filename),
+        ...(input.contentType ? { ResponseContentType: input.contentType } : {}),
+      }),
+      { expiresIn: input.expiresInSeconds ?? 300 },
+    );
+  }
+  if (isMediaDevLocalStorageEnabled()) return getMediaPublicUrl(key);
+  throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
+}
+
+/**
+ * Como `delMediaObjectKeys`, mas devolve o que falhou chave a chave:
+ * `DeleteObjects` reporta erros por chave em `Errors` SEM lançar — ignorar isso
+ * marcava como apagado o que continuava no bucket. Chave ausente não é erro.
+ * Chave inválida (`..` ou só o prefixo) não é apagada e volta em `failed`.
+ */
+export async function deleteMediaObjectKeysReportingErrors(
+  objectKeys: string[],
+): Promise<{ deletedKeys: string[]; failed: { key: string; message: string }[] }> {
+  const { keys, invalid } = splitMediaDeleteKeys(objectKeys);
+  if (keys.length === 0) return { deletedKeys: [], failed: invalid };
+
+  if (isMediaR2Configured()) {
+    const config = getConfig();
+    const result = await deleteKeysInBatches(keys, (batch) =>
+      getClient(config).send(
+        new DeleteObjectsCommand({
+          Bucket: config.bucket,
+          Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+        }),
+      ),
+    );
+    return { deletedKeys: result.deletedKeys, failed: [...invalid, ...result.failed] };
+  }
+
+  if (isMediaDevLocalStorageEnabled()) {
+    for (const key of keys) {
+      for (const root of getDevLocalStorageRoots()) {
+        const filePath = getLocalMediaPath(root, key);
+        await rm(filePath, { force: true });
+        await rm(`${filePath}.meta.json`, { force: true });
+      }
+    }
+    return { deletedKeys: keys, failed: invalid };
+  }
+
+  throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
+}
+
+/**
+ * Deduplica as chaves de exclusão e separa as inválidas (`..` ou só o prefixo),
+ * que vão para `invalid` com `invalid_media_key` em vez de sumirem das listas.
+ */
+export function splitMediaDeleteKeys(objectKeys: string[]): {
+  keys: string[];
+  invalid: { key: string; message: string }[];
+} {
+  const keys = new Set<string>();
+  const invalid = new Set<string>();
+  for (const objectKey of objectKeys) {
+    const key = toMediaKey(objectKey);
+    if (key === MEDIA_KEY_PREFIX || key.includes("..")) invalid.add(key);
+    else keys.add(key);
+  }
+  return {
+    keys: [...keys],
+    invalid: [...invalid].map((key) => ({ key, message: "invalid_media_key" })),
+  };
+}
+
+/**
+ * Núcleo de `deleteMediaObjectKeysReportingErrors` sem S3, em lotes de 1000.
+ * Erro com Key vai para `failed`; erro sem Key não pode ser atribuído a uma
+ * chave, então o lote inteiro falha; exceção do lote também falha o lote.
+ */
+export async function deleteKeysInBatches(
+  keys: string[],
+  sendBatch: (batch: string[]) => Promise<{
+    Errors?: { Key?: string; Code?: string; Message?: string }[];
+  }>,
+): Promise<{ deletedKeys: string[]; failed: { key: string; message: string }[] }> {
+  const failedByKey = new Map<string, string>();
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000);
+    try {
+      const result = await sendBatch(batch);
+      for (const error of result.Errors ?? []) {
+        const message = error.Message ?? error.Code ?? "delete_failed";
+        if (error.Key) {
+          failedByKey.set(error.Key, message);
+        } else {
+          for (const key of batch) failedByKey.set(key, message);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "delete_failed";
+      for (const key of batch) failedByKey.set(key, message);
+    }
+  }
+  return {
+    deletedKeys: keys.filter((key) => !failedByKey.has(key)),
+    failed: [...failedByKey].map(([key, message]) => ({ key, message })),
+  };
+}
+
+/**
+ * Junta as chaves de todas as páginas do ListObjectsV2, seguindo
+ * `NextContinuationToken` enquanto `IsTruncated`.
+ */
+export async function collectListedKeys(
+  fetchPage: (token: string | undefined) => Promise<{
+    Contents?: { Key?: string }[];
+    IsTruncated?: boolean;
+    NextContinuationToken?: string;
+  }>,
+): Promise<string[]> {
+  const keys: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await fetchPage(continuationToken);
+    for (const object of page.Contents ?? []) {
+      if (object.Key) keys.push(object.Key);
+    }
+    continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return keys;
+}
+
+/**
+ * Prefixo de listagem com `media/` e `/` final. Sem a barra, `media/library/u1`
+ * casaria `media/library/u10/...` no R2 e geraria `...u1foo.png` no dev local.
+ */
+export function normalizeListPrefix(prefix: string): string {
+  const normalized = toMediaKey(prefix);
+  if (normalized.includes("..") || normalized === MEDIA_KEY_PREFIX) {
+    throw new Error(`invalid_media_prefix: ${prefix}`);
+  }
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+/** Todas as chaves sob um prefixo (`media/...`), paginando o ListObjectsV2. */
+export async function listMediaObjectKeys(prefix: string): Promise<string[]> {
+  const normalizedPrefix = normalizeListPrefix(prefix);
+  if (isMediaR2Configured()) {
+    const config = getConfig();
+    return collectListedKeys((continuationToken) =>
+      getClient(config).send(
+        new ListObjectsV2Command({
+          Bucket: config.bucket,
+          Prefix: normalizedPrefix,
+          ContinuationToken: continuationToken,
+        }),
+      ),
+    );
+  }
+  if (isMediaDevLocalStorageEnabled()) {
+    const keys = new Set<string>();
+    for (const root of getDevLocalStorageRoots()) {
+      const directory = getLocalMediaPath(root, normalizedPrefix);
+      const entries = await readdir(directory, { recursive: true }).catch(() => []);
+      for (const entry of entries) {
+        const relative = String(entry).replace(/\\/g, "/");
+        if (!relative.endsWith(".meta.json")) keys.add(`${normalizedPrefix}${relative}`);
+      }
+    }
+    return [...keys];
+  }
+  throw new Error(MEDIA_R2_NOT_CONFIGURED_MESSAGE);
 }

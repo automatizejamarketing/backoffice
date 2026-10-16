@@ -14,6 +14,11 @@ import {
   aggregateAccountPairs,
   fetchAccountWindowPair,
 } from "@/lib/performance-drop/fetch-account-insights";
+import {
+  evaluateDropsPerAccount,
+  pickDropAccounts,
+} from "@/lib/performance-drop/per-account";
+import { listEnabledAdAccountIds } from "@/lib/backoffice/meta-enabled-assets";
 
 export type PerformanceDropBatchItem = {
   userId: string;
@@ -160,7 +165,10 @@ export async function runPerformanceDropBatch(
           clientBusinessId: connection.clientBusinessId,
           connectionName: connection.name,
         });
-        const adAccounts = userWithAdAccounts.adaccounts?.data ?? [];
+        const adAccounts = pickDropAccounts({
+          visible: userWithAdAccounts.adaccounts?.data ?? [],
+          enabledIds: await listEnabledAdAccountIds(target.id),
+        });
 
         if (adAccounts.length === 0) {
           const evaluation = evaluatePerformanceDrop(
@@ -172,6 +180,7 @@ export async function runPerformanceDropBatch(
             userId: target.id,
             pairs: [],
             evaluation,
+            accountDrops: [],
           });
           results.push({
             userId: target.id,
@@ -200,11 +209,14 @@ export async function runPerformanceDropBatch(
 
         const { current, previous } = aggregateAccountPairs(pairs);
         const evaluation = evaluatePerformanceDrop(previous, current);
+        const accountDrops = evaluateDropsPerAccount(pairs);
+        const worst = accountDrops[0]?.evaluation ?? null;
         const persisted = await persistPerformanceDropForUser({
           runId,
           userId: target.id,
           pairs,
           evaluation,
+          accountDrops,
         });
         if (persisted.insightCreated) insightsCreated += 1;
 
@@ -212,10 +224,10 @@ export async function runPerformanceDropBatch(
           userId: target.id,
           email: target.email,
           checkedAccounts: pairs.length,
-          hasDrop: evaluation.hasDrop,
-          severity: evaluation.severity,
-          metric: evaluation.metric,
-          dropPercent: evaluation.dropPercent,
+          hasDrop: worst !== null,
+          severity: worst?.severity ?? null,
+          metric: worst?.metric ?? null,
+          dropPercent: worst?.dropPercent ?? null,
           sampleInsufficient: evaluation.sampleInsufficient,
           errorMessage: null,
         });

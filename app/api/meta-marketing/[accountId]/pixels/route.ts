@@ -1,10 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createPixelLog } from "@/lib/db/admin-queries";
+import {
+  authorizeAiCampaignWrite,
+  tokenInvalidJson,
+} from "@/lib/meta-business/ai-campaign-auth";
+import { handleCreatePixel } from "@/lib/meta-business/create-pixel-handler";
+import { createAdAccountPixelChecked } from "@/lib/meta-business/marketing/creation/create-pixel";
+import {
+  enterMetaMutationLog,
+  updateMetaMutationContext,
+} from "@/lib/observability/meta-log-context";
+import { logMetaMutationError } from "@/lib/observability/meta-logger";
 import { requireMarketingUserAccessResponse } from "@/lib/auth/rbac";
 import { getUserAccessTokenByUserId } from "@/lib/meta-business/get-user-access-token";
 import {
-  getAdAccountPixels,
-  type FacebookAdsPixelsResponse,
+  getAdAccountPixelsWithName,
+  type AdAccountPixelsWithName,
 } from "@/lib/meta-business/get-ad-account-pixels";
+import {
+  errorToGraphErrorReturn,
+  graphErrorToClientError,
+} from "@/lib/meta-business/error";
 
 export type GetPixelsErrorResponse = {
   error: string;
@@ -15,7 +31,7 @@ export type GetPixelsErrorResponse = {
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ accountId: string }> },
-): Promise<NextResponse<FacebookAdsPixelsResponse | GetPixelsErrorResponse>> {
+): Promise<NextResponse<AdAccountPixelsWithName | GetPixelsErrorResponse>> {
   try {
     const { accountId } = await params;
     const { searchParams } = new URL(request.url);
@@ -65,23 +81,79 @@ export async function GET(
       ? accountId
       : `act_${accountId}`;
 
-    const pixelsResponse = await getAdAccountPixels(
+    const pixelsResponse = await getAdAccountPixelsWithName(
       formattedAccountId,
       tokenResult.accessToken,
     );
 
     return NextResponse.json(pixelsResponse, { status: 200 });
   } catch (error) {
-    console.error("Error fetching ads pixels:", error);
+    // Status from Meta's own error, never a blanket 500: the AI flow tells "could not read"
+    // apart from "no pixel", and a dead token must read as a reconnect, not as an empty list.
+    const errorReturn = errorToGraphErrorReturn(error);
+    const clientError = graphErrorToClientError(errorReturn);
+    console.error("Error fetching ads pixels:", errorReturn);
 
     return NextResponse.json(
       {
+        error: clientError.error,
+        message: clientError.message,
+        solution: clientError.solution,
+      },
+      { status: errorReturn.statusCode },
+    );
+  }
+}
+
+/**
+ * POST /api/meta-marketing/[accountId]/pixels?userId=<client>
+ *
+ * Creates a Meta pixel on the client's ad account (AI campaign flow, sales without a pixel).
+ * Body: `{ name: string }`. See `handleCreatePixel` for the status contract.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ accountId: string }> },
+): Promise<Response> {
+  enterMetaMutationLog({
+    app: "backoffice",
+    route: "POST /api/meta-marketing/{accountId}/pixels",
+    operationHint: "create",
+    entityHint: "pixel",
+  });
+  try {
+    const { accountId } = await params;
+    return await handleCreatePixel(request, accountId, {
+      authorize: (req, id) => authorizeAiCampaignWrite(req, id, "pixel"),
+      onAuthorized: (auth) =>
+        updateMetaMutationContext({
+          actor: {
+            kind: "backoffice",
+            id: auth.actor.id,
+            email: auth.actor.email,
+            role: auth.actor.role,
+            targetUserId: auth.userId,
+          },
+          parentIds: { adAccountId: auth.accountId },
+        }),
+      createPixel: createAdAccountPixelChecked,
+      writeAudit: createPixelLog,
+      onAuditFailure: (error) => {
+        logMetaMutationError(error);
+        console.error("[POST pixels] audit log failed:", error);
+      },
+      tokenInvalidResponse: tokenInvalidJson,
+    });
+  } catch (error) {
+    console.error("[POST pixels] Error:", error);
+    return NextResponse.json(
+      {
+        success: false,
         error: "Internal server error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "An unexpected error occurred",
-        solution: "Please try again later",
+        code: "UNEXPECTED",
+        message: "Não foi possível criar o pixel agora. Tente de novo em instantes.",
+        solution:
+          "Tente de novo em instantes; se persistir, verifique a conexão do cliente com o Facebook.",
       },
       { status: 500 },
     );

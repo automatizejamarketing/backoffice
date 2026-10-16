@@ -31,10 +31,12 @@ import {
   type InstagramMediaItem,
 } from "./instagram-post-picker";
 import { useMarketingInvalidate } from "../hooks/marketing-queries";
+import { formatPixelOption } from "../utils/formatters";
 import { useCompanyLocations } from "../hooks/use-company-locations";
 import { InterestTargetingSection } from "./interest-targeting-section";
 import { LocationTargetingSection } from "./location-targeting-section";
-import { PageSelector } from "./page-selector";
+import { AdvertisingIdentitySelector } from "./advertising-identity-selector";
+import { selectAdvertisingIdentity, type AdvertisingIdentitySelection } from "@/lib/meta-business/advertising-identity-selection";
 import { usePages } from "./use-pages";
 import {
   AdSetDeliveryScheduleEditor,
@@ -60,6 +62,7 @@ import {
   type BudgetType,
 } from "@/lib/meta-business/budget-schedule";
 import { validateCampaignSchedulePayload } from "@/lib/meta-business/campaign-schedule";
+import { pacingIncludesDayParting } from "@/lib/meta-business/schedule-shape";
 import {
   ALL_PLACEMENTS,
   DEFAULT_PLACEMENTS_BY_CAMPAIGN_TYPE,
@@ -93,6 +96,8 @@ type AdSetCreateDialogProps = {
   usesCampaignBudget?: boolean;
   campaignDailyBudget?: string;
   campaignLifetimeBudget?: string;
+  campaignPacingType?: string[];
+  scheduleReleased?: boolean;
   accountId: string;
   userId: string;
   isOpen: boolean;
@@ -121,6 +126,8 @@ export function AdSetCreateDialog({
   usesCampaignBudget = false,
   campaignDailyBudget,
   campaignLifetimeBudget,
+  campaignPacingType,
+  scheduleReleased,
   accountId,
   userId,
   isOpen,
@@ -130,7 +137,7 @@ export function AdSetCreateDialog({
   const invalidateMarketing = useMarketingInvalidate(accountId, userId);
   const { data: businessUnits = [] } = useCompanyLocations(userId);
   const [adsetName, setAdsetName] = useState("");
-  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [identity, setIdentity] = useState<AdvertisingIdentitySelection | null>(null);
   const [budgetType, setBudgetType] = useState<BudgetType>("daily");
   const [budgetValue, setBudgetValue] = useState("15.00");
   const [startDateTime, setStartDateTime] = useState("");
@@ -172,10 +179,8 @@ export function AdSetCreateDialog({
     userId,
     isOpen,
   );
-  const selectedPage =
-    pages.find((page) => page.pageId === selectedPageId) ?? null;
-  const selectedInstagramAccountId =
-    selectedPage?.instagramBusinessAccountId ?? undefined;
+  const selectedPageId = identity?.pageId ?? null;
+  const selectedInstagramAccountId = identity?.instagramUserId;
 
   const isSalesCampaign = SALES_OBJECTIVES.includes(campaignObjective ?? "");
   const isLeadsCampaign = LEADS_OBJECTIVES.includes(campaignObjective ?? "");
@@ -187,22 +192,22 @@ export function AdSetCreateDialog({
     ? INSTAGRAM_PLACEMENTS
     : ALL_PLACEMENTS;
 
+  const campaignLifetime =
+    getBudgetType({
+      dailyBudget: campaignDailyBudget,
+      lifetimeBudget: campaignLifetimeBudget,
+    }) === "lifetime";
+  // Etapa 2: em CBO vitalícia liberada, o conjunto novo segue a campanha — sem programação
+  // na campanha, só o dia todo (a Meta não aceita ligar a programação depois de publicar).
+  const scheduleNeedsProgrammedCampaign =
+    usesCampaignBudget &&
+    campaignLifetime &&
+    scheduleReleased === true &&
+    !pacingIncludesDayParting(campaignPacingType);
   const canEditDeliverySchedule = useMemo(() => {
-    if (usesCampaignBudget) {
-      return (
-        getBudgetType({
-          dailyBudget: campaignDailyBudget,
-          lifetimeBudget: campaignLifetimeBudget,
-        }) === "lifetime"
-      );
-    }
+    if (usesCampaignBudget) return campaignLifetime && !scheduleNeedsProgrammedCampaign;
     return budgetType === "lifetime";
-  }, [
-    usesCampaignBudget,
-    campaignDailyBudget,
-    campaignLifetimeBudget,
-    budgetType,
-  ]);
+  }, [usesCampaignBudget, campaignLifetime, scheduleNeedsProgrammedCampaign, budgetType]);
 
   const hasPosts = selectedPosts.length > 0;
 
@@ -247,7 +252,7 @@ export function AdSetCreateDialog({
 
   const resetForm = useCallback(() => {
     setAdsetName("");
-    setSelectedPageId(null);
+    setIdentity(null);
     setBudgetType("daily");
     setBudgetValue("15.00");
     setStartDateTime("");
@@ -277,11 +282,12 @@ export function AdSetCreateDialog({
   }, [isOpen, resetForm, fetchAudiences, fetchPixels]);
 
   useEffect(() => {
-    if (!isOpen || isLoadingPages || pages.length === 0 || selectedPageId) {
-      return;
-    }
-    setSelectedPageId(pages[0].pageId);
-  }, [isOpen, isLoadingPages, pages, selectedPageId]);
+    if (!isOpen || isLoadingPages) return;
+    setIdentity(current => {
+      const next = selectAdvertisingIdentity(pages, current, true);
+      return next?.pageId === current?.pageId && next?.instagramUserId === current?.instagramUserId ? current : next;
+    });
+  }, [isOpen, isLoadingPages, pages]);
 
   useEffect(() => {
     setSelectedPosts([]);
@@ -425,6 +431,7 @@ export function AdSetCreateDialog({
       };
 
       if (selectedPageId) body.pageId = selectedPageId;
+      if (selectedInstagramAccountId) body.instagramUserId = selectedInstagramAccountId;
       if (selectedPixelId) body.pixelId = selectedPixelId;
 
       if (!usesCampaignBudget) {
@@ -516,16 +523,8 @@ export function AdSetCreateDialog({
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Página do Facebook</Label>
-              <PageSelector
-                pages={pages}
-                isLoading={isLoadingPages}
-                selectedPageId={selectedPageId}
-                onSelectPage={setSelectedPageId}
-                disabled={isSubmitting}
-              />
-            </div>
+            <AdvertisingIdentitySelector pages={pages} value={identity} onChange={setIdentity}
+              isLoading={isLoadingPages} disabled={isSubmitting} />
 
             {isSalesCampaign && (
               <div className="space-y-2">
@@ -543,7 +542,7 @@ export function AdSetCreateDialog({
                   <SelectContent>
                     {pixels.map((pixel) => (
                       <SelectItem key={pixel.id} value={pixel.id}>
-                        {pixel.name ?? pixel.id}
+                        {formatPixelOption(pixel)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -625,14 +624,20 @@ export function AdSetCreateDialog({
               )}
             </div>
 
-            {canEditDeliverySchedule && (
+            {canEditDeliverySchedule ? (
               <AdSetDeliveryScheduleEditor
                 value={deliverySchedule}
                 onChange={setDeliverySchedule}
                 disabled={isSubmitting}
                 businessUnits={businessUnits}
               />
-            )}
+            ) : scheduleNeedsProgrammedCampaign ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {
+                  "Esta campanha foi criada sem programação de horário, então o conjunto novo veicula o dia todo. Para ter horário, duplique a campanha com novo horário."
+                }
+              </p>
+            ) : null}
 
             <div className="space-y-2">
               <Label>Posicionamentos</Label>

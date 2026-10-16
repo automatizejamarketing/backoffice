@@ -1,3 +1,5 @@
+import { resolveAdvertisingIdentity } from "@/lib/meta-business/get-instagram-connected-page";
+import { requireMetaAccount } from "@/lib/backoffice/require-meta-account";
 import { enterMetaMutationLog, updateMetaMutationContext } from "@/lib/observability/meta-log-context";
 import { logMetaMutationError } from "@/lib/observability/meta-logger";
 import { attachCorrelationId } from "@/lib/observability/with-meta-logging";
@@ -26,6 +28,7 @@ import { checkAudienceSelectionAvailability } from "@/lib/meta-business/marketin
 import type { PlacementKey } from "@/lib/meta-business/placements";
 import { recordStatusChangeAudit } from "@/lib/backoffice/meta-status-change-audit";
 import { validateChangeNote } from "@/lib/meta-tracking/internal-change-event";
+import { withPlacementExpansion } from "@/lib/meta-business/creative-features";
 
 type GraphApiAdSetsResponse = {
   data: GraphApiAdSet[];
@@ -163,6 +166,8 @@ export async function GET(
       );
     }
 
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const limitParam = searchParams.get("limit");
@@ -268,6 +273,7 @@ export type PostAdSetRequestBody = {
   /** Used by backoffice-only ad/creative layer (CTA mapping). */
   campaignObjective?: string;
   pageId?: string;
+  instagramUserId?: string;
   pixelId?: string;
   adsetName: string;
   /** @deprecated Prefer budgetType + budgetValue */
@@ -628,6 +634,8 @@ export async function POST(
       );
     }
 
+    const accountDenial = await requireMetaAccount(tokenResult.accessToken, tokenResult.connection, accountId);
+    if (accountDenial) return accountDenial;
     const { accessToken } = tokenResult;
 
     const selectionCheck = await checkAudienceSelectionAvailability({
@@ -686,12 +694,21 @@ export async function POST(
     const geoLocationsPayload =
       targeting.geo_locations ?? geoLocations ?? undefined;
 
+    const resolvedIdentity = await resolveAdvertisingIdentity(accessToken, {adAccountId:accountId, pageId:requestedPageId, instagramBusinessAccountId:body.instagramUserId, tokenKind:tokenResult.connection.tokenKind, bisuAppScopedId:tokenResult.connection.bisuAppScopedId});
+    const pageWithIg = resolvedIdentity ? {...resolvedIdentity.page,instagram_business_account:{id:resolvedIdentity.instagramBusinessAccountId,username:resolvedIdentity.instagramUsername}} : undefined;
+    if (creatives.length > 0 && !resolvedIdentity) {
+      return NextResponse.json({error:"invalid_advertising_identity",message:"Escolha uma Página e um Instagram autorizados para esta conta de anúncios."},{status:400});
+    }
+
     const createResult = await createAdSetInExistingCampaign({
       accountId,
       accessToken,
       campaignId,
       adsetName: adsetName.trim(),
       pageId: requestedPageId,
+      instagramBusinessAccountId: body.instagramUserId,
+      tokenKind: tokenResult.connection.tokenKind,
+      bisuAppScopedId: tokenResult.connection.bisuAppScopedId,
       pixelId,
       budgetType,
       budgetValue,
@@ -729,22 +746,6 @@ export async function POST(
       ? accountId
       : `act_${accountId}`;
 
-    const pagesResponse = await metaApiCall<GraphApiPagesResponse>({
-      domain: "FACEBOOK",
-      method: "GET",
-      path: "me/accounts",
-      params: "fields=id,name,instagram_business_account{id,username}",
-      accessToken,
-    });
-
-    const connectedPage = requestedPageId?.trim()
-      ? pagesResponse.data.find((p) => p.id === requestedPageId.trim())
-      : (pagesResponse.data.find((p) => p.instagram_business_account?.id) ??
-        pagesResponse.data[0]);
-
-    const pageWithIg = connectedPage?.instagram_business_account?.id
-      ? connectedPage
-      : undefined;
     const createdAds: Array<{ id: string; creativeId: string }> = [];
     const createdAdCreatives: Array<{ id: string }> = [];
     let leadFormId: string | undefined;
@@ -798,15 +799,24 @@ export async function POST(
             );
           }
 
-          const createdCreative =
-            await metaApiCall<CreateAdCreativeApiResponse>({
-              domain: "FACEBOOK",
-              method: "POST",
-              path: `${formattedAccountId}/adcreatives`,
-              params: "",
-              body: creativeParams,
-              accessToken,
-            });
+          // Criativo novo pede a expansão sem corte (regra de 30/09/2026);
+          // conta sem IA (3858023) refaz uma vez sem nenhum recurso.
+          const createdCreative = await withPlacementExpansion(
+            (degreesOfFreedomSpec) => {
+              const attempt = new URLSearchParams(creativeParams);
+              if (degreesOfFreedomSpec) {
+                attempt.set("degrees_of_freedom_spec", degreesOfFreedomSpec);
+              }
+              return metaApiCall<CreateAdCreativeApiResponse>({
+                domain: "FACEBOOK",
+                method: "POST",
+                path: `${formattedAccountId}/adcreatives`,
+                params: "",
+                body: attempt,
+                accessToken,
+              });
+            },
+          );
 
           createdAdCreatives.push({ id: createdCreative.id });
 

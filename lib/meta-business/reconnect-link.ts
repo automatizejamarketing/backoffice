@@ -1,5 +1,6 @@
 import {
-  buildPartnersSettingsUrl,
+  AUTOMATIZE_PEOPLE_EMAIL,
+  buildPeopleSettingsUrl,
   getAutomatizeBusinessIdFromEnv,
 } from "@/lib/meta-business/partner-access-status";
 
@@ -41,7 +42,7 @@ export function buildPartnerShareInfo(clientBusinessId: string | null): {
   const businessId = getAutomatizeBusinessIdFromEnv();
   return {
     businessId,
-    partnersUrl: buildPartnersSettingsUrl(clientBusinessId),
-    instructions: `Peça ao cliente para abrir Parceiros no Gerenciador de Negócios, colar o ID ${businessId} e conceder Página, Instagram e conta de anúncios. Não peça a senha do Facebook.`,
+    partnersUrl: buildPeopleSettingsUrl(clientBusinessId),
+    instructions: `Peça ao cliente para abrir Pessoas no Gerenciador de Negócios, colar o e-mail ${AUTOMATIZE_PEOPLE_EMAIL}, conceder acesso total e enviar o convite. Não peça a senha do Facebook.`,
   };
 }

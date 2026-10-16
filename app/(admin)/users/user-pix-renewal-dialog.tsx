@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PixAutomaticLink, PixPaymentMode } from "@/components/pix-automatic-link";
 import { Copy, Loader2 } from "lucide-react";
 import QRCode from "react-qr-code";
 import { toast } from "sonner";
@@ -74,6 +75,7 @@ export function UserPixRenewalDialog({
   const [planType, setPlanType] = useState<PlanType>(
     currentPlanType ?? "monthly_pro",
   );
+  const [mode, setMode] = useState<"automatic" | "single">("automatic");
   const [link, setLink] = useState<PixLinkView | null>(null);
   const [reused, setReused] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -81,6 +83,7 @@ export function UserPixRenewalDialog({
 
   useEffect(() => {
     if (!open) {
+      setMode("automatic");
       setLink(null);
       setReused(false);
       setErrorMessage(null);
@@ -145,12 +148,21 @@ export function UserPixRenewalDialog({
         <DialogHeader>
           <DialogTitle>Pix para renovação</DialogTitle>
           <DialogDescription>
-            Gere um Pix único para {userEmail}. O cliente paga escaneando o QR
-            ou colando o código no app do banco.
+            Escolha como {userEmail} vai renovar: Pix Automático ou pagamento pontual.
           </DialogDescription>
         </DialogHeader>
 
-        {disabledReason ? (
+        <PixPaymentMode value={mode} onChange={setMode} disabled={isGenerating} />
+
+        {mode === "automatic" ? (
+          <div className="space-y-3">
+            <Select value={planType} onValueChange={value => setPlanType(value as PlanType)}>
+              <SelectTrigger aria-label="Plano"><SelectValue /></SelectTrigger>
+              <SelectContent>{PLAN_TYPES.map(plan => <SelectItem key={plan} value={plan}>{PLAN_DEFINITIONS[plan].name}</SelectItem>)}</SelectContent>
+            </Select>
+            <PixAutomaticLink key={`${userId}:${planType}`} userId={userId} planType={planType} userPhone={userPhone} disabledReason={disabledReason} />
+          </div>
+        ) : disabledReason ? (
           <p className="text-sm text-muted-foreground">{disabledReason}</p>
         ) : errorMessage ? (
           <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -213,7 +225,7 @@ export function UserPixRenewalDialog({
           </div>
         )}
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
+        {mode === "single" && <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
           {link?.pixCopyPasteCode ? (
             <>
               {whatsappUrl ? (
@@ -259,7 +271,7 @@ export function UserPixRenewalDialog({
               </Button>
             </>
           )}
-        </DialogFooter>
+        </DialogFooter>}
       </DialogContent>
     </Dialog>
   );

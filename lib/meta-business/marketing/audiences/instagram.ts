@@ -30,24 +30,30 @@ export type InstagramPeriodEvidence = {
   source: string;
 };
 
-/** No default is safe here: the initial period is a per-profile/criterion Ads Manager value. */
+/** Instagram account audience period from Meta's official docs (2026-09-30): Help Center caps it at 365; the developer guide lists 730. 365 is valid under both. */
 export const INSTAGRAM_PERIOD_EVIDENCE: Record<InstagramAudienceCriterion, InstagramPeriodEvidence> =
   Object.fromEntries((Object.keys(INSTAGRAM_AUDIENCE_CRITERIA) as InstagramAudienceCriterion[]).map((criterion) => [criterion, {
     criterion,
-    initialDays: null,
-    editable: "unknown",
-    metaMinimumDays: null,
-    metaMaximumDays: null,
-    localValidationMaximumDays: 730,
+    initialDays: 365,
+    editable: "yes",
+    metaMinimumDays: 1,
+    metaMaximumDays: 365,
+    localValidationMaximumDays: 365,
     unit: "days",
-    historicalFill: "unknown",
-    observedAt: "2026-09-10",
-    context: "V02: a confirmação v25 pelo Gerenciador não está disponível em execução headless; a interface e a API não foram equiparadas por inferência.",
-    source: "Documentação oficial Meta v25 de públicos de engajamento; sem observação autenticada da interface do Gerenciador.",
+    historicalFill: "available",
+    observedAt: "2026-09-30",
+    context: "A Central de Ajuda da Meta limita o período do público da conta do Instagram a 365 dias; a documentação de desenvolvedor lista 730. Adotamos 365, válido nas duas fontes. O valor pré-preenchido pelo Gerenciador não é documentado: 365 é escolha de produto dentro do limite.",
+    source: "https://www.facebook.com/business/help/214981095688584 · https://developers.facebook.com/docs/marketing-api/audiences/guides/engagement-custom-audiences",
   } satisfies InstagramPeriodEvidence])) as Record<InstagramAudienceCriterion, InstagramPeriodEvidence>;
 
 export function instagramPeriodEvidenceStatus(criterion: InstagramAudienceCriterion, evidence = INSTAGRAM_PERIOD_EVIDENCE[criterion]): "ready" | "blocked" {
   return evidence.initialDays !== null && evidence.editable !== "unknown" && evidence.metaMinimumDays !== null && evidence.metaMaximumDays !== null && evidence.historicalFill !== "unknown" ? "ready" : "blocked";
+}
+
+/** True when `days` breaks the Meta limits in `evidence`; an unchanged existing period is accepted as-is. */
+export function instagramPeriodOutOfRange(evidence: Pick<InstagramPeriodEvidence, "metaMinimumDays" | "metaMaximumDays">, days: number, keepsCurrentPeriod = false): boolean {
+  if (keepsCurrentPeriod) return false;
+  return (evidence.metaMinimumDays !== null && days < evidence.metaMinimumDays) || (evidence.metaMaximumDays !== null && days > evidence.metaMaximumDays);
 }
 
 export function instagramPeriodEvidenceFor(profileId: string, criterion: InstagramAudienceCriterion): InstagramPeriodEvidence {

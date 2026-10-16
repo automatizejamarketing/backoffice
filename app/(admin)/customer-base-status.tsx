@@ -6,62 +6,64 @@ type CustomerBaseStatusPanelProps = {
   status: CustomerBaseStatus;
 };
 
-function ChurnProviderBreakdown({
-  card,
-  pix,
+type ProviderSegment = {
+  label: string;
+  count: number;
+  barClass: string;
+};
+
+function ProviderBreakdown({
   total,
-}: CustomerBaseStatus["churn"]) {
+  segments,
+}: {
+  total: number;
+  segments: ProviderSegment[];
+}) {
   if (total === 0) {
     return null;
   }
 
-  const other = Math.max(total - card - pix, 0);
-  const cardShare = Math.round((card / total) * 1000) / 10;
-  const pixShare = Math.round((pix / total) * 1000) / 10;
-  const otherShare = Math.round((other / total) * 1000) / 10;
+  const other = Math.max(
+    total - segments.reduce((sum, segment) => sum + segment.count, 0),
+    0,
+  );
+  const bars = [
+    ...segments,
+    { label: "Outros", count: other, barClass: "bg-muted-foreground/30" },
+  ];
+  const share = (count: number) => Math.round((count / total) * 1000) / 10;
 
   return (
     <div className="mt-3 space-y-2">
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
-        {card > 0 ? (
-          <div
-            className="h-full bg-chart-1"
-            style={{ width: `${cardShare}%` }}
-            title={`Cartão: ${cardShare}%`}
-          />
-        ) : null}
-        {pix > 0 ? (
-          <div
-            className="h-full bg-emerald-500/80"
-            style={{ width: `${pixShare}%` }}
-            title={`PIX: ${pixShare}%`}
-          />
-        ) : null}
-        {other > 0 ? (
-          <div
-            className="h-full bg-muted-foreground/30"
-            style={{ width: `${otherShare}%` }}
-            title={`Outros: ${otherShare}%`}
-          />
-        ) : null}
+        {bars.map((bar) =>
+          bar.count > 0 ? (
+            <div
+              key={bar.label}
+              className={`h-full ${bar.barClass}`}
+              style={{ width: `${share(bar.count)}%` }}
+              title={`${bar.label}: ${share(bar.count)}%`}
+            />
+          ) : null,
+        )}
       </div>
       <div className="flex items-center justify-between gap-3 text-[11px] tabular-nums text-muted-foreground">
-        <span>
-          Cartão{" "}
-          <span className="font-medium text-foreground">
-            {formatFinanceNumber(card)}
+        {segments.map((segment) => (
+          <span key={segment.label}>
+            {segment.label}{" "}
+            <span className="font-medium text-foreground">
+              {formatFinanceNumber(segment.count)}
+            </span>
           </span>
-        </span>
-        <span>
-          PIX{" "}
-          <span className="font-medium text-foreground">
-            {formatFinanceNumber(pix)}
-          </span>
-        </span>
+        ))}
       </div>
     </div>
   );
 }
+
+const CARD_BAR = "bg-chart-1";
+const PIX_BAR = "bg-emerald-500/80";
+const PIX_AUTOMATIC_BAR = "bg-violet-500/80";
 
 export function CustomerBaseStatusPanel({ status }: CustomerBaseStatusPanelProps) {
   return (
@@ -118,7 +120,22 @@ export function CustomerBaseStatusPanel({ status }: CustomerBaseStatusPanelProps
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
             Clientes que expiraram após pagar.
           </p>
-          <ChurnProviderBreakdown {...status.churn} />
+          <ProviderBreakdown
+            total={status.churn.total}
+            segments={[
+              { label: "Cartão", count: status.churn.card, barClass: CARD_BAR },
+              { label: "PIX", count: status.churn.pix, barClass: PIX_BAR },
+              ...(status.churn.pixAutomatic > 0
+                ? [
+                    {
+                      label: "Pix Automático",
+                      count: status.churn.pixAutomatic,
+                      barClass: PIX_AUTOMATIC_BAR,
+                    },
+                  ]
+                : []),
+            ]}
+          />
           <div className="mt-auto pt-3">
             <CustomerBaseStatusUsersDialog
               category="churn"
@@ -132,17 +149,33 @@ export function CustomerBaseStatusPanel({ status }: CustomerBaseStatusPanelProps
             Pra cancelar
           </dt>
           <dd className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
-            {formatFinanceNumber(status.scheduledCancel)}
+            {formatFinanceNumber(status.scheduledCancel.total)}
           </dd>
           <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-            Pagamento aprovado, acesso vigente e cancelamento agendado.
-            Último pagamento via Pix não entra aqui.
+            Pagamento aprovado, acesso vigente e renovação cancelada no cartão
+            ou no Pix Automático. Pix avulso não renova sozinho e não entra
+            aqui.
           </p>
+          <ProviderBreakdown
+            total={status.scheduledCancel.total}
+            segments={[
+              {
+                label: "Cartão",
+                count: status.scheduledCancel.card,
+                barClass: CARD_BAR,
+              },
+              {
+                label: "Pix Automático",
+                count: status.scheduledCancel.pixAutomatic,
+                barClass: PIX_AUTOMATIC_BAR,
+              },
+            ]}
+          />
           <div className="mt-auto pt-3">
             <CustomerBaseStatusUsersDialog
               category="scheduledCancel"
               title="Pra cancelar"
-              count={status.scheduledCancel}
+              count={status.scheduledCancel.total}
             />
           </div>
         </div>

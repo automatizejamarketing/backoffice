@@ -1,0 +1,4 @@
+email,phone
+one@example.test,+551199990001
+two@example.test,+551199990002
+invalid-email,invalid-phone

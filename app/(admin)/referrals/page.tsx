@@ -76,6 +76,10 @@ import {
   EMPTY_AGREEMENT_FORM,
   type AgreementFormState,
 } from "./agreement-fields";
+import {
+  AffiliateCustomersSheet,
+  type AffiliateCustomersTarget,
+} from "./affiliate-customers-sheet";
 
 type ReferralAffiliateRow = {
   id: string;
@@ -160,6 +164,10 @@ export default function ReferralsPage() {
   const [documentTarget, setDocumentTarget] =
     useState<ReferralAffiliateRow | null>(null);
   const [documentInput, setDocumentInput] = useState("");
+
+  const [customersTarget, setCustomersTarget] =
+    useState<AffiliateCustomersTarget | null>(null);
+  const [customersOpen, setCustomersOpen] = useState(false);
 
   const fetchAffiliates = useCallback(async () => {
     setLoading(true);
@@ -409,10 +417,30 @@ export default function ReferralsPage() {
                   return (
                     <TableRow key={row.id}>
                       <TableCell>
-                        <p className="font-medium">{row.user.name || "—"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.user.email}
-                        </p>
+                        <button
+                          type="button"
+                          className="group text-left"
+                          title="Ver indicados"
+                          onClick={() => {
+                            setCustomersTarget({
+                              id: row.id,
+                              code: row.code,
+                              showCode:
+                                row.status === "approved" ||
+                                row.status === "blocked",
+                              status: row.status,
+                              user: row.user,
+                            });
+                            setCustomersOpen(true);
+                          }}
+                        >
+                          <span className="block font-medium underline-offset-4 group-hover:underline">
+                            {row.user.name || "—"}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
+                            {row.user.email}
+                          </span>
+                        </button>
                       </TableCell>
                       <TableCell>
                         {row.status === "pending" ||
@@ -654,6 +682,13 @@ export default function ReferralsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AffiliateCustomersSheet
+        target={customersTarget}
+        open={customersOpen}
+        onOpenChange={setCustomersOpen}
+        onCustomersChanged={fetchAffiliates}
+      />
 
       {/* Aprovar um pedido da fila */}
       <Dialog

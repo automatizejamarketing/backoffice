@@ -1,0 +1,277 @@
+{
+  "source": "main/staging histories preserved during 2026-10-16 staging synchronization; no applied SQL or timestamp was rewritten",
+  "pairs": [
+    {
+      "reason": "immutable local timestamp collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0037_mat_ai_usage_logs",
+          "when": 1791500000000,
+          "hash": "17fc934faa1119199ba4b9f5a8ed5caf4f333f0695ac0a6d8653a540e3192b22"
+        },
+        {
+          "project": "automatize-frontend",
+          "tag": "0037_users_phone_e164",
+          "when": 1791500000000,
+          "hash": "f219f118a03ecfa236f7258aca416d4c2afdb0ffc13118701f289edf54bd5bbc"
+        }
+      ]
+    },
+    {
+      "reason": "immutable local timestamp collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0073_drop_vindi",
+          "when": 1795100000000,
+          "hash": "ed587f3ca1d4e7b0daf331fd8b608f80e352af9cb26680364028a9c2f312456c"
+        },
+        {
+          "project": "automatize-frontend",
+          "tag": "0113_client_reports",
+          "when": 1795100000000,
+          "hash": "57920ec241d798d063f5a8d6b56ec8754f9eb343c81393e7f402fafebcc6d1f5"
+        }
+      ]
+    },
+    {
+      "reason": "immutable local timestamp collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0128_crm_cardapio_web",
+          "when": 1801100000000,
+          "hash": "14446fa27e827da4f6ea1a0ed53d3fbc170a0abf8dfefdd598a24914b9de109f"
+        },
+        {
+          "project": "automatize-frontend",
+          "tag": "0130_whatsapp_account_choice",
+          "when": 1801100000000,
+          "hash": "8490272a01c1e9a2705fad461e86582cc8fec4a2f513d51e54aca5fa9b35a33d"
+        }
+      ]
+    },
+    {
+      "reason": "immutable local timestamp collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0129_crm_cardapio_web_sync",
+          "when": 1801200000000,
+          "hash": "0bfa4d506c175bc4eeb0fedf8c6f468cb22b3793e764c766ac1236198d085b00"
+        },
+        {
+          "project": "automatize-frontend",
+          "tag": "0131_product_tracking_pixels",
+          "when": 1801200000000,
+          "hash": "e02f75440203750769351ed611b8bed74ab8a2c8fe94ca06e6d66eba6f302951"
+        }
+      ]
+    },
+    {
+      "reason": "immutable local timestamp collision inherited from source branches",
+      "members": [
+        {
+          "project": "backoffice",
+          "tag": "0066_drop_vindi",
+          "when": 1795100000000,
+          "hash": "ed587f3ca1d4e7b0daf331fd8b608f80e352af9cb26680364028a9c2f312456c"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0108_client_reports",
+          "when": 1795100000000,
+          "hash": "57920ec241d798d063f5a8d6b56ec8754f9eb343c81393e7f402fafebcc6d1f5"
+        }
+      ]
+    },
+    {
+      "reason": "immutable local timestamp collision inherited from source branches",
+      "members": [
+        {
+          "project": "backoffice",
+          "tag": "0111_whatsapp_support_sessions",
+          "when": 1800000000000,
+          "hash": "fe61a9f8bffbadc25c988bc6be83e754e27d454091ad172f74e3ca8b04157452"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0112_campaign_destination_url",
+          "when": 1800000000000,
+          "hash": "4d047b4077e10fda7e77e0a751d35e5d9cbad91ee040319c4589147c0b6c9126"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0073_drop_vindi",
+          "when": 1795100000000,
+          "hash": "ed587f3ca1d4e7b0daf331fd8b608f80e352af9cb26680364028a9c2f312456c"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0108_client_reports",
+          "when": 1795100000000,
+          "hash": "57920ec241d798d063f5a8d6b56ec8754f9eb343c81393e7f402fafebcc6d1f5"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0113_client_reports",
+          "when": 1795100000000,
+          "hash": "57920ec241d798d063f5a8d6b56ec8754f9eb343c81393e7f402fafebcc6d1f5"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0066_drop_vindi",
+          "when": 1795100000000,
+          "hash": "ed587f3ca1d4e7b0daf331fd8b608f80e352af9cb26680364028a9c2f312456c"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0112_meta_partner_access",
+          "when": 1799400000000,
+          "hash": "f5469a2f1256557089b13098c5f03a8869b12ec3ed9fb951c88ea2175d7ea88d"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0107_meta_partner_access",
+          "when": 1799400000000,
+          "hash": "e01a783957e4362c1f8158497cea0850045045db7ef6053b9d11cf12ebab6d18"
+        }
+      ]
+    },
+    {
+      "reason": "identical SQL already registered under different historical timestamps",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0115_entitlement_legacy_column_parity",
+          "when": 1799600000000,
+          "hash": "a6d265fb2f88acda9a1c1a17af8241049974e396832772181460af2374fba573"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0106_entitlement_legacy_column_parity",
+          "when": 1799300000000,
+          "hash": "a6d265fb2f88acda9a1c1a17af8241049974e396832772181460af2374fba573"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0115_entitlement_legacy_column_parity",
+          "when": 1799600000000,
+          "hash": "a6d265fb2f88acda9a1c1a17af8241049974e396832772181460af2374fba573"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0109_crm_goals_sales_roles",
+          "when": 1799600000000,
+          "hash": "8d6ea5e67731cfb5c7ff7af1acbc30a33d9fad924c31ff7e3251b5f41dc6bd97"
+        }
+      ]
+    },
+    {
+      "reason": "identical SQL already registered under different historical timestamps",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0117_crm_goals_sales_roles",
+          "when": 1799800000000,
+          "hash": "8d6ea5e67731cfb5c7ff7af1acbc30a33d9fad924c31ff7e3251b5f41dc6bd97"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0109_crm_goals_sales_roles",
+          "when": 1799600000000,
+          "hash": "8d6ea5e67731cfb5c7ff7af1acbc30a33d9fad924c31ff7e3251b5f41dc6bd97"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0119_whatsapp_support_sessions",
+          "when": 1800000000000,
+          "hash": "fe61a9f8bffbadc25c988bc6be83e754e27d454091ad172f74e3ca8b04157452"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0112_campaign_destination_url",
+          "when": 1800000000000,
+          "hash": "4d047b4077e10fda7e77e0a751d35e5d9cbad91ee040319c4589147c0b6c9126"
+        }
+      ]
+    },
+    {
+      "reason": "identical SQL already registered under different historical timestamps",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0121_client_report_scopes",
+          "when": 1800300000000,
+          "hash": "c7d1cdc05709ab6200dbed45a8e43e569207145542a6fb27b59669a908a758ee"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0116_client_report_scopes",
+          "when": 1800400000000,
+          "hash": "c7d1cdc05709ab6200dbed45a8e43e569207145542a6fb27b59669a908a758ee"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0128_crm_cardapio_web",
+          "when": 1801100000000,
+          "hash": "14446fa27e827da4f6ea1a0ed53d3fbc170a0abf8dfefdd598a24914b9de109f"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0123_whatsapp_account_choice",
+          "when": 1801100000000,
+          "hash": "8490272a01c1e9a2705fad461e86582cc8fec4a2f513d51e54aca5fa9b35a33d"
+        }
+      ]
+    },
+    {
+      "reason": "immutable cross-repository collision inherited from source branches",
+      "members": [
+        {
+          "project": "automatize-frontend",
+          "tag": "0129_crm_cardapio_web_sync",
+          "when": 1801200000000,
+          "hash": "0bfa4d506c175bc4eeb0fedf8c6f468cb22b3793e764c766ac1236198d085b00"
+        },
+        {
+          "project": "backoffice",
+          "tag": "0124_product_tracking_pixels",
+          "when": 1801200000000,
+          "hash": "e02f75440203750769351ed611b8bed74ab8a2c8fe94ca06e6d66eba6f302951"
+        }
+      ]
+    }
+  ]
+}

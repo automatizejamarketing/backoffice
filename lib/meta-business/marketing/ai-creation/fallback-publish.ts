@@ -13,8 +13,16 @@
  * igual".
  */
 import { metaApiCall } from "@/lib/meta-business/api";
+import {
+  derivedLifetimeBudgetCents,
+  resolveAiCampaignPeriod,
+  type AiCampaignDurationDays,
+  type AiCampaignPeriodInput,
+} from "../../ai-campaign-duration";
+import { isCboDaypartingReleased } from "@/lib/meta-business/cbo-dayparting-release";
 import { AI_PLACEMENT_ADAPTATION } from "@/lib/meta-business/creative-features";
-import { getConnectedPageById } from "@/lib/meta-business/get-instagram-connected-page";
+import { getConnectedPageById, resolveAdvertisingIdentity } from "@/lib/meta-business/get-instagram-connected-page";
+import { campaignPacingForNewCampaign } from "@/lib/meta-business/schedule-shape";
 import {
   buildGeoLocationsPayload,
   type SelectedGeoLocation,
@@ -94,10 +102,7 @@ export type FallbackNiche =
  */
 export type FallbackObjective = "sales" | "followers" | "leads" | "whatsapp";
 
-export type FallbackPeriod = {
-  startTime: string;
-  endTime: string;
-};
+export type FallbackPeriod = AiCampaignPeriodInput;
 
 export type FallbackPublishInput = {
   customerId?: string;
@@ -114,6 +119,7 @@ export type FallbackPublishInput = {
   deliveryMode?: CampaignDeliveryMode;
   scheduleBlocks?: CampaignScheduleBlock[];
   period?: FallbackPeriod;
+  defaultDurationDays?: AiCampaignDurationDays;
   /**
    * Advantage+ = omit placement fields. Manual = send publisher_platforms /
    * *_positions. Followers (traffic) stays Instagram-only either way.
@@ -151,11 +157,10 @@ export type FallbackConfig = {
   isWhatsapp?: boolean;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 export function resolveFallbackConfig(
   niche: FallbackNiche,
   objective: FallbackObjective,
+  options: { whatsappNiches?: "all" | "food_service" } = {},
 ): FallbackConfig | { error: string } {
   const normalizedNiche = niche === "service" ? "insurance_broker" : niche;
 
@@ -183,7 +188,7 @@ export function resolveFallbackConfig(
   }
 
   if (objective === "whatsapp") {
-    if (normalizedNiche !== "food_service") {
+    if (normalizedNiche !== "food_service" && options.whatsappNiches !== "all") {
       return {
         error: `Campanhas de WhatsApp não estão disponíveis para o nicho ${niche}.`,
       };
@@ -399,37 +404,16 @@ export function fallbackIssues(
   return issues;
 }
 
-function inclusiveCampaignDays(start: Date, end: Date): number {
-  const diffMs = end.getTime() - start.getTime();
-  return Math.max(1, Math.ceil(diffMs / DAY_MS) + 1);
-}
-
 function resolveFlight(
   input: FallbackPublishInput,
-  config: FallbackConfig,
   now: Date,
 ): { startTime: string; endTime: string; lifetimeCents: number } {
-  if (input.period?.startTime && input.period?.endTime) {
-    const start = new Date(input.period.startTime);
-    const end = new Date(input.period.endTime);
-    const days = inclusiveCampaignDays(start, end);
-    return {
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      lifetimeCents: Math.round(input.dailyBudget * days * 100),
-    };
-  }
-
-  const defaultDays = config.usesInclusiveMinusOneDefault
-    ? DEFAULT_FLIGHT_DAYS - 1
-    : DEFAULT_FLIGHT_DAYS;
-  const start = now;
-  const end = new Date(now.getTime() + defaultDays * DAY_MS);
-  return {
-    startTime: start.toISOString(),
-    endTime: end.toISOString(),
-    lifetimeCents: Math.round(input.dailyBudget * DEFAULT_FLIGHT_DAYS * 100),
-  };
+  const period = resolveAiCampaignPeriod({
+    period: input.period,
+    defaultDurationDays: input.defaultDurationDays ?? DEFAULT_FLIGHT_DAYS,
+    defaultStartTime: now.toISOString(),
+  });
+  return { ...period, lifetimeCents: derivedLifetimeBudgetCents(input.dailyBudget, period) };
 }
 
 function resolvePlacementFields(
@@ -630,10 +614,13 @@ function treeToPublish(result: CampaignTreeResult): PublishResult {
 export async function publishFallbackCampaign(args: {
   adAccountId: string;
   accessToken: string;
+  tokenKind?: "user" | "bisu";
+  bisuAppScopedId?: string | null;
   input: FallbackPublishInput;
+  whatsappNiches?: "all" | "food_service";
 }): Promise<PublishResult> {
   const { adAccountId, accessToken, input } = args;
-  const resolved = resolveFallbackConfig(input.niche, input.objective);
+  const resolved = resolveFallbackConfig(input.niche, input.objective, { whatsappNiches: args.whatsappNiches });
   if ("error" in resolved) {
     return {
       ok: false,
@@ -653,7 +640,21 @@ export async function publishFallbackCampaign(args: {
   let instagramProfileUrl: string | undefined;
   let instagramUserId = input.instagramUserId ?? undefined;
   if (input.pageId) {
-    const connected = await getConnectedPageById(accessToken, input.pageId);
+    const needsAdvertisingIdentity = resolved.requiresInstagram || !!input.instagramUserId;
+    const connected = needsAdvertisingIdentity
+      ? await resolveAdvertisingIdentity(accessToken, {
+          adAccountId, pageId: input.pageId,
+          instagramBusinessAccountId: input.instagramUserId ?? undefined,
+          tokenKind: args.tokenKind, bisuAppScopedId: args.bisuAppScopedId,
+        })
+      : await getConnectedPageById(accessToken, input.pageId);
+    if (needsAdvertisingIdentity && !connected) {
+      return {
+        ok: false,
+        issues: [localIssue("ad", "ADVERTISING_IDENTITY_UNAVAILABLE", "A Página e o Instagram selecionados não estão disponíveis para esta conta de anúncios.", "Selecione uma combinação autorizada de Página e Instagram.", ["pageId", "instagramUserId"])],
+        rolledBack: false,
+      };
+    }
     if (connected) {
       instagramUserId = instagramUserId ?? connected.instagramBusinessAccountId;
       instagramProfileUrl = connected.instagramUsername
@@ -715,7 +716,7 @@ export async function publishFallbackCampaign(args: {
     input.niche,
     resolved.isWhatsapp ? "whatsapp" : null,
   );
-  const flight = resolveFlight(input, resolved, new Date());
+  const flight = resolveFlight(input, new Date());
   const geoLocations =
     buildGeoLocationsPayload(input.locations) ?? { countries: ["BR"] };
 
@@ -783,9 +784,19 @@ export async function publishFallbackCampaign(args: {
       ? registrableDomain(promotionUrl)
       : undefined;
 
+  // Etapa 2: com a conta liberada, a CBO vitalícia nasce programada na campanha; o conjunto
+  // (com ou sem grade) herda isso pela árvore e leva só a grade — 24h x 7 no "o dia todo".
+  const cboDaypartingReleased = isCboDaypartingReleased(adAccountId);
+  const campaignPacing = campaignPacingForNewCampaign({
+    budgetLevel: "campaign",
+    budgetKind: "lifetime",
+    bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+    released: cboDaypartingReleased,
+  });
   const tree = await createCampaignTree({
     adAccountId,
     accessToken,
+    cboDaypartingReleased,
     campaign: {
       name: campaignName,
       objective: resolved.metaObjective,
@@ -800,6 +811,7 @@ export async function publishFallbackCampaign(args: {
       // Advantage campaign budget with LOWEST_COST_WITHOUT_CAP; the ad set
       // then carries no bid (parentUsesCampaignBudget).
       bidStrategy: "LOWEST_COST_WITHOUT_CAP",
+      ...(campaignPacing ? { pacingType: campaignPacing } : {}),
     },
     adSets: [
       {

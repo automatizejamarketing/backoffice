@@ -3297,6 +3297,26 @@
           "primaryKey": false,
           "notNull": true
         },
+        "scope_type": {
+          "name": "scope_type",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'account'"
+        },
+        "campaign_id": {
+          "name": "campaign_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "generated_by": {
+          "name": "generated_by",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'automatic'"
+        },
         "status": {
           "name": "status",
           "type": "varchar(16)",
@@ -3359,8 +3379,8 @@
         }
       },
       "indexes": {
-        "client_report_snapshots_user_period_unique": {
-          "name": "client_report_snapshots_user_period_unique",
+        "client_report_snapshots_account_period_unique": {
+          "name": "client_report_snapshots_account_period_unique",
           "columns": [
             {
               "expression": "user_id",
@@ -3382,6 +3402,68 @@
             }
           ],
           "isUnique": true,
+          "where": "\"client_report_snapshots\".\"campaign_id\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "client_report_snapshots_campaign_period_unique": {
+          "name": "client_report_snapshots_campaign_period_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"client_report_snapshots\".\"campaign_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "client_report_snapshots_campaign_idx": {
+          "name": "client_report_snapshots_campaign_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "campaign_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_start",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3476,6 +3558,12 @@
         "website_url": {
           "name": "website_url",
           "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "campaign_destination_url": {
+          "name": "campaign_destination_url",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -18271,7 +18359,7 @@
           "type": "varchar(16)",
           "primaryKey": false,
           "notNull": true,
-          "default": "'user'"
+          "default": "'bisu'"
         },
         "expires_at": {
           "name": "expires_at",

@@ -1,0 +1,19 @@
+{
+  "containerWidth": 440,
+  "grid": "387px",
+  "overflow": [
+    {
+      "client": 439,
+      "scroll": 439
+    },
+    {
+      "client": 387,
+      "scroll": 387
+    },
+    {
+      "client": 387,
+      "scroll": 387
+    }
+  ],
+  "workspace": 387
+}

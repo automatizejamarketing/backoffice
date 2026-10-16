@@ -1,0 +1,49 @@
+{
+  "loading": {
+    "body": "Públicos\n\nCarregando contas de anúncios…\n\nv3.0.2\n\nOutput Detail\nStandard\nReact Components\nHide Until Restart\nMarker Color\nClear on copy/send\nBlock page interactions\nManage MCP & Webhooks\nManage MCP & Webhooks\nMCP Connection\n\nMCP connection allows agents to receive and act on annotations. Learn more\n\nWebhooks\nAuto-Send\n\nThe webhook URL will receive live annotation changes and annotation data.",
+    "manager": false,
+    "url": "http://127.0.0.1:3016/embed/marketing/audiences?userId=fixture-user&accountId=111"
+  },
+  "ready": {
+    "managerText": "6 públicos nesta página\n\nCriar público\nNome\nTipo\nTamanho\nStatus\nAções\n\nClientes com capacidade comprovada 111\n\nLista de clientes\n\n1.000–1.500\n\nPronto\n\nEditar\nExcluir na Meta\n\nInstagram engajamento 111\n\nInstagram\n\n2.500–3.500\n\nPronto\n\nEditar\nExcluir na Meta\n\nVisitantes do site 111\n\nSite\n\n0–0\n\nPronto\n\nEditar\nExcluir na Meta\n\nSemelhante Brasil 1% 111\n\nSemelhante\n\n—\n\nPronto\n\nEditar\nExcluir na Meta\n\nRegra externa composta 111\n\nWEBSITE\n\n—\n\nPronto\n\nEditar\nExcluir na Meta\n\nLista com importação pendente 111\n\nImportação com pendência\n\nLista de clientes\n\n—\n\nPronto\n\nEditar\nExcluir na Meta\nAnterior\nPágina 1 · consulta em 05/10/2026, 12:00:00 · 2 limitação(ões) da consulta\nPróxima\n\nFixture do navegador: consulta não comprova autorização Meta.\n\nNenhuma operação real foi executada.",
+    "selection": "Conta sintética 111habilitadaprincipal",
+    "url": "http://127.0.0.1:3016/embed/marketing/audiences?userId=fixture-user&accountId=111"
+  },
+  "requests": [
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/users/fixture-user/ad-accounts",
+      "query": "",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences",
+      "query": "?detailed=1&userId=fixture-user",
+      "status": 200
+    },
+    {
+      "fixture": true,
+      "method": "GET",
+      "path": "/api/meta-marketing/111/audiences/customer-file",
+      "query": "?userId=fixture-user",
+      "status": 200
+    }
+  ]
+}

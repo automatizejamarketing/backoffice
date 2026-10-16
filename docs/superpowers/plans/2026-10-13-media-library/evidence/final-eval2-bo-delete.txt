@@ -1,0 +1,10 @@
+# (d) Exclusão do item de teste ea8177bd-f7e3-4a3d-94b2-f11ee4b92aaf pela rota normal do BO (botão Excluir do card -> DELETE /api/users/384f3178-3946-4fe5-b686-7f30adf16999/media-library/ea8177bd-f7e3-4a3d-94b2-f11ee4b92aaf) — 2026-10-14T05:27:27Z
+## card depois: total 62 -> 61 (final-eval2-bo-card-after-delete.png); auditoria: 'fotognp.exe.png -> excluída' (final-eval2-bo-audit-tab.png)
+## GET download do item excluído (sessão admin) -> 404
+## GET lista do BO -> total=61 item presente=false
+## HEAD do objeto no S3 local (media/library/384f3178-3946-4fe5-b686-7f30adf16999/foto-gnp-wNjXTPwJvv.png) -> 404
+## Linha no banco de STAGING (SELECT somente leitura, TZ=UTC):
+{"id":"ea8177bd-f7e3-4a3d-94b2-f11ee4b92aaf","user_id":"384f3178-3946-4fe5-b686-7f30adf16999","source":"campaign_media","filename":"fotognp.exe.png","content_type":"image/png","pathname":"library/384f3178-3946-4fe5-b686-7f30adf16999/foto-gnp-wNjXTPwJvv.png","deleted_at":"2026-10-14T05:25:28.161Z","deleted_reason":"backoffice","uploaded_by_backoffice_email":null}
+linhas vivas da biblioteca da conta de teste: 61
+linhas vivas com controle bidi no nome: 0
+## ListObjectsV2 prefix=media/library/384f3178-3946-4fe5-b686-7f30adf16999/ (S3 local, path-style) -> 0 chave(s) (o objeto do teste não está mais lá; as demais linhas antigas da conta já não tinham objeto no LocalStack, que perde dados ao reiniciar)

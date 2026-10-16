@@ -1,5 +1,7 @@
 "use client";
 
+import { identityKey } from "@/lib/meta-business/advertising-identity-key";
+
 import type { ReactNode } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +49,7 @@ export function MetaAssetsLists({ granted, enabled }: MetaAssetsListsProps) {
           ) : (
             granted.identities.map((identity) => (
               <li
-                key={identity.pageId}
+                key={identityKey(identity)}
                 className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2"
               >
                 <div className="flex min-w-0 items-center gap-2">
@@ -65,7 +67,7 @@ export function MetaAssetsLists({ granted, enabled }: MetaAssetsListsProps) {
                     <p className="truncate text-xs text-muted-foreground">
                       {identity.instagramUsername
                         ? `@${identity.instagramUsername}`
-                        : identity.pageId}
+                        : identityKey(identity)}
                     </p>
                   </div>
                 </div>
